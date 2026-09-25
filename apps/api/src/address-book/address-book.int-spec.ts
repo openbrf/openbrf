@@ -170,7 +170,7 @@ function inject(options: {
     .inject({
       ...options,
       headers: {
-        "x-forwarded-for": `10.4.0.${String(ipCounter % 250)}`,
+        "x-forwarded-for": `10.54.0.${String(ipCounter % 250)}`,
         ...options.headers,
       },
     });

@@ -67,6 +67,19 @@ updates:
       actions:
         patterns: ["*"]
 
+  # The dev container's features, which .devcontainer/devcontainer.json names
+  # by major version and .devcontainer/devcontainer-lock.json pins by digest.
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      devcontainers:
+        patterns: ["*"]
+
   # The workspace. Minor and patch updates arrive as one pull request per week;
   # a major arrives on its own, because a major is a change to read rather than
   # a number to bump.

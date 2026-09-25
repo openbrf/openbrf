@@ -106,8 +106,8 @@ function inject(options: {
     .inject({
       ...options,
       headers: {
-        // 10.9.0.0/16 is this suite's; the others each hold their own.
-        "x-forwarded-for": `10.9.${String(subnet)}.${String(host + 1)}`,
+        // 10.57.0.0/16 is this suite's; the others each hold their own.
+        "x-forwarded-for": `10.57.${String(subnet)}.${String(host + 1)}`,
         ...options.headers,
       },
     });
