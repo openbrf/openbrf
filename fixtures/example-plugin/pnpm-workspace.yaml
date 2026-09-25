@@ -7,6 +7,7 @@
 # naming an exact version.
 minimumReleaseAgeExclude:
   - adm-zip@0.6.1
+  - vite@8.3.1
 
 # Transitive dependency advisories resolved ahead of the upstream package.
 overrides:

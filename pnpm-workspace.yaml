@@ -50,6 +50,33 @@ minimumReleaseAgeExclude:
   - playwright-core@1.63.0
   - playwright@1.63.0
   - adm-zip@0.6.1
+  - "@better-auth/cimd@1.7.6"
+  - "@better-auth/core@1.7.6"
+  - "@better-auth/drizzle-adapter@1.7.6"
+  - "@better-auth/kysely-adapter@1.7.6"
+  - "@better-auth/mcp@1.7.6"
+  - "@better-auth/memory-adapter@1.7.6"
+  - "@better-auth/mongo-adapter@1.7.6"
+  - "@better-auth/oauth-provider@1.7.6"
+  - "@better-auth/passkey@1.7.6"
+  - "@better-auth/prisma-adapter@1.7.6"
+  - "@better-auth/telemetry@1.7.6"
+  - "@oxlint-tsgolint/darwin-arm64@7.0.2003"
+  - "@oxlint-tsgolint/darwin-x64@7.0.2003"
+  - "@oxlint-tsgolint/linux-arm64@7.0.2003"
+  - "@oxlint-tsgolint/linux-x64@7.0.2003"
+  - "@oxlint-tsgolint/win32-arm64@7.0.2003"
+  - "@oxlint-tsgolint/win32-x64@7.0.2003"
+  - "@turbo/darwin-64@2.11.4"
+  - "@turbo/darwin-arm64@2.11.4"
+  - "@turbo/linux-64@2.11.4"
+  - "@turbo/linux-arm64@2.11.4"
+  - "@turbo/windows-64@2.11.4"
+  - "@turbo/windows-arm64@2.11.4"
+  - better-auth@1.7.6
+  - oxlint-tsgolint@7.0.2003
+  - turbo@2.11.4
+  - vite@8.3.1
 
 # Optional peers whose declared range trails the version this repository runs.
 # Both are optional and neither is loaded here, so the range is a statement
@@ -85,12 +112,12 @@ overrides:
   # practical exposure here is nil, but the fix is free if Prisma's config
   # loader works with v8.
   deepmerge-ts: ">=8.0.0"
-  # @nestjs/platform-fastify pins fastify to an exact patch, which is one
-  # behind the version apps/api declares. Two copies then land in the tree, and
-  # a plugin registered against one of them does not type-check against the
+  # @nestjs/platform-fastify pins fastify to an exact patch, which can trail
+  # the version apps/api declares. Two copies then land in the tree, and a
+  # plugin registered against one of them does not type-check against the
   # server built from the other: @fastify/static's `reply.sendFile` augments a
   # FastifyReply the application never sees. One copy, the declared one.
-  fastify: "5.12.3"
+  fastify: "5.12.5"
   # GHSA-rgwj-5xj2-c3m3: the compressed MySQL protocol handler inflates a
   # packet with no output cap, so a hostile server can expand a small packet
   # into gigabytes of client memory. Fixed in 3.23.1. The Prisma CLI depends on

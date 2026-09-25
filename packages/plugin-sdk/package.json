@@ -17,9 +17,9 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@nestjs/common": "^12.0.4",
+    "@nestjs/common": "^12.1.0",
     "oxlint": "^1.85.0",
-    "oxlint-tsgolint": "^7.0.2002",
+    "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1",
     "zod": "^4.6.5"

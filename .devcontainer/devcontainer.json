@@ -1,8 +1,13 @@
 {
   "name": "Open BRF",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-bookworm@sha256:4187a9d50e7a208659e9b56677ae764edb98cb6dc243f21e851aab2ca4d103ba",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:5-26-trixie@sha256:a10d33dab2cceee38cae5c732dfd155a76d5cf915a3b22a269826697d52d0a44",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:4": {}
+    // Docker CE from Docker's own apt repository. The feature's default is the
+    // Moby packages, which are not published for Debian 13 (trixie), and it
+    // refuses to install on this image with them.
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+      "moby": false
+    }
   },
   "postCreateCommand": "bash -lc 'bash .devcontainer/post-create.sh'",
   "postStartCommand": "bash -lc 'docker compose up -d db'",

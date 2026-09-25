@@ -14,14 +14,14 @@
     "theme:check": "node scripts/generate-theme-css.mjs --check"
   },
   "dependencies": {
-    "@better-auth/passkey": "^1.7.5",
+    "@better-auth/passkey": "^1.7.6",
     "@module-federation/runtime": "^2.9.1",
     "@openbrf/i18n": "workspace:*",
     "@openbrf/plugin-sdk": "workspace:*",
     "@openbrf/shared": "workspace:*",
     "@openbrf/theme-tools": "workspace:*",
     "@openbrf/tokens": "workspace:*",
-    "@tanstack/react-router": "^1.170.38",
+    "@tanstack/react-router": "^1.170.39",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-bold": "^3.31.3",
     "@tiptap/extension-document": "^3.31.3",
@@ -31,7 +31,7 @@
     "@tiptap/extension-text": "^3.31.3",
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
-    "better-auth": "^1.7.5",
+    "better-auth": "^1.7.6",
     "i18next": "^26.4.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -46,12 +46,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "jsdom": "^30.1.0",
+    "jsdom": "^30.1.1",
     "oxlint": "^1.85.0",
-    "oxlint-tsgolint": "^7.0.2002",
+    "oxlint-tsgolint": "^7.0.2003",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0",
+    "vite": "^8.3.1",
     "vitest": "^5.0.1"
   }
 }

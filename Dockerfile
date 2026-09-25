@@ -22,7 +22,7 @@
 # reads image references off FROM and does not resolve a variable: an ARG here
 # would be a pin with nothing updating it, which is the failure the updater was
 # added to prevent.
-ARG PNPM_VERSION=12.4.1
+ARG PNPM_VERSION=12.6.0
 
 # --- base -------------------------------------------------------------------
 # pnpm is installed with npm, never corepack: Node 26 no longer bundles corepack
@@ -33,7 +33,7 @@ ARG PNPM_VERSION=12.4.1
 # warning is harmless here - Prisma 7 reaches PostgreSQL through a driver
 # adapter - but neither a build log nor a start-up log should open with a
 # warning that means nothing.
-FROM node:26.9.0-bookworm-slim@sha256:582460f614631b59b824ac6020533b9bf339c7fdf3a6d7db31abb6b4065f0212 AS base
+FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
