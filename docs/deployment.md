@@ -16,13 +16,28 @@ PostgreSQL container, and nothing else to install.
 
 ## Starting an instance
 
+An instance needs two files: `docker-compose.prod.yml` and
+`.env.production.example`. Every release carries both as assets, the second
+under the name `env.production.example`, so either download them from the
+release to run
+
+```sh
+mkdir openbrf && cd openbrf
+curl -fLO https://github.com/openbrf/openbrf/releases/download/v0.1.0/docker-compose.prod.yml
+curl -fL -o .env.production https://github.com/openbrf/openbrf/releases/download/v0.1.0/env.production.example
+```
+
+or take them from a clone of the repository:
+
 ```sh
 git clone https://github.com/openbrf/openbrf.git
 cd openbrf
 cp .env.production.example .env.production
 ```
 
-Fill in the four values `.env.production` asks for, generating each with
+Set `OPENBRF_VERSION` in `.env.production` to the release line to run, such as
+`0.1` (see [Versions and upgrades](#versions-and-upgrades)), and fill in the
+four secrets it asks for, generating each with
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -98,36 +113,127 @@ The entrypoint runs, in this order, before the application listens:
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
 5. The job queue schema is installed or migrated, as the owner.
-6. The application's own database role, `openbrf_app`, is created and
-   constrained.
+6. The application's own database role is created and constrained: `openbrf_app`,
+   or the name `RUNTIME_DB_ROLE` gives it.
 7. The owner's credentials are dropped from the environment, and the
-   application starts, connecting as `openbrf_app`.
+   application starts, connecting as that role. Its first line after listening
+   names the release and the commit it was built from, as
+   `Open BRF 0.1.0 (1a2b3c4d5e6f)`.
+
+The start is refused before anything connects when `RUNTIME_DB_ROLE` cannot be
+a runtime role's name: see
+[Several instances on one database server](#several-instances-on-one-database-server).
 
 Steps 4 to 6 are idempotent, so upgrading is a newer image and the same `up -d`
-that started the instance.
-
-There is no published image yet, so the image is built from the checkout. A
-`pull` has no registry to fetch it from and fails; an `up -d` on its own does
-not rebuild an image that already exists. The build is therefore its own step:
-
-```sh
-git pull
-docker compose -f docker-compose.prod.yml --env-file .env.production build
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-```
-
-Once an image is published, the `git pull` and the `build` become one `pull`:
+that started the instance:
 
 ```sh
 docker compose -f docker-compose.prod.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
+`pull` fetches the image `OPENBRF_VERSION` names as it stands at that moment:
+the newest patch release of a line such as `0.1`, or the one exact version.
+Stop the application and take a backup before it; see
+[the upgrade, step by step](#the-upgrade-step-by-step).
+
 Both selectors belong on every one of those commands. Without
 `-f docker-compose.prod.yml`, Compose picks up the `docker-compose.yml` in this
 repository instead, which defines the development database and no application
 at all: the upgrade would touch the wrong volumes and leave the running
 instance on its old image.
+
+A build from a checkout, rather than a release, is an image under a tag of
+its own that `OPENBRF_VERSION` then names. It is never pulled, so `pull` is
+not part of running it:
+
+```sh
+docker build -t ghcr.io/openbrf/openbrf:checkout .
+# OPENBRF_VERSION=checkout in .env.production
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+**What a failed migration leaves.** The entrypoint stops at the first error and
+the container exits with a non-zero status. With `restart: unless-stopped` it
+is started again and fails the same way. The failing migration is rolled back
+whole, because each migration runs in one transaction, but the migrations
+applied before it in the same start stay applied, and the failure is recorded
+in the database's `_prisma_migrations` table, which makes every later start
+refuse to migrate until it is resolved. The database is then between two
+releases, and the previous image is not guaranteed to run against it.
+
+**Rolling back** is restoring the backup taken before the upgrade - the
+database and the data volume together, as
+[backup-and-restore.md](backup-and-restore.md) takes them - and starting the
+previous image, named by its exact version. Never the database alone: a start
+can rewrite the stored files on the volume before the application listens
+([ADR 0015](adr/0015-stored-files-encrypted-at-rest.md)). Never the previous image
+against the newer database. And never `prisma migrate resolve` to push past a
+failed migration: it records the migration as dealt with without doing what it
+does.
+
+**One container per database.** An upgrade that starts the new container before
+stopping the old one runs the migrations under a live older release. Stop, back
+up, start.
+
+## Versions and upgrades
+
+Every release is published as `ghcr.io/openbrf/openbrf`, one image for
+`linux/amd64` and `linux/arm64`, under up to three tags:
+
+- `X.Y.Z`, the release itself, which never moves;
+- `X.Y`, the release line, which moves to each patch release of that line;
+- `X`, from 1.0.0 on, which moves to each release of that major version.
+
+There is no `latest` tag. A tag that moved across release lines would install
+the one upgrade an operator is meant to choose. A patch to an older line moves
+that line's tag and nothing else.
+
+`OPENBRF_VERSION` is one of those tags. A line follows its patch releases on
+every `pull`; an exact version stays where it is; and a version with its
+digest, `0.1.0@sha256:<digest>`, is that image and no other, whatever happens to
+any tag. The digest is the one the release's attestation names and
+`docker buildx imagetools inspect ghcr.io/openbrf/openbrf:0.1.0` prints.
+
+What a release may change follows from its version:
+
+- **A patch release** (0.1.0 to 0.1.1) fixes without changing anything an
+  operator does, and can be installed without anybody choosing it.
+- **Before 1.0, a minor release** (0.1 to 0.2) may carry something an operator
+  has to act on - a new required variable, a variable removed or renamed, a
+  PostgreSQL major version no longer supported, a plugin API version no longer
+  accepted, a data change that needs a manual step - and waits for the
+  operator's choice. Its release notes say what.
+- **From 1.0 on**, minor releases join patch releases, and anything on that
+  list is a major release instead. [CONTRIBUTING.md](../CONTRIBUTING.md),
+  "Releasing the platform", is the rule a release is versioned by.
+
+Every image carries a build provenance attestation that names the commit and
+the workflow that built it. The release carries the same attestation as its
+asset `openbrf-X.Y.Z.intoto.jsonl`, and this checks the image against it:
+
+```sh
+gh attestation verify oci://ghcr.io/openbrf/openbrf:0.1.0 \
+  --repo openbrf/openbrf \
+  --signer-workflow openbrf/openbrf/.github/workflows/image.yml
+```
+
+The image's labels say the same: `org.opencontainers.image.version` and
+`org.opencontainers.image.revision`.
+
+### The upgrade, step by step
+
+The order an operator follows by hand, and the one an automated upgrade has to
+follow as well:
+
+1. Stop the application, then back up the database and the data volume
+   ([backup-and-restore.md](backup-and-restore.md), "Before an upgrade").
+2. Start the target image by digest - the digest its attestation names, not a
+   tag that could move.
+3. The upgrade has succeeded when the container's health is `healthy` within
+   its start period.
+4. Otherwise, stop it, restore both halves of the backup, and start the
+   previous image by its digest.
 
 ## Two database roles, and why
 
@@ -136,11 +242,11 @@ the database rather than by application code alone. A table's owner can run
 `ALTER TABLE ... DISABLE TRIGGER` and walk straight past them, so the
 application must not be the owner.
 
-`openbrf` owns the schema and runs migrations. `openbrf_app` owns nothing, holds
-no `CREATE` privilege, and has `UPDATE` and `DELETE` revoked on the statutory
-tables. The entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on
-every start, so the privileges are reapplied after any migration that added a
-table.
+`openbrf` owns the schema and runs migrations. The runtime role - `openbrf_app`,
+unless `RUNTIME_DB_ROLE` names another - owns nothing, holds no `CREATE`
+privilege, and has `UPDATE` and `DELETE` revoked on the statutory tables. The
+entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on every start,
+so the privileges are reapplied after any migration that added a table.
 
 The owner's credentials never reach the server. Neither password is passed as a
 process argument - `/proc/<pid>/cmdline` is readable by every process in the
@@ -164,6 +270,50 @@ would make the other impossible to use. The entrypoint is what refuses a
 production start that has neither, because the alternative is an application
 connecting as the owner - so that refusal, rather than a missing value in the
 env file, is the error an operator who has set up neither will read.
+
+## Several instances on one database server
+
+One PostgreSQL server can hold the databases of several instances. Each is
+still a container of its own, with its own data volume and its own key, and
+reaches the server through `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB` and
+`POSTGRES_USER` beside its two passwords - the variables
+`docker-compose.prod.yml` sets for its own database - or through a
+`DATABASE_URL`. Three things are then required:
+
+- **PostgreSQL 16 or later.** Each instance's owner creates that instance's
+  runtime role, so it holds `CREATEROLE`, and on a shared server it is not a
+  superuser. From 16 on, a role with `CREATEROLE` manages only the roles it
+  created, so one instance's owner cannot alter another's runtime role. Before
+  16 it could.
+- **A database owned by that instance's owner**, one owner per instance. The
+  owner runs the migrations and constrains the runtime role in its own
+  database.
+- **A runtime role name of its own**, in `RUNTIME_DB_ROLE`. A role belongs to
+  the whole server rather than to one database, so two instances naming the
+  same role would each set its password on every start and grant it both
+  databases. The entrypoint refuses, before anything connects, a name that is
+  not a lower-case identifier of at most 63 characters, one that begins with
+  `pg_`, and the owner's own.
+
+A new database grants `CONNECT` to every role on the server, and each start
+revokes that grant on the instance's own database, so no instance's runtime
+role can open a session on another's. The instance's own roles lose nothing:
+the runtime role holds a grant of its own, and the owner owns the database.
+Any other role that connects - a monitoring or a backup user - needs
+`GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner. The names
+of every role and every database on the server remain visible to all of them
+whatever the grants, so neither should carry anything an association would not
+want its neighbours to read.
+
+**Connections.** The application's pool holds up to
+`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
+more, so an instance can take twelve at the defaults. PostgreSQL allows 100
+connections unless `max_connections` says otherwise, three of them reserved for
+superusers, which leaves room for eight instances at their defaults and one
+connection over - too few for the migrations each start runs and for anybody
+else who connects. The pool sizes plus two for each instance, and room for
+those, have to fit within `max_connections` less the reserved connections; a
+smaller pool, or a larger `max_connections`, makes room for more instances.
 
 ## Backups
 

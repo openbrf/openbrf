@@ -214,6 +214,12 @@ locally the application runs from source beside the PostgreSQL that
       and the data volume, with the encryption key backed up once and kept
       apart from every backup, because a backup without the key cannot be read
       and a backup with it opens everything
+- [x] A published image: every release is built for amd64 and arm64 by a
+      workflow, tagged with its version and its minor line, carries a build
+      provenance attestation that says which commit and which workflow made it,
+      and names its version on start. An instance follows a minor line with
+      `pull`, and several instances can share one database server, each with
+      its own runtime role and a database closed to the others.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
