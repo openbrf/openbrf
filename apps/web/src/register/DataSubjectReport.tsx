@@ -440,6 +440,7 @@ const AUDIT_ACTION_LABEL = {
   CHAT_GROUP_MEMBER_REMOVED:
     "register.person.report.action.CHAT_GROUP_MEMBER_REMOVED",
   CHAT_MESSAGE_STRUCK: "register.person.report.action.CHAT_MESSAGE_STRUCK",
+  INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -456,6 +457,7 @@ const AUDIT_CHANNEL_LABEL = {
   AI: "register.person.report.channel.AI",
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
+  MANAGEMENT: "register.person.report.channel.MANAGEMENT",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**

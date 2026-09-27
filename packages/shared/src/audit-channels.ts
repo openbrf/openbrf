@@ -49,6 +49,12 @@ export const AUDIT_CHANNELS = [
   "SYSTEM",
   /** A plugin's own write through the host, outside any action of its own. */
   "PLUGIN",
+  /**
+   * The management API (hanterings-API), through which whoever hosts the
+   * instance reads counts about it. Never a person: an entry on this channel
+   * has no actor.
+   */
+  "MANAGEMENT",
 ] as const;
 
 export type AuditChannelName = (typeof AUDIT_CHANNELS)[number];

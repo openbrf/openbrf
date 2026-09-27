@@ -23,7 +23,8 @@ export interface AuditEntryInput {
    * Required rather than defaulted, so that a new call site decides rather than
    * inherits. WEB is a person in the web interface, MCP a token presented by a
    * connected app, AI the AI package, SYSTEM a job whose clock struck or a
-   * seed, PLUGIN a plugin's own write through the host. An optional field
+   * seed, PLUGIN a plugin's own write through the host, MANAGEMENT whoever
+   * hosts the instance reading its summary (ADR 0021). An optional field
    * defaulting to WEB would be wrong in exactly the places that matter: the
    * nightly purges and the seeds have no person behind them, and they are the
    * writes SYSTEM exists to make explicit.

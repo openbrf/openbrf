@@ -11,8 +11,15 @@ import { actorOf } from "./actor-of";
  * map would reach a write service as undefined and be stored in a column that
  * cannot be corrected afterwards, so the assertion is made in both directions:
  * every channel the SDK declares maps, and what the five produce is exactly the
- * enum the log has - not a subset of it.
+ * enum the log has - not a subset of it - less the channels named below.
  */
+
+/**
+ * The log's channels no action can arrive through, named so the assertion stays
+ * an equality. The management API reads a summary and is not an action (ADR
+ * 0021): its caller is nobody, and every action is taken by a person.
+ */
+const NO_ACTION_ARRIVES_THROUGH: readonly string[] = ["MANAGEMENT"];
 
 function context(overrides: Partial<ActionContext> = {}): ActionContext {
   return {
@@ -33,7 +40,13 @@ describe("who a dispatched action is acting as", () => {
     expect(stored).toEqual(
       ACTION_CHANNELS.map((channel) => channel.toUpperCase()),
     );
-    expect(new Set(stored)).toEqual(new Set(Object.values(AuditChannel)));
+    expect(new Set(stored)).toEqual(
+      new Set(
+        Object.values(AuditChannel).filter(
+          (channel) => !NO_ACTION_ARRIVES_THROUGH.includes(channel),
+        ),
+      ),
+    );
   });
 
   it("carries the person and the request, and nothing else about them", () => {

@@ -671,7 +671,8 @@
           "CHAT_GROUP_CREATED": "Gruppchatt skapades",
           "CHAT_GROUP_MEMBER_ADDED": "Lades till i en gruppchatt",
           "CHAT_GROUP_MEMBER_REMOVED": "Lämnade en gruppchatt",
-          "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks"
+          "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
+          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -679,6 +680,7 @@
           "AI": "AI-paketet",
           "SYSTEM": "Systemet",
           "PLUGIN": "Ett tillägg",
+          "MANAGEMENT": "Hanterings-API:t",
           "unknown": "Skrevs innan loggen började registrera kanalen."
         },
         "transferKind": {

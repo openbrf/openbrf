@@ -671,7 +671,8 @@
           "CHAT_GROUP_CREATED": "Group chat created",
           "CHAT_GROUP_MEMBER_ADDED": "Put into a group chat",
           "CHAT_GROUP_MEMBER_REMOVED": "Left a group chat",
-          "CHAT_MESSAGE_STRUCK": "Chat message struck through"
+          "CHAT_MESSAGE_STRUCK": "Chat message struck through",
+          "INSTANCE_SUMMARY_READ": "Operations summary read"
         },
         "channel": {
           "WEB": "The web interface",
@@ -679,6 +680,7 @@
           "AI": "The AI package",
           "SYSTEM": "The system",
           "PLUGIN": "A plugin",
+          "MANAGEMENT": "The management API",
           "unknown": "Written before the log recorded the channel."
         },
         "transferKind": {

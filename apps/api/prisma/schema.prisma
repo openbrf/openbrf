@@ -2021,6 +2021,13 @@ enum AuditAction {
   /// whoever wrote it. Only a group's message can be struck: the board chat has
   /// no strike-through at all.
   CHAT_MESSAGE_STRUCK
+
+  /// Whoever hosts the instance read its operations summary through the
+  /// management API (ADR 0021). No actor and no target: the caller is a machine
+  /// credential and never a person, and the summary is counts about the
+  /// association rather than anything about somebody. The context carries the
+  /// document's schema version and nothing else.
+  INSTANCE_SUMMARY_READ
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -2047,6 +2054,9 @@ enum AuditChannel {
   SYSTEM
   /// A plugin's own write through the host.
   PLUGIN
+  /// The management API, through which whoever hosts the instance reads counts
+  /// about it (ADR 0021). Never a person: an entry on this channel has no actor.
+  MANAGEMENT
 }
 
 /// Audit log. Writes happen in the same transaction as the access they record.
