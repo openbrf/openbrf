@@ -480,4 +480,13 @@ describe("the administrator step", () => {
       (screen.getByLabelText(/^Installationskod/) as HTMLInputElement).value,
     ).toBe(CODE);
   });
+
+  it("stops the code at the server's length, so a long paste is not a weak password", () => {
+    renderStep();
+
+    expect(
+      (screen.getByLabelText(/^Installationskod/) as HTMLInputElement)
+        .maxLength,
+    ).toBe(200);
+  });
 });

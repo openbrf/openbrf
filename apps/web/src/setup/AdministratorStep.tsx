@@ -136,6 +136,9 @@ export function AdministratorStep({
               autoCapitalize="none"
               spellCheck={false}
               required
+              // The server's limit. A longer paste is cut here, and the service
+              // then refuses it as a bad code rather than as a weak password.
+              maxLength={200}
               value={code}
               onChange={(event) => {
                 setCode(event.target.value);
