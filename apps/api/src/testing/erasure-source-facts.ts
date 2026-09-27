@@ -27,6 +27,12 @@ import { parseSync } from "@swc/core";
  * Read from the syntax tree rather than from the text, so a comment about a
  * request is not a finding and a query spread over several lines is not missed.
  *
+ * The same walk answers one more question, for a different rule: which models
+ * production code writes. `retention/data-subject-report-coverage.spec.ts`
+ * lets a column that names a person stay off the data subject access report as
+ * never written only while no file the server runs writes its model, and a file
+ * that starts to is the moment that reason stops being true.
+ *
  * This file lives under `src/testing`, which the walk below skips along with
  * the generated client: a helper that describes the rule is not one of the jobs
  * the rule is about.
@@ -45,7 +51,10 @@ export const API_SOURCE_DIRECTORY = join(process.cwd(), "src");
 /** The selector every purge calls to learn who has been granted erasure. */
 const ERASURE_SELECTOR = "erasureRequestedPersonIds";
 
-/** The Prisma methods that write a row, and so can mark a request executed. */
+/**
+ * The Prisma methods that write a row, and so can mark a request executed or
+ * put a row in a table.
+ */
 const WRITE_METHODS = new Set([
   "create",
   "createMany",
@@ -68,6 +77,12 @@ export interface SourceFacts {
   readsGrantedErasure: boolean;
   marksRequestExecuted: boolean;
   schedules: Schedule[];
+  /**
+   * Every delegate the file writes through, as `<client>.<delegate>.<write
+   * method>` names it: `meetingVote` for `tx.meetingVote.create(...)`. Once
+   * per delegate, in the order first met.
+   */
+  writtenDelegates: string[];
 }
 
 type SyntaxNode = { type: string } & Record<string, unknown>;
@@ -220,12 +235,7 @@ function asksForOpenErasure(node: SyntaxNode): boolean {
  * `update` - so a `where` asking for an unexecuted row is not mistaken for one.
  */
 function marksExecuted(call: SyntaxNode): boolean {
-  const method = calledMethod(call);
-  if (
-    method === undefined ||
-    !WRITE_METHODS.has(method) ||
-    !isDataSubjectRequestDelegate(unwrapped(call.callee))
-  ) {
+  if (delegateWrittenBy(call) !== "dataSubjectRequest") {
     return false;
   }
 
@@ -250,17 +260,25 @@ function marksExecuted(call: SyntaxNode): boolean {
   return false;
 }
 
-/** Whether a callee is a method on `<client>.dataSubjectRequest`. */
-function isDataSubjectRequestDelegate(callee: unknown): boolean {
-  if (!isNode(callee) || callee.type !== "MemberExpression") {
-    return false;
+/**
+ * The delegate a call writes through, when it is `<client>.<delegate>.<write
+ * method>(...)`: `dataSubjectRequest` for `tx.dataSubjectRequest.update(...)`.
+ */
+function delegateWrittenBy(call: SyntaxNode): string | undefined {
+  const method = calledMethod(call);
+  const callee = unwrapped(call.callee);
+  if (
+    method === undefined ||
+    !WRITE_METHODS.has(method) ||
+    !isNode(callee) ||
+    callee.type !== "MemberExpression"
+  ) {
+    return undefined;
   }
   const delegate = unwrapped(callee.object);
-  return (
-    isNode(delegate) &&
-    delegate.type === "MemberExpression" &&
-    nameOf(delegate.property) === "dataSubjectRequest"
-  );
+  return isNode(delegate) && delegate.type === "MemberExpression"
+    ? nameOf(delegate.property)
+    : undefined;
 }
 
 /** The string every `const NAME = "..."` in a file holds, by name. */
@@ -311,6 +329,7 @@ function factsOf(path: string, source: string): SourceFacts {
     readsGrantedErasure: false,
     marksRequestExecuted: false,
     schedules: [],
+    writtenDelegates: [],
   };
   for (const node of nodesIn(module)) {
     if (node.type === "ObjectExpression" && asksForOpenErasure(node)) {
@@ -324,6 +343,10 @@ function factsOf(path: string, source: string): SourceFacts {
     }
     if (marksExecuted(node)) {
       facts.marksRequestExecuted = true;
+    }
+    const written = delegateWrittenBy(node);
+    if (written !== undefined && !facts.writtenDelegates.includes(written)) {
+      facts.writtenDelegates.push(written);
     }
     const args = argumentsOf(node);
     if (calledMethod(node) === "schedule" && args.length >= 2) {
