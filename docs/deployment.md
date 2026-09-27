@@ -346,6 +346,14 @@ role holds a grant of its own, and the owner owns the database. Any other role
 that connects - a monitoring or a backup user - needs
 `GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner.
 
+That holds for the databases of instances that have started. A database no
+instance has hardened yet, the server's own `postgres`, or another
+application's database stays as its owner left it, open to every role on the
+server, this instance's runtime role included. Only that database's owner can
+close it, so a start does not refuse because of it. Create a new instance's
+database and start that instance before putting data in it, and close the
+databases of other applications yourself.
+
 An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
 and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
 it. Its owner runs `REVOKE CONNECT ON DATABASE <database> FROM PUBLIC` once, and

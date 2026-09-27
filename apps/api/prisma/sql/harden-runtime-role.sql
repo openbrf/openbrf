@@ -117,6 +117,11 @@ WHERE d.datname = current_database()
 -- PostgreSQL 16 refuses the ALTER ROLE below to an owner that did not create
 -- the role, but not to a superuser owner, which is what the bundled database
 -- makes of POSTGRES_USER.
+--
+-- Only grants naming the role count. A database still open to PUBLIC says
+-- nothing about whose role this is, and only that database's owner can close
+-- it, so refusing here would stop this instance over a neighbour's database
+-- (docs/deployment.md).
 SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
   format('Role %I is granted CONNECT on %s as well, so it belongs to another instance on this server. Give this instance a runtime role of its own in RUNTIME_DB_ROLE.',
     :'app_role', string_agg(format('%I', d.datname), ', ' ORDER BY d.datname)))
