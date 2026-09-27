@@ -15,6 +15,7 @@ import {
 import {
   recipientAnswer,
   RecipientQuestion,
+  RecipientRecorded,
   UNANSWERED,
 } from "./RecipientQuestion";
 
@@ -23,8 +24,11 @@ export interface ConsentPanelProps {
   /** The board's language, for the catalog's own bilingual text. */
   locale: string;
   busy?: boolean;
-  /** Called with the board's answer about where the plugin sends personal data. */
-  onConfirm: (answer: ProcessorAgreementAnswer) => void;
+  /**
+   * Called with the board's answer about where the plugin sends personal data,
+   * or with null where the record already classifies the plugin and is kept.
+   */
+  onConfirm: (answer: ProcessorAgreementAnswer | null) => void;
   onCancel: () => void;
 }
 
@@ -46,7 +50,9 @@ export interface ConsentPanelProps {
  * It also asks the one thing the declaration cannot say - whether the plugin
  * sends personal data outside the instance, and to whom - and nothing installs
  * until that is answered, so the recipient is classified in the art. 28 record
- * by the same act that consents to the plugin.
+ * by the same act that consents to the plugin. A plugin the record already
+ * classifies - a reinstall, an update, or one removed and installed again - is
+ * not asked again, and what the record says stands.
  */
 export function ConsentPanel({
   entry,
@@ -58,7 +64,9 @@ export function ConsentPanel({
   const { t } = useTranslation();
   const [understood, setUnderstood] = useState(false);
   const [recipient, setRecipient] = useState(UNANSWERED);
+  const recorded = entry.recipientState;
   const answer = recipientAnswer(recipient);
+  const answered = recorded !== "notRecorded" || answer !== null;
   const swedish = locale.startsWith("sv");
 
   return (
@@ -73,9 +81,11 @@ export function ConsentPanel({
         <>
           <button
             type="button"
-            disabled={!understood || answer === null || busy}
+            disabled={!understood || !answered || busy}
             onClick={() => {
-              if (answer !== null) {
+              if (recorded !== "notRecorded") {
+                onConfirm(null);
+              } else if (answer !== null) {
                 onConfirm(answer);
               }
             }}
@@ -208,11 +218,15 @@ export function ConsentPanel({
         the board says and the record keeps. Directly above the install button,
         so a button held shut sits beside the question still open.
       */}
-      <RecipientQuestion
-        draft={recipient}
-        onChange={setRecipient}
-        disabled={busy}
-      />
+      {recorded === "notRecorded" ? (
+        <RecipientQuestion
+          draft={recipient}
+          onChange={setRecipient}
+          disabled={busy}
+        />
+      ) : (
+        <RecipientRecorded state={recorded} />
+      )}
     </Panel>
   );
 }

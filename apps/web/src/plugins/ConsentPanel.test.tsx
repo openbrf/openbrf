@@ -57,6 +57,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   supported: true,
   installedVersion: null,
+  recipientState: "notRecorded",
 };
 
 function renderPanel(overrides: Partial<ConsentPanelProps> = {}) {
@@ -539,6 +540,39 @@ describe("where the plugin sends personal data", () => {
     expect(region.textContent).toContain("Skriv utan personnummer.");
     // Only the field that holds it.
     expect(recipientField().getAttribute("aria-invalid")).toBeNull();
+  });
+});
+
+describe("a plugin the record already classifies", () => {
+  /*
+   * A reinstall, an update, or a plugin removed and installed again. The step
+   * asks only a few of the facts the record holds, so answering again would
+   * replace an agreement the board has since completed on the data protection
+   * screen - its date, reference and terms - with a pending one.
+   */
+  const RECORDED: CatalogPlugin = {
+    ...ENTRY,
+    installedVersion: "0.9.0",
+    recipientState: "inPlace",
+  };
+
+  it("is not asked again, and says what the record keeps", () => {
+    renderPanel({ entry: RECORDED });
+
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.getByText(/Avtal finns/)).toBeTruthy();
+  });
+
+  it("installs on the acknowledgement alone and sends no answer", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({ entry: RECORDED, onConfirm });
+
+    expect(installButton()).toHaveProperty("disabled", true);
+    await session.click(acknowledgement());
+    await session.click(installButton());
+
+    expect(onConfirm).toHaveBeenCalledWith(null);
   });
 });
 

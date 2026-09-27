@@ -7,6 +7,7 @@ import type {
 } from "@openbrf/plugin-sdk";
 
 import { apiRequest, type ApiResult } from "../api/client";
+import type { ProcessorAgreementState } from "../api/data-protection";
 
 /**
  * The plugin endpoints.
@@ -97,6 +98,12 @@ export interface CatalogPlugin {
   oauthProtectedResource: string | null;
   supported: boolean;
   installedVersion: string | null;
+  /**
+   * What the record of recipients already says about this plugin. The consent
+   * step asks where the plugin sends personal data only while it is
+   * `notRecorded`, so a reinstall or an update keeps what the board recorded.
+   */
+  recipientState: ProcessorAgreementState;
 }
 
 export interface CatalogListing {
@@ -177,7 +184,7 @@ export function fetchPluginViews(): Promise<
  * The board's answer about where the plugin sends personal data travels with
  * it, so a screen install classifies the recipient the way the API records it
  * rather than leaving it unclassified until somebody opens the data protection
- * screen.
+ * screen. Without one the API leaves the record as it is.
  */
 export function installPlugin(input: {
   id: string;
@@ -185,7 +192,8 @@ export function installPlugin(input: {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   oauthProtectedResource: string | null;
-  processorAgreement: ProcessorAgreementAnswer;
+  /** Left out where the record already classifies the plugin. */
+  processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {
   return apiRequest("POST", "/api/plugins", input);
 }

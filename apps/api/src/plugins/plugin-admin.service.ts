@@ -19,6 +19,7 @@ import { ProcessingActivityService } from "../data-protection/processing-activit
 import { ProcessorAgreementService } from "../data-protection/processor-agreement.service";
 import { ProcessorFactsService } from "../data-protection/processor-facts.service";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
@@ -110,6 +111,19 @@ export interface CatalogPluginView {
   supported: boolean;
   /** The version currently installed, when there is one. */
   installedVersion: string | null;
+  /**
+   * What the record of recipients already says about this plugin, or
+   * `notRecorded`.
+   *
+   * The consent step asks where the plugin sends personal data only while
+   * nothing is recorded. Reinstalling and updating open the same step, and
+   * answering it again would replace a classification the board may have
+   * completed since - a signed agreement's date and reference included - with
+   * the few facts the step asks for. The classification is kept across
+   * uninstalling as well, so this is read from the record rather than from
+   * `installedVersion`.
+   */
+  recipientState: ProcessorAgreementState;
 }
 
 export interface PluginSettingsView {
@@ -341,9 +355,10 @@ export class PluginAdminService {
     source: string;
     entries: CatalogPluginView[];
   }> {
-    const [catalog, installed] = await Promise.all([
+    const [catalog, installed, recipients] = await Promise.all([
       this.catalog.read({ refresh: true }),
       this.registry.list(),
+      this.processors.forPlugins(),
     ]);
     const byId = new Map(installed.map((record) => [record.id, record]));
 
@@ -374,6 +389,7 @@ export class PluginAdminService {
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
+          recipientState: recipients.get(entry.id) ?? "notRecorded",
         })),
     };
   }

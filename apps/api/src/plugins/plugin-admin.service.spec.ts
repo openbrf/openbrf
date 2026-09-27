@@ -55,6 +55,8 @@ interface Options {
   installed?: readonly InstalledPluginFixture[];
   /** What the index lists, when the subject is browsing rather than installing. */
   listed?: readonly CatalogPluginEntry[];
+  /** What the record of recipients says, by plugin id. */
+  recipients?: ReadonlyMap<string, string>;
 }
 
 function build(options: Options = {}) {
@@ -102,7 +104,10 @@ function build(options: Options = {}) {
     // The recipient's classification, the processing it performs, and what the
     // instance is configured to hand data to. Recorded on install; the
     // assertions here are about the consent row, so these only have to exist.
-    { record: recordProcessor } as never,
+    {
+      record: recordProcessor,
+      forPlugins: async () => new Map(options.recipients ?? []),
+    } as never,
     { seedPlugin: vi.fn(async () => undefined) } as never,
     { read: async () => FACTS } as never,
     // The association's language for the note the instance writes on a plugin
@@ -525,6 +530,27 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+
+  it("carries what the record of recipients says about the plugin", async () => {
+    // The consent step keeps a recorded classification rather than asking
+    // again, and a plugin removed and installed again still has one.
+    const { service } = build({
+      listed: [ENTRY],
+      recipients: new Map([["occupancy", "inPlace"]]),
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipientState).toBe("inPlace");
+  });
+
+  it("says not recorded for a plugin the record does not name", async () => {
+    const { service } = build({ listed: [ENTRY] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipientState).toBe("notRecorded");
   });
 });
 

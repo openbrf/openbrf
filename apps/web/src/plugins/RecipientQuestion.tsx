@@ -2,27 +2,25 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { useId, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type {
+  ProcessorAgreementState,
+  ProcessorClassification,
+} from "../api/data-protection";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, HINT, LABEL } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import type { ProcessorAgreementAnswer } from "./plugin-api";
 
 /** What a recipient outside the instance can be. */
-type OutsideClassification = "PROCESSOR" | "INDEPENDENT_CONTROLLER";
+type OutsideClassification = Exclude<
+  ProcessorClassification,
+  "NOT_A_PROCESSOR"
+>;
 
 /**
- * The question as the board is filling it in.
- *
- * Every part starts unanswered, including the first, and none is ever filled
- * in on the board's behalf. The catalog entry carries no statement about where
- * a plugin sends personal data - its personal-data declaration is what the
- * plugin handles, "a declaration, not an enforcement point", and a plugin runs
- * at full process privilege (ADR 0003) - so there is nothing for a default to
- * be read from. The art. 28 record agrees: it suggests a classification for
- * the association's own disk and for a connected app, whose facts settle one,
- * and none for a plugin. A pre-selected "no" would be the instance answering
- * the one question it cannot answer, and it would write "passes no personal
- * data on" into the record on the strength of a click.
+ * The question as the board is filling it in. Every part starts unanswered and
+ * none is filled in on the board's behalf: the catalog says nothing a default
+ * could be read from (docs/plugin-contract.md).
  */
 export interface RecipientDraft {
   sendsOutside: boolean | null;
@@ -41,6 +39,26 @@ export const UNANSWERED: RecipientDraft = {
 /** The API refuses one in anything the board wrote into the record. */
 function carriesIdentityNumber(text: string): boolean {
   return scanForPersonalIdentityNumbers(text).length > 0;
+}
+
+/**
+ * Which of the typed fields carries a personal identity number.
+ *
+ * The one rule behind both the answer held back and the field marked invalid,
+ * so the install button is never shut without the warning that says why. The
+ * reason counts only where it is asked for: a note typed under an independent
+ * controller and left behind by switching to a processor is not sent.
+ */
+function identityNumberIn(draft: RecipientDraft): {
+  recipient: boolean;
+  note: boolean;
+} {
+  return {
+    recipient: carriesIdentityNumber(draft.recipient),
+    note:
+      draft.classification === "INDEPENDENT_CONTROLLER" &&
+      carriesIdentityNumber(draft.note),
+  };
 }
 
 /**
@@ -68,8 +86,9 @@ export function recipientAnswer(
     return { sendsPersonalDataOutside: false };
   }
 
+  const identityNumber = identityNumberIn(draft);
   const recipient = draft.recipient.trim();
-  if (recipient === "" || carriesIdentityNumber(recipient)) {
+  if (recipient === "" || identityNumber.recipient) {
     return null;
   }
   if (draft.classification === "PROCESSOR") {
@@ -81,7 +100,7 @@ export function recipientAnswer(
   }
   if (draft.classification === "INDEPENDENT_CONTROLLER") {
     const note = draft.note.trim();
-    if (note === "" || carriesIdentityNumber(note)) {
+    if (note === "" || identityNumber.note) {
       return null;
     }
     return {
@@ -150,15 +169,9 @@ export function RecipientQuestion({
     onChange({ ...draft, ...change });
   };
 
-  /*
-   * Per field, so the one holding the number is the one marked invalid. The
-   * reason counts only where it is asked for: a note typed under an independent
-   * controller and left behind by switching to a processor is not sent.
-   */
-  const recipientInvalid = carriesIdentityNumber(draft.recipient);
-  const noteInvalid =
-    draft.classification === "INDEPENDENT_CONTROLLER" &&
-    carriesIdentityNumber(draft.note);
+  // Per field, so the one holding the number is the one marked invalid.
+  const { recipient: recipientInvalid, note: noteInvalid } =
+    identityNumberIn(draft);
   const identityNumberTyped = recipientInvalid || noteInvalid;
 
   /** Marks a field invalid and names the warning, or says nothing. */
@@ -306,6 +319,44 @@ export function RecipientQuestion({
           </div>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/** The record's own words for each state, as the data protection screen shows them. */
+const RECORDED_STATES: Readonly<
+  Record<Exclude<ProcessorAgreementState, "notRecorded">, TranslationKey>
+> = {
+  inPlace: "dataProtection.processors.state.inPlace",
+  pending: "dataProtection.processors.state.pending",
+  notAProcessor: "dataProtection.processors.state.notAProcessor",
+  independentController:
+    "dataProtection.processors.state.independentController",
+};
+
+/**
+ * What the record already says about a plugin being installed again.
+ *
+ * Shown in place of the question: the step asks only a few of the facts the
+ * record holds, so answering it again would replace an agreement the board has
+ * completed since. The data protection screen is where it changes.
+ */
+export function RecipientRecorded({
+  state,
+}: {
+  state: Exclude<ProcessorAgreementState, "notRecorded">;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-label text-ink-muted uppercase">
+        {t("plugins.consent.recipient.title")}
+      </h3>
+      <p className={HINT}>
+        {t("plugins.consent.recipient.recorded", {
+          state: t(RECORDED_STATES[state]),
+        })}
+      </p>
     </section>
   );
 }

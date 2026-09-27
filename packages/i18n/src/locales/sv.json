@@ -1468,7 +1468,8 @@
         "recipient": "Mottagare",
         "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna.",
         "processorHint": "Behandlar uppgifterna för föreningens räkning och enligt dess instruktioner. Ett personuppgiftsbiträdesavtal behövs, och det förs in som att det tas fram tills styrelsen registrerar det på sidan Dataskydd.",
-        "independentControllerHint": "Bestämmer själv varför och hur uppgifterna behandlas, så inget personuppgiftsbiträdesavtal behövs."
+        "independentControllerHint": "Bestämmer själv varför och hur uppgifterna behandlas, så inget personuppgiftsbiträdesavtal behövs.",
+        "recorded": "Det här står om tillägget på sidan Dataskydd: {{state}}. Installationen behåller det svaret; ändra det där om det inte längre stämmer."
       },
       "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
       "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",

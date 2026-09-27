@@ -210,6 +210,23 @@ independent controller, which needs no such agreement. Either way the answer
 lands in the association's record of who receives personal data, next to the
 SMTP server, the SMS provider and the object storage.
 
+The question is asked only while the record says nothing about the plugin.
+Reinstalling and updating open the same consent step, and so does installing a
+plugin that was removed, whose classification stayed standing. There the step
+states what the record says and installs without an answer, so the API leaves
+the classification as it is: the step asks for a few of the facts the record
+holds, and answering it again would replace an agreement the board has since
+completed - its date, its reference, the terms it confirmed - with one being
+made. A classification that no longer holds is changed on the data protection
+screen.
+
+The step asks with no answer chosen, for every plugin, including one that
+declares no personal data. The catalog entry says which personal data a plugin
+handles, not where it sends it, and a plugin runs at full process privilege
+(ADR 0003), so there is nothing for a default to be read from: a pre-selected
+"no" would write "passes no personal data on" into the record on the strength of
+a click.
+
 Installing a plugin also writes it into the record of processing activities
 (art. 30) with the categories the manifest declared, and removing one closes
 that processing while leaving the recipient's classification standing for the

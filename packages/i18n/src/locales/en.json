@@ -1468,7 +1468,8 @@
         "recipient": "Recipient",
         "recipientHint": "The company or service that receives the data.",
         "processorHint": "Processes the data on the association's behalf and on its instructions. A processor agreement is needed, and it is recorded as being made until the board records it on the data protection screen.",
-        "independentControllerHint": "Decides for itself why and how the data is processed, so no processor agreement is needed."
+        "independentControllerHint": "Decides for itself why and how the data is processed, so no processor agreement is needed.",
+        "recorded": "What the data protection screen records for this plugin: {{state}}. Installing keeps that answer; change it there if it no longer holds."
       },
       "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
       "acknowledge": "I have read what this plugin may do and which personal data it will handle.",

@@ -67,6 +67,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   supported: true,
   installedVersion: null,
+  recipientState: "notRecorded",
 };
 
 const OVERVIEW: PluginsOverview = {
@@ -306,6 +307,38 @@ describe("confirming the consent", () => {
     });
   });
 
+  it("leaves the record alone on an update over a recorded classification", async () => {
+    /*
+     * The API keeps the recipient's classification when an install carries no
+     * answer. An update that sent one would turn a signed agreement back into
+     * one being made.
+     */
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [
+          { ...ENTRY, installedVersion: "1.1.0", recipientState: "inPlace" },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await session.click(
+      await screen.findByRole("button", { name: /^uppdatera till/i }),
+    );
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalled();
+    });
+    expect(installPlugin.mock.calls[0]?.[0]).not.toHaveProperty(
+      "processorAgreement",
+    );
+  });
+
   it("sends back the sign-in address the screen disclosed", async () => {
     /*
      * The declaration the board is least able to infer from the rest of the
@@ -419,6 +452,16 @@ describe("an install the API refuses", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/mcp-connector är reserverat/)).toBeTruthy();
+    });
+  });
+
+  it("names the part of the answer the record refused", async () => {
+    await refuse("note-required");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Skriv varför mottagaren inte behöver något avtal."),
+      ).toBeTruthy();
     });
   });
 

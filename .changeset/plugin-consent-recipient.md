@@ -1,6 +1,7 @@
 ---
 "@openbrf/web": minor
 "@openbrf/i18n": minor
+"@openbrf/api": minor
 ---
 
 The consent step asks whether the plugin sends personal data outside the
@@ -20,3 +21,10 @@ install shut, because the record refuses one.
 The catalog entry says which personal data a plugin handles and not where it
 sends it, so the question is asked of every plugin, including one that declares
 no personal data at all, and the screen offers no answer of its own.
+
+Reinstalling or updating a plugin the record already classifies does not ask
+again, and neither does installing one that was removed: the step states what
+the record says and the install leaves it as it is, so an agreement the board
+completed on the data protection screen is not turned back into one being made.
+The catalog listing says, per plugin, what the record holds. A refusal of the
+answer names the part to correct rather than saying the install failed.
