@@ -185,6 +185,22 @@ export const envSchema = z.object({
   DATABASE_URL_RUNTIME: z.string().min(1).optional(),
 
   /**
+   * How many connections the application's own pool may hold open.
+   *
+   * Ten is node-postgres's default and what an instance with a server of its
+   * own needs. The job queue holds two more of its own, so an instance takes
+   * twelve of the server's max_connections, which is 100 unless the server is
+   * configured otherwise. Where several instances share one server, whoever
+   * runs them divides that budget between them (docs/deployment.md).
+   */
+  OPENBRF_DATABASE_POOL_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(10),
+
+  /**
    * Public base URL, used to build invitation and magic links.
    *
    * Also the origin of the OAuth protected resource, which is the audience

@@ -10,7 +10,7 @@
 //
 // Only one of the two is ever written to a stream:
 //
-//   node docker/database-url.mjs runtime   openbrf_app, RUNTIME_DB_PASSWORD
+//   node docker/database-url.mjs runtime   RUNTIME_DB_ROLE, RUNTIME_DB_PASSWORD
 //
 // The shell has to export DATABASE_URL_RUNTIME for the server it execs, and a
 // value cannot cross from a child process into its parent's environment any
@@ -34,8 +34,11 @@
 // be taken apart, and passing it on puts the password straight back into the
 // argument the taking apart exists to keep it out of.
 //
-// The runtime role's name is not configurable: prisma/sql/harden-runtime-role.sql
-// creates and constrains that one role, by name.
+// The runtime role's name is RUNTIME_DB_ROLE, openbrf_app when that is unset or
+// empty, and prisma/sql/harden-runtime-role.sql reads the same variable. A role
+// belongs to the whole PostgreSQL server, so instances sharing one each name
+// their own. `node docker/database-url.mjs check-runtime-role` refuses a name
+// that cannot be one, before anything connects, and prints nothing otherwise.
 //
 // Node built-ins only, like the rest of docker/, so it stays readable and
 // runnable inside the image an operator is debugging.
@@ -44,16 +47,19 @@ const host = process.env.POSTGRES_HOST ?? "db";
 const port = process.env.POSTGRES_PORT ?? "5432";
 const database = process.env.POSTGRES_DB ?? "openbrf";
 
-const ROLES = new Map([
-  [
-    "owner",
-    {
-      user: process.env.POSTGRES_USER ?? "openbrf",
-      secret: "POSTGRES_PASSWORD",
-    },
-  ],
-  ["runtime", { user: "openbrf_app", secret: "RUNTIME_DB_PASSWORD" }],
-]);
+const OWNER = {
+  user: process.env.POSTGRES_USER ?? "openbrf",
+  secret: "POSTGRES_PASSWORD",
+};
+
+/** The name harden-runtime-role.sql falls back to as well. */
+const DEFAULT_RUNTIME_ROLE = "openbrf_app";
+
+/**
+ * An identifier PostgreSQL takes unquoted and keeps as written: lower case, and
+ * at most 63 bytes, the length it truncates a name to.
+ */
+const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 
 /**
  * Parses a connection URL, or refuses it when it cannot be read as one.
@@ -116,6 +122,61 @@ function fail(message) {
   process.exit(1);
 }
 
+/**
+ * The user the owner's connection signs in as: the one in DATABASE_URL when an
+ * operator supplied it, POSTGRES_USER otherwise.
+ */
+function ownerUser() {
+  const supplied = process.env.DATABASE_URL;
+  if (supplied !== undefined && supplied !== "") {
+    return decodeURIComponent(parseUrl(supplied, "DATABASE_URL").username);
+  }
+  return OWNER.user;
+}
+
+/**
+ * The runtime role's name, or an error saying why it cannot be one.
+ *
+ * Refused, with nothing from the value repeated back:
+ *
+ *   - anything but a plain lower-case identifier. The hardening script quotes
+ *     the name wherever it uses it, but a name that needs quoting is a name an
+ *     operator types differently in psql than in this variable, and one longer
+ *     than 63 characters is silently shortened by the server;
+ *   - a name beginning with pg_, which PostgreSQL reserves for its own roles;
+ *   - the owner's own name. The script would then set the owner's password and
+ *     the application would connect as the owner, which can disable the
+ *     triggers that keep the member register and the audit log append-only.
+ */
+export function runtimeRole() {
+  const configured = process.env.RUNTIME_DB_ROLE;
+  const role =
+    configured === undefined || configured === ""
+      ? DEFAULT_RUNTIME_ROLE
+      : configured;
+  if (!ROLE_NAME.test(role)) {
+    throw new Error(
+      "RUNTIME_DB_ROLE has to be a lower-case PostgreSQL role name: a letter " +
+        "or an underscore, then letters, digits and underscores, 63 " +
+        "characters at most.",
+    );
+  }
+  if (role.startsWith("pg_")) {
+    throw new Error(
+      "RUNTIME_DB_ROLE may not begin with pg_, which PostgreSQL reserves for " +
+        "its own roles.",
+    );
+  }
+  if (role === ownerUser()) {
+    throw new Error(
+      "RUNTIME_DB_ROLE names the schema owner. The application needs a role " +
+        "of its own: the owner can disable the triggers that keep the member " +
+        "register and the audit log append-only.",
+    );
+  }
+  return role;
+}
+
 /** Every component that carries a value an operator chose is encoded. */
 function assemble(role) {
   const password = process.env[role.secret];
@@ -143,17 +204,31 @@ export function ownerUrl() {
   if (supplied !== undefined && supplied !== "") {
     return supplied;
   }
-  return assemble(ROLES.get("owner"));
+  return assemble(OWNER);
+}
+
+/** The runtime role's name, or the process ends saying why it cannot be. */
+function checkedRuntimeRole() {
+  try {
+    return runtimeRole();
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
 }
 
 if (import.meta.main) {
-  // runtime and nothing else. See the note at the top of this file for why this
-  // one URL is printed and the owner's never is.
+  // runtime prints the one URL that is ever printed - see the note at the top
+  // of this file for why the owner's never is - and check-runtime-role prints
+  // nothing unless it refuses.
   if (process.argv[2] === "runtime") {
-    console.log(assemble(ROLES.get("runtime")));
+    console.log(
+      assemble({ user: checkedRuntimeRole(), secret: "RUNTIME_DB_PASSWORD" }),
+    );
+  } else if (process.argv[2] === "check-runtime-role") {
+    checkedRuntimeRole();
   } else {
     fail(
-      `database-url.mjs takes runtime, not ${String(process.argv[2])}. The owner's connection is not available here: it is built by ownerUrl() in the process that uses it, so that it is never printed.`,
+      `database-url.mjs takes runtime or check-runtime-role, not ${String(process.argv[2])}. The owner's connection is not available here: it is built by ownerUrl() in the process that uses it, so that it is never printed.`,
     );
   }
 }
