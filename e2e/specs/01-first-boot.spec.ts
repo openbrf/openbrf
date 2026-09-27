@@ -1,6 +1,7 @@
 import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
 import { clearMailbox } from "../src/mailpit";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -160,7 +161,10 @@ test("first boot walks the wizard and claims the instance", async ({
       .getByRole("banner")
       .getByText(`${ADMINISTRATOR.firstName} ${ADMINISTRATOR.lastName}`),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Inställningar" })).toBeVisible();
+  // Polled from the whole offer: the settings sign is a link while the viewer
+  // is unknown and the board's section button once it arrives, so a query for
+  // a link would race the band filling in.
+  await expect.poll(() => offeredDestinations(page)).toContain("Inställningar");
 });
 
 test("the wizard closes once the instance is claimed", async ({

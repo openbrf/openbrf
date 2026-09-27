@@ -155,14 +155,11 @@ export function AddressBookRoute(): ReactElement {
 
   const logo = useHousingCooperativeLogo();
   /*
-   * What this account may do, for the person panel's role controls.
-   *
-   * The navigation below still reads the audience off the register's own
-   * answer rather than off this: which of the two boards was served is what
-   * that answer already proves, and it arrives with the rows rather than after
-   * a second request. Conferring a role is the narrower question - a board seat
-   * and a system role have different holders - and no register answer settles
-   * it, so this is asked for on its own.
+   * What this account may do: for the person panel's role controls, and for
+   * the navigation, which is built from it exactly as on every other screen so
+   * the landing page every sign-in reaches has the same band as the rest.
+   * Empty until the answer arrives, which offers what every account is
+   * offered, so the band only gains.
    */
   const capabilities = useViewerCapabilities();
 
@@ -171,31 +168,7 @@ export function AddressBookRoute(): ReactElement {
       housingCooperativeName={t("app.housingCooperative")}
       logo={logo}
       personName={session?.user.name}
-      /*
-       * The board view is served only to a principal holding addressBook:read,
-       * which in the capability model is granted together with
-       * association:read - so the answer the server already gave to the
-       * register request settles the navigation too, without a second call to
-       * ask who this is.
-       *
-       * Both audiences also hold issues:report: the board through its own
-       * grant, a resident through living here. Neither list is invented - each
-       * one is what the answer already proves about this account - and the
-       * navigation asks for nothing the register request did not settle.
-       *
-       * Undefined until that answer arrives, which navItemsFor reads as "the
-       * viewer is not known yet" and answers with the destinations every
-       * account is offered. A defined list means the audience is known, so
-       * passing one while the request is still out would move links about,
-       * which is the band shuffling that navItemsFor exists to prevent.
-       */
-      navItems={navItemsFor(
-        view.state === "board"
-          ? ["association:read", "addressBook:read", "issues:report"]
-          : view.state === "resident"
-            ? ["residentDirectory:read", "issues:report"]
-            : undefined,
-      )}
+      navItems={navItemsFor(capabilities)}
       onSignOut={() => {
         /*
          * Navigating is part of signing out: the session is only checked in this

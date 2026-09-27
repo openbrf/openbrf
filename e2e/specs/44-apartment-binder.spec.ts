@@ -333,8 +333,11 @@ test.describe("an apartment binder", () => {
       page.getByRole("link", { name: `Öppna ${permission.title}` }),
     ).toBeVisible();
     // The board filed both, and that is the whole of what this household is
-    // told about who: no name, here or anywhere else on the screen.
-    await expect(page.getByText("Styrelsen", { exact: true })).toHaveCount(2);
+    // told about who: no name, here or anywhere else on the screen. Counted in
+    // the room, because the band's board section is signed with the same word.
+    await expect(
+      page.getByRole("main").getByText("Styrelsen", { exact: true }),
+    ).toHaveCount(2);
     await expect(page.getByText(board.name)).toHaveCount(0);
     await expect(page.getByText(/Inlagd av/)).toHaveCount(0);
 
@@ -474,8 +477,10 @@ test.describe("an apartment binder", () => {
       ).toBeVisible();
     }
     // Two from the board and one from whoever held the apartment before her,
-    // and not one of the three names a person.
-    await expect(page.getByText("Styrelsen", { exact: true })).toHaveCount(2);
+    // and not one of the three names a person. Counted in the room, as above.
+    await expect(
+      page.getByRole("main").getByText("Styrelsen", { exact: true }),
+    ).toHaveCount(2);
     await expect(
       page.getByText("En bostadsrättshavare", { exact: true }),
     ).toHaveCount(1);

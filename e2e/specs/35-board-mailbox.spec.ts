@@ -5,6 +5,7 @@ import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, deliverToMailbox, waitForMessage } from "../src/mailpit";
 import { grantBoardSeat } from "../src/board";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -323,10 +324,11 @@ test("a resident is not offered the board's correspondence", async ({
   });
   await signInThroughTheScreen(page, RESIDENT.email, RESIDENT.password);
 
+  // Something he is offered first, so the absence is read from the whole
+  // offer rather than from a band that had not filled in yet.
   await page.goto(appPath("/issues"));
-  await expect(
-    page.getByRole("link", { name: "Styrelsens post", exact: true }),
-  ).toHaveCount(0);
+  await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
+  expect(await offeredDestinations(page)).not.toContain("Styrelsens post");
 
   // And the screen itself says so rather than failing on every request.
   await page.goto(appPath("/board-mailbox"));

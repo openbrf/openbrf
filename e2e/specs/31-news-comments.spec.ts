@@ -1,6 +1,7 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { clientAddressFor, expect, test } from "../src/fixtures";
+import { offeredDestinations } from "../src/navigation";
 import { createNews, listNews, publishNews } from "../src/news";
 import {
   ADMINISTRATOR,
@@ -255,14 +256,9 @@ test.describe("comments on the association's news", () => {
      * the place a person would actually look: that spec asserts the same account
      * is offered no motions link, because the right in EFL 6 kap. 15 § belongs
      * to a member. Answering a notice is not that right.
-     *
-     * `.first()` because the shell renders the same links twice, once for the
-     * band and once for the bottom bar on a narrow screen.
      */
     await page.goto(appPath("/news"));
-    await expect(
-      page.getByRole("link", { name: "Nyheter", exact: true }).first(),
-    ).toBeVisible();
+    await expect.poll(() => offeredDestinations(page)).toContain("Nyheter");
 
     const rows = await openTheNotice(page);
 

@@ -4,6 +4,7 @@ import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -613,13 +614,11 @@ test.describe("the general meeting", () => {
     await signInThroughTheScreen(page, LODGER.email, LODGER.password);
 
     // Somewhere he does belong, so the band is loaded and its links are the
-    // ones this account is offered. `.first()` because the shell renders the
-    // same links twice, once for the band and once for the bottom bar.
+    // ones this account is offered, read from every section so the absence is
+    // the whole offer's and not a closed section's.
     await page.goto(appPath("/issues"));
-    await expect(
-      page.getByRole("link", { name: "Ärenden", exact: true }).first(),
-    ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Stämmor" })).toHaveCount(0);
+    await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
+    expect(await offeredDestinations(page)).not.toContain("Stämmor");
 
     await page.goto(appPath("/meetings"));
     await expect(

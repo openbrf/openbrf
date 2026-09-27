@@ -4,6 +4,7 @@ import { createPerson } from "../src/api";
 import { grantBoardSeat } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
+import { offeredDestinations } from "../src/navigation";
 import { ensureAccountFor, ensureRegisterFixture } from "../src/provision";
 import { appPath } from "../src/stack";
 
@@ -286,20 +287,14 @@ test.describe("the board's chat", () => {
     await page.goto(appPath("/chat"));
 
     /*
-     * The navigation, asserted here rather than on the screen the sign-in lands
-     * on: the address book builds its band from the three capabilities its own
-     * register request already proved, deliberately, rather than from the
-     * viewer's full list, so that band carries no chat entry for anybody and an
-     * assertion there would pass whatever this change did. This screen's band
-     * is the viewer's own.
+     * The navigation, read from every section of the band, which is built from
+     * the viewer's own capabilities on this screen as on every other.
      *
      * The destination is offered, because a group is his to make. What is not
      * his is the board's room, and the screen says so rather than leaving him
      * looking at an empty page.
      */
-    await expect(
-      page.getByRole("link", { name: "Chatt", exact: true }),
-    ).not.toHaveCount(0);
+    await expect.poll(() => offeredDestinations(page)).toContain("Chatt");
 
     // And the screen itself: the assertion that would still hold if the
     // navigation were rebuilt tomorrow.
@@ -360,21 +355,14 @@ test.describe("the board's chat", () => {
 
     /*
      * The destination is offered to this seat, which is the counterpart of the
-     * resident's absence in the test above, and asserted on the same screen for
-     * the same reason: this band is the viewer's own list, and the one the
-     * sign-in lands on is not.
+     * resident's test above, and asserted on the same screen for the same
+     * reason.
      *
-     * Attached rather than visible, and never pressed. The band is one unwrapped
-     * flex row that neither scrolls nor collapses above the small breakpoint, so
-     * a board member's destinations do not all fit at this window width and the
-     * ones past the fifth are off screen. Whether a link is on screen is a
-     * question about the width of the window; whether it is there at all is the
-     * question about the account, and that is the one this spec asks. Every
-     * other spec in this suite reaches a destination by its address.
+     * Read from the offer rather than pressed. The band fits at this window
+     * width, and the question here is still about the account rather than
+     * about the window: whether the destination is there at all.
      */
-    await expect(
-      page.getByRole("link", { name: "Chatt", exact: true }).first(),
-    ).toBeAttached();
+    await expect.poll(() => offeredDestinations(page)).toContain("Chatt");
 
     /*
      * A second browser context, which is a second person at a second machine:

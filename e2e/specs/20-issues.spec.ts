@@ -4,6 +4,7 @@ import * as api from "../src/api";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -383,16 +384,13 @@ test("the property manager works the queue and is never shown the address book",
    * Decision 11, at the place a person would actually find the door. The API
    * refuses them the register either way; a link straight to it would be the
    * platform showing an outside party something it promised was not there.
+   *
+   * Asserted as the whole offer rather than as one absence, so no destination
+   * can join the queue and the settings without this noticing.
    */
-  await expect(
-    page.getByRole("link", { name: "Adressbok", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("link", { name: "Ärenden", exact: true }),
-  ).not.toHaveCount(0);
-  await expect(
-    page.getByRole("link", { name: "Inställningar", exact: true }),
-  ).not.toHaveCount(0);
+  await expect
+    .poll(() => offeredDestinations(page))
+    .toEqual(["Ärenden", "Inställningar"]);
 
   // They handle the association's issues; they do not live in the building, so
   // there is no report form for them either.

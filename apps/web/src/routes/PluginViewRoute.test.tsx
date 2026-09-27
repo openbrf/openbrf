@@ -53,6 +53,12 @@ vi.mock("../plugins/PluginView", () => ({
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ pluginId: route.pluginId }),
+  // The shell reads the page it is on to mark where the reader is.
+  useLocation: ({
+    select,
+  }: {
+    select: (location: { pathname: string }) => string;
+  }): string => select({ pathname: `/plugin/${route.pluginId}` }),
   // The shell renders the navigation band around whatever this route shows.
   Link: ({
     to,

@@ -115,8 +115,9 @@ and the import. A housing cooperative runs all of it with
 locally the application runs from source beside the PostgreSQL that
 `docker compose up` starts.
 
-- [x] Application shell and navigation: the dark band, and a bottom bar on
-      narrow screens where a thumb reaches
+- [x] Application shell and navigation: the dark band with the destinations in
+      four sections, and on narrow screens a bottom bar with three of them and
+      a menu holding every section, where a thumb reaches
 - [x] Sign-in with a password or an emailed link, with routes closed to
       anyone without a session
 - [x] First-boot setup wizard: the first administrator, the housing
@@ -432,6 +433,8 @@ same lint gate a downloaded package passes.
       and saving it runs the same lint a catalog install runs, so it lands as
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
+- [ ] Plugin views offered in the navigation. A view is reachable today by its
+      address only; the manifest will name the section it belongs in
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel

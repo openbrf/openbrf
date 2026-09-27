@@ -829,7 +829,14 @@
     "addressBook": "Adressbok",
     "primary": "Huvudnavigering",
     "signOut": "Logga ut",
-    "settings": "Inställningar"
+    "settings": "Inställningar",
+    "menu": "Meny",
+    "sections": {
+      "association": "Föreningen",
+      "building": "Huset",
+      "board": "Styrelsen",
+      "settings": "Inställningar"
+    }
   },
   "signIn": {
     "heading": "Logga in",

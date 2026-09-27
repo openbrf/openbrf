@@ -66,6 +66,12 @@ const BROWSER = {
 } as const;
 
 /**
+ * A phone, for the entries that ask for one: the Mobil artboard's size, below
+ * the width where the band gives way to the bottom bar.
+ */
+const PHONE = { width: 390, height: 844 } as const;
+
+/**
  * Both themes, from the viewer's operating system.
  *
  * The client defaults to following the system and subscribes to the media
@@ -239,6 +245,9 @@ function matching(where: Page | Locator, target: Target): Locator {
   }
   if ("button" in target) {
     return where.getByRole("button", nameOf(target.button));
+  }
+  if ("link" in target) {
+    return where.getByRole("link", nameOf(target.link));
   }
   if ("combobox" in target) {
     // Named through its label like any other field, and a label that wraps a
@@ -511,6 +520,11 @@ test("captures every declared screen in light and dark", async ({
     for (const screen of SCREENS) {
       reaching = screen.name;
       await establish(screen.as);
+      // Every entry sets its own window, so a phone entry cannot leave its
+      // size to the entry after it.
+      await page.setViewportSize(
+        screen.viewport === "phone" ? PHONE : BROWSER.viewport,
+      );
       if (screen.goto !== undefined) {
         await page.goto(screen.goto);
       }

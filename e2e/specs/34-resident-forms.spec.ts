@@ -1,6 +1,7 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { clientAddressFor, expect, test } from "../src/fixtures";
+import { offeredDestinations } from "../src/navigation";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -275,20 +276,17 @@ test.describe("subletting applications", () => {
 
     /*
      * Somewhere he does belong, so the band is loaded and its links are the ones
-     * this account is offered. .first() because the shell renders the same links
-     * twice, once for the band and once for the bottom bar on a narrow screen.
+     * this account is offered, read from every section so the absence is the
+     * whole offer's and not a closed section's.
      */
     await page.goto(appPath("/issues"));
-    await expect(
-      page.getByRole("link", { name: "Ärenden", exact: true }).first(),
-    ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Andrahand" })).toHaveCount(0);
+    await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
+    const offered = await offeredDestinations(page);
+    expect(offered).not.toContain("Andrahand");
     // And the key order destination is offered in the same band, which is the
     // contrast this pair of modules exists to make: the same account, two
     // different answers, for two different reasons.
-    await expect(
-      page.getByRole("link", { name: "Nycklar" }).first(),
-    ).toBeVisible();
+    expect(offered).toContain("Nycklar");
 
     // And the screen itself, asked for by hand.
     await page.goto(appPath("/sublets"));
