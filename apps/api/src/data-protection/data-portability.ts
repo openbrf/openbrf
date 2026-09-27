@@ -29,10 +29,11 @@ import type { PortableSection } from "./section-processing";
  *   carries exactly the sections the map marks carried. A section whose row
  *   rests on anything else stays on the report. Besides the statutory registers
  *   - the member register, the apartment register, the transfers, the
- *   terminations, the lien notes, the reporting ledger and the meeting record,
- *   which rest on a legal obligation and are outside erasure for the same
- *   reason - that leaves out the issue reports, the document archive, the
- *   apartment binder, the chat, comments on news, the board mailbox and the
+ *   terminations, the lien notes, the reporting ledger and the meeting record
+ *   with the notices that summoned it, which rest on a legal obligation and are
+ *   outside erasure for the same reason - that leaves out the issue reports,
+ *   the document archive, the apartment binder, the chat, comments on news, the
+ *   news mailings, the board mailbox, the invitations to an account and the
  *   positions of trust, which rest on the association's legitimate interest,
  *   and the charges, the fees and the association's own data protection
  *   records, which rest on a legal obligation. The access report lists them
@@ -40,7 +41,8 @@ import type { PortableSection } from "./section-processing";
  *
  *   Data the person provided. Judged per section, and recorded in the map as
  *   "notProvided" where a section rests on the contract and is still the
- *   association's own account - the account's creation and its second factor.
+ *   association's own account - the account's creation, its second factor and
+ *   its passkeys, and the sessions it was signed in with.
  *   Within a carried section, a board's note, a decision and a closing date are
  *   the association's own account too, and are left out field by field.
  *

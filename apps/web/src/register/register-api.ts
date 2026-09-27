@@ -228,6 +228,31 @@ export type TerminationKind =
 export type ConnectedAppScope = "mcp:read" | "mcp:write" | "offline_access";
 
 /**
+ * Why a copy of a news mailing or an SMS mailing did not go out, as the
+ * delivery ledger records it.
+ *
+ * The closed set the server declares, mirrored here because the browser turns
+ * each code into a sentence and may not import server types. A stored value
+ * outside the set arrives as null.
+ */
+export type NewsDeliveryFailure =
+  | "mail-not-configured"
+  | "sms-not-configured"
+  | "send-failed"
+  | "recipient-gone"
+  | "no-phone-number"
+  | "mailing-interrupted"
+  | "recipient-objected";
+
+/** The same, for a notice of a general meeting, which has codes of its own. */
+export type MeetingNoticeDeliveryFailure =
+  | "mail-not-configured"
+  | "send-failed"
+  | "recipient-gone"
+  | "no-email-address"
+  | "notice-sending-interrupted";
+
+/**
  * Which register event a reporting obligation is about.
  *
  * Mirrors the RegisterReportKind enum in `apps/api/prisma/schema.prisma`,
@@ -448,7 +473,43 @@ export interface DataSubjectReport {
     email: string;
     twoFactorEnabled: boolean;
     createdAt: string;
+    /**
+     * The passkeys on the account: what the person named each, when it was
+     * added and whether it is synced between devices. Never key material.
+     */
+    passkeys: {
+      name: string | null;
+      addedAt: string | null;
+      backedUp: boolean;
+    }[];
   } | null;
+  /**
+   * The sessions the account is, or was, signed in with, newest first.
+   *
+   * The IP address and the browser name as the sign-in library recorded them,
+   * and never the token: a live credential has no place on a document handed
+   * over on paper. `renewedAt` moves at most once a day, on use, so it bounds
+   * the last use to within a day and no closer.
+   */
+  signInSessions: {
+    signedInAt: string;
+    renewedAt: string;
+    endsAt: string;
+    /** Null where the sign-in recorded none. */
+    ipAddress: string | null;
+    /** Null where the browser named nothing. */
+    userAgent: string | null;
+  }[];
+  /**
+   * The invitations to an account this person was sent, accepted or not.
+   * Never the token and never who sent it: the act is the board member's, and
+   * the audit log states it.
+   */
+  invitations: {
+    sentAt: string;
+    validUntil: string;
+    acceptedAt: string | null;
+  }[];
   /**
    * The external programs this person allowed to act for them (ansluten app).
    *
@@ -748,6 +809,72 @@ export interface DataSubjectReport {
     erasableFrom: string | null;
   }[];
   /**
+   * Charges (debitering) the association put on this person, or on the
+   * apartment they were living in on the day each was dated.
+   *
+   * `basis` says which, and a charge on the apartment is not a claim that this
+   * person was the one to pay it: the association charges the flat, and a
+   * household is several people. No payment and no balance, because the
+   * association holds neither; `handedToManagerOn` is when the basis went to
+   * whoever keeps the books, a recipient outside the association.
+   *
+   * Each row states the earliest date the purge can reach it, at the end of
+   * the seventh year after the one its financial year ended in.
+   */
+  memberCharges: {
+    chargeId: string;
+    basis: "person" | "apartment";
+    chargedOn: string;
+    /** Kronor as recorded, e.g. "450.00". */
+    amount: string;
+    vatTreatment: "EXEMPT" | "RATE";
+    /** Whole percent, and null exactly when the treatment is EXEMPT. */
+    vatRatePercent: number | null;
+    reason: string;
+    /** The apartment on an apartment-keyed charge, and null on the person's. */
+    apartment: string | null;
+    handedToManagerOn: string | null;
+    erasableFrom: string;
+  }[];
+  /**
+   * Fee rates (avgift) that stood against an apartment this person lived in,
+   * reached through the residency as an apartment-keyed charge is.
+   *
+   * A rate still in force states no erasure date: nothing has run out on it,
+   * and the clock starts on the day it stops applying.
+   */
+  fees: {
+    feeId: string;
+    apartment: string;
+    kind: "ANNUAL_FEE" | "PARKING_SPACE" | "STORAGE_SPACE";
+    appliesFrom: string;
+    /** Null while this is the rate in force. */
+    appliesUntil: string | null;
+    /** Kronor per calendar month as recorded, e.g. "3450.50". */
+    monthlyAmount: string;
+    vatTreatment: "EXEMPT" | "RATE";
+    vatRatePercent: number | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Fee notices (avi) issued for an apartment this person lived in, as they
+   * were issued. No payment and no delivery: both are outside what the
+   * platform records.
+   */
+  feeNotices: {
+    noticeId: string;
+    apartment: string;
+    /** The period billed, inclusive at both ends. */
+    periodFrom: string;
+    periodTo: string;
+    dueOn: string;
+    issuedOn: string;
+    /** Kronor as billed, e.g. "10351.50". */
+    amount: string;
+    paymentReference: string;
+    erasableFrom: string;
+  }[];
+  /**
    * Comments this person wrote under the association's news.
    *
    * The body in full, whether or not the comment is hidden: what somebody wrote
@@ -795,6 +922,22 @@ export interface DataSubjectReport {
     hidden: boolean;
     writtenAt: string;
     erasableFrom: string | null;
+  }[];
+  /**
+   * Every copy of a news mailing or an SMS mailing addressed to this person:
+   * the association's record of what it sent them. No erasure date, because no
+   * purge reaches the ledger; it goes with the news item if the board removes
+   * that.
+   */
+  newsDeliveries: {
+    newsTitle: string;
+    newsSlug: string;
+    channel: "EMAIL" | "SMS";
+    status: "PENDING" | "SENT" | "FAILED";
+    /** Why it did not go out, or null. Never a mail server's own words. */
+    failure: NewsDeliveryFailure | null;
+    queuedAt: string;
+    sentAt: string | null;
   }[];
   /**
    * What this person wrote in the chat, room by room.
@@ -903,6 +1046,20 @@ export interface DataSubjectReport {
     ground: "MEMBER" | "SPOUSE_OR_COHABITANT" | "BYLAWS";
     authorisedOn: string;
     withdrawnAt: string | null;
+  }[];
+  /**
+   * Every copy of a notice of a general meeting addressed to this person: the
+   * association's record of whom it summoned. No erasure date, for the reason
+   * the attendance section gives: it is kept with the meeting's record.
+   */
+  meetingNoticeDeliveries: {
+    meetingHeldOn: string;
+    meetingKind: "ORDINARY" | "EXTRAORDINARY";
+    channel: "EMAIL";
+    status: "PENDING" | "SENT" | "FAILED";
+    failure: MeetingNoticeDeliveryFailure | null;
+    queuedAt: string;
+    sentAt: string | null;
   }[];
   auditEntries: {
     entryId: string;

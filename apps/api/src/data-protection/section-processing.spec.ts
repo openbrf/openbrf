@@ -1,3 +1,7 @@
+import {
+  DATA_SUBJECT_REPORT_SECTIONS,
+  type DataSubjectReportSection,
+} from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import { SEED_KEYS, type SeedKey } from "./processing-activity-seed";
@@ -32,39 +36,39 @@ const ENTRIES = Object.entries(SECTION_PROCESSING) as [
  *   row's sections carry it.
  * "notKeyedToAPerson": the table names nobody the register holds, so there is
  *   no person whose report it could be on.
- * "notOnTheReport": the table is keyed to a person and the access report does
- *   not carry it - a gap in the report, named here rather than hidden, and not
- *   something this map can close.
+ *
+ * A table keyed to a person that the report does not carry is not named here:
+ * `retention/data-subject-report-coverage.spec.ts` walks the schema for every
+ * column that names a person and names each such gap.
  *
  * Checked in both directions, for the reason `erasure-domains.spec.ts` gives
  * about its own list: an entry nothing uses is inherited by the next edit
  * without anybody deciding to keep it.
  */
 const ROWS_WITHOUT_A_SECTION: Partial<
-  Record<SeedKey, "viewOfAnotherRow" | "notKeyedToAPerson" | "notOnTheReport">
+  Record<SeedKey, "viewOfAnotherRow" | "notKeyedToAPerson">
 > = {
   // Who lives in the building, read from the address book, whose data is on
   // `person` and `residencies`.
   residentDirectory: "viewOfAnotherRow",
-  // A contact submission has no person column at all.
+  // A contact submission names its sender by the address they gave, never as
+  // a person the register holds.
   contactSubmissions: "notKeyedToAPerson",
-  // `news_delivery.personId`: which mailing reached whom.
-  newsMailings: "notOnTheReport",
-  // `invitation.personId`: who was invited to an account, and when.
-  signupRequestsAndInvitations: "notOnTheReport",
 };
 
 /**
- * The access report's sections as they were named in its audit entry before
- * the map existed. Written out once, so the entry's content is shown not to
- * change by the list moving here.
+ * The sections the access report's audit entry names, in order: the entry's
+ * content written out for review, so a section joining or leaving what the
+ * entry says was disclosed is a change somebody reads here.
  */
-const SECTIONS_BEFORE_THE_MAP = [
+const REPORTED_IN_ORDER = [
   "person",
   "residencies",
   "boardPositions",
   "systemRoles",
   "account",
+  "signInSessions",
+  "invitations",
   "connectedApps",
   "memberRegisterEntries",
   "transfers",
@@ -86,11 +90,13 @@ const SECTIONS_BEFORE_THE_MAP = [
   "fees",
   "feeNotices",
   "newsComments",
+  "newsDeliveries",
   "chats",
   "chatReports",
   "boardMailboxThreads",
   "meetingAttendances",
   "proxyAuthorisations",
+  "meetingNoticeDeliveries",
   "auditEntries",
   "dataSubjectRequests",
   "personalDataBreaches",
@@ -169,6 +175,32 @@ describe("the map from the access report to the record", () => {
     );
 
     expect([...REPORTED_SECTIONS]).toEqual(withARow);
-    expect([...REPORTED_SECTIONS]).toEqual(SECTIONS_BEFORE_THE_MAP);
+    expect([...REPORTED_SECTIONS]).toEqual(REPORTED_IN_ORDER);
+  });
+
+  it("declares the report's keys in the shared order", () => {
+    /*
+     * The browser prints the report from a type of its own, and nothing but
+     * the tuple in `@openbrf/shared` ties the two: each side is held to it, so
+     * a section one application has and the other lacks fails a build rather
+     * than going missing from a printed document.
+     *
+     * A type-level assertion in both directions, on the pattern of
+     * auth-options.spec.ts: the tuple wrappers keep the unions from
+     * distributing, so each asks whether one whole union is contained in the
+     * other rather than asking it member by member.
+     */
+    type SameKeys = [ReportSection] extends [DataSubjectReportSection]
+      ? [DataSubjectReportSection] extends [ReportSection]
+        ? true
+        : false
+      : false;
+    const sameKeys: SameKeys = true;
+
+    expect(sameKeys).toBe(true);
+    // And in the same order, which is the order the audit entry names them in.
+    expect(Object.keys(SECTION_PROCESSING)).toEqual([
+      ...DATA_SUBJECT_REPORT_SECTIONS,
+    ]);
   });
 });

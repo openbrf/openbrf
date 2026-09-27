@@ -357,6 +357,8 @@
           "boardPositions": "Positions of trust",
           "systemRoles": "System roles",
           "account": "Account",
+          "signInSessions": "Signed-in sessions",
+          "invitations": "Invitations to an account",
           "connectedApps": "Connected apps",
           "memberRegister": "The member register",
           "transfers": "Grants and transfers",
@@ -373,12 +375,17 @@
           "subletApplications": "Subletting applications",
           "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
+          "memberCharges": "Charges",
+          "fees": "Fees for the apartments you have lived in",
+          "feeNotices": "Fee notices for the apartments you have lived in",
           "newsComments": "News comments",
+          "newsDeliveries": "News mailings and SMS mailings sent to you",
           "chat": "What you have written in the chat",
           "chatReports": "Chat messages you have reported or answered",
           "boardMailbox": "Correspondence with the board mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
+          "meetingNoticeDeliveries": "Notices of general meetings sent to you",
           "audit": "The audit log",
           "retention": "Retention",
           "dataSubjectRequests": "What you have asked about your data",
@@ -505,7 +512,30 @@
           "appName": "App",
           "appHost": "Domain",
           "connectedOn": "Connected",
-          "accessLastIssued": "Access last issued"
+          "accessLastIssued": "Access last issued",
+          "chargedTo": "Charged to",
+          "vat": "VAT",
+          "handedToManager": "Handed to the economic manager",
+          "feeKind": "Fee",
+          "appliesFrom": "Applies from",
+          "appliesUntil": "Applies until",
+          "monthlyAmount": "Per month",
+          "due": "Due",
+          "issued": "Issued",
+          "paymentReference": "Payment reference",
+          "signedIn": "Signed in",
+          "renewed": "Last renewed",
+          "ipAddress": "IP address",
+          "userAgent": "Browser, as it named itself",
+          "passkeys": "Passkeys",
+          "added": "Added",
+          "synced": "Synced between devices",
+          "sent": "Sent",
+          "validUntil": "Valid until",
+          "accepted": "Accepted",
+          "deliveryChannel": "Sent as",
+          "queued": "Queued",
+          "notSentBecause": "Why it was not sent"
         },
         "appScope": {
           "read": "Read data",
@@ -700,7 +730,32 @@
           "proxyHolder": "Authorised by somebody"
         },
         "yes": "Yes",
-        "no": "No"
+        "no": "No",
+        "chargeBasis": {
+          "person": "You",
+          "apartment": "The apartment you lived in"
+        },
+        "passkeyUnnamed": "Unnamed passkey",
+        "deliveryChannel": {
+          "EMAIL": "Email",
+          "SMS": "Text message"
+        },
+        "deliveryStatus": {
+          "PENDING": "Waiting to be sent",
+          "SENT": "Handed over for delivery",
+          "FAILED": "Not sent"
+        },
+        "deliveryFailure": {
+          "mail-not-configured": "The instance had no email server",
+          "sms-not-configured": "The instance had no SMS provider",
+          "send-failed": "The email server or the SMS provider refused it",
+          "recipient-gone": "You were no longer in the register",
+          "no-phone-number": "No telephone number was held for you",
+          "no-email-address": "No email address was held for you",
+          "mailing-interrupted": "The sending was stopped before it reached you",
+          "notice-sending-interrupted": "The sending was stopped before it reached you",
+          "recipient-objected": "You had objected to the mailings or asked for a restriction"
+        }
       },
       "requests": {
         "kind": {
@@ -4276,7 +4331,7 @@
           "name": "Address book and accounts",
           "purpose": "Reaching the residents and giving them access to the association's services.",
           "legalBasisNote": "Contract for members (art. 6(1)(b)); legitimate interest for other residents.",
-          "retention": "Purged on the association's retention window after a move-out."
+          "retention": "Purged on the association's retention window after a move-out. A signed-in session ends thirty days after it was last renewed and is deleted the following night, unless a legal hold or a restriction stands for the person; signing out deletes it at once."
         },
         "connectedApps": {
           "name": "Connected apps",
@@ -4294,7 +4349,7 @@
           "name": "News mailings",
           "purpose": "Telling the members what the board publishes.",
           "legalBasisNote": "Legitimate interest: keeping the members informed.",
-          "retention": "The delivery ledger is kept as the association's record of what it sent."
+          "retention": "The delivery ledger is kept as the association's record of what it sent, and goes with the news item if the board removes it. No purge reaches it."
         },
         "chat": {
           "name": "The chat",
@@ -4360,7 +4415,7 @@
           "name": "Sign-up requests and invitations",
           "purpose": "Deciding who is given an account on the instance.",
           "legalBasisNote": "Legitimate interest: the association decides who gets access.",
-          "retention": "A decided request is deleted by the board. An invitation never accepted is purged with the person's other service data."
+          "retention": "A decided request is kept, and no purge reaches it. An invitation, accepted or not, is purged with the person's other service data, and a new invitation replaces one never accepted."
         },
         "boardPositionsAndSystemRoles": {
           "name": "Positions of trust and system roles",
