@@ -14,6 +14,7 @@ fixtures/catalog/
 fixtures/example-plugin/dist/
 
 # Licence copies made when a package is packed (mirrors .gitignore)
+packages/*/LICENSE
 packages/*/LICENSE-EXCEPTION.md
 
 # Local tooling state (mirrors .gitignore)
