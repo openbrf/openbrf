@@ -1459,6 +1459,17 @@
         "onlyOne": "Bara ett installerat tillägg i taget kan göra det.",
         "session": "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar."
       },
+      "recipient": {
+        "title": "Personuppgifter utanför instansen",
+        "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
+        "question": "Skickar tillägget personuppgifter utanför instansen?",
+        "no": "Nej, det skickar inga personuppgifter utanför instansen",
+        "yes": "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+        "recipient": "Mottagare",
+        "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna.",
+        "processorHint": "Behandlar uppgifterna för föreningens räkning och enligt dess instruktioner. Ett personuppgiftsbiträdesavtal behövs, och det förs in som att det tas fram tills styrelsen registrerar det på sidan Dataskydd.",
+        "independentControllerHint": "Bestämmer själv varför och hur uppgifterna behandlas, så inget personuppgiftsbiträdesavtal behövs."
+      },
       "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
       "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",
       "confirm": "Installera",

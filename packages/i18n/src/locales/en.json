@@ -1459,6 +1459,17 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "recipient": {
+        "title": "Personal data outside the instance",
+        "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
+        "question": "Does this plugin send personal data outside the instance?",
+        "no": "No, it sends no personal data outside the instance",
+        "yes": "Yes, it sends personal data to a recipient outside the instance",
+        "recipient": "Recipient",
+        "recipientHint": "The company or service that receives the data.",
+        "processorHint": "Processes the data on the association's behalf and on its instructions. A processor agreement is needed, and it is recorded as being made until the board records it on the data protection screen.",
+        "independentControllerHint": "Decides for itself why and how the data is processed, so no processor agreement is needed."
+      },
       "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
       "acknowledge": "I have read what this plugin may do and which personal data it will handle.",
       "confirm": "Install",

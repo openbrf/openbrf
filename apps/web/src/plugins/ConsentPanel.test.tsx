@@ -76,6 +76,20 @@ const installButton = () =>
 const cancelButton = () => screen.getByRole("button", { name: /^avbryt$/i });
 const acknowledgement = () => screen.getByRole("checkbox");
 
+const nothingLeaves = () =>
+  screen.getByRole("radio", {
+    name: "Nej, det skickar inga personuppgifter utanför instansen",
+  });
+const somethingLeaves = () =>
+  screen.getByRole("radio", {
+    name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+  });
+const recipientField = () => screen.getByRole("textbox", { name: "Mottagare" });
+const asProcessor = () =>
+  screen.getByRole("radio", { name: "Personuppgiftsbiträde" });
+const asIndependentController = () =>
+  screen.getByRole("radio", { name: "Egen personuppgiftsansvarig" });
+
 describe("the declaration", () => {
   it("states each permission as a sentence, never as its code", () => {
     // A board consents to what a plugin may do, and "addressBook:readContact"
@@ -288,9 +302,13 @@ describe("the standing limits", () => {
 });
 
 describe("the acknowledgement", () => {
+  // The question below is answered first in each of these, so the button's
+  // state is the acknowledgement's alone.
+
   it("holds the install button shut until it is ticked", async () => {
     const session = userEvent.setup();
     renderPanel();
+    await session.click(nothingLeaves());
 
     expect(installButton()).toHaveProperty("disabled", true);
 
@@ -304,6 +322,7 @@ describe("the acknowledgement", () => {
     // touched once.
     const session = userEvent.setup();
     renderPanel();
+    await session.click(nothingLeaves());
 
     await session.click(acknowledgement());
     await session.click(acknowledgement());
@@ -315,6 +334,7 @@ describe("the acknowledgement", () => {
     const onConfirm = vi.fn();
     const session = userEvent.setup();
     renderPanel({ onConfirm });
+    await session.click(nothingLeaves());
 
     await session.click(installButton());
     expect(onConfirm).not.toHaveBeenCalled();
@@ -333,6 +353,147 @@ describe("the acknowledgement", () => {
     await session.click(cancelButton());
 
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The one question the catalog cannot answer.
+ *
+ * Whether a plugin sends personal data outside the instance decides what it is
+ * in the art. 28 record, and the install request is what writes that record.
+ * So the screen asks it on every install, offers no answer of its own, and
+ * lets nothing through until the answer is one the API records rather than
+ * refuses - a refusal there comes after the consent row is written.
+ */
+describe("where the plugin sends personal data", () => {
+  it("is asked with neither answer chosen, even of a plugin declaring no personal data", async () => {
+    /*
+     * The declaration says what a plugin handles, not where it sends it, and a
+     * plugin runs at full process privilege. An empty list is therefore no
+     * ground for answering "no" on the board's behalf.
+     */
+    renderPanel({ entry: { ...ENTRY, permissions: [], personalData: [] } });
+
+    expect(
+      screen.getByRole("group", {
+        name: "Skickar tillägget personuppgifter utanför instansen?",
+      }),
+    ).toBeTruthy();
+    expect(nothingLeaves()).toHaveProperty("checked", false);
+    expect(somethingLeaves()).toHaveProperty("checked", false);
+  });
+
+  it("holds the install button shut until it is answered", async () => {
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.click(acknowledgement());
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    await session.click(nothingLeaves());
+    expect(installButton()).toHaveProperty("disabled", false);
+  });
+
+  it("sends that nothing leaves the instance, and no recipient", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({ onConfirm });
+
+    await session.click(nothingLeaves());
+    await session.click(acknowledgement());
+    await session.click(installButton());
+
+    expect(onConfirm).toHaveBeenCalledWith({ sendsPersonalDataOutside: false });
+  });
+
+  it("asks who receives it and what they are, and sends both", async () => {
+    /*
+     * art. 30(1)(d) asks who receives the data, so "somewhere outside" is not
+     * an answer. Which kind of recipient it is stays the board's call: the
+     * classification starts unchosen, like the question above it.
+     */
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({ onConfirm });
+
+    await session.click(somethingLeaves());
+    await session.click(acknowledgement());
+    expect(asProcessor()).toHaveProperty("checked", false);
+    expect(asIndependentController()).toHaveProperty("checked", false);
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    // Classified, and nobody named: blanks are nobody.
+    await session.click(asProcessor());
+    await session.type(recipientField(), "   ");
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    await session.type(recipientField(), "Beläggningstjänsten AB ");
+    await session.click(installButton());
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      sendsPersonalDataOutside: true,
+      recipient: "Beläggningstjänsten AB",
+      classification: "PROCESSOR",
+    });
+  });
+
+  it("asks an independent controller why no agreement is needed", async () => {
+    // The record keeps the reason for every recipient without an agreement,
+    // and the API refuses one without it only after writing the consent row.
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({ onConfirm });
+
+    await session.click(somethingLeaves());
+    await session.click(acknowledgement());
+    await session.type(recipientField(), "Kartbolaget AB");
+    // Named, and not yet classified.
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    await session.click(asIndependentController());
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    await session.type(
+      screen.getByRole("textbox", { name: "Varför inget avtal behövs" }),
+      "Bestämmer själv över sina kartdata.",
+    );
+    await session.click(installButton());
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      sendsPersonalDataOutside: true,
+      recipient: "Kartbolaget AB",
+      classification: "INDEPENDENT_CONTROLLER",
+      note: "Bestämmer själv över sina kartdata.",
+    });
+  });
+
+  it("sends only the answer on screen when the board changes its mind", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({ onConfirm });
+
+    await session.click(somethingLeaves());
+    await session.type(recipientField(), "Beläggningstjänsten AB");
+    await session.click(asProcessor());
+    await session.click(nothingLeaves());
+    await session.click(acknowledgement());
+    await session.click(installButton());
+
+    expect(onConfirm).toHaveBeenCalledWith({ sendsPersonalDataOutside: false });
+  });
+
+  it("keeps a personal identity number out of the record", async () => {
+    // The API refuses one in what the board wrote, after the consent row.
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.click(somethingLeaves());
+    await session.click(acknowledgement());
+    await session.type(recipientField(), "Anna 811228-9874");
+    await session.click(asProcessor());
+
+    expect(screen.getByText("Skriv utan personnummer.")).toBeTruthy();
+    expect(installButton()).toHaveProperty("disabled", true);
   });
 });
 

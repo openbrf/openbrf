@@ -388,6 +388,40 @@ describe("what the consent step records about the recipient", () => {
     });
   });
 
+  it("records an independent controller with the reason and no agreement", async () => {
+    /*
+     * The other answer the consent step offers once the board says data leaves.
+     * A controller in its own right has no art. 28(3) agreement, so every field
+     * describing one has to arrive empty - the record refuses them on this
+     * classification - and the reason the board gave is what the record keeps
+     * instead of an agreement.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Kartbolaget AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          note: "Bestammer sjalv over sina kartdata.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      status: null,
+      counterparty: "Kartbolaget AB",
+      termsConfirmed: null,
+      subProcessorsAuthorised: null,
+      note: "Bestammer sjalv over sina kartdata.",
+    });
+  });
+
   it("keeps the classification out of the declaration a reinstall compares", async () => {
     /*
      * The consent row asserts what the board was shown and agreed to. A

@@ -23,6 +23,7 @@ import {
   installPlugin,
   type PluginsOverview,
   type PluginSummary,
+  type ProcessorAgreementAnswer,
   setPluginActionArmed,
 } from "./plugin-api";
 import {
@@ -209,7 +210,9 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
     setCatalogToken((token) => token + 1);
   };
 
-  const confirmInstall = async (): Promise<void> => {
+  const confirmInstall = async (
+    answer: ProcessorAgreementAnswer,
+  ): Promise<void> => {
     if (pending === null) {
       return;
     }
@@ -222,6 +225,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       personalData: pending.personalData,
       actions: pending.actions,
       oauthProtectedResource: pending.oauthProtectedResource,
+      processorAgreement: answer,
     });
 
     setInstalling(false);
@@ -329,8 +333,8 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
               entry={pending}
               locale={i18n.language}
               busy={installing}
-              onConfirm={() => {
-                void confirmInstall();
+              onConfirm={(answer) => {
+                void confirmInstall(answer);
               }}
               onCancel={() => {
                 setPending(null);
