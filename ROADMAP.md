@@ -528,11 +528,18 @@ Free, open source, and never moved behind a paywall.
       already: the board notes, per person and per scope, what the person
       agreed may appear on a published page, and a withdrawal keeps the dates
       the consent applied between rather than erasing them. The purge runs
-      nightly and erases contact details, the account and unaccepted
-      invitations once the retention window on somebody's last residency has
-      run out; a legal hold, entered against one person with a reason,
-      suspends it until the board releases it, and so does a restriction the
-      person themselves asked for under art. 18
+      nightly and erases contact details, the account and its invitations once
+      the retention window on somebody's last residency has run out; a legal
+      hold, entered against one person with a reason, suspends it until the
+      board releases it, and so does a restriction the person themselves asked
+      for under art. 18. A signed-in session is deleted the night after it
+      ends, unless a legal hold or a restriction stands for the person. The
+      access report states the sessions an account is signed in with, with the
+      IP address and browser each came from, the passkeys on it, the
+      invitations to an account, every news mailing, SMS mailing and notice of
+      a general meeting sent to the person, and the charges, fee rates and fee
+      notices; a test fails for any column in the database that names a person
+      unless the report reads it or the reason it does not is written down
 - [x] Personal data breach register (personuppgiftsincident): a breach is
       recorded with what it touched and who it reached. The clock GDPR art. 33
       sets runs from discovery, so the record carries the date the board
