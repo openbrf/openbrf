@@ -49,6 +49,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [ROADMAP.md](ROADMAP.md) | What is built, what is not, and what "usable" will mean |
 | [docs/deployment.md](docs/deployment.md) | Running an instance: the compose stack, the two database roles, the reverse proxy |
 | [docs/backup-and-restore.md](docs/backup-and-restore.md) | Keeping the encryption key apart from every backup, backing up the database and the data volume together, and restoring all three |
+| [docs/management-api.md](docs/management-api.md) | The read-only summary whoever hosts an instance reads: enabling it, its token, and every field it carries |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: language policy, PR process, coding standards, tests, AI policy |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |
