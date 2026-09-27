@@ -411,6 +411,73 @@ describe("rate limiting", () => {
   }, 60_000);
 });
 
+describe("the user-update surface", () => {
+  // A person with administrator rights and no account yet, as right after an
+  // invitation has been sent. Only account creation may link an account to
+  // them.
+  const pendingAdmin = `auth-pending-admin-${suffix}`;
+
+  beforeAll(async () => {
+    await prisma.person.create({
+      data: {
+        id: pendingAdmin,
+        firstName: "Pending",
+        lastName: "Admin",
+        preferredLocale: "sv",
+        systemRoles: { create: { role: "ADMIN" } },
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.person.deleteMany({ where: { id: pendingAdmin } });
+  });
+
+  it("does not let a signed-in account change which person it belongs to", async () => {
+    const signIn = await inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: plain.email, password: PASSWORD },
+    });
+    expect(signIn.statusCode).toBe(200);
+    const cookie = extractCookie(signIn.headers["set-cookie"]);
+
+    const before = await inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { cookie },
+    });
+    expect(before.statusCode).toBe(200);
+
+    const update = await inject({
+      method: "POST",
+      url: "/api/auth/update-user",
+      payload: { personId: pendingAdmin },
+      headers: { cookie },
+    });
+
+    expect(update.statusCode).toBeGreaterThanOrEqual(400);
+    expect(update.statusCode).toBeLessThan(500);
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email: plain.email },
+      select: { personId: true },
+    });
+    expect(user.personId).toBe(plain.personId);
+
+    const after = await inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { cookie },
+    });
+    expect(after.statusCode).toBe(200);
+    expect(after.json()).toMatchObject({
+      personId: plain.personId,
+      capabilities: (before.json() as { capabilities: string[] }).capabilities,
+    });
+  });
+});
+
 describe("account creation invariants", () => {
   it("refuses a second account for the same person", async () => {
     await expect(

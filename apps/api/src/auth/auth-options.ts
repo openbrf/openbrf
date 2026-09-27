@@ -114,6 +114,27 @@ export const CLIENT_MANAGEMENT_PATHS: readonly string[] = [
   "/oauth2/delete-client",
 ];
 
+/**
+ * Better Auth's own user-update endpoint, relative to `basePath` below, and
+ * closed over HTTP.
+ *
+ * A person edits their own details through `PUT /api/settings/profile`, which
+ * writes the register and records what changed. This endpoint writes the user
+ * row directly and is not used by this product, so it is closed rather than
+ * left as a second, unaudited way to change an account. Closed the same way as
+ * CLIENT_MANAGEMENT_PATHS above.
+ */
+export const USER_UPDATE_PATH = "/update-user";
+
+/**
+ * The user fields a caller may set through Better Auth's own endpoints.
+ *
+ * Empty, and meant to stay so: every field this application adds to the user
+ * is set by the application itself, never taken from a request body. A field
+ * belongs here only if a person may choose its value for their own account.
+ */
+export const CALLER_SETTABLE_USER_FIELDS: readonly string[] = [];
+
 export interface AccountState {
   /** Whether the register holds an account for this address at all. */
   exists: boolean;
@@ -240,8 +261,9 @@ export function buildAuthOptions(
 
     database: prismaAdapter(prisma, { provider: "postgresql" }),
 
-    // Answered 404 over HTTP; see CLIENT_MANAGEMENT_PATHS above.
-    disabledPaths: [...CLIENT_MANAGEMENT_PATHS],
+    // Answered 404 over HTTP; see CLIENT_MANAGEMENT_PATHS and
+    // USER_UPDATE_PATH above.
+    disabledPaths: [...CLIENT_MANAGEMENT_PATHS, USER_UPDATE_PATH],
 
     emailAndPassword: {
       enabled: true,
@@ -252,11 +274,16 @@ export function buildAuthOptions(
 
     user: {
       additionalFields: {
-        // Every account belongs to a person in the register.
+        // Every account belongs to a person in the register, and which person
+        // is decided by the application when it creates the account
+        // (AuthService.createAccountForPerson), never by a request body.
+        // `input: false` makes Better Auth refuse the field on its own
+        // endpoints; the internal adapter used for account creation does not
+        // read this flag.
         personId: {
           type: "string",
           required: true,
-          input: true,
+          input: false,
         },
       },
     },
