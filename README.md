@@ -36,7 +36,7 @@ Open BRF är ännu inte släppt. En pilot i en riktig förening startar i decemb
 - Sign-in with passwords, magic links, passkeys (WebAuthn), and TOTP
 - Swedish + English UI (full i18n), light + dark themes, and a WordPress-like plugin and theme system
 
-Resource booking follows in v1.1. General meetings (stämma), board email, and simple finances are planned core features.
+Beyond that scope, and already built ahead of the release they were planned for: resource booking and an event calendar with sign-ups (planned for v1.1), and general meetings (stämma), comments on news and group chat, the board's shared mailbox, the apartment binder, forms for subletting, motions and key orders, fee notices, and charges to members (planned as later core features, free like the rest). [ROADMAP.md](ROADMAP.md) has the detail.
 
 ## Tech stack
 
