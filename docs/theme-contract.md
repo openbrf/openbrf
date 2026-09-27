@@ -238,6 +238,12 @@ unpacked, the package is read and linted, and only then is it written to
 entry about its name or version is refused - the checksum proves the bytes are
 the ones the catalog meant, not that they are what they claim to be.
 
+The index is the one plugins are listed in, read by the same client under the
+same rules: the curated catalog unless the instance has opted out of curation,
+https only for a curated instance, and the digest checked before anything is
+unpacked. Its format, a theme entry's fields included, is in
+[the plugin contract](plugin-contract.md#distribution-and-installation).
+
 Storage and the database cannot share a transaction, so the database is made the
 decider. The package is written to a staging directory beside the installed
 theme, the row and the audit entry are written in one transaction, and moving
@@ -270,6 +276,10 @@ session and to nothing else; nothing is written and no other viewer is affected.
 `parseThemeManifest`, `lintTheme`, `resolveThemeChain` and the archive reader
 and writer. A theme repository's CI can therefore run the exact check the core
 will run, and see the same refusal, before the theme is published.
+`lintThemePackage` is that check in one call: it reads a packed theme and lints
+it against the themes it may extend, with the function the instance runs at
+install, and answers either the reader's refusal or the manifest with every
+lint finding.
 
 ## What is themeable, and what is not
 

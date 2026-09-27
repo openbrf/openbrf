@@ -12,9 +12,9 @@ apps/api/src/generated/
 # Local data volume: uploads, encryption keys, installed plugins and themes
 .data/
 
-# Built by `pnpm fixtures:build`. The fixture's source is committed; the packed
-# tarball and the catalog that names it are not, because the catalog carries an
-# absolute file: URL that is only correct on the machine that built it.
+# Built by `pnpm fixtures:build`. The fixtures' sources are committed; the packed
+# tarballs and the catalog that names them are not, because the catalog carries
+# absolute file: URLs that are only correct on the machine that built it.
 # (fixtures/example-plugin/dist/ is already covered by the dist/ rule above.)
 fixtures/.artifacts/
 fixtures/catalog/catalog.json

@@ -97,9 +97,8 @@ services:
 
       OPENBRF_PLUGINS_ENABLED: ${OPENBRF_PLUGINS_ENABLED:-true}
       OPENBRF_CATALOG_URL: ${OPENBRF_CATALOG_URL:-}
-      # Needed only while the catalog repository is private, before public
-      # launch. Sent as the bearer token for the catalog index and for the
-      # release tarballs it points at.
+      # Only for an index that requires a bearer token; the curated catalog is
+      # public.
       OPENBRF_CATALOG_TOKEN: ${OPENBRF_CATALOG_TOKEN:-}
       OPENBRF_UNCURATED_PLUGINS_ENABLED: ${OPENBRF_UNCURATED_PLUGINS_ENABLED:-false}
     ports:

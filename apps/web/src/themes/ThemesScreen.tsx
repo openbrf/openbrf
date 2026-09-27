@@ -14,6 +14,7 @@ import {
   type ThemeSummary,
   uninstallTheme,
 } from "../api/themes";
+import { catalogText } from "../i18n/catalog-text";
 import { useThemeRuntime } from "../theme/theme-runtime-context";
 import { PRIMARY_BUTTON, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -469,13 +470,13 @@ function CatalogRow({
   busy: boolean;
   onInstall: () => void;
 }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const current = entry.installedVersion === entry.version;
 
   return (
     <li className="flex flex-col gap-2 rounded-control border border-line p-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="text-title">{entry.name}</h3>
+        <h3 className="text-title">{catalogText(entry.name, i18n.language)}</h3>
         <span className="font-data text-data text-ink-muted">
           {entry.version}
         </span>
@@ -486,9 +487,9 @@ function CatalogRow({
         ) : null}
       </div>
 
-      {entry.description === null ? null : (
-        <p className="text-small text-ink-muted">{entry.description}</p>
-      )}
+      <p className="text-small text-ink-muted">
+        {catalogText(entry.description, i18n.language)}
+      </p>
 
       {entry.contract === null ? null : (
         <p className="font-data text-data text-ink-muted">

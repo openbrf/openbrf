@@ -78,8 +78,9 @@ export interface ThemeRendering {
 
 export interface CatalogTheme {
   id: string;
-  name: string;
-  description: string | null;
+  /** The catalog's own text in both languages; shown in the viewer's. */
+  name: { sv: string; en: string };
+  description: { sv: string; en: string };
   version: string;
   contract: string | null;
   /** The version already installed, when this theme is installed. */

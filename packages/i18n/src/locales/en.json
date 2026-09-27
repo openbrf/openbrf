@@ -1649,7 +1649,7 @@
       "unknown": "The themes could not be loaded just now. Please try again.",
       "loadFailed": "The installed themes could not be read.",
       "forbidden": "Installing and switching themes is an administrator's job.",
-      "catalogNotConfigured": "No theme catalog is configured for this instance.",
+      "catalogNotPermitted": "This instance is pointed at a catalog outside the curated one. Installing themes from it has to be allowed explicitly in the instance's configuration.",
       "catalogUnreachable": "The theme catalog could not be reached.",
       "catalogInvalid": "The theme catalog did not answer with anything this version can read.",
       "packageUnreachable": "The theme package could not be downloaded.",

@@ -11,6 +11,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
+import { CatalogClient } from "../packaging/catalog.client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   ThemeInstallError,
@@ -23,10 +24,12 @@ import { ThemeService } from "./theme.service";
 /**
  * Composing a theme on the instance, against a real database.
  *
- * Deliberately configured with no catalog at all. Composing is the answer for
- * an association that has nothing to install from, so a suite that needed a
- * catalog to prove it would be proving the wrong thing - and the first
- * assertion below is that the catalog really is absent.
+ * Deliberately configured with no catalog it can read. Composing is the answer
+ * for an association that has nothing to install from, so a suite that needed
+ * a catalog to prove it would be proving the wrong thing - and the first
+ * assertion below is that the catalog really is out of reach. It is named and
+ * refused rather than left unset, because an unset address reads the curated
+ * catalog over the network, and this suite reads nothing from it.
  *
  * What it covers is the part composing shares with installing: the same lint
  * gate refuses an illegible theme before anything is written, the same store
@@ -68,8 +71,11 @@ beforeAll(async () => {
   const env = {
     ...baseEnv,
     OPENBRF_DATA_DIR: dataDirectory,
-    // No catalog: composing must need none.
-    OPENBRF_CATALOG_URL: undefined,
+    // An index outside the curated catalog, on an instance that has not opted
+    // out of curation: refused before anything is fetched. Composing must
+    // need no catalog.
+    OPENBRF_CATALOG_URL: "https://catalog.invalid/catalog.json",
+    OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
   } as Env;
 
   prisma = new PrismaClient({
@@ -83,7 +89,7 @@ beforeAll(async () => {
   installer = new ThemeInstallService(
     service,
     audit,
-    new CatalogThemeSource(env),
+    new CatalogThemeSource(new CatalogClient(env)),
     store,
     themes,
   );
@@ -176,9 +182,11 @@ async function refusal(compose: Promise<unknown>): Promise<ThemeInstallError> {
   throw new Error("The compose was expected to be refused, and was not.");
 }
 
-describe("composing a theme with no catalog configured", () => {
+describe("composing a theme with no catalog to read", () => {
   it("has no catalog to install from", async () => {
-    await expect(installer.catalog()).rejects.toThrow();
+    await expect(installer.catalog()).rejects.toMatchObject({
+      reason: "catalog-source-not-permitted",
+    });
   });
 
   it("composes a theme that inherits the default one", async () => {

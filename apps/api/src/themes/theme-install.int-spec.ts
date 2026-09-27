@@ -1,6 +1,7 @@
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -9,8 +10,12 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
+import { CatalogClient } from "../packaging/catalog.client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
-import { buildThemeFixtureCatalog } from "../testing/theme-fixtures";
+import {
+  buildThemeFixtureCatalog,
+  type FixtureCatalogEntry,
+} from "../testing/theme-fixtures";
 import {
   ThemeInstallError,
   ThemeInstallService,
@@ -30,6 +35,10 @@ import { ThemeService } from "./theme.service";
  * What the suite proves is exit criterion 11 minus the network: a theme
  * declaring `extends: porttavlan` installs from a catalog, passes the lint,
  * previews, activates, and does all of it without the process restarting.
+ *
+ * The index is read through the catalog client the plugin screen uses, in the
+ * one format both kinds are listed in. It is a file on disk rather than the
+ * curated address, which is exactly what the uncurated flag gates.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -39,6 +48,7 @@ let themes: ThemeService;
 let installer: ThemeInstallService;
 let dataDirectory: string;
 let catalogDirectory: string;
+let exampleEntry: FixtureCatalogEntry;
 
 /** Restored in afterAll, so the shared database is left as it was found. */
 let associationExisted = false;
@@ -59,11 +69,17 @@ beforeAll(async () => {
   catalogDirectory = await mkdtemp(join(tmpdir(), "openbrf-theme-catalog-"));
   dataDirectory = await mkdtemp(join(tmpdir(), "openbrf-theme-data-"));
   const catalog = await buildThemeFixtureCatalog(catalogDirectory);
+  const example = catalog.entries.find((entry) => entry.id === "example-theme");
+  if (example === undefined) {
+    throw new Error("The fixture catalog has no example-theme entry.");
+  }
+  exampleEntry = example;
 
   const env = {
     ...baseEnv,
     OPENBRF_DATA_DIR: dataDirectory,
-    OPENBRF_CATALOG_URL: catalog.catalogPath,
+    OPENBRF_CATALOG_URL: pathToFileURL(catalog.catalogPath).href,
+    OPENBRF_UNCURATED_PLUGINS_ENABLED: true,
   } as Env;
 
   prisma = new PrismaClient({
@@ -77,7 +93,7 @@ beforeAll(async () => {
   installer = new ThemeInstallService(
     service,
     audit,
-    new CatalogThemeSource(env),
+    new CatalogThemeSource(new CatalogClient(env)),
     store,
     themes,
   );
@@ -154,8 +170,18 @@ describe("installing a theme from the catalog", () => {
       where: { id: "example-theme" },
     });
     expect(row.version).toBe("1.0.0");
-    expect(row.sourceUrl).toBe("example-theme-1.0.0.tgz");
+    expect(row.sourceUrl).toBe(exampleEntry.artifact.url);
+
+    // The column holds hex, whichever spelling the index wrote: the fixture
+    // index writes the `sha512-<base64>` form npm reports.
+    expect(exampleEntry.artifact.sha512).toMatch(/^sha512-/);
     expect(row.checksum).toMatch(/^[0-9a-f]{128}$/);
+    expect(row.checksum).toBe(
+      Buffer.from(
+        exampleEntry.artifact.sha512.slice("sha512-".length),
+        "base64",
+      ).toString("hex"),
+    );
 
     // Resolution ran: the theme's own accent over the default's page ground.
     const light = row.lightTokens as Record<string, string>;

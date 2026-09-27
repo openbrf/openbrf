@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
+import { catalogText } from "../i18n/catalog-text";
 import type { TranslationKey } from "../i18n/translation-key";
 import { QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -47,7 +48,6 @@ export function CatalogPanel({
   reloadToken,
 }: CatalogPanelProps): ReactElement {
   const { t } = useTranslation();
-  const swedish = locale.startsWith("sv");
 
   const [state, setState] = useState<Listing>({
     loading: true,
@@ -139,10 +139,10 @@ export function CatalogPanel({
             >
               <div className="flex min-w-0 flex-col gap-1">
                 <span className="text-body font-semibold text-ink">
-                  {swedish ? entry.name.sv : entry.name.en}
+                  {catalogText(entry.name, locale)}
                 </span>
                 <span className="text-small text-ink-muted">
-                  {swedish ? entry.description.sv : entry.description.en}
+                  {catalogText(entry.description, locale)}
                 </span>
                 <span className="font-data text-small text-ink-muted">
                   {entry.packageName} {entry.version}

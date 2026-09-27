@@ -24,13 +24,24 @@ const CACHE_MILLISECONDS = 60_000;
 const MAX_INDEX_BYTES = 4 * 1024 * 1024;
 
 /**
+ * How long reading the index may take before it is abandoned.
+ *
+ * Both install screens read it inside the request, and so does an install
+ * whose cached copy has expired: a host that answers and then goes quiet would
+ * otherwise hold the request handler and its database connection for as long
+ * as it cared to. An index is a small file, and one that stalls is an index
+ * that could not be reached.
+ */
+export const INDEX_TIMEOUT_MILLISECONDS = 30_000;
+
+/**
  * Reads the catalog.
  *
  * Shared by the plugin and theme install screens: one index lists both, so
- * one client fetches it. The optional bearer token is applied to the index and
- * to the release assets alike, because before public launch both live in
- * private repositories (plan section 5); after launch the token is simply
- * unset and nothing in this code changes.
+ * one client fetches it, and both screens are held to the same curation rule,
+ * the same https-only rule and the same cache. The optional bearer token is
+ * for an index that requires one, and is applied to the index and to the
+ * artifacts it names alike; the curated catalog is public and needs none.
  *
  * The result is cached briefly. Browsing the catalog is a screen with tabs and
  * a search box, and re-fetching a static index on every keystroke would be an
@@ -71,7 +82,7 @@ export class CatalogClient {
     return configured;
   }
 
-  /** The Authorization header for the index and for its release assets. */
+  /** The Authorization header for the index and for the artifacts it names. */
   authorization(): Record<string, string> {
     const token = this.env.OPENBRF_CATALOG_TOKEN;
     return token === undefined ? {} : { authorization: `Bearer ${token}` };
@@ -123,6 +134,7 @@ export class CatalogClient {
         headers: { accept: "application/json", ...this.authorization() },
         maxBytes: MAX_INDEX_BYTES,
         allowUncuratedSources: this.allowsUncuratedSources(),
+        timeoutMs: INDEX_TIMEOUT_MILLISECONDS,
       });
     } catch (cause) {
       this.logger.warn(

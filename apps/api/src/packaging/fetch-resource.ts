@@ -25,6 +25,11 @@ import { fileURLToPath } from "node:url";
  * process that answers this call is the one holding the member register, so a
  * source that replies with a multi-gigabyte body must not be able to make it
  * allocate all of it first.
+ *
+ * A deadline, when the caller sets one, bounds time the way the limit bounds
+ * size. One deadline for the whole exchange - every hop and the body - so a
+ * source that answers and then stops sending is abandoned on the same terms as
+ * one that never answers at all.
  */
 
 /** What a curated instance may read from. */
@@ -67,6 +72,12 @@ export interface FetchOptions {
    * one deliberate flag rather than a second.
    */
   allowUncuratedSources?: boolean;
+  /**
+   * Abandons the fetch once this many milliseconds have passed, wherever it
+   * is: waiting for an answer, following a redirect, or reading the body.
+   * Unset, the fetch takes as long as the source does.
+   */
+  timeoutMs?: number;
 }
 
 /** 64 MiB. A plugin tarball an order of magnitude past this is a mistake. */
@@ -94,7 +105,15 @@ export async function fetchBytes(
   const bytes =
     parsed.protocol === "file:"
       ? await readLocalFile(parsed, maxBytes)
-      : await readOverHttp(parsed, options.headers ?? {}, maxBytes, allowed);
+      : await withDeadline(options.timeoutMs, url, (signal) =>
+          readOverHttp(
+            parsed,
+            options.headers ?? {},
+            maxBytes,
+            allowed,
+            signal,
+          ),
+        );
 
   // Kept as well as the streaming check, for the local path and for a source
   // that understated its length by less than one chunk.
@@ -106,6 +125,44 @@ export async function fetchBytes(
   }
 
   return bytes;
+}
+
+/**
+ * Runs `read` under one deadline, when there is one.
+ *
+ * The timer is cleared once the exchange ends, so a read that finished leaves
+ * nothing pending, and reaching it is reported as an unreachable source rather
+ * than as whatever the interrupted step would have thrown.
+ */
+async function withDeadline<T>(
+  timeoutMs: number | undefined,
+  url: string,
+  read: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
+  if (timeoutMs === undefined) {
+    return read(undefined);
+  }
+
+  const deadline = new AbortController();
+  const expiry = setTimeout(() => {
+    deadline.abort(
+      new ResourceFetchError(
+        `${url} did not finish within ${String(timeoutMs)} ms.`,
+        "unreachable",
+      ),
+    );
+  }, timeoutMs);
+
+  try {
+    return await read(deadline.signal);
+  } catch (cause) {
+    if (deadline.signal.aborted) {
+      throw deadline.signal.reason as ResourceFetchError;
+    }
+    throw cause;
+  } finally {
+    clearTimeout(expiry);
+  }
 }
 
 function refuseUnlessAllowed(url: URL, allowed: ReadonlySet<string>): void {
@@ -164,6 +221,7 @@ async function readOverHttp(
   headers: Record<string, string>,
   maxBytes: number,
   allowed: ReadonlySet<string>,
+  signal: AbortSignal | undefined,
 ): Promise<Buffer> {
   let target = url;
   let carried = headers;
@@ -171,7 +229,11 @@ async function readOverHttp(
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     let response: Response;
     try {
-      response = await fetch(target, { headers: carried, redirect: "manual" });
+      response = await fetch(target, {
+        headers: carried,
+        redirect: "manual",
+        ...(signal === undefined ? {} : { signal }),
+      });
     } catch {
       throw new ResourceFetchError(
         `${target.href} could not be reached.`,
@@ -187,7 +249,7 @@ async function readOverHttp(
           "unreachable",
         );
       }
-      return await readBody(response, target, maxBytes);
+      return await readBody(response, target, maxBytes, signal);
     }
 
     // Nothing below reads a redirect's body, and an unread body holds the
@@ -237,6 +299,7 @@ async function readBody(
   response: Response,
   url: URL,
   maxBytes: number,
+  signal: AbortSignal | undefined,
 ): Promise<Buffer> {
   const declared = Number(response.headers.get("content-length") ?? Number.NaN);
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -257,7 +320,7 @@ async function readBody(
   let total = 0;
 
   for (;;) {
-    const { done, value } = await reader.read();
+    const { done, value } = await untilAborted(reader, signal);
     if (done) {
       break;
     }
@@ -278,6 +341,48 @@ async function readBody(
   }
 
   return Buffer.concat(chunks);
+}
+
+/**
+ * The next chunk, or the deadline's reason once it passes.
+ *
+ * fetch ties the body it returns to the signal it was given, but that is the
+ * runtime's behaviour rather than something this code can see; racing each
+ * read against the signal makes the deadline hold for any body, and cancels
+ * the transfer rather than leaving it to be collected.
+ */
+async function untilAborted<T>(
+  reader: { read(): Promise<T>; cancel(): Promise<void> },
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (signal === undefined) {
+    return reader.read();
+  }
+  signal.throwIfAborted();
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      reject(signal.reason);
+      void reader.cancel().catch(() => {
+        // The connection is being abandoned either way.
+      });
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+  try {
+    const result = await Promise.race([reader.read(), aborted]);
+    // Cancelling ends a pending read as though the body had finished, so a
+    // read that won the race against the deadline is checked against it too:
+    // a truncated body must never be returned as a whole one.
+    signal.throwIfAborted();
+    return result;
+  } finally {
+    if (onAbort !== undefined) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
 }
 
 /**

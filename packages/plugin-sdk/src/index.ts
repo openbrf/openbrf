@@ -39,6 +39,20 @@ export {
   PLUGIN_API_VERSION,
   SUPPORTED_PLUGIN_API_VERSIONS,
 } from "./api-version.ts";
+export {
+  type Catalog,
+  type CatalogArtifact,
+  catalogArtifactSchema,
+  type CatalogEntry,
+  catalogEntrySchema,
+  type CatalogParseResult,
+  type CatalogPluginEntry,
+  catalogPluginEntrySchema,
+  catalogSchema,
+  type CatalogThemeEntry,
+  catalogThemeEntrySchema,
+  parseCatalogIndex,
+} from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
 export {
   PLUGIN_FINDING_REASONS,
@@ -79,6 +93,11 @@ export {
   pluginPackageSchema,
   parsePluginPackage,
 } from "./manifest.ts";
+export {
+  HOST_SHARED_PACKAGES,
+  type PluginPackageContents,
+  pluginPackageProblems,
+} from "./package-check.ts";
 export type {
   StandardSchemaIssue,
   StandardSchemaResult,

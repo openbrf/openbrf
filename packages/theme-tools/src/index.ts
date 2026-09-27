@@ -66,8 +66,16 @@ export type {
   ThemeManifest,
 } from "./manifest.ts";
 
-export { readThemePackage } from "./package.ts";
-export type { ReadThemePackageResult, ThemePackage } from "./package.ts";
+export {
+  lintThemeAgainst,
+  lintThemePackage,
+  readThemePackage,
+} from "./package.ts";
+export type {
+  LintThemePackageResult,
+  ReadThemePackageResult,
+  ThemePackage,
+} from "./package.ts";
 
 export {
   compareVersions,
