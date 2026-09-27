@@ -259,7 +259,9 @@ follow as well:
 2. Start the target image by digest - the digest its attestation names, not a
    tag that could move.
 3. The upgrade has succeeded when the container's health is `healthy` within
-   its start period.
+   its start period and, where the [management API](#the-management-api) is
+   configured, its summary names the target's `version` and has
+   `migrations.failed` and `migrations.pending` at 0.
 4. Otherwise, stop it, restore both halves of the backup, and start the
    previous image by its digest.
 
@@ -529,3 +531,16 @@ against.
 Every connection is visible to the board under Connected apps, and the board can
 cut one off; a member can see and cut their own. A disconnect takes effect on
 the next call the app makes, not when its token would have expired.
+
+## The management API
+
+Whoever hosts an instance can read a summary of it - the apartment count, the
+size of the registers, whether residents have been invited, the day the board
+was last active, storage, the version and the state of the migrations - and
+nothing about any one person. It is off unless `OPENBRF_MANAGEMENT_PORT` and
+`OPENBRF_MANAGEMENT_TOKEN_DIGEST` are both set, it listens on that port of its
+own and never on the public address, and every read is written to the audit
+log. The port is never published.
+
+[management-api.md](management-api.md) says how to enable it, how to mint and
+rotate its token, and what each field of the summary is.

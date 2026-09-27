@@ -223,6 +223,12 @@ locally the application runs from source beside the PostgreSQL that
       and names its version on start. An instance follows a minor line with
       `pull`, and several instances can share one database server, each with
       its own runtime role and a database closed to the others.
+- [x] A management API for whoever hosts an instance: a read-only summary on a
+      port of its own - the apartment count, the size of the registers, whether
+      residents have been invited, the day the board was last active, storage,
+      the version and the state of the migrations - behind a token the instance
+      holds only as a digest. It carries no person's data, is off unless
+      configured, and every read is in the audit log.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
