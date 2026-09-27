@@ -144,16 +144,28 @@ export function RecipientQuestion({
   const introId = useId();
   const recipientHintId = useId();
   const hintIdPrefix = useId();
+  const warningId = useId();
 
   const update = (change: Partial<RecipientDraft>): void => {
     onChange({ ...draft, ...change });
   };
 
-  const identityNumberTyped =
-    draft.sendsOutside === true &&
-    (carriesIdentityNumber(draft.recipient) ||
-      (draft.classification === "INDEPENDENT_CONTROLLER" &&
-        carriesIdentityNumber(draft.note)));
+  /*
+   * Per field, so the one holding the number is the one marked invalid. The
+   * reason counts only where it is asked for: a note typed under an independent
+   * controller and left behind by switching to a processor is not sent.
+   */
+  const recipientInvalid = carriesIdentityNumber(draft.recipient);
+  const noteInvalid =
+    draft.classification === "INDEPENDENT_CONTROLLER" &&
+    carriesIdentityNumber(draft.note);
+  const identityNumberTyped = recipientInvalid || noteInvalid;
+
+  /** Marks a field invalid and names the warning, or says nothing. */
+  const invalidAttributes = (
+    invalid: boolean,
+  ): { "aria-invalid"?: true; "aria-errormessage"?: string } =>
+    invalid ? { "aria-invalid": true, "aria-errormessage": warningId } : {};
 
   return (
     <section className="flex flex-col gap-3">
@@ -211,6 +223,7 @@ export function RecipientQuestion({
                 autoComplete="off"
                 disabled={disabled}
                 aria-describedby={recipientHintId}
+                {...invalidAttributes(recipientInvalid)}
                 onChange={(event) => {
                   update({ recipient: event.target.value });
                 }}
@@ -263,6 +276,7 @@ export function RecipientQuestion({
                 required
                 maxLength={1000}
                 disabled={disabled}
+                {...invalidAttributes(noteInvalid)}
                 onChange={(event) => {
                   update({ note: event.target.value });
                 }}
@@ -270,11 +284,26 @@ export function RecipientQuestion({
             </label>
           ) : null}
 
-          {identityNumberTyped ? (
-            <Notice tone="warn" live>
-              {t("dataProtection.processors.errors.personalIdentityNumber")}
-            </Notice>
-          ) : null}
+          {/*
+            The live region is mounted with the fields and stays, and only the
+            warning inside it comes and goes: a status region inserted together
+            with its message can stay silent (see Notice), and this warning is
+            not a failure that earns an alert. The Notice inside is therefore not
+            live itself, which would nest one region in another. Empty, it takes
+            no room: the negative margin cancels the gap above it.
+          */}
+          <div
+            id={warningId}
+            role="status"
+            aria-live="polite"
+            className="empty:-mt-3"
+          >
+            {identityNumberTyped ? (
+              <Notice tone="warn">
+                {t("dataProtection.processors.errors.personalIdentityNumber")}
+              </Notice>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </section>

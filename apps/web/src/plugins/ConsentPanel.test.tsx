@@ -495,6 +495,51 @@ describe("where the plugin sends personal data", () => {
     expect(screen.getByText("Skriv utan personnummer.")).toBeTruthy();
     expect(installButton()).toHaveProperty("disabled", true);
   });
+
+  it("marks the field that holds one and says so through a region already in place", async () => {
+    /*
+     * A status region inserted together with its message can stay silent, so
+     * the region is there, empty, from the moment "Ja" is answered, and only
+     * its content comes and goes. The field holding the number says it is
+     * invalid and names the message, so a screen-reader user learns which of
+     * the two it is rather than only that one of them is wrong.
+     */
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.click(somethingLeaves());
+    const region = screen.getByRole("status");
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    expect(region.textContent).toBe("");
+    expect(recipientField().getAttribute("aria-invalid")).toBeNull();
+
+    await session.type(recipientField(), "Anna 811228-9874");
+    expect(recipientField().getAttribute("aria-invalid")).toBe("true");
+    const recipientMessage = document.getElementById(
+      recipientField().getAttribute("aria-errormessage") ?? "",
+    );
+    expect(recipientMessage).toBe(region);
+    expect(region.textContent).toContain("Skriv utan personnummer.");
+
+    await session.clear(recipientField());
+    await session.type(recipientField(), "Kartbolaget AB");
+    expect(recipientField().getAttribute("aria-invalid")).toBeNull();
+    expect(recipientField().getAttribute("aria-errormessage")).toBeNull();
+    expect(region.textContent).toBe("");
+
+    await session.click(asIndependentController());
+    const note = screen.getByRole("textbox", {
+      name: "Varför inget avtal behövs",
+    });
+    await session.type(note, "Enligt 811228-9874");
+    expect(note.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      document.getElementById(note.getAttribute("aria-errormessage") ?? ""),
+    ).toBe(region);
+    expect(region.textContent).toContain("Skriv utan personnummer.");
+    // Only the field that holds it.
+    expect(recipientField().getAttribute("aria-invalid")).toBeNull();
+  });
 });
 
 describe("while the install runs", () => {
