@@ -358,6 +358,7 @@
           "systemRoles": "System roles",
           "account": "Account",
           "signInSessions": "Signed-in sessions",
+          "invitations": "Invitations to an account",
           "connectedApps": "Connected apps",
           "memberRegister": "The member register",
           "transfers": "Grants and transfers",
@@ -526,7 +527,10 @@
           "userAgent": "Browser, as it named itself",
           "passkeys": "Passkeys",
           "added": "Added",
-          "synced": "Synced between devices"
+          "synced": "Synced between devices",
+          "sent": "Sent",
+          "validUntil": "Valid until",
+          "accepted": "Accepted"
         },
         "appScope": {
           "read": "Read data",
@@ -4386,7 +4390,7 @@
           "name": "Sign-up requests and invitations",
           "purpose": "Deciding who is given an account on the instance.",
           "legalBasisNote": "Legitimate interest: the association decides who gets access.",
-          "retention": "A decided request is deleted by the board. An invitation never accepted is purged with the person's other service data."
+          "retention": "A decided request is kept, and no purge reaches it. An invitation, accepted or not, is purged with the person's other service data, and a new invitation replaces one never accepted."
         },
         "boardPositionsAndSystemRoles": {
           "name": "Positions of trust and system roles",

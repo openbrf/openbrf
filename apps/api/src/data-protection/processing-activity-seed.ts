@@ -503,7 +503,21 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   signupRequestsAndInvitations: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
-    dataSubjectCategories: ["applicant"],
+    /*
+     * Whoever asks for an account, and everybody an invitation can go to: the
+     * board invites anybody the register holds - a member, a resident, a board
+     * member, and an external property manager or administrator. Former
+     * residents because a decided request is kept after its applicant has
+     * moved, and an invitation stays until the purge reaches the person.
+     */
+    dataSubjectCategories: [
+      "applicant",
+      "member",
+      "resident",
+      "boardMember",
+      "external",
+      "formerResident",
+    ],
     personalDataCategories: ["name", "email", "freeText"],
   },
   /*

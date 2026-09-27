@@ -54,8 +54,6 @@ const ROWS_WITHOUT_A_SECTION: Partial<
   contactSubmissions: "notKeyedToAPerson",
   // `news_delivery.personId`: which mailing reached whom.
   newsMailings: "notOnTheReport",
-  // `invitation.personId`: who was invited to an account, and when.
-  signupRequestsAndInvitations: "notOnTheReport",
 };
 
 /**
@@ -70,6 +68,7 @@ const REPORTED_IN_ORDER = [
   "systemRoles",
   "account",
   "signInSessions",
+  "invitations",
   "connectedApps",
   "memberRegisterEntries",
   "transfers",

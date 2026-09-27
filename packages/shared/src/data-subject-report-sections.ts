@@ -19,6 +19,7 @@ export const DATA_SUBJECT_REPORT_SECTIONS = [
   "systemRoles",
   "account",
   "signInSessions",
+  "invitations",
   "connectedApps",
   "memberRegisterEntries",
   "transfers",

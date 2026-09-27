@@ -78,6 +78,7 @@ export const SECTION_TITLE = {
   systemRoles: "register.person.report.section.systemRoles",
   account: "register.person.report.section.account",
   signInSessions: "register.person.report.section.signInSessions",
+  invitations: "register.person.report.section.invitations",
   connectedApps: "register.person.report.section.connectedApps",
   memberRegisterEntries: "register.person.report.section.memberRegister",
   transfers: "register.person.report.section.transfers",
@@ -974,6 +975,35 @@ export function DataSubjectReport({
                       <span className="block break-words">
                         {session.userAgent ?? nothing}
                       </span>
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * The invitations to an account, accepted or not. Who sent one is
+             * not a column: the act is the board member's, and the audit log
+             * below states it.
+             */}
+            <Section section="invitations">
+              <Rows
+                empty={report.invitations.length === 0}
+                headings={[
+                  "register.person.report.field.sent",
+                  "register.person.report.field.validUntil",
+                  "register.person.report.field.accepted",
+                ]}
+              >
+                {report.invitations.map((invitation, position) => (
+                  <tr
+                    key={`${invitation.sentAt}-${String(position)}`}
+                    className={ROW}
+                  >
+                    <td className={DATA_CELL}>{day(invitation.sentAt)}</td>
+                    <td className={DATA_CELL}>{day(invitation.validUntil)}</td>
+                    <td className={DATA_CELL}>
+                      {day(invitation.acceptedAt) ?? nothing}
                     </td>
                   </tr>
                 ))}

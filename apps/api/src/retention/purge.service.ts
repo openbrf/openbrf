@@ -175,9 +175,9 @@ export interface PurgeRunSummary {
  *
  * Contact details and the account: the email and phone ciphers with their blind
  * indexes, the personal locale preference, the Better Auth account with the
- * sessions and credentials that hang off it, and invitations that were never
- * accepted. That is the operational relationship with a person who no longer
- * lives here, and none of it has a purpose once they have gone.
+ * sessions and credentials that hang off it, and the invitations to it. That is
+ * the operational relationship with a person who no longer lives here, and none
+ * of it has a purpose once they have gone.
  *
  * ## What it does not touch, and why
  *
@@ -782,10 +782,7 @@ export class PurgeService implements OnModuleInit {
             select: { id: true },
           },
           userAccount: { select: { id: true } },
-          invitations: {
-            where: { acceptedAt: null },
-            select: { id: true },
-          },
+          invitations: { select: { id: true } },
         },
       });
 
@@ -872,13 +869,15 @@ export class PurgeService implements OnModuleInit {
           : (await tx.user.deleteMany({ where: { personId } })).count > 0;
 
       /*
-       * Invitations that were never accepted. Each carries a live token hash
-       * for a link somebody could still be holding, so leaving them would
-       * leave a way back into an account the purge just deleted. An accepted
-       * invitation is a spent record of an activation and is left alone.
+       * Every invitation, accepted or not. One never accepted carries a live
+       * token hash for a link somebody could still be holding, so leaving it
+       * would leave a way back into an account the purge just deleted. An
+       * accepted one is a spent record of an activation, which the audit log
+       * already holds as INVITATION_ACCEPTED, and kept past the account it
+       * would be held for no purpose at all.
        */
       const { count: invitationsDeleted } = await tx.invitation.deleteMany({
-        where: { personId, acceptedAt: null },
+        where: { personId },
       });
 
       /*
@@ -1084,14 +1083,14 @@ function clearableStates(defaultLocale: string): Prisma.PersonWhereInput[] {
     { phoneIndex: { not: null } },
     /*
      * The stated language, which purgePerson resets and the scan used to miss.
-     * Somebody with no email, no phone, no account and no open invitation was
+     * Somebody with no email, no phone, no account and no invitation was
      * therefore never selected, and their stated preference stayed on file for
      * good - the exact case this list exists to prevent. Imported members are
      * how that state is reached in practice.
      */
     { preferredLocale: { not: defaultLocale } },
     { userAccount: { isNot: null } },
-    { invitations: { some: { acceptedAt: null } } },
+    { invitations: { some: {} } },
   ];
 }
 

@@ -476,6 +476,16 @@ export interface DataSubjectReport {
     userAgent: string | null;
   }[];
   /**
+   * The invitations to an account this person was sent, accepted or not.
+   * Never the token and never who sent it: the act is the board member's, and
+   * the audit log states it.
+   */
+  invitations: {
+    sentAt: string;
+    validUntil: string;
+    acceptedAt: string | null;
+  }[];
+  /**
    * The external programs this person allowed to act for them (ansluten app).
    *
    * On the report for two reasons at once: the grant is a record the

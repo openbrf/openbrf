@@ -100,6 +100,11 @@ export const SECTION_PROCESSING = {
    * and from where is the association's record of access to its services.
    */
   signInSessions: { row: "addressBookAndAccounts", portability: "notProvided" },
+  // Legitimate interest: letting the people the register holds sign in.
+  invitations: {
+    row: "signupRequestsAndInvitations",
+    portability: "otherBasis",
+  },
   connectedApps: { row: "connectedApps", portability: "carried" },
   memberRegisterEntries: { row: "memberRegister", portability: "otherBasis" },
   /*

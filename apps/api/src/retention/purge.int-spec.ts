@@ -147,7 +147,7 @@ const people = {
   staying: `purge-staying-${suffix}`,
   /** Carries statutory register rows and an audit trail. */
   archived: `purge-archived-${suffix}`,
-  /** Has an account, a session and an invitation that was never accepted. */
+  /** Has an account, a session, an invitation never accepted and one accepted. */
   accounted: `purge-accounted-${suffix}`,
   /** Purged twice, to prove the second run writes nothing. */
   twice: `purge-twice-${suffix}`,
@@ -898,7 +898,7 @@ describe("what the purge erases", () => {
     ).resolves.not.toBeNull();
   });
 
-  it("deletes the account and every invitation still open", async () => {
+  it("deletes the account and every invitation", async () => {
     /*
      * The grant and the tokens behind a connected app are here before the run,
      * so their absence afterwards means the cascade reached them rather than
@@ -913,7 +913,8 @@ describe("what the purge erases", () => {
     const outcome = await purge.purgePerson(people.accounted, dueAt);
 
     expect(outcome?.accountDeleted).toBe(true);
-    expect(outcome?.invitationsDeleted).toBe(1);
+    // The one never accepted and the one accepted.
+    expect(outcome?.invitationsDeleted).toBe(2);
 
     await expect(
       prisma.user.count({ where: { personId: people.accounted } }),
@@ -958,13 +959,17 @@ describe("what the purge erases", () => {
         where: { personId: people.accounted, acceptedAt: null },
       }),
     ).resolves.toBe(0);
-    // An accepted invitation is a spent record of an activation rather than a
-    // live way in, so it is left where it is.
+    /*
+     * And the accepted one. It is a spent record of an activation rather than
+     * a live way in, and the audit log already holds the fact as
+     * INVITATION_ACCEPTED - so kept past the account, it would be held for no
+     * purpose at all.
+     */
     await expect(
       prisma.invitation.count({
         where: { personId: people.accounted, NOT: { acceptedAt: null } },
       }),
-    ).resolves.toBe(1);
+    ).resolves.toBe(0);
   });
 
   it("records the purge naming what was cleared and none of the values", async () => {

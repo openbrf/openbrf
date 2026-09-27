@@ -234,7 +234,7 @@ describe("seedRows", () => {
      * application is kept two years past the letting, a key order a year past
      * closing, a comment a year from writing, a charge through the accounting
      * archive's seven years, a thread two years from its last message, and a
-     * position of trust for good.
+     * position of trust and a decided sign-up request for good.
      */
     for (const key of [
       "subletApplications",
@@ -243,6 +243,7 @@ describe("seedRows", () => {
       "memberCharges",
       "boardMailbox",
       "boardPositionsAndSystemRoles",
+      "signupRequestsAndInvitations",
     ]) {
       expect(rowFor(key).dataSubjectCategories, key).toContain(
         "formerResident",
@@ -259,6 +260,21 @@ describe("seedRows", () => {
     expect(rowFor("subletApplications").dataSubjectCategories).toContain(
       "external",
     );
+  });
+
+  it("names everybody an invitation can reach", () => {
+    /*
+     * An invitation goes to anybody the register holds, not only to somebody
+     * who asked for an account: a member, a resident, a board member, and an
+     * external property manager or administrator. A row naming the applicant
+     * alone would describe the sign-up form and leave the invitations out.
+     */
+    for (const category of ["member", "resident", "boardMember", "external"]) {
+      expect(
+        rowFor("signupRequestsAndInvitations").dataSubjectCategories,
+        category,
+      ).toContain(category);
+    }
   });
 
   it("puts the charges beside the fees, on the bookkeeping obligation", () => {

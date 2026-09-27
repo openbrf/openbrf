@@ -149,6 +149,15 @@ const tokenExpiresAt = new Date(tokenIssuedAt.getTime() + 60 * 60 * 1000);
  * unique across the instance.
  */
 const SUBJECT_BROWSER = `Utdragslasaren/1.0 (dsar ${suffix})`;
+/**
+ * The hash of the subject's invitation token, per run because the column is
+ * unique across the instance, and the value the report must never carry.
+ */
+const INVITATION_TOKEN_HASH = `dsar-invitation-hash-${suffix}`;
+const invitationSentAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+const invitationAcceptedAt = new Date(
+  invitationSentAt.getTime() + 24 * 60 * 60 * 1000,
+);
 const PASSKEY_NAME = `Telefonen ${suffix}`;
 const PASSKEY_PUBLIC_KEY = `dsar-passkey-public-key-${suffix}`;
 const PASSKEY_CREDENTIAL_ID = `dsar-passkey-credential-${suffix}`;
@@ -978,6 +987,18 @@ beforeAll(async () => {
   });
   await signIn(subject.email, { "user-agent": SUBJECT_BROWSER });
 
+  // The invitation the subject accepted, sent by the board member.
+  await prisma.invitation.create({
+    data: {
+      personId: subject.personId,
+      tokenHash: INVITATION_TOKEN_HASH,
+      createdAt: invitationSentAt,
+      expiresAt: new Date(invitationSentAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+      acceptedAt: invitationAcceptedAt,
+      invitedById: board.personId,
+    },
+  });
+
   boardCookie = await signIn(board.email);
   managerCookie = await signIn(manager.email);
   residentCookie = await signIn(resident.email);
@@ -1058,6 +1079,10 @@ afterAll(async () => {
         () =>
           prisma.oauthClient.deleteMany({
             where: { clientId: CONNECTED_APP_CLIENT_ID },
+          }),
+        () =>
+          prisma.invitation.deleteMany({
+            where: { personId: { in: personIds } },
           }),
         () =>
           prisma.session.deleteMany({
@@ -1278,6 +1303,27 @@ describe("what the report contains", () => {
       select: { token: true },
     });
     expect(JSON.stringify(report)).not.toContain(stored.token);
+  });
+
+  it("states the invitation and never its token", async () => {
+    /*
+     * When it was sent, until when the link worked and when it was accepted.
+     * Not the token hash, which on an invitation never accepted is a live way
+     * into an account, and not who sent it: that is the board member's act,
+     * and the audit log names it on their report.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(report.invitations).toEqual([
+      {
+        sentAt: invitationSentAt.toISOString(),
+        validUntil: expect.any(String) as unknown as string,
+        acceptedAt: invitationAcceptedAt.toISOString(),
+      },
+    ]);
+    const written = JSON.stringify(report);
+    expect(written).not.toContain(INVITATION_TOKEN_HASH);
+    expect(written).not.toContain("invitedById");
   });
 
   it("lists the passkeys on the account and no key material", async () => {

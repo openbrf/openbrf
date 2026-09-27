@@ -140,6 +140,32 @@ export interface ReportSignInSession {
 }
 
 /**
+ * An invitation to activate an account, sent to this person.
+ *
+ * On the report because the association holds it against them: when it was
+ * sent, until when the link worked, and whether they accepted it. The fact is
+ * in the audit log too, as INVITATION_SENT and INVITATION_ACCEPTED, but the row
+ * is what is held until the purge.
+ *
+ * Neither the token nor its hash, in any form: an invitation never accepted is
+ * a live way into an account until it expires. Nor who sent it, on the
+ * precedent of the comment that states whether it was hidden and not who hid
+ * it: the board member who acted is named in the log, where the act is theirs.
+ *
+ * No erasure date of its own. An invitation, accepted or not, goes with the
+ * person's other service data, whose date is `retention.purgeOn`; a new
+ * invitation replaces one never accepted.
+ */
+export interface ReportInvitation {
+  /** ISO instant it was sent. */
+  sentAt: string;
+  /** ISO instant the link stopped, or stops, working. */
+  validUntil: string;
+  /** ISO instant it was accepted, or null. */
+  acceptedAt: string | null;
+}
+
+/**
  * What a grant to a connected app can cover.
  *
  * The three scopes the provider is configured to issue, spelled out rather than
@@ -1323,6 +1349,8 @@ export interface DataSubjectReport {
   account: ReportAccount | null;
   /** The sessions this person's account is, or was, signed in with. */
   signInSessions: ReportSignInSession[];
+  /** The invitations to an account this person was sent. */
+  invitations: ReportInvitation[];
   /** The external programs allowed to act for this person. */
   connectedApps: ReportConnectedApp[];
   memberRegisterEntries: ReportMemberRegisterEntry[];

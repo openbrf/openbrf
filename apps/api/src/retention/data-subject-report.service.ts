@@ -36,6 +36,7 @@ import type {
   ReportDataSubjectRequest,
   ReportFee,
   ReportFeeNotice,
+  ReportInvitation,
   ReportBoardMailboxThread,
   ReportChat,
   ReportChatMessage,
@@ -316,6 +317,15 @@ export class DataSubjectReportService {
               select: { name: true, createdAt: true, backedUp: true },
             },
           },
+        },
+        /*
+         * The invitations to an account, accepted or not. Never the token hash:
+         * one never accepted is a live way in until it expires. Nor who sent
+         * it, which the audit entry for the act states.
+         */
+        invitations: {
+          orderBy: [{ createdAt: "desc" }],
+          select: { createdAt: true, expiresAt: true, acceptedAt: true },
         },
         memberRegisterEntries: {
           orderBy: [{ eventOn: "asc" }],
@@ -1299,6 +1309,11 @@ export class DataSubjectReportService {
                 }),
               ),
             },
+      invitations: person.invitations.map((invitation): ReportInvitation => ({
+        sentAt: invitation.createdAt.toISOString(),
+        validUntil: invitation.expiresAt.toISOString(),
+        acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
+      })),
       signInSessions: (person.userAccount?.sessions ?? []).map(
         (session): ReportSignInSession => ({
           signedInAt: session.createdAt.toISOString(),

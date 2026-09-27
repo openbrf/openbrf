@@ -88,6 +88,7 @@ const EMPTY_REPORT: Report = {
   systemRoles: [],
   account: null,
   signInSessions: [],
+  invitations: [],
   connectedApps: [],
   memberRegisterEntries: [],
   transfers: [],
@@ -152,6 +153,13 @@ const FULL_REPORT: Report = {
       endsAt: "2026-06-01T10:00:00.000Z",
       ipAddress: null,
       userAgent: null,
+    },
+  ],
+  invitations: [
+    {
+      sentAt: "2020-03-01T09:00:00.000Z",
+      validUntil: "2020-03-08T09:00:00.000Z",
+      acceptedAt: "2020-03-02T18:00:00.000Z",
     },
   ],
   connectedApps: [
@@ -1514,6 +1522,7 @@ describe("what the document prints", () => {
     expect(screen.getAllByText("Inget registrerat").length).toBeGreaterThan(5);
     for (const heading of [
       "Inloggade sessioner",
+      "Inbjudningar till konto",
       "Debiteringar",
       "Avgifter för lägenheter du har bott i",
       "Avier för lägenheter du har bott i",

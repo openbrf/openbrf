@@ -69,7 +69,8 @@ const COLUMN_COVERAGE = {
   BoardPosition: { personId: { sections: ["boardPositions"] } },
   SystemRole: { personId: { sections: ["systemRoles"] } },
   Invitation: {
-    personId: { notReported: "gap" },
+    personId: { sections: ["invitations"] },
+    // Not on the invited person's report: the act is the board member's.
     invitedById: { actedAs: ["INVITATION_SENT"] },
   },
   SignupRequest: {
@@ -302,7 +303,6 @@ const COLUMN_COVERAGE = {
 const NAMED_GAPS = [
   "ContactSubmission.handledByPersonId",
   "ImportSession.createdById",
-  "Invitation.personId",
   "MeetingAttendance.onBehalfOfPersonId",
   "MeetingNoticeDelivery.personId",
   "NewsDelivery.personId",

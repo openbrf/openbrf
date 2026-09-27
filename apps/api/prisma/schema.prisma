@@ -700,7 +700,9 @@ model SystemRole {
 }
 
 /// An invitation to activate an account. Every account except the first admin
-/// starts here.
+/// starts here. The data subject access report's `invitations` section reads it
+/// for the person invited, never the token hash or who sent it, and the purge
+/// deletes every invitation of the person, accepted or not.
 model Invitation {
   id       String @id @default(cuid())
   personId String

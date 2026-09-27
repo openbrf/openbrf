@@ -32,8 +32,9 @@ import type { PortableSection } from "./section-processing";
  *   terminations, the lien notes, the reporting ledger and the meeting record,
  *   which rest on a legal obligation and are outside erasure for the same
  *   reason - that leaves out the issue reports, the document archive, the
- *   apartment binder, the chat, comments on news, the board mailbox and the
- *   positions of trust, which rest on the association's legitimate interest,
+ *   apartment binder, the chat, comments on news, the board mailbox, the
+ *   invitations to an account and the positions of trust, which rest on the
+ *   association's legitimate interest,
  *   and the charges, the fees and the association's own data protection
  *   records, which rest on a legal obligation. The access report lists them
  *   all; this does not.

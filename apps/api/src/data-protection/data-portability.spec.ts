@@ -72,6 +72,13 @@ const REPORT = {
       userAgent: "Mozilla/5.0",
     },
   ],
+  invitations: [
+    {
+      sentAt: "2026-08-01T09:00:00.000Z",
+      validUntil: "2026-08-08T09:00:00.000Z",
+      acceptedAt: "2026-08-02T18:00:00.000Z",
+    },
+  ],
   connectedApps: [
     {
       clientName: "Anteckningsappen",
@@ -332,6 +339,7 @@ describe("what the export leaves on the access report", () => {
     >;
 
     expectLeftOnTheReport(exported, [
+      "invitations",
       "issues",
       "documents",
       "apartmentDocuments",

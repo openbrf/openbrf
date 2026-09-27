@@ -358,6 +358,7 @@
           "systemRoles": "Systemroller",
           "account": "Konto",
           "signInSessions": "Inloggade sessioner",
+          "invitations": "Inbjudningar till konto",
           "connectedApps": "Anslutna appar",
           "memberRegister": "Medlemsförteckningen",
           "transfers": "Upplåtelser och överlåtelser",
@@ -526,7 +527,10 @@
           "userAgent": "Webbläsare, som den angav sig",
           "passkeys": "Nycklar",
           "added": "Tillagd",
-          "synced": "Synkas mellan enheter"
+          "synced": "Synkas mellan enheter",
+          "sent": "Skickad",
+          "validUntil": "Giltig till",
+          "accepted": "Accepterad"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -4386,7 +4390,7 @@
           "name": "Kontoansökningar och inbjudningar",
           "purpose": "Avgöra vem som ska få ett konto på instansen.",
           "legalBasisNote": "Berättigat intresse: föreningen avgör vem som får tillgång.",
-          "retention": "En avgjord ansökan tas bort av styrelsen. En inbjudan som aldrig accepterats gallras med personens övriga tjänstedata."
+          "retention": "En avgjord ansökan sparas, och ingen gallring når den. En inbjudan, accepterad eller inte, gallras med personens övriga tjänstedata, och en ny inbjudan ersätter en som aldrig accepterats."
         },
         "boardPositionsAndSystemRoles": {
           "name": "Förtroendeuppdrag och systemroller",
