@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next";
 import { createFirstAdministrator } from "../api/instance";
 import { signInWithPassword } from "../auth/sign-in-methods";
 import type { TranslationKey } from "../i18n/translation-key";
-import { FIELD, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { forgetClaim } from "./setup-claim";
 
 type Status =
   | { kind: "idle" }
@@ -15,6 +16,7 @@ type Status =
 
 const FAILURES: Readonly<Record<string, TranslationKey>> = {
   "already-claimed": "setup.administrator.errors.alreadyClaimed",
+  "claim-token-invalid": "setup.administrator.errors.claimTokenInvalid",
   "invalid-email": "setup.administrator.errors.invalidEmail",
   "invalid-body": "setup.administrator.errors.weakPassword",
 };
@@ -33,10 +35,16 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
  * wizard that stayed open would be an account-creation hole on an instance
  * holding a statutory register, so the server closes this route the moment an
  * account exists.
+ *
+ * And it opens only for the holder of the setup link (ADR 0023). Opened with
+ * the link, the step says so and sends its token; opened without it, the step
+ * asks for the code, which is the token as the link carries it.
  */
 export function AdministratorStep({
+  claimToken,
   onCreated,
 }: {
+  claimToken: string | null;
   onCreated: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -44,6 +52,7 @@ export function AdministratorStep({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -55,6 +64,7 @@ export function AdministratorStep({
       lastName: lastName.trim(),
       email: email.trim(),
       password,
+      claimToken: claimToken ?? code.trim(),
     });
 
     if (!created.ok) {
@@ -66,6 +76,9 @@ export function AdministratorStep({
       });
       return;
     }
+
+    // Claimed, so the token opens nothing any more and is not kept.
+    forgetClaim();
 
     const signedIn = await signInWithPassword({
       email: email.trim(),
@@ -102,6 +115,28 @@ export function AdministratorStep({
           void submit(event);
         }}
       >
+        {claimToken === null ? (
+          <label className={LABEL}>
+            {t("setup.administrator.claim.label")}
+            <input
+              type="text"
+              name="claimToken"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value);
+              }}
+              className={FIELD_DATA}
+            />
+            <span className={HINT}>{t("setup.administrator.claim.hint")}</span>
+          </label>
+        ) : (
+          <Notice tone="info">{t("setup.administrator.claim.fromLink")}</Notice>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <label className={LABEL}>
             {t("setup.administrator.firstName")}

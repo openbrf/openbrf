@@ -103,7 +103,11 @@ on the account the later specs sign in as.
 
 Specs run serially, in file-name order. `01-first-boot` needs an unclaimed
 instance, which an instance is exactly once, and the rest share the instance it
-leaves behind rather than each paying for a stack of their own.
+leaves behind rather than each paying for a stack of their own. The stack sets
+no setup link digest, so the instance prints its setup link to its log when it
+starts, and whatever claims it - the walk in `01-first-boot`, or
+`ensureInstance` when a run starts later in the list - reads the link from
+there (`claimLinkFromLog` in `src/stack.ts`).
 
 ## What is covered
 
@@ -529,7 +533,11 @@ The pieces:
 - **Order matters, and each entry starts where the one above it stopped.** An
   instance is unclaimed exactly once, so the setup wizard comes first, and its
   seven steps are seven entries on one URL: the wizard keeps its step in React
-  state, so `prepare` drives it forward rather than navigating to it.
+  state, so `prepare` drives it forward rather than navigating to it. Before
+  them, `setup-claim` shows the wizard reached without the setup link, and the
+  administrator step opens the link itself: its `goto` is `SETUP_CLAIM_LINK`,
+  which the capture replaces with the link the stack's instance printed to its
+  log, since the token is minted when the stack starts.
 - **`as`** establishes a session. Omit it to carry on in the current one.
   Anything other than `nobody` provisions the cooperative and its register
   first, so an entry never has to arrange that itself.

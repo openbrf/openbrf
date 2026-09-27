@@ -7,6 +7,7 @@ import { registerMultipart } from "./http/multipart";
 import { serveSinglePageApp } from "./http/serve-single-page-app";
 import { bridgeHostResolution } from "./plugins/plugin-resolution";
 import { RestartCoordinator } from "./plugins/restart-coordinator.service";
+import { SetupClaimService } from "./setup/setup-claim.service";
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site/site-renderer.service";
 import { platformVersion, platformVersionLine } from "./version";
 
@@ -62,6 +63,12 @@ async function bootstrap(): Promise<void> {
   // The version is not served anywhere public: an endpoint naming it tells a
   // scanner which advisories apply.
   new Logger("Bootstrap").log(platformVersionLine(platformVersion()));
+
+  // After listen, so the link is printed only once it opens something, and
+  // here rather than in a module hook, so only the process that serves the
+  // wizard ever mints one (ADR 0023). Every start of an unclaimed instance
+  // prints a new link and ends the one before it.
+  await app.get(SetupClaimService).announce();
 }
 
 void bootstrap();

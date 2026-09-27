@@ -259,6 +259,33 @@ test("both documented ways to supply the runtime connection reach the container"
   expect(nothing.OPENBRF_DATABASE_POOL_SIZE).toBe("");
 });
 
+test("the setup link's digest reaches the container, and is optional", () => {
+  // docs/deployment.md offers a host two ways to hand over an instance: set
+  // the digest of a link it minted, or leave it empty and read the link the
+  // instance prints to its log (ADR 0023). The first is only real if
+  // docker-compose.prod.yml maps the variable into the container.
+  const digest = "Dw2IjKhXMqZmAQPb-7sHzcTMAl5w-M6-vjgoiaP5WP8";
+
+  const provisioned = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+    OPENBRF_SETUP_TOKEN_DIGEST: digest,
+  });
+  expect(provisioned.status, provisioned.output).toBe(0);
+  expect(appEnvironment(provisioned.output).OPENBRF_SETUP_TOKEN_DIGEST).toBe(
+    digest,
+  );
+
+  // Unset renders as empty, which the API's env schema reads as absent: the
+  // instance then mints its own link.
+  const selfHosted = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(selfHosted.status, selfHosted.output).toBe(0);
+  expect(appEnvironment(selfHosted.output).OPENBRF_SETUP_TOKEN_DIGEST).toBe("");
+});
+
 test("the owner's password is still required by the compose file", () => {
   // The database container is created from it, so there is no second way to
   // supply it and nothing further on that could report its absence better.

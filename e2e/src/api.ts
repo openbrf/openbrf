@@ -58,21 +58,42 @@ export async function setupState(
   return (await response.json()) as SetupState;
 }
 
+export type FirstAdministratorInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  /** The setup link's token (ADR 0023). Omitted to show that one is needed. */
+  claimToken?: string;
+};
+
 export async function createFirstAdministrator(
   request: APIRequestContext,
   baseUrl: string,
-  input: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    password: string;
-  },
+  input: FirstAdministratorInput & { claimToken: string },
 ): Promise<string> {
   const response = await request.post(`${baseUrl}/api/setup/administrator`, {
     data: input,
   });
   await expectOk(response, "POST /api/setup/administrator");
   return ((await response.json()) as { personId: string }).personId;
+}
+
+/**
+ * The same call with every status kept, for the specs that assert a refusal.
+ */
+export async function attemptFirstAdministrator(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: FirstAdministratorInput,
+): Promise<{ status: number; reason: unknown }> {
+  const response = await request.post(`${baseUrl}/api/setup/administrator`, {
+    data: input,
+  });
+  return {
+    status: response.status(),
+    reason: jsonBodyOrNothing(await response.text()).reason,
+  };
 }
 
 export async function signIn(
