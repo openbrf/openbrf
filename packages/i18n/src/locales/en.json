@@ -743,7 +743,8 @@
           "DOCUMENT_UPDATED": "A document in the archive was renamed, re-filed or given to another audience",
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
-          "THEME_REMOVED": "Theme removed"
+          "THEME_REMOVED": "Theme removed",
+          "INSTANCE_SUMMARY_READ": "Operations summary read"
         },
         "channel": {
           "WEB": "The web interface",
@@ -751,6 +752,7 @@
           "AI": "The AI package",
           "SYSTEM": "The system",
           "PLUGIN": "A plugin",
+          "MANAGEMENT": "The management API",
           "unknown": "Written before the log recorded the channel."
         },
         "transferKind": {
