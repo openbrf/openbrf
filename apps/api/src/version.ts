@@ -57,15 +57,20 @@ function nonEmpty(value: string | undefined): string | null {
 }
 
 /**
- * apps/api/package.json, which sits beside both dist/ and src/.
+ * apps/api, which holds package.json and prisma/ beside both dist/ and src/.
  *
- * The API is CommonJS once built and ESM under Vitest, and __dirname exists
- * only in the first. Tests run from the package root, which is the same
- * directory, so the working directory is the fallback.
+ * Resolved from this file, which sits directly in dist/ or src/ whichever
+ * entry point imported it. The API is CommonJS once built and ESM under
+ * Vitest, and __dirname exists only in the first. Tests run from the package
+ * root, which is the same directory, so the working directory is the fallback.
  */
+export function apiPackageDirectory(): string {
+  return typeof __dirname === "string" ? join(__dirname, "..") : process.cwd();
+}
+
+/** apps/api/package.json's version. */
 function packageVersion(): string {
-  const root =
-    typeof __dirname === "string" ? join(__dirname, "..") : process.cwd();
+  const root = apiPackageDirectory();
   const manifest = JSON.parse(
     readFileSync(join(root, "package.json"), "utf8"),
   ) as { name?: unknown; version?: unknown };

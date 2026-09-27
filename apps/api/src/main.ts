@@ -5,6 +5,7 @@ import { ENV } from "./config/config.module";
 import type { Env } from "./config/env";
 import { registerMultipart } from "./http/multipart";
 import { serveSinglePageApp } from "./http/serve-single-page-app";
+import { ManagementListener } from "./management/management-listener";
 import { bridgeHostResolution } from "./plugins/plugin-resolution";
 import { RestartCoordinator } from "./plugins/restart-coordinator.service";
 import { SetupClaimService } from "./setup/setup-claim.service";
@@ -69,6 +70,20 @@ async function bootstrap(): Promise<void> {
   // wizard ever mints one (ADR 0023). Every start of an unclaimed instance
   // prints a new link and ends the one before it.
   await app.get(SetupClaimService).announce();
+
+  // The management API, on a port of its own and only when both halves of its
+  // configuration are set (ADR 0021); the environment check refuses one
+  // without the other. After listen, so the host never reads a summary of an
+  // instance that is not yet serving.
+  if (
+    env.OPENBRF_MANAGEMENT_PORT !== undefined &&
+    env.OPENBRF_MANAGEMENT_TOKEN_DIGEST !== undefined
+  ) {
+    await app.get(ManagementListener).start(env.OPENBRF_MANAGEMENT_PORT);
+    new Logger("Bootstrap").log(
+      `The management API listens on port ${String(env.OPENBRF_MANAGEMENT_PORT)}.`,
+    );
+  }
 }
 
 void bootstrap();

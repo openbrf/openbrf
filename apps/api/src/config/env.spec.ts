@@ -236,3 +236,121 @@ describe("the setup link's digest", () => {
     expect((result as Error).message).toContain("OPENBRF_SETUP_TOKEN_DIGEST");
   });
 });
+
+/**
+ * The management API's port and token digest (ADR 0021).
+ *
+ * Both or neither, because half a configuration is a listener that refuses
+ * everybody or a digest nothing answers to, and either reads as working until
+ * the host's control plane asks. And the port is never the public one: the
+ * listener has a port of its own so that the public address has no management
+ * route at all.
+ */
+describe("the management API's configuration", () => {
+  const OLD = "Dw2IjKhXMqZmAQPb-7sHzcTMAl5w-M6-vjgoiaP5WP8";
+  const NEW = "n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg";
+
+  function outcome(
+    variables: Record<string, string>,
+  ): ReturnType<typeof loadEnv> | Error {
+    try {
+      return loadEnv({ ...REQUIRED, ...variables });
+    } catch (cause) {
+      return cause as Error;
+    }
+  }
+
+  function refusal(variables: Record<string, string>): string {
+    const result = outcome(variables);
+    expect(result).toBeInstanceOf(EnvValidationError);
+    return (result as Error).message;
+  }
+
+  it("is off when neither is set, or both are empty", () => {
+    // Compose passes an unset optional variable as an empty string.
+    const unset: Record<string, string>[] = [
+      {},
+      { OPENBRF_MANAGEMENT_PORT: "", OPENBRF_MANAGEMENT_TOKEN_DIGEST: "" },
+    ];
+    for (const variables of unset) {
+      const env = outcome(variables) as ReturnType<typeof loadEnv>;
+      expect(env.OPENBRF_MANAGEMENT_PORT).toBeUndefined();
+      expect(env.OPENBRF_MANAGEMENT_TOKEN_DIGEST).toBeUndefined();
+    }
+  });
+
+  it("takes a port and one digest", () => {
+    const env = outcome({
+      OPENBRF_MANAGEMENT_PORT: "3001",
+      OPENBRF_MANAGEMENT_TOKEN_DIGEST: NEW,
+    }) as ReturnType<typeof loadEnv>;
+    expect(env.OPENBRF_MANAGEMENT_PORT).toBe(3001);
+    expect(env.OPENBRF_MANAGEMENT_TOKEN_DIGEST).toEqual([NEW]);
+  });
+
+  it("takes two digests while the token is rotated, in the order given", () => {
+    const env = outcome({
+      OPENBRF_MANAGEMENT_PORT: "3001",
+      OPENBRF_MANAGEMENT_TOKEN_DIGEST: `${NEW},${OLD}`,
+    }) as ReturnType<typeof loadEnv>;
+    expect(env.OPENBRF_MANAGEMENT_TOKEN_DIGEST).toEqual([NEW, OLD]);
+  });
+
+  it("refuses a port without a digest", () => {
+    expect(refusal({ OPENBRF_MANAGEMENT_PORT: "3001" })).toContain(
+      "OPENBRF_MANAGEMENT_TOKEN_DIGEST: is required when OPENBRF_MANAGEMENT_PORT is set",
+    );
+  });
+
+  it("refuses a digest without a port", () => {
+    expect(refusal({ OPENBRF_MANAGEMENT_TOKEN_DIGEST: NEW })).toContain(
+      "OPENBRF_MANAGEMENT_PORT: is required when OPENBRF_MANAGEMENT_TOKEN_DIGEST is set",
+    );
+  });
+
+  it("refuses the public port, whether set or the default", () => {
+    expect(
+      refusal({
+        PORT: "8080",
+        OPENBRF_MANAGEMENT_PORT: "8080",
+        OPENBRF_MANAGEMENT_TOKEN_DIGEST: NEW,
+      }),
+    ).toContain("OPENBRF_MANAGEMENT_PORT: must differ from PORT");
+    expect(
+      refusal({
+        OPENBRF_MANAGEMENT_PORT: "3000",
+        OPENBRF_MANAGEMENT_TOKEN_DIGEST: NEW,
+      }),
+    ).toContain("OPENBRF_MANAGEMENT_PORT: must differ from PORT");
+  });
+
+  it.each([
+    ["a privileged port", "80"],
+    ["a port past the last", "65536"],
+    ["a word", "management"],
+  ])("refuses %s", (_what, port) => {
+    expect(
+      refusal({
+        OPENBRF_MANAGEMENT_PORT: port,
+        OPENBRF_MANAGEMENT_TOKEN_DIGEST: NEW,
+      }),
+    ).toContain("OPENBRF_MANAGEMENT_PORT");
+  });
+
+  it.each([
+    ["the token rather than its digest, as hex", "a".repeat(64)],
+    ["padded base64", `${NEW.slice(0, 42)}=`],
+    ["plain base64's alphabet", `${NEW.slice(0, 42)}+`],
+    ["one character short", NEW.slice(0, 42)],
+    ["three digests", `${NEW},${OLD},${NEW}`],
+    ["a trailing comma", `${NEW},`],
+    ["a space after the comma", `${NEW}, ${OLD}`],
+  ])("refuses %s as the digest", (_what, digest) => {
+    expect(
+      refusal({
+        OPENBRF_MANAGEMENT_PORT: "3001",
+        OPENBRF_MANAGEMENT_TOKEN_DIGEST: digest,
+      }),
+    ).toContain("OPENBRF_MANAGEMENT_TOKEN_DIGEST: must be one SHA-256 digest");
+  });
+});

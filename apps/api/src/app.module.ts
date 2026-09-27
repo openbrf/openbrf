@@ -32,6 +32,7 @@ import { InvitationsModule } from "./invitations/invitations.module";
 import { IssuesModule } from "./issues/issues.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { MailModule } from "./mail/mail.module";
+import { ManagementModule } from "./management/management.module";
 import { MeetingsModule } from "./meetings/meetings.module";
 import { SmsModule } from "./sms/sms.module";
 import { MediaModule } from "./media/media.module";
@@ -105,6 +106,9 @@ import { ThemesModule } from "./themes/themes.module";
     FeesModule,
     AccountingModule,
     ConnectedAppsModule,
+    // Serves nothing on this listener: its own starts from main.ts, and only
+    // when configured (ADR 0021).
+    ManagementModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

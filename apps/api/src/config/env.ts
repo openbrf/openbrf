@@ -26,6 +26,9 @@ const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
 /** A SHA-256 digest as hashOpaqueToken writes it: base64url, unpadded. */
 const BASE64URL_SHA256 = /^[A-Za-z0-9_-]{43}$/;
 
+/** One such digest, or two separated by a comma while a token is rotated. */
+const BASE64URL_SHA256_ONE_OR_TWO = /^[A-Za-z0-9_-]{43}(,[A-Za-z0-9_-]{43})?$/;
+
 /**
  * Whether a client could reach this instance at the address given.
  *
@@ -184,6 +187,40 @@ export const envSchema = z.object({
     .optional(),
 
   /**
+   * The port the management API listens on, inside the container (ADR 0021).
+   *
+   * Off unless this and OPENBRF_MANAGEMENT_TOKEN_DIGEST are both set. A port of
+   * its own rather than a path under PORT, so the public address has no
+   * management route at all and the listener is reachable only where the
+   * host's network puts it. It is never published.
+   */
+  OPENBRF_MANAGEMENT_PORT: z.coerce
+    .number()
+    .int()
+    .min(1024)
+    .max(65535)
+    .optional(),
+
+  /**
+   * The digest of the management API's token, or two separated by a comma
+   * while the token is rotated (ADR 0021).
+   *
+   * Only digests: whoever hosts the instance mints the token and keeps it, so
+   * nothing in this environment, the database or a backup can be presented as
+   * it. Two digests accept the old token and the new one, which is what lets
+   * the host move to a new token without both sides changing at once.
+   */
+  OPENBRF_MANAGEMENT_TOKEN_DIGEST: z
+    .string()
+    .regex(
+      BASE64URL_SHA256_ONE_OR_TWO,
+      "must be one SHA-256 digest, base64url without padding (43 characters), " +
+        "or two separated by a comma",
+    )
+    .transform((value) => value.split(","))
+    .optional(),
+
+  /**
    * Where uploaded files are kept. "local" writes under OPENBRF_DATA_DIR,
    * "s3" into an S3-compatible bucket. Neither changes how files are served:
    * the API streams the bytes from its own origin in both cases.
@@ -281,6 +318,37 @@ const envChecked = envSchema.superRefine((value, ctx) => {
       message:
         "is required unless DATABASE_URL_RUNTIME is set. One of the two names " +
         "the database this process connects to.",
+    });
+  }
+
+  // The management API is on with both halves of its configuration and off
+  // with neither. Half of it is a mistake to hear about at boot: a port with no
+  // digest would listen and refuse everybody, and a digest with no port would
+  // read as configured while nothing answers. And never on the public port,
+  // which is the one thing its own port exists to keep it off.
+  const managementPort = value.OPENBRF_MANAGEMENT_PORT;
+  const managementDigest = value.OPENBRF_MANAGEMENT_TOKEN_DIGEST;
+  if (managementPort !== undefined && managementDigest === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPENBRF_MANAGEMENT_TOKEN_DIGEST"],
+      message: "is required when OPENBRF_MANAGEMENT_PORT is set",
+    });
+  }
+  if (managementPort === undefined && managementDigest !== undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPENBRF_MANAGEMENT_PORT"],
+      message: "is required when OPENBRF_MANAGEMENT_TOKEN_DIGEST is set",
+    });
+  }
+  if (managementPort !== undefined && managementPort === value.PORT) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["OPENBRF_MANAGEMENT_PORT"],
+      message:
+        "must differ from PORT: the management API never answers on the " +
+        "public port",
     });
   }
 
