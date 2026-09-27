@@ -19,7 +19,7 @@ The printed report shows the charges, fee rates and fee notices the report
 already held.
 
 A test fails for any column in the database that names a person unless the
-report reads it or the reason it does not is written down, and five such
+report reads it or the reason it does not is written down, and four such
 reasons are open questions named in ADR 0019.
 
 A signed-in session is deleted the night after it ends, unless a legal hold or a

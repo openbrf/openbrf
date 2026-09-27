@@ -59,16 +59,21 @@ exist fails to compile. Each column has one of:
   that person's own report through the audit log, where the entries carry both
   the actor and the subject. The report names the act and not every row a board
   member touched. An entry holds only where the service that writes the column
-  records the action with that column's person as the actor. Two columns are
-  written by more than one act - a thread is taken by hand or by answering it,
-  and a group's creator is added to it by creating it - and list both;
+  records the action with that column's person as the actor. The owner of an
+  OAuth client is one: `POST /api/oauth-clients` is the only route that
+  registers a client by hand, it sets `OauthClient.userId` to the
+  administrator's account and records OAUTH_CLIENT_REGISTERED with them as
+  actor, and a client that registers itself from its metadata document names no
+  account. Three columns are written by more than one act - a thread is taken by
+  hand or by answering it, a group's creator is added to it by creating it, and
+  a processing's last editor is set by the act that records it - and list both;
 - **a reason none does**, one of four: `credential` (the row is a secret that
   opens the account: the password hash, the TOTP secret and backup codes),
   `neverWritten` (no production file writes the model), `addressOnly` (keyed by
   an address, which identifies nobody) and `gap`.
 
 The spec fails for a column the walk finds with no entry, for an entry the walk
-does not find, for a `gap` not in the pinned list of five, and for a
+does not find, for a `gap` not in the pinned list of four, and for a
 `neverWritten` model whose delegate a production file writes - read from the
 same walk of the source the erasure specs use, through `writtenDelegates` on
 `SourceFacts` in `apps/api/src/testing/erasure-source-facts.ts`.
@@ -141,7 +146,7 @@ Ended sessions are swept nightly. Persons purged before this change who still
 have an accepted invitation are selected once more on the next run, and each
 gets a SERVICE_DATA_PURGED entry for it.
 
-Five columns are named gaps, each closed in a change of its own:
+Four columns are named gaps, each closed in a change of its own:
 
 - `SignupRequest.emailIndex`: an approved request - the name, the phone, the
   claimed address and the apartment the person typed - is kept, and reachable
@@ -151,9 +156,6 @@ Five columns are named gaps, each closed in a change of its own:
   audit entry, so the board member's act reaches no report.
 - `ImportSession.createdById`: the upload of a member list is not audited
   either; the session is deleted when it expires.
-- `OauthClient.userId`: nothing in Open BRF writes it, and the sign-in
-  library's client registration does for a signed-in caller. Whether that
-  registration should be reachable is a question of its own.
 - `MeetingAttendance.onBehalfOfPersonId`: printed on the assistant's report as
   an identifier, while the member they came with is not told on theirs.
 

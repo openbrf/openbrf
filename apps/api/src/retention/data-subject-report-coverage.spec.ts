@@ -119,12 +119,11 @@ const COLUMN_COVERAGE = {
   // Inside the account section: its name, its date and whether it is synced.
   Passkey: { userId: { sections: ["account"] } },
   /*
-   * Nothing in Open BRF writes it - the board's own registration sets none -
-   * but the sign-in library's client registration does for any signed-in
-   * caller. What a client registered by a person is, and whether such a
-   * registration should be possible, is a question of its own.
+   * The administrator who registered the client by hand, through the one
+   * route that registers one and records the act with them as actor. A client
+   * that registers itself from its metadata document names no account.
    */
-  OauthClient: { userId: { notReported: "gap" } },
+  OauthClient: { userId: { actedAs: ["OAUTH_CLIENT_REGISTERED"] } },
   // The date only: the newest token issued for a grant is `lastUsedAt`.
   OauthRefreshToken: { userId: { sections: ["connectedApps"] } },
   OauthAccessToken: { userId: { sections: ["connectedApps"] } },
@@ -306,7 +305,6 @@ const NAMED_GAPS = [
   "ContactSubmission.handledByPersonId",
   "ImportSession.createdById",
   "MeetingAttendance.onBehalfOfPersonId",
-  "OauthClient.userId",
   "SignupRequest.emailIndex",
 ];
 
