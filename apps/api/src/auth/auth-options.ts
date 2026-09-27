@@ -118,11 +118,11 @@ export const CLIENT_MANAGEMENT_PATHS: readonly string[] = [
  * Better Auth's own user-update endpoint, relative to `basePath` below, and
  * closed over HTTP.
  *
- * A person edits their own details through `PUT /api/settings/profile`, which
- * writes the register and records what changed. This endpoint writes the user
- * row directly and is not used by this product, so it is closed rather than
- * left as a second, unaudited way to change an account. Closed the same way as
- * CLIENT_MANAGEMENT_PATHS above.
+ * A person sets their own preferences through `PUT /api/settings/profile`,
+ * which writes the person in the register, not the user row. This endpoint
+ * writes the user row directly and is not used by this product, so it is
+ * closed rather than left as a second way to change an account. Closed the
+ * same way as CLIENT_MANAGEMENT_PATHS above.
  */
 export const USER_UPDATE_PATH = "/update-user";
 
@@ -131,7 +131,8 @@ export const USER_UPDATE_PATH = "/update-user";
  *
  * Empty, and meant to stay so: every field this application adds to the user
  * is set by the application itself, never taken from a request body. A field
- * belongs here only if a person may choose its value for their own account.
+ * belongs here only if a person may choose its value for their own account;
+ * a plugin's field is named `<plugin id>.<field>`.
  */
 export const CALLER_SETTABLE_USER_FIELDS: readonly string[] = [];
 
@@ -250,9 +251,9 @@ export function buildAuthOptions(
   clientManagement: ClientManagement,
 ) {
   // Deliberately `satisfies` rather than an annotated return type: the
-  // additionalFields declaration below only reaches the typed API surface
-  // (auth.api.signUpEmail and friends) if the literal type survives, and a
-  // BetterAuthOptions annotation widens it away.
+  // additionalFields declaration below only reaches the types the API returns
+  // (the user on a session, with its personId) if the literal type survives,
+  // and a BetterAuthOptions annotation widens it away.
   return {
     appName: "Open BRF",
     secret: env.BETTER_AUTH_SECRET,

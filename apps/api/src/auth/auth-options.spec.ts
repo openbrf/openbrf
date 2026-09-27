@@ -281,7 +281,7 @@ describe("the user fields a caller may set", () => {
         { user?: { fields?: Record<string, { input?: boolean }> } } | undefined
     )?.user;
     return Object.entries(user?.fields ?? {}).map(
-      ([name, field]) => [`${plugin.id}.${name}`, field, name] as const,
+      ([name, field]) => [`${plugin.id}.${name}`, field] as const,
     );
   });
 
@@ -295,8 +295,8 @@ describe("the user fields a caller may set", () => {
 
   it("takes none of the plugins' user fields from a request", () => {
     expect(fromPlugins).not.toHaveLength(0);
-    for (const [label, field, name] of fromPlugins) {
-      if (CALLER_SETTABLE_USER_FIELDS.includes(name)) continue;
+    for (const [label, field] of fromPlugins) {
+      if (CALLER_SETTABLE_USER_FIELDS.includes(label)) continue;
       expect({ label, input: field.input }).toEqual({ label, input: false });
     }
   });
@@ -469,9 +469,10 @@ describe("who may manage an OAuth client", () => {
     expect(
       reachable.filter((path) => !stillOpen.includes(path)).toSorted(),
     ).toEqual([...CLIENT_MANAGEMENT_PATHS].toSorted());
-    expect(options.disabledPaths).toEqual(
-      expect.arrayContaining([...CLIENT_MANAGEMENT_PATHS]),
-    );
+    expect(options.disabledPaths).toEqual([
+      ...CLIENT_MANAGEMENT_PATHS,
+      USER_UPDATE_PATH,
+    ]);
     for (const path of stillOpen) {
       expect(options.disabledPaths).not.toContain(path);
     }

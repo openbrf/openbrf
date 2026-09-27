@@ -412,17 +412,15 @@ describe("rate limiting", () => {
 });
 
 describe("the user-update surface", () => {
-  // A person with administrator rights and no account yet, as right after an
-  // invitation has been sent. Only account creation may link an account to
-  // them.
-  const pendingAdmin = `auth-pending-admin-${suffix}`;
+  // A second person with different capabilities and no account.
+  const otherPerson = `auth-other-person-${suffix}`;
 
   beforeAll(async () => {
     await prisma.person.create({
       data: {
-        id: pendingAdmin,
-        firstName: "Pending",
-        lastName: "Admin",
+        id: otherPerson,
+        firstName: "Other",
+        lastName: "Person",
         preferredLocale: "sv",
         systemRoles: { create: { role: "ADMIN" } },
       },
@@ -430,10 +428,10 @@ describe("the user-update surface", () => {
   });
 
   afterAll(async () => {
-    await prisma.person.deleteMany({ where: { id: pendingAdmin } });
+    await prisma.person.deleteMany({ where: { id: otherPerson } });
   });
 
-  it("does not let a signed-in account change which person it belongs to", async () => {
+  it("keeps an account's person link out of reach of the user-update surface", async () => {
     const signIn = await inject({
       method: "POST",
       url: "/api/auth/sign-in/email",
@@ -452,7 +450,7 @@ describe("the user-update surface", () => {
     const update = await inject({
       method: "POST",
       url: "/api/auth/update-user",
-      payload: { personId: pendingAdmin },
+      payload: { personId: otherPerson },
       headers: { cookie },
     });
 
