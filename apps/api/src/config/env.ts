@@ -23,6 +23,9 @@ function envBoolean(defaultValue: boolean) {
 
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
 
+/** A SHA-256 digest as hashOpaqueToken writes it: base64url, unpadded. */
+const BASE64URL_SHA256 = /^[A-Za-z0-9_-]{43}$/;
+
 /**
  * Whether a client could reach this instance at the address given.
  *
@@ -146,6 +149,23 @@ export const envSchema = z.object({
     .optional(),
 
   BETTER_AUTH_SECRET: z.string().min(16),
+
+  /**
+   * The digest of the setup link's token, for an instance whose host minted
+   * the link (ADR 0023).
+   *
+   * Only the digest: the token itself goes to whoever is to claim the
+   * instance, so nothing in this environment, the database or a backup can be
+   * presented as it. When absent, an unclaimed instance mints a token of its
+   * own at start and prints the link to its log (setup-claim.service.ts).
+   */
+  OPENBRF_SETUP_TOKEN_DIGEST: z
+    .string()
+    .regex(
+      BASE64URL_SHA256,
+      "must be one SHA-256 digest, base64url without padding (43 characters)",
+    )
+    .optional(),
 
   /**
    * Where uploaded files are kept. "local" writes under OPENBRF_DATA_DIR,

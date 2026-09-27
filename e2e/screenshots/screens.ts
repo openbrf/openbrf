@@ -136,6 +136,13 @@ export type Screen = {
 
 const [STORGATAN_12, STORGATAN_14] = ADDRESSES;
 
+/**
+ * Stands for the setup link the instance printed to its log, which no manifest
+ * can know: the token is minted when the stack starts. The capture resolves it
+ * from the log just before it navigates (ADR 0023).
+ */
+export const SETUP_CLAIM_LINK = "setup-claim-link-from-the-log";
+
 /** Every settings card, by the heading a reader sees on it. */
 const SETTINGS_PANELS = [
   ["settings-housing-cooperative", "Föreningen"],
@@ -374,19 +381,30 @@ const BINDER = {
 
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
-  // Seven screens on one URL: the wizard keeps its step in React state, so each
-  // entry below drives the one above it forward rather than navigating.
+  // Eight screens on one URL: the wizard keeps its step in React state, so each
+  // entry below the setup link drives the one above it forward rather than
+  // navigating.
+  //
+  // The first is the wizard reached without the link, asking for the setup
+  // code; the second opens the link the instance printed, as an operator does.
+  {
+    name: "setup-claim",
+    as: "nobody",
+    goto: appPath("/setup"),
+    waitFor: { label: "Installationskod" },
+  },
   {
     name: "setup-administrator",
     as: "nobody",
-    goto: appPath("/setup"),
+    goto: SETUP_CLAIM_LINK,
     prepare: [
       { fill: { label: "Förnamn" }, value: ADMINISTRATOR.firstName },
       { fill: { label: "Efternamn" }, value: ADMINISTRATOR.lastName },
       { fill: { label: "E-postadress" }, value: ADMINISTRATOR.email },
       { fill: { label: "Lösenord" }, value: ADMINISTRATOR.password },
     ],
-    waitFor: { heading: "Kom i gång med Open BRF" },
+    // The line that replaces the code field once the link has been read.
+    waitFor: { text: "Du använder installationslänken." },
   },
   {
     name: "setup-housing-cooperative",

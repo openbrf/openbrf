@@ -20,7 +20,10 @@ type Access =
  *
  *   First boot. The instance is unclaimed - no account exists and setup has
  *   never been completed - so the wizard is served to whoever reaches it,
- *   starting at the administrator step. This is the only unauthenticated path.
+ *   starting at the administrator step. This is the only unauthenticated path,
+ *   and its one write creates the administrator only for the holder of the
+ *   setup link (ADR 0023), which names this route so that no redirect stands
+ *   between the link and the wizard that reads it.
  *
  *   An authorised admin. Setup was started and left unfinished, so an admin who
  *   is signed in can resume it. The administrator step is not offered: the

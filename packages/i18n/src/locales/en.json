@@ -897,8 +897,14 @@
       "password": "Password",
       "passwordHint": "At least 12 characters. A passphrase of a few words is both easier to remember and harder to guess.",
       "submit": "Create the account",
+      "claim": {
+        "label": "Setup code",
+        "hint": "Use the setup link you were given. If you run the instance yourself, the link is in the application's log from when it started.",
+        "fromLink": "You are using the setup link."
+      },
       "errors": {
         "alreadyClaimed": "This instance already has an account, so setup is closed. Sign in instead.",
+        "claimTokenInvalid": "That setup link or code does not work. If the instance has restarted since, use the newest link.",
         "invalidEmail": "That email address could not be read. Check it and try again.",
         "weakPassword": "The password needs at least 12 characters.",
         "unknown": "The account could not be created just now. Please try again."
