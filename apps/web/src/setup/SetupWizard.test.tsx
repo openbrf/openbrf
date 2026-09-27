@@ -428,7 +428,56 @@ describe("the administrator step", () => {
     // Not read as a weak password, which is what a schema failure shows.
     expect(screen.queryByText(/minst 12 tecken\./)).toBeNull();
     expect(signInWithPassword).not.toHaveBeenCalled();
-    // Still held: the refusal may be a restart, and the newest link replaces it.
-    expect(readHeldClaim()).toBe(TOKEN);
+  });
+
+  it("drops a refused link and asks for the code instead", async () => {
+    // A link from before a restart: held in the tab, and dead on the server.
+    holdClaim(TOKEN);
+    createFirstAdministrator.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 403, reason: "claim-token-invalid" },
+    });
+    const session = userEvent.setup();
+    renderStep();
+
+    expect(screen.queryByLabelText(/^Installationskod/)).toBeNull();
+    await fillIn(session);
+    await session.click(screen.getByRole("button", { name: "Skapa kontot" }));
+
+    // The code field is back, so somebody given only the code can still get in.
+    const field = await screen.findByLabelText(/^Installationskod/);
+    expect(readHeldClaim()).toBeNull();
+
+    await session.type(field, CODE);
+    await session.click(screen.getByRole("button", { name: "Skapa kontot" }));
+
+    await waitFor(() => {
+      expect(createFirstAdministrator).toHaveBeenLastCalledWith(
+        expect.objectContaining({ claimToken: CODE }),
+      );
+    });
+  });
+
+  it("keeps the code field after a refused code, which was never held", async () => {
+    createFirstAdministrator.mockResolvedValue({
+      ok: false,
+      failure: { status: 403, reason: "claim-token-invalid" },
+    });
+    const session = userEvent.setup();
+    renderStep();
+
+    await session.type(screen.getByLabelText(/^Installationskod/), CODE);
+    await fillIn(session);
+    await session.click(screen.getByRole("button", { name: "Skapa kontot" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Installationslänken eller koden fungerar inte/),
+      ).toBeTruthy();
+    });
+    // The typed code stays, so it can be corrected rather than typed again.
+    expect(
+      (screen.getByLabelText(/^Installationskod/) as HTMLInputElement).value,
+    ).toBe(CODE);
   });
 });

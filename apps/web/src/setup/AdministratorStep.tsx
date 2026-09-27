@@ -42,9 +42,11 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
  */
 export function AdministratorStep({
   claimToken,
+  onClaimRefused,
   onCreated,
 }: {
   claimToken: string | null;
+  onClaimRefused: () => void;
   onCreated: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -68,6 +70,15 @@ export function AdministratorStep({
     });
 
     if (!created.ok) {
+      if (
+        created.failure.reason === "claim-token-invalid" &&
+        claimToken !== null
+      ) {
+        // A dead link - the instance restarted, or the link was mangled. Held,
+        // it would hide the code field for good, so drop it and ask instead.
+        forgetClaim();
+        onClaimRefused();
+      }
       setStatus({
         kind: "failed",
         messageKey:

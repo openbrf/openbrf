@@ -48,6 +48,31 @@ export function claimInFragment(hash: string): string | null {
   return token === null || token.trim() === "" ? null : token.trim();
 }
 
+/**
+ * Takes the setup link's token out of the address bar, and holds it.
+ *
+ * Removed with replaceState so the link is neither bookmarked nor shared from
+ * the address bar; the router's own history state is passed back unchanged.
+ * Returns the token, or null when the address carries none. Called by the
+ * setup route before it asks the server anything, so a failed request that
+ * leaves the wizard unmounted does not leave the link in the address bar.
+ */
+export function takeClaimFromAddress(
+  storage: SetupClaimStorage | undefined = browserClaimStorage(),
+): string | null {
+  const token = claimInFragment(window.location.hash);
+  if (token === null) {
+    return null;
+  }
+  holdClaim(token, storage);
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${window.location.pathname}${window.location.search}`,
+  );
+  return token;
+}
+
 /** The token held from an earlier load of the wizard in this tab, or null. */
 export function readHeldClaim(
   storage: SetupClaimStorage | undefined = browserClaimStorage(),
