@@ -42,11 +42,11 @@ export const e2eRoot = resolve(here, "..");
  *     and a capture writes images that end up in a public pull request.
  */
 const PROFILES = {
-  e2e: { project: "openbrf-e2e", envFile: "stack.env", catalog: false },
+  e2e: { project: "openbrf-e2e", envFile: "stack.env", catalogKind: "all" },
   screenshots: {
     project: "openbrf-shots",
     envFile: "screenshots.env",
-    catalog: true,
+    catalogKind: "theme",
   },
 } as const;
 
@@ -79,11 +79,6 @@ const COMPOSE_ARGS = [
   resolve(repositoryRoot, "docker-compose.prod.yml"),
   "-f",
   resolve(e2eRoot, "docker-compose.e2e.yml"),
-  // The overlay that hands the screenshot stack its catalog; see
-  // writeFixtureCatalog below.
-  ...(profile.catalog
-    ? ["-f", resolve(e2eRoot, "docker-compose.screenshots.yml")]
-    : []),
   ...(MIRROR_OVERLAY === undefined ? [] : ["-f", MIRROR_OVERLAY]),
   "--env-file",
   ENV_FILE,
@@ -99,11 +94,11 @@ const COMPOSE_ARGS = [
 const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls", PROJECT_NAME);
 
 /**
- * Where the fixture catalog is written for a profile that reads one.
+ * Where the fixture catalog is written, and mounted from.
  *
  * Outside the repository, because nothing in it is worth keeping: it is rebuilt
- * on every start, and its tarballs are already rebuilt from fixtures/themes by
- * anyone who wants them. Per profile for the reason the certificate is.
+ * on every start, and its tarballs are already rebuilt from fixtures by anyone
+ * who wants them. Per profile for the reason the certificate is.
  */
 const CATALOG_DIR = join(tmpdir(), `${PROJECT_NAME}-catalog`);
 
@@ -128,7 +123,7 @@ const COMPOSE_ENV = {
   ...process.env,
   BETTER_AUTH_SECRET: AUTH_SECRET,
   OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR,
-  ...(profile.catalog ? { OPENBRF_E2E_CATALOG_DIR: CATALOG_DIR } : {}),
+  OPENBRF_E2E_CATALOG_DIR: CATALOG_DIR,
 };
 
 /** Reads stack.env so the suite and the stack cannot drift apart. */
@@ -254,6 +249,8 @@ function compose(args: readonly string[], timeoutMs: number): void {
  * The volumes are destroyed first because the first spec asserts on first-boot
  * behaviour, which an instance only has once. `-p openbrf-e2e` scopes that
  * removal to this stack's own volumes, never a development or production one.
+ *
+ * The fixture catalog is written between the two, while nothing has it mounted.
  */
 export function startStack(): void {
   // Without a mirror the stack pulls the pins as they are, which in CI spends
@@ -273,9 +270,7 @@ export function startStack(): void {
   }
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
   writeMailTls();
-  if (profile.catalog) {
-    writeFixtureCatalog();
-  }
+  writeFixtureCatalog();
   pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
 }
@@ -362,14 +357,15 @@ function writeMailTls(): void {
 }
 
 /**
- * The fixture themes and a catalog index offering them, for the screenshot
- * stack.
+ * The fixtures and a catalog index offering them, for either stack.
  *
  * The curated catalog lists no theme yet, so a stack reading it can never show
- * a screen about a catalog entry - a composed theme holding an entry's id, for
- * one. This is the index the API's own theme suites install from, built by the
- * same script, with its artifact URLs naming where docker-compose.screenshots.yml
- * mounts it. The walk only lists from it; nothing in it is installed.
+ * a screen about a catalog entry, and the suite would have to read the network
+ * to install anything. This is the index the API's own suites install from,
+ * built by the same script, with its artifact URLs naming where
+ * docker-compose.e2e.yml mounts it. The suite installs the fixture plugin and
+ * the fixture themes through the real download, digest and unpack path, so it
+ * is given both kinds; the walk only lists the themes and installs nothing.
  */
 function writeFixtureCatalog(): void {
   rmSync(CATALOG_DIR, { recursive: true, force: true });
@@ -379,13 +375,13 @@ function writeFixtureCatalog(): void {
     [
       resolve(repositoryRoot, "scripts", "build-fixture-catalog.mjs"),
       "--kind",
-      "theme",
+      profile.catalogKind,
       "--out",
       CATALOG_DIR,
       "--url-prefix",
       "file:///catalog/",
     ],
-    { cwd: repositoryRoot, stdio: "inherit", timeout: 5 * 60_000 },
+    { cwd: repositoryRoot, stdio: "inherit", timeout: 15 * 60_000 },
   );
 }
 
@@ -630,6 +626,78 @@ function runInService(
       output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
     };
   }
+}
+
+/**
+ * Runs a command in a new application container, through the entrypoint.
+ *
+ * `docker compose run` rather than `exec`, and the difference is the point.
+ * `exec` joins the server's container past its entrypoint, so the command would
+ * start without the runtime database URL the entrypoint assembles and without
+ * the owner's credentials having been dropped. A new container goes through the
+ * same entrypoint an operator's own `run` does, with the server's image,
+ * environment and volumes, and is removed afterwards. It publishes no port and
+ * starts nothing it depends on, because the stack is already up.
+ *
+ * Both streams are returned whatever the exit code, so a failure can be read
+ * in the assertion that reports it.
+ */
+export function runInNewAppContainer(
+  command: readonly string[],
+  timeoutMs: number,
+): { status: number; output: string } {
+  const result = spawnSync(
+    "docker",
+    [...COMPOSE_ARGS, "run", "--rm", "--no-deps", "-T", "app", ...command],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
+  return {
+    status: result.status ?? -1,
+    output: `${result.stdout}${result.stderr}`,
+  };
+}
+
+/**
+ * When the application container's current process started.
+ *
+ * The server replaces itself by exiting and leaving the rest to the
+ * supervisor, which here is the restart policy in docker-compose.prod.yml, so
+ * every replacement is a new start of the same container. Read from Docker
+ * rather than from the instance: a process cannot be asked when it started
+ * while it is the one being replaced.
+ */
+export function appStartedAt(): Date {
+  const containerId = execFileSync(
+    "docker",
+    // --all, because between one process and the next the container is not
+    // running, and without it the container would not be listed at all.
+    [...COMPOSE_ARGS, "ps", "--all", "--quiet", "app"],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    },
+  ).trim();
+  if (containerId === "") {
+    throw new Error("The application container does not exist.");
+  }
+  const startedAt = execFileSync(
+    "docker",
+    ["inspect", "--format", "{{.State.StartedAt}}", containerId],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    },
+  ).trim();
+  return new Date(startedAt);
 }
 
 /**

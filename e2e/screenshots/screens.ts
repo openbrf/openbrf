@@ -912,7 +912,7 @@ export const SCREENS: readonly Screen[] = [
      * the catalog entry saying it will not be installed over it.
      *
      * Composed under the fixture catalog's `example-theme` (see
-     * docker-compose.screenshots.yml), with no colour changed: the collision is
+     * docker-compose.e2e.yml), with no colour changed: the collision is
      * the id, and saving is what takes the composer back to the theme screen.
      * Saved and never activated, so every screen after this one is photographed
      * in the theme it was before.
