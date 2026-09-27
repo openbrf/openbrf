@@ -44,6 +44,16 @@ export interface SmtpServer {
   host: string;
   port: number;
   secure: boolean;
+  /**
+   * Whether a connection that starts in cleartext must upgrade through
+   * STARTTLS before anything else is sent, the sign-in above all.
+   *
+   * Without it nodemailer upgrades only when the server offers to, so an
+   * attacker on the path who strips the offer from the greeting receives the
+   * password in the clear. Meaningless with `secure`, which is TLS from the
+   * first byte.
+   */
+  requireTls: boolean;
   user: string | null;
   /** Decrypted by the caller, or read from the environment. */
   password: string | null;
@@ -59,6 +69,7 @@ export class SmtpMailDriver implements MailDriver {
       host: server.host,
       port: server.port,
       secure: server.secure,
+      requireTLS: server.requireTls,
       connectionTimeout: CONNECTION_TIMEOUT_MS,
       greetingTimeout: GREETING_TIMEOUT_MS,
       socketTimeout: SOCKET_TIMEOUT_MS,
@@ -91,8 +102,11 @@ export class SmtpMailDriver implements MailDriver {
       references: mail.inReplyTo === null ? undefined : [`<${mail.inReplyTo}>`],
     });
 
-    // An SMTP server does not rewrite the Message-ID, so the one given is the
-    // one delivered. Without one, nodemailer wrote its own and reports it.
+    // Reported as the one delivered, which holds for a relay that keeps the
+    // Message-ID it is given. One that writes its own (Amazon SES's SMTP
+    // interface does) is documented as belonging behind the HTTP mail API
+    // instead, since nothing in the SMTP answer names the identifier it wrote.
+    // Without one, nodemailer wrote its own and reports it.
     return { messageId: mail.messageId ?? reportedMessageId(info) };
   }
 

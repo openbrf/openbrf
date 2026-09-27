@@ -9,6 +9,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Association } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { mediaUrl } from "../media/media.service";
+import { MAX_DISPLAY_NAME, oneLine } from "./header-text";
 import { HttpApiMailDriver } from "./http-api-mail.driver";
 import type { MailDriver, SentMail } from "./mail-driver";
 import { type EffectiveMail, MailSettingsResolver } from "./mail-settings";
@@ -67,23 +68,6 @@ export interface SendMailInput<Props> {
   messageId?: string | null;
   inReplyTo?: string | null;
 }
-
-/**
- * The longest display name a sender carries. The mail API contract's bound; an
- * association's registered name is shorter, and the configured one is checked
- * against it at boot.
- */
-const MAX_DISPLAY_NAME = 255;
-
-/**
- * Runs of line breaks and other control characters.
- *
- * The rule against control characters in a pattern is disabled for this one
- * line, the case it makes an exception for: the pattern exists to take them out
- * of a name that becomes part of a header.
- */
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]+/g;
 
 /**
  * Renders and sends correspondence.
@@ -181,7 +165,10 @@ export class MailService {
     return this.driverFor(mail).send({
       from: sender.from,
       to: input.to,
-      subject: rendered.subject,
+      // One line whichever driver sends it. A subject can quote one an outside
+      // sender wrote - a board mailbox answer is "Re:" and theirs - and a line
+      // break in it must not reach a service that writes the header as given.
+      subject: oneLine(rendered.subject),
       html: rendered.html,
       text: rendered.text,
       replyTo: input.replyTo ?? sender.replyTo,
@@ -242,6 +229,7 @@ export class MailService {
             mail.server.host,
             mail.server.port,
             mail.server.secure,
+            mail.server.requireTls,
             mail.server.user,
             mail.server.password,
           ]
@@ -355,9 +343,6 @@ function displayNameOf(name: string | null): string | null {
   if (name === null) {
     return null;
   }
-  const oneLine = name
-    .replace(CONTROL_CHARACTERS, " ")
-    .trim()
-    .slice(0, MAX_DISPLAY_NAME);
-  return oneLine === "" ? null : oneLine;
+  const displayName = oneLine(name).slice(0, MAX_DISPLAY_NAME);
+  return displayName === "" ? null : displayName;
 }

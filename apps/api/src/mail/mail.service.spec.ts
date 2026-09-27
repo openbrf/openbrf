@@ -18,7 +18,12 @@ import {
   startMailApiTestServer,
   type MailApiTestServer,
 } from "./testing/mail-api-test-server";
-import { invitationMail, magicLinkMail, moveOutMail } from "./templates";
+import {
+  boardMailboxReplyMail,
+  invitationMail,
+  magicLinkMail,
+  moveOutMail,
+} from "./templates";
 
 /**
  * Rendering is tested for real (React Email through to HTML and plain text)
@@ -444,6 +449,48 @@ describe("the driver", () => {
     expect(transport.createTransport).toHaveBeenCalledTimes(2);
     // The transport built for the old settings is closed as it is replaced.
     expect(transport.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the subject", () => {
+  /*
+   * An answer's subject quotes the thread's, which an outside sender wrote. A
+   * thread collected before the reader kept subjects on one line can still
+   * hold a line break, and the mail API writes the subject into the header as
+   * it is given.
+   */
+  function answerTo(service: MailService, subject: string) {
+    return service.send({
+      to: "anna@exempel.se",
+      locale: "sv",
+      template: boardMailboxReplyMail,
+      props: {
+        recipientName: "Anna",
+        subject,
+        body: "Tack för ditt brev.",
+        boardAddress: "styrelsen@eksemplet.example",
+      },
+    });
+  }
+
+  it("reaches the mail API on one line, whatever the thread's held", async () => {
+    await answerTo(
+      serviceWith(httpApiEnv(), STORED, i18n),
+      "Hej\r\nBcc: nagon@annan.example",
+    );
+
+    expect(lastAccepted()?.subject).toBe("Sv: Hej Bcc: nagon@annan.example");
+  });
+
+  it("reaches the SMTP server on one line too", async () => {
+    await answerTo(
+      serviceWith(SMTP_ENV, STORED, i18n),
+      "Hej\nBcc: x@y.example",
+    );
+
+    expect(transport.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "Sv: Hej Bcc: x@y.example" }),
+    );
   });
 });
 

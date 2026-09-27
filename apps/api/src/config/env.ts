@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
+
 /**
  * Environment variables are parsed once at boot and never read from
  * process.env again, so a missing or malformed value fails immediately with a
@@ -22,15 +24,21 @@ function envBoolean(defaultValue: boolean) {
 }
 
 /**
- * Like envBoolean, but absent while the variable is unset.
+ * Like envBoolean, but absent while the variable is unset, and "true" or
+ * "false" exactly.
  *
  * For a flag that belongs to one of several drivers: a value the operator set
  * beside another driver has to be told apart from one nobody set, so that it
  * can be named at boot. The reader supplies the default.
+ *
+ * Stricter than envBoolean, because the flag this serves decides whether a
+ * connection is encrypted from the start: "TRUE" or "1" read as false would
+ * leave it in the clear until STARTTLS without a word, so any other value is
+ * named at boot instead.
  */
 function optionalEnvBoolean() {
   return z
-    .string()
+    .enum(["true", "false"], { error: 'must be "true" or "false"' })
     .transform((value) => value === "true")
     .optional();
 }
@@ -43,15 +51,6 @@ const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
  */
 const MESSAGE_ID_DOMAIN =
   /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i;
-
-/**
- * A line break or any other control character, which no header may carry.
- *
- * The rule against control characters in a pattern is disabled for this one
- * line, the case it makes an exception for: the pattern exists to refuse them.
- */
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 
 /** The address parsed, or null for a value that is not a URL at all. */
 function parsedUrl(value: string): URL | null {
@@ -77,13 +76,22 @@ function isHttpsOrLoopback(url: URL): boolean {
   }
   if (url.protocol === "https:") return true;
   if (url.protocol !== "http:") return false;
-  // The parser always returns an IPv6 host bracketed, so the bracketed form is
-  // the only one that can appear here; an unbracketed one does not survive
-  // parsing to reach this line.
+  return isLoopbackHost(url.hostname);
+}
+
+/**
+ * Whether a host names this machine: the one place a connection may go
+ * unencrypted, because it never crosses a network.
+ *
+ * Both IPv6 forms, because a URL parser always returns the address bracketed
+ * and an SMTP host is written as the operator typed it.
+ */
+export function isLoopbackHost(host: string): boolean {
   return (
-    url.hostname === "localhost" ||
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "[::1]"
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host === "::1"
   );
 }
 
@@ -299,9 +307,11 @@ export const envSchema = z.object({
    */
   OPENBRF_MAIL_FROM_NAME: z
     .string()
-    .max(255)
+    .trim()
+    .min(1, "must not be blank")
+    .max(MAX_DISPLAY_NAME)
     .refine(
-      (value) => !CONTROL_CHARACTER.test(value),
+      (value) => !hasControlCharacter(value),
       "must be one line, with no line break or other control character",
     )
     .optional(),

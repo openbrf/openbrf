@@ -7,6 +7,8 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { hasControlCharacter } from "../header-text";
+
 /**
  * An HTTP mail API, in this process.
  *
@@ -19,9 +21,9 @@ import type { AddressInfo } from "node:net";
  *
  * It holds the driver to the rules a service of this shape enforces rather than
  * accepting anything: a wrong or missing key is a 401, a body that is not JSON a
- * 415, and a header the service owns - Message-ID first among them - a 422. So a
- * driver that started sending one fails the round trip instead of quietly
- * passing. What it answers is the service's own id, which is the local part of
+ * 415, and a header the service owns - Message-ID first among them - or a
+ * subject with a line break in it a 422. So a driver that started sending one
+ * fails the round trip instead of quietly passing. What it answers is the service's own id, which is the local part of
  * the Message-ID the service writes.
  *
  * It runs in-process so the suites need no infrastructure and cannot reach the
@@ -75,7 +77,7 @@ export interface MailApiTestServer {
   /** The base address to configure; the driver posts to `<this>/emails`. */
   baseUrl: string;
   key: string;
-  /** The host the base address names, as a screen or a record shows it. */
+  /** The host the base address names, without its port, as a screen or a record shows it. */
   host: string;
   /** Every message accepted, in order. */
   accepted: AcceptedMail[];
@@ -180,7 +182,8 @@ export async function startMailApiTestServer(): Promise<MailApiTestServer> {
       owned.length > 0 ||
       typeof payload.from !== "string" ||
       !Array.isArray(payload.to) ||
-      typeof payload.subject !== "string"
+      typeof payload.subject !== "string" ||
+      hasControlCharacter(payload.subject)
     ) {
       response
         .writeHead(422, { "content-type": "application/json" })
@@ -199,12 +202,12 @@ export async function startMailApiTestServer(): Promise<MailApiTestServer> {
     server.listen(0, "127.0.0.1", resolve);
   });
   const address = server.address() as AddressInfo;
-  const host = `127.0.0.1:${String(address.port)}`;
+  const origin = `127.0.0.1:${String(address.port)}`;
 
   return {
-    baseUrl: `http://${host}/v1`,
+    baseUrl: `http://${origin}/v1`,
     key: KEY,
-    host,
+    host: "127.0.0.1",
     accepted,
     requests,
     answerNextWith: (status, body = "", headers = {}) => {

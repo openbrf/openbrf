@@ -40,6 +40,7 @@ const SERVER = {
   host: "smtp.exempel.se",
   port: 587,
   secure: false,
+  requireTls: false,
   user: null,
   password: null,
 };

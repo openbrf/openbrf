@@ -297,6 +297,29 @@ describe("mail set where the instance runs", () => {
     expect(sendSmtpTest).toHaveBeenCalledTimes(1);
   });
 
+  it("points a failed test at whoever runs the instance, not at the server", async () => {
+    // The card shows no server, port or password, so the form's advice to
+    // check them would be advice the board cannot follow.
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={ENVIRONMENT} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
+        ),
+      ).toBeTruthy();
+    });
+  });
+
   it("offers a board member who may only read no test either", () => {
     render(<SmtpPanel value={ENVIRONMENT} editable={false} />);
 

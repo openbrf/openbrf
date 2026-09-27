@@ -218,11 +218,11 @@ answers itself. Where they go out is decided in one of two places:
 | -------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `OPENBRF_MAIL_DRIVER`                        | always                       | `settings` (empty or unset), `smtp` or `http-api`                                                                                                            |
 | `OPENBRF_MAIL_FROM_ADDRESS`                  | `smtp`, `http-api`, required | the sender's bare address; it need not be on the association's own domain                                                                                    |
-| `OPENBRF_MAIL_FROM_NAME`                     | `smtp`, `http-api`, optional | the display name, one line of at most 255 characters; unset, the association's registered name, read at each send                                            |
+| `OPENBRF_MAIL_FROM_NAME`                     | `smtp`, `http-api`, optional | the display name, one line of at most 255 characters and not blank; unset, the association's registered name, read at each send                              |
 | `OPENBRF_MAIL_REPLY_TO`                      | `smtp`, `http-api`, optional | where replies go when a message names nowhere of its own; unset, the board mailbox's published address while the board mailbox is configured, otherwise none |
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
 | `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
-| `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS; unset is `false`                                                                                                                               |
+| `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
@@ -246,6 +246,25 @@ correspondent sees who wrote and answers the association rather than the shared
 address. A message that names its own Reply-To keeps it. SPF, DKIM and DMARC for
 the sending domain are the operator's to publish; the Reply-To needs no
 alignment.
+
+The registered name is the board's to change, so on a shared domain a board can
+send under any name it types, another association's or an authority's, with
+mail that passes the domain's checks. A host sharing one domain between
+associations should set `OPENBRF_MAIL_FROM_NAME` on each instance, or use a
+service that ties a display name to the key.
+
+**The SMTP relay.** A connection to `OPENBRF_SMTP_HOST` that starts in cleartext
+must upgrade through STARTTLS before the instance signs in, and a relay that does
+not offer it is a failed send rather than a password sent in the clear. Only a
+relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
+with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+
+The relay must also deliver each message under the `Message-ID` the instance
+gives it. The board mailbox recognises a correspondent's reply by that
+identifier, and a relay that writes its own (Amazon SES's SMTP interface does)
+leaves every reply outside its thread, with nothing in the log to say so. For a
+service like that, use `http-api`, which records the identifier the service
+answers with.
 
 **The HTTP mail API.** The wire contract is ADR 0024's: a JSON document posted
 with the bearer key and an `Idempotency-Key`, and never a `Message-ID`, which a

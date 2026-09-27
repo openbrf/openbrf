@@ -85,8 +85,8 @@ export class ProcessorFactsService {
       ]);
 
     return {
-      smtpHost: mail?.host ?? null,
-      smtpFromAddress: mail?.fromAddress ?? null,
+      mailHost: mail?.host ?? null,
+      mailFromAddress: mail?.fromAddress ?? null,
       smsDriver: association?.smsDriver ?? null,
       smsGatewayUrl: association?.smsGatewayUrl ?? null,
       storageDriver: this.env.OPENBRF_STORAGE_DRIVER,

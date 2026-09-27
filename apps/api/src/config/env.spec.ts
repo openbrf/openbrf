@@ -249,6 +249,33 @@ describe("the mail driver's variables", () => {
     ]);
   });
 
+  it('reads the SMTP flag as "true" or "false" and names anything else', () => {
+    // "TRUE" or "1" read as false would leave the connection in the clear
+    // until STARTTLS without a word.
+    for (const value of ["TRUE", "1", "yes"]) {
+      expect(problems({ ...SMTP, OPENBRF_SMTP_SECURE: value })).toEqual([
+        'OPENBRF_SMTP_SECURE: must be "true" or "false"',
+      ]);
+    }
+    expect(
+      loadEnv({ ...REQUIRED, ...SMTP, OPENBRF_SMTP_SECURE: "false" })
+        .OPENBRF_SMTP_SECURE,
+    ).toBe(false);
+  });
+
+  it("trims the display name and refuses a blank one", () => {
+    expect(problems({ ...SMTP, OPENBRF_MAIL_FROM_NAME: "   " })).toEqual([
+      "OPENBRF_MAIL_FROM_NAME: must not be blank",
+    ]);
+    expect(
+      loadEnv({
+        ...REQUIRED,
+        ...SMTP,
+        OPENBRF_MAIL_FROM_NAME: " Brf Eksemplet ",
+      }).OPENBRF_MAIL_FROM_NAME,
+    ).toBe("Brf Eksemplet");
+  });
+
   it("wants an SMTP user and password together or not at all", () => {
     expect(problems({ ...SMTP, OPENBRF_SMTP_USER: "relay" })).toEqual([
       "OPENBRF_SMTP_PASSWORD: is required when OPENBRF_SMTP_USER is set",

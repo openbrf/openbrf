@@ -28,8 +28,8 @@ const t = ((key: string, values?: Record<string, unknown>) =>
 
 function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
   return {
-    smtpHost: "smtp.example.test",
-    smtpFromAddress: "styrelsen@granngarden.test",
+    mailHost: "smtp.example.test",
+    mailFromAddress: "styrelsen@granngarden.test",
     smsDriver: null,
     smsGatewayUrl: null,
     storageDriver: "local",
@@ -321,7 +321,7 @@ describe("seedRows", () => {
   });
 
   it("says so when there is no mail server to name", () => {
-    expect(rowFor("newsMailings", facts({ smtpHost: null })).recipients).toBe(
+    expect(rowFor("newsMailings", facts({ mailHost: null })).recipients).toBe(
       "dataProtection.processing.seed.recipients.noMailServer",
     );
   });
@@ -389,7 +389,7 @@ describe("seedRows", () => {
     // A host with no sender address sends nothing, which is the test the mail
     // row and the processor list apply.
     expect(
-      rowFor("boardMailbox", { ...MAILBOX, smtpFromAddress: null }).recipients,
+      rowFor("boardMailbox", { ...MAILBOX, mailFromAddress: null }).recipients,
     ).toBe(
       "dataProtection.processing.seed.recipients.mailbox(host=pop.example.test) " +
         "dataProtection.processing.seed.recipients.localDisk",
@@ -598,8 +598,8 @@ describe("the seed text in the real catalogues", () => {
     for (const [locale, from] of [
       ["sv", S3],
       ["en", S3],
-      ["sv", facts({ smtpHost: null })],
-      ["en", facts({ smtpHost: null })],
+      ["sv", facts({ mailHost: null })],
+      ["en", facts({ mailHost: null })],
     ] as const) {
       const translate = i18n.translatorFor(locale);
       for (const row of seedRows(translate, from)) {

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
-import type { Env } from "../config/env";
+import { type Env, isLoopbackHost } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { MailApiConfig } from "./http-api-mail.driver";
@@ -59,7 +59,7 @@ export type EffectiveMail = EffectiveSmtpMail | EffectiveHttpApiMail;
 export interface MailDescription {
   source: MailSource;
   driver: MailDriverKind;
-  /** The SMTP host, or the host of the mail API's address. */
+  /** The SMTP host, or the host of the mail API's address without its port. */
   host: string;
   fromAddress: string;
 }
@@ -79,10 +79,9 @@ export class MailSettingsResolver {
    * an environment that names none - the default - leaves the board's own.
    */
   source(): MailSource {
-    const driver = this.env.OPENBRF_MAIL_DRIVER;
-    return driver === "smtp" || driver === "http-api"
-      ? "environment"
-      : "settings";
+    return this.env.OPENBRF_MAIL_DRIVER === "settings"
+      ? "settings"
+      : "environment";
   }
 
   /**
@@ -132,6 +131,10 @@ export class MailSettingsResolver {
         host: association.smtpHost,
         port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
         secure: association.smtpSecure,
+        // As it always was: a server a board entered before this was required
+        // may not offer STARTTLS, and refusing it would stop the mail of an
+        // instance that works today. The host's relay is held to it below.
+        requireTls: false,
         user: association.smtpUser,
         password,
       },
@@ -157,7 +160,7 @@ export class MailSettingsResolver {
         host:
           fromEnvironment.driver === "smtp"
             ? fromEnvironment.server.host
-            : new URL(fromEnvironment.api.url).host,
+            : new URL(fromEnvironment.api.url).hostname,
         fromAddress: fromEnvironment.fromAddress,
       };
     }
@@ -221,13 +224,21 @@ export class MailSettingsResolver {
     }
 
     const secure = env.OPENBRF_SMTP_SECURE ?? false;
+    const host = required(env.OPENBRF_SMTP_HOST, "OPENBRF_SMTP_HOST");
     return {
       ...sender,
       driver: "smtp",
       server: {
-        host: required(env.OPENBRF_SMTP_HOST, "OPENBRF_SMTP_HOST"),
+        host,
         port: env.OPENBRF_SMTP_PORT ?? defaultPortFor(secure),
         secure,
+        /*
+         * Encrypted before the sign-in, unless the relay is on this machine.
+         * The host's credentials may send for a domain many associations
+         * share, so a relay that stops offering STARTTLS is a failure to act
+         * on rather than a password sent in the clear.
+         */
+        requireTls: !isLoopbackHost(host),
         user: env.OPENBRF_SMTP_USER ?? null,
         password: env.OPENBRF_SMTP_PASSWORD ?? null,
       },

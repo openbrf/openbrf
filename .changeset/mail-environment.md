@@ -15,3 +15,7 @@ service assigns its own message identifiers. Settings a board entered earlier
 are kept and apply again if the environment stops setting the mail. The record
 of processing activities and the processor register name the service mail
 actually goes through.
+
+An SMTP relay set in the environment must offer STARTTLS before the instance
+signs in to it, unless it is on the same machine, and every subject goes out on
+one line, including an answer quoting a subject an outside sender wrote.

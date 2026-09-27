@@ -1055,7 +1055,8 @@
         "notConfigured": "Save a server and a sender address before sending a test.",
         "noEmail": "Your own record has no email address to send the test to.",
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
-        "unknown": "The message could not be sent. Check the server, the port and the password."
+        "unknown": "The message could not be sent. Check the server, the port and the password.",
+        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them."
       },
       "test": {
         "subject": "Test message from {{association}}",

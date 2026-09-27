@@ -667,8 +667,8 @@ function clientRecipients(facts: ProcessorFacts, t: TFunction): string {
 
 function messageRecipients(facts: ProcessorFacts, t: TFunction): string {
   const parts: string[] = [];
-  if (facts.smtpHost !== null && facts.smtpFromAddress !== null) {
-    parts.push(facts.smtpHost);
+  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
+    parts.push(facts.mailHost);
   }
   if (facts.smsGatewayUrl !== null && facts.smsGatewayUrl.trim() !== "") {
     parts.push(facts.smsGatewayUrl);
@@ -696,10 +696,10 @@ function mailboxRecipients(facts: ProcessorFacts, t: TFunction): string {
       host: facts.mailbox.host,
     }),
   ];
-  if (facts.smtpHost !== null && facts.smtpFromAddress !== null) {
+  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
     sentences.push(
       t("dataProtection.processing.seed.recipients.replies", {
-        host: facts.smtpHost,
+        host: facts.mailHost,
       }),
     );
   }

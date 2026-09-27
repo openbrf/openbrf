@@ -1055,7 +1055,8 @@
         "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
         "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
         "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
-        "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord."
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
+        "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem."
       },
       "test": {
         "subject": "Testmeddelande från {{association}}",

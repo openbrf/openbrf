@@ -56,11 +56,11 @@ Each driver's variables are checked at boot (`apps/api/src/config/env.ts`):
 | Variable                                     | Driver               | Meaning                                                                          |
 | -------------------------------------------- | -------------------- | -------------------------------------------------------------------------------- |
 | `OPENBRF_MAIL_FROM_ADDRESS`                  | both, required       | the sender's bare address                                                        |
-| `OPENBRF_MAIL_FROM_NAME`                     | both                 | the display name, one line, at most 255 characters                               |
+| `OPENBRF_MAIL_FROM_NAME`                     | both                 | the display name, one line, not blank, at most 255 characters                    |
 | `OPENBRF_MAIL_REPLY_TO`                      | both                 | the Reply-To for messages that name none                                         |
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required     |                                                                                  |
 | `OPENBRF_SMTP_PORT`                          | `smtp`               | 465 with implicit TLS, 587 without                                               |
-| `OPENBRF_SMTP_SECURE`                        | `smtp`               | implicit TLS; unset is false                                                     |
+| `OPENBRF_SMTP_SECURE`                        | `smtp`               | implicit TLS, `true` or `false` exactly; unset is false                          |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`               | both or neither                                                                  |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required | https, or http on loopback; no credentials, query or fragment; a path is allowed |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required | the bearer key                                                                   |
@@ -109,6 +109,10 @@ Idempotency-Key: <the caller's message identifier, or a random UUID>
 
 - The display name is a quoted string with `"` and `\` escaped; `reply_to` and
   each header only when set.
+- The subject is one line. The mail service replaces every run of control
+  characters in it with a space before any driver sees it, because an answer's
+  subject quotes one an outside sender wrote, and a service may write the field
+  into the header as it is given.
 - `Message-ID` is never sent. The driver reports `<id>@<domain>` from the
   response's `id`, and none for a 2xx without one.
 - The idempotency key is the caller's identifier where there is one, so a
@@ -120,6 +124,13 @@ Idempotency-Key: <the caller's message identifier, or a random UUID>
 
 A driver written against one vendor's own API is a sibling file and a branch in
 the selection.
+
+`SmtpMailDriver` requires STARTTLS before it signs in to the environment's relay,
+unless the relay is on loopback, so a relay whose offer of STARTTLS an attacker
+on the path strips gets no password in the clear. A server the board entered is
+used as before. The SMTP driver also reports the `Message-ID` it handed over as
+the delivered one, so the environment's relay must keep it; one that rewrites it
+belongs behind `http-api`.
 
 ### The sender a host sets
 
@@ -150,7 +161,9 @@ threading may fail.
   host and from which address.
 - Emptying `OPENBRF_MAIL_DRIVER` restores the SMTP settings the board stored.
 - Associations sending from one shared domain share its reputation: one
-  association's complaints weigh on all of them. A correspondent sees the shared
+  association's complaints weigh on all of them. Unless the host sets
+  `OPENBRF_MAIL_FROM_NAME`, the display name is the one the board registered, so
+  a board can send under another association's name from the shared domain. A correspondent sees the shared
   address under the association's name, and one who answers the address rather
   than the Reply-To writes to the shared address.
 - DMARC holds: the sender is on the domain the service has verified, and a

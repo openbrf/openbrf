@@ -13,8 +13,8 @@ import {
 
 function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
   return {
-    smtpHost: "smtp.example.test",
-    smtpFromAddress: "styrelsen@granngarden.test",
+    mailHost: "smtp.example.test",
+    mailFromAddress: "styrelsen@granngarden.test",
     smsDriver: null,
     smsGatewayUrl: null,
     storageDriver: "local",
@@ -60,10 +60,10 @@ describe("currentProcessors", () => {
     // A host with no sender address sends nothing, which the settings screen
     // already reports as an instance that cannot send.
     expect(
-      keys(currentProcessors(facts({ smtpFromAddress: null }), [])),
+      keys(currentProcessors(facts({ mailFromAddress: null }), [])),
     ).not.toContain("smtp");
     expect(
-      keys(currentProcessors(facts({ smtpHost: null }), [])),
+      keys(currentProcessors(facts({ mailHost: null }), [])),
     ).not.toContain("smtp");
   });
 

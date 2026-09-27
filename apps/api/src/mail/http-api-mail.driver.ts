@@ -23,10 +23,11 @@ import type { MailDriver, OutgoingMail, SentMail } from "./mail-driver";
  *
  *   2xx {"id": "<id>"}  ->  delivered as Message-ID <id@OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN>
  *
- * The display name is a quoted string with `"` and `\` escaped; a line break
- * never reaches it, because the configuration refuses one and the mail service
- * removes one from the association's name. `reply_to` and each header are sent
- * only when set.
+ * The display name is a quoted string with `"` and `\` escaped. A line break
+ * reaches neither it nor the subject, because the configuration refuses one in
+ * the configured name and the mail service replaces one in the association's
+ * name and in every subject (header-text.ts): a service may write both into the
+ * header as it is given. `reply_to` and each header are sent only when set.
  *
  * A Message-ID is never sent. A service of this shape owns that header, refuses
  * it from the caller and writes its own from the id it answers with, so the

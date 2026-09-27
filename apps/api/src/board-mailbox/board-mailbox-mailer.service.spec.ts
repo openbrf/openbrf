@@ -119,4 +119,21 @@ describe("marking an answer sent", () => {
     );
     expect(String(warn.mock.calls[0]?.[0])).not.toContain("@");
   });
+
+  it("names the delivered identifier when the row cannot be updated", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => {
+      // Asserted on below rather than printed.
+    });
+    const { mailer, update } = build({ messageId: "abc@getpost.se" });
+    update.mockRejectedValueOnce(new Error("connection lost"));
+
+    // Sent is still the answer: the handover happened.
+    expect(await mailer.sendReply("reply-1")).toBe("sent");
+
+    // Nothing else holds the identifier the correspondent's reply will name,
+    // so the log line is what the row is repaired from.
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("delivered as <abc@getpost.se>"),
+    );
+  });
 });

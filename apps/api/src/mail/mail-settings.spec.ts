@@ -96,6 +96,15 @@ describe("the environment", () => {
     });
   });
 
+  it("names the host without the port the address may carry", async () => {
+    const described = await resolver({
+      ...HTTP_API_ENV,
+      OPENBRF_MAIL_API_URL: "https://api.mail.example:8443/v1",
+    }).resolver.describe();
+
+    expect(described?.host).toBe("api.mail.example");
+  });
+
   it("sets an SMTP server, its sender's name and a Reply-To", async () => {
     expect(await resolver(SMTP_ENV).resolver.current()).toEqual({
       source: "environment",
@@ -105,6 +114,8 @@ describe("the environment", () => {
         // Not secure unless it says so, and then the submission port.
         port: 587,
         secure: false,
+        // The host's relay is not on this machine, so STARTTLS is required.
+        requireTls: true,
         user: null,
         password: null,
       },
@@ -126,9 +137,23 @@ describe("the environment", () => {
       host: "smtp.host.example",
       port: 465,
       secure: true,
+      requireTls: true,
       user: "relay",
       password: "relay-password",
     });
+  });
+
+  it("lets a relay on this machine go without STARTTLS", async () => {
+    for (const host of ["localhost", "127.0.0.1", "::1", "[::1]"]) {
+      const mail = await resolver({
+        ...SMTP_ENV,
+        OPENBRF_SMTP_HOST: host,
+      }).resolver.current();
+
+      expect(mail?.driver === "smtp" ? mail.server.requireTls : null).toBe(
+        false,
+      );
+    }
   });
 });
 
@@ -144,6 +169,8 @@ describe("the settings", () => {
         host: "smtp.stored.example",
         port: 465,
         secure: true,
+        // What the board entered is used as it always was.
+        requireTls: false,
         user: "styrelsen",
         password: "stored-password",
       },

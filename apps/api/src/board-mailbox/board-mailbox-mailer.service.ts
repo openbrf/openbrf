@@ -301,8 +301,13 @@ export class BoardMailboxMailerService implements OnModuleInit {
             : { deliveryStatus: "SENT" },
       });
     } catch (error) {
+      // The delivered identifier is named, because nothing else holds it: a
+      // row left with the minted one never threads the correspondent's reply,
+      // and this line is what it can be repaired from. It is not personal data.
       this.logger.error(
-        `Board mailbox reply ${messageId} was sent but not recorded as sent: ${failureName(error)}`,
+        `Board mailbox reply ${messageId} was sent but not recorded as sent` +
+          (delivered === null ? "" : ` (delivered as <${delivered}>)`) +
+          `: ${failureName(error)}`,
       );
     }
     return "sent";

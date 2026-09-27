@@ -13,8 +13,14 @@
  * wrote.
  */
 
-/** Which transport a driver speaks. Named in logs, never in a response. */
-export type MailDriverKind = "smtp" | "http-api";
+import type { Env } from "../config/env";
+
+/**
+ * Which transport a driver speaks. Named in logs, never in a response.
+ *
+ * The drivers the environment can name, so a new one is added in one place.
+ */
+export type MailDriverKind = Exclude<Env["OPENBRF_MAIL_DRIVER"], "settings">;
 
 /** One rendered message, ready to hand over. */
 export interface OutgoingMail {

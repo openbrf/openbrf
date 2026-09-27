@@ -105,7 +105,9 @@ function EnvironmentMailPanel({
               failureMessageKey(
                 test.state.failure,
                 TEST_FAILURES,
-                "settings.smtp.errors.unknown",
+                // Not the form's advice: this card shows no server, port or
+                // password, and the board cannot change them.
+                "settings.smtp.errors.environmentUnknown",
               ),
             )}
           </Notice>
