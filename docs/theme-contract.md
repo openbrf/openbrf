@@ -281,6 +281,11 @@ it against the themes it may extend, with the function the instance runs at
 install, and answers either the reader's refusal or the manifest with every
 lint finding.
 
+It is published on npm together with `@openbrf/tokens`, this contract in code,
+which it depends on. A theme repository adds it with
+`pnpm add -D @openbrf/theme-tools`. The major version of both packages follows
+this contract's, so `^1.0.0` stays on version 1 of the token contract.
+
 ## What is themeable, and what is not
 
 **Themeable:** colours, fonts, shape (radii and shadow), motion, the logo, and

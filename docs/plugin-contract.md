@@ -278,7 +278,9 @@ the host cannot read, so it is refused.
 Everything else must come from `@openbrf/plugin-sdk` as a **type-only** import.
 The SDK is a build-time dependency: everything a plugin uses at runtime is
 injected by the host, and the package is not resolvable from an installed
-plugin's directory.
+plugin's directory. It is published on npm, and a plugin adds it with
+`pnpm add -D @openbrf/plugin-sdk`. Its major version is the contract version,
+so `^1.0.0` stays on version 1 of this contract.
 
 Build with `experimentalDecorators` and `emitDecoratorMetadata`. NestJS
 resolves a provider's constructor arguments from the metadata those emit, and

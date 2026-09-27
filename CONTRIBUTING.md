@@ -103,6 +103,14 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.
 
+## Published packages
+
+Three packages leave this repository, because plugin and theme authors build against them: `@openbrf/plugin-sdk`, `@openbrf/theme-tools` and `@openbrf/tokens`, published on npm under the `@openbrf` scope. Every other workspace package is private.
+
+- **How a version reaches npm.** A changeset naming one of the three bumps its version when `pnpm changeset version` runs, as for any other package, and the new version reaches `main` in its `package.json` with the entry in its `CHANGELOG.md`. A push to `main` that touches one of the three `package.json` files starts `.github/workflows/release.yml`, which builds and tests the three and runs `scripts/publish-packages.mjs`: every version the registry does not have yet is packed, checked to carry its `README.md`, `LICENSE`, `LICENSE-EXCEPTION.md` and built entry points, and published with provenance. `node scripts/publish-packages.mjs --dry-run` does the same and publishes nothing. npm never accepts the same version twice, so a mistake in a published version is fixed by the next one.
+- **A publish waits for approval.** The job runs in the `npm` environment, and nothing in it starts until the environment's required reviewer has approved the run.
+- **The major version follows a contract.** The SDK's major version is the plugin API version (`PLUGIN_API_VERSION`, [docs/plugin-contract.md](docs/plugin-contract.md)): an additive change is a minor release, and anything a plugin built against an earlier release could notice raises the plugin API version and the major with it. The major version of the theme tools and of the tokens is the token contract's ([docs/theme-contract.md](docs/theme-contract.md)): adding a token is a minor release, renaming or removing one a major. A changeset gives one of the three a `major` bump only together with a new contract version.
+
 ## AI-assisted contributions
 
 AI-assisted work is **welcome** - much of Open BRF is built that way. The rules:
