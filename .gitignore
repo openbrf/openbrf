@@ -19,6 +19,12 @@ apps/api/src/generated/
 fixtures/.artifacts/
 fixtures/catalog/catalog.json
 
+# Copied from the root by scripts/publish-packages.mjs before a published
+# package is packed, so its tarball carries the licence and the module
+# exception. The root copies are the ones kept in the history.
+packages/*/LICENSE
+packages/*/LICENSE-EXCEPTION.md
+
 # Environment and secrets
 .env
 .env.*
