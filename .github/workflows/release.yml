@@ -92,21 +92,26 @@ jobs:
           done
           pnpm turbo run build lint typecheck test "${filters[@]}"
 
-      # pnpm replaces `workspace:*` with the version it points at, and runs
-      # each package's `prepack`, which copies in the licence files.
+      # pnpm replaces a `workspace:` range with the version it points at, and
+      # runs each package's `prepack`, which copies in the licence files. Each
+      # tarball goes in a directory numbered in the check's order, dependencies
+      # first, which is the order `publish` publishes them in.
       - name: Pack
         env:
           PACKAGES: ${{ steps.packages.outputs.directories }}
         run: |
-          mkdir -p "$RUNNER_TEMP/tarballs"
+          position=0
           for directory in $PACKAGES; do
-            (cd "$directory" && pnpm pack --pack-destination "$RUNNER_TEMP/tarballs")
+            position=$((position + 1))
+            destination="$RUNNER_TEMP/tarballs/$(printf '%03d' "$position")"
+            mkdir -p "$destination"
+            (cd "$directory" && pnpm pack --pack-destination "$destination")
           done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tarballs
-          path: ${{ runner.temp }}/tarballs/*.tgz
+          path: ${{ runner.temp }}/tarballs/*/*.tgz
           if-no-files-found: error
           retention-days: 1
 
@@ -145,11 +150,15 @@ jobs:
       # before a trusted publisher can be attached to it; remove the secret
       # once all three have one. Provenance comes from each package's
       # publishConfig, which npm reads from the tarball.
+      #
+      # The numbered directories keep the order `build` packed them in, so a
+      # package is published only after every package it depends on, and a
+      # failed publish stops the ones after it.
       - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for tarball in "$RUNNER_TEMP"/tarballs/*.tgz; do
+          for tarball in "$RUNNER_TEMP"/tarballs/*/*.tgz; do
             manifest=$(tar -xzOf "$tarball" package/package.json)
             name=$(node -p 'JSON.parse(process.argv[1]).name' "$manifest")
             version=$(node -p 'JSON.parse(process.argv[1]).version' "$manifest")

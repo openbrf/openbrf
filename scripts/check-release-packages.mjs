@@ -21,11 +21,18 @@
  *   changeset of the wrong kind would break that silently. The tokens package
  *   is the contract itself, so its major follows the contract's too.
  *
+ *   A pending changeset that names a package to publish. Its change is in the
+ *   code but not yet in the version or the CHANGELOG, so publishing now would
+ *   ship it under a version whose notes leave it out. `pnpm changeset version`
+ *   consumes the changesets first.
+ *
  * On success it prints the directory of each package to publish, one per line,
- * for the release workflow to build and pack.
+ * dependencies before the packages that depend on them, for the release
+ * workflow to build, pack and publish in that order: a package is never on the
+ * registry before a version of every package it needs.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -95,6 +102,20 @@ for (const [name, rule] of PUBLISHED) {
   }
 }
 
+const changesetDirectory = join(repoRoot, ".changeset");
+for (const file of readdirSync(changesetDirectory).sort()) {
+  if (!file.endsWith(".md") || file === "README.md") {
+    continue;
+  }
+  for (const name of changesetPackages(join(changesetDirectory, file))) {
+    if (PUBLISHED.has(name)) {
+      problems.push(
+        `.changeset/${file} names ${name}, which is not versioned yet. Run \`pnpm changeset version\` in a pull request first.`,
+      );
+    }
+  }
+}
+
 if (problems.length > 0) {
   for (const problem of problems) {
     console.error(`::error::${problem}`);
@@ -102,6 +123,58 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-for (const project of publicPackages) {
+for (const project of dependenciesFirst(publicPackages)) {
   console.log(relative(repoRoot, project.path));
+}
+
+/** The package names in a changeset's front matter. */
+function changesetPackages(path) {
+  const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(
+    readFileSync(path, "utf8"),
+  );
+  if (frontMatter === null) {
+    return [];
+  }
+  return frontMatter[1]
+    .split(/\r?\n/)
+    .map((line) => /^\s*["']?([^"':]+?)["']?\s*:/.exec(line)?.[1])
+    .filter((name) => name !== undefined);
+}
+
+/**
+ * The projects ordered so that each comes after every other one it depends
+ * on, and otherwise by name. The published packages have no cycle, as a
+ * workspace with one would not build.
+ */
+function dependenciesFirst(projects) {
+  const byName = new Map(projects.map((project) => [project.name, project]));
+  const ordered = [];
+  const visited = new Set();
+  const visit = (project) => {
+    if (visited.has(project.name)) {
+      return;
+    }
+    visited.add(project.name);
+    const manifest = JSON.parse(
+      readFileSync(join(project.path, "package.json"), "utf8"),
+    );
+    const needs = Object.keys({
+      ...manifest.dependencies,
+      ...manifest.optionalDependencies,
+      ...manifest.peerDependencies,
+    }).sort();
+    for (const name of needs) {
+      const dependency = byName.get(name);
+      if (dependency !== undefined) {
+        visit(dependency);
+      }
+    }
+    ordered.push(project);
+  };
+  for (const project of [...projects].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )) {
+    visit(project);
+  }
+  return ordered;
 }
