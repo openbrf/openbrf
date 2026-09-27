@@ -64,6 +64,14 @@ const CHANGELOGS = [
   { name: "@openbrf/web", text: WEB_CHANGELOG },
 ];
 
+/** The fixed group, of which the two changelogs above are a part. */
+const GROUP = [
+  "@openbrf/api",
+  "@openbrf/web",
+  "@openbrf/i18n",
+  "@openbrf/shared",
+];
+
 test("an entry two packages share is given once", () => {
   const notes = releaseNotes("0.2.0", CHANGELOGS);
 
@@ -85,10 +93,32 @@ test("an entry only one package carries is kept", () => {
 });
 
 test("the dependency bumps inside the group are left out", () => {
-  const notes = releaseNotes("0.2.0", CHANGELOGS);
+  const notes = releaseNotes("0.2.0", CHANGELOGS, GROUP);
 
   assert.doesNotMatch(notes, /Updated dependencies/);
   assert.doesNotMatch(notes, /@openbrf\/shared@0\.2\.0/);
+});
+
+test("a bump of a package outside the group is kept, once", () => {
+  // A change to the design tokens alone bumps the platform too, and without
+  // this line its notes would say nothing changed.
+  const bump = (name, commit) =>
+    `# ${name}\n\n## 0.2.1\n\n### Patch Changes\n\n` +
+    `- Updated dependencies [${commit}]\n` +
+    "  - @openbrf/tokens@0.3.0\n  - @openbrf/shared@0.2.1\n";
+  const notes = releaseNotes(
+    "0.2.1",
+    [
+      { name: "@openbrf/api", text: bump("@openbrf/api", "1a2b3c4") },
+      { name: "@openbrf/web", text: bump("@openbrf/web", "5d6e7f8") },
+    ],
+    GROUP,
+  );
+
+  assert.equal(
+    notes,
+    "## Patch Changes\n\n- Updated dependencies\n  - @openbrf/tokens@0.3.0\n",
+  );
 });
 
 test("minor entries come before patch entries", () => {

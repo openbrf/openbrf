@@ -6,10 +6,14 @@ name: Image
 # request, which is `pnpm changeset version` and nothing else
 # (CONTRIBUTING.md, "Releasing the platform"). The first job waits in the
 # `ghcr` environment for a required reviewer, and nothing is pushed anywhere
-# before it has been approved and has checked the tag against the packages.
-# Each architecture is then built on a runner of its own, started beside
-# PostgreSQL and pushed by digest only once it has come up healthy; the last
-# job joins the two into one index, tags it, attests it and writes the release.
+# before it has been approved, has checked the tag's signature against
+# .github/release-signers and the tag against the packages, and has written
+# the release notes. Each architecture is then built once on a runner of its
+# own and pushed by digest, untagged, and that digest is what is started beside
+# PostgreSQL; only one that came up healthy is handed on. The publish job joins
+# the two into one index, tags it with its exact version, attests it and
+# publishes the release. The release line tags move last, in a job of their
+# own, so a line never points at a version that has no release.
 #
 # A published version's tag cannot be moved or deleted
 # (.github/rulesets/protect-release-tags.json), so a run that fails is fixed
@@ -38,6 +42,7 @@ jobs:
     # The approval gate. Everything after this job needs it.
     environment: ghcr
     permissions:
+      # Reading the tag object and its signature, besides the checkout.
       contents: read
       # Reading the CI run of the tagged commit.
       actions: read
@@ -46,9 +51,6 @@ jobs:
       minor: ${{ steps.version.outputs.minor }}
       major: ${{ steps.version.outputs.major }}
       commit: ${{ steps.commit.outputs.commit }}
-      moveMinor: ${{ steps.lines.outputs.moveMinor }}
-      moveMajor: ${{ steps.lines.outputs.moveMajor }}
-      latest: ${{ steps.lines.outputs.latest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,6 +89,34 @@ jobs:
             echo "major=${version%%.*}"
           } >> "${GITHUB_OUTPUT}"
 
+      # Read through the API rather than from the checkout: GitHub's own
+      # verification of the signature is the one checked, and the tag object
+      # is the one GitHub holds. The signers are read from main, not from the
+      # tagged tree, so a tag cannot bring its own list.
+      - name: The tag is annotated, and signed by a release signer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" \
+            --jq '.object.type + " " + .object.sha')"
+          if [ "${ref%% *}" != tag ]; then
+            echo "::error::${TAG} is a lightweight tag. A release is a signed, annotated tag: git tag -s ${TAG}."
+            exit 1
+          fi
+          tag="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${ref#* }" \
+            --jq '[.verification.verified, .verification.reason, .tagger.email] | @tsv')"
+          IFS=$'\t' read -r verified reason email <<< "${tag}"
+          if [ "${verified}" != true ]; then
+            echo "::error::${TAG} has no signature GitHub can verify (${reason})."
+            exit 1
+          fi
+          if ! git show origin/main:.github/release-signers \
+            | grep -Ev '^[[:space:]]*(#|$)' | grep -Fqx -- "${email}"; then
+            echo "::error::${TAG} is signed by ${email}, who is not in .github/release-signers on main."
+            exit 1
+          fi
+
       - name: The tagged commit is on main, and CI passed there
         id: commit
         env:
@@ -108,37 +138,26 @@ jobs:
           fi
           echo "commit=${commit}" >> "${GITHUB_OUTPUT}"
 
-      - name: Which release lines this tag moves
-        id: lines
+      # Before anything is pushed: the script refuses a group that has no
+      # changelog section for the version, and a refusal after the image was
+      # published would leave a version in the registry without its release.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Write the release notes
         env:
-          TAG: ${{ github.ref_name }}
-          MAJOR: ${{ steps.version.outputs.major }}
-          MINOR: ${{ steps.version.outputs.minor }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # The highest release tag matching a pattern, by version order.
-          highest() {
-            git tag --list "$1" | { grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+' || true; } \
-              | sort -V | tail -n 1
-          }
-          # A patch to an older line never moves a newer line's tag. X.Y
-          # moves with the highest X.Y.Z; X moves only from 1.0.0 on, because
-          # before it every minor line waits for the association's choice;
-          # and the release is GitHub's latest only when it is the highest of
-          # all. There is no `latest` image tag: a tag that moved across lines
-          # would install the upgrade an operator is meant to choose.
-          move_minor=false
-          if [ "$(highest "v${MINOR}.*")" = "${TAG}" ]; then move_minor=true; fi
-          move_major=false
-          if [ "${MAJOR}" -ge 1 ] && [ "$(highest "v${MAJOR}.*")" = "${TAG}" ]; then
-            move_major=true
-          fi
-          latest=false
-          if [ "$(highest 'v*')" = "${TAG}" ]; then latest=true; fi
-          {
-            echo "moveMinor=${move_minor}"
-            echo "moveMajor=${move_major}"
-            echo "latest=${latest}"
-          } >> "${GITHUB_OUTPUT}"
+          mkdir -p "${RUNNER_TEMP}/notes"
+          node scripts/release-notes.mjs "${VERSION}" > "${RUNNER_TEMP}/notes/notes.md"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes/notes.md
+          if-no-files-found: error
+          retention-days: 1
 
   build:
     name: Build ${{ matrix.platform }}
@@ -174,12 +193,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      # Built once into the local engine to be started, and built again below
-      # to be pushed; the second is a cache hit and the same image. buildx's own
+      # Built once and pushed by digest, with no tag: the digest is the image
+      # started below, and the one the index is made of, so what was
+      # smoke-tested is what is published. No build cache either. The cache is
+      # shared with every workflow on main, so anything that ran there could
+      # have written an entry this build would take in. buildx's own
       # provenance and SBOM are off: the attestation the publish job makes is
       # the one relied on, and buildx's would add unknown/unknown entries to
-      # the index.
-      - name: Build the image
+      # the index. A digest that fails the start below stays untagged and is
+      # never part of a release.
+      - name: Build the image and push it by digest
+        id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -187,14 +211,14 @@ jobs:
           build-args: |
             OPENBRF_VERSION=${{ env.VERSION }}
             OPENBRF_REVISION=${{ env.REVISION }}
-          tags: openbrf:smoke
-          load: true
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,scope=${{ matrix.scope }},mode=max
+          no-cache: true
 
       - name: Start it as an operator would, and wait for it to be healthy
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           # The database docker-compose.prod.yml pins, and the variables
           # .env.production.example asks for. No encryption key, so this is a
@@ -212,7 +236,7 @@ jobs:
             --env RUNTIME_DB_PASSWORD=smoke-runtime \
             --env BETTER_AUTH_SECRET=smoke-secret-0123456789abcdef \
             --env OPENBRF_ENCRYPTION_KEY= \
-            openbrf:smoke
+            "${IMAGE}@${DIGEST}"
 
           # The image's own health check decides, as it does for an
           # orchestrator that runs the image rather than the compose file.
@@ -242,20 +266,6 @@ jobs:
           docker rm --force --volumes openbrf-smoke-app openbrf-smoke-db || true
           docker network rm openbrf-smoke || true
 
-      - name: Push the image by digest
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          build-args: |
-            OPENBRF_VERSION=${{ env.VERSION }}
-            OPENBRF_REVISION=${{ env.REVISION }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          provenance: false
-          sbom: false
-          cache-from: type=gha,scope=${{ matrix.scope }}
-
       - name: Keep the digest for the index
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
@@ -282,29 +292,30 @@ jobs:
       # The signing certificate for the attestation, and its record.
       id-token: write
       attestations: write
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
     env:
       VERSION: ${{ needs.verify.outputs.version }}
-      MINOR: ${{ needs.verify.outputs.minor }}
-      MAJOR: ${{ needs.verify.outputs.major }}
-      MOVE_MINOR: ${{ needs.verify.outputs.moveMinor }}
-      MOVE_MAJOR: ${{ needs.verify.outputs.moveMajor }}
-      LATEST: ${{ needs.verify.outputs.latest }}
       TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Every tag: whether this release is the highest of all is read from
+          # them, now rather than when verify ran, so a later release that
+          # published first is seen.
+          fetch-depth: 0
           persist-credentials: false
-
-      # The release notes script is the repository's Node, not the runner's.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: digest-*
           merge-multiple: true
           path: ${{ runner.temp }}/digests
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -314,20 +325,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      # The exact version only. The line tags are what operators follow, so
+      # they move in the last job, once the release exists.
       - name: Join both architectures into one index and tag it
         id: index
         working-directory: ${{ runner.temp }}/digests
         run: |
-          tags=(--tag "${IMAGE}:${VERSION}")
-          if [ "${MOVE_MINOR}" = true ]; then tags+=(--tag "${IMAGE}:${MINOR}"); fi
-          if [ "${MOVE_MAJOR}" = true ]; then tags+=(--tag "${IMAGE}:${MAJOR}"); fi
           sources=()
           for digest in *; do sources+=("${IMAGE}@sha256:${digest}"); done
           if [ "${#sources[@]}" -ne 2 ]; then
             echo "::error::Expected one image per architecture, found ${#sources[@]}."
             exit 1
           fi
-          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          docker buildx imagetools create --tag "${IMAGE}:${VERSION}" "${sources[@]}"
           digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
             --format '{{json .Manifest}}' | jq -r .digest)"
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
@@ -345,9 +355,6 @@ jobs:
           push-to-registry: true
           create-storage-record: false
 
-      - name: Write the release notes
-        run: node scripts/release-notes.mjs "${VERSION}" > "${RUNNER_TEMP}/notes.md"
-
       # A draft first: an immutable release takes no asset once published.
       - name: Create the release, with what an operator downloads
         env:
@@ -364,7 +371,7 @@ jobs:
           cp "${BUNDLE}" "${assets}/openbrf-${VERSION}.intoto.jsonl"
           gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" \
             --verify-tag --draft --title "Open BRF ${VERSION}" \
-            --notes-file "${RUNNER_TEMP}/notes.md" \
+            --notes-file "${RUNNER_TEMP}/notes/notes.md" \
             "${assets}/docker-compose.prod.yml" \
             "${assets}/env.production.example" \
             "${assets}/openbrf-${VERSION}.intoto.jsonl"
@@ -373,8 +380,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # GitHub's latest release only when it is the highest of all.
+          latest="$(scripts/release-lines.sh "${TAG}" | sed -n 's/^latest=//p')"
           gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-            --draft=false --latest="${LATEST}"
+            --draft=false --latest="${latest}"
 
       - name: Say what was published and how to check it
         env:
@@ -389,3 +398,46 @@ jobs:
             echo "gh attestation verify oci://${IMAGE}:${VERSION} --repo openbrf/openbrf --signer-workflow openbrf/openbrf/.github/workflows/image.yml"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  # A job of its own, so that when it fails "Re-run failed jobs" repeats it
+  # alone rather than a publish that has already happened.
+  lines:
+    name: Move the release lines to ${{ needs.verify.outputs.version }}
+    needs: [verify, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # The line tags.
+      packages: write
+    env:
+      TAG: ${{ github.ref_name }}
+      MINOR: ${{ needs.verify.outputs.minor }}
+      MAJOR: ${{ needs.verify.outputs.major }}
+      DIGEST: ${{ needs.publish.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every tag, read now: two releases of one line can run side by side,
+          # and the one that finishes last must not move the line back.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Point the lines this release leads at its index
+        run: |
+          lines="$(scripts/release-lines.sh "${TAG}")"
+          tags=()
+          if grep -qx 'moveMinor=true' <<< "${lines}"; then tags+=(--tag "${IMAGE}:${MINOR}"); fi
+          if grep -qx 'moveMajor=true' <<< "${lines}"; then tags+=(--tag "${IMAGE}:${MAJOR}"); fi
+          if [ "${#tags[@]}" -eq 0 ]; then
+            echo "${TAG} leads no release line, so no line tag moves."
+            exit 0
+          fi
+          docker buildx imagetools create "${tags[@]}" "${IMAGE}@${DIGEST}"

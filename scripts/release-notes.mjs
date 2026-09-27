@@ -10,7 +10,9 @@
  * notes are therefore gathered from every package in the group: the section
  * for this version from each, an entry two packages share given once, the
  * dependency bumps between the group's own packages left out, and major
- * changes before minor ones before patches.
+ * changes before minor ones before patches. A bump of a package outside the
+ * group - the design tokens, the plugin SDK - is kept, because a release can
+ * consist of nothing else.
  *
  * Exits 1 when a package in the group has no section for the version. The
  * group is released together, so that is a changelog nobody generated for this
@@ -30,6 +32,28 @@ const KINDS = ["Major Changes", "Minor Changes", "Patch Changes"];
 
 /** What `changeset version` writes for a bump inside the workspace. */
 const DEPENDENCY_BUMP = "- Updated dependencies";
+
+/** One line of a dependency bump: `  - @openbrf/tokens@0.2.0`. */
+const BUMPED_PACKAGE = /^\s+- (@?[^@\s]+)@\S+$/;
+
+/**
+ * A dependency bump with the group's own packages taken out, or undefined when
+ * it named nothing else. The commit list after the heading is dropped as well,
+ * so the same bump reads the same whichever package's changelog carried it.
+ */
+function outsideBumps(entry, group) {
+  const bumped = entry
+    .split("\n")
+    .slice(1)
+    .filter((line) => {
+      const name = BUMPED_PACKAGE.exec(line)?.[1];
+      return name !== undefined && !group.has(name);
+    })
+    .map((line) => `  ${line.trim()}`);
+  return bumped.length === 0
+    ? undefined
+    : [DEPENDENCY_BUMP, ...bumped].join("\n");
+}
 
 /** The lines of one changelog's `## <version>` section, or undefined. */
 function versionSection(text, version) {
@@ -89,9 +113,16 @@ function entriesByKind(section) {
  *
  * @param {string} version A plain MAJOR.MINOR.PATCH.
  * @param {{ name: string, text: string }[]} changelogs In the group's order.
+ * @param {string[]} [group] Every package in the group, when changelogs is
+ *   not all of them.
  * @returns {string} Markdown.
  */
-export function releaseNotes(version, changelogs) {
+export function releaseNotes(
+  version,
+  changelogs,
+  group = changelogs.map(({ name }) => name),
+) {
+  const inGroup = new Set(group);
   const sections = changelogs.map(({ name, text }) => {
     const section = versionSection(text, version);
     if (section === undefined) {
@@ -107,8 +138,11 @@ export function releaseNotes(version, changelogs) {
   for (const kind of KINDS) {
     const entries = [];
     for (const section of sections) {
-      for (const entry of section.get(kind) ?? []) {
-        if (entry.startsWith(DEPENDENCY_BUMP) || seen.has(entry)) {
+      for (const written of section.get(kind) ?? []) {
+        const entry = written.startsWith(DEPENDENCY_BUMP)
+          ? outsideBumps(written, inGroup)
+          : written;
+        if (entry === undefined || seen.has(entry)) {
           continue;
         }
         seen.add(entry);
