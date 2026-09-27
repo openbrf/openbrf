@@ -106,6 +106,28 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.
 
+## Releasing the platform
+
+The platform is four packages released as one: `@openbrf/api`, `@openbrf/web`, `@openbrf/i18n` and `@openbrf/shared` are a fixed group in `.changeset/config.json`, so a release gives all four the same version. That version is the platform's - the image is tagged with it and an instance names it when it starts. `@openbrf/plugin-sdk`, `@openbrf/theme-tools` and `@openbrf/tokens` are published on their own and keep versions of their own.
+
+**What bump a changeset asks for.** A patch fixes something without changing anything an operator does, and is installed without anybody choosing it. Before v1, a minor may carry anything an operator has to act on; from v1 on, that is a major. Acting on it means any of:
+
+- a new required variable, or a variable removed or renamed;
+- a PostgreSQL major version no longer supported;
+- a plugin API version dropped from `SUPPORTED_PLUGIN_API_VERSIONS` (`packages/plugin-sdk/src/api-version.ts`);
+- a document version of the management API removed;
+- a data change that needs a manual step.
+
+No changeset says `major` before v1: on a 0.x version it would move the whole group to 1.0.0.
+
+**A release** is the maintainer's, in three steps:
+
+1. The release pull request, which is `pnpm changeset version` and `pnpm format` and nothing else, committed and signed by the maintainer. It turns the pending changesets into each package's `CHANGELOG.md` and gives the group its new version.
+2. Once it has merged, a signed tag on its merge commit: `git tag -s vX.Y.Z -m "Open BRF X.Y.Z" <merge commit>`, pushed.
+3. The tag starts `.github/workflows/image.yml`, whose first job waits in the `ghcr` environment for the maintainer's approval. The run then checks that the tag is a plain version all four packages carry, that its commit is on `main` and that CI passed there; builds the image for amd64 and arm64 and starts each beside PostgreSQL; and publishes the image with its tags and its build provenance attestation, and the GitHub release with notes gathered from the four changelogs (`scripts/release-notes.mjs`).
+
+A release tag cannot be moved or deleted (`.github/rulesets/protect-release-tags.json`), so a release that fails after its tag is pushed is fixed forward with the next patch release. [docs/deployment.md](docs/deployment.md), "Versions and upgrades", is the same contract from the operator's side.
+
 ## AI-assisted contributions
 
 AI-assisted work is **welcome** - much of Open BRF is built that way. The rules:
