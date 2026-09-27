@@ -77,6 +77,7 @@ export const SECTION_TITLE = {
   boardPositions: "register.person.report.section.boardPositions",
   systemRoles: "register.person.report.section.systemRoles",
   account: "register.person.report.section.account",
+  signInSessions: "register.person.report.section.signInSessions",
   connectedApps: "register.person.report.section.connectedApps",
   memberRegisterEntries: "register.person.report.section.memberRegister",
   transfers: "register.person.report.section.transfers",
@@ -894,6 +895,89 @@ export function DataSubjectReport({
                   />
                 </dl>
               )}
+              {/*
+               * The passkeys the account can be signed in with, under its own
+               * heading inside the section: each one's name, when it was added
+               * and whether it is synced between devices. Nothing that would
+               * let anybody present one.
+               */}
+              {report.account === null ? null : (
+                <div className="flex flex-col gap-2">
+                  <h4 className={FIELD_LABEL}>
+                    {t("register.person.report.field.passkeys")}
+                  </h4>
+                  <Rows
+                    empty={report.account.passkeys.length === 0}
+                    headings={[
+                      "register.person.report.field.name",
+                      "register.person.report.field.added",
+                      "register.person.report.field.synced",
+                    ]}
+                  >
+                    {report.account.passkeys.map((passkey, position) => (
+                      <tr
+                        key={`${passkey.addedAt ?? ""}-${String(position)}`}
+                        className={ROW}
+                      >
+                        <td className={TEXT_CELL}>
+                          {passkey.name ??
+                            t("register.person.report.passkeyUnnamed")}
+                        </td>
+                        <td className={DATA_CELL}>
+                          {day(passkey.addedAt) ?? nothing}
+                        </td>
+                        <td className={TEXT_CELL}>
+                          {t(
+                            passkey.backedUp
+                              ? "register.person.report.yes"
+                              : "register.person.report.no",
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </Rows>
+                </div>
+              )}
+            </Section>
+
+            {/*
+             * Every session the account holds, ended ones included, newest
+             * first. The IP address and the browser name are printed as the
+             * sign-in recorded them and not shortened: a shortened address
+             * would be a different datum from the one the association keeps.
+             * "Last renewed" and not "last seen", because renewal happens at
+             * most once a day.
+             */}
+            <Section section="signInSessions">
+              <Rows
+                empty={report.signInSessions.length === 0}
+                headings={[
+                  "register.person.report.field.signedIn",
+                  "register.person.report.field.renewed",
+                  "register.person.report.field.ends",
+                  "register.person.report.field.ipAddress",
+                  "register.person.report.field.userAgent",
+                ]}
+              >
+                {report.signInSessions.map((session, position) => (
+                  <tr
+                    key={`${session.signedInAt}-${String(position)}`}
+                    className={ROW}
+                  >
+                    <td className={DATA_CELL}>{day(session.signedInAt)}</td>
+                    <td className={DATA_CELL}>{day(session.renewedAt)}</td>
+                    <td className={DATA_CELL}>{day(session.endsAt)}</td>
+                    <td className={DATA_CELL}>
+                      {session.ipAddress ?? nothing}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      <span className="block break-words">
+                        {session.userAgent ?? nothing}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
             </Section>
 
             <Section section="connectedApps">

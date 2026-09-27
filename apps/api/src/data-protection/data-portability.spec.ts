@@ -61,7 +61,17 @@ const REPORT = {
     email: "astrid@exempel.se",
     twoFactorEnabled: true,
     createdAt: "x",
+    passkeys: [{ name: "Telefonen", addedAt: "x", backedUp: true }],
   },
+  signInSessions: [
+    {
+      signedInAt: "2026-09-01T08:00:00.000Z",
+      renewedAt: "2026-09-05T08:00:00.000Z",
+      endsAt: "2026-10-05T08:00:00.000Z",
+      ipAddress: "192.0.2.10",
+      userAgent: "Mozilla/5.0",
+    },
+  ],
   connectedApps: [
     {
       clientName: "Anteckningsappen",
@@ -337,16 +347,18 @@ describe("what the export leaves on the access report", () => {
 
   it("carries nothing the association wrote about the person", () => {
     /*
-     * The account rests on the contract, and when it was created and whether it
-     * has a second factor are still the association's record of it rather than
-     * something the person provided.
+     * The account rests on the contract, and when it was created, whether it
+     * has a second factor and which passkeys it holds are still the
+     * association's record of it rather than something the person provided.
+     * So is when they signed in and from where: the sign-in library's record
+     * of access, on the reading `connectedApps.lastUsedAt` below is dropped on.
      */
     const exported = toDataPortabilityExport(REPORT, t) as unknown as Record<
       string,
       unknown
     >;
 
-    expectLeftOnTheReport(exported, ["account"]);
+    expectLeftOnTheReport(exported, ["account", "signInSessions"]);
 
     /*
      * And the board's own answer, on the sections the export does carry. The

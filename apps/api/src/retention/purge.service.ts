@@ -13,6 +13,7 @@ import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
 } from "./connected-app-token-sweep";
+import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";
 import {
   describeRemainder,
   ERASURE_DOMAINS,
@@ -143,6 +144,13 @@ export interface PurgeRunSummary {
    */
   tokensSwept: ConnectedAppTokenSweepOutcome;
   /**
+   * How many ended sign-in sessions the session sweep deleted on this run.
+   *
+   * Not part of anybody's purge and counted apart from it, like the tokens: a
+   * session that has ended has ended whoever it was issued for.
+   */
+  signInSessionsSwept: number;
+  /**
    * Granted erasure requests still open when the run ended, and why each one is.
    *
    * The run's own account of the erasures it did not finish. A request that
@@ -244,6 +252,12 @@ export interface PurgeRunSummary {
  *
  * A person's own grants are not swept: they go with the account, by the
  * cascades on it, in the same statement that deletes the account below.
+ *
+ * The sign-in sessions that have ended ride the same minute, for the same
+ * reasons, with one difference: a session is a record of when and from where
+ * somebody signed in as well as a credential, so the sessions of a person under
+ * a legal hold or a restriction are left as the rest of their data is.
+ * `sign-in-session-sweep.ts` holds that rule.
  *
  * ## Its place in the night
  *
@@ -397,11 +411,29 @@ export class PurgeService implements OnModuleInit {
       );
     }
 
+    /*
+     * The sessions that have ended, after the tokens and on the same clock. A
+     * person purged above took their sessions with the account; what is left
+     * for this is every other account's browser that has not come back.
+     */
+    const signInSessionsSwept = await sweepExpiredSignInSessions(
+      this.prisma,
+      now,
+    );
+    if (signInSessionsSwept > 0) {
+      // A count, like every other line this job writes: never an address, a
+      // browser name or whose sessions they were.
+      this.logger.log(
+        `Swept ${String(signInSessionsSwept)} sign-in sessions that had ended`,
+      );
+    }
+
     return {
       considered: personIds.length,
       purged,
       failed,
       tokensSwept,
+      signInSessionsSwept,
       erasureRequestsOpen,
     };
   }

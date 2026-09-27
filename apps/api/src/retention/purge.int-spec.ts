@@ -1546,6 +1546,65 @@ describe("running the job", () => {
   });
 });
 
+describe("the nightly sweep of sign-in sessions", () => {
+  it("sweeps a session that has ended, and keeps a held person's", async () => {
+    /*
+     * The record of processing says a signed-in session is deleted the night
+     * after it ends, unless a legal hold or a restriction stands for the
+     * person, and the access report says a hold suspends every purge for the
+     * person it stands against. Both are true only because a run does it, so
+     * the assertion is on a whole run.
+     *
+     * Three rows written here rather than in the fixture, so no earlier run in
+     * this file reaches them: an ended session of the board member, whom no
+     * rule lets the purge reach, an ended session of a person under a legal
+     * hold, and a live one. Dated against `dueAt`, the clock the run judges
+     * the end by; every session another suite leaves in this database ends a
+     * month after today, long after that clock.
+     */
+    const boardUser = await prisma.user.findUniqueOrThrow({
+      where: { personId: people.board },
+      select: { id: true },
+    });
+    const heldUser = await prisma.user.create({
+      data: {
+        name: "Person Gallring",
+        email: `${people.heldRequest}@exempel.se`,
+        personId: people.heldRequest,
+      },
+      select: { id: true },
+    });
+    const ended = new Date(dueAt.getTime() - DAY);
+    const tokens = {
+      ended: `purge-session-ended-${suffix}`,
+      held: `purge-session-held-${suffix}`,
+      live: `purge-session-live-${suffix}`,
+    };
+    await prisma.session.createMany({
+      data: [
+        { token: tokens.ended, userId: boardUser.id, expiresAt: ended },
+        { token: tokens.held, userId: heldUser.id, expiresAt: ended },
+        {
+          token: tokens.live,
+          userId: boardUser.id,
+          expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+        },
+      ],
+    });
+
+    const summary = await purge.run(dueAt);
+
+    expect(summary.signInSessionsSwept).toBe(1);
+    const left = await prisma.session.findMany({
+      where: { token: { in: Object.values(tokens) } },
+      select: { token: true },
+    });
+    expect(left.map((row) => row.token).toSorted()).toEqual(
+      [tokens.held, tokens.live].toSorted(),
+    );
+  });
+});
+
 describe("what a run says about the erasures it did not finish", () => {
   it("tells a request held open by a hold from one held open by work not done", async () => {
     const summary = await purge.run(dueAt);

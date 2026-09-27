@@ -40,7 +40,8 @@ import type { PortableSection } from "./section-processing";
  *
  *   Data the person provided. Judged per section, and recorded in the map as
  *   "notProvided" where a section rests on the contract and is still the
- *   association's own account - the account's creation and its second factor.
+ *   association's own account - the account's creation, its second factor and
+ *   its passkeys, and the sessions it was signed in with.
  *   Within a carried section, a board's note, a decision and a closing date are
  *   the association's own account too, and are left out field by field.
  *

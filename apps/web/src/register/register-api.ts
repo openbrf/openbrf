@@ -448,7 +448,33 @@ export interface DataSubjectReport {
     email: string;
     twoFactorEnabled: boolean;
     createdAt: string;
+    /**
+     * The passkeys on the account: what the person named each, when it was
+     * added and whether it is synced between devices. Never key material.
+     */
+    passkeys: {
+      name: string | null;
+      addedAt: string | null;
+      backedUp: boolean;
+    }[];
   } | null;
+  /**
+   * The sessions the account is, or was, signed in with, newest first.
+   *
+   * The IP address and the browser name as the sign-in library recorded them,
+   * and never the token: a live credential has no place on a document handed
+   * over on paper. `renewedAt` moves at most once a day, on use, so it bounds
+   * the last use to within a day and no closer.
+   */
+  signInSessions: {
+    signedInAt: string;
+    renewedAt: string;
+    endsAt: string;
+    /** Null where the sign-in recorded none. */
+    ipAddress: string | null;
+    /** Null where the browser named nothing. */
+    userAgent: string | null;
+  }[];
   /**
    * The external programs this person allowed to act for them (ansluten app).
    *

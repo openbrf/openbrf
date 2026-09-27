@@ -59,16 +59,17 @@ const ROWS_WITHOUT_A_SECTION: Partial<
 };
 
 /**
- * The access report's sections as they were named in its audit entry before
- * the map existed. Written out once, so the entry's content is shown not to
- * change by the list moving here.
+ * The sections the access report's audit entry names, in order: the entry's
+ * content written out for review, so a section joining or leaving what the
+ * entry says was disclosed is a change somebody reads here.
  */
-const SECTIONS_BEFORE_THE_MAP = [
+const REPORTED_IN_ORDER = [
   "person",
   "residencies",
   "boardPositions",
   "systemRoles",
   "account",
+  "signInSessions",
   "connectedApps",
   "memberRegisterEntries",
   "transfers",
@@ -173,7 +174,7 @@ describe("the map from the access report to the record", () => {
     );
 
     expect([...REPORTED_SECTIONS]).toEqual(withARow);
-    expect([...REPORTED_SECTIONS]).toEqual(SECTIONS_BEFORE_THE_MAP);
+    expect([...REPORTED_SECTIONS]).toEqual(REPORTED_IN_ORDER);
   });
 
   it("declares the report's keys in the shared order", () => {

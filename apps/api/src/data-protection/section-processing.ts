@@ -25,6 +25,11 @@ import type { SeedKey } from "./processing-activity-seed";
  * one. `section-processing.spec.ts` holds what the compiler cannot: which keys
  * may be part of the document, and which rows no section reaches.
  *
+ * The other direction - whether every table holding rows about a person has a
+ * section at all - is a walk, because which columns name a person is a fact only
+ * the schema states: `retention/data-subject-report-coverage.spec.ts` (ADR
+ * 0019).
+ *
  * The tie is to the product's statement of each basis, the seed's shapes, and
  * not to an instance's edited row: a board that edits the basis on its own
  * record changes its record, not what the product exports. A row counts by the
@@ -84,11 +89,17 @@ export const SECTION_PROCESSING = {
     portability: "otherBasis",
   },
   /*
-   * On the contract, and still not carried: when the account was created and
-   * whether it has a second factor are the association's record of the
-   * account rather than something the person provided.
+   * On the contract, and still not carried: when the account was created,
+   * whether it has a second factor and which passkeys it holds are the
+   * association's record of the account rather than something the person
+   * provided.
    */
   account: { row: "addressBookAndAccounts", portability: "notProvided" },
+  /*
+   * On the contract with the account, and not carried: when somebody signed in
+   * and from where is the association's record of access to its services.
+   */
+  signInSessions: { row: "addressBookAndAccounts", portability: "notProvided" },
   connectedApps: { row: "connectedApps", portability: "carried" },
   memberRegisterEntries: { row: "memberRegister", portability: "otherBasis" },
   /*

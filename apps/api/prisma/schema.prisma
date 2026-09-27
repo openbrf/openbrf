@@ -2290,6 +2290,11 @@ model User {
   @@map("auth_user")
 }
 
+/// One signed-in session. The data subject access report's `signInSessions`
+/// section reads it for the person the account belongs to, with the IP address
+/// and the browser name and never the token; the nightly sweep in
+/// `sign-in-session-sweep.ts` deletes a row the night after it ends, unless a
+/// legal hold or a restriction stands for the person.
 model Session {
   id        String   @id @default(cuid())
   expiresAt DateTime

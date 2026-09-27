@@ -43,6 +43,15 @@ const ISSUE_DESCRIPTION = [
   "Varst pa morgonen.",
 ].join("\n");
 
+/**
+ * Where a session came from and what the browser called itself, as the sign-in
+ * library recorded them: an address in full, and a browser name long enough to
+ * have to wrap on paper.
+ */
+const SESSION_ADDRESS = "2001:db8::17";
+const SESSION_BROWSER =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
 /** What a charge was for, as the board wrote it: on two lines. */
 const CHARGE_REASON = [
   "Ny tagg till cykelrummet.",
@@ -78,6 +87,7 @@ const EMPTY_REPORT: Report = {
   boardPositions: [],
   systemRoles: [],
   account: null,
+  signInSessions: [],
   connectedApps: [],
   memberRegisterEntries: [],
   transfers: [],
@@ -112,6 +122,38 @@ const EMPTY_REPORT: Report = {
 
 const FULL_REPORT: Report = {
   ...EMPTY_REPORT,
+  account: {
+    // Not the register's address, which the account's may differ from.
+    email: "siv.holm@exempel.test",
+    twoFactorEnabled: true,
+    createdAt: "2020-03-02T09:00:00.000Z",
+    passkeys: [
+      {
+        name: "Telefonen",
+        addedAt: "2026-04-11T09:00:00.000Z",
+        backedUp: true,
+      },
+      // A passkey the person never named, on a row that recorded no date.
+      { name: null, addedAt: null, backedUp: false },
+    ],
+  },
+  signInSessions: [
+    {
+      signedInAt: "2026-08-20T08:15:00.000Z",
+      renewedAt: "2026-08-27T07:00:00.000Z",
+      endsAt: "2026-09-26T07:00:00.000Z",
+      ipAddress: SESSION_ADDRESS,
+      userAgent: SESSION_BROWSER,
+    },
+    {
+      // A sign-in whose request carried neither, as the library records it.
+      signedInAt: "2026-05-02T10:00:00.000Z",
+      renewedAt: "2026-05-02T10:00:00.000Z",
+      endsAt: "2026-06-01T10:00:00.000Z",
+      ipAddress: null,
+      userAgent: null,
+    },
+  ],
   connectedApps: [
     {
       clientName: "Anteckningsappen",
@@ -1431,7 +1473,7 @@ describe("what the document prints", () => {
 
       // The document, in the subject's Swedish.
       expect(screen.getByText("Personen")).not.toBeNull();
-      expect(screen.getByText("Namn")).not.toBeNull();
+      expect(within(sectionOf("Personen")).getByText("Namn")).not.toBeNull();
       /*
        * Including what an empty cell says. The placeholder that fills a table
        * cell is built once, at the top of the component, and dropped into fifty
@@ -1471,6 +1513,7 @@ describe("what the document prints", () => {
     expect(screen.getByText("Upplåtelser och överlåtelser")).not.toBeNull();
     expect(screen.getAllByText("Inget registrerat").length).toBeGreaterThan(5);
     for (const heading of [
+      "Inloggade sessioner",
       "Debiteringar",
       "Avgifter för lägenheter du har bott i",
       "Avier för lägenheter du har bott i",
@@ -1775,6 +1818,51 @@ describe("what the document answers for", () => {
     for (const titleKey of Object.values(SECTION_TITLE)) {
       expect(printed, titleKey).toContain(inSwedish(titleKey));
     }
+  });
+
+  it("prints a session's address and browser as they were recorded", async () => {
+    /*
+     * Art. 15(3) asks for a copy of the data, and a shortened address or a
+     * browser name cut to its first word would be a different datum from the
+     * one the association holds. A sign-in that recorded neither says so in
+     * words rather than leaving two blank cells.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const sessions = within(sectionOf("Inloggade sessioner"));
+    const row = sessions.getByText(SESSION_ADDRESS).closest("tr");
+    expect(sessions.getByText(SESSION_BROWSER).closest("tr")).toBe(row);
+    // Signed in, last renewed and ends, each as the day it fell on here.
+    expect(row?.textContent).toContain("2026-08-20");
+    expect(row?.textContent).toContain("2026-08-27");
+    expect(row?.textContent).toContain("2026-09-26");
+
+    const [unrecorded] = sessions.getAllByText("2026-05-02");
+    expect(
+      within(unrecorded?.closest("tr") as HTMLElement).getAllByText(
+        "Inget registrerat",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("prints the passkeys on the account", async () => {
+    /*
+     * Each passkey's name, when it was added and whether it is synced between
+     * devices, which is what says it is the person's and where it lives. One
+     * the person never named is said to be unnamed rather than left blank.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const account = within(sectionOf("Konto"));
+    expect(account.getByText("Nycklar")).not.toBeNull();
+    const phone = account.getByText("Telefonen").closest("tr");
+    expect(phone?.textContent).toContain("2026-04-11");
+    expect(phone?.textContent).toContain("Ja");
+    const unnamed = account.getByText("Namnlös nyckel").closest("tr");
+    expect(unnamed?.textContent).toContain("Inget registrerat");
+    expect(unnamed?.textContent).toContain("Nej");
   });
 
   it("prints the charges, the fee rates and the notices, each with its erasure date", async () => {

@@ -11,6 +11,12 @@
  * Which is the point of writing it out: the list below is the audit checklist.
  * A module that starts holding personal data about a person adds a section, and
  * a reviewer can read this file to see whether the report is still complete.
+ *
+ * The list is held from the other side too. Every column in the schema that
+ * names a person is in `data-subject-report-coverage.spec.ts`, with the section
+ * that reads it or the reason none does, so a table holding rows about a person
+ * cannot go without a section here unnoticed - and this file stays the
+ * checklist a reviewer reads.
  */
 
 import type { AuditChannelName } from "@openbrf/shared";
@@ -66,6 +72,71 @@ export interface ReportAccount {
   email: string;
   twoFactorEnabled: boolean;
   createdAt: string;
+  /** The passkeys the account can be signed in with, newest first. */
+  passkeys: ReportPasskey[];
+}
+
+/**
+ * A passkey on this person's account.
+ *
+ * What the person named it, when it was added and whether it is synced between
+ * their devices - which is what says it is theirs and where it lives. Not the
+ * public key, the credential id, the counter or the transports: those identify
+ * the authenticator to the instance and say nothing about the person that the
+ * name and the date do not. Nothing here can be presented to sign in.
+ *
+ * Inside the account rather than a section of its own, so it rests on the
+ * account's row of the record and goes with the account: the purge deletes a
+ * passkey with the account it belongs to.
+ *
+ * The password and the authenticator app's secret are not on the report at
+ * all. Every account has a password, so that one exists says nothing, and the
+ * rows are the password hash and the TOTP secret with its backup codes -
+ * `twoFactorEnabled` above is what says the second exists.
+ */
+export interface ReportPasskey {
+  /** What the person called it, or null. */
+  name: string | null;
+  /** ISO instant it was added, or null on a row that recorded none. */
+  addedAt: string | null;
+  /** Whether it is synced between devices (WebAuthn backup state). */
+  backedUp: boolean;
+}
+
+/**
+ * One session this person's account is, or was, signed in with.
+ *
+ * On the report because the sign-in library keeps, for every session, when it
+ * began and from where: the IP address the request came from and the name the
+ * browser gave itself. Both are personal data about whoever signed in, held by
+ * the association, and art. 15 is a right to what is held. They are printed as
+ * stored and not shortened, because a shortened address would be a different
+ * datum from the one the association keeps.
+ *
+ * Never the token. It is a live credential for as long as the session lasts,
+ * and the one thing a document handed over on paper must never carry is a way
+ * back into the account it describes.
+ *
+ * Every row held, ended ones included, newest first. A session ends thirty days
+ * after it was last renewed; signing out deletes it at once, and the nightly
+ * sweep deletes an ended one the night after, unless a legal hold or a
+ * restriction stands for the person - `retention.onLegalHold` says whether one
+ * does. So `endsAt` is also when the row goes.
+ */
+export interface ReportSignInSession {
+  /** ISO instant the person signed in. */
+  signedInAt: string;
+  /**
+   * ISO instant the session was last renewed. Renewal happens on use, at most
+   * once a day, so this bounds the last use to within a day and no closer.
+   */
+  renewedAt: string;
+  /** ISO instant it ends unless renewed before then. */
+  endsAt: string;
+  /** As the sign-in recorded it, or null where it recorded none. */
+  ipAddress: string | null;
+  /** As the browser named itself, or null where it named nothing. */
+  userAgent: string | null;
 }
 
 /**
@@ -1250,6 +1321,8 @@ export interface DataSubjectReport {
   boardPositions: ReportBoardPosition[];
   systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
   account: ReportAccount | null;
+  /** The sessions this person's account is, or was, signed in with. */
+  signInSessions: ReportSignInSession[];
   /** The external programs allowed to act for this person. */
   connectedApps: ReportConnectedApp[];
   memberRegisterEntries: ReportMemberRegisterEntry[];

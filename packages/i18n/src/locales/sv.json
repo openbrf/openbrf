@@ -357,6 +357,7 @@
           "boardPositions": "Förtroendeuppdrag",
           "systemRoles": "Systemroller",
           "account": "Konto",
+          "signInSessions": "Inloggade sessioner",
           "connectedApps": "Anslutna appar",
           "memberRegister": "Medlemsförteckningen",
           "transfers": "Upplåtelser och överlåtelser",
@@ -518,7 +519,14 @@
           "monthlyAmount": "Per månad",
           "due": "Förfaller",
           "issued": "Utfärdad",
-          "paymentReference": "Betalningsreferens"
+          "paymentReference": "Betalningsreferens",
+          "signedIn": "Inloggad",
+          "renewed": "Senast förnyad",
+          "ipAddress": "IP-adress",
+          "userAgent": "Webbläsare, som den angav sig",
+          "passkeys": "Nycklar",
+          "added": "Tillagd",
+          "synced": "Synkas mellan enheter"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -717,7 +725,8 @@
         "chargeBasis": {
           "person": "Dig",
           "apartment": "Lägenheten du bodde i"
-        }
+        },
+        "passkeyUnnamed": "Namnlös nyckel"
       },
       "requests": {
         "kind": {
@@ -4293,7 +4302,7 @@
           "name": "Adressbok och konton",
           "purpose": "Nå de boende och ge dem tillgång till föreningens tjänster.",
           "legalBasisNote": "Avtal för medlemmar (art. 6(1)(b)); berättigat intresse för övriga boende.",
-          "retention": "Gallras enligt föreningens gallringstid efter utflytt."
+          "retention": "Gallras enligt föreningens gallringstid efter utflytt. En inloggad session upphör trettio dagar efter att den senast förnyades och raderas natten därpå, om inte ett rättsligt bevarandekrav eller en begränsning gäller för personen; den raderas direkt när man loggar ut."
         },
         "connectedApps": {
           "name": "Anslutna appar",

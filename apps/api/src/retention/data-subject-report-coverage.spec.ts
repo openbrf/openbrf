@@ -110,12 +110,13 @@ const COLUMN_COVERAGE = {
     targetPersonId: { sections: ["auditEntries"] },
   },
   User: { personId: { sections: ["account"] } },
-  Session: { userId: { notReported: "gap" } },
+  Session: { userId: { sections: ["signInSessions"] } },
   // The password hash. That a password exists is true of every account.
   Account: { userId: { notReported: "credential" } },
   // The TOTP secret and the backup codes; `account.twoFactorEnabled` says so.
   TwoFactor: { userId: { notReported: "credential" } },
-  Passkey: { userId: { notReported: "gap" } },
+  // Inside the account section: its name, its date and whether it is synced.
+  Passkey: { userId: { sections: ["account"] } },
   /*
    * Nothing in Open BRF writes it - the board's own registration sets none -
    * but the sign-in library's client registration does for any signed-in
@@ -306,8 +307,6 @@ const NAMED_GAPS = [
   "MeetingNoticeDelivery.personId",
   "NewsDelivery.personId",
   "OauthClient.userId",
-  "Passkey.userId",
-  "Session.userId",
   "SignupRequest.emailIndex",
 ];
 

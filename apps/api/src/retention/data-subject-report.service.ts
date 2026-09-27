@@ -42,10 +42,12 @@ import type {
   ReportChatReport,
   ReportMeetingAttendance,
   ReportMemberCharge,
+  ReportPasskey,
   ReportPersonalDataBreach,
   ReportNewsComment,
   ReportPostalAddress,
   ReportProxyAuthorisation,
+  ReportSignInSession,
 } from "./data-subject-report";
 import {
   holdingPeriods,
@@ -153,6 +155,12 @@ const SECTIONS = REPORTED_SECTIONS;
  * and 40 § has kept safely. So they sit with the statutory register sections
  * above - kept because the law requires the record - rather than with the
  * sections that go on a clock of their own.
+ *
+ * The sign-in sessions and the passkeys are reached through the account, as
+ * the connected apps are: they name the account rather than the person. A
+ * session is on the report with the IP address and the browser name the
+ * sign-in library recorded, because those are held about whoever signed in;
+ * never its token, which is a way back into the account.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -283,6 +291,30 @@ export class DataSubjectReportService {
             email: true,
             twoFactorEnabled: true,
             createdAt: true,
+            /*
+             * Every session the account holds, ended ones included, and never
+             * the token: a live credential selected into this read is one
+             * mapping away from the document, and nothing here needs it.
+             */
+            sessions: {
+              orderBy: [{ createdAt: "desc" }],
+              select: {
+                createdAt: true,
+                updatedAt: true,
+                expiresAt: true,
+                ipAddress: true,
+                userAgent: true,
+              },
+            },
+            /*
+             * What says a passkey is theirs - its name, its date and whether it
+             * is synced - and never the key material, the credential id or the
+             * counter, which identify the authenticator to the instance.
+             */
+            passkeys: {
+              orderBy: [{ createdAt: "desc" }],
+              select: { name: true, createdAt: true, backedUp: true },
+            },
           },
         },
         memberRegisterEntries: {
@@ -1259,7 +1291,29 @@ export class DataSubjectReportService {
               email: person.userAccount.email,
               twoFactorEnabled: person.userAccount.twoFactorEnabled === true,
               createdAt: person.userAccount.createdAt.toISOString(),
+              passkeys: person.userAccount.passkeys.map(
+                (passkey): ReportPasskey => ({
+                  name: passkey.name,
+                  addedAt: passkey.createdAt?.toISOString() ?? null,
+                  backedUp: passkey.backedUp,
+                }),
+              ),
             },
+      signInSessions: (person.userAccount?.sessions ?? []).map(
+        (session): ReportSignInSession => ({
+          signedInAt: session.createdAt.toISOString(),
+          renewedAt: session.updatedAt.toISOString(),
+          endsAt: session.expiresAt.toISOString(),
+          /*
+           * As stored, and not shortened: a shortened address would be a
+           * different datum from the one the association holds. The sign-in
+           * library writes an empty string where it had nothing to record,
+           * which the document states as not recorded.
+           */
+          ipAddress: recordedOrNull(session.ipAddress),
+          userAgent: recordedOrNull(session.userAgent),
+        }),
+      ),
       connectedApps: connectedAppConsents.map((consent) => ({
         clientName: consent.client.name,
         clientHost: connectedAppHost(consent.client),
@@ -1812,6 +1866,17 @@ export class DataSubjectReportService {
       },
     };
   }
+}
+
+/**
+ * A value the sign-in library records, or null where it recorded nothing.
+ *
+ * The library writes an empty string rather than nothing when a request
+ * carried no address or no browser name, and an empty cell on a printed
+ * document reads as something lost rather than as something never recorded.
+ */
+function recordedOrNull(value: string | null): string | null {
+  return value === null || value === "" ? null : value;
 }
 
 /** The scopes the provider issues, which is what a consent row can hold. */

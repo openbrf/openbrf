@@ -357,6 +357,7 @@
           "boardPositions": "Positions of trust",
           "systemRoles": "System roles",
           "account": "Account",
+          "signInSessions": "Signed-in sessions",
           "connectedApps": "Connected apps",
           "memberRegister": "The member register",
           "transfers": "Grants and transfers",
@@ -518,7 +519,14 @@
           "monthlyAmount": "Per month",
           "due": "Due",
           "issued": "Issued",
-          "paymentReference": "Payment reference"
+          "paymentReference": "Payment reference",
+          "signedIn": "Signed in",
+          "renewed": "Last renewed",
+          "ipAddress": "IP address",
+          "userAgent": "Browser, as it named itself",
+          "passkeys": "Passkeys",
+          "added": "Added",
+          "synced": "Synced between devices"
         },
         "appScope": {
           "read": "Read data",
@@ -717,7 +725,8 @@
         "chargeBasis": {
           "person": "You",
           "apartment": "The apartment you lived in"
-        }
+        },
+        "passkeyUnnamed": "Unnamed passkey"
       },
       "requests": {
         "kind": {
@@ -4293,7 +4302,7 @@
           "name": "Address book and accounts",
           "purpose": "Reaching the residents and giving them access to the association's services.",
           "legalBasisNote": "Contract for members (art. 6(1)(b)); legitimate interest for other residents.",
-          "retention": "Purged on the association's retention window after a move-out."
+          "retention": "Purged on the association's retention window after a move-out. A signed-in session ends thirty days after it was last renewed and is deleted the following night, unless a legal hold or a restriction stands for the person; signing out deletes it at once."
         },
         "connectedApps": {
           "name": "Connected apps",
