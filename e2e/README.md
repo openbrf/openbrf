@@ -54,7 +54,17 @@ on the account the later specs sign in as.
 
 - `src/stack.ts` owns the compose invocation and reads `stack.env`, so the
   suite and the stack cannot drift apart. It knows two stacks: this one, and the
-  screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`.
+  screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`. Before
+  either starts it builds the fixture catalog into `e2e/.catalog/`, which the
+  overlay mounts read-only at `/catalog`.
+- `src/plugins.ts` drives the plugin system from outside the instance. An
+  install or a removal ends with the server exiting for the supervisor to start
+  it again, and the process on its way out still answers a health check, so
+  `waitForRestart` asks Docker when the container's current process started as
+  well as asking that process whether it is serving. `cli` runs the command-line
+  tool in a container of its own through the entrypoint, which is what hands it
+  the runtime database URL, the way an operator runs it beside a running
+  server.
 - `pg-boss` is a dependency here, pinned to the exact version the API uses.
   `90-runtime-role-privileges` drives the queue the way the application does,
   and a different version would prove something about a different client.
@@ -108,17 +118,39 @@ leaves behind rather than each paying for a stack of their own.
 
 Numbered against the phase 1 exit criteria.
 
-| #   | Criterion                                                                                                                                           | Spec                                    |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| 1   | First boot serves the wizard; completing it creates the housing cooperative, its addresses, its apartments, the email settings and the first admin  | `01-first-boot.spec.ts`                 |
-| 2   | Password sign-in, passkey and authenticator app enrolled, sign out, sign in with each                                                               | `02-sign-in-and-second-factors.spec.ts` |
-| 3   | A member, a resident on the same apartment and an external board member with no apartment are invited, activate and sign in; sign-in link by email  | `03-invitations-and-magic-link.spec.ts` |
-| 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                 | `04-self-signup.spec.ts`                |
-| 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                      | `05-address-book.spec.ts`               |
-| 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                              | `06-protected-personal-data.spec.ts`    |
-| 7   | A member list imported: the columns mapped, every outcome previewed, the member register written, and the run found again after a reload            | `07-import-with-column-mapping.spec.ts` |
-| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`       |
-| 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`        |
+| #   | Criterion                                                                                                                                           | Spec                                     |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| 1   | First boot serves the wizard; completing it creates the housing cooperative, its addresses, its apartments, the email settings and the first admin  | `01-first-boot.spec.ts`                  |
+| 2   | Password sign-in, passkey and authenticator app enrolled, sign out, sign in with each                                                               | `02-sign-in-and-second-factors.spec.ts`  |
+| 3   | A member, a resident on the same apartment and an external board member with no apartment are invited, activate and sign in; sign-in link by email  | `03-invitations-and-magic-link.spec.ts`  |
+| 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                 | `04-self-signup.spec.ts`                 |
+| 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                      | `05-address-book.spec.ts`                |
+| 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                              | `06-protected-personal-data.spec.ts`     |
+| 7   | A member list imported: the columns mapped, every outcome previewed, the member register written, and the run found again after a reload            | `07-import-with-column-mapping.spec.ts`  |
+| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`        |
+| 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`         |
+| 10  | A plugin installed from the admin screen: declaration consented to, digest verified, restart, route, view, translations, settings; command line too | `47-installing-from-the-catalog.spec.ts` |
+| 11  | The installing half: a theme installed from the admin screen without a restart, the install-time lint, the live preview and activation              | `47-installing-from-the-catalog.spec.ts` |
+
+`47-installing-from-the-catalog.spec.ts` installs from a catalog and never
+reaches the network. `src/stack.ts` runs `scripts/build-fixture-catalog.mjs`
+before the stack starts, which packs the fixture plugin in
+`fixtures/example-plugin/` and the fixture themes in `fixtures/themes/` and
+writes one index listing all three beside them in `e2e/.catalog/`. The overlay
+mounts that directory at `/catalog`, and `stack.env` points
+`OPENBRF_CATALOG_URL` at the index inside it and opts the instance out of
+curation, which a `file:` index and the `file:` tarballs it names both need.
+Everything after the read is the path a curated instance takes: the entry
+parsed, the tarball read and its digest checked before anything is unpacked,
+npm in the runtime image installing the plugin onto the data volume, the
+process exiting and the supervisor starting it again, and the built client
+loading the plugin's view and its translations from the volume. The spec signs
+in once, because a session survives a restart. It removes the plugin again
+before the theme half, since the fixture declares the address connected apps
+sign in to and only one installed plugin may hold it, and it leaves the built-in
+theme active with the example theme removed. A failure part way through can
+leave the plugin installed, so a red run is read from this spec's first failure
+before any later spec's.
 
 Some specs are not numbered against a criterion.
 
@@ -307,8 +339,8 @@ travels to the sign-in screen and is returned to afterwards, and one naming
 another host is refused so that signing in cannot end on somebody else's site.
 
 The other half - a token presented on the resource route and accepted or refused
-there - is not in this package and cannot be. The resource is a connector
-plugin's own route; this stack installs no plugin, so nothing declares one, and
+there - is not in this spec and cannot be. The resource is a connector plugin's
+own route; no plugin is installed while this spec runs, so nothing declares one, and
 with none declared the authorization guard's Bearer branch is never installed and
 no path on the instance is Bearer-only. A test here against that branch would be
 asserting about code the deployed image did not load.
@@ -396,28 +428,10 @@ the way a person reaches it.
 
 ## Still to be written
 
-Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
-the feature. Installing a plugin and installing a theme are both built and both
-carry their own tests against fixtures built in this repository. What is missing
-is on two sides: a browser driving either against the production image, which is
-the only place the entrypoint, the constrained database role and the built
-client are the ones a housing cooperative installs; and something real to
-install, since the reference plugin and the example theme belong to repositories
-that do not exist yet.
-
-- **10 - Installing a plugin.** From the admin screen: permissions and the
-  personal-data declaration shown and consented to, the sha512 verified, a
-  graceful restart, then the plugin's API route, its federated view, its merged
-  translations and its settings form. Then the same install and removal from the
-  command line. Stage S8 builds a local fixture catalog whose tarballs are baked
-  into the test image, so the install path is exercised with the real verify
-  code and no network; point `OPENBRF_CATALOG_URL` at it in
-  `docker-compose.e2e.yml` and add the tarballs to the image, and this package
-  needs nothing else.
-- **11 - Installing a theme.** From the admin theme screen, without a restart:
-  the install-time lint, the live preview, activation, the per-cooperative logo
-  and primary colour regenerating the accent set with its contrast check, and
-  the per-user light/dark/system override.
+One half of criterion 11 has no spec in this package yet: the per-association
+logo and primary colour regenerating the accent set with its contrast check.
+The installing half is `47-installing-from-the-catalog`, and the per-user
+light, dark and follow-the-system override is `05-address-book`.
 
 Two more things are worth naming, because in each of them a spec here chooses
 a path rather than there being only one:

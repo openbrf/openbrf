@@ -53,3 +53,18 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+    volumes:
+      # The fixture catalog src/stack.ts builds before the stack starts: the
+      # index and the tarballs it names, which stack.env points the instance at
+      # as file: URLs. Installing from it is the real download, digest and
+      # unpack path with no network, so the suite never reads the public
+      # catalog. The path is relative to docker-compose.prod.yml, the first file
+      # given, which is what every path in an overlay is resolved against. Never
+      # created on the host: a stack started without the catalog built fails
+      # here rather than mounting an empty directory.
+      - type: bind
+        source: ./e2e/.catalog
+        target: /catalog
+        read_only: true
+        bind:
+          create_host_path: false

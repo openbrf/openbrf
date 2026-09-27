@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -164,14 +164,51 @@ function compose(args: readonly string[], timeoutMs: number): void {
 }
 
 /**
+ * Where the fixture catalog is written, and mounted from.
+ *
+ * The overlay mounts this directory read-only at /catalog in the application
+ * container, and stack.env points OPENBRF_CATALOG_URL at the index inside it.
+ */
+const CATALOG_DIRECTORY = resolve(e2eRoot, ".catalog");
+
+/** What each tarball's file name follows in the index: where the container sees it. */
+const CATALOG_URL_PREFIX = "file:///catalog/";
+
+/**
+ * Builds the fixture plugin and themes, and the index that lists them.
+ *
+ * The same script the integration suites install from, so the stack installs
+ * real tarballs through the real download, digest and unpack path with no
+ * network: the gate never reads the public catalog or a release host. The
+ * tarballs are named by the path the container mounts them at, which is the
+ * one thing that differs from the index the integration suites read.
+ */
+function buildFixtureCatalog(): void {
+  execFileSync(
+    "node",
+    [
+      resolve(repositoryRoot, "scripts", "build-fixture-catalog.mjs"),
+      "--out",
+      CATALOG_DIRECTORY,
+      "--url-prefix",
+      CATALOG_URL_PREFIX,
+    ],
+    { cwd: repositoryRoot, stdio: "inherit", timeout: 15 * 60_000 },
+  );
+}
+
+/**
  * Builds the image and starts the stack from empty volumes.
  *
  * The volumes are destroyed first because the first spec asserts on first-boot
  * behaviour, which an instance only has once. `-p openbrf-e2e` scopes that
  * removal to this stack's own volumes, never a development or production one.
+ *
+ * The fixture catalog is built between the two, while nothing has it mounted.
  */
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+  buildFixtureCatalog();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
 }
 
@@ -222,6 +259,78 @@ export function runInAppContainer(
       output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
     };
   }
+}
+
+/**
+ * Runs a command in a new application container, through the entrypoint.
+ *
+ * `docker compose run` rather than `exec`, and the difference is the point.
+ * `exec` joins the server's container past its entrypoint, so the command would
+ * start without the runtime database URL the entrypoint assembles and without
+ * the owner's credentials having been dropped. A new container goes through the
+ * same entrypoint an operator's own `run` does, with the server's image,
+ * environment and volumes, and is removed afterwards. It publishes no port and
+ * starts nothing it depends on, because the stack is already up.
+ *
+ * Both streams are returned whatever the exit code, so a failure can be read
+ * in the assertion that reports it.
+ */
+export function runInNewAppContainer(
+  command: readonly string[],
+  timeoutMs: number,
+): { status: number; output: string } {
+  const result = spawnSync(
+    "docker",
+    [...COMPOSE_ARGS, "run", "--rm", "--no-deps", "-T", "app", ...command],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
+  return {
+    status: result.status ?? -1,
+    output: `${result.stdout}${result.stderr}`,
+  };
+}
+
+/**
+ * When the application container's current process started.
+ *
+ * The server replaces itself by exiting and leaving the rest to the
+ * supervisor, which here is the restart policy in docker-compose.prod.yml, so
+ * every replacement is a new start of the same container. Read from Docker
+ * rather than from the instance: a process cannot be asked when it started
+ * while it is the one being replaced.
+ */
+export function appStartedAt(): Date {
+  const containerId = execFileSync(
+    "docker",
+    // --all, because between one process and the next the container is not
+    // running, and without it the container would not be listed at all.
+    [...COMPOSE_ARGS, "ps", "--all", "--quiet", "app"],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    },
+  ).trim();
+  if (containerId === "") {
+    throw new Error("The application container does not exist.");
+  }
+  const startedAt = execFileSync(
+    "docker",
+    ["inspect", "--format", "{{.State.StartedAt}}", containerId],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    },
+  ).trim();
+  return new Date(startedAt);
 }
 
 /**
