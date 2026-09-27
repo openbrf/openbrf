@@ -33,6 +33,8 @@ import {
   type ConnectedAppScope,
   type ConsentScope,
   type DataSubjectReport as Report,
+  type MeetingNoticeDeliveryFailure,
+  type NewsDeliveryFailure,
   type RegisterReportKind,
   type ReportAuditAction,
   type TerminationKind,
@@ -100,11 +102,14 @@ export const SECTION_TITLE = {
   fees: "register.person.report.section.fees",
   feeNotices: "register.person.report.section.feeNotices",
   newsComments: "register.person.report.section.newsComments",
+  newsDeliveries: "register.person.report.section.newsDeliveries",
   chats: "register.person.report.section.chat",
   chatReports: "register.person.report.section.chatReports",
   boardMailboxThreads: "register.person.report.section.boardMailbox",
   meetingAttendances: "register.person.report.section.meetingAttendances",
   proxyAuthorisations: "register.person.report.section.proxyAuthorisations",
+  meetingNoticeDeliveries:
+    "register.person.report.section.meetingNoticeDeliveries",
   auditEntries: "register.person.report.section.audit",
   dataSubjectRequests: "register.person.report.section.dataSubjectRequests",
   personalDataBreaches: "register.person.report.section.personalDataBreaches",
@@ -539,6 +544,56 @@ const AUDIT_CHANNEL_LABEL = {
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
+
+/**
+ * Which delivery channel (utskickskanal) a copy went by, in words.
+ */
+const DELIVERY_CHANNEL_LABEL = {
+  EMAIL: "register.person.report.deliveryChannel.EMAIL",
+  SMS: "register.person.report.deliveryChannel.SMS",
+} as const satisfies Record<
+  Report["newsDeliveries"][number]["channel"],
+  TranslationKey
+>;
+
+/**
+ * How far a copy got. "Handed over for delivery" and not "delivered": the
+ * ledger records that a mail server or an SMS provider accepted it, and
+ * nothing says anybody received it.
+ */
+const DELIVERY_STATUS_LABEL = {
+  PENDING: "register.person.report.deliveryStatus.PENDING",
+  SENT: "register.person.report.deliveryStatus.SENT",
+  FAILED: "register.person.report.deliveryStatus.FAILED",
+} as const satisfies Record<
+  Report["newsDeliveries"][number]["status"],
+  TranslationKey
+>;
+
+/**
+ * Why a copy did not go out, in words addressed to the person the document is
+ * about. Every code either ledger can hold, so a code added to one without a
+ * sentence here fails to compile rather than printing a code on the page.
+ */
+const DELIVERY_FAILURE_LABEL = {
+  "mail-not-configured":
+    "register.person.report.deliveryFailure.mail-not-configured",
+  "sms-not-configured":
+    "register.person.report.deliveryFailure.sms-not-configured",
+  "send-failed": "register.person.report.deliveryFailure.send-failed",
+  "recipient-gone": "register.person.report.deliveryFailure.recipient-gone",
+  "no-phone-number": "register.person.report.deliveryFailure.no-phone-number",
+  "no-email-address": "register.person.report.deliveryFailure.no-email-address",
+  "mailing-interrupted":
+    "register.person.report.deliveryFailure.mailing-interrupted",
+  "notice-sending-interrupted":
+    "register.person.report.deliveryFailure.notice-sending-interrupted",
+  "recipient-objected":
+    "register.person.report.deliveryFailure.recipient-objected",
+} as const satisfies Record<
+  NewsDeliveryFailure | MeetingNoticeDeliveryFailure,
+  TranslationKey
+>;
 
 /**
  * The day out of an instant. A document states days, not milliseconds.
@@ -1921,6 +1976,51 @@ export function DataSubjectReport({
             </Section>
 
             {/*
+             * Every copy of a news mailing or an SMS mailing addressed to this
+             * person, and whether it went out. Where it did not, why, in words:
+             * the ledger holds a closed code and never a mail server's reply,
+             * and a code the document cannot read is said to be not recorded.
+             * No erasure column, because no purge reaches the ledger.
+             */}
+            <Section section="newsDeliveries">
+              <Rows
+                empty={report.newsDeliveries.length === 0}
+                headings={[
+                  "register.person.report.field.newsItem",
+                  "register.person.report.field.deliveryChannel",
+                  "register.person.report.field.outcome",
+                  "register.person.report.field.notSentBecause",
+                  "register.person.report.field.queued",
+                  "register.person.report.field.sent",
+                ]}
+              >
+                {report.newsDeliveries.map((delivery) => (
+                  <tr
+                    key={`${delivery.newsSlug}-${delivery.channel}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>{delivery.newsTitle}</td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {delivery.failure === null
+                        ? nothing
+                        : t(DELIVERY_FAILURE_LABEL[delivery.failure])}
+                    </td>
+                    <td className={DATA_CELL}>{day(delivery.queuedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(delivery.sentAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
              * What this person wrote in the chat, room by room.
              *
              * One row per message with the room repeated down the left, like the
@@ -2182,6 +2282,54 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>{authorisation.authorisedOn}</td>
                     <td className={DATA_CELL}>
                       {day(authorisation.withdrawnAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * Every copy of a notice of a general meeting addressed to this
+             * person: whom the association summoned, and whether the summons
+             * went out. The meeting is named as the attendance section names
+             * it. No erasure column, for the reason that section gives.
+             */}
+            <Section section="meetingNoticeDeliveries">
+              <Rows
+                empty={report.meetingNoticeDeliveries.length === 0}
+                headings={[
+                  "register.person.report.field.meeting",
+                  "register.person.report.field.date",
+                  "register.person.report.field.deliveryChannel",
+                  "register.person.report.field.outcome",
+                  "register.person.report.field.notSentBecause",
+                  "register.person.report.field.queued",
+                  "register.person.report.field.sent",
+                ]}
+              >
+                {report.meetingNoticeDeliveries.map((delivery) => (
+                  <tr
+                    key={`${delivery.meetingHeldOn}-${delivery.queuedAt}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>
+                      {t(MEETING_KIND_LABEL[delivery.meetingKind])}
+                    </td>
+                    <td className={DATA_CELL}>{delivery.meetingHeldOn}</td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {delivery.failure === null
+                        ? nothing
+                        : t(DELIVERY_FAILURE_LABEL[delivery.failure])}
+                    </td>
+                    <td className={DATA_CELL}>{day(delivery.queuedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(delivery.sentAt) ?? nothing}
                     </td>
                   </tr>
                 ))}

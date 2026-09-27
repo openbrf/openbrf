@@ -108,11 +108,13 @@ const REPORT = {
   fees: [{ feeId: "fee-1" }],
   feeNotices: [{ noticeId: "notice-1" }],
   newsComments: [{ commentId: "comment-1" }],
+  newsDeliveries: [{ newsSlug: "portkoden-byts", status: "SENT" }],
   chats: [{ chatKind: "BOARD", messages: [{ messageId: "message-1" }] }],
   chatReports: [{ reportId: "chat-report-1" }],
   boardMailboxThreads: [{ threadId: "thread-1" }],
   meetingAttendances: [{ attendanceId: "attendance-1" }],
   proxyAuthorisations: [{ authorisationId: "authorisation-1" }],
+  meetingNoticeDeliveries: [{ meetingHeldOn: "2026-05-20", status: "SENT" }],
   auditEntries: [{ entryId: "audit-1" }],
   dataSubjectRequests: [
     {
@@ -317,6 +319,7 @@ describe("what the export leaves on the access report", () => {
       "registerReportObligations",
       "meetingAttendances",
       "proxyAuthorisations",
+      "meetingNoticeDeliveries",
       "memberCharges",
       "fees",
       "feeNotices",
@@ -340,6 +343,7 @@ describe("what the export leaves on the access report", () => {
 
     expectLeftOnTheReport(exported, [
       "invitations",
+      "newsDeliveries",
       "issues",
       "documents",
       "apartmentDocuments",

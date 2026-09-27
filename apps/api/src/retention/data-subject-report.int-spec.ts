@@ -169,6 +169,8 @@ const proxyAuthorisedOn = dateColumnOf(
   localDayOf(new Date(Date.now() - 21 * 24 * 60 * 60 * 1000)),
 );
 const attendanceStruckOffAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+/** When the notice of that meeting was sent, three weeks before it. */
+const noticeQueuedAt = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
 
 /**
  * When the fixture cleaning day ran, and when the subject stood down from it.
@@ -775,6 +777,26 @@ beforeAll(async () => {
   await prisma.meeting.create({
     data: { id: meetingId, kind: "ORDINARY", heldOn: meetingHeldOn },
   });
+  /*
+   * The notice that summoned the meeting, and the subject's copy of it, sent.
+   * The notice restricts the meeting, so the clean-up takes it first.
+   */
+  await prisma.meetingNotice.create({
+    data: {
+      meetingId,
+      startsAt: new Date(meetingHeldOn.getTime() + 18 * 60 * 60 * 1000),
+      place: `Samlingslokalen ${suffix}`,
+      issuedByPersonId: board.personId,
+      deliveries: {
+        create: {
+          personId: subject.personId,
+          status: "SENT",
+          queuedAt: noticeQueuedAt,
+          sentAt: noticeQueuedAt,
+        },
+      },
+    },
+  });
   await prisma.meetingAttendance.createMany({
     data: [
       {
@@ -888,6 +910,30 @@ beforeAll(async () => {
             createdAt: commentWrittenAt,
             hiddenAt: new Date(),
             hiddenByPersonId: board.personId,
+          },
+        ],
+      },
+      /*
+       * Two copies of the item's mailing to the subject, one each way. The
+       * text message failed because the subject had objected; the email's
+       * failure was stored as a code outside the closed set, which the report
+       * has to state as not recorded rather than pass through.
+       */
+      deliveries: {
+        create: [
+          {
+            personId: subject.personId,
+            channel: "SMS",
+            status: "FAILED",
+            failureReason: "recipient-objected",
+            queuedAt: commentWrittenAt,
+          },
+          {
+            personId: subject.personId,
+            channel: "EMAIL",
+            status: "FAILED",
+            failureReason: `mail-server-said-${suffix}`,
+            queuedAt: commentWrittenAt,
           },
         ],
       },
@@ -1052,6 +1098,8 @@ afterAll(async () => {
          */
         () => prisma.meetingAttendance.deleteMany({ where: { meetingId } }),
         () => prisma.proxyAuthorisation.deleteMany({ where: { meetingId } }),
+        // The notice restricts the meeting too; its ledger goes with it.
+        () => prisma.meetingNotice.deleteMany({ where: { meetingId } }),
         () => prisma.meeting.deleteMany({ where: { id: meetingId } }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
         () =>
@@ -1324,6 +1372,45 @@ describe("what the report contains", () => {
     const written = JSON.stringify(report);
     expect(written).not.toContain(INVITATION_TOKEN_HASH);
     expect(written).not.toContain("invitedById");
+  });
+
+  it("states each mailing and notice sent to the person, and why one failed", async () => {
+    /*
+     * The two delivery ledgers are the association's record of what it sent
+     * to this person, and art. 15 is a right to what is held. Where a copy did
+     * not go out the report says why, as the closed code the workers write -
+     * and a stored value outside that set reads as not recorded, because the
+     * document cannot put a code nobody can read into words.
+     */
+    const report = await reportFor(boardCookie);
+
+    const mailings = report.newsDeliveries.filter(
+      (delivery) => delivery.newsSlug === newsSlug,
+    );
+    expect(mailings).toHaveLength(2);
+    const text = mailings.find((delivery) => delivery.channel === "SMS");
+    expect(text).toMatchObject({
+      newsTitle: `Portkoden byts ${suffix}`,
+      status: "FAILED",
+      failure: "recipient-objected",
+      sentAt: null,
+    });
+    const email = mailings.find((delivery) => delivery.channel === "EMAIL");
+    expect(email?.status).toBe("FAILED");
+    expect(email?.failure).toBeNull();
+    expect(JSON.stringify(report)).not.toContain(`mail-server-said-${suffix}`);
+
+    expect(report.meetingNoticeDeliveries).toEqual([
+      {
+        meetingHeldOn: meetingHeldOn.toISOString().slice(0, 10),
+        meetingKind: "ORDINARY",
+        channel: "EMAIL",
+        status: "SENT",
+        failure: null,
+        queuedAt: noticeQueuedAt.toISOString(),
+        sentAt: noticeQueuedAt.toISOString(),
+      },
+    ]);
   });
 
   it("lists the passkeys on the account and no key material", async () => {

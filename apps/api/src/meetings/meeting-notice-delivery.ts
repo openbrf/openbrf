@@ -40,3 +40,7 @@ export const NOTICE_DELIVERY_FAILURES = {
   /** The sending was given up on before it reached this row. */
   interrupted: "notice-sending-interrupted",
 } as const;
+
+/** One of the codes above, as the notice's delivery ledger stores it. */
+export type MeetingNoticeDeliveryFailure =
+  (typeof NOTICE_DELIVERY_FAILURES)[keyof typeof NOTICE_DELIVERY_FAILURES];

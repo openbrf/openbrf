@@ -188,7 +188,7 @@ const COLUMN_COVERAGE = {
     // The entry that creates the item carries `created: true`.
     authorPersonId: { actedAs: ["NEWS_CONTENT_CHANGED"] },
   },
-  NewsDelivery: { personId: { notReported: "gap" } },
+  NewsDelivery: { personId: { sections: ["newsDeliveries"] } },
   NewsComment: {
     authorPersonId: { sections: ["newsComments"] },
     hiddenByPersonId: { actedAs: ["NEWS_COMMENT_HIDDEN"] },
@@ -224,7 +224,9 @@ const COLUMN_COVERAGE = {
    */
   MeetingVote: { voterPersonId: { notReported: "neverWritten" } },
   MeetingNotice: { issuedByPersonId: { actedAs: ["MEETING_NOTICE_ISSUED"] } },
-  MeetingNoticeDelivery: { personId: { notReported: "gap" } },
+  MeetingNoticeDelivery: {
+    personId: { sections: ["meetingNoticeDeliveries"] },
+  },
   MemberCharge: {
     personId: { sections: ["memberCharges"] },
     recordedByPersonId: { actedAs: ["MEMBER_CHARGE_RECORDED"] },
@@ -304,8 +306,6 @@ const NAMED_GAPS = [
   "ContactSubmission.handledByPersonId",
   "ImportSession.createdById",
   "MeetingAttendance.onBehalfOfPersonId",
-  "MeetingNoticeDelivery.personId",
-  "NewsDelivery.personId",
   "OauthClient.userId",
   "SignupRequest.emailIndex",
 ];

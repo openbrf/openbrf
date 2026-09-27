@@ -36,24 +36,24 @@ const ENTRIES = Object.entries(SECTION_PROCESSING) as [
  *   row's sections carry it.
  * "notKeyedToAPerson": the table names nobody the register holds, so there is
  *   no person whose report it could be on.
- * "notOnTheReport": the table is keyed to a person and the access report does
- *   not carry it - a gap in the report, named here rather than hidden, and not
- *   something this map can close.
+ *
+ * A table keyed to a person that the report does not carry is not named here:
+ * `retention/data-subject-report-coverage.spec.ts` walks the schema for every
+ * column that names a person and names each such gap.
  *
  * Checked in both directions, for the reason `erasure-domains.spec.ts` gives
  * about its own list: an entry nothing uses is inherited by the next edit
  * without anybody deciding to keep it.
  */
 const ROWS_WITHOUT_A_SECTION: Partial<
-  Record<SeedKey, "viewOfAnotherRow" | "notKeyedToAPerson" | "notOnTheReport">
+  Record<SeedKey, "viewOfAnotherRow" | "notKeyedToAPerson">
 > = {
   // Who lives in the building, read from the address book, whose data is on
   // `person` and `residencies`.
   residentDirectory: "viewOfAnotherRow",
-  // A contact submission has no person column at all.
+  // A contact submission names its sender by the address they gave, never as
+  // a person the register holds.
   contactSubmissions: "notKeyedToAPerson",
-  // `news_delivery.personId`: which mailing reached whom.
-  newsMailings: "notOnTheReport",
 };
 
 /**
@@ -90,11 +90,13 @@ const REPORTED_IN_ORDER = [
   "fees",
   "feeNotices",
   "newsComments",
+  "newsDeliveries",
   "chats",
   "chatReports",
   "boardMailboxThreads",
   "meetingAttendances",
   "proxyAuthorisations",
+  "meetingNoticeDeliveries",
   "auditEntries",
   "dataSubjectRequests",
   "personalDataBreaches",

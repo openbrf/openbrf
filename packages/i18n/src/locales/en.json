@@ -379,11 +379,13 @@
           "fees": "Fees for the apartments you have lived in",
           "feeNotices": "Fee notices for the apartments you have lived in",
           "newsComments": "News comments",
+          "newsDeliveries": "News mailings and SMS mailings sent to you",
           "chat": "What you have written in the chat",
           "chatReports": "Chat messages you have reported or answered",
           "boardMailbox": "Correspondence with the board mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
+          "meetingNoticeDeliveries": "Notices of general meetings sent to you",
           "audit": "The audit log",
           "retention": "Retention",
           "dataSubjectRequests": "What you have asked about your data",
@@ -530,7 +532,10 @@
           "synced": "Synced between devices",
           "sent": "Sent",
           "validUntil": "Valid until",
-          "accepted": "Accepted"
+          "accepted": "Accepted",
+          "deliveryChannel": "Sent as",
+          "queued": "Queued",
+          "notSentBecause": "Why it was not sent"
         },
         "appScope": {
           "read": "Read data",
@@ -730,7 +735,27 @@
           "person": "You",
           "apartment": "The apartment you lived in"
         },
-        "passkeyUnnamed": "Unnamed passkey"
+        "passkeyUnnamed": "Unnamed passkey",
+        "deliveryChannel": {
+          "EMAIL": "Email",
+          "SMS": "Text message"
+        },
+        "deliveryStatus": {
+          "PENDING": "Waiting to be sent",
+          "SENT": "Handed over for delivery",
+          "FAILED": "Not sent"
+        },
+        "deliveryFailure": {
+          "mail-not-configured": "The instance had no email server",
+          "sms-not-configured": "The instance had no SMS provider",
+          "send-failed": "The email server or the SMS provider refused it",
+          "recipient-gone": "You were no longer in the register",
+          "no-phone-number": "No telephone number was held for you",
+          "no-email-address": "No email address was held for you",
+          "mailing-interrupted": "The sending was stopped before it reached you",
+          "notice-sending-interrupted": "The sending was stopped before it reached you",
+          "recipient-objected": "You had objected to the mailings or asked for a restriction"
+        }
       },
       "requests": {
         "kind": {
@@ -4324,7 +4349,7 @@
           "name": "News mailings",
           "purpose": "Telling the members what the board publishes.",
           "legalBasisNote": "Legitimate interest: keeping the members informed.",
-          "retention": "The delivery ledger is kept as the association's record of what it sent."
+          "retention": "The delivery ledger is kept as the association's record of what it sent, and goes with the news item if the board removes it. No purge reaches it."
         },
         "chat": {
           "name": "The chat",

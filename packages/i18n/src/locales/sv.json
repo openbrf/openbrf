@@ -379,11 +379,13 @@
           "fees": "Avgifter för lägenheter du har bott i",
           "feeNotices": "Avier för lägenheter du har bott i",
           "newsComments": "Nyhetskommentarer",
+          "newsDeliveries": "Nyhetsutskick och smsutskick till dig",
           "chat": "Det du har skrivit i chatten",
           "chatReports": "Chattmeddelanden du har anmält eller besvarat",
           "boardMailbox": "Korrespondens med styrelsens brevlåda",
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
+          "meetingNoticeDeliveries": "Kallelser till föreningsstämma som skickats till dig",
           "audit": "Granskningsloggen",
           "retention": "Gallring",
           "dataSubjectRequests": "Vad du har begärt om dina uppgifter",
@@ -530,7 +532,10 @@
           "synced": "Synkas mellan enheter",
           "sent": "Skickad",
           "validUntil": "Giltig till",
-          "accepted": "Accepterad"
+          "accepted": "Accepterad",
+          "deliveryChannel": "Skickad som",
+          "queued": "Köad",
+          "notSentBecause": "Varför det inte skickades"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -730,7 +735,27 @@
           "person": "Dig",
           "apartment": "Lägenheten du bodde i"
         },
-        "passkeyUnnamed": "Namnlös nyckel"
+        "passkeyUnnamed": "Namnlös nyckel",
+        "deliveryChannel": {
+          "EMAIL": "E-post",
+          "SMS": "Sms"
+        },
+        "deliveryStatus": {
+          "PENDING": "Väntar på att skickas",
+          "SENT": "Lämnat för leverans",
+          "FAILED": "Inte skickat"
+        },
+        "deliveryFailure": {
+          "mail-not-configured": "Instansen hade ingen e-postserver",
+          "sms-not-configured": "Instansen hade ingen sms-leverantör",
+          "send-failed": "E-postservern eller sms-leverantören tog inte emot det",
+          "recipient-gone": "Du fanns inte längre i registret",
+          "no-phone-number": "Inget telefonnummer fanns registrerat för dig",
+          "no-email-address": "Ingen e-postadress fanns registrerad för dig",
+          "mailing-interrupted": "Utskicket avbröts innan det nådde dig",
+          "notice-sending-interrupted": "Utskicket avbröts innan det nådde dig",
+          "recipient-objected": "Du hade invänt mot utskicken eller begärt begränsning"
+        }
       },
       "requests": {
         "kind": {
@@ -4324,7 +4349,7 @@
           "name": "Nyhetsutskick",
           "purpose": "Meddela medlemmarna vad styrelsen publicerar.",
           "legalBasisNote": "Berättigat intresse: att hålla medlemmarna underrättade.",
-          "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat."
+          "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat, och tas bort med nyheten om styrelsen tar bort den. Ingen gallring når den."
         },
         "chat": {
           "name": "Chatten",

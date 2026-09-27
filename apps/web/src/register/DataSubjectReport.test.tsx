@@ -110,11 +110,13 @@ const EMPTY_REPORT: Report = {
   fees: [],
   feeNotices: [],
   newsComments: [],
+  newsDeliveries: [],
   chats: [],
   chatReports: [],
   boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
+  meetingNoticeDeliveries: [],
   auditEntries: [],
   dataSubjectRequests: [],
   personalDataBreaches: [],
@@ -551,6 +553,40 @@ const FULL_REPORT: Report = {
     },
   ],
   /*
+   * Three copies of mailings: one handed over, one the person had objected to
+   * before it went, and one whose failure was stored as a code the document
+   * cannot read - which it states as not recorded rather than printing.
+   */
+  newsDeliveries: [
+    {
+      newsTitle: "Portkoden byts",
+      newsSlug: "portkoden-byts",
+      channel: "EMAIL",
+      status: "SENT",
+      failure: null,
+      queuedAt: "2026-01-19T08:00:00.000Z",
+      sentAt: "2026-01-19T08:01:00.000Z",
+    },
+    {
+      newsTitle: "Stamning i tvattstugan",
+      newsSlug: "stamning-i-tvattstugan",
+      channel: "SMS",
+      status: "FAILED",
+      failure: "recipient-objected",
+      queuedAt: "2026-02-03T08:00:00.000Z",
+      sentAt: null,
+    },
+    {
+      newsTitle: "Sophamtning i veckan",
+      newsSlug: "sophamtning-i-veckan",
+      channel: "EMAIL",
+      status: "FAILED",
+      failure: null,
+      queuedAt: "2026-02-10T08:00:00.000Z",
+      sentAt: null,
+    },
+  ],
+  /*
    * One room with two lines in it, and no read marker: the board chat, which
    * has no name of its own, and somebody who has written in it without ever
    * marking it read. Both halves matter to the rendering - the room's name has
@@ -693,6 +729,18 @@ const FULL_REPORT: Report = {
       ground: "MEMBER",
       authorisedOn: "2027-04-30",
       withdrawnAt: "2027-05-11T08:00:00.000Z",
+    },
+  ],
+  meetingNoticeDeliveries: [
+    {
+      // The notice of the meeting the attendance section records them at.
+      meetingHeldOn: "2027-05-12",
+      meetingKind: "ORDINARY",
+      channel: "EMAIL",
+      status: "FAILED",
+      failure: "no-email-address",
+      queuedAt: "2027-04-14T09:00:00.000Z",
+      sentAt: null,
     },
   ],
   auditEntries: [
@@ -1523,6 +1571,8 @@ describe("what the document prints", () => {
     for (const heading of [
       "Inloggade sessioner",
       "Inbjudningar till konto",
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
       "Debiteringar",
       "Avgifter för lägenheter du har bott i",
       "Avier för lägenheter du har bott i",
@@ -1853,6 +1903,48 @@ describe("what the document answers for", () => {
         "Inget registrerat",
       ),
     ).toHaveLength(2);
+  });
+
+  it("says in words why a mailing did not reach them, and never a code", async () => {
+    /*
+     * The ledger holds a closed code for a copy that did not go out, and the
+     * document is handed to the person it is about: "recipient-objected" is a
+     * word nobody reading it should have to decode. A code outside the set
+     * arrives as nothing, and is said to be not recorded.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const mailings = within(sectionOf("Nyhetsutskick och smsutskick till dig"));
+    const objected = mailings.getByText("Stamning i tvattstugan").closest("tr");
+    expect(objected?.textContent).toContain("Sms");
+    expect(objected?.textContent).toContain("Inte skickat");
+    expect(objected?.textContent).toContain(
+      "Du hade invänt mot utskicken eller begärt begränsning",
+    );
+    const sent = mailings.getByText("Portkoden byts").closest("tr");
+    expect(sent?.textContent).toContain("Lämnat för leverans");
+    const unreadable = mailings.getByText("Sophamtning i veckan").closest("tr");
+    expect(unreadable?.textContent).toContain("Inget registrerat");
+
+    const notices = within(
+      sectionOf("Kallelser till föreningsstämma som skickats till dig"),
+    );
+    const notice = notices.getByText("2027-05-12").closest("tr");
+    expect(notice?.textContent).toContain("Ordinarie föreningsstämma");
+    expect(notice?.textContent).toContain(
+      "Ingen e-postadress fanns registrerad för dig",
+    );
+
+    // No code, in either section.
+    for (const section of [
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
+    ]) {
+      expect(sectionOf(section).textContent).not.toMatch(
+        /recipient-objected|no-email-address|FAILED|SENT/,
+      );
+    }
   });
 
   it("prints the passkeys on the account", async () => {

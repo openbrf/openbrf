@@ -234,7 +234,8 @@ describe("seedRows", () => {
      * application is kept two years past the letting, a key order a year past
      * closing, a comment a year from writing, a charge through the accounting
      * archive's seven years, a thread two years from its last message, and a
-     * position of trust and a decided sign-up request for good.
+     * position of trust, a decided sign-up request, the news delivery ledger
+     * and the meeting's record for good.
      */
     for (const key of [
       "subletApplications",
@@ -244,6 +245,8 @@ describe("seedRows", () => {
       "boardMailbox",
       "boardPositionsAndSystemRoles",
       "signupRequestsAndInvitations",
+      "newsMailings",
+      "meetingRecords",
     ]) {
       expect(rowFor(key).dataSubjectCategories, key).toContain(
         "formerResident",
@@ -272,6 +275,22 @@ describe("seedRows", () => {
     for (const category of ["member", "resident", "boardMember", "external"]) {
       expect(
         rowFor("signupRequestsAndInvitations").dataSubjectCategories,
+        category,
+      ).toContain(category);
+    }
+  });
+
+  it("names the proxy holders and assistants a meeting records", () => {
+    /*
+     * A proxy holder may be the member's spouse or cohabitant, or a person the
+     * bylaws allow, and an assistant may be anybody (EFL 6 kap. 7 §, BRL 9 kap.
+     * 14 §). The list of those present names them all, so a row naming the
+     * members and the board alone would describe a record smaller than the one
+     * kept.
+     */
+    for (const category of ["resident", "external"]) {
+      expect(
+        rowFor("meetingRecords").dataSubjectCategories,
         category,
       ).toContain(category);
     }

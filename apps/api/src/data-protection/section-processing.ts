@@ -137,6 +137,8 @@ export const SECTION_PROCESSING = {
   feeNotices: { row: "fees", portability: "otherBasis" },
   // Legitimate interest: letting the house talk under what the board publishes.
   newsComments: { row: "newsComments", portability: "otherBasis" },
+  // Legitimate interest: telling the members what the board publishes.
+  newsDeliveries: { row: "newsMailings", portability: "otherBasis" },
   // Legitimate interest: administering the association, and letting the house
   // organise itself. The reports to the board are part of the same processing.
   chats: { row: "chat", portability: "otherBasis" },
@@ -144,6 +146,8 @@ export const SECTION_PROCESSING = {
   boardMailboxThreads: { row: "boardMailbox", portability: "otherBasis" },
   meetingAttendances: { row: "meetingRecords", portability: "otherBasis" },
   proxyAuthorisations: { row: "meetingRecords", portability: "otherBasis" },
+  // Legal obligation: the summons EFL 6 kap. 21-22 §§ has the association send.
+  meetingNoticeDeliveries: { row: "meetingRecords", portability: "otherBasis" },
   auditEntries: { row: "auditLog", portability: "otherBasis" },
   // Legal obligation: GDPR art. 12(3)-(4), 17, 18 and 21, and art. 5(2).
   dataSubjectRequests: {

@@ -228,6 +228,31 @@ export type TerminationKind =
 export type ConnectedAppScope = "mcp:read" | "mcp:write" | "offline_access";
 
 /**
+ * Why a copy of a news mailing or an SMS mailing did not go out, as the
+ * delivery ledger records it.
+ *
+ * The closed set the server declares, mirrored here because the browser turns
+ * each code into a sentence and may not import server types. A stored value
+ * outside the set arrives as null.
+ */
+export type NewsDeliveryFailure =
+  | "mail-not-configured"
+  | "sms-not-configured"
+  | "send-failed"
+  | "recipient-gone"
+  | "no-phone-number"
+  | "mailing-interrupted"
+  | "recipient-objected";
+
+/** The same, for a notice of a general meeting, which has codes of its own. */
+export type MeetingNoticeDeliveryFailure =
+  | "mail-not-configured"
+  | "send-failed"
+  | "recipient-gone"
+  | "no-email-address"
+  | "notice-sending-interrupted";
+
+/**
  * Which register event a reporting obligation is about.
  *
  * Mirrors the RegisterReportKind enum in `apps/api/prisma/schema.prisma`,
@@ -899,6 +924,22 @@ export interface DataSubjectReport {
     erasableFrom: string | null;
   }[];
   /**
+   * Every copy of a news mailing or an SMS mailing addressed to this person:
+   * the association's record of what it sent them. No erasure date, because no
+   * purge reaches the ledger; it goes with the news item if the board removes
+   * that.
+   */
+  newsDeliveries: {
+    newsTitle: string;
+    newsSlug: string;
+    channel: "EMAIL" | "SMS";
+    status: "PENDING" | "SENT" | "FAILED";
+    /** Why it did not go out, or null. Never a mail server's own words. */
+    failure: NewsDeliveryFailure | null;
+    queuedAt: string;
+    sentAt: string | null;
+  }[];
+  /**
    * What this person wrote in the chat, room by room.
    *
    * Nested rather than flat, unlike the comments above, because the read marker
@@ -1005,6 +1046,20 @@ export interface DataSubjectReport {
     ground: "MEMBER" | "SPOUSE_OR_COHABITANT" | "BYLAWS";
     authorisedOn: string;
     withdrawnAt: string | null;
+  }[];
+  /**
+   * Every copy of a notice of a general meeting addressed to this person: the
+   * association's record of whom it summoned. No erasure date, for the reason
+   * the attendance section gives: it is kept with the meeting's record.
+   */
+  meetingNoticeDeliveries: {
+    meetingHeldOn: string;
+    meetingKind: "ORDINARY" | "EXTRAORDINARY";
+    channel: "EMAIL";
+    status: "PENDING" | "SENT" | "FAILED";
+    failure: MeetingNoticeDeliveryFailure | null;
+    queuedAt: string;
+    sentAt: string | null;
   }[];
   auditEntries: {
     entryId: string;

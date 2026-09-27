@@ -12,6 +12,14 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
 import { computeChatMessagePurgeDate } from "../chat/chat-retention";
 import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
+import {
+  DELIVERY_FAILURES,
+  type NewsDeliveryFailure,
+} from "../news/news-delivery";
+import {
+  NOTICE_DELIVERY_FAILURES,
+  type MeetingNoticeDeliveryFailure,
+} from "../meetings/meeting-notice-delivery";
 import { computeKeyOrderPurgeDate } from "../key-orders/key-order-retention";
 import { computeMotionPurgeDate } from "../motions/motion-retention";
 import { computeSubletPurgeDate } from "../sublets/sublet-retention";
@@ -42,10 +50,12 @@ import type {
   ReportChatMessage,
   ReportChatReport,
   ReportMeetingAttendance,
+  ReportMeetingNoticeDelivery,
   ReportMemberCharge,
   ReportPasskey,
   ReportPersonalDataBreach,
   ReportNewsComment,
+  ReportNewsDelivery,
   ReportPostalAddress,
   ReportProxyAuthorisation,
   ReportSignInSession,
@@ -162,6 +172,14 @@ const SECTIONS = REPORTED_SECTIONS;
  * session is on the report with the IP address and the browser name the
  * sign-in library recorded, because those are held about whoever signed in;
  * never its token, which is a way back into the account.
+ *
+ * The two delivery ledgers - the news mailings and the notices of general
+ * meetings - are the association's record of what it sent to this person, and
+ * are on the report because art. 15 is a right to what is held. Neither states
+ * an erasure date, because no purge reaches either. The invitations to an
+ * account are on it for the same reason. What the report still names nobody in
+ * is the board member who acted on the person: who sent an invitation or a
+ * notice is in the audit log, on that board member's own report.
  */
 @Injectable()
 export class DataSubjectReportService {
@@ -929,6 +947,25 @@ export class DataSubjectReportService {
     });
 
     /*
+     * Every copy of a news mailing or an SMS mailing addressed to this person.
+     * `personId` is a plain column and not a relation on the ledger, for the
+     * reason `bookedByPersonId` is, so this is a query of its own; the news
+     * item IS one, which is how its title and address reach the document.
+     */
+    const newsDeliveries = await tx.newsDelivery.findMany({
+      where: { personId },
+      orderBy: [{ queuedAt: "desc" }],
+      select: {
+        channel: true,
+        status: true,
+        failureReason: true,
+        queuedAt: true,
+        sentAt: true,
+        news: { select: { title: true, slug: true } },
+      },
+    });
+
+    /*
      * What this person wrote in the chat, grouped by the room it was written in.
      *
      * Their own messages only. The other members of a room wrote about
@@ -1159,6 +1196,31 @@ export class DataSubjectReportService {
         authorisedOn: true,
         withdrawnAt: true,
         meeting: { select: { heldOn: true, kind: true } },
+      },
+    });
+
+    /*
+     * Every copy of a notice of a general meeting addressed to this person.
+     * `personId` is a plain column and not a relation on the notice's ledger,
+     * for the reason `bookedByPersonId` is, so this is a query of its own; the
+     * notice and its meeting ARE relations, which is how the day and the kind
+     * reach the document.
+     */
+    const meetingNoticeDeliveries = await tx.meetingNoticeDelivery.findMany({
+      where: { personId },
+      orderBy: [
+        { notice: { meeting: { heldOn: "desc" } } },
+        { queuedAt: "desc" },
+      ],
+      select: {
+        channel: true,
+        status: true,
+        failureReason: true,
+        queuedAt: true,
+        sentAt: true,
+        notice: {
+          select: { meeting: { select: { heldOn: true, kind: true } } },
+        },
       },
     });
 
@@ -1757,6 +1819,22 @@ export class DataSubjectReportService {
           computeNewsCommentPurgeDate(comment.createdAt),
         ),
       })),
+      newsDeliveries: newsDeliveries.map((delivery): ReportNewsDelivery => ({
+        newsTitle: delivery.news.title,
+        newsSlug: delivery.news.slug,
+        channel: delivery.channel,
+        status: delivery.status,
+        /*
+         * Narrowed to the closed set the workers write, so the document can
+         * state the reason in words. A stored value outside it reads as not
+         * recorded rather than as a code nobody can read.
+         */
+        failure: newsDeliveryFailureOf(delivery.failureReason),
+        queuedAt: delivery.queuedAt.toISOString(),
+        sentAt: delivery.sentAt?.toISOString() ?? null,
+        // No erasure date, and the section's own comment says why: no purge
+        // reaches the ledger.
+      })),
       chats: groupChatMessages(chatMessages, chatMemberships, chatReads),
       chatReports: chatReports.map((report): ReportChatReport => {
         const reported = report.reporterPersonId === personId;
@@ -1824,6 +1902,20 @@ export class DataSubjectReportService {
           };
         },
       ),
+      meetingNoticeDeliveries: meetingNoticeDeliveries.map(
+        (delivery): ReportMeetingNoticeDelivery => ({
+          meetingHeldOn:
+            formatDateColumn(delivery.notice.meeting.heldOn) ??
+            delivery.notice.meeting.heldOn.toISOString(),
+          meetingKind: delivery.notice.meeting.kind,
+          channel: delivery.channel,
+          status: delivery.status,
+          failure: noticeDeliveryFailureOf(delivery.failureReason),
+          queuedAt: delivery.queuedAt.toISOString(),
+          sentAt: delivery.sentAt?.toISOString() ?? null,
+          // No erasure date: the ledger is kept with the meeting's record.
+        }),
+      ),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,
         role: entry.targetPersonId === personId ? "subject" : "actor",
@@ -1881,6 +1973,46 @@ export class DataSubjectReportService {
       },
     };
   }
+}
+
+/** The codes the news mailing and SMS workers write into their ledger. */
+const NEWS_DELIVERY_FAILURES: readonly string[] =
+  Object.values(DELIVERY_FAILURES);
+
+/** The codes the notice worker writes into its ledger. */
+const MEETING_NOTICE_DELIVERY_FAILURES: readonly string[] = Object.values(
+  NOTICE_DELIVERY_FAILURES,
+);
+
+function isNewsDeliveryFailure(value: string): value is NewsDeliveryFailure {
+  return NEWS_DELIVERY_FAILURES.includes(value);
+}
+
+function isMeetingNoticeDeliveryFailure(
+  value: string,
+): value is MeetingNoticeDeliveryFailure {
+  return MEETING_NOTICE_DELIVERY_FAILURES.includes(value);
+}
+
+/**
+ * A news ledger row's failure as the closed code the workers write, or null -
+ * including for a stored value outside the set, which the document states as
+ * not recorded rather than as a code nobody can read. The column is free text
+ * in the schema, so this is where it becomes the closed set.
+ */
+function newsDeliveryFailureOf(
+  reason: string | null,
+): NewsDeliveryFailure | null {
+  return reason !== null && isNewsDeliveryFailure(reason) ? reason : null;
+}
+
+/** The same, for the notice's ledger and its own list of codes. */
+function noticeDeliveryFailureOf(
+  reason: string | null,
+): MeetingNoticeDeliveryFailure | null {
+  return reason !== null && isMeetingNoticeDeliveryFailure(reason)
+    ? reason
+    : null;
 }
 
 /**

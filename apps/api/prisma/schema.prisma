@@ -4292,6 +4292,10 @@ enum NewsDeliveryStatus {
 /// publish and the worker still receives it: the ledger is the record of who
 /// the board was writing to at the moment it published, which is the honest
 /// reading of the act.
+///
+/// The data subject access report's `newsDeliveries` section reads it for the
+/// recipient. No purge reaches it: the ledger goes with the news item, if the
+/// board removes that.
 model NewsDelivery {
   id String @id @default(cuid())
 
@@ -5981,12 +5985,11 @@ model MeetingNotice {
 /// A failure is recorded as a code and never as the mail server's own words. A
 /// rejection quotes the envelope back, and the envelope is a member's address.
 ///
-/// No section of the data subject access report reads this table, on the news
-/// delivery ledger's own precedent: what the report answers for is the meeting's
-/// record - who was present, and the authority a vote was exercised under - and
-/// a mailing ledger is the association's record of an act it performed. A
-/// section here would be a decision about the report rather than about the
-/// notice.
+/// The data subject access report's `meetingNoticeDeliveries` section reads it
+/// for the recipient: the association's record of whom it summoned is held
+/// about each of them, and art. 15 is a right to what is held. The section
+/// states no erasure date, because the ledger is kept with the meeting's record
+/// and no purge reaches it.
 model MeetingNoticeDelivery {
   id String @id @default(cuid())
 
