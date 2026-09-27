@@ -1049,9 +1049,12 @@
       "testSent": "Ett testmeddelande är på väg till {{email}}.",
       "notConfigured": "E-post är inte inställt, så inbjudningar och inloggningslänkar kan inte skickas. Ingen kan bjudas in innan det är gjort.",
       "configured": "E-post är inställt.",
+      "environment": "E-post skickas av den som driver instansen, via {{host}} från {{fromAddress}}.",
+      "environmentHint": "Den ställs in där instansen körs och kan inte ändras här.",
       "errors": {
         "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
         "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
+        "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord."
       },
       "test": {

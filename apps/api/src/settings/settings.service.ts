@@ -10,6 +10,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
+import { MailSettingsResolver } from "../mail/mail-settings";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { smtpTestMail } from "../mail/templates";
 import { mediaUrl, MediaService } from "../media/media.service";
@@ -59,13 +60,15 @@ export class SettingsError extends DomainError {
       | "proxy-limit-out-of-range"
       | "financial-year-start-not-a-month"
       | "giro-not-a-number"
-      | "joint-controller-incomplete",
+      | "joint-controller-incomplete"
+      | "mail-managed-by-environment",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
     super(message);
     this.status =
-      reason === "housing-cooperative-missing"
+      reason === "housing-cooperative-missing" ||
+      reason === "mail-managed-by-environment"
         ? HttpStatus.CONFLICT
         : reason === "person-not-found"
           ? HttpStatus.NOT_FOUND
@@ -144,7 +147,15 @@ export interface BrandingSettings {
   logoDark: LogoView | null;
 }
 
-export interface SmtpSettingsView {
+/**
+ * How the instance sends mail, as the settings screen renders it: the board's
+ * own server, or mail set where the instance runs (ADR 0024).
+ */
+export type SmtpSettingsView = StoredSmtpSettingsView | EnvironmentMailView;
+
+/** The SMTP server the board entered. */
+export interface StoredSmtpSettingsView {
+  source: "settings";
   host: string | null;
   port: number | null;
   secure: boolean;
@@ -162,6 +173,22 @@ export interface SmtpSettingsView {
    * is false.
    */
   configured: boolean;
+}
+
+/**
+ * Mail set by whoever runs the instance, which the board sees and cannot
+ * change.
+ *
+ * The host it goes through and the sender, and nothing else: no user, no
+ * password field, no port. Those are the host's, set in the environment, and a
+ * screen offering them would suggest the board could change them.
+ */
+export interface EnvironmentMailView {
+  source: "environment";
+  /** The SMTP host, or the host of the mail API's address. */
+  host: string;
+  fromAddress: string;
+  configured: true;
 }
 
 /**
@@ -344,6 +371,11 @@ export class SettingsService {
      * association's processing. See updateDataProtectionContacts.
      */
     private readonly audit: AuditLogService,
+    /*
+     * Which mail the instance actually sends through, so the screen shows mail
+     * set in the environment rather than the columns it overrides.
+     */
+    private readonly mailSettings: MailSettingsResolver,
   ) {}
 
   async read(): Promise<InstanceSettings> {
@@ -371,16 +403,7 @@ export class SettingsService {
         logo: toLogoView(association.logo),
         logoDark: toLogoView(association.logoDark),
       },
-      smtp: {
-        host: association.smtpHost,
-        port: association.smtpPort,
-        secure: association.smtpSecure,
-        user: association.smtpUser,
-        fromAddress: association.smtpFromAddress,
-        passwordSet: association.smtpPasswordCipher !== null,
-        configured:
-          association.smtpHost !== null && association.smtpFromAddress !== null,
-      },
+      smtp: await this.smtpView(association),
       boardMailbox: {
         address: association.boardMailboxAddress,
         host: association.boardMailboxPop3Host,
@@ -749,7 +772,63 @@ export class SettingsService {
     return (await this.read()).branding;
   }
 
+  /**
+   * The mail block: set in the environment, or the board's own columns.
+   *
+   * The resolver's description rather than the columns alone, so the screen
+   * names the mail the instance actually sends through. Settings stored before
+   * the environment set the mail stay in their columns, unshown and untouched,
+   * and are what this returns again once the environment stops setting it.
+   */
+  private async smtpView(association: {
+    smtpHost: string | null;
+    smtpPort: number | null;
+    smtpSecure: boolean;
+    smtpUser: string | null;
+    smtpFromAddress: string | null;
+    smtpPasswordCipher: string | null;
+  }): Promise<SmtpSettingsView> {
+    if (this.mailSettings.source() === "environment") {
+      const mail = await this.mailSettings.describe();
+      if (mail !== null) {
+        return {
+          source: "environment",
+          host: mail.host,
+          fromAddress: mail.fromAddress,
+          configured: true,
+        };
+      }
+    }
+
+    return {
+      source: "settings",
+      host: association.smtpHost,
+      port: association.smtpPort,
+      secure: association.smtpSecure,
+      user: association.smtpUser,
+      fromAddress: association.smtpFromAddress,
+      passwordSet: association.smtpPasswordCipher !== null,
+      configured:
+        association.smtpHost !== null && association.smtpFromAddress !== null,
+    };
+  }
+
+  /**
+   * Stores the SMTP server the board entered.
+   *
+   * Refused while the environment sets the mail (ADR 0024). The host answers
+   * for delivery and for the sending domain there, and a board that could
+   * replace its mail would be the first to find out it had broken both. The
+   * refusal comes before anything is written, so the stored columns are left as
+   * they were.
+   */
   async updateSmtp(input: SmtpInput): Promise<SmtpSettingsView> {
+    if (this.mailSettings.source() === "environment") {
+      throw new SettingsError(
+        "Mail is set where the instance runs and cannot be changed here.",
+        "mail-managed-by-environment",
+      );
+    }
     await this.requireAssociation();
 
     const passwordCipher =
@@ -849,6 +928,10 @@ export class SettingsService {
    * request: an endpoint that mails an arbitrary address on demand is a relay,
    * and proving that the configuration works only means anything if the message
    * reaches a mailbox the person asking already controls.
+   *
+   * Through the mail service like any other message, so it tests whichever mail
+   * the instance actually uses: the board's own server, or the one set where the
+   * instance runs.
    */
   async sendTestMessage(
     actorPersonId: string,

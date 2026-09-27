@@ -247,6 +247,53 @@ test("both documented ways to supply the runtime connection reach the container"
   expect(nothing.DATABASE_URL_RUNTIME).toBe("");
 });
 
+test("mail set where the instance runs reaches the container", () => {
+  // docs/deployment.md tells a host to set the mail with these, and the
+  // application reads each one (ADR 0024). A variable the compose file does not
+  // map is simply absent in the container, and a host whose OPENBRF_MAIL_DRIVER
+  // never arrived would find the board's own settings sending instead. Both
+  // drivers' variables at once, because only the mapping is under test here:
+  // nothing starts from this configuration, and the application is what
+  // refuses the two together.
+  const mail = {
+    OPENBRF_MAIL_DRIVER: "http-api",
+    OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+    OPENBRF_MAIL_FROM_NAME: "Brf Eksemplet",
+    OPENBRF_MAIL_REPLY_TO: "styrelsen@eksemplet.example",
+    OPENBRF_SMTP_HOST: "smtp.host.example",
+    OPENBRF_SMTP_PORT: "2525",
+    OPENBRF_SMTP_SECURE: "true",
+    OPENBRF_SMTP_USER: "relay",
+    OPENBRF_SMTP_PASSWORD: "relay-password-for-rendering",
+    OPENBRF_MAIL_API_URL: "https://api.mail.example/v1",
+    OPENBRF_MAIL_API_KEY: "key-for-rendering",
+    OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "mail.example",
+  };
+
+  const set = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+    ...mail,
+  });
+  expect(set.status, set.output).toBe(0);
+  const environment = appEnvironment(set.output);
+  for (const [name, value] of Object.entries(mail)) {
+    expect(environment[name], name).toBe(value);
+  }
+
+  // Unset, each arrives empty, which the application reads as absent: the
+  // mail is then the board's own settings, as on every instance before.
+  const unset = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(unset.status, unset.output).toBe(0);
+  const nothing = appEnvironment(unset.output);
+  for (const name of Object.keys(mail)) {
+    expect(nothing[name], name).toBe("");
+  }
+});
+
 test("the owner's password is still required by the compose file", () => {
   // The database container is created from it, so there is no second way to
   // supply it and nothing further on that could report its absence better.

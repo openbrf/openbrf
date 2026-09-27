@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
-import type { SmtpSettings } from "../api/instance";
+import type {
+  EnvironmentMailSettings,
+  StoredSmtpSettings,
+} from "../api/instance";
 import { SmtpPanel } from "./SmtpPanel";
 
 /**
@@ -24,7 +27,8 @@ vi.mock("../api/instance", async (importOriginal) => ({
   sendSmtpTest: () => sendSmtpTest(),
 }));
 
-const CONFIGURED: SmtpSettings = {
+const CONFIGURED: StoredSmtpSettings = {
+  source: "settings",
   host: "smtp.example.se",
   port: 587,
   secure: true,
@@ -34,7 +38,8 @@ const CONFIGURED: SmtpSettings = {
   configured: true,
 };
 
-const EMPTY: SmtpSettings = {
+const EMPTY: StoredSmtpSettings = {
+  source: "settings",
   host: null,
   port: null,
   secure: true,
@@ -242,5 +247,83 @@ describe("a board member who may only read", () => {
 
     expect(screen.getByLabelText(/^server$/i)).toHaveProperty("disabled", true);
     expect(screen.queryByRole("button", { name: /^spara$/i })).toBeNull();
+  });
+});
+
+describe("mail set where the instance runs", () => {
+  /*
+   * The host answers for delivery and for the sending domain there, and the API
+   * refuses a change, so the card states what is set and offers nothing that
+   * could not be saved (ADR 0024).
+   */
+  const ENVIRONMENT: EnvironmentMailSettings = {
+    source: "environment",
+    host: "api.getpost.se",
+    fromAddress: "utskick@delad.example",
+    configured: true,
+  };
+
+  it("names the host and the sender, and has no form", () => {
+    render(<SmtpPanel value={ENVIRONMENT} />);
+
+    expect(
+      screen.getByText(
+        "E-post skickas av den som driver instansen, via api.getpost.se från utskick@delad.example.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Den ställs in där instansen körs och kan inte ändras här.",
+      ),
+    ).toBeTruthy();
+    // Nothing to type into and nothing to save.
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByLabelText(/^lösenord/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^spara$/i })).toBeNull();
+  });
+
+  it("still lets the administrator send a test message", async () => {
+    const session = userEvent.setup();
+    render(<SmtpPanel value={ENVIRONMENT} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/holger@exempel\.se/)).toBeTruthy();
+    });
+    expect(sendSmtpTest).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a board member who may only read no test either", () => {
+    render(<SmtpPanel value={ENVIRONMENT} editable={false} />);
+
+    expect(
+      screen.queryByRole("button", { name: /testmeddelande/i }),
+    ).toBeNull();
+  });
+});
+
+describe("a save the environment refuses", () => {
+  it("says the mail is set where the instance runs", async () => {
+    // The environment began setting the mail after the screen was loaded.
+    saveSmtp.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "mail-managed-by-environment" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "E-posten ställs in där instansen körs och kan inte ändras här.",
+        ),
+      ).toBeTruthy();
+    });
   });
 });

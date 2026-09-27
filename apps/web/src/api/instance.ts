@@ -38,7 +38,14 @@ export interface BrandingSettings {
   logoDark: LogoView | null;
 }
 
-export interface SmtpSettings {
+/**
+ * How the instance sends mail: the SMTP server the board entered, or mail set
+ * by whoever runs the instance, which the board sees and cannot change.
+ */
+export type SmtpSettings = StoredSmtpSettings | EnvironmentMailSettings;
+
+export interface StoredSmtpSettings {
+  source: "settings";
   host: string | null;
   port: number | null;
   secure: boolean;
@@ -48,6 +55,15 @@ export interface SmtpSettings {
   passwordSet: boolean;
   /** Whether the instance can send mail at all. */
   configured: boolean;
+}
+
+/** Mail set where the instance runs: the host it goes through and the sender. */
+export interface EnvironmentMailSettings {
+  source: "environment";
+  /** The SMTP host, or the host of the mail API's address. */
+  host: string;
+  fromAddress: string;
+  configured: true;
 }
 
 /**

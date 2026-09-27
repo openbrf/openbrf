@@ -207,7 +207,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
           {settings === null ? null : (
             <>
               <SmtpPanel
-                key={`smtp-${settings.smtp.host ?? ""}-${String(settings.smtp.passwordSet)}`}
+                key={`smtp-${settings.smtp.source}-${settings.smtp.host ?? ""}-${settings.smtp.source === "settings" ? String(settings.smtp.passwordSet) : ""}`}
                 value={settings.smtp}
                 editable={canManage}
                 onSaved={reload}

@@ -39,6 +39,12 @@ import {
 
 /** What the settings row, the environment and installed_plugin already hold. */
 export interface ProcessorFacts {
+  /**
+   * The host mail actually goes through and the address it is sent from, as
+   * the mail resolver describes them: the board's SMTP server, or the SMTP host
+   * or the mail API's host the environment sets (ADR 0024). Null while the
+   * instance cannot send.
+   */
   smtpHost: string | null;
   smtpFromAddress: string | null;
   smsDriver: string | null;

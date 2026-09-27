@@ -10,6 +10,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import type { SentMail } from "../mail/mail-driver";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { boardMailboxReplyMail } from "../mail/templates";
 import { REPLY_DELIVERY_FAILURES } from "./board-mailbox-delivery";
@@ -34,17 +35,22 @@ import { loadBoardMailboxSettings } from "./board-mailbox-settings";
  *
  * ## Where the reply comes from, and where an answer to it goes
  *
- * The envelope sender stays the instance's configured SMTP identity, because
- * that is the identity the mail server will accept: a relay asked to send as an
- * address it does not hold rejects the message, and a board would then find that
- * its answers went nowhere for a reason no screen could explain. What carries
+ * The envelope sender stays the instance's configured sender, because that is
+ * the identity the mail server will accept: a relay asked to send as an address
+ * it does not hold rejects the message, and a board would then find that its
+ * answers went nowhere for a reason no screen could explain. On an instance
+ * whose mail is set where it runs, that sender is on a domain the host may share
+ * between associations, under the association's name (ADR 0024). What carries
  * the conversation back is Reply-To, set to the board's own published address -
  * so a correspondent pressing reply writes to the shared mailbox and their
  * answer is collected into the same thread, which is the whole point.
  *
  * The threading headers do the rest. In-Reply-To and References name the letter
  * being answered, so the reply lands inside the conversation in the
- * correspondent's own client rather than as a new message beside it.
+ * correspondent's own client rather than as a new message beside it. And the
+ * identifier the answer was delivered with is what the thread keeps: a mail
+ * service that writes its own Message-ID reports it, and it replaces the one
+ * minted here, because it is the one the correspondent's reply will name.
  *
  * ## The language
  *
@@ -217,6 +223,7 @@ export class BoardMailboxMailerService implements OnModuleInit {
       return "failed";
     }
 
+    let sent: SentMail;
     try {
       const to = await this.encryption.decrypt(
         "boardMailboxThread.correspondentEmail",
@@ -230,7 +237,7 @@ export class BoardMailboxMailerService implements OnModuleInit {
               message.thread.correspondentNameCipher,
             );
 
-      await this.mail.send({
+      sent = await this.mail.send({
         to,
         // The association's default. See the note at the top of this file: there
         // is no recipient record here to hold a preference.
@@ -269,11 +276,29 @@ export class BoardMailboxMailerService implements OnModuleInit {
      * the reply, and turning it into a delivery failure would put the one thing
      * on the thread that is certainly untrue. The row stays claimed and pending,
      * which understates what happened rather than overstating it.
+     *
+     * The identifier the answer was delivered with goes onto the row here, over
+     * the one minted when it was written, where the two differ. A mail service
+     * that owns the Message-ID refuses the minted one and writes its own, and
+     * that is the identifier a copy of the answer comes back with and the one
+     * the correspondent's reply names in In-Reply-To - so it is what the
+     * collector has to find on this row to recognise the one and thread the
+     * other. Here rather than earlier, because nothing knows it before the
+     * handover.
      */
+    const delivered = sent.messageId;
+    if (delivered === null) {
+      this.logger.warn(
+        `Board mailbox reply ${messageId} was sent without a delivered message identifier; a reply to it may not join its thread.`,
+      );
+    }
     try {
       await this.prisma.boardMailboxMessage.update({
         where: { id: messageId },
-        data: { deliveryStatus: "SENT" },
+        data:
+          delivered !== null && delivered !== message.messageId
+            ? { deliveryStatus: "SENT", messageId: delivered }
+            : { deliveryStatus: "SENT" },
       });
     } catch (error) {
       this.logger.error(
