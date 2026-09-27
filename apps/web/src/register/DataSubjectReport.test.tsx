@@ -7,8 +7,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { DataSubjectReportSection } from "@openbrf/shared";
+
 import i18n from "../i18n";
-import { DataSubjectReport } from "./DataSubjectReport";
+import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
 import type { DataSubjectReport as Report } from "./register-api";
 
 /**
@@ -39,6 +41,12 @@ const ISSUE_DESCRIPTION = [
   "Porten gar inte igen.",
   "Den slar upp igen nar man slapper.",
   "Varst pa morgonen.",
+].join("\n");
+
+/** What a charge was for, as the board wrote it: on two lines. */
+const CHARGE_REASON = [
+  "Ny tagg till cykelrummet.",
+  "Den gamla tappades bort.",
 ].join("\n");
 
 const { fetchDataSubjectReport } = vi.hoisted(() => ({
@@ -87,6 +95,9 @@ const EMPTY_REPORT: Report = {
   subletApplications: [],
   keyOrders: [],
   eventSignups: [],
+  memberCharges: [],
+  fees: [],
+  feeNotices: [],
   newsComments: [],
   chats: [],
   chatReports: [],
@@ -394,6 +405,79 @@ const FULL_REPORT: Report = {
       withdrawnOn: "2027-03-20T12:00:00.000Z",
       calledOff: false,
       erasableFrom: "2028-04-17",
+    },
+  ],
+  memberCharges: [
+    {
+      /*
+       * A charge on the person, handed to the economic manager, with a reason
+       * written on two lines: the reason is the association's own words about
+       * what the person was charged for, and it is printed as written.
+       */
+      chargeId: "charge-1",
+      basis: "person",
+      chargedOn: "2026-01-12",
+      amount: "450.00",
+      vatTreatment: "EXEMPT",
+      vatRatePercent: null,
+      reason: CHARGE_REASON,
+      apartment: null,
+      handedToManagerOn: "2026-01-31",
+      erasableFrom: "2033-12-31",
+    },
+    {
+      /*
+       * A charge on the apartment while they lived in it. It names no person,
+       * and the document says it was the apartment's rather than theirs.
+       */
+      chargeId: "charge-2",
+      basis: "apartment",
+      chargedOn: "2025-10-03",
+      amount: "1200.00",
+      vatTreatment: "RATE",
+      vatRatePercent: 25,
+      reason: "Byte av las efter inbrott.",
+      apartment: "Storgatan 12 1201",
+      handedToManagerOn: null,
+      erasableFrom: "2032-12-31",
+    },
+  ],
+  fees: [
+    {
+      feeId: "fee-1",
+      apartment: "Storgatan 12 1201",
+      kind: "ANNUAL_FEE",
+      appliesFrom: "2025-01-01",
+      appliesUntil: "2025-12-31",
+      monthlyAmount: "3450.50",
+      vatTreatment: "EXEMPT",
+      vatRatePercent: null,
+      erasableFrom: "2032-12-31",
+    },
+    {
+      // Still in force, so it has no end and no erasure date to state.
+      feeId: "fee-2",
+      apartment: "Storgatan 12 1201",
+      kind: "PARKING_SPACE",
+      appliesFrom: "2025-06-01",
+      appliesUntil: null,
+      monthlyAmount: "400.00",
+      vatTreatment: "RATE",
+      vatRatePercent: 25,
+      erasableFrom: null,
+    },
+  ],
+  feeNotices: [
+    {
+      noticeId: "notice-1",
+      apartment: "Storgatan 12 1201",
+      periodFrom: "2025-10-01",
+      periodTo: "2025-12-31",
+      dueOn: "2025-09-30",
+      issuedOn: "2025-09-01",
+      amount: "10351.50",
+      paymentReference: "2510010017",
+      erasableFrom: "2032-12-31",
     },
   ],
   newsComments: [
@@ -860,9 +944,10 @@ describe("what the document prints", () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    expect(screen.getByText("Pantnoteringar")).not.toBeNull();
-    expect(screen.getByText("Exempelbanken")).not.toBeNull();
-    expect(screen.getByText("Gäller fortfarande")).not.toBeNull();
+    // Within the section, because a fee rate still in force stands too.
+    const lienNotes = within(sectionOf("Pantnoteringar"));
+    expect(lienNotes.getByText("Exempelbanken")).not.toBeNull();
+    expect(lienNotes.getByText("Gäller fortfarande")).not.toBeNull();
   });
 
   it("prints a booking with the earliest date it can be erased on", async () => {
@@ -1253,6 +1338,7 @@ describe("what the document prints", () => {
       ISSUE_DESCRIPTION,
       "Foreningen bor utreda vad laddstolpar skulle kosta.",
       STANDING_COMMENT,
+      CHARGE_REASON,
     ]) {
       const printed = screen.getByText(written, { normalizer: asWritten });
       expect(printed.className).toContain("whitespace-pre-line");
@@ -1384,6 +1470,16 @@ describe("what the document prints", () => {
 
     expect(screen.getByText("Upplåtelser och överlåtelser")).not.toBeNull();
     expect(screen.getAllByText("Inget registrerat").length).toBeGreaterThan(5);
+    for (const heading of [
+      "Debiteringar",
+      "Avgifter för lägenheter du har bott i",
+      "Avier för lägenheter du har bott i",
+    ]) {
+      expect(
+        within(sectionOf(heading)).getByText("Inget registrerat"),
+        heading,
+      ).not.toBeNull();
+    }
   });
 
   it("states the address a mailbox thread is with, and not the registered one", async () => {
@@ -1640,5 +1736,86 @@ describe("breaches that reached this person's data", () => {
     await screen.findByText("Brf Eksemplet");
 
     expect(screen.queryByText(/obehorig mottagare/i)).toBeNull();
+  });
+});
+
+describe("what the document answers for", () => {
+  it("declares exactly the report's keys, as the API does", () => {
+    /*
+     * A type-level assertion, in both directions: the browser's copy of the
+     * report is held to the tuple in `@openbrf/shared`, and so is the API's, so
+     * a section one of them has and the other lacks fails a build. The tuple
+     * wrappers keep the unions from distributing, so each asks whether one
+     * whole union is contained in the other.
+     */
+    type SameKeys = [keyof Report] extends [DataSubjectReportSection]
+      ? [DataSubjectReportSection] extends [keyof Report]
+        ? true
+        : false
+      : false;
+    const sameKeys: SameKeys = true;
+
+    expect(sameKeys).toBe(true);
+  });
+
+  it("prints a heading for every section the report carries", async () => {
+    /*
+     * The runtime half of the guard. The title map is typed over every key of
+     * the report, so a section without a title fails to compile; this holds
+     * the document to printing each title, so a section whose markup went
+     * missing fails here rather than on the paper handed to somebody.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const inSwedish = i18n.getFixedT("sv");
+    const printed = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+    for (const titleKey of Object.values(SECTION_TITLE)) {
+      expect(printed, titleKey).toContain(inSwedish(titleKey));
+    }
+  });
+
+  it("prints the charges, the fee rates and the notices, each with its erasure date", async () => {
+    /*
+     * Three sections the API has always built and the document did not print.
+     * A charge on the apartment is named as the apartment's, because it names
+     * no person: it is a record of what was charged where they lived, not a
+     * statement that they owed it.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const charges = within(sectionOf("Debiteringar"));
+    const own = charges.getByText(/Ny tagg till cykelrummet/).closest("tr");
+    expect(own?.textContent).toContain("Dig");
+    expect(own?.textContent).toContain("450.00");
+    expect(own?.textContent).toContain("Ingen moms");
+    expect(own?.textContent).toContain("2026-01-31");
+    expect(own?.textContent).toContain("2033-12-31");
+    const onTheFlat = charges
+      .getByText("Byte av las efter inbrott.")
+      .closest("tr");
+    expect(onTheFlat?.textContent).toContain("Lägenheten du bodde i");
+    expect(onTheFlat?.textContent).toContain("Storgatan 12 1201");
+    expect(onTheFlat?.textContent).toContain("25 %");
+    expect(onTheFlat?.textContent).toContain("2032-12-31");
+
+    const fees = within(sectionOf("Avgifter för lägenheter du har bott i"));
+    const annual = fees.getByText("Årsavgift").closest("tr");
+    expect(annual?.textContent).toContain("3450.50");
+    expect(annual?.textContent).toContain("2025-12-31");
+    expect(annual?.textContent).toContain("2032-12-31");
+    // A rate still in force stands, and states no erasure date.
+    const parking = fees.getByText("Parkeringsplats").closest("tr");
+    expect(parking?.textContent).toContain("Gäller fortfarande");
+    expect(parking?.textContent).toContain("Inget registrerat");
+
+    const notices = within(sectionOf("Avier för lägenheter du har bott i"));
+    const notice = notices.getByText("2510010017").closest("tr");
+    expect(notice?.textContent).toContain("2025-10-01 - 2025-12-31");
+    expect(notice?.textContent).toContain("10351.50");
+    expect(notice?.textContent).toContain("2032-12-31");
   });
 });

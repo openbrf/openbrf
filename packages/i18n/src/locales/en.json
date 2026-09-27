@@ -373,6 +373,9 @@
           "subletApplications": "Subletting applications",
           "keyOrders": "Key orders",
           "eventSignups": "Event sign-ups",
+          "memberCharges": "Charges",
+          "fees": "Fees for the apartments you have lived in",
+          "feeNotices": "Fee notices for the apartments you have lived in",
           "newsComments": "News comments",
           "chat": "What you have written in the chat",
           "chatReports": "Chat messages you have reported or answered",
@@ -505,7 +508,17 @@
           "appName": "App",
           "appHost": "Domain",
           "connectedOn": "Connected",
-          "accessLastIssued": "Access last issued"
+          "accessLastIssued": "Access last issued",
+          "chargedTo": "Charged to",
+          "vat": "VAT",
+          "handedToManager": "Handed to the economic manager",
+          "feeKind": "Fee",
+          "appliesFrom": "Applies from",
+          "appliesUntil": "Applies until",
+          "monthlyAmount": "Per month",
+          "due": "Due",
+          "issued": "Issued",
+          "paymentReference": "Payment reference"
         },
         "appScope": {
           "read": "Read data",
@@ -700,7 +713,11 @@
           "proxyHolder": "Authorised by somebody"
         },
         "yes": "Yes",
-        "no": "No"
+        "no": "No",
+        "chargeBasis": {
+          "person": "You",
+          "apartment": "The apartment you lived in"
+        }
       },
       "requests": {
         "kind": {

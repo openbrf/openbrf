@@ -373,6 +373,9 @@
           "subletApplications": "Ansökningar om andrahandsupplåtelse",
           "keyOrders": "Nyckelbeställningar",
           "eventSignups": "Anmälningar till evenemang",
+          "memberCharges": "Debiteringar",
+          "fees": "Avgifter för lägenheter du har bott i",
+          "feeNotices": "Avier för lägenheter du har bott i",
           "newsComments": "Nyhetskommentarer",
           "chat": "Det du har skrivit i chatten",
           "chatReports": "Chattmeddelanden du har anmält eller besvarat",
@@ -505,7 +508,17 @@
           "appName": "App",
           "appHost": "Domän",
           "connectedOn": "Ansluten",
-          "accessLastIssued": "Åtkomst senast utfärdad"
+          "accessLastIssued": "Åtkomst senast utfärdad",
+          "chargedTo": "Debiterad",
+          "vat": "Moms",
+          "handedToManager": "Lämnad till ekonomisk förvaltare",
+          "feeKind": "Avgift",
+          "appliesFrom": "Gäller från",
+          "appliesUntil": "Gäller till",
+          "monthlyAmount": "Per månad",
+          "due": "Förfaller",
+          "issued": "Utfärdad",
+          "paymentReference": "Betalningsreferens"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -700,7 +713,11 @@
           "proxyHolder": "Hade fullmakt"
         },
         "yes": "Ja",
-        "no": "Nej"
+        "no": "Nej",
+        "chargeBasis": {
+          "person": "Dig",
+          "apartment": "Lägenheten du bodde i"
+        }
       },
       "requests": {
         "kind": {

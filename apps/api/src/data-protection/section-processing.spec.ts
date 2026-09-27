@@ -1,3 +1,7 @@
+import {
+  DATA_SUBJECT_REPORT_SECTIONS,
+  type DataSubjectReportSection,
+} from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import { SEED_KEYS, type SeedKey } from "./processing-activity-seed";
@@ -170,5 +174,31 @@ describe("the map from the access report to the record", () => {
 
     expect([...REPORTED_SECTIONS]).toEqual(withARow);
     expect([...REPORTED_SECTIONS]).toEqual(SECTIONS_BEFORE_THE_MAP);
+  });
+
+  it("declares the report's keys in the shared order", () => {
+    /*
+     * The browser prints the report from a type of its own, and nothing but
+     * the tuple in `@openbrf/shared` ties the two: each side is held to it, so
+     * a section one application has and the other lacks fails a build rather
+     * than going missing from a printed document.
+     *
+     * A type-level assertion in both directions, on the pattern of
+     * auth-options.spec.ts: the tuple wrappers keep the unions from
+     * distributing, so each asks whether one whole union is contained in the
+     * other rather than asking it member by member.
+     */
+    type SameKeys = [ReportSection] extends [DataSubjectReportSection]
+      ? [DataSubjectReportSection] extends [ReportSection]
+        ? true
+        : false
+      : false;
+    const sameKeys: SameKeys = true;
+
+    expect(sameKeys).toBe(true);
+    // And in the same order, which is the order the audit entry names them in.
+    expect(Object.keys(SECTION_PROCESSING)).toEqual([
+      ...DATA_SUBJECT_REPORT_SECTIONS,
+    ]);
   });
 });

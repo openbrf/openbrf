@@ -748,6 +748,72 @@ export interface DataSubjectReport {
     erasableFrom: string | null;
   }[];
   /**
+   * Charges (debitering) the association put on this person, or on the
+   * apartment they were living in on the day each was dated.
+   *
+   * `basis` says which, and a charge on the apartment is not a claim that this
+   * person was the one to pay it: the association charges the flat, and a
+   * household is several people. No payment and no balance, because the
+   * association holds neither; `handedToManagerOn` is when the basis went to
+   * whoever keeps the books, a recipient outside the association.
+   *
+   * Each row states the earliest date the purge can reach it, at the end of
+   * the seventh year after the one its financial year ended in.
+   */
+  memberCharges: {
+    chargeId: string;
+    basis: "person" | "apartment";
+    chargedOn: string;
+    /** Kronor as recorded, e.g. "450.00". */
+    amount: string;
+    vatTreatment: "EXEMPT" | "RATE";
+    /** Whole percent, and null exactly when the treatment is EXEMPT. */
+    vatRatePercent: number | null;
+    reason: string;
+    /** The apartment on an apartment-keyed charge, and null on the person's. */
+    apartment: string | null;
+    handedToManagerOn: string | null;
+    erasableFrom: string;
+  }[];
+  /**
+   * Fee rates (avgift) that stood against an apartment this person lived in,
+   * reached through the residency as an apartment-keyed charge is.
+   *
+   * A rate still in force states no erasure date: nothing has run out on it,
+   * and the clock starts on the day it stops applying.
+   */
+  fees: {
+    feeId: string;
+    apartment: string;
+    kind: "ANNUAL_FEE" | "PARKING_SPACE" | "STORAGE_SPACE";
+    appliesFrom: string;
+    /** Null while this is the rate in force. */
+    appliesUntil: string | null;
+    /** Kronor per calendar month as recorded, e.g. "3450.50". */
+    monthlyAmount: string;
+    vatTreatment: "EXEMPT" | "RATE";
+    vatRatePercent: number | null;
+    erasableFrom: string | null;
+  }[];
+  /**
+   * Fee notices (avi) issued for an apartment this person lived in, as they
+   * were issued. No payment and no delivery: both are outside what the
+   * platform records.
+   */
+  feeNotices: {
+    noticeId: string;
+    apartment: string;
+    /** The period billed, inclusive at both ends. */
+    periodFrom: string;
+    periodTo: string;
+    dueOn: string;
+    issuedOn: string;
+    /** Kronor as billed, e.g. "10351.50". */
+    amount: string;
+    paymentReference: string;
+    erasableFrom: string;
+  }[];
+  /**
    * Comments this person wrote under the association's news.
    *
    * The body in full, whether or not the comment is hidden: what somebody wrote
