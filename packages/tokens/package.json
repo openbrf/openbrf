@@ -1,7 +1,8 @@
 {
   "name": "@openbrf/tokens",
   "version": "0.0.0",
-  "private": true,
+  "description": "The Open BRF design token contract, its default theme and the stylesheet built from it.",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
     ".": {
@@ -13,7 +14,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/copy-licence-files.mjs"
   },
   "devDependencies": {
     "oxlint": "^1.85.0",
@@ -24,6 +26,23 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
-  ]
+    "dist",
+    "src",
+    "!src/**/*.spec.ts",
+    "LICENSE",
+    "LICENSE-EXCEPTION.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openbrf/openbrf.git",
+    "directory": "packages/tokens"
+  },
+  "bugs": {
+    "url": "https://github.com/openbrf/openbrf/issues"
+  }
 }

@@ -1,0 +1,88 @@
+# Publishes the packages a plugin or theme is written against -
+# @openbrf/plugin-sdk, @openbrf/theme-tools and @openbrf/tokens - to npmjs.com
+# with a provenance attestation, so an author outside the organization can
+# install them and see which commit and which workflow run built them.
+#
+# Versioning is a separate, reviewed step: `pnpm changeset version` in a pull
+# request of its own consumes the pending changesets and bumps the versions.
+# This workflow then publishes every public package whose version is not on the
+# registry yet and leaves the rest alone, so running it twice is harmless.
+#
+# It runs by hand only. A publish cannot be taken back, and nothing about a
+# merge to main says that it is time for one.
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to npmjs.com
+    # Provenance names the ref the package was built from; a package built from
+    # a feature branch would carry that branch's name for good.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The environment is what npm's trusted publisher is bound to, and where
+    # required reviewers can be set so a run waits for approval before it
+    # publishes.
+    environment: npm
+    permissions:
+      contents: read
+      # The OIDC token npm exchanges for a short-lived publish token, and signs
+      # the provenance statement with.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # No dependency cache: a cache written by any other workflow run would be
+      # restored into the one job that publishes.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # A version is published once and never again, so 0.0.0 - the placeholder
+      # the packages carry until their first `changeset version` - would be
+      # spent on whatever main happens to hold.
+      - name: No package is still at its placeholder version
+        run: |
+          for package in plugin-sdk theme-tools tokens; do
+            version=$(node -p "require('./packages/$package/package.json').version")
+            if [ "$version" = "0.0.0" ]; then
+              echo "::error::@openbrf/$package is at 0.0.0. Run \`pnpm changeset version\` in a pull request first."
+              exit 1
+            fi
+          done
+
+      - name: Build and test the published packages
+        run: >-
+          pnpm turbo run build lint typecheck test
+          --filter=@openbrf/plugin-sdk
+          --filter=@openbrf/theme-tools
+          --filter=@openbrf/tokens
+
+      # Trusted publishing is tried first and needs no secret. NPM_TOKEN is the
+      # fallback for the first publish of each package, which npm requires
+      # before a trusted publisher can be attached to it; remove the secret
+      # once all three have one.
+      - name: Publish
+        run: pnpm changeset publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

@@ -1,7 +1,8 @@
 {
   "name": "@openbrf/theme-tools",
   "version": "0.0.0",
-  "private": true,
+  "description": "The Open BRF theme package format: manifest, archive, lint and inheritance, as the core checks a theme at install time.",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
     ".": {
@@ -13,7 +14,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/copy-licence-files.mjs"
   },
   "dependencies": {
     "@openbrf/tokens": "workspace:*",
@@ -29,6 +31,23 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
-  ]
+    "dist",
+    "src",
+    "!src/**/*.spec.ts",
+    "LICENSE",
+    "LICENSE-EXCEPTION.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openbrf/openbrf.git",
+    "directory": "packages/theme-tools"
+  },
+  "bugs": {
+    "url": "https://github.com/openbrf/openbrf/issues"
+  }
 }
