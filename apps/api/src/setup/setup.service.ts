@@ -208,8 +208,10 @@ export class SetupService implements OnModuleInit {
       // window to the account creation that follows. It does not close it: the
       // account goes through Better Auth's adapter, which takes no transaction.
       // The window is one request wide on an instance nobody has signed in to
-      // yet, and the second administrator would be visible in the register, so
-      // it is documented rather than defended with an advisory lock.
+      // yet, and only a holder of the setup link reaches it (ADR 0023), so the
+      // two requests that could race both come from the claimant. The second
+      // administrator would be visible in the register, so it is documented
+      // rather than defended with a reservation held across the account write.
       const accounts = await tx.user.count();
       if (accounts > 0) {
         throw new SetupError(
