@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PluginAdminService } from "./plugin-admin.service";
+import { PluginInstallerService } from "./plugin-installer.service";
 import {
   PluginConsentMismatchError,
   PluginNotFoundError,
@@ -14,6 +15,7 @@ import {
   PluginReservedIdError,
   PluginResourceConflictError,
 } from "./plugin.errors";
+import { RestartCoordinator } from "./restart-coordinator.service";
 
 /**
  * The consent gate in front of an install.
@@ -55,12 +57,33 @@ interface Options {
   installed?: readonly InstalledPluginFixture[];
   /** What the index lists, when the subject is browsing rather than installing. */
   listed?: readonly CatalogPluginEntry[];
+  /** OPENBRF_PLUGINS_ENABLED; on unless the instance is the subject. */
+  pluginsEnabled?: boolean;
 }
 
 function build(options: Options = {}) {
   const entry = options.entry ?? ENTRY;
   const installed = options.installed ?? [];
   const listed = options.listed ?? [entry];
+  const env = {
+    NODE_ENV: "test",
+    OPENBRF_PLUGINS_ENABLED: options.pluginsEnabled ?? true,
+  } as unknown as Env;
+  /*
+   * The coordinator and the enqueue are the real ones, over a queue that only
+   * records: what the overview says between an operation being accepted and
+   * its reconcile running is decided in those two, and no worker consumes the
+   * queue here, so every overview below is read inside that window.
+   */
+  const restart = new RestartCoordinator(env);
+  const installer = new PluginInstallerService(
+    env,
+    {} as never,
+    { send: vi.fn(async () => undefined) } as never,
+    {} as never,
+    restart,
+    {} as never,
+  );
   const consent = vi.fn(async () => undefined);
   const recordProcessor = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
@@ -79,11 +102,12 @@ function build(options: Options = {}) {
     ),
   };
   const service = new PluginAdminService(
-    { OPENBRF_PLUGINS_ENABLED: true } as unknown as Env,
+    env,
     {
       consent,
       setActionArmed,
       list: async () => installed.map(({ id }) => ({ id })),
+      remove: async () => true,
     } as never,
     {
       report: () => [],
@@ -91,19 +115,22 @@ function build(options: Options = {}) {
       manifestFor: (id: string) =>
         installed.find((record) => record.id === id)?.manifest ?? null,
     } as never,
-    { enqueue: vi.fn(async () => undefined) } as never,
+    installer,
     {
       entry: async () => entry,
       read: async () => ({ version: 1, entries: listed }),
       resolveUrl: () => "https://catalog.openbrf.test/index.json",
     } as never,
     { record } as never,
-    {} as never,
+    restart,
     // The recipient's classification, the processing it performs, and what the
     // instance is configured to hand data to. Recorded on install; the
     // assertions here are about the consent row, so these only have to exist.
     { record: recordProcessor } as never,
-    { seedPlugin: vi.fn(async () => undefined) } as never,
+    {
+      seedPlugin: vi.fn(async () => undefined),
+      endPlugin: vi.fn(async () => undefined),
+    } as never,
     { read: async () => FACTS } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
@@ -118,6 +145,7 @@ function build(options: Options = {}) {
     record,
     prisma,
     txClient,
+    restart,
   };
 }
 
@@ -491,6 +519,66 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+});
+
+/**
+ * The restart an install or a removal ends in, as the overview reports it.
+ *
+ * The request is answered once the reconcile is queued, and the job then runs
+ * the whole reconcile - npm included - before it hands over to the restart.
+ * The screen that sent the request polls the overview meanwhile, and an
+ * overview reporting nothing pending through that window tells it the
+ * replacement is serving while the process answering is still the old one.
+ */
+describe("the restart an operation ends in", () => {
+  it("is not pending before anything has asked for one", async () => {
+    const { service } = build();
+
+    expect((await service.overview()).restartPending).toBe(false);
+  });
+
+  it("is pending from the moment an install is accepted", async () => {
+    const { service } = build();
+
+    expect(await service.install({ id: ENTRY.id }, null, "WEB")).toEqual({
+      restarting: true,
+    });
+
+    // The reconcile is queued and nothing has run it.
+    expect((await service.overview()).restartPending).toBe(true);
+  });
+
+  it("is pending from the moment a removal is accepted", async () => {
+    const { service } = build();
+
+    expect(await service.uninstall(ENTRY.id, null, "WEB")).toEqual({
+      restarting: true,
+    });
+
+    expect((await service.overview()).restartPending).toBe(true);
+  });
+
+  it("is not claimed for a removal while plugins are switched off", async () => {
+    // No worker consumes the queue then, so the reconcile waits for a process
+    // that has plugins on, and this one is not replaced. A screen told it was
+    // would wait for a process that never comes.
+    const { service } = build({ pluginsEnabled: false });
+
+    expect(await service.uninstall(ENTRY.id, null, "WEB")).toEqual({
+      restarting: false,
+    });
+    expect((await service.overview()).restartPending).toBe(false);
+  });
+
+  it("names the process that answered, which its replacement does not share", async () => {
+    const before = build();
+    const after = build();
+
+    const answered = (await before.service.overview()).processId;
+
+    expect(answered).toBe(before.restart.processId);
+    expect(answered).not.toBe((await after.service.overview()).processId);
   });
 });
 

@@ -11,10 +11,15 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { Env } from "../config/env";
 import {
   buildDependencySet,
   collectAbandonedStaging,
+  type PluginInstallJob,
+  PluginInstallerService,
+  type ReconcileOutcome,
 } from "./plugin-installer.service";
+import { RestartCoordinator } from "./restart-coordinator.service";
 
 /**
  * The staging root is shared between processes.
@@ -144,5 +149,58 @@ describe("buildDependencySet", () => {
       "openbrf-plugin-notices",
       "openbrf-plugin-occupancy",
     ]);
+  });
+});
+
+/**
+ * A reconcile this process did not accept.
+ *
+ * The command-line tool queues the run the server's worker performs, and the
+ * restart that run ends in is this process's. Unmarked by the worker, the
+ * overview would report nothing pending for as long as the reconcile takes -
+ * npm included, or waiting for the tool's own run to let go of the tree.
+ */
+describe("the queue worker", () => {
+  it("reports the restart a run ends in while the run is still reconciling", async () => {
+    type Handler = (
+      batch: { id: string; data: PluginInstallJob }[],
+    ) => Promise<void>;
+    let handler: Handler | undefined;
+    const jobs = {
+      ensureQueue: async () => undefined,
+      instance: {
+        work: async (_queue: string, registered: Handler) => {
+          handler = registered;
+        },
+      },
+    };
+
+    /** A reconcile that never finishes, so the run is held inside it. */
+    class Reconciling extends PluginInstallerService {
+      override reconcile(): Promise<ReconcileOutcome> {
+        return new Promise<ReconcileOutcome>(() => undefined);
+      }
+    }
+
+    const env = {
+      NODE_ENV: "production",
+      OPENBRF_PLUGINS_ENABLED: true,
+    } as unknown as Env;
+    const restart = new RestartCoordinator(env);
+    await new Reconciling(
+      env,
+      {} as never,
+      jobs as never,
+      {} as never,
+      restart,
+      {} as never,
+    ).onModuleInit();
+
+    void handler?.([
+      { id: "job-1", data: { reason: "install:occupancy", restart: true } },
+    ]);
+
+    expect(handler).toBeDefined();
+    expect(restart.restartPending).toBe(true);
   });
 });

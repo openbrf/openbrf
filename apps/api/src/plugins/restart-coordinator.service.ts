@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { utimes } from "node:fs/promises";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -46,7 +47,18 @@ export const DRAIN_TIMEOUT_MS = 10_000;
 export class RestartCoordinator {
   private readonly logger = new Logger(RestartCoordinator.name);
   private application: ClosableApplication | null = null;
-  private requested = false;
+  private pending = false;
+
+  /**
+   * Tells this process from the one that replaces it.
+   *
+   * Opaque, and new in every process. The process on its way out keeps
+   * answering for as long as its install job runs and its drain lasts, so a
+   * reader waiting for the replacement needs something that changes when the
+   * process does; a flag the outgoing process sets can only say what that
+   * process knows.
+   */
+  readonly processId = randomUUID();
 
   constructor(@Inject(ENV) private readonly env: Env) {}
 
@@ -55,9 +67,30 @@ export class RestartCoordinator {
     this.application = application;
   }
 
-  /** Whether a restart has been asked for. Read by the health endpoint. */
-  get restartRequested(): boolean {
-    return this.requested;
+  /**
+   * Whether this process is to be replaced.
+   *
+   * True from the moment an operation that ends in a restart is accepted, and
+   * not only once its job hands over to {@link restartWhenCommitted}: the job
+   * runs a whole reconcile first, npm included, and a process answering
+   * "nothing pending" through that window reads as the replacement already
+   * serving. Never cleared, because the change that asked for the restart
+   * takes effect only in the next process, and only that process starts
+   * without it.
+   */
+  get restartPending(): boolean {
+    return this.pending;
+  }
+
+  /**
+   * Records that an operation ending in a restart has been accepted.
+   *
+   * Called where the reconcile is queued and again where a worker picks it
+   * up, so a run the command-line tool queued reads as pending here as well
+   * from the moment this process starts on it.
+   */
+  expectRestart(): void {
+    this.pending = true;
   }
 
   /**
@@ -70,7 +103,7 @@ export class RestartCoordinator {
   async restartWhenCommitted(
     isCommitted: () => Promise<boolean>,
   ): Promise<void> {
-    this.requested = true;
+    this.pending = true;
 
     for (let attempt = 0; attempt < COMMIT_POLL_ATTEMPTS; attempt += 1) {
       let committed = false;

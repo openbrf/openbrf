@@ -147,9 +147,21 @@ export class PluginInstallerService
     await this.enqueue({ reason: "boot", restart: true });
   }
 
-  /** Puts a reconcile on the queue. */
+  /**
+   * Puts a reconcile on the queue.
+   *
+   * A run that ends in a restart makes the restart pending from here rather
+   * than from the end of the reconcile: the caller answers "restarting" as soon
+   * as this returns, and the overview has to agree with that answer for the
+   * whole run. Where plugins are switched off no worker consumes the queue, so
+   * nothing is pending and nothing restarts; the run waits for the first
+   * process that has them on.
+   */
   async enqueue(job: PluginInstallJob): Promise<void> {
     await this.jobs.send(PLUGIN_INSTALL_QUEUE, { ...job });
+    if (job.restart && this.env.OPENBRF_PLUGINS_ENABLED) {
+      this.restart.expectRestart();
+    }
   }
 
   /**
@@ -165,6 +177,11 @@ export class PluginInstallerService
 
     await boss.work<PluginInstallJob>(PLUGIN_INSTALL_QUEUE, async (batch) => {
       for (const job of batch) {
+        // Marked here as well as at the enqueue: a run the command-line tool
+        // queued was accepted in that process, not in this one.
+        if (job.data.restart) {
+          this.restart.expectRestart();
+        }
         await this.reconcile();
         if (!job.data.restart) {
           continue;
