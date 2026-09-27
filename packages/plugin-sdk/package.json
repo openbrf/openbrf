@@ -1,6 +1,6 @@
 {
   "name": "@openbrf/plugin-sdk",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "The public plugin contract for Open BRF: manifest schema, permission set and host service interfaces.",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -27,17 +27,20 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE-EXCEPTION.md"
   ],
   "publishConfig": {
-    "access": "restricted",
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org",
+    "provenance": true
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/openbrf/openbrf.git",
     "directory": "packages/plugin-sdk"
   },
+  "homepage": "https://github.com/openbrf/openbrf/blob/main/docs/plugin-contract.md",
   "peerDependencies": {
     "@nestjs/common": "^12.0.0"
   },

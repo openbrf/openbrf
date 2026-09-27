@@ -1,5 +1,4 @@
 ---
-"@openbrf/plugin-sdk": minor
 "@openbrf/api": minor
 "@openbrf/web": minor
 "@openbrf/i18n": minor

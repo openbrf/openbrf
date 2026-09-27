@@ -1,7 +1,6 @@
 ---
 "@openbrf/api": minor
 "@openbrf/web": minor
-"@openbrf/plugin-sdk": minor
 ---
 
 Move every dependency, container image and pinned action to its current

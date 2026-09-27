@@ -1,7 +1,6 @@
 ---
 "@openbrf/api": patch
 "@openbrf/web": patch
-"@openbrf/plugin-sdk": patch
 ---
 
 Move every package, container image and pinned action to its current release.

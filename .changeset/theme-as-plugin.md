@@ -1,5 +1,4 @@
 ---
-"@openbrf/theme-tools": minor
 "@openbrf/api": minor
 "@openbrf/web": minor
 "@openbrf/i18n": minor

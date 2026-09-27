@@ -1,7 +1,8 @@
 {
   "name": "@openbrf/theme-tools",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
+  "description": "The Open BRF theme package format: manifest schema, archive reader and writer, inheritance, and the lint an instance runs at install.",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
     ".": {
@@ -16,7 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@openbrf/tokens": "workspace:*",
+    "@openbrf/tokens": "workspace:^",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -29,6 +30,18 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
-  ]
+    "dist",
+    "LICENSE-EXCEPTION.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openbrf/openbrf.git",
+    "directory": "packages/theme-tools"
+  },
+  "homepage": "https://github.com/openbrf/openbrf/blob/main/docs/theme-contract.md"
 }
