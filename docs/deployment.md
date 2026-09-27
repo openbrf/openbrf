@@ -226,11 +226,20 @@ asking the board to remember it:
   erasure there.
 - **The host.** Whoever runs the server the container runs on is a processor
   too, and the instance cannot know who that is - the board records it.
+- **The board mailbox.** The mailbox the board's address is collected from over
+  POP3 is an account at the association's mail provider, which holds every
+  letter on its behalf and is a processor under art. 28. The instance never
+  deletes a letter there, so a thread the nightly purge erases stays at the
+  provider until the board deletes it.
 
 Each of those appears on the data protection screen as a recipient to be
 classified, with the agreement recorded against it. Changing the configuration
 changes what the screen asks about; it never silently reclassifies a recipient
 the board has already decided on.
+
+The economic manager who is handed the debiting list and the accounting basis
+has no setting on the instance, so the board records it as a recipient of its
+own.
 
 ## The nightly purge
 

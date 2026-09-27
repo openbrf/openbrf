@@ -12,14 +12,21 @@ import type { ProcessorKind } from "../generated/prisma/enums";
  * by a key built from what it *is* rather than by a database id, and the key is
  * what a dated agreement row points at.
  *
- * Four of them are fixed, because an instance has exactly one of each: the mail
- * server it sends through, the SMS gateway, its file storage, and whoever runs
- * it. The other three are open: one key per installed plugin, one per connected
- * app, and one per recipient the board recorded itself.
+ * Five of them are fixed, because an instance has at most one of each: the mail
+ * server it sends through, the SMS gateway, its file storage, whoever runs it,
+ * and the mailbox the board mailbox collects from. The other three are open: one
+ * key per installed plugin, one per connected app, and one per recipient the
+ * board recorded itself.
  */
 
 /** The recipients every instance has exactly one of. */
-export const PROCESSOR_KEYS = ["smtp", "sms", "storage", "hosting"] as const;
+export const PROCESSOR_KEYS = [
+  "smtp",
+  "sms",
+  "storage",
+  "hosting",
+  "mailbox",
+] as const;
 
 export type FixedProcessorKey = (typeof PROCESSOR_KEYS)[number];
 
@@ -67,7 +74,7 @@ export const processorKeySchema = z
   .string()
   .regex(
     new RegExp(
-      `^(?:smtp|sms|storage|hosting|plugin:${PLUGIN_ID}|connectedApp:${CLIENT_ROW_ID}|external:[a-z0-9]+)$`,
+      `^(?:smtp|sms|storage|hosting|mailbox|plugin:${PLUGIN_ID}|connectedApp:${CLIENT_ROW_ID}|external:[a-z0-9]+)$`,
     ),
   );
 
@@ -81,6 +88,7 @@ const FIXED_KINDS: Record<FixedProcessorKey, ProcessorKind> = {
   sms: "SMS",
   storage: "STORAGE",
   hosting: "HOSTING",
+  mailbox: "MAILBOX",
 };
 
 /**

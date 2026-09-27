@@ -11,7 +11,9 @@ import { defaultPop3Port, type Pop3Credentials } from "./pop3";
  * the module need it and neither owns it: the collector needs the credentials to
  * open a session, and the reply path needs the address to put in Reply-To so
  * that an answer to the board's answer comes back to the board rather than to
- * the mail server this instance happens to relay through.
+ * the mail server this instance happens to relay through. The settings screen
+ * and the record of processing activities read whether it is configured from
+ * here too.
  */
 
 /** What the board configured, with the password already decrypted. */
@@ -21,15 +23,47 @@ export interface BoardMailboxSettings {
   credentials: Pop3Credentials;
 }
 
+/** The settings columns that decide whether the board mailbox is configured. */
+export interface BoardMailboxColumns {
+  boardMailboxAddress: string | null;
+  boardMailboxPop3Host: string | null;
+  boardMailboxPop3User: string | null;
+  boardMailboxPop3PasswordCipher: string | null;
+}
+
 /**
- * The configured mailbox, or null when it is not configured.
+ * Whether the board mailbox is configured: the address, the host, the user and
+ * the password all present.
  *
- * Configured means every part is present, which is deliberately stricter than
- * the SMTP settings' own test: a mail server with no user name is a real
- * configuration for an outbound relay on a private network, while a mailbox
- * nobody signs in to is not a mailbox. Half a configuration is answered as none
- * at all rather than as a connection that will fail with a protocol error the
- * board cannot read.
+ * Deliberately stricter than the SMTP settings' own test: a mail server with no
+ * user name is a real configuration for an outbound relay on a private network,
+ * while a mailbox nobody signs in to is not a mailbox. Half a configuration is
+ * answered as none at all rather than as a connection that will fail with a
+ * protocol error the board cannot read.
+ *
+ * One test for every reader - the collector, the settings screen and the record
+ * of processing activities - so none of them can call a mailbox configured that
+ * another would not open.
+ */
+export function boardMailboxConfigured<Row extends BoardMailboxColumns>(
+  row: Row,
+): row is Row & {
+  boardMailboxAddress: string;
+  boardMailboxPop3Host: string;
+  boardMailboxPop3User: string;
+  boardMailboxPop3PasswordCipher: string;
+} {
+  return (
+    row.boardMailboxAddress !== null &&
+    row.boardMailboxPop3Host !== null &&
+    row.boardMailboxPop3User !== null &&
+    row.boardMailboxPop3PasswordCipher !== null
+  );
+}
+
+/**
+ * The configured mailbox, or null when it is not configured (see
+ * {@link boardMailboxConfigured}).
  */
 export async function loadBoardMailboxSettings(
   prisma: PrismaService,
@@ -47,13 +81,7 @@ export async function loadBoardMailboxSettings(
     },
   });
 
-  if (
-    association === null ||
-    association.boardMailboxAddress === null ||
-    association.boardMailboxPop3Host === null ||
-    association.boardMailboxPop3User === null ||
-    association.boardMailboxPop3PasswordCipher === null
-  ) {
+  if (association === null || !boardMailboxConfigured(association)) {
     return null;
   }
 

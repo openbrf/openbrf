@@ -10,8 +10,14 @@ import {
 } from "./processor-key";
 
 describe("processor keys", () => {
-  it("names the four recipients every instance has one of", () => {
-    expect(PROCESSOR_KEYS).toEqual(["smtp", "sms", "storage", "hosting"]);
+  it("names the five recipients an instance has at most one of", () => {
+    expect(PROCESSOR_KEYS).toEqual([
+      "smtp",
+      "sms",
+      "storage",
+      "hosting",
+      "mailbox",
+    ]);
   });
 
   it("round trips a plugin key", () => {
@@ -52,7 +58,7 @@ describe("processor keys", () => {
     });
   });
 
-  it.each(["smtp", "sms", "storage", "hosting"])(
+  it.each(["smtp", "sms", "storage", "hosting", "mailbox"])(
     "reads the fixed key %s back as its kind",
     (key) => {
       expect(parseProcessorKey(key)).toEqual({

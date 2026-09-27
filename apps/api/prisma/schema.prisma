@@ -3573,6 +3573,9 @@ enum ProcessorKind {
   STORAGE
   /// Whoever runs the instance.
   HOSTING
+  /// The mailbox the board mailbox collects from over POP3: an account at the
+  /// association's own mail provider, which holds every letter on its behalf.
+  MAILBOX
   PLUGIN
   /// A recipient the board recorded itself.
   EXTERNAL

@@ -15,7 +15,8 @@ import {
   runIdentityNumber,
   runSuffix,
 } from "../testing/integration-env";
-import type { DataPortabilityExport } from "./data-portability";
+import { SCOPE_NOTE_KEY, type DataPortabilityExport } from "./data-portability";
+import { PORTABLE_SECTIONS } from "./section-processing";
 
 /**
  * A person taking their own data with them (GDPR art. 20), over HTTP.
@@ -294,6 +295,43 @@ describe("exporting your own data", () => {
     expect(exported.about.transmission).toContain("art. 20");
   });
 
+  it("carries only what rests on a consent or a contract", async () => {
+    /*
+     * The sections the map marks carried, and nothing else: what rests on the
+     * association's legitimate interest or on a legal obligation stays on the
+     * access report. Asserted on what the route sends, so a section added to
+     * the projection past its type fails here too.
+     */
+    const response = await inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie: residentCookie },
+    });
+
+    expect(
+      Object.keys(response.json<Record<string, unknown>>()).filter(
+        (key) => key !== "about",
+      ),
+    ).toEqual([...PORTABLE_SECTIONS]);
+  });
+
+  it("says in the file where everything else is", async () => {
+    // In the person's own language, like the sentence about transmission: the
+    // file outlives the screen, and names the access report as the rest.
+    const response = await inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie: residentCookie },
+    });
+
+    const exported = response.json<DataPortabilityExport>();
+    expect(exported.about.scope).toBe(
+      app.get(I18nService).translatorFor(exported.person.preferredLocale)(
+        SCOPE_NOTE_KEY,
+      ),
+    );
+  });
+
   it("writes an entry naming the person as both actor and subject", async () => {
     /*
      * Which is what distinguishes a person taking their own data from a board
@@ -310,5 +348,10 @@ describe("exporting your own data", () => {
 
     expect(entry).not.toBeNull();
     expect(entry?.actorPersonId).toBe(resident.personId);
+    // And how much the file disclosed, named the way the access report names
+    // its own sections: field names, never what they held.
+    expect(
+      (entry?.context as { sections?: string[] } | null)?.sections,
+    ).toEqual([...PORTABLE_SECTIONS]);
   });
 });

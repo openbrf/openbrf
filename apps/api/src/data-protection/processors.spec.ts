@@ -19,6 +19,7 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
     installedPlugins: [],
     connectedApps: [],
     unencryptedStoredFiles: 0,
+    mailbox: null,
     ...overrides,
   };
 }
@@ -143,6 +144,40 @@ describe("currentProcessors", () => {
     expect(
       descriptors.find((descriptor) => descriptor.processorKey === "hosting"),
     ).toMatchObject({ identity: null, seededClassification: null });
+  });
+
+  it("lists the mailbox the board's letters are collected from, once one is configured", () => {
+    /*
+     * Every letter written to the board's address is held at the association's
+     * mail provider, and the instance never deletes one there - a recipient
+     * that exists, so it is listed. No suggestion: an association may run its
+     * own mail server, which is no processor, and only the board knows which.
+     */
+    const descriptors = currentProcessors(
+      facts({
+        mailbox: {
+          host: "pop.example.test",
+          address: "styrelsen@granngarden.test",
+        },
+      }),
+      [],
+    );
+
+    expect(
+      descriptors.find((descriptor) => descriptor.processorKey === "mailbox"),
+    ).toMatchObject({
+      processorKind: "MAILBOX",
+      identity: "pop.example.test",
+      detail: "styrelsen@granngarden.test",
+      seededClassification: null,
+      state: "notRecorded",
+    });
+  });
+
+  it("lists no mailbox where none is configured", () => {
+    // Nothing is collected from a mailbox the board has not set up, and a row
+    // asking it to classify one would be a false entry in a statutory record.
+    expect(keys(currentProcessors(facts(), []))).not.toContain("mailbox");
   });
 
   it("lists one recipient per installed plugin, named by its package", () => {

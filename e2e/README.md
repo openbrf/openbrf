@@ -224,8 +224,10 @@ to the board's screen. Last, an erasure is refused for a member who still lives
 here, because the exception in art. 17(3) is the association's statutory duty to
 keep the member register, and the same request is recorded as refused with that
 ground; and the member herself takes her own data with her from her profile
-under art. 20, in a file that carries what she gave the association and not the
-statutory registers, the audit trail or her personal identity number.
+under art. 20, in a file that carries what she gave the association under the
+membership or a consent, and not the statutory registers, what rests on the
+association's legitimate interest, the audit trail or her personal identity
+number.
 
 There is deliberately no path in it that records a breach through a screen,
 because there is none to drive: a breach is discovered in a hurry, often away

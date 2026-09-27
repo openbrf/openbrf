@@ -6,6 +6,9 @@ Date: 2026-09-23
 
 Accepted
 
+Its account of the archive's documents in the portability export is amended by
+[ADR 0018](0018-the-record-decides-what-the-export-carries.md).
+
 ## Context
 
 A Swedish housing cooperative's lägenhetspärm is the binder about one

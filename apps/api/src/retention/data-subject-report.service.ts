@@ -25,6 +25,10 @@ import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { resolveRegisterEvents } from "../registers/membership-periods";
 import { computeBoardMailboxPurgeDate } from "../board-mailbox/board-mailbox-retention";
+import {
+  PORTABLE_SECTIONS,
+  REPORTED_SECTIONS,
+} from "../data-protection/section-processing";
 import type {
   DataSubjectReport,
   ReportAuditEntry,
@@ -65,43 +69,12 @@ export class DataSubjectReportError extends DomainError {
  * Field names rather than the data they carried, which is what an audit entry
  * may hold; and naming them is what makes the entry say how much was disclosed
  * rather than merely that something was.
+ *
+ * Read from the map that ties each section to the record of processing
+ * activities, so a section added to the report cannot compile without being
+ * named here too.
  */
-const SECTIONS = [
-  "person",
-  "residencies",
-  "boardPositions",
-  "systemRoles",
-  "account",
-  "connectedApps",
-  "memberRegisterEntries",
-  "transfers",
-  "transferReversals",
-  "terminations",
-  "lienNotes",
-  "registerReportObligations",
-  "publicationConsents",
-  "legalHolds",
-  "issues",
-  "documents",
-  "apartmentDocuments",
-  "bookings",
-  "motions",
-  "subletApplications",
-  "keyOrders",
-  "eventSignups",
-  "memberCharges",
-  "fees",
-  "feeNotices",
-  "newsComments",
-  "chats",
-  "chatReports",
-  "boardMailboxThreads",
-  "meetingAttendances",
-  "proxyAuthorisations",
-  "auditEntries",
-  "dataSubjectRequests",
-  "personalDataBreaches",
-] as const;
+const SECTIONS = REPORTED_SECTIONS;
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15).
@@ -241,7 +214,12 @@ export class DataSubjectReportService {
         channel: "WEB",
         actorPersonId: personId,
         targetPersonId: personId,
-        context: { export: "dataPortability" },
+        // What the file carried, named the way the access report names its
+        // own: how much was disclosed, never what it held.
+        context: {
+          export: "dataPortability",
+          sections: [...PORTABLE_SECTIONS],
+        },
       },
       async (tx) => this.build(tx, personId, now, retentionDays),
     );

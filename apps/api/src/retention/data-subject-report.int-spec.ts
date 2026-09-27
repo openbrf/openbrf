@@ -16,6 +16,7 @@ import {
   runPhone,
   runSuffix,
 } from "../testing/integration-env";
+import { SECTION_PROCESSING } from "../data-protection/section-processing";
 import type { DataSubjectReport } from "./data-subject-report";
 import { DataSubjectReportService } from "./data-subject-report.service";
 
@@ -1138,6 +1139,21 @@ describe("what the report contains", () => {
     },
   );
 
+  it("has a key for every entry in the map, and no other", async () => {
+    /*
+     * The runtime half of the guard that ties the report to the record of
+     * processing activities. The compiler holds the map to the report's type;
+     * this holds the type to what the builder actually sends, so a section
+     * emitted under a name the type does not declare - and so under no row of
+     * the record - fails here.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(Object.keys(report).sort()).toEqual(
+      Object.keys(SECTION_PROCESSING).sort(),
+    );
+  });
+
   it("decrypts everything the register holds about the person", async () => {
     const report = await reportFor(boardCookie);
 
@@ -1395,9 +1411,10 @@ describe("what the report contains", () => {
 
   it("names the section in the entry that says how much was disclosed", async () => {
     /*
-     * SECTIONS has no type link to the report's shape, so a section added to
-     * the document without being named here would be a disclosure the audit
-     * entry does not account for.
+     * The list is read from the map that ties every section of the report to
+     * the record of processing activities, so a section added to the document
+     * cannot compile without being named in the entry too. This proves the
+     * entry carries it.
      */
     const entry = await prisma.auditLogEntry.findFirst({
       where: {
