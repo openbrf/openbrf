@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { OpenBrfLogo } from "../ui/OpenBrfLogo";
 import {
   requestMagicLink,
   signInWithPasskey,
@@ -131,6 +132,7 @@ export function SignInScreen({
 
   return (
     <div className="mx-auto flex w-full max-w-sm flex-col gap-5 py-10">
+      <OpenBrfLogo className="mb-3" />
       <header className="flex flex-col gap-1">
         <h1 className="text-headline">{t("signIn.heading")}</h1>
         <p className="text-body text-ink-muted">

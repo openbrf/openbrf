@@ -16,6 +16,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { OpenBrfLogo } from "../ui/OpenBrfLogo";
 
 /**
  * The steps, in order.
@@ -160,6 +161,7 @@ export function SetupWizard({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-8">
+      <OpenBrfLogo className="mb-3" />
       <header className="flex flex-col gap-2">
         <h1 className="text-display">{t("setup.title")}</h1>
         <p className="text-body text-ink-muted">{t("setup.intro")}</p>

@@ -6,6 +6,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { HONEYPOT_FIELD, HoneypotField } from "../ui/HoneypotField";
 import { Notice } from "../ui/Notice";
+import { OpenBrfLogo } from "../ui/OpenBrfLogo";
 import { useSaveAction } from "../ui/save-state";
 
 /** Whether the door is open, as far as this screen has been told. */
@@ -174,6 +175,7 @@ export function RequestAccountScreen(): ReactElement {
 
   return (
     <div className="mx-auto flex w-full max-w-sm flex-col gap-5 py-10">
+      <OpenBrfLogo className="mb-3" />
       <header className="flex flex-col gap-1">
         <h1 className="text-headline">{t("signup.title")}</h1>
         {access.kind === "open" && !refusedAsClosed && !sent ? (

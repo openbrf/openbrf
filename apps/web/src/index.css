@@ -172,6 +172,40 @@
 }
 
 /*
+ * The Open BRF logo, one of its two files at a time.
+ *
+ * The logo is artwork in fixed colours (see OpenBrfLogo), so no token can adapt
+ * it to the theme; instead it ships a file for each ground and exactly one is
+ * shown. The selectors are the ones the generated theme uses for its dark
+ * palette, so the logo turns with the page in all three states: the system
+ * preference, an explicit light choice that overrides it, and an explicit dark
+ * one.
+ */
+@layer components {
+  .openbrf-logo-on-dark {
+    display: none;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .openbrf-logo-on-light {
+      display: none;
+    }
+
+    :root:not([data-theme="light"]) .openbrf-logo-on-dark {
+      display: block;
+    }
+  }
+
+  :root[data-theme="dark"] .openbrf-logo-on-light {
+    display: none;
+  }
+
+  :root[data-theme="dark"] .openbrf-logo-on-dark {
+    display: block;
+  }
+}
+
+/*
  * Print.
  *
  * The statutory register extracts are documents before they are screens: the

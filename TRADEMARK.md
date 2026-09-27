@@ -4,6 +4,8 @@
 
 The name "Open BRF" and the Open BRF logo identify the official project maintained by Apteo AB. The code is open source and may be forked freely - that is the point of the project. The name and logo are how users tell the official project apart from forks and third-party services, so we ask that they not be used in ways that blur that line. This follows the model used by Nextcloud and Matomo: the license covers the code, never the identity.
 
+The logo files, their colours and how to place them are in [docs/brand](docs/brand/README.md). A fork replaces them, together with the client's copies in `apps/web/public`, when it takes a name of its own.
+
 ## Always fine, no need to ask
 
 - Using the name to refer to the project truthfully ("built for Open BRF", "compatible with Open BRF", "a theme for Open BRF").
