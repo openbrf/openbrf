@@ -10,5 +10,13 @@ operator chooses, and an upgrade is a pull and a restart.
 
 An instance names its version when it starts. Several instances can share one
 PostgreSQL server: each names its own application role, each database is closed
-to every other role on the server, and the size of the connection pool is a
-setting.
+to every other role on the server, the size of the connection pool is a
+setting, and the application role may hold that pool, the job queue's and three
+connections more. A start refuses a server where that isolation would not hold:
+an owner that is not the database's, a non-superuser owner on PostgreSQL older
+than 16, or an application role another database already grants.
+
+Upgrading an existing instance: its first start closes the database to every
+role but the owner and the application role. A separate backup or monitoring
+role needs `GRANT CONNECT ON DATABASE <database> TO <role>` from the owner
+(docs/backup-and-restore.md, "Before an upgrade").

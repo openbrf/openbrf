@@ -25,7 +25,7 @@ Open BRF is pre-release. Until v1, the latest minor release line receives securi
 | 0.x (latest minor) | Fixes as patch releases |
 | pre-release (`main`) | Best effort |
 
-Every published image carries a build provenance attestation naming the commit and the workflow that built it. `gh attestation verify oci://ghcr.io/openbrf/openbrf:<version> --repo openbrf/openbrf` checks an image against it before it is run ([docs/deployment.md](docs/deployment.md), "Versions and upgrades").
+Every published image carries a build provenance attestation naming the commit and the workflow that built it. `gh attestation verify oci://ghcr.io/openbrf/openbrf:<version> --repo openbrf/openbrf --signer-workflow openbrf/openbrf/.github/workflows/image.yml` checks an image against it before it is run ([docs/deployment.md](docs/deployment.md), "Versions and upgrades").
 
 ## Scope
 

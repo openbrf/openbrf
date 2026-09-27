@@ -302,46 +302,85 @@ env file, is the error an operator who has set up neither will read.
 ## Several instances on one database server
 
 One PostgreSQL server can hold the databases of several instances. Each is
-still a container of its own, with its own data volume and its own key, and
+still a container of its own, with its own data volume and its own key. It
 reaches the server through `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB` and
-`POSTGRES_USER` beside its two passwords - the variables
-`docker-compose.prod.yml` sets for its own database - or through a
-`DATABASE_URL`. Three things are then required:
+`POSTGRES_USER` beside its two passwords, set in `.env.production`; left empty,
+they name the database `docker-compose.prod.yml` bundles. Such an instance has
+no use for that database, so it starts the application service alone, and
+upgrades it the same way:
 
-- **PostgreSQL 16 or later.** Each instance's owner creates that instance's
-  runtime role, so it holds `CREATEROLE`, and on a shared server it is not a
-  superuser. From 16 on, a role with `CREATEROLE` manages only the roles it
+```sh
+docker compose -f docker-compose.prod.yml --env-file .env.production pull app
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps app
+```
+
+Setting `DATABASE_URL` instead of the first four, and `DATABASE_URL_RUNTIME`
+instead of the runtime password, works as well, through an override file that
+adds them to the `app` service. Three things are then required, and each start
+checks them before it grants anything, refusing with a message that names what
+is wrong:
+
+- **PostgreSQL 16 or later**, when the owner is not a superuser. Each
+  instance's owner creates that instance's runtime role, so it holds
+  `CREATEROLE`. From 16 on, a role with `CREATEROLE` manages only the roles it
   created, so one instance's owner cannot alter another's runtime role. Before
   16 it could.
-- **A database owned by that instance's owner**, one owner per instance. The
-  owner runs the migrations and constrains the runtime role in its own
-  database.
+- **A database owned by that instance's owner**, one owner per instance. Only
+  the database's owner can close it to the other roles on the server; for any
+  other role PostgreSQL would report the attempt as a warning and leave the
+  database open.
 - **A runtime role name of its own**, in `RUNTIME_DB_ROLE`. A role belongs to
   the whole server rather than to one database, so two instances naming the
   same role would each set its password on every start and grant it both
   databases. The entrypoint refuses, before anything connects, a name that is
   not a lower-case identifier of at most 63 characters, one that begins with
-  `pg_`, and the owner's own.
+  `pg_`, one PostgreSQL reserves such as `public`, and the owner's own. The
+  start refuses a role that another database already grants `CONNECT` to,
+  because that role is another instance's.
 
-A new database grants `CONNECT` to every role on the server, and each start
-revokes that grant on the instance's own database, so no instance's runtime
-role can open a session on another's. The instance's own roles lose nothing:
-the runtime role holds a grant of its own, and the owner owns the database.
-Any other role that connects - a monitoring or a backup user - needs
-`GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner. The names
-of every role and every database on the server remain visible to all of them
-whatever the grants, so neither should carry anything an association would not
-want its neighbours to read.
+A new database grants `CONNECT` to every role on the server. Each start that
+constrains the runtime role revokes that grant on the instance's own database,
+and checks afterwards that it is gone, so no instance's runtime role can open
+a session on another's. The instance's own roles lose nothing: the runtime
+role holds a grant of its own, and the owner owns the database. Any other role
+that connects - a monitoring or a backup user - needs
+`GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner.
+
+An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
+and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
+it. Its owner runs `REVOKE CONNECT ON DATABASE <database> FROM PUBLIC` once, and
+grants `CONNECT` to the runtime role and to any other role that connects.
+
+The names of every role and every database on the server remain visible to all
+of them whatever the grants, so neither should carry anything an association
+would not want its neighbours to read. The server's own `postgres` database
+still grants `CONNECT` to everyone; revoking that is the server
+administrator's.
+
+**Renaming the runtime role.** A start with a new `RUNTIME_DB_ROLE` constrains
+the new role and leaves the old one as it was: still able to sign in, still
+granted `CONNECT` and every table, and never constrained again when a later
+migration adds one. Once the instance runs as the new role, the owner removes
+the old one, in the instance's database:
+
+```sql
+REASSIGN OWNED BY openbrf_app TO openbrf;  -- the owner
+DROP OWNED BY openbrf_app;
+DROP ROLE openbrf_app;
+```
 
 **Connections.** The application's pool holds up to
 `OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
-more, so an instance can take twelve at the defaults. PostgreSQL allows 100
-connections unless `max_connections` says otherwise, three of them reserved for
-superusers, which leaves room for eight instances at their defaults and one
-connection over - too few for the migrations each start runs and for anybody
-else who connects. The pool sizes plus two for each instance, and room for
-those, have to fit within `max_connections` less the reserved connections; a
-smaller pool, or a larger `max_connections`, makes room for more instances.
+more, so an instance can take twelve at the defaults. Each start limits the
+runtime role to that plus three, so an instance - or code running inside it -
+cannot take more than its share. PostgreSQL allows 100 connections unless
+`max_connections` says otherwise, three of them reserved for superusers, which
+leaves room for six instances at their limits and a few connections over for
+the migrations each start runs and for anybody else who connects. The limits,
+and room for those, have to fit within `max_connections` less the reserved
+connections; a smaller pool, or a larger `max_connections`, makes room for more
+instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
+own bounds the migrations as well.
 
 ## Backups
 

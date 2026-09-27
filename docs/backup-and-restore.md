@@ -236,6 +236,15 @@ Restoring the database alone, or starting the previous release against the
 newer database, is not a rollback ([deployment.md](deployment.md), "What
 happens on every start").
 
+**From 0.1.0 on, each start closes the instance's database to every role but
+its own two.** A database grants `CONNECT` to every role on the server when it
+is made, and the start that constrains the runtime role revokes that grant. A
+separate role that backs the database up or monitors it - anything but the
+owner and the runtime role - can no longer connect after the first start of
+such a release, until the owner grants it:
+`GRANT CONNECT ON DATABASE <database> TO <role>`. The backup above runs as the
+owner and is not affected.
+
 ## Moving between PostgreSQL major versions
 
 A PostgreSQL data directory is not portable across major versions, so a volume
