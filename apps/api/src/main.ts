@@ -1,3 +1,5 @@
+import { Logger } from "@nestjs/common";
+
 import { createApplication, loadBootEnv, loadPluginsAtBoot } from "./bootstrap";
 import { ENV } from "./config/config.module";
 import type { Env } from "./config/env";
@@ -6,6 +8,7 @@ import { serveSinglePageApp } from "./http/serve-single-page-app";
 import { bridgeHostResolution } from "./plugins/plugin-resolution";
 import { RestartCoordinator } from "./plugins/restart-coordinator.service";
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site/site-renderer.service";
+import { platformVersion, platformVersionLine } from "./version";
 
 async function bootstrap(): Promise<void> {
   // Before anything else, because an installed plugin's CommonJS bundle can
@@ -54,6 +57,11 @@ async function bootstrap(): Promise<void> {
   );
 
   await app.listen(Number(process.env.PORT ?? 3000), "0.0.0.0");
+
+  // Which release is answering, in the log whoever runs the container reads.
+  // The version is not served anywhere public: an endpoint naming it tells a
+  // scanner which advisories apply.
+  new Logger("Bootstrap").log(platformVersionLine(platformVersion()));
 }
 
 void bootstrap();
