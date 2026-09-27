@@ -1,12 +1,18 @@
 import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import { betterAuth } from "better-auth";
 
+import { principalCan } from "../authorization/capabilities";
+import { PrincipalService } from "../authorization/principal.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
-import { buildAuthOptions, type MagicLinkDelivery } from "./auth-options";
+import {
+  buildAuthOptions,
+  type ClientManagement,
+  type MagicLinkDelivery,
+} from "./auth-options";
 import type { ProtectedResource } from "./protected-resource";
 import { PROTECTED_RESOURCE } from "./protected-resource.module";
 
@@ -37,10 +43,17 @@ export class AuthService {
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly principals: PrincipalService,
     @Inject(PROTECTED_RESOURCE) resource: ProtectedResource,
   ) {
     this.instance = betterAuth(
-      buildAuthOptions(env, prisma, this.magicLinkDelivery(), resource),
+      buildAuthOptions(
+        env,
+        prisma,
+        this.magicLinkDelivery(),
+        resource,
+        this.clientManagement(),
+      ),
     );
   }
 
@@ -87,6 +100,32 @@ export class AuthService {
           template: magicLinkRefusedMail,
           props: { recipientName: recipient.name },
         });
+      },
+    };
+  }
+
+  /**
+   * Who the provider lets manage an OAuth client, over HTTP or through
+   * `auth.api` - the administrator's registration route included.
+   *
+   * The capability `POST /api/oauth-clients` demands, derived from the register
+   * by the same `PrincipalService.forPerson` the guard uses, on every call. An
+   * account whose person is gone may do nothing.
+   */
+  private clientManagement(): ClientManagement {
+    return {
+      mayManageClients: async (userId) => {
+        const account = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { personId: true },
+        });
+        if (account === null) {
+          return false;
+        }
+        const principal = await this.principals.forPerson(account.personId);
+        return (
+          principal !== null && principalCan(principal, "association:manage")
+        );
       },
     };
   }
