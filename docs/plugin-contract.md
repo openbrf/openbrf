@@ -222,9 +222,11 @@ admin screen. That is the honest state rather than a silent "not a processor".
 
 ## The server entry point
 
-A **prebuilt CommonJS bundle** whose only externals are host packages. It
-exports `createPlugin`, which receives the host object and returns a NestJS
-`DynamicModule`.
+A **prebuilt CommonJS bundle** whose only externals are host packages and
+Node's built-in modules. It exports `createPlugin`, which receives the host
+object and returns a NestJS `DynamicModule`. A built-in resolves from any
+directory, the data volume an installed plugin sits on included; any other
+package does not.
 
 ```ts
 import { Controller, Get, Injectable, Module } from "@nestjs/common";
@@ -533,9 +535,13 @@ is refused.
 An `id` appears once in the index, whatever the entry's type. An index that
 lists one twice is refused as a whole, as is an index carrying any entry the
 instance cannot read: a board installing from an index that silently lost an
-entry could not tell it from one delisted on purpose. `@openbrf/plugin-sdk`
-exports the schema and `parseCatalogIndex`, so a catalog's own check reads the
-index exactly as an instance does.
+entry could not tell it from one delisted on purpose. Every object in the index
+is read strictly, so a field this version of the index does not define is
+refused rather than ignored: a misspelled field of the declaration would
+otherwise be replaced by its default before the consent screen showed it. A new
+field is a new index `version`. `@openbrf/plugin-sdk` exports the schema and
+`parseCatalogIndex`, so a catalog's own check reads the index exactly as an
+instance does.
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
@@ -567,9 +573,10 @@ and every night.
 runs on the packed tarball. It reports, one sentence each, the manifest's own
 issues; any runtime dependency; a host package declared anywhere but as a peer;
 a declared entry the package does not contain; a server bundle that requires
-anything but the host packages, requires something other than a string
-literal, or does not assign `exports.createPlugin`; and locale files that are
-missing or whose keys differ. A package that passes returns none.
+anything but the host packages and Node's built-in modules, requires something
+other than a string literal, or does not assign `exports.createPlugin`; and
+locale files that are missing or whose keys differ. A package that passes
+returns none.
 
 An install is a sequence with a defined commit point: download, verify,
 install into a staging directory, move it into place, mark the job complete

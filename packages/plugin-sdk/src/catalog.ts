@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import {
-  pluginActionsSchema,
+  declaredActionsSchema,
+  pluginActionSchema,
   pluginIdSchema,
   pluginManifestSchema,
 } from "./manifest.ts";
@@ -27,10 +28,17 @@ import {
  * entry the instance does not fully understand is an entry it must not offer
  * to a board for consent - the consent screen's whole job is to say precisely
  * what is being agreed to.
+ *
+ * Every object in it is strict as well: a field this version of the index does
+ * not define is refused, never dropped. Dropped, a misspelled field of the
+ * declaration would be replaced by its default before the consent screen or
+ * any check of the manifest saw it. The index carries its version for exactly
+ * this, so a new field is a new index version rather than a key an older
+ * instance ignores.
  */
 
 /** A tarball and the digest its bytes must hash to. */
-export const catalogArtifactSchema = z.object({
+export const catalogArtifactSchema = z.strictObject({
   /**
    * Direct URL.
    *
@@ -49,12 +57,13 @@ export const catalogArtifactSchema = z.object({
 
 export type CatalogArtifact = z.infer<typeof catalogArtifactSchema>;
 
-const localizedTextSchema = z.object({
+const localizedTextSchema = z.strictObject({
   sv: z.string().min(1).max(500),
   en: z.string().min(1).max(500),
 });
 
-const baseEntrySchema = z.object({
+/** Strict, and `.extend()` keeps it so for both kinds of entry. */
+const baseEntrySchema = z.strictObject({
   /**
    * Unique across the whole index, whatever the entry's type: an install
    * looks an entry up by id alone.
@@ -98,11 +107,12 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    * most needs before anything is downloaded: an action names a capability and
    * offers it to callers the board decides on.
    *
-   * The manifest's own schema, not a second array of the same thing: the
-   * uniqueness rule on the ids has to hold at whichever boundary is read
-   * first, and two copies is two places for it to stop holding.
+   * The manifest's own action fields and its own uniqueness rule, not a
+   * second array of the same thing: the rule on the ids has to hold at
+   * whichever boundary is read first, and two copies is two places for it to
+   * stop holding. Read strictly here, as everything in the index is.
    */
-  actions: pluginActionsSchema.default([]),
+  actions: declaredActionsSchema(pluginActionSchema.strict()).default([]),
   /**
    * The route that serves MCP, repeated on the same terms as the three above.
    *
@@ -142,7 +152,7 @@ export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
 export const catalogSchema = z
-  .object({
+  .strictObject({
     /** Index format version, so a future shape can be recognised and refused. */
     version: z.literal(1),
     entries: z.array(catalogEntrySchema).max(500),

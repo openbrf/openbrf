@@ -311,6 +311,93 @@ describe("parseCatalogIndex", () => {
     refusal(index([pluginEntry({ oauthProtectedResource: route })]));
   });
 
+  /*
+   * The index is versioned, and an index carrying anything this version cannot
+   * read is refused whole. A field this version does not define is such a
+   * thing: read loosely it would be dropped, and a misspelled field of the
+   * declaration would be replaced by its default before the consent screen or
+   * any manifest check saw it. A new field is a new index version.
+   */
+  describe("a field this version of the index does not define", () => {
+    it("is refused at the top of the index", () => {
+      expect(
+        refusal({ version: 1, entries: [], signature: "abc" }),
+      ).toContainEqual(expect.stringMatching(/^\(root\): .*"signature"/));
+    });
+
+    it("is refused in a plugin entry", () => {
+      expect(
+        refusal(index([pluginEntry({ publisher: "Example AB" })])),
+      ).toContainEqual(expect.stringMatching(/^entries\.0: .*"publisher"/));
+    });
+
+    it("is refused in a theme entry", () => {
+      expect(
+        refusal(index([themeEntry({ packageName: "@openbrf/theme-nordic" })])),
+      ).toContainEqual(expect.stringMatching(/^entries\.0: .*"packageName"/));
+    });
+
+    it("is refused in an artifact", () => {
+      expect(
+        refusal(
+          index([
+            pluginEntry({
+              artifact: {
+                url: "https://catalog.example.test/a.tgz",
+                sha512: DIGEST,
+                sha256: "abc",
+              },
+            }),
+          ]),
+        ),
+      ).toContainEqual(
+        expect.stringMatching(/^entries\.0\.artifact: .*"sha256"/),
+      );
+    });
+
+    it("is refused in a localized text", () => {
+      refusal(
+        index([
+          pluginEntry({
+            name: { sv: "Belaggning", en: "Occupancy", de: "Belegung" },
+          }),
+        ]),
+      );
+    });
+
+    it("is refused in an action declaration", () => {
+      // `surface` for `surfaces`: read loosely, the action would be offered
+      // on the default surface rather than refused.
+      expect(
+        refusal(
+          index([
+            pluginEntry({
+              actions: [
+                {
+                  id: "summary",
+                  capability: "addressBook:read",
+                  effect: "read",
+                  surface: ["mcp"],
+                },
+              ],
+            }),
+          ]),
+        ),
+      ).toContainEqual(
+        expect.stringMatching(/^entries\.0\.actions\.0: .*"surface"/),
+      );
+    });
+
+    it("refuses a misspelled consent field rather than defaulting it", () => {
+      // Read loosely, `permisions` would be dropped and `permissions` would
+      // default to none: a consent screen stating that the plugin asks for
+      // nothing, for a plugin whose manifest asks for the address book.
+      expect(
+        refusal(index([pluginEntry({ permisions: ["addressBook:read"] })])),
+      ).toContainEqual(expect.stringMatching(/^entries\.0: .*"permisions"/));
+    });
+  });
+
   it("accepts an index with no entries at all", () => {
     // A catalog that has delisted everything is well-formed and says so.
     expect(parsed(index([])).entries).toEqual([]);

@@ -192,6 +192,60 @@ describe("pluginPackageProblems", () => {
     expect(problems).toEqual([]);
   });
 
+  /** The problems for the valid bundle with one more line in it. */
+  function problemsWith(line: string): readonly string[] {
+    return pluginPackageProblems({
+      ...validPackage(),
+      serverBundle: `${SERVER_BUNDLE}\n${line}`,
+    });
+  }
+
+  const FOREIGN =
+    /^The server bundle requires lodash\. Its only externals may be the host packages/;
+  const COMPUTED =
+    "The server bundle calls require with something other than a string literal, so what it loads cannot be checked.";
+
+  // Every spelling a call to require can take reaches the same check: a space
+  // or a line break before the parenthesis is still a call, and one pattern
+  // that did not see it would let a foreign module through unexamined.
+  it.each([
+    ["a space before the parenthesis", 'require ("lodash");'],
+    ["a line break before the parenthesis", 'require\n("lodash");'],
+    ["a comment before the parenthesis", 'require /* bundled */ ("lodash");'],
+    ["a member call", 'module.require("lodash");'],
+  ])("reports a foreign module required with %s", (_how, line) => {
+    expect(problemsWith(line)).toEqual([expect.stringMatching(FOREIGN)]);
+  });
+
+  it.each([
+    ["a template literal", "require(`lodash`);"],
+    ["a concatenation", 'require("lo" + "dash");'],
+    ["a space and a variable", "require (name);"],
+  ])("reports a specifier written as %s as not checkable", (_how, line) => {
+    expect(problemsWith(line)).toEqual([COMPUTED]);
+  });
+
+  /*
+   * Node's built-in modules resolve from any directory, the data volume
+   * included, and a plugin already runs in the host's process: refusing one
+   * would guard nothing. What the rule protects against is a package that
+   * cannot be resolved from where an installed plugin sits.
+   */
+  it.each([
+    'require("node:crypto");',
+    'require("fs");',
+    'require("fs/promises");',
+    'require ("node:path");',
+  ])("allows Node's built-in module in %s", (line) => {
+    expect(problemsWith(line)).toEqual([]);
+  });
+
+  it("still reports a package that only shares a built-in's name as a prefix", () => {
+    expect(problemsWith('require("fs-extra");')).toEqual([
+      expect.stringMatching(/^The server bundle requires fs-extra\./),
+    ]);
+  });
+
   it("reports a server bundle that does not export createPlugin", () => {
     const problems = pluginPackageProblems({
       ...validPackage(),

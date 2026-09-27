@@ -64,7 +64,8 @@ const packageRelativePathSchema = z
 export const pluginEntrySchema = z
   .object({
     /**
-     * Prebuilt CJS bundle whose only externals are host packages (ADR 0003).
+     * Prebuilt CJS bundle whose only externals are host packages and Node's
+     * built-in modules (ADR 0003).
      * Optional: a plugin may contribute a view and no backend behaviour.
      */
     server: packageRelativePathSchema.optional(),
@@ -144,22 +145,36 @@ export const pluginActionSchema = z.object({
  * action at all - and a plugin that declares one would then be refused with a
  * mismatch nothing the board could do would satisfy.
  */
-export const pluginActionsSchema = z
-  .array(pluginActionSchema)
-  .max(16)
-  .superRefine((actions, ctx) => {
-    const seen = new Set<string>();
-    for (const [index, action] of actions.entries()) {
-      if (seen.has(action.id)) {
-        ctx.addIssue({
-          code: "custom",
-          path: [index, "id"],
-          message: `two actions are declared with the id "${action.id}"`,
-        });
+export const pluginActionsSchema = declaredActionsSchema(pluginActionSchema);
+
+/**
+ * The declared actions over a given reading of one action.
+ *
+ * The manifest reads an action as `pluginActionSchema` does; the catalog index
+ * reads the same fields strictly, because the index refuses a field its
+ * version does not define. Both keep the rule above, which is why the list is
+ * built here rather than written again.
+ */
+export function declaredActionsSchema<T extends z.ZodType<{ id: string }>>(
+  action: T,
+) {
+  return z
+    .array(action)
+    .max(16)
+    .superRefine((actions, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, declared] of actions.entries()) {
+        if (seen.has(declared.id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "id"],
+            message: `two actions are declared with the id "${declared.id}"`,
+          });
+        }
+        seen.add(declared.id);
       }
-      seen.add(action.id);
-    }
-  });
+    });
+}
 
 /**
  * The public name a declared action is offered under.

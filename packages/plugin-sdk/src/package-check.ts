@@ -33,9 +33,9 @@ import { parsePluginPackage } from "./manifest.ts";
  * converter could not read it. What matters here is therefore which module the
  * object came from, not what that module remembers.
  *
- * They are also the only modules a server bundle may require: an installed
- * plugin sits on the data volume, where nothing but these, bridged in from the
- * host, can be resolved.
+ * With Node's built-in modules, they are also the only modules a server bundle
+ * may require: an installed plugin sits on the data volume, where nothing but
+ * these, bridged in from the host, and the built-ins can be resolved.
  */
 export const HOST_SHARED_PACKAGES: readonly string[] = [
   "@nestjs/common",
@@ -74,8 +74,21 @@ const RUNTIME_DEPENDENCY_FIELDS = [
   "bundledDependencies",
 ] as const;
 
-const LITERAL_REQUIRE = /\brequire\(\s*["']([^"']+)["']\s*\)/g;
-const NON_LITERAL_REQUIRE = /\brequire\s*\(\s*[^"'\s]/;
+/** Whitespace and comments, which may stand between the parts of a call. */
+const GAP = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*`;
+
+/** `require` and its opening parenthesis, however they are spaced. */
+const REQUIRE_CALL = new RegExp(String.raw`\brequire${GAP}\(`, "g");
+
+/**
+ * One plain string literal and the closing parenthesis, read from where a call
+ * opened. Anything else there - a template, a concatenation, a name - is an
+ * argument whose value is only known when the bundle runs.
+ */
+const LITERAL_ARGUMENT = new RegExp(
+  String.raw`${GAP}(["'])((?:(?!\1)[^\\\n])+)\1${GAP}\)`,
+  "y",
+);
 
 /**
  * Every problem that would stop a package installing or loading, one English
@@ -161,22 +174,24 @@ function dependencyNames(value: unknown): string[] {
 
 function serverBundleProblems(source: string): string[] {
   const problems: string[] = [];
+  const { specifiers, computed } = requireCalls(source);
 
-  const required = [...source.matchAll(LITERAL_REQUIRE)].map(
-    ([, specifier]) => specifier ?? "",
-  );
   const foreign = [
     ...new Set(
-      required.filter((specifier) => !HOST_SHARED_PACKAGES.includes(specifier)),
+      specifiers.filter(
+        (specifier) =>
+          !HOST_SHARED_PACKAGES.includes(specifier) &&
+          !isNodeBuiltinModule(specifier),
+      ),
     ),
   ];
   if (foreign.length > 0) {
     problems.push(
-      `The server bundle requires ${foreign.join(", ")}. Its only externals may be the host packages (${HOST_SHARED_PACKAGES.join(", ")}); an installed plugin cannot resolve anything else.`,
+      `The server bundle requires ${foreign.join(", ")}. Its only externals may be the host packages (${HOST_SHARED_PACKAGES.join(", ")}) and Node's built-in modules; an installed plugin cannot resolve anything else.`,
     );
   }
 
-  if (NON_LITERAL_REQUIRE.test(source)) {
+  if (computed) {
     problems.push(
       "The server bundle calls require with something other than a string literal, so what it loads cannot be checked.",
     );
@@ -189,6 +204,68 @@ function serverBundleProblems(source: string): string[] {
   }
 
   return problems;
+}
+
+/**
+ * Every call to require in a bundle: the specifiers written as plain string
+ * literals, and whether any call's argument is something else.
+ *
+ * One pass finds the calls and reads each argument, so a spelling of the call
+ * is either seen by both questions or by neither, and a call the literal
+ * reading does not recognise is a computed one rather than no call at all.
+ */
+function requireCalls(source: string): {
+  specifiers: string[];
+  computed: boolean;
+} {
+  const specifiers: string[] = [];
+  let computed = false;
+
+  for (const call of source.matchAll(REQUIRE_CALL)) {
+    LITERAL_ARGUMENT.lastIndex = call.index + call[0].length;
+    const specifier = LITERAL_ARGUMENT.exec(source)?.[2];
+    if (specifier === undefined) {
+      computed = true;
+    } else {
+      specifiers.push(specifier);
+    }
+  }
+
+  return { specifiers, computed };
+}
+
+/**
+ * Whether a specifier names one of Node's built-in modules.
+ *
+ * A built-in resolves from any directory, the data volume included, and a
+ * plugin already runs in the host's process, so requiring one is outside what
+ * the host-package rule exists for.
+ */
+function isNodeBuiltinModule(specifier: string): boolean {
+  return specifier.startsWith("node:") || nodeBuiltinModules().has(specifier);
+}
+
+let builtinModules: ReadonlySet<string> | undefined;
+
+/**
+ * `module.builtinModules`, read through `process.getBuiltinModule`.
+ *
+ * Not imported from `node:module`: this package is also bundled into the
+ * browser for its constants, where that module does not exist. Outside Node
+ * the set is empty, and only a `node:` specifier is recognised.
+ */
+function nodeBuiltinModules(): ReadonlySet<string> {
+  if (builtinModules === undefined) {
+    const host = (
+      globalThis as {
+        process?: { getBuiltinModule?: (id: string) => unknown };
+      }
+    ).process;
+    const moduleApi = host?.getBuiltinModule?.("node:module") as
+      { builtinModules?: readonly string[] } | undefined;
+    builtinModules = new Set(moduleApi?.builtinModules ?? []);
+  }
+  return builtinModules;
 }
 
 function localeProblems(contents: PluginPackageContents): string[] {

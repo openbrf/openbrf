@@ -85,8 +85,8 @@ Two builds produce `dist/`:
   `experimentalDecorators` and `emitDecoratorMetadata` on so NestJS can resolve
   the controller's constructor argument. The emitted bundle requires
   `@nestjs/common` and nothing else, which is what ADR 0003 means by a prebuilt
-  bundle whose only externals are host packages; the build script checks every
-  `require` in the output against that list.
+  bundle whose only externals are host packages and Node's built-in modules;
+  the build script checks every `require` in the output against that rule.
 - `vite build` builds `src/View.tsx` into the remote entry, with `react`,
   `react-dom` and `react-i18next` as shared singletons taken from the host.
 

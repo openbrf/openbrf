@@ -37,7 +37,11 @@ and is exported by `@openbrf/plugin-sdk` as `catalogSchema` and
 `parseCatalogIndex`, so the instance and the catalog's own check read it with
 one definition. An id appears once in the index whatever the entry's type, and
 an index breaking that, or carrying any entry the instance cannot read, is
-refused whole. A plugin entry names its npm package; a theme entry does not.
+refused whole. A field the index's version does not define is such an entry:
+every object in the index is read strictly, so a new field is a new index
+version rather than a key an older instance drops, and a misspelled field of
+the declaration is refused instead of being replaced by its default. A plugin
+entry names its npm package; a theme entry does not.
 
 The theme screen reads the index through the plugin system's catalog client,
 download and digest check. It is held to the same curation rule, the same
