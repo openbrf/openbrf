@@ -15,9 +15,12 @@ import {
   runPhone,
   runSuffix,
 } from "../testing/integration-env";
+import type { Prisma } from "../generated/prisma/client";
+import { lockLegalHold } from "./legal-hold-lock";
 import { LegalHoldService } from "./legal-hold.service";
 import { computePurgeDate } from "./purge-date";
 import { PurgeService } from "./purge.service";
+import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";
 
 /**
  * The service-tier purge against a real database.
@@ -1551,44 +1554,67 @@ describe("running the job", () => {
   });
 });
 
+/** How many connections to this database are waiting for an advisory lock. */
+async function advisoryLockWaiters(): Promise<number> {
+  const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
+    SELECT count(*)::int AS waiting
+      FROM pg_stat_activity
+     WHERE datname = current_database()
+       AND wait_event_type = 'Lock'
+       AND wait_event = 'advisory'`;
+  return row?.waiting ?? 0;
+}
+
 describe("the nightly sweep of sign-in sessions", () => {
-  it("sweeps a session that has ended, and keeps a held person's", async () => {
+  it("sweeps an ended session, and keeps a held person's and a restricted person's", async () => {
     /*
      * The record of processing says a signed-in session is deleted the night
      * after it ends, unless a legal hold or a restriction stands for the
      * person, and the access report says a hold suspends every purge for the
      * person it stands against. Both are true only because a run does it, so
-     * the assertion is on a whole run.
+     * the assertion is on a whole run, against the database's own reading of
+     * the hold and of the restriction.
      *
-     * Three rows written here rather than in the fixture, so no earlier run in
+     * Four rows written here rather than in the fixture, so no earlier run in
      * this file reaches them: an ended session of the board member, whom no
-     * rule lets the purge reach, an ended session of a person under a legal
-     * hold, and a live one. Dated against `dueAt`, the clock the run judges
-     * the end by; every session another suite leaves in this database ends a
-     * month after today, long after that clock.
+     * rule lets the purge reach; one of a person under a legal hold; one of a
+     * person granted a restriction under art. 18; and a live one. Dated
+     * against `dueAt`, the clock the run judges the end by; every session
+     * another suite leaves in this database ends a month after today, long
+     * after that clock.
      */
     const boardUser = await prisma.user.findUniqueOrThrow({
       where: { personId: people.board },
       select: { id: true },
     });
-    const heldUser = await prisma.user.create({
-      data: {
-        name: "Person Gallring",
-        email: `${people.heldRequest}@exempel.se`,
-        personId: people.heldRequest,
-      },
-      select: { id: true },
-    });
+    const [heldUser, restrictedUser] = await Promise.all(
+      [people.heldRequest, people.restricted].map((personId) =>
+        prisma.user.create({
+          data: {
+            name: "Person Gallring",
+            email: `${personId}@exempel.se`,
+            personId,
+          },
+          select: { id: true },
+        }),
+      ),
+    );
     const ended = new Date(dueAt.getTime() - DAY);
     const tokens = {
       ended: `purge-session-ended-${suffix}`,
       held: `purge-session-held-${suffix}`,
+      restricted: `purge-session-restricted-${suffix}`,
       live: `purge-session-live-${suffix}`,
     };
     await prisma.session.createMany({
       data: [
         { token: tokens.ended, userId: boardUser.id, expiresAt: ended },
-        { token: tokens.held, userId: heldUser.id, expiresAt: ended },
+        { token: tokens.held, userId: heldUser?.id ?? "", expiresAt: ended },
+        {
+          token: tokens.restricted,
+          userId: restrictedUser?.id ?? "",
+          expiresAt: ended,
+        },
         {
           token: tokens.live,
           userId: boardUser.id,
@@ -1605,9 +1631,114 @@ describe("the nightly sweep of sign-in sessions", () => {
       select: { token: true },
     });
     expect(left.map((row) => row.token).toSorted()).toEqual(
-      [tokens.held, tokens.live].toSorted(),
+      [tokens.held, tokens.restricted, tokens.live].toSorted(),
     );
   });
+
+  it.each([
+    {
+      recorded: "a legal hold",
+      // What `LegalHoldService.place` writes once it holds the key.
+      write: (tx: Prisma.TransactionClient) =>
+        tx.legalHold.create({
+          data: {
+            personId: people.board,
+            reason: "Tvist om en inloggning",
+            placedByPersonId: people.board,
+          },
+        }),
+      undo: () =>
+        prisma.legalHold.deleteMany({
+          where: { personId: people.board, reason: "Tvist om en inloggning" },
+        }),
+    },
+    {
+      recorded: "a restriction",
+      // What `DataSubjectRequestService.decide` writes on a granted
+      // restriction once it holds the key.
+      write: (tx: Prisma.TransactionClient) =>
+        tx.person.update({
+          where: { id: people.board },
+          data: { processingRestrictedAt: new Date() },
+        }),
+      undo: () =>
+        prisma.person.update({
+          where: { id: people.board },
+          data: { processingRestrictedAt: null },
+        }),
+    },
+  ])(
+    "keeps the sessions of a person $recorded is recorded for while the sweep runs",
+    async ({ recorded, write, undo }) => {
+      /*
+       * The ordering, forced rather than left to timing. A concurrent
+       * transaction does what the writer does - takes the person's legal hold
+       * key, then writes - and holds its commit until the sweep is waiting for
+       * that key. The sweep's scan has already seen an unprotected person with
+       * an ended session; what it must not do is act on that reading. Taking the
+       * key before it reads whether they are withheld is what makes it wait,
+       * and read the committed hold or restriction afterwards.
+       *
+       * A sweep that read the withheld list once and deleted set-wide would not
+       * wait at all: it would delete the session while the writer's row was
+       * still uncommitted, finish, and the writer would stop holding its commit
+       * because the sweep had settled. The assertion on the session is what
+       * fails then, not a timeout.
+       */
+      const boardUser = await prisma.user.findUniqueOrThrow({
+        where: { personId: people.board },
+        select: { id: true },
+      });
+      const token = `purge-session-raced-${recorded.replace(/ /g, "-")}-${suffix}`;
+      await prisma.session.create({
+        data: {
+          token,
+          userId: boardUser.id,
+          expiresAt: new Date(dueAt.getTime() - DAY),
+        },
+      });
+
+      let sweepSettled = false;
+      let writerWrote: () => void = () => undefined;
+      const wrote = new Promise<void>((resolve) => {
+        writerWrote = resolve;
+      });
+
+      try {
+        const writer = prisma.$transaction(
+          async (tx) => {
+            await lockLegalHold(tx, people.board);
+            await write(tx);
+            writerWrote();
+            const deadline = Date.now() + 10_000;
+            while (!sweepSettled && (await advisoryLockWaiters()) === 0) {
+              if (Date.now() > deadline) {
+                throw new Error(
+                  "The sweep neither waited for the legal hold key nor finished.",
+                );
+              }
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+          },
+          { timeout: 20_000 },
+        );
+
+        await wrote;
+        const sweep = sweepExpiredSignInSessions(prisma, dueAt).finally(() => {
+          sweepSettled = true;
+        });
+        await writer;
+        await sweep;
+
+        await expect(prisma.session.count({ where: { token } })).resolves.toBe(
+          1,
+        );
+      } finally {
+        await undo();
+        await prisma.session.deleteMany({ where: { token } });
+      }
+    },
+  );
 });
 
 describe("what a run says about the erasures it did not finish", () => {

@@ -123,7 +123,13 @@ library deletes one only when it is signed out of or presented after it ended.
 `sweepExpiredSignInSessions` deletes every ended session on the service-data
 purge's minute, except those of a person under a standing legal hold or
 restriction: a session is a record of access and not only a credential, and a
-hold and a restriction stop every purge for the person they stand for.
+hold and a restriction stop every purge for the person they stand for. It works
+one person at a time, as every purge keyed on a person does: each person's
+transaction takes the legal hold key (`legal-hold-lock.ts`) that
+`LegalHoldService.place` and `DataSubjectRequestService.decide` take before they
+record a hold or a granted restriction, reads whether the person is withheld,
+and deletes only if not. A hold or a restriction recorded while the sweep runs
+therefore either commits before that read or waits for the delete to commit.
 
 The purge deletes every invitation of the person, accepted or not, and selects a
 person who still has any. An accepted invitation is a spent record of an

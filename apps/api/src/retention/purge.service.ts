@@ -253,10 +253,11 @@ export interface PurgeRunSummary {
  * A person's own grants are not swept: they go with the account, by the
  * cascades on it, in the same statement that deletes the account below.
  *
- * The sign-in sessions that have ended ride the same minute, for the same
- * reasons, with one difference: a session is a record of when and from where
- * somebody signed in as well as a credential, so the sessions of a person under
- * a legal hold or a restriction are left as the rest of their data is.
+ * The sign-in sessions that have ended ride the same minute, with one
+ * difference: a session is a record of when and from where somebody signed in
+ * as well as a credential, so the sessions of a person under a legal hold or a
+ * restriction are left as the rest of their data is - decided one person at a
+ * time under the legal hold key, as this purge decides it.
  * `sign-in-session-sweep.ts` holds that rule.
  *
  * ## Its place in the night
