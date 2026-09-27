@@ -64,3 +64,11 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+    environment:
+      # The management API (ADR 0021). No port is published for it: spec 48
+      # calls the listener from inside this container, which is as close as
+      # the suite can stand to where the host's control plane does. Taken from
+      # the stack's env file, and empty - off - where that file names neither,
+      # as the screenshot stack's does.
+      OPENBRF_MANAGEMENT_PORT: ${OPENBRF_MANAGEMENT_PORT:-}
+      OPENBRF_MANAGEMENT_TOKEN_DIGEST: ${OPENBRF_MANAGEMENT_TOKEN_DIGEST:-}

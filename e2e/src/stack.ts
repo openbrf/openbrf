@@ -132,6 +132,17 @@ export const stack = {
 } as const;
 
 /**
+ * The digest of the management API's token, as the stack's env file sets it
+ * (ADR 0021).
+ *
+ * Read when asked rather than into `stack`, because the screenshot stack's env
+ * file names no management API and the listener there is off.
+ */
+export function managementTokenDigest(): string {
+  return required("OPENBRF_MANAGEMENT_TOKEN_DIGEST");
+}
+
+/**
  * Where the single-page application lives, under the origin.
  *
  * The API serves the association's own public pages at the root, so everything

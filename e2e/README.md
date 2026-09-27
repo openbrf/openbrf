@@ -399,6 +399,19 @@ and a spec polls it for a destination the account has before asserting that
 another is absent from the same list; `goToDestination` presses a destination
 the way a person reaches it.
 
+`48-management-api.spec.ts` covers the management API (ADR 0021). The overlay
+gives the app a management port and the digest of a token the spec holds, both
+from `stack.env`, and publishes no host port for it, so the spec calls the
+listener from inside the app container. It checks that the digest in
+`stack.env` is the digest of the spec's token; that the summary names the
+version in `apps/api/package.json`, says the instance is claimed, counts the
+apartments and persons the database holds and has no migration pending or
+failed; that every read writes an `INSTANCE_SUMMARY_READ` entry on the
+`MANAGEMENT` channel with no actor; that a wrong token and none are refused;
+and that neither `/api/management/v1/summary` nor `/v1/summary` is a route on
+`APP_URL`. The screenshot stack's env file sets neither variable, so its
+listener stays off.
+
 ## Still to be written
 
 Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
