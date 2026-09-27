@@ -261,6 +261,23 @@ window between resolving a name and connecting to it. Our own checks run first
 and are kept rather than deferred to it: they refuse categories the transport
 does not, and they run before any socket is opened.
 
+### Registering a client by hand is an administrator's act
+
+A client with no metadata document is registered through
+`POST /api/oauth-clients`, which requires `association:manage` and writes an
+`OAUTH_CLIENT_REGISTERED` audit entry. It is the only such route. The
+provider's own client-management endpoints - `/oauth2/create-client`,
+`/oauth2/get-client`, `/oauth2/get-clients`, `/oauth2/update-client`,
+`/oauth2/client/rotate-secret` and `/oauth2/delete-client` - are listed in
+`disabledPaths` and answer 404 over HTTP. `/oauth2/public-client`, which the
+consent screen reads a client's name and host from, stays open. Behind that, a
+`clientPrivileges` hook refuses every client action the provider performs for a
+session unless the session's person holds `association:manage`, which covers a
+call through `auth.api` as well, where `disabledPaths` does not apply.
+
+The provider offers the `authorization_code` and `refresh_token` grants and not
+`client_credentials`, so no client can hold a token that acts for nobody.
+
 ### One deviation in the schema, and why
 
 The tables are the library's and are copied as generated, with their model names

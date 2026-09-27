@@ -84,6 +84,36 @@ export const SESSION_READ_PATH = "/get-session";
 export const SESSION_READ_MAX = 200;
 export const SESSION_READ_WINDOW_SECONDS = 10;
 
+/**
+ * The OAuth provider's own client-management endpoints, relative to `basePath`
+ * below, and closed over HTTP.
+ *
+ * Registering a client on this instance is an administrator's act, and it has
+ * one route: `POST /api/oauth-clients`, which demands `association:manage` and
+ * writes an `OAUTH_CLIENT_REGISTERED` audit entry. These endpoints ask for a
+ * session and nothing else, and they let whoever holds one choose the name and
+ * host a consent screen shows, point the redirect anywhere, and rewrite either
+ * later. None of them is used by this product.
+ *
+ * Better Auth answers a listed path 404 before any handler, rate limit or
+ * plugin hook runs. It compares the pathname with the base path removed and a
+ * trailing slash trimmed, after URL parsing has resolved dot segments, so a
+ * query string or a `./` does not step around it. It closes HTTP only: a call
+ * through `auth.api` in this process still reaches the endpoint, and the
+ * `clientPrivileges` hook in the provider's options is what answers that.
+ *
+ * `/oauth2/public-client` stays open. The consent screen reads a client's name
+ * and host from it, and it returns only fields that were already public.
+ */
+export const CLIENT_MANAGEMENT_PATHS: readonly string[] = [
+  "/oauth2/create-client",
+  "/oauth2/get-client",
+  "/oauth2/get-clients",
+  "/oauth2/update-client",
+  "/oauth2/client/rotate-secret",
+  "/oauth2/delete-client",
+];
+
 export interface AccountState {
   /** Whether the register holds an account for this address at all. */
   exists: boolean;
@@ -109,6 +139,20 @@ export interface MagicLinkDelivery {
    * nobody else.
    */
   sendSecondFactorNotice: (input: { email: string }) => Promise<void>;
+}
+
+/**
+ * Who may manage OAuth clients through the provider.
+ *
+ * Implemented by AuthService against the register, so this module stays free
+ * of how a person's capabilities are derived.
+ */
+export interface ClientManagement {
+  /**
+   * Whether the person behind an account holds `association:manage` today -
+   * the capability `POST /api/oauth-clients` demands.
+   */
+  mayManageClients: (userId: string) => Promise<boolean>;
 }
 
 /**
@@ -182,6 +226,7 @@ export function buildAuthOptions(
   prisma: PrismaService,
   magicLinkDelivery: MagicLinkDelivery,
   resource: ProtectedResource,
+  clientManagement: ClientManagement,
 ) {
   // Deliberately `satisfies` rather than an annotated return type: the
   // additionalFields declaration below only reaches the typed API surface
@@ -194,6 +239,9 @@ export function buildAuthOptions(
     basePath: "/api/auth",
 
     database: prismaAdapter(prisma, { provider: "postgresql" }),
+
+    // Answered 404 over HTTP; see CLIENT_MANAGEMENT_PATHS above.
+    disabledPaths: [...CLIENT_MANAGEMENT_PATHS],
 
     emailAndPassword: {
       enabled: true,
@@ -338,6 +386,25 @@ export function buildAuthOptions(
         // path we use, and both would let a caller register on its own terms.
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
+
+        // Every client action the provider performs for a session - create,
+        // read, list, update, rotate, delete - needs a person holding
+        // association:manage. Without this hook the library asks for a session
+        // and, on an existing client, that the session registered it. It
+        // applies to HTTP and to auth.api alike, so it also holds for a path
+        // CLIENT_MANAGEMENT_PATHS does not name. A client identified by its
+        // metadata document is persisted through a separate seam and never
+        // reaches it.
+        clientPrivileges: async ({ user }) =>
+          user !== undefined &&
+          (await clientManagement.mayManageClients(user.id)),
+
+        // No client_credentials. Every token here acts for a person who
+        // consented to it; a client acting as itself would hold a token with
+        // nobody behind it. Removing it from the provider's list refuses it at
+        // registration and at the token endpoint, and drops it from the
+        // authorization-server document.
+        grantTypes: ["authorization_code", "refresh_token"],
 
         // Coarse, and deliberately so. The capability check in the action
         // registry is the boundary; a scope is a ceiling on it and never a

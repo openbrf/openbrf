@@ -6,6 +6,7 @@ import type { PrismaService } from "../database/prisma.service";
 import {
   type AccountState,
   buildAuthOptions,
+  CLIENT_MANAGEMENT_PATHS,
   deliverMagicLink,
   type MagicLinkDelivery,
   RATE_LIMIT_MAX,
@@ -14,6 +15,9 @@ import {
   SESSION_READ_WINDOW_SECONDS,
 } from "./auth-options";
 import { hashOpaqueToken } from "./opaque-token";
+
+/** The one account the stub below says may manage OAuth clients. */
+const MANAGING_ACCOUNT = "account-that-may-manage";
 
 /**
  * One options object, built the way the application builds it, for every
@@ -36,6 +40,9 @@ const options = buildAuthOptions(
     declared: true,
     path: "/api/plugin/mcp-connector/mcp",
     url: "https://brf.example/api/plugin/mcp-connector/mcp",
+  },
+  {
+    mayManageClients: (userId) => Promise.resolve(userId === MANAGING_ACCOUNT),
   },
 );
 
@@ -348,5 +355,105 @@ describe("the OAuth provider configuration", () => {
     // Six by default; introspect, register and userinfo are switched off, and
     // switching one off removes its rule rather than widening it.
     expect(provider?.rateLimit).toHaveLength(3);
+  });
+});
+
+/**
+ * Who may register and manage an OAuth client.
+ *
+ * An administrator, through `POST /api/oauth-clients`, and nobody else. The
+ * provider's own client endpoints ask for a session and no more, so on their
+ * own terms any account could register a client under any name and host, send
+ * its codes anywhere, and rewrite it later. Two things close that, and they are
+ * asserted separately because they close different doors: the paths answer 404
+ * over HTTP, and the hook refuses a call through `auth.api` that the paths do
+ * not see.
+ */
+describe("who may manage an OAuth client", () => {
+  const provider = options.plugins.find(
+    (plugin) => plugin.id === "oauth-provider",
+  );
+
+  const privileges = provider?.options.clientPrivileges;
+  type Check = Parameters<NonNullable<typeof privileges>>[0];
+
+  const ACTIONS: readonly Check["action"][] = [
+    "create",
+    "read",
+    "update",
+    "delete",
+    "list",
+    "rotate",
+    "configure-client-credentials-scopes",
+  ];
+
+  /** What the hook answers for one action, asked as one account or none. */
+  function answer(action: Check["action"], userId: string | undefined) {
+    return privileges?.({
+      headers: new Headers(),
+      action,
+      user:
+        userId === undefined ? undefined : ({ id: userId } as Check["user"]),
+    });
+  }
+
+  it("closes every client endpoint a request can reach, except the public read", () => {
+    /*
+     * Read off the provider rather than restated, so a library upgrade that
+     * adds a client endpoint, or renames one of these, fails here instead of
+     * leaving the new path open. SERVER_ONLY endpoints are not reachable over
+     * HTTP at all.
+     */
+    const reachable = Object.values(provider?.endpoints ?? {})
+      .filter(
+        (endpoint) =>
+          (endpoint.options.metadata as { SERVER_ONLY?: boolean } | undefined)
+            ?.SERVER_ONLY !== true,
+      )
+      .map((endpoint) => endpoint.path)
+      .filter((path) => path.includes("client"));
+
+    // The consent screen reads a client's name and host from the first; the
+    // second returns the same public fields before sign-in.
+    const stillOpen = [
+      "/oauth2/public-client",
+      "/oauth2/public-client-prelogin",
+    ];
+
+    expect(
+      reachable.filter((path) => !stillOpen.includes(path)).toSorted(),
+    ).toEqual([...CLIENT_MANAGEMENT_PATHS].toSorted());
+    expect(options.disabledPaths).toEqual([...CLIENT_MANAGEMENT_PATHS]);
+    for (const path of stillOpen) {
+      expect(options.disabledPaths).not.toContain(path);
+    }
+  });
+
+  it("lets an account that may manage the association do every client action", async () => {
+    for (const action of ACTIONS) {
+      expect(await answer(action, MANAGING_ACCOUNT)).toBe(true);
+    }
+  });
+
+  it("refuses every client action to any other account", async () => {
+    for (const action of ACTIONS) {
+      expect(await answer(action, "a-resident-account")).toBe(false);
+    }
+  });
+
+  it("refuses a call that carries no account", async () => {
+    for (const action of ACTIONS) {
+      expect(await answer(action, undefined)).toBe(false);
+    }
+  });
+
+  it("issues no token to a client acting as itself", () => {
+    // Every token here acts for a person who consented to it. Without the list
+    // the provider also offers client_credentials, a token with nobody behind
+    // it.
+    expect(provider?.options.grantTypes).toEqual([
+      "authorization_code",
+      "refresh_token",
+    ]);
   });
 });

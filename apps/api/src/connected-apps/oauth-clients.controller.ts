@@ -6,6 +6,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { AuthService } from "../auth/auth.service";
+import { forwardHeaders } from "../auth/fastify-bridge";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 
@@ -26,7 +27,9 @@ const registerSchema = z.strictObject({
  * Most clients register themselves by presenting the URL of their own metadata
  * document, which is the path this product expects. This route is for the one
  * that cannot: a client that has no public metadata document, typically
- * something the association had written for itself.
+ * something the association had written for itself. It is the only route that
+ * registers a client by hand; the provider's own client-management endpoints
+ * are closed over HTTP (`CLIENT_MANAGEMENT_PATHS` in auth-options.ts).
  *
  * Registering a client grants nothing. It makes the client known to the
  * instance so that a member can then be asked whether to let it act for them;
@@ -49,7 +52,15 @@ export class OAuthClientsController {
     const input = registerSchema.parse(body);
     const actor = webActor(request);
 
+    /*
+     * The administrator's own headers, on both calls. The provider resolves the
+     * session from them and asks its clientPrivileges hook whether that person
+     * may manage clients; a call without them is refused as unauthenticated.
+     */
+    const headers = forwardHeaders(request);
+
     const created = await this.auth.instance.api.adminCreateOAuthClient({
+      headers,
       body: {
         client_name: input.clientName,
         redirect_uris: input.redirectUris,
@@ -74,6 +85,7 @@ export class OAuthClientsController {
      * linked by the provider; one minted here is not.
      */
     await this.auth.instance.api.adminLinkClientResource({
+      headers,
       params: {
         identifier: this.resource.url,
         client_id: created.client_id,
