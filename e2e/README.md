@@ -2,7 +2,8 @@
 
 The suite drives a browser against the production stack: the image built from
 this repository's `Dockerfile`, started through `docker-compose.prod.yml` with
-the overlay in `docker-compose.e2e.yml`, from empty volumes.
+the overlay in `docker-compose.e2e.yml`, from empty volumes. The production file
+runs a published release; the overlay is what builds this checkout instead.
 
 That is the point of it. Several of the properties under test only exist in the
 deployed artefact - the entrypoint provisioning the field encryption key, the
