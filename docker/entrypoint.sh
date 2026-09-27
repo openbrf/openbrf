@@ -19,8 +19,8 @@
 #
 # Steps 4 to 6 are idempotent and run on every start, so an upgrade is a newer
 # image - `docker compose -f docker-compose.prod.yml --env-file .env.production
-# build` while none is published, `pull` once one is - followed by the same
-# `up -d` that started the instance, and nothing else.
+# pull` - followed by the same `up -d` that started the instance, and nothing
+# else.
 
 set -eu
 
@@ -52,6 +52,13 @@ fail() {
 if [ -z "${DATABASE_URL:-}" ] && [ -z "${POSTGRES_PASSWORD:-}" ]; then
   fail "Neither DATABASE_URL nor POSTGRES_PASSWORD is set. One of the two has to be: the first points at the schema owner, which is the role that runs migrations, and the second lets this entrypoint build that connection itself."
 fi
+
+# The runtime role's name, RUNTIME_DB_ROLE or openbrf_app. Roles belong to the
+# whole PostgreSQL server, so on a server several instances share each names
+# its own, and a name that cannot be one - not a plain lower-case identifier,
+# one PostgreSQL reserves, or the owner's - stops the start here, before
+# anything connects, rather than in step 6 after the migrations have run.
+node /app/docker/database-url.mjs check-runtime-role
 
 # The one URL that is printed and read back. The server is exec'd from this
 # shell, so its connection has to be an exported variable, and a child process

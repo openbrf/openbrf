@@ -2,7 +2,7 @@
 # decision 32. This is the file a housing cooperative runs.
 #
 #   cp .env.production.example .env.production
-#   # fill in the four secrets it asks for
+#   # fill in the four secrets it asks for, and the release line to run
 #   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 #
 # The project name is set here so a production stack can never share containers
@@ -37,12 +37,11 @@ services:
       retries: 10
 
   app:
-    # Built locally: there is no published image yet. When one is published this
-    # becomes `image: ghcr.io/openbrf/openbrf:<version>` and the build section
-    # goes away.
-    build:
-      context: .
-    image: openbrf:local
+    # The published image, at the release line or the exact version
+    # OPENBRF_VERSION names: `0.1` follows that line's patch releases on every
+    # `pull`, `0.1.0` stays where it is (docs/deployment.md, "Versions and
+    # upgrades").
+    image: ghcr.io/openbrf/openbrf:${OPENBRF_VERSION:?set OPENBRF_VERSION to the release line to run, for example 0.1}
     restart: unless-stopped
     depends_on:
       db:
@@ -58,7 +57,8 @@ services:
 
       # Two roles, because a table owner can disable the triggers that keep the
       # member register and the audit log append-only. The owner runs
-      # migrations; the application connects as openbrf_app.
+      # migrations; the application connects as the runtime role, openbrf_app
+      # unless RUNTIME_DB_ROLE names another.
       #
       # The parts rather than the two connection URLs: a password is a URL
       # component, one holding :, /, @, ? or # has to be percent-encoded, and
@@ -79,12 +79,21 @@ services:
       # both, so the check stays in the one place that can see which arrived.
       #
       # RUNTIME_DB_PASSWORD is the ordinary path: the entrypoint creates
-      # openbrf_app from it and reapplies its constraints on every start.
+      # the runtime role from it and reapplies its constraints on every start.
       # DATABASE_URL_RUNTIME is for an operator who manages that role
       # themselves; the entrypoint leaves the role alone and uses the URL as
       # written, so its password has to be percent-encoded already.
       RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
       DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
+
+      # For several instances on one database server; empty is the default.
+      # The runtime role's name, openbrf_app unless set: a role belongs to the
+      # whole server, so each instance there names its own. And the size of
+      # the application's connection pool, ten unless set, out of the server's
+      # max_connections (docs/deployment.md, "Several instances on one
+      # database server").
+      RUNTIME_DB_ROLE: ${RUNTIME_DB_ROLE:-}
+      OPENBRF_DATABASE_POOL_SIZE: ${OPENBRF_DATABASE_POOL_SIZE:-}
 
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in the env file}
 
@@ -115,8 +124,8 @@ services:
       # (docs/backup-and-restore.md).
       - instance-data:/data
     healthcheck:
-      # No curl in the image, so the check runs in the runtime that is already
-      # there.
+      # The image's own health check, repeated so this file states it. No curl
+      # in the image, so the check runs in the runtime that is already there.
       test:
         [
           "CMD",

@@ -18,11 +18,14 @@ We follow a 90-day coordinated disclosure model: we aim to ship a fix well befor
 
 ## Supported versions
 
-Open BRF is pre-release; no versions are supported yet. Once v1 ships, this table lists which release lines receive security fixes.
+Open BRF is pre-release. Until v1, the latest minor release line receives security fixes as patch releases, which an instance following that line (`OPENBRF_VERSION=0.1`, for example) installs with its next `pull`. Once v1 ships, this table lists which release lines receive security fixes.
 
 | Version | Supported |
 | --- | --- |
+| 0.x (latest minor) | Fixes as patch releases |
 | pre-release (`main`) | Best effort |
+
+Every published image carries a build provenance attestation naming the commit and the workflow that built it. `gh attestation verify oci://ghcr.io/openbrf/openbrf:<version> --repo openbrf/openbrf` checks an image against it before it is run ([docs/deployment.md](docs/deployment.md), "Versions and upgrades").
 
 ## Scope
 
