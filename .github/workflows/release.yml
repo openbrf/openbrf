@@ -69,8 +69,8 @@ jobs:
       - name: Check the packages and their versions
         id: packages
         run: |
-          directories=$(node scripts/check-release-packages.mjs | tr '\n' ' ')
-          echo "directories=$directories" >> "$GITHUB_OUTPUT"
+          directories=$(node scripts/check-release-packages.mjs)
+          echo "directories=${directories//$'\n'/ }" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies of the published packages
         env:
