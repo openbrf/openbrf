@@ -571,12 +571,18 @@ and every night.
 
 `pluginPackageProblems` in `@openbrf/plugin-sdk` is the check a plugin's own CI
 runs on the packed tarball. It reports, one sentence each, the manifest's own
-issues; any runtime dependency; a host package declared anywhere but as a peer;
-a declared entry the package does not contain; a server bundle that requires
-anything but the host packages and Node's built-in modules, requires something
-other than a string literal, or does not assign `exports.createPlugin`; and
-locale files that are missing or whose keys differ. A package that passes
-returns none.
+issues; any runtime dependency; a host package declared as a runtime dependency
+rather than a peer; a declared entry the package does not contain; a server
+bundle that requires anything but the host packages, a path inside one and
+Node's built-in modules, requires something other than a string literal, or
+does not assign `exports.createPlugin`; and locale files that are missing or
+whose keys differ. A package that passes returns none.
+
+The check says whether a package installs and loads, not whether it is safe. A
+plugin runs in the host's process with its privileges (ADR 0003), every Node
+built-in is open to it, and code has ways to load a module that no reading of
+the source follows. A plugin's server bundle is read by a person before its
+listing is merged.
 
 An install is a sequence with a defined commit point: download, verify,
 install into a staging directory, move it into place, mark the job complete
@@ -594,13 +600,13 @@ anything: it stops serving immediately.
 
 ## Operator configuration
 
-| Variable                            | Default                                                               | Effect                                                                                             |
-| ----------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                      |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                                 |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to the index and to every artifact URL it names. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                            |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.         |
+| Variable                            | Default                                                               | Effect                                                                                           |
+| ----------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                    |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                               |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.       |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 

@@ -98,6 +98,7 @@ const CATALOG_ENTRY: CatalogTheme = {
   },
   version: "1.0.0",
   contract: "^1.0.0",
+  deprecated: false,
   installedVersion: null,
 };
 
@@ -181,6 +182,28 @@ describe("what a board sees before deciding", () => {
       expect(screen.getByText(/^Aktivt$/)).toBeTruthy();
     });
     expect(screen.getByText(/^Inbyggt$/)).toBeTruthy();
+  });
+
+  it("marks a theme the catalog has deprecated, in words", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [{ ...CATALOG_ENTRY, deprecated: true }],
+    });
+
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Underhålls inte längre$/)).toBeTruthy();
+    });
+  });
+
+  it("does not mark a theme the catalog still maintains", async () => {
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Exempeltema" })).toBeTruthy();
+    });
+    expect(screen.queryByText(/^Underhålls inte längre$/)).toBeNull();
   });
 
   it("says so when the instance points at a catalog it may not read", async () => {

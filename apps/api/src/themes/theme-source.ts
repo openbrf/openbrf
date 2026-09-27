@@ -2,13 +2,13 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 
 import { DomainError } from "../http/domain-error";
 import {
-  type Catalog,
   CatalogError,
   type CatalogThemeEntry,
 } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
-import { fetchBytes, ResourceFetchError } from "../packaging/fetch-resource";
-import { IntegrityError, verifySha512 } from "../packaging/integrity";
+import { ResourceFetchError } from "../packaging/fetch-resource";
+import { IntegrityError } from "../packaging/integrity";
+import { fetchVerified } from "../packaging/package-archive";
 
 /**
  * Where a theme package comes from, and how it is proven to be the right one.
@@ -98,16 +98,15 @@ export class CatalogThemeSource implements ThemeSource {
    * the index says by now.
    */
   async theme(id: string): Promise<CatalogThemeEntry | null> {
-    const catalog = await this.read(() => this.catalog.read());
-    const entry = catalog.entries.find((candidate) => candidate.id === id);
+    const entry = await this.read(() => this.catalog.entry(id));
     return entry?.type === "theme" ? entry : null;
   }
 
   async fetchPackage(entry: CatalogThemeEntry): Promise<Uint8Array> {
     let bytes: Buffer;
     try {
-      bytes = await fetchBytes(entry.artifact.url, {
-        headers: this.catalog.authorization(),
+      bytes = await fetchVerified(entry.artifact, {
+        headers: this.catalog.authorizationFor(entry.artifact.url),
         allowUncuratedSources: this.catalog.allowsUncuratedSources(),
         maxBytes: MAX_PACKAGE_BYTES,
         timeoutMs: FETCH_TIMEOUT_MS,
@@ -121,12 +120,6 @@ export class CatalogThemeSource implements ThemeSource {
             : "package-unreachable",
         );
       }
-      throw cause;
-    }
-
-    try {
-      verifySha512(bytes, entry.artifact.sha512);
-    } catch (cause) {
       if (cause instanceof IntegrityError) {
         // Nothing has been written anywhere yet: verification happens on the
         // downloaded bytes, before the installer is allowed to see them.
@@ -145,7 +138,7 @@ export class CatalogThemeSource implements ThemeSource {
   }
 
   /** Reads the index, answering its refusals in the theme screen's reasons. */
-  private async read(read: () => Promise<Catalog>): Promise<Catalog> {
+  private async read<T>(read: () => Promise<T>): Promise<T> {
     try {
       return await read();
     } catch (cause) {

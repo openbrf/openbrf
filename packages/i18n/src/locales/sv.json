@@ -1597,6 +1597,7 @@
       "install": "Installera",
       "update": "Uppdatera till {{version}}",
       "alreadyInstalled": "Installerat",
+      "deprecated": "Underhålls inte längre",
       "contract": "Tokenkontrakt {{range}}"
     },
     "preview": {

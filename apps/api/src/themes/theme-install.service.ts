@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import type { LocalizedText } from "@openbrf/plugin-sdk";
 import { checkContrast } from "@openbrf/tokens";
 import {
   BUILT_IN_THEME,
@@ -117,11 +118,13 @@ interface ThemeProvenance {
 export interface CatalogThemeView {
   id: string;
   /** The catalog's own text in both languages; the screen picks the viewer's. */
-  name: { sv: string; en: string };
-  description: { sv: string; en: string };
+  name: LocalizedText;
+  description: LocalizedText;
   version: string;
   /** The token contract range the catalog states for the entry. */
   contract: string | null;
+  /** Still listed, but the curator advises against installing it anew. */
+  deprecated: boolean;
   /** The installed version, when this theme is already installed. */
   installedVersion: string | null;
 }
@@ -163,6 +166,7 @@ export class ThemeInstallService {
       description: entry.description,
       version: entry.version,
       contract: entry.contract ?? null,
+      deprecated: entry.deprecated,
       installedVersion: versionById.get(entry.id) ?? null,
     }));
   }
@@ -451,6 +455,11 @@ export class ThemeInstallService {
    * entry called `example-theme` could install a package that names itself
    * something else, and the theme a board thought they were installing would
    * not be the one they got.
+   *
+   * The contract and the parent are compared when the entry states them: the
+   * screen shows the entry's contract to the board, and a package that
+   * disagrees with it would install on the strength of a claim it does not
+   * make. An entry that leaves either out claims nothing to compare.
    */
   private assertIdentityMatches(
     entry: CatalogThemeEntry,
@@ -465,6 +474,18 @@ export class ThemeInstallService {
     if (manifest.version !== entry.version) {
       throw new ThemeInstallError(
         `The catalog lists ${entry.id} at ${entry.version} but the package is ${manifest.version}.`,
+        "identity-mismatch",
+      );
+    }
+    if (entry.contract !== undefined && manifest.contract !== entry.contract) {
+      throw new ThemeInstallError(
+        `The catalog lists ${entry.id} for token contract ${entry.contract} but the package states ${manifest.contract}.`,
+        "identity-mismatch",
+      );
+    }
+    if (entry.extends !== undefined && manifest.extends !== entry.extends) {
+      throw new ThemeInstallError(
+        `The catalog lists ${entry.id} as extending ${entry.extends} but the package extends ${manifest.extends ?? "no theme"}.`,
         "identity-mismatch",
       );
     }

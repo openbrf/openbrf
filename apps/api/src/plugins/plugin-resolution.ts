@@ -27,16 +27,10 @@ import { HOST_SHARED_PACKAGES } from "@openbrf/plugin-sdk";
  * compares resolved file paths rather than trusting the absence of an error,
  * because a duplicate copy loads happily and fails much later at ModuleRef or
  * an instanceof.
- */
-
-/**
- * Packages a plugin must share with the host rather than carry its own copy of.
  *
- * Part of the plugin contract, so the list lives in the SDK, where the check a
- * plugin's own CI runs reads it too; why each one is on it is written there.
- * Re-exported so the bridge and its tests name one list.
+ * Which packages are shared is part of the plugin contract, so the list is the
+ * SDK's HOST_SHARED_PACKAGES, the one the check a plugin's own CI runs reads.
  */
-export { HOST_SHARED_PACKAGES };
 
 /**
  * A require whose resolution matches the running host's.

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -49,6 +49,9 @@ let installer: ThemeInstallService;
 let dataDirectory: string;
 let catalogDirectory: string;
 let exampleEntry: FixtureCatalogEntry;
+let catalogPath: string;
+/** An installer reading the index at this path, on this run's database. */
+let installerReading: (path: string) => ThemeInstallService;
 
 /** Restored in afterAll, so the shared database is left as it was found. */
 let associationExisted = false;
@@ -74,6 +77,7 @@ beforeAll(async () => {
     throw new Error("The fixture catalog has no example-theme entry.");
   }
   exampleEntry = example;
+  catalogPath = catalog.catalogPath;
 
   const env = {
     ...baseEnv,
@@ -90,13 +94,20 @@ beforeAll(async () => {
   const store = new ThemeStore(env);
 
   themes = new ThemeService(service, audit, store);
-  installer = new ThemeInstallService(
-    service,
-    audit,
-    new CatalogThemeSource(new CatalogClient(env)),
-    store,
-    themes,
-  );
+  installerReading = (path) =>
+    new ThemeInstallService(
+      service,
+      audit,
+      new CatalogThemeSource(
+        new CatalogClient({
+          ...env,
+          OPENBRF_CATALOG_URL: pathToFileURL(path).href,
+        }),
+      ),
+      store,
+      themes,
+    );
+  installer = installerReading(catalog.catalogPath);
 
   const existing = await prisma.association.findUnique({
     where: { id: 1 },
@@ -290,6 +301,35 @@ describe("installing a theme from the catalog", () => {
     const failure = await refusal(installer.install("no-such-theme", null));
     expect(failure.reason).toBe("not-in-catalog");
   });
+
+  /*
+   * The board is shown the entry, and the package is what installs: an entry
+   * claiming a contract or a parent its package does not have is refused, on
+   * the same terms as one naming the wrong id or version. The bytes are the
+   * right ones - the digest still matches - so only the comparison can catch
+   * it.
+   */
+  it.each([
+    ["contract", { contract: "^9.0.0" }],
+    ["parent", { extends: "another-theme" }],
+  ] as const)(
+    "refuses a package whose %s disagrees with its entry",
+    async (what, change) => {
+      const index = JSON.parse(await readFile(catalogPath, "utf8")) as {
+        entries: FixtureCatalogEntry[];
+      };
+      index.entries = index.entries.map((entry) =>
+        entry.id === exampleEntry.id ? { ...entry, ...change } : entry,
+      );
+      const path = join(catalogDirectory, `catalog-wrong-${what}.json`);
+      await writeFile(path, JSON.stringify(index));
+
+      const failure = await refusal(
+        installerReading(path).install(exampleEntry.id, null),
+      );
+      expect(failure.reason).toBe("identity-mismatch");
+    },
+  );
 });
 
 /**

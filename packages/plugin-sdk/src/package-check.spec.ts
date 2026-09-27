@@ -118,18 +118,24 @@ describe("pluginPackageProblems", () => {
     ]);
   });
 
-  it("reports a host package declared anywhere but as a peer", () => {
+  it("reports a host package declared as a runtime dependency, once", () => {
     const problems = pluginPackageProblems(
       withPackageJson((packageJson) => {
-        packageJson["dependencies"] = { "@nestjs/common": "^12.0.0" };
+        packageJson["dependencies"] = {
+          "@nestjs/common": "^12.0.0",
+          "date-fns": "^4.0.0",
+        };
       }),
     );
 
-    expect(problems).toContainEqual(
+    expect(problems).toEqual([
+      expect.stringMatching(
+        /^package\.json lists date-fns under dependencies\./,
+      ),
       expect.stringMatching(
         /^package\.json lists @nestjs\/common under dependencies\. The host shares its own copy/,
       ),
-    );
+    ]);
   });
 
   it("reports a declared entry the package does not contain", () => {
@@ -238,6 +244,67 @@ describe("pluginPackageProblems", () => {
     'require ("node:path");',
   ])("allows Node's built-in module in %s", (line) => {
     expect(problemsWith(line)).toEqual([]);
+  });
+
+  // Allowed because it resolves, not because it is harmless: this is not a
+  // check of what a plugin can do, which is read by a person before listing.
+  it("allows child_process: the check is about installing, not about capability", () => {
+    expect(problemsWith('require("child_process");')).toEqual([]);
+  });
+
+  // The host's node_modules is a fallback for every lookup, so a path inside
+  // a host package resolves exactly as the package itself does.
+  it.each(['require("zod/v4");', 'require("@nestjs/common/decorators");'])(
+    "allows a path inside a host package in %s",
+    (line) => {
+      expect(problemsWith(line)).toEqual([]);
+    },
+  );
+
+  it("still reports a package whose name only starts like a host package's", () => {
+    expect(problemsWith('require("zod-extra");')).toEqual([
+      expect.stringMatching(/^The server bundle requires zod-extra\./),
+    ]);
+  });
+
+  // None of these is a call to the loader, so none of them may fail a
+  // package that makes no such call.
+  it.each([
+    ["a line comment", "// we require(config) at boot"],
+    ["a block comment", "/* require(name) */"],
+    ["a string", 'const hint = "call require(name) first";'],
+    ["template text", "const hint = `call require(name) first`;"],
+    ["a regular expression", "const pattern = /require\\(/;"],
+    ["another object's method", "ctx.require(name);"],
+    ["an optional method call", "ctx?.require(name);"],
+    ["a function of that name", "function require(name) { return name; }"],
+    ["a reference that is not called", "const resolve = require.resolve;"],
+  ])("does not read require in %s as a call", (_how, line) => {
+    expect(problemsWith(line)).toEqual([]);
+  });
+
+  it("reads a require inside a template's substitution", () => {
+    expect(problemsWith("const text = `${require(name)}`;")).toEqual([
+      COMPUTED,
+    ]);
+    expect(problemsWith('const text = `a ${require("lodash")} b`;')).toEqual([
+      expect.stringMatching(FOREIGN),
+    ]);
+  });
+
+  it("still reads the calls after a quote inside a regular expression", () => {
+    expect(
+      problemsWith('const quote = /"/g;\nconst lodash = require("lodash");'),
+    ).toEqual([expect.stringMatching(FOREIGN)]);
+  });
+
+  // Comments between the word and its parenthesis once made the reading
+  // backtrack exponentially: forty of them ran for hours.
+  it("reads a bundle of adjacent comments in linear time", () => {
+    const hostile = `require${"/**/".repeat(50_000)}x`;
+    const started = performance.now();
+    expect(problemsWith(hostile)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   it("still reports a package that only shares a built-in's name as a prefix", () => {

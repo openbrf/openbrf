@@ -1597,6 +1597,7 @@
       "install": "Install",
       "update": "Update to {{version}}",
       "alreadyInstalled": "Installed",
+      "deprecated": "No longer maintained",
       "contract": "Token contract {{range}}"
     },
     "preview": {

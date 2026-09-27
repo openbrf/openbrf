@@ -18,7 +18,7 @@ import type { CatalogThemeEntry } from "../packaging/catalog-entry";
 import {
   CatalogClient,
   CURATED_CATALOG_URL,
-  INDEX_TIMEOUT_MILLISECONDS,
+  INDEX_TIMEOUT_MS,
 } from "../packaging/catalog.client";
 import {
   buildThemeFixtureCatalog,
@@ -325,6 +325,67 @@ describe("fetching a package", () => {
 });
 
 /**
+ * The catalog token.
+ *
+ * It is issued for the index. An artifact URL is data the index supplies and
+ * may name a host whoever published the package runs, so the token goes to
+ * the index's own origin and nowhere else - the first request included, not
+ * only a redirect.
+ */
+describe("the catalog token", () => {
+  /** The headers of every request, keyed by URL. */
+  function recordingFetch(): Map<string, Record<string, string>> {
+    const seen = new Map<string, Record<string, string>>();
+    vi.stubGlobal("fetch", (input: URL, init: RequestInit) => {
+      seen.set(input.href, { ...(init.headers as Record<string, string>) });
+      return Promise.resolve(new Response("not the package"));
+    });
+    return seen;
+  }
+
+  function sourceWithToken(): CatalogThemeSource {
+    return new CatalogThemeSource(
+      new CatalogClient({
+        ...BASE_ENV,
+        OPENBRF_CATALOG_TOKEN: "catalog-token",
+      } as Env),
+    );
+  }
+
+  it.each([
+    [
+      "on the index's origin",
+      "https://raw.githubusercontent.com/openbrf/catalog/main/t.tgz",
+      "Bearer catalog-token",
+    ],
+    ["on another origin", "https://packages.example.test/t.tgz", undefined],
+  ])("decides by origin for an artifact %s", async (_where, url, expected) => {
+    const seen = recordingFetch();
+
+    await expect(
+      sourceWithToken().fetchPackage({
+        ...exampleTheme,
+        artifact: { ...exampleTheme.artifact, url },
+      }),
+    ).rejects.toMatchObject({ reason: "checksum-mismatch" });
+
+    expect(seen.get(url)?.["authorization"]).toBe(expected);
+  });
+
+  it("goes to the index", async () => {
+    const seen = recordingFetch();
+
+    await expect(sourceWithToken().listThemes()).rejects.toMatchObject({
+      reason: "catalog-invalid",
+    });
+
+    expect(seen.get(CURATED_CATALOG_URL)?.["authorization"]).toBe(
+      "Bearer catalog-token",
+    );
+  });
+});
+
+/**
  * An index host that goes quiet.
  *
  * The byte caps bound how much a catalog may send, not how long it may take to
@@ -356,7 +417,7 @@ describe("an index over HTTP", () => {
       reason: "catalog-unreachable",
     });
 
-    await vi.advanceTimersByTimeAsync(INDEX_TIMEOUT_MILLISECONDS - 1);
+    await vi.advanceTimersByTimeAsync(INDEX_TIMEOUT_MS - 1);
     expect(signal?.aborted).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -389,7 +450,7 @@ describe("an index over HTTP", () => {
       reason: "catalog-unreachable",
     });
 
-    await vi.advanceTimersByTimeAsync(INDEX_TIMEOUT_MILLISECONDS - 1);
+    await vi.advanceTimersByTimeAsync(INDEX_TIMEOUT_MS - 1);
     expect(reading).toBe(true);
 
     await vi.advanceTimersByTimeAsync(1);

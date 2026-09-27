@@ -57,10 +57,13 @@ export const catalogArtifactSchema = z.strictObject({
 
 export type CatalogArtifact = z.infer<typeof catalogArtifactSchema>;
 
+/** Text a curator writes in both languages the interface is offered in. */
 const localizedTextSchema = z.strictObject({
   sv: z.string().min(1).max(500),
   en: z.string().min(1).max(500),
 });
+
+export type LocalizedText = z.infer<typeof localizedTextSchema>;
 
 /** Strict, and `.extend()` keeps it so for both kinds of entry. */
 const baseEntrySchema = z.strictObject({

@@ -341,8 +341,10 @@ needs a restart policy that also covers a clean exit. Installing a theme
 restarts nothing.
 
 `OPENBRF_CATALOG_TOKEN` is for an index that requires a bearer token. It is sent
-to the index and to every artifact URL the index names, so set it only for an
-index you control. The curated catalog is public and needs none.
+to the index, and to an artifact only when the artifact is on the index's own
+origin: a package hosted anywhere else is fetched without it, so a host an
+entry names never receives a token issued for the index. The curated catalog is
+public and needs none.
 
 Installing from sources outside the curated catalog is off by default, and
 turning it on with `OPENBRF_UNCURATED_PLUGINS_ENABLED=true` is a deliberate

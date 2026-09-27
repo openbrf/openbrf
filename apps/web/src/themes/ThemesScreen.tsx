@@ -485,6 +485,12 @@ function CatalogRow({
             {t("themeCatalog.catalog.alreadyInstalled")}
           </span>
         ) : null}
+        {/* In words, as the plugin catalog marks it: never colour alone. */}
+        {entry.deprecated ? (
+          <span className="text-chip text-ink-muted uppercase">
+            {t("themeCatalog.catalog.deprecated")}
+          </span>
+        ) : null}
       </div>
 
       <p className="text-small text-ink-muted">

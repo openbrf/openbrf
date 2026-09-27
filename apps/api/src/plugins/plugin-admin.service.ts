@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
   isSupportedApiVersion,
+  type LocalizedText,
   type PluginActionDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
@@ -86,8 +87,8 @@ export interface CatalogPluginView {
   id: string;
   packageName: string;
   version: string;
-  name: { sv: string; en: string };
-  description: { sv: string; en: string };
+  name: LocalizedText;
+  description: LocalizedText;
   homepage: string | null;
   deprecated: boolean;
   apiVersion: number;

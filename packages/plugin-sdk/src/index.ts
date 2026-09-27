@@ -51,6 +51,7 @@ export {
   catalogSchema,
   type CatalogThemeEntry,
   catalogThemeEntrySchema,
+  type LocalizedText,
   parseCatalogIndex,
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";

@@ -75,7 +75,8 @@ export interface FetchOptions {
   /**
    * Abandons the fetch once this many milliseconds have passed, wherever it
    * is: waiting for an answer, following a redirect, or reading the body.
-   * Unset, the fetch takes as long as the source does.
+   * Unset, the fetch takes as long as the source does. A file: read ignores
+   * it: the local disk is not a host that can stall on purpose.
    */
   timeoutMs?: number;
 }

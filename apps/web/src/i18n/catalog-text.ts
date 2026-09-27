@@ -1,3 +1,5 @@
+import type { LocalizedText } from "@openbrf/plugin-sdk";
+
 /**
  * The catalog's own text, in the viewer's language.
  *
@@ -6,9 +8,6 @@
  * rather than as translation keys. Swedish for a Swedish locale and English
  * for anything else, which is the fallback the interface's own strings use.
  */
-export function catalogText(
-  text: { sv: string; en: string },
-  locale: string,
-): string {
+export function catalogText(text: LocalizedText, locale: string): string {
   return locale.startsWith("sv") ? text.sv : text.en;
 }

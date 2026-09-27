@@ -72,6 +72,11 @@ checks an author runs on their own package are exported by the published
 packages: `pluginPackageProblems` from the SDK and `lintThemePackage` from the
 theme tools.
 
+The package check says whether a plugin installs and loads, not whether it is
+safe: a plugin runs with the host's privileges, and no reading of its source
+settles what it does. A plugin's server bundle is therefore read by a person
+before its listing is merged.
+
 Attestations are verified when a listing is checked, not by the instance at
 install.
 
@@ -102,9 +107,16 @@ may start a proprietary module from either without keeping a notice.
 - An operator who wrote the curated address into the environment in another
   spelling is refused: a configured address is curated only if it is the one
   built in, character for character.
-- The optional catalog token is sent to the index and to every artifact URL the
-  index names, whatever their origin; only a redirect to another origin drops
-  it. It is for an index that requires one, and the curated catalog does not.
+- The optional catalog token is sent to the index, and to an artifact only on
+  the index's own origin; a redirect to another origin drops it as well. It is
+  for an index that requires one, and the curated catalog does not. A private
+  index whose packages live on another host has to make them readable without
+  it.
+- Publishing the three packages is a change of its own, with the release
+  workflow that attaches provenance. Until it lands their manifests still say
+  otherwise: the theme tools and the tokens are private and the SDK is
+  configured for the organization's registry, so an author outside the
+  organization builds against a checkout of this repository.
 - Whoever can merge to the catalog's `main` decides what every instance is
   offered. The index is not signed; each entry's digest is what binds an
   install to it.
