@@ -19,6 +19,11 @@
 // the same way, in RUNTIME_DB_ROLE, checked here and passed on with the default
 // already applied, so the script and this process cannot disagree about it.
 //
+// The role's connection limit is worked out here too, in
+// RUNTIME_DB_CONNECTION_LIMIT: the application's pool, the job queue's and a
+// few to spare, so that on a shared server one instance cannot take every
+// connection the server has.
+//
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
@@ -28,6 +33,19 @@ import { passwordOf, runtimeRole, withoutPassword } from "./database-url.mjs";
 
 /** Relative to the working directory the image sets, /app/apps/api. */
 const HARDENING_SQL = "prisma/sql/harden-runtime-role.sql";
+
+/** OPENBRF_DATABASE_POOL_SIZE's default and bounds, as src/config/env.ts has them. */
+const DEFAULT_POOL_SIZE = 10;
+const MAX_POOL_SIZE = 50;
+
+/** JOB_POOL_SIZE in src/jobs/job-queue.service.ts. */
+const JOB_POOL_SIZE = 2;
+
+/**
+ * Room for a session nobody pooled: an operator's psql as the runtime role, or
+ * a pool still closing while the next opens.
+ */
+const SPARE_CONNECTIONS = 3;
 
 function fail(message) {
   console.error(`openbrf: ${message}`);
@@ -56,10 +74,27 @@ try {
   fail(error instanceof Error ? error.message : String(error));
 }
 
-const psqlEnvironment =
-  connectionPassword === ""
-    ? { ...process.env, RUNTIME_DB_ROLE: role }
-    : { ...process.env, RUNTIME_DB_ROLE: role, PGPASSWORD: connectionPassword };
+// The application refuses a pool size outside these bounds when it starts, so
+// a value the script would cap it by is refused here first, with the same
+// reason, rather than written into the role.
+const configuredPool = process.env.OPENBRF_DATABASE_POOL_SIZE;
+const poolSize =
+  configuredPool === undefined || configuredPool === ""
+    ? DEFAULT_POOL_SIZE
+    : Number(configuredPool);
+if (!Number.isInteger(poolSize) || poolSize < 1 || poolSize > MAX_POOL_SIZE) {
+  fail(
+    `OPENBRF_DATABASE_POOL_SIZE has to be a whole number from 1 to ${MAX_POOL_SIZE}.`,
+  );
+}
+const connectionLimit = String(poolSize + JOB_POOL_SIZE + SPARE_CONNECTIONS);
+
+const psqlEnvironment = {
+  ...process.env,
+  RUNTIME_DB_ROLE: role,
+  RUNTIME_DB_CONNECTION_LIMIT: connectionLimit,
+  ...(connectionPassword === "" ? {} : { PGPASSWORD: connectionPassword }),
+};
 
 try {
   execFileSync(

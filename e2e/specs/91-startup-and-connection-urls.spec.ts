@@ -423,6 +423,7 @@ test("the entrypoint refuses a runtime role name that cannot be one, before anyt
   for (const [role, refusal] of [
     ["Brf_App", "has to be a lower-case PostgreSQL role name"],
     ["pg_brf_app", "which PostgreSQL reserves for its own roles"],
+    ["public", "session_user, which PostgreSQL reserves"],
     ["openbrf", "names the schema owner"],
   ] as const) {
     const { status, output } = runInAppContainer(

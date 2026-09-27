@@ -31,6 +31,12 @@
 -- entrypoint refuses a name that is not a plain lower-case identifier, that
 -- starts with pg_, or that is the owner's own. Read from the environment like
 -- the password, and quoted wherever it is used.
+--
+-- RUNTIME_DB_CONNECTION_LIMIT caps how many sessions the runtime role may hold
+-- at once, 15 when it is unset or empty. The entrypoint sets it to the
+-- application's pool plus the job queue's plus three to spare. On a shared
+-- server that is what keeps one instance, or code running inside it, from
+-- taking every connection the server has and stopping all the others.
 
 \set ON_ERROR_STOP on
 
@@ -53,6 +59,14 @@
 SELECT coalesce(nullif(:'app_role', ''), 'openbrf_app') AS app_role
 \gset
 
+\getenv app_connection_limit RUNTIME_DB_CONNECTION_LIMIT
+\if :{?app_connection_limit}
+\else
+\set app_connection_limit ''
+\endif
+SELECT coalesce(nullif(:'app_connection_limit', ''), '15') AS app_connection_limit
+\gset
+
 BEGIN;
 
 -- Raised through \gexec because psql does not substitute inside dollar
@@ -61,6 +75,58 @@ SELECT $sql$DO $body$ BEGIN
   RAISE EXCEPTION 'RUNTIME_DB_PASSWORD is not set. See the usage note at the top of this script.';
 END $body$$sql$
 WHERE coalesce(:'app_password', '') = ''
+\gexec
+
+-- The refusals below build their message with format() and raise it with
+-- USING MESSAGE, which takes it as it is: a name holding a % sign or a quote
+-- cannot turn into a placeholder or end the string.
+
+-- What isolating one instance from its neighbours on a shared server rests on
+-- (docs/deployment.md, "Several instances on one database server"). Two of
+-- the three would otherwise fail open, with nothing reported.
+--
+-- Before PostgreSQL 16 a role with CREATEROLE may alter any role that is not a
+-- superuser, including another instance's runtime role, and may grant itself
+-- membership in another instance's owner. A superuser owner is the whole
+-- server's anyway, so the version is checked only for an owner that is not.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('The owner %I holds CREATEROLE on PostgreSQL %s. Before PostgreSQL 16 such a role can alter every other role on the server, the runtime roles of other instances included, so this script refuses to create one here. Upgrade the server to 16 or later.',
+    current_user, current_setting('server_version')))
+FROM pg_roles
+WHERE rolname = current_user
+  AND rolcreaterole
+  AND NOT rolsuper
+  AND current_setting('server_version_num')::int < 160000
+\gexec
+
+-- Only the database's owner, or a member of the role that owns it, may revoke
+-- CONNECT from PUBLIC below. For anybody else PostgreSQL reports the REVOKE as
+-- a warning rather than an error, ON_ERROR_STOP does not fire, and the
+-- database would stay open to every role on the server.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('Database %I is owned by %I, not by %I. Only its owner can close it to the other roles on the server, so the owner that runs this script has to own it: ALTER DATABASE %I OWNER TO %I.',
+    d.datname, pg_get_userbyid(d.datdba), current_user, d.datname, current_user))
+FROM pg_database d
+WHERE d.datname = current_database()
+  AND NOT pg_has_role(current_user, d.datdba, 'MEMBER')
+\gexec
+
+-- A runtime role that another database already grants CONNECT to is another
+-- instance's: this script grants CONNECT on exactly one database. Taking it
+-- over would reset that instance's password and give one role both databases.
+-- PostgreSQL 16 refuses the ALTER ROLE below to an owner that did not create
+-- the role, but not to a superuser owner, which is what the bundled database
+-- makes of POSTGRES_USER.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('Role %I is granted CONNECT on %s as well, so it belongs to another instance on this server. Give this instance a runtime role of its own in RUNTIME_DB_ROLE.',
+    :'app_role', string_agg(format('%I', d.datname), ', ' ORDER BY d.datname)))
+FROM pg_database d
+CROSS JOIN LATERAL aclexplode(d.datacl) AS acl
+JOIN pg_roles r ON r.oid = acl.grantee
+WHERE r.rolname = :'app_role'
+  AND acl.privilege_type = 'CONNECT'
+  AND d.datname <> current_database()
+HAVING count(*) > 0
 \gexec
 
 -- Ownership outranks every privilege granted below, in two different ways.
@@ -121,13 +187,17 @@ WHERE rolname = :'app_role'
 -- holds CREATEROLE. From PostgreSQL 16 such a role may alter only the roles it
 -- created, so one instance's owner reaching for another's runtime role fails
 -- here rather than taking it over.
+--
+-- The connection limit is cast here, so a value that is not a whole number
+-- stops the script instead of reaching the statement as text.
 SELECT format(
   CASE
     WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
-      THEN 'ALTER ROLE %I WITH LOGIN PASSWORD %L'
-    ELSE 'CREATE ROLE %I WITH LOGIN PASSWORD %L'
+      THEN 'ALTER ROLE %I WITH LOGIN CONNECTION LIMIT %s PASSWORD %L'
+    ELSE 'CREATE ROLE %I WITH LOGIN CONNECTION LIMIT %s PASSWORD %L'
   END,
   :'app_role',
+  (:'app_connection_limit')::integer,
   :'app_password')
 \gexec
 
@@ -153,6 +223,29 @@ SELECT format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), :'app_ro
 -- with - monitoring, a backup user - is granted CONNECT explicitly
 -- (docs/deployment.md).
 SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', current_database())
+\gexec
+
+-- And checked afterwards rather than trusted. A grant to PUBLIC made by a
+-- role other than the owner survives the owner's REVOKE, again with no more
+-- than a warning, and an ACL that was never written still means the default:
+-- CONNECT for everyone.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('Database %I is still open to every role on the server, or not open to %I by a grant of its own. Revoke CONNECT from PUBLIC as the role that granted it, then start again.',
+    d.datname, :'app_role'))
+FROM pg_database d
+WHERE d.datname = current_database()
+  AND (
+    d.datacl IS NULL
+    OR EXISTS (
+      SELECT 1 FROM aclexplode(d.datacl) AS acl
+      WHERE acl.grantee = 0 AND acl.privilege_type = 'CONNECT'
+    )
+    OR NOT EXISTS (
+      SELECT 1 FROM aclexplode(d.datacl) AS acl
+      JOIN pg_roles r ON r.oid = acl.grantee
+      WHERE r.rolname = :'app_role' AND acl.privilege_type = 'CONNECT'
+    )
+  )
 \gexec
 GRANT USAGE ON SCHEMA public TO :"app_role";
 

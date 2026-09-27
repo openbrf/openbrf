@@ -1522,16 +1522,26 @@ describe("two instances sharing one database server", () => {
     readonly ownerPassword: string;
     readonly role: string;
     readonly rolePassword: string;
+    /** RUNTIME_DB_CONNECTION_LIMIT, empty for the script's own default. */
+    readonly connectionLimit: string;
   }
 
-  /** Roles and databases are the whole server's, so both carry the run. */
-  const [first, second] = (["a", "b"] as const).map((label): Instance => ({
-    database: `openbrf_share_${label}_${suffix}`,
-    owner: `openbrf_share_owner_${label}_${suffix}`,
-    ownerPassword: `share-owner-${label}-${suffix}`,
-    role: `openbrf_share_app_${label}_${suffix}`,
-    rolePassword: `share-runtime-${label}-${suffix}`,
-  })) as [Instance, Instance];
+  /** Roles and databases are the whole server's, so each carries the run. */
+  function instance(label: string, connectionLimit = ""): Instance {
+    return {
+      database: `openbrf_share_${label}_${suffix}`,
+      owner: `openbrf_share_owner_${label}_${suffix}`,
+      ownerPassword: `share-owner-${label}-${suffix}`,
+      role: `openbrf_share_app_${label}_${suffix}`,
+      rolePassword: `share-runtime-${label}-${suffix}`,
+      connectionLimit,
+    };
+  }
+
+  const first = instance("a");
+  const second = instance("b", "7");
+  /** Instances a test sets up for itself, dropped with the two above. */
+  const others: Instance[] = [];
 
   /** The suite's server, as one user, on one database. */
   function connectionUrl(
@@ -1566,10 +1576,21 @@ describe("two instances sharing one database server", () => {
   /**
    * Applies the hardening script as one instance's owner, the way the
    * entrypoint does: the owner's password in PGPASSWORD, the runtime role's
-   * name and password in RUNTIME_DB_ROLE and RUNTIME_DB_PASSWORD, and none of
-   * them in an argument.
+   * name, password and connection limit in RUNTIME_DB_ROLE,
+   * RUNTIME_DB_PASSWORD and RUNTIME_DB_CONNECTION_LIMIT, and none of them in an
+   * argument.
    */
   function applyHardening(instance: Instance): void {
+    const refusal = hardeningRefusal(instance);
+    if (refusal !== undefined) {
+      throw new Error(
+        `psql could not apply harden-runtime-role.sql as ${instance.owner}:\n${refusal}`,
+      );
+    }
+  }
+
+  /** What psql said when the script stopped, or undefined when it ran. */
+  function hardeningRefusal(instance: Instance): string | undefined {
     try {
       execFileSync(
         "docker",
@@ -1585,6 +1606,8 @@ describe("two instances sharing one database server", () => {
           "RUNTIME_DB_ROLE",
           "--env",
           "RUNTIME_DB_PASSWORD",
+          "--env",
+          "RUNTIME_DB_CONNECTION_LIMIT",
           postgresImage(),
           "psql",
           "--quiet",
@@ -1602,19 +1625,28 @@ describe("two instances sharing one database server", () => {
             PGPASSWORD: instance.ownerPassword,
             RUNTIME_DB_ROLE: instance.role,
             RUNTIME_DB_PASSWORD: instance.rolePassword,
+            RUNTIME_DB_CONNECTION_LIMIT: instance.connectionLimit,
           },
           stdio: ["pipe", "pipe", "pipe"],
           timeout: 120_000,
         },
       );
+      return undefined;
     } catch (cause) {
       const output = cause as { stdout?: Buffer; stderr?: Buffer };
-      throw new Error(
-        `psql could not apply harden-runtime-role.sql as ${instance.owner}:\n` +
-          `${output.stdout?.toString() ?? ""}${output.stderr?.toString() ?? ""}`,
-        { cause },
-      );
+      return `${output.stdout?.toString() ?? ""}${output.stderr?.toString() ?? ""}`;
     }
+  }
+
+  /** An owner role, and the database a test makes it owner of or not. */
+  async function createOwner(
+    instance: Instance,
+    attributes: string,
+  ): Promise<void> {
+    others.push(instance);
+    await prisma.$executeRawUnsafe(
+      `CREATE ROLE ${instance.owner} LOGIN ${attributes} PASSWORD '${instance.ownerPassword}'`,
+    );
   }
 
   /** Who a session opened as, or the SQLSTATE the server refused it with. */
@@ -1679,16 +1711,32 @@ describe("two instances sharing one database server", () => {
   }, 180_000);
 
   afterAll(async () => {
+    // Each drop on its own: roles and databases outlive the suite on a shared
+    // server, so one that fails - after a beforeAll that stopped halfway, say -
+    // must not leave the rest behind. The first failure is reported once all
+    // have been tried.
+    const failures: unknown[] = [];
+    const attempt = async (sql: string): Promise<void> => {
+      try {
+        await prisma.$executeRawUnsafe(sql);
+      } catch (error) {
+        failures.push(error);
+      }
+    };
+    const instances = [first, second, ...others];
     // The databases first: the runtime roles' grants live in them, and a role
     // holding a grant cannot be dropped.
-    for (const instance of [first, second]) {
-      await prisma.$executeRawUnsafe(
+    for (const instance of instances) {
+      await attempt(
         `DROP DATABASE IF EXISTS ${instance.database} WITH (FORCE)`,
       );
     }
-    for (const instance of [first, second]) {
-      await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${instance.role}`);
-      await prisma.$executeRawUnsafe(`DROP ROLE IF EXISTS ${instance.owner}`);
+    for (const instance of instances) {
+      await attempt(`DROP ROLE IF EXISTS ${instance.role}`);
+      await attempt(`DROP ROLE IF EXISTS ${instance.owner}`);
+    }
+    if (failures.length > 0) {
+      throw failures[0];
     }
   });
 
@@ -1724,6 +1772,63 @@ describe("two instances sharing one database server", () => {
     expect(
       await connectAs(first.role, first.rolePassword, first.database),
     ).toEqual({ user: first.role });
+  }, 120_000);
+
+  it("caps each runtime role's connections", async () => {
+    // One instance, or a plugin running inside it, must not be able to take
+    // every connection the server has. Fifteen unless the entrypoint says
+    // otherwise: the default pool, the job queue's two and three to spare.
+    const limits = await prisma.$queryRawUnsafe<
+      { rolname: string; rolconnlimit: number }[]
+    >(
+      "SELECT rolname, rolconnlimit FROM pg_roles WHERE rolname IN ($1, $2)",
+      first.role,
+      second.role,
+    );
+    expect(
+      Object.fromEntries(limits.map((row) => [row.rolname, row.rolconnlimit])),
+    ).toEqual({ [first.role]: 15, [second.role]: 7 });
+  });
+
+  it("refuses a runtime role another instance's database already grants", async () => {
+    // A superuser owner is what the bundled database makes of POSTGRES_USER,
+    // and PostgreSQL lets it alter any role. Only the script stands between it
+    // and the first instance's runtime role when the two names collide.
+    const third: Instance = { ...instance("c"), role: first.role };
+    await createOwner(third, "SUPERUSER");
+    await prisma.$executeRawUnsafe(
+      `CREATE DATABASE ${third.database} OWNER ${third.owner}`,
+    );
+
+    expect(hardeningRefusal(third)).toContain(
+      "so it belongs to another instance on this server",
+    );
+    expect(
+      await connectAs(first.role, first.rolePassword, first.database),
+    ).toEqual({ user: first.role });
+  }, 120_000);
+
+  it("refuses a database its owner does not own", async () => {
+    // A hosting service that creates the database as its own administrator
+    // and hands the instance's owner CREATE on it. The owner could not revoke
+    // PUBLIC's CONNECT there, PostgreSQL would say so only in a warning, and
+    // the database would stay open to every role on the server.
+    const fourth = instance("d");
+    await createOwner(fourth, "CREATEROLE");
+    await prisma.$executeRawUnsafe(`CREATE DATABASE ${fourth.database}`);
+    await prisma.$executeRawUnsafe(
+      `GRANT CREATE ON DATABASE ${fourth.database} TO ${fourth.owner}`,
+    );
+
+    expect(hardeningRefusal(fourth)).toContain(
+      `Only its owner can close it to the other roles on the server`,
+    );
+    expect(
+      await prisma.$queryRawUnsafe<{ rolname: string }[]>(
+        "SELECT rolname FROM pg_roles WHERE rolname = $1",
+        fourth.role,
+      ),
+    ).toEqual([]);
   }, 120_000);
 
   it("keeps each instance's owner away from the other's runtime role", async () => {

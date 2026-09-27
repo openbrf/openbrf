@@ -62,6 +62,19 @@ const DEFAULT_RUNTIME_ROLE = "openbrf_app";
 const ROLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 
 /**
+ * Names that pass ROLE_NAME but that PostgreSQL will not create as a role: it
+ * reserves public and none, and the other three are keywords that name the
+ * session's user wherever a role is expected.
+ */
+const RESERVED_ROLE_NAMES = new Set([
+  "public",
+  "none",
+  "current_user",
+  "current_role",
+  "session_user",
+]);
+
+/**
  * Parses a connection URL, or refuses it when it cannot be read as one.
  *
  * libpq accepts one shape the URL parser rejects: an authority whose host is
@@ -143,7 +156,8 @@ function ownerUser() {
  *     the name wherever it uses it, but a name that needs quoting is a name an
  *     operator types differently in psql than in this variable, and one longer
  *     than 63 characters is silently shortened by the server;
- *   - a name beginning with pg_, which PostgreSQL reserves for its own roles;
+ *   - a name beginning with pg_, which PostgreSQL reserves for its own roles,
+ *     and the few others it will not create a role under;
  *   - the owner's own name. The script would then set the owner's password and
  *     the application would connect as the owner, which can disable the
  *     triggers that keep the member register and the audit log append-only.
@@ -165,6 +179,12 @@ export function runtimeRole() {
     throw new Error(
       "RUNTIME_DB_ROLE may not begin with pg_, which PostgreSQL reserves for " +
         "its own roles.",
+    );
+  }
+  if (RESERVED_ROLE_NAMES.has(role)) {
+    throw new Error(
+      "RUNTIME_DB_ROLE may not be public, none, current_user, current_role or " +
+        "session_user, which PostgreSQL reserves.",
     );
   }
   if (role === ownerUser()) {
