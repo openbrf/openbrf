@@ -1,4 +1,9 @@
-# Open BRF
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/openbrf-lockup-on-dark.svg">
+    <img src="docs/brand/openbrf-lockup.svg" alt="Open BRF" height="48">
+  </picture>
+</h1>
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/openbrf/openbrf/badge)](https://scorecard.dev/viewer/?uri=github.com/openbrf/openbrf)
 
@@ -45,6 +50,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [DESIGN.md](DESIGN.md) | The "Porttavlan" design system - required reading for UI changes |
 | [PRODUCT.md](PRODUCT.md) | Product scope, users, and principles |
 | [TRADEMARK.md](TRADEMARK.md) | Name and logo policy - fork the code, not the name |
+| [docs/brand](docs/brand/README.md) | The logo files, their colours and how to place them |
 | [CLA.md](CLA.md) | Contributor License Agreement |
 
 ## Language

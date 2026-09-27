@@ -176,6 +176,12 @@ Every colour, the type scale, the radii, the spacing and the board's measurement
 are in [docs/design-refs/porttavlan.md](docs/design-refs/porttavlan.md), with the
 deliberate divergences.
 
+## Logo
+
+The Open BRF mark is a building front with one window lit in brass, set beside the wordmark in Familjen Grotesk Bold. The files, their colours and the rules for placing them are in [docs/brand](docs/brand/README.md).
+
+It is artwork, not a component. Its colours are fixed and no theme or accent override reaches them, so the lit window is the one brass on screen that does not mean trust: it belongs to the mark, not to a state. In the client the logo appears only outside the application frame (sign-in, activation, account request, setup and app consent) and as the favicon. Inside the frame the band carries the association's identity, never the platform's.
+
 ## Layout
 
 The board topology: a fixed dark top band (64px) carries the association identity and, from 1024px, the navigation as a row of section signs; content lives in the light room below (20-40px padding); the register itself is a full-width dark board panel with 1px rail dividers between rows (9-12px vertical padding, 24px horizontal). The register is grouped by floor like a physical porttavla: thin group rows on `--tavla-2` ("ENTREPLAN 10XX", "PLAN 1 11XX", ...) following Lantmateriet apartment numbering. Fixed regions swap content, never position. Spacing on a 4-base scale (4/8/12/16/24/32/48). Below 1024px the dark header and a bottom bar of three destinations and Meny frame a light room; touch targets minimum 44px.

@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 import { OAuthConsentScreen } from "../connected-apps/OAuthConsentScreen";
+import { OpenBrfLogo } from "../ui/OpenBrfLogo";
 
 /**
  * The consent screen sits in the room, without the application frame.
@@ -25,6 +26,7 @@ export function OAuthConsentRoute(): ReactElement {
   return (
     <div className="min-h-screen bg-page px-4 py-10">
       <div className="mx-auto w-full max-w-2xl">
+        <OpenBrfLogo className="mb-8" />
         <OAuthConsentScreen
           authorizationRequest={window.location.search}
           onGranted={(redirectUri) => {

@@ -12,6 +12,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
+import { OpenBrfLogo } from "../ui/OpenBrfLogo";
 import { acceptInvitation } from "./activate-api";
 
 /**
@@ -145,6 +146,7 @@ export function ActivateScreen({
 
   return (
     <div className="mx-auto flex w-full max-w-sm flex-col gap-5 py-10">
+      <OpenBrfLogo className="mb-3" />
       <header className="flex flex-col gap-1">
         <h1 className="text-headline">{t("activate.heading")}</h1>
         <p className="text-body text-ink-muted">{t("activate.intro")}</p>
