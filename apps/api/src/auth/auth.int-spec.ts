@@ -454,8 +454,8 @@ describe("the user-update surface", () => {
       headers: { cookie },
     });
 
-    expect(update.statusCode).toBeGreaterThanOrEqual(400);
-    expect(update.statusCode).toBeLessThan(500);
+    // 404 from the closed path, not the 400 that `input: false` would give.
+    expect(update.statusCode).toBe(404);
 
     const user = await prisma.user.findUniqueOrThrow({
       where: { email: plain.email },
