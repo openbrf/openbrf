@@ -256,7 +256,8 @@ describe("closing a request", () => {
         answer = resolve;
       }),
     );
-    const row = renderSection(aRequest());
+    const onChanged = vi.fn();
+    const row = renderSection(aRequest(), onChanged);
 
     await userEvent.click(row.getByRole("button", { name: "Avsluta" }));
     await userEvent.type(
@@ -283,14 +284,17 @@ describe("closing a request", () => {
         .value,
     ).toBe("Personen återkallade begäran.");
     expect((toggle as HTMLButtonElement).disabled).toBe(false);
+    // A refusal that says nothing about the row leaves the list as it is.
+    expect(onChanged).not.toHaveBeenCalled();
   });
 
-  it("says why when the closure is refused", async () => {
+  it("says why when the closure is refused, and reloads the closed row", async () => {
     closeDataSubjectRequest.mockResolvedValue({
       ok: false,
       failure: { status: 409, reason: "already-closed" },
     });
-    const row = renderSection(GRANTED_RESTRICTION);
+    const onChanged = vi.fn();
+    const row = renderSection(GRANTED_RESTRICTION, onChanged);
 
     await userEvent.click(row.getByRole("button", { name: "Avsluta" }));
     await userEvent.type(
@@ -300,6 +304,8 @@ describe("closing a request", () => {
     await userEvent.click(row.getByRole("button", { name: "Avsluta begäran" }));
 
     expect(await row.findByText("Begäran är redan avslutad.")).not.toBeNull();
+    // Someone else closed it, so the list is reloaded to show that closure.
+    expect(onChanged).toHaveBeenCalledTimes(1);
     // And the form is back to a press that can be retried.
     expect(
       (

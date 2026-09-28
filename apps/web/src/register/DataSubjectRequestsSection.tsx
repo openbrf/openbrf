@@ -1,6 +1,7 @@
-import { useRef, useState, type ReactElement } from "react";
+import { useCallback, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import {
   closeDataSubjectRequest,
   decideDataSubjectRequest,
@@ -258,6 +259,7 @@ function RequestRow({
                 setActing(null);
                 onChanged();
               }}
+              onStale={onChanged}
               onCancel={() => {
                 setActing(null);
               }}
@@ -296,11 +298,13 @@ function CloseForm({
   request,
   onSending,
   onClosed,
+  onStale,
   onCancel,
 }: {
   request: DataSubjectRequestView;
   onSending: (sending: boolean) => void;
   onClosed: () => void;
+  onStale: () => void;
   onCancel: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -314,7 +318,25 @@ function CloseForm({
    */
   const inFlight = useRef(false);
 
-  const save = useSaveAction(closeDataSubjectRequest, onClosed);
+  /*
+   * "Already closed" means someone else closed it since this list was loaded.
+   * Reload the list so the row shows that closure, and keep this form up
+   * rather than calling onClosed, so the refusal is read before the row
+   * changes.
+   */
+  const refreshIfClosed = useCallback(
+    (failure: ApiFailure) => {
+      if (failure.reason === "already-closed") {
+        onStale();
+      }
+    },
+    [onStale],
+  );
+  const save = useSaveAction(
+    closeDataSubjectRequest,
+    onClosed,
+    refreshIfClosed,
+  );
   const saving = save.state.kind === "saving";
 
   return (
