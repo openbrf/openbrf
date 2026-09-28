@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
 import { type Env, isLoopbackHost } from "../config/env";
@@ -65,12 +65,35 @@ export interface MailDescription {
 }
 
 @Injectable()
-export class MailSettingsResolver {
+export class MailSettingsResolver implements OnModuleInit {
+  private readonly logger = new Logger(MailSettingsResolver.name);
+
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
   ) {}
+
+  /**
+   * Says at start that the host's relay may be signed in to in the clear.
+   *
+   * OPENBRF_SMTP_REQUIRE_TLS=false is a decision about the network, which the
+   * instance cannot check, so it is not left to be found in a packet capture.
+   */
+  onModuleInit(): void {
+    const mail = this.fromEnvironment();
+    if (
+      mail?.driver === "smtp" &&
+      !mail.server.secure &&
+      this.env.OPENBRF_SMTP_REQUIRE_TLS === false
+    ) {
+      this.logger.warn(
+        `OPENBRF_SMTP_REQUIRE_TLS is false: when ${mail.server.host}:${mail.server.port} ` +
+          "offers no STARTTLS, the sign-in and every message go to it in " +
+          "cleartext. Set this only for a relay on a network you trust.",
+      );
+    }
+  }
 
   /**
    * Where the mail is decided, without reading anything but the environment.
@@ -233,12 +256,13 @@ export class MailSettingsResolver {
         port: env.OPENBRF_SMTP_PORT ?? defaultPortFor(secure),
         secure,
         /*
-         * Encrypted before the sign-in, unless the relay is on this machine.
-         * The host's credentials may send for a domain many associations
-         * share, so a relay that stops offering STARTTLS is a failure to act
-         * on rather than a password sent in the clear.
+         * Encrypted before the sign-in, unless the relay is on this machine or
+         * the host says the network to it is trusted. The host's credentials
+         * may send for a domain many associations share, so a relay that stops
+         * offering STARTTLS is a failure to act on rather than a password sent
+         * in the clear.
          */
-        requireTls: !isLoopbackHost(host),
+        requireTls: env.OPENBRF_SMTP_REQUIRE_TLS ?? !isLoopbackHost(host),
         user: env.OPENBRF_SMTP_USER ?? null,
         password: env.OPENBRF_SMTP_PASSWORD ?? null,
       },

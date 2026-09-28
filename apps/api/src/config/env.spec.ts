@@ -263,6 +263,24 @@ describe("the mail driver's variables", () => {
     ).toBe(false);
   });
 
+  it('reads the STARTTLS opt-out as "true" or "false" and names anything else', () => {
+    // Only the exact word turns the requirement off.
+    for (const value of ["FALSE", "0", "no"]) {
+      expect(problems({ ...SMTP, OPENBRF_SMTP_REQUIRE_TLS: value })).toEqual([
+        'OPENBRF_SMTP_REQUIRE_TLS: must be "true" or "false"',
+      ]);
+    }
+    expect(
+      loadEnv({ ...REQUIRED, ...SMTP, OPENBRF_SMTP_REQUIRE_TLS: "false" })
+        .OPENBRF_SMTP_REQUIRE_TLS,
+    ).toBe(false);
+    expect(
+      problems({ ...HTTP_API, OPENBRF_SMTP_REQUIRE_TLS: "false" }),
+    ).toEqual([
+      'OPENBRF_SMTP_REQUIRE_TLS: belongs to the "smtp" mail driver, and OPENBRF_MAIL_DRIVER is "http-api"',
+    ]);
+  });
+
   it("trims the display name and refuses a blank one", () => {
     expect(problems({ ...SMTP, OPENBRF_MAIL_FROM_NAME: "   " })).toEqual([
       "OPENBRF_MAIL_FROM_NAME: must not be blank",
