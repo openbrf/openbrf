@@ -1754,7 +1754,7 @@
       "identityMismatch": "Paketet beskriver inte det tema katalogen listade.",
       "lintFailed": "Temat avvisades:",
       "notInCatalog": "Katalogen listar inte längre det temat.",
-      "entryDeprecated": "Katalogen anger att det temat inte underhålls längre, så det kan bara uppdateras där det redan är installerat.",
+      "entryDeprecated": "Katalogen anger att det temat inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
       "themeNotInstalled": "Det temat är inte installerat.",
       "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
       "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",

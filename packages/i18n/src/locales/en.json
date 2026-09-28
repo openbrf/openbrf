@@ -1754,7 +1754,7 @@
       "identityMismatch": "The package does not describe the theme the catalog listed.",
       "lintFailed": "The theme was refused:",
       "notInCatalog": "The catalog no longer lists that theme.",
-      "entryDeprecated": "The catalog marks that theme as no longer maintained, so it can only be updated where it is already installed.",
+      "entryDeprecated": "The catalog marks that theme as no longer maintained, so it can only be reinstalled or updated where it is already installed.",
       "themeNotInstalled": "That theme is not installed.",
       "builtInTheme": "The default theme is built into the application and cannot be removed.",
       "themeInUse": "That theme is the active one. Switch to another theme first.",
