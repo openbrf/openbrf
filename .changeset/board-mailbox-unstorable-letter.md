@@ -14,3 +14,6 @@ restarting, out of connections or resources, a statement cancelled or timed
 out, a lock or a write conflict - or an error that is not an answer from the
 database at all is not recorded against the letter, which is tried again on
 the next run.
+
+Reading an HTML letter as text now takes time in proportion to the letter's
+length, however its whitespace is laid out.

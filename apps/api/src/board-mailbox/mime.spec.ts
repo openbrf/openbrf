@@ -758,4 +758,18 @@ describe("htmlToText", () => {
       "Etttva\ttre\nfyra",
     );
   });
+
+  it("drops the spaces and tabs that end a line", () => {
+    expect(htmlToText("<p>Ett \t </p>tva\t<br>tre   fyra")).toBe(
+      "Ett\ntva\ntre   fyra",
+    );
+  });
+
+  it("reads a long run of spaces with no line break after it in linear time", () => {
+    const started = performance.now();
+    const text = htmlToText(`<p>${" ".repeat(200_000)}x</p>`);
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(text).toBe("x");
+  });
 });

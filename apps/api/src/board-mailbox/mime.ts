@@ -919,10 +919,11 @@ export function htmlToText(html: string): string {
     index = markup.end;
   }
 
-  return withoutControlCharacters(
-    normaliseNewlines(decodeEntities(pieces.join(""))),
+  return withoutTrailingBlanks(
+    withoutControlCharacters(
+      normaliseNewlines(decodeEntities(pieces.join(""))),
+    ),
   )
-    .replaceAll(/[ \t]+\n/g, "\n")
     .replaceAll(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -1165,4 +1166,25 @@ const CONTROLS_IN_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g;
  */
 function withoutControlCharacters(text: string): string {
   return text.replaceAll(CONTROLS_IN_TEXT, "");
+}
+
+/**
+ * The text with the spaces and tabs that end each line removed.
+ *
+ * This is a scan rather than a pattern on purpose. A pattern such as
+ * `/[ \t]+\n/g` starts again at every space of a run that no line break
+ * follows, so its cost grows with the square of the run's length, and a body
+ * is as long as the sender chose.
+ */
+function withoutTrailingBlanks(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      let end = line.length;
+      while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t")) {
+        end -= 1;
+      }
+      return end === line.length ? line : line.slice(0, end);
+    })
+    .join("\n");
 }
