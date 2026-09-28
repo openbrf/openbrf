@@ -237,3 +237,23 @@ it("names the kind it submitted, not the one on screen when the answer lands", a
     ),
   ).toBeTruthy();
 });
+it("says the date is not on the calendar rather than asking to try again", async () => {
+  // Trying again with the same impossible date fails the same way, so the
+  // general fallback would send the board round in a loop.
+  moveIn.mockResolvedValue({
+    ok: false,
+    failure: { status: 400, reason: "date-not-a-calendar-date" },
+  });
+  const session = userEvent.setup();
+  render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+  await session.click(
+    await screen.findByRole("button", { name: CHOOSE_PERSON }),
+  );
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  expect(await screen.findByText(/finns inte i kalendern/)).toBeTruthy();
+  expect(screen.queryByText(/Försök igen/)).toBeNull();
+});

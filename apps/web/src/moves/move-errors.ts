@@ -24,6 +24,7 @@ const MESSAGES: Record<MoveErrorReason, TranslationKey> = {
   "transfer-person-not-found": "moves.errors.transferPersonNotFound",
   "transfer-reference-required": "moves.errors.transferReferenceRequired",
   "grant-has-no-seller": "moves.errors.grantHasNoSeller",
+  "date-not-a-calendar-date": "moves.errors.dateNotACalendarDate",
 };
 
 export function failureMessage(reason: string): TranslationKey {
