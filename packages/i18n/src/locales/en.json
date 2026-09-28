@@ -4609,6 +4609,7 @@
         "riskInconsistent": "IMY is notified unless the breach is unlikely to result in a risk. Change the risk or the decision.",
         "subjectsGroundRequired": "At a high risk, not telling the people affected needs a ground under art. 34(3).",
         "delayReasonsRequired": "A notification made after 72 hours carries the reasons for the delay.",
+        "notifiedOutOfRange": "The date IMY was notified comes after the breach was discovered, and cannot be in the future.",
         "alreadyDecided": "This breach has already been decided.",
         "alreadySubject": "That person is already recorded on this breach.",
         "personalIdentityNumber": "Write it without a personal identity number.",

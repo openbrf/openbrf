@@ -4609,6 +4609,7 @@
         "riskInconsistent": "IMY underrättas om det inte är osannolikt att incidenten medför en risk. Ändra risken eller beslutet.",
         "subjectsGroundRequired": "Vid hög risk krävs ett skäl enligt art. 34.3 för att inte underrätta de registrerade.",
         "delayReasonsRequired": "En underrättelse efter 72 timmar ska åtföljas av skälen för dröjsmålet.",
+        "notifiedOutOfRange": "Datumet då IMY underrättades ska ligga efter att incidenten upptäcktes och kan inte ligga i framtiden.",
         "alreadyDecided": "Incidenten är redan beslutad.",
         "alreadySubject": "Personen är redan antecknad på incidenten.",
         "personalIdentityNumber": "Skriv utan personnummer.",

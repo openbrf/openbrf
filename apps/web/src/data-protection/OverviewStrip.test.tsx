@@ -22,7 +22,8 @@ const QUIET: DataProtectionOverview = {
     awaitingDecision: 0,
     notificationOwed: 0,
     overdue: 0,
-    nearestDeadline: null,
+    nearestDecisionDeadline: null,
+    nearestNotificationDeadline: null,
   },
   requests: { open: 0, overdue: 0 },
   processors: { notRecorded: 0, pending: 0 },
@@ -61,7 +62,8 @@ describe("when something is waiting", () => {
             awaitingDecision: 2,
             notificationOwed: 0,
             overdue: 1,
-            nearestDeadline: "2026-09-01T00:00:00.000Z",
+            nearestDecisionDeadline: null,
+            nearestNotificationDeadline: null,
           },
         }}
       />,
@@ -88,7 +90,8 @@ describe("when something is waiting", () => {
             awaitingDecision: 1,
             notificationOwed: 0,
             overdue: 0,
-            nearestDeadline: inTwelveHours,
+            nearestDecisionDeadline: inTwelveHours,
+            nearestNotificationDeadline: null,
           },
         }}
       />,
@@ -120,7 +123,8 @@ describe("when something is waiting", () => {
             awaitingDecision: 0,
             notificationOwed: 1,
             overdue: 0,
-            nearestDeadline: inTwelveHours,
+            nearestDecisionDeadline: null,
+            nearestNotificationDeadline: inTwelveHours,
           },
         }}
       />,
@@ -129,6 +133,39 @@ describe("when something is waiting", () => {
     expect(
       screen.getByText(
         "1 personuppgiftsincident är beslutad och IMY är ännu inte underrättad, 12 timmar kvar.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names both a decision and a notification owed, each with its own hours", () => {
+    /*
+     * Two different acts with two different clocks. Naming only the decision
+     * would hide the notification still owed, and hours taken from the nearer
+     * of the two would put the notification's clock beside the decision.
+     */
+    const hoursFromRead = (hours: number): string =>
+      new Date(READ_AT.getTime() + hours * 60 * 60 * 1000).toISOString();
+
+    render(
+      <OverviewStrip
+        readAt={READ_AT}
+        overview={{
+          ...QUIET,
+          breaches: {
+            awaitingDecision: 2,
+            notificationOwed: 1,
+            overdue: 0,
+            nearestDecisionDeadline: hoursFromRead(40),
+            nearestNotificationDeadline: hoursFromRead(5),
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "2 personuppgiftsincidenter väntar på beslut, 40 timmar kvar för den närmaste. " +
+          "1 personuppgiftsincident är beslutad och IMY är ännu inte underrättad, 5 timmar kvar.",
       ),
     ).toBeTruthy();
   });

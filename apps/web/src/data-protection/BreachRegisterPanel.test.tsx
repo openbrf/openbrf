@@ -212,4 +212,103 @@ describe("a breach decided with IMY still owed", () => {
       expect(onDecided).toHaveBeenCalledTimes(1);
     });
   });
+
+  /** Opens the notification form on one owed breach. */
+  function openTheNotification(breach: BreachView): void {
+    render(<BreachRegisterPanel breaches={[breach]} onDecided={() => {}} />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Anteckna underrättelsen till IMY om ${breach.title}`,
+      }),
+    );
+  }
+
+  it("offers no moment before the discovery or after now", () => {
+    /*
+     * The server refuses both, and a notified-at in the future would take the
+     * breach off the clock with IMY still told nothing. The control says so
+     * before the board member picks one.
+     */
+    vi.useFakeTimers({ now: new Date("2026-09-06T12:00:30.000Z") });
+    try {
+      openTheNotification({
+        ...OWED,
+        discoveredAt: "2026-08-30T09:00:30.000Z",
+      });
+
+      const field = screen.getByLabelText("Underrättad till IMY");
+      // The first whole minute not before the discovery, and the minute now.
+      expect(field.getAttribute("min")).toBe(
+        toWallClockForTest(new Date("2026-08-30T09:01:00.000Z")),
+      );
+      expect(field.getAttribute("max")).toBe(
+        toWallClockForTest(new Date("2026-09-06T12:00:00.000Z")),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the reference already recorded when only the date is saved", async () => {
+    /*
+     * The form opens on the reference the record holds, and a save that does
+     * not change it leaves it out of the request - sending null for an empty
+     * field would clear a reference IMY gave.
+     */
+    openTheNotification({ ...OWED, imyReference: "IMY-2026-1234" });
+
+    expect(
+      (
+        screen.getByLabelText(
+          "IMY:s diarienummer (frivilligt)",
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("IMY-2026-1234");
+
+    fireEvent.change(screen.getByLabelText("Underrättad till IMY"), {
+      target: { value: "2026-09-06T13:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Skäl för dröjsmålet (art. 33.1)"), {
+      target: { value: "Styrelsen kunde inte sammanträda förrän nu." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Spara underrättelsen" }),
+    );
+
+    await waitFor(() => {
+      expect(updateBreach).toHaveBeenCalledTimes(1);
+    });
+    const sent = updateBreach.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty("imyReference");
+  });
+
+  it("says why a date outside the breach is refused", async () => {
+    updateBreach.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "notified-out-of-range" },
+    });
+    openTheNotification(OWED);
+
+    fireEvent.change(screen.getByLabelText("Underrättad till IMY"), {
+      target: { value: "2026-09-06T13:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Skäl för dröjsmålet (art. 33.1)"), {
+      target: { value: "Styrelsen kunde inte sammanträda förrän nu." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Spara underrättelsen" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Datumet då IMY underrättades ska ligga efter att incidenten upptäcktes och kan inte ligga i framtiden.",
+      ),
+    ).toBeTruthy();
+  });
 });
+
+/** The wall clock a datetime-local control holds, in the test's own zone. */
+function toWallClockForTest(instant: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${String(instant.getFullYear())}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}T${pad(instant.getHours())}:${pad(instant.getMinutes())}`;
+}

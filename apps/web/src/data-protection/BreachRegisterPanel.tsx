@@ -33,6 +33,7 @@ const REASON: Record<string, TranslationKey> = {
     "dataProtection.breaches.errors.subjectsGroundRequired",
   "delay-reasons-required":
     "dataProtection.breaches.errors.delayReasonsRequired",
+  "notified-out-of-range": "dataProtection.breaches.errors.notifiedOutOfRange",
   "already-decided": "dataProtection.breaches.errors.alreadyDecided",
   "already-subject": "dataProtection.breaches.errors.alreadySubject",
   "personal-identity-number":
@@ -197,6 +198,37 @@ function toInstant(wallClock: string): string | null {
 }
 
 /**
+ * The reverse of `toInstant`: an instant as the wall clock a datetime-local
+ * control holds, in the reader's own zone.
+ */
+function toWallClock(instant: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${String(instant.getFullYear())}-${pad(instant.getMonth() + 1)}-` +
+    `${pad(instant.getDate())}T${pad(instant.getHours())}:` +
+    `${pad(instant.getMinutes())}`
+  );
+}
+
+/**
+ * The moments a notification can have been made in: not before the breach was
+ * discovered, and not later than now. The server refuses either end; the
+ * control says so before the board member picks a date it would refuse.
+ *
+ * The field holds whole minutes. The earliest is the first whole minute at or
+ * after the discovery, so the control never offers a minute that is still
+ * before it.
+ */
+function notifiedAtRange(breach: BreachView): { min: string; max: string } {
+  const minute = 60 * 1000;
+  const discovered = new Date(breach.discoveredAt).getTime();
+  return {
+    min: toWallClock(new Date(Math.ceil(discovered / minute) * minute)),
+    max: toWallClock(new Date()),
+  };
+}
+
+/**
  * A notification later than the bound carries the reasons for the delay
  * (art. 33(1)). Asked for on the screen the moment the date makes it needed,
  * rather than only refused by the server afterwards.
@@ -298,6 +330,7 @@ function DecideForm({
         <input
           className={FIELD}
           type="datetime-local"
+          {...notifiedAtRange(breach)}
           value={imyNotifiedAt}
           onChange={(event) => {
             setImyNotifiedAt(event.target.value);
@@ -385,7 +418,9 @@ function NotificationForm({
 }): ReactElement {
   const { t } = useTranslation();
   const [imyNotifiedAt, setImyNotifiedAt] = useState("");
-  const [imyReference, setImyReference] = useState("");
+  // The reference already recorded, if one was, so saving the date does not
+  // clear it.
+  const [imyReference, setImyReference] = useState(breach.imyReference ?? "");
   const [delayReasons, setDelayReasons] = useState(breach.delayReasons ?? "");
 
   const save = useSaveAction(updateBreach, () => {
@@ -401,7 +436,11 @@ function NotificationForm({
         event.preventDefault();
         void save.submit(breach.breachId, {
           imyNotifiedAt: toInstant(imyNotifiedAt),
-          imyReference: imyReference === "" ? null : imyReference,
+          // Only when it was changed: omitted, the reference the record
+          // already holds stays as it is.
+          ...(imyReference !== (breach.imyReference ?? "")
+            ? { imyReference: imyReference === "" ? null : imyReference }
+            : {}),
           // Only when the date asks for them: omitted, the reasons the record
           // already holds stay as they are.
           ...(late
@@ -418,6 +457,7 @@ function NotificationForm({
           className={FIELD}
           type="datetime-local"
           required
+          {...notifiedAtRange(breach)}
           value={imyNotifiedAt}
           onChange={(event) => {
             setImyNotifiedAt(event.target.value);

@@ -457,6 +457,47 @@ describe("breaches", () => {
     );
   });
 
+  it("refuses a notification before the discovery or in the future, on both routes", async () => {
+    /*
+     * Either is a record that cannot be true, and the future one is worse than
+     * wrong: a notified-at takes the breach off the 72-hour clock, so a date
+     * still to come would stop the clock on a breach IMY knows nothing about.
+     */
+    const discoveredAt = discoveredHoursAgo(2);
+    const view = await recorded({ discoveredAt });
+    const beforeDiscovery = new Date(
+      new Date(discoveredAt).getTime() - 60 * 60 * 1000,
+    ).toISOString();
+    const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    for (const imyNotifiedAt of [beforeDiscovery, inAnHour]) {
+      const decided = await decide(view.breachId, { imyNotifiedAt });
+      expect(decided.statusCode).toBe(400);
+      expect(reasonOf(decided)).toBe("notified-out-of-range");
+    }
+
+    const decided = await decide(view.breachId, {});
+    expect(decided.statusCode).toBe(200);
+
+    for (const imyNotifiedAt of [beforeDiscovery, inAnHour]) {
+      const updated = await inject({
+        method: "PUT",
+        url: `/api/data-protection/breaches/${view.breachId}`,
+        payload: { imyNotifiedAt },
+        headers: { cookie: boardCookie },
+      });
+      expect(updated.statusCode).toBe(400);
+      expect(reasonOf(updated)).toBe("notified-out-of-range");
+    }
+
+    // The clock is still running: nothing refused was written.
+    const row = await prisma.personalDataBreach.findUniqueOrThrow({
+      where: { id: view.breachId },
+      select: { imyNotifiedAt: true },
+    });
+    expect(row.imyNotifiedAt).toBeNull();
+  });
+
   it("holds the delay-reasons rule across two corrections arriving together", async () => {
     /*
      * The rule spans three columns - the discovery instant the bound is counted
@@ -1810,12 +1851,40 @@ describe("overview", () => {
     const overview = response.json<DataProtectionOverview>();
 
     expect(overview.breaches.awaitingDecision).toBeGreaterThan(0);
-    expect(overview.breaches.nearestDeadline).not.toBeNull();
+    expect(overview.breaches.nearestDecisionDeadline).not.toBeNull();
     // No later than this breach's own bound: it is the nearest or something
     // else is nearer.
     expect(
-      new Date(overview.breaches.nearestDeadline ?? "").getTime(),
+      new Date(overview.breaches.nearestDecisionDeadline ?? "").getTime(),
     ).toBeLessThanOrEqual(new Date(view.imyNotifyBy).getTime());
+  });
+
+  it("keeps the bound of an owed notification apart from the bounds awaiting a decision", async () => {
+    /*
+     * The strip puts hours beside each count. Taken from one bound shared by
+     * both sets, an owed notification an hour old would be shown as the
+     * nearest bound on the breaches awaiting a decision.
+     */
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(71) });
+    const decided = await decide(view.breachId, {});
+    expect(decided.statusCode).toBe(200);
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/overview",
+      headers: { cookie: boardCookie },
+    });
+    const overview = response.json<DataProtectionOverview>();
+    const bound = new Date(view.imyNotifyBy).getTime();
+
+    // Discovered 71 hours ago: nothing else in this file is nearer.
+    expect(overview.breaches.nearestNotificationDeadline).toBe(
+      new Date(bound).toISOString(),
+    );
+    const decision = overview.breaches.nearestDecisionDeadline;
+    expect(decision === null || new Date(decision).getTime() > bound).toBe(
+      true,
+    );
   });
 
   it("counts a breach decided with IMY still owed, and as overdue past the bound", async () => {

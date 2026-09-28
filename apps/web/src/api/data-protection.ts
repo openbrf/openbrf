@@ -259,7 +259,8 @@ export interface DataProtectionOverview {
     awaitingDecision: number;
     notificationOwed: number;
     overdue: number;
-    nearestDeadline: string | null;
+    nearestDecisionDeadline: string | null;
+    nearestNotificationDeadline: string | null;
   };
   requests: { open: number; overdue: number };
   processors: { notRecorded: number; pending: number };

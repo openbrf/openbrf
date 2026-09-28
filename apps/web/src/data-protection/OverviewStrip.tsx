@@ -36,33 +36,49 @@ export function OverviewStrip({
 }: OverviewStripProps): ReactElement {
   const { t } = useTranslation();
 
-  const hoursLeft =
-    overview.breaches.nearestDeadline === null
-      ? null
-      : Math.round(
-          (new Date(overview.breaches.nearestDeadline).getTime() -
-            readAt.getTime()) /
-            (60 * 60 * 1000),
-        );
+  const { breaches } = overview;
+
+  /*
+   * A breach awaiting a decision and one whose notification is owed are
+   * different acts, so each count is said with the hours left on its own
+   * nearest bound. Both are said when both are waiting: naming only the first
+   * would hide a notification that is still owed.
+   */
+  const breachSentences =
+    breaches.overdue > 0
+      ? [
+          t("dataProtection.overview.breachesOverdue", {
+            count: breaches.overdue,
+          }),
+        ]
+      : [
+          ...(breaches.awaitingDecision > 0
+            ? [
+                t("dataProtection.overview.breachesWaiting", {
+                  count: breaches.awaitingDecision,
+                  hours: hoursUntil(breaches.nearestDecisionDeadline, readAt),
+                }),
+              ]
+            : []),
+          ...(breaches.notificationOwed > 0
+            ? [
+                t("dataProtection.overview.breachesNotificationOwed", {
+                  count: breaches.notificationOwed,
+                  hours: hoursUntil(
+                    breaches.nearestNotificationDeadline,
+                    readAt,
+                  ),
+                }),
+              ]
+            : []),
+        ];
 
   return (
     <ul className="flex flex-col gap-2">
       <li className={HINT}>
-        {overview.breaches.overdue > 0
-          ? t("dataProtection.overview.breachesOverdue", {
-              count: overview.breaches.overdue,
-            })
-          : overview.breaches.awaitingDecision > 0
-            ? t("dataProtection.overview.breachesWaiting", {
-                count: overview.breaches.awaitingDecision,
-                hours: hoursLeft ?? 0,
-              })
-            : overview.breaches.notificationOwed > 0
-              ? t("dataProtection.overview.breachesNotificationOwed", {
-                  count: overview.breaches.notificationOwed,
-                  hours: hoursLeft ?? 0,
-                })
-              : t("dataProtection.overview.breachesNone")}
+        {breachSentences.length > 0
+          ? breachSentences.join(" ")
+          : t("dataProtection.overview.breachesNone")}
       </li>
       <li className={HINT}>
         {overview.requests.overdue > 0
@@ -97,4 +113,13 @@ export function OverviewStrip({
       </li>
     </ul>
   );
+}
+
+/** Whole hours from the read to a bound, or none when no bound is running. */
+function hoursUntil(deadline: string | null, readAt: Date): number {
+  return deadline === null
+    ? 0
+    : Math.round(
+        (new Date(deadline).getTime() - readAt.getTime()) / (60 * 60 * 1000),
+      );
 }

@@ -7,7 +7,8 @@ import { DomainError } from "../http/domain-error";
  *
  * The 400s are a record that would contradict itself: a decision saying IMY
  * need not be told about something the board also called a risk, a
- * notification made after the bound with no reasons for the delay. GDPR
+ * notification made after the bound with no reasons for the delay, or before
+ * the breach was discovered or at a moment still to come. GDPR
  * art. 33 requires the record to be able to demonstrate compliance, and a
  * record that says two things at once demonstrates nothing.
  *
@@ -27,6 +28,7 @@ export class BreachError extends DomainError {
       | "risk-inconsistent"
       | "subjects-ground-required"
       | "delay-reasons-required"
+      | "notified-out-of-range"
       | "already-decided"
       | "not-decided"
       | "imy-notification-owed"

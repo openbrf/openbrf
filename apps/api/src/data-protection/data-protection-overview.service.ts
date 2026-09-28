@@ -15,8 +15,16 @@ export interface DataProtectionOverview {
     notificationOwed: number;
     /** Past the 72-hour bound with the decision or the notification owed. */
     overdue: number;
-    /** The nearest 72-hour bound still running, as an ISO instant. */
-    nearestDeadline: string | null;
+    /**
+     * The nearest 72-hour bound still running on a breach awaiting a decision,
+     * as an ISO instant.
+     */
+    nearestDecisionDeadline: string | null;
+    /**
+     * The nearest 72-hour bound still running on a breach whose notification is
+     * owed, as an ISO instant.
+     */
+    nearestNotificationDeadline: string | null;
   };
   requests: { open: number; overdue: number };
   processors: { notRecorded: number; pending: number };
@@ -78,28 +86,21 @@ export class DataProtectionOverviewService {
 
     const states = breaches.map((breach) => breachState(breach, now));
 
-    /*
-     * Bounds that are still running. An expired bound is the most overdue
-     * breach, which `overdue` above already counts: presenting it here as the
-     * next deadline would put a past instant where the board looks for the
-     * clock that has yet to run out.
-     */
-    const deadlines = breaches
-      .map((breach) => computeBreachDeadline(breach.discoveredAt).getTime())
-      .filter((deadline) => deadline > now.getTime())
-      .sort((left, right) => left - right);
+    const undecided = breaches.filter((breach) => breach.decidedAt === null);
+    const owed = breaches.filter((breach) => breach.decidedAt !== null);
 
     return {
       breaches: {
-        awaitingDecision: breaches.filter((breach) => breach.decidedAt === null)
-          .length,
-        notificationOwed: breaches.filter((breach) => breach.decidedAt !== null)
-          .length,
+        awaitingDecision: undecided.length,
+        notificationOwed: owed.length,
         overdue: states.filter((state) => state === "overdue").length,
-        nearestDeadline:
-          deadlines[0] === undefined
-            ? null
-            : new Date(deadlines[0]).toISOString(),
+        /*
+         * One bound for each set. The strip says how long is left beside each
+         * count, and hours taken from an owed notification would put the wrong
+         * clock beside the breaches awaiting a decision.
+         */
+        nearestDecisionDeadline: nearestRunningDeadline(undecided, now),
+        nearestNotificationDeadline: nearestRunningDeadline(owed, now),
       },
       requests: {
         open: requests.length,
@@ -123,4 +124,23 @@ export class DataProtectionOverviewService {
       },
     };
   }
+}
+
+/**
+ * The nearest 72-hour bound still running among these breaches.
+ *
+ * An expired bound is left out. It is the most overdue breach, which `overdue`
+ * already counts: presenting it as the next deadline would put a past instant
+ * where the board looks for the clock that has yet to run out.
+ */
+function nearestRunningDeadline(
+  breaches: readonly { discoveredAt: Date }[],
+  now: Date,
+): string | null {
+  const running = breaches
+    .map((breach) => computeBreachDeadline(breach.discoveredAt).getTime())
+    .filter((deadline) => deadline > now.getTime());
+  return running.length === 0
+    ? null
+    : new Date(Math.min(...running)).toISOString();
 }
