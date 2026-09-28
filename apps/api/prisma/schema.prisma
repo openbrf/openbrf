@@ -6506,6 +6506,11 @@ model BoardMailboxAttachment {
 /// mailbox stop a collection before it reaches the mail behind them. This is the
 /// row that remembers one: the identifier, and why it was left.
 ///
+/// The purge writes here too. Erasing a thread erases the rows that remembered
+/// its letters, and the letters are still in the mailbox, so the purge records
+/// each one's identifier in the same transaction or the next collection would
+/// store it again.
+///
 /// Only for a letter that nothing will ever change about. A message too large to
 /// fetch is not here - it is never read, so it costs a listing line and no more -
 /// and neither is one a retrieval failed on, because that is a mailbox having a

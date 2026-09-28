@@ -10,6 +10,7 @@ import { failureName } from "../logging/failure";
 import { MediaError, MediaService } from "../media/media.service";
 import { BoardMailboxError } from "./board-mailbox.error";
 import { COLLECTION_REFUSALS } from "./board-mailbox-delivery";
+import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
   mailboxFingerprint,
@@ -510,6 +511,20 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       return "already-held";
     }
 
+    const occurredAt = trustedDate(parsed.date, now);
+    if (occurredAt.getTime() <= boardMailboxPurgeCutoff(now).getTime()) {
+      /*
+       * A letter already past the retention window when it is first read.
+       *
+       * The date is the one the thread would be anchored on, so storing it
+       * would keep a letter the purge is due to erase that night. Not stored,
+       * and recorded as read: time only moves one way, so no later run will
+       * judge it differently.
+       */
+      await this.ignoreMessage(uid, COLLECTION_REFUSALS.pastRetention);
+      return "skipped";
+    }
+
     if (parsed.fromAddress === null) {
       /*
        * A letter the board could not answer if it wanted to.
@@ -567,7 +582,6 @@ export class BoardMailboxCollectorService implements OnModuleInit {
      */
     const stored = await this.storeAttachments(parsed.attachments);
 
-    const occurredAt = trustedDate(parsed.date, now);
     const body = parsed.text.slice(0, MAX_BODY_CHARACTERS);
 
     try {

@@ -65,6 +65,25 @@ export const COLLECTION_REFUSALS = {
    * no later run will find one: the bytes in the mailbox do not change.
    */
   noSenderAddress: "no-sender-address",
+
+  /**
+   * The message was stored once and its thread has since been purged.
+   *
+   * Nothing is deleted from the mailbox, so the letter is still there after its
+   * thread is gone. Without this the next run would collect it again under its
+   * old date, and the purge would erase it again the night after, for as long
+   * as the mailbox keeps it.
+   */
+  purged: "purged",
+
+  /**
+   * The message is dated before the retention window, on the day it is first
+   * read.
+   *
+   * Storing it would keep a letter the purge is due to erase that night, and
+   * time only moves one way, so no later run would decide differently.
+   */
+  pastRetention: "past-retention",
 } as const;
 
 export type CollectionRefusal =
