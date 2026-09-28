@@ -1,3 +1,9 @@
+import {
+  BlindIndex,
+  CipherSweet,
+  EncryptedField,
+  StringProvider,
+} from "ciphersweet-js";
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -57,6 +63,49 @@ describe("FieldEncryptionService", () => {
     await expect(service.decrypt("person.email", cipher)).resolves.toBe(
       "Anna.Lindqvist@Exempel.SE",
     );
+  });
+
+  it.each([
+    ["a Swedish name", "Åsa Öberg"],
+    ["letters above U+00FF", "Łukasz Żółć, Ольга, 李"],
+    ["a character outside the BMP", "Åsa 🏠"],
+    ["a leading byte order mark", "\uFEFFÅsa"],
+  ])("round-trips %s unchanged", async (_label, value) => {
+    const { cipher } = await service.encrypt("importSession.rows", value);
+
+    await expect(service.decrypt("importSession.rows", cipher)).resolves.toBe(
+      value,
+    );
+  });
+
+  it("still reads a value encrypted before the plaintext was UTF-8", async () => {
+    // What encrypt stored until it passed bytes: the library's own conversion
+    // of the string, latin1, where "Å" is the single byte C5.
+    const legacy = new EncryptedField(
+      new CipherSweet(new StringProvider(TEST_ENV.OPENBRF_ENCRYPTION_KEY!)),
+      "person",
+      "email",
+    );
+    const cipher = await legacy.encryptValue("åsa.öberg@exempel.se");
+
+    await expect(service.decrypt("person.email", cipher)).resolves.toBe(
+      "åsa.öberg@exempel.se",
+    );
+  });
+
+  it("keeps the blind index a non-ASCII address already has", async () => {
+    // Computed from the string, as it always was: a stored index moving would
+    // hide the address from search.
+    const legacy = new EncryptedField(
+      new CipherSweet(new StringProvider(TEST_ENV.OPENBRF_ENCRYPTION_KEY!)),
+      "person",
+      "email",
+    ).addBlindIndex(new BlindIndex("idx", [], 32, true));
+    const stored = await legacy.getBlindIndex("åsa@exempel.se", "idx");
+
+    await expect(
+      service.computeIndex("person.email", "Åsa@Exempel.se"),
+    ).resolves.toBe(stored);
   });
 
   it("produces a different ciphertext each time for the same input", async () => {

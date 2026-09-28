@@ -280,7 +280,14 @@ export class FieldEncryptionService {
     const spec = FIELD_SPECS[id];
     const field = this.fieldFor(id);
 
-    const cipher = await field.encryptValue(plaintext);
+    // The library turns a string into bytes as latin1, one byte per UTF-16
+    // code unit, which keeps "Å" as the single byte C5 and cuts anything above
+    // U+00FF down to its low byte. Handing it the UTF-8 bytes is what lets
+    // decrypt give back the value as entered. The published types take a
+    // string; the library takes the Buffer as it is (Util.toBuffer).
+    const cipher = await field.encryptValue(
+      Buffer.from(plaintext, "utf8") as unknown as string,
+    );
     const index = spec.indexed ? await this.computeIndex(id, plaintext) : null;
 
     return { cipher, index };
@@ -292,7 +299,17 @@ export class FieldEncryptionService {
     // directly against a string silently fails, which is why this conversion
     // lives in one place.
     const plaintext = await this.fieldFor(id).decryptValue(cipher);
-    return plaintext.toString("utf8");
+    try {
+      // ignoreBOM keeps a leading U+FEFF that was part of the value.
+      return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+        plaintext,
+      );
+    } catch {
+      // A value encrypted before encrypt passed UTF-8 bytes holds latin1, and
+      // a latin1 "å" is never valid UTF-8. Read that way it comes back as
+      // entered, as long as it held nothing above U+00FF.
+      return plaintext.toString("latin1");
+    }
   }
 
   /**
@@ -333,6 +350,12 @@ export class FieldEncryptionService {
       return null;
     }
 
+    // Still the string, and so still latin1 inside the library, unlike the
+    // ciphertext. An index is only compared, never read back, and every index
+    // already stored was computed this way: passing UTF-8 bytes would move
+    // every non-ASCII address to a new index and hide it from search. The cost
+    // is that characters above U+00FF share an index with their low byte,
+    // which a 32-bit index already allows for.
     const calculated = await this.fieldFor(id).getBlindIndex(
       normalized,
       INDEX_NAME,
