@@ -95,6 +95,7 @@ const SETTINGS: InstanceSettings = {
     user: null,
     fromAddress: "styrelsen@exempel.se",
     passwordSet: true,
+    tlsOptional: false,
     configured: true,
   },
   boardMailbox: {

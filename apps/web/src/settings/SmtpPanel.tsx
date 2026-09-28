@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useId, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -30,6 +30,15 @@ export interface SmtpPanelProps {
 const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mail-not-configured": "settings.smtp.errors.notConfigured",
   "no-email": "settings.smtp.errors.noEmail",
+  // The server set up no TLS, so nothing was sent to it. The remedy is the
+  // port and the TLS mode, which the generic failure's advice does not name.
+  "mail-tls-unavailable": "settings.smtp.errors.tlsUnavailable",
+};
+
+/** The same failures, for mail the board cannot change. */
+const ENVIRONMENT_TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  ...TEST_FAILURES,
+  "mail-tls-unavailable": "settings.smtp.errors.environmentTlsUnavailable",
 };
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -104,7 +113,7 @@ function EnvironmentMailPanel({
             {t(
               failureMessageKey(
                 test.state.failure,
-                TEST_FAILURES,
+                ENVIRONMENT_TEST_FAILURES,
                 // Not the form's advice: this card shows no server, port or
                 // password, and the board cannot change them.
                 "settings.smtp.errors.environmentUnknown",
@@ -177,13 +186,18 @@ function StoredSmtpPanel({
   const [clearPassword, setClearPassword] = useState(false);
   const [fromAddress, setFromAddress] = useState(value.fromAddress ?? "");
   const [configured, setConfigured] = useState(value.configured);
+  const [tlsOptional, setTlsOptional] = useState(value.tlsOptional);
   /** Where the last test went, so the confirmation can name the mailbox. */
   const [testedAddress, setTestedAddress] = useState<string | null>(null);
+  const secureHintId = useId();
 
   const save = useSaveAction(saveSmtp, (saved) => {
     setPassword("");
     setClearPassword(false);
     setConfigured(saved.configured);
+    if (saved.source === "settings") {
+      setTlsOptional(saved.tlsOptional);
+    }
     onSaved?.(saved);
   });
   const test = useSaveAction(sendSmtpTest, (result) => {
@@ -244,6 +258,11 @@ function StoredSmtpPanel({
           <Notice tone="ok" live>
             {t("settings.saved")}
           </Notice>
+        ) : tlsOptional ? (
+          /* Settings saved before saving required TLS: they still send, and
+             the sign-in goes out unencrypted where STARTTLS is not offered or
+             is stripped on the way. Saving again requires it. */
+          <Notice tone="warn">{t("settings.smtp.tlsOptional")}</Notice>
         ) : configured ? (
           <Notice tone="ok">{t("settings.smtp.configured")}</Notice>
         ) : (
@@ -348,26 +367,32 @@ function StoredSmtpPanel({
           </label>
         ) : null}
 
-        <label className="flex min-h-11 items-center gap-2 text-small">
-          <input
-            type="checkbox"
-            name="smtpSecure"
-            checked={secure}
-            disabled={!editable}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setSecure(next);
-              // The two transports listen on different ports, so a port still
-              // sitting on the other mode's default follows the switch. A port
-              // the administrator actually typed is left alone.
-              if (port === defaultPortFor(!next) || port === "") {
-                setPort(defaultPortFor(next));
-              }
-            }}
-            className="size-4"
-          />
-          {t("settings.smtp.secure")}
-        </label>
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-11 items-center gap-2 text-small">
+            <input
+              type="checkbox"
+              name="smtpSecure"
+              aria-describedby={secureHintId}
+              checked={secure}
+              disabled={!editable}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setSecure(next);
+                // The two transports listen on different ports, so a port still
+                // sitting on the other mode's default follows the switch. A port
+                // the administrator actually typed is left alone.
+                if (port === defaultPortFor(!next) || port === "") {
+                  setPort(defaultPortFor(next));
+                }
+              }}
+              className="size-4"
+            />
+            {t("settings.smtp.secure")}
+          </label>
+          <span id={secureHintId} className={HINT}>
+            {t("settings.smtp.secureHint")}
+          </span>
+        </div>
 
         {editable ? (
           <div className="flex flex-wrap gap-3">

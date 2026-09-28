@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -177,7 +184,52 @@ function compose(args: readonly string[], timeoutMs: number): void {
  */
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+  writeMailTls();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+/** Where mailpit's certificate and key are written, beside the overlay. */
+const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls");
+
+/**
+ * A certificate for mailpit, made for this run.
+ *
+ * The application requires STARTTLS of an SMTP server that is not on its own
+ * loopback, and verifies the certificate, so mailpit needs one issued to the
+ * name the application dials. Self-signed and trusted by the application alone,
+ * through NODE_EXTRA_CA_CERTS in the overlay. Made fresh rather than committed,
+ * so no private key sits in the repository, and short-lived for the same
+ * reason. Readable by anyone, because the containers do not run as the user
+ * who wrote it; it protects nothing outside this stack.
+ */
+function writeMailTls(): void {
+  rmSync(MAIL_TLS_DIR, { recursive: true, force: true });
+  mkdirSync(MAIL_TLS_DIR);
+  const key = join(MAIL_TLS_DIR, "mailpit.key");
+  const certificate = join(MAIL_TLS_DIR, "mailpit.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "7",
+      "-subj",
+      `/CN=${stack.smtpHost}`,
+      "-addext",
+      `subjectAltName=DNS:${stack.smtpHost}`,
+      "-keyout",
+      key,
+      "-out",
+      certificate,
+    ],
+    { stdio: ["ignore", "ignore", "inherit"], timeout: 60_000 },
+  );
+  chmodSync(key, 0o644);
+  chmodSync(certificate, 0o644);
 }
 
 export function stopStack(): void {

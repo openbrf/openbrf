@@ -724,6 +724,12 @@ that only these containers share. The instance logs a warning at start while it
 is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
 loopback too.
 
+A server the board enters in the settings is held to the same rule once the
+settings are saved. Settings saved by an earlier version keep sending as they
+did, STARTTLS or not, and the SMTP card says so until they are saved again; save
+them and send a test message after upgrading. A test that fails because the
+server offers no TLS says that, and nothing, the password included, was sent.
+
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that
 identifier, and a relay that writes its own (Amazon SES's SMTP interface does)
