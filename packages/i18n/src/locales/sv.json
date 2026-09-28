@@ -1094,6 +1094,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Krypterad anslutning (TLS)",
+      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587), och ingenting skickas till en server som inte erbjuder det, om den inte körs på den här maskinen.",
       "user": "Användarnamn",
       "password": "Lösenord",
       "passwordKept": "Ett lösenord är sparat. Lämna fältet tomt för att behålla det, eller töm det för att ta bort det.",
@@ -1104,14 +1105,17 @@
       "testSent": "Ett testmeddelande är på väg till {{email}}.",
       "notConfigured": "E-post är inte inställt, så inbjudningar och inloggningslänkar kan inte skickas. Ingen kan bjudas in innan det är gjort.",
       "configured": "E-post är inställt.",
+      "tlsOptional": "Inställningarna sparades innan en krypterad anslutning krävdes, så lösenordet skickas okrypterat om servern inte erbjuder STARTTLS. Spara dem igen för att kräva kryptering och skicka sedan ett testmeddelande.",
       "environment": "E-post skickas av den som driver instansen, via {{host}} från {{fromAddress}}.",
       "environmentHint": "Den ställs in där instansen körs och kan inte ändras här.",
       "errors": {
         "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
         "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
         "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
+        "tlsUnavailable": "Servern upprättade ingen krypterad anslutning, så ingenting skickades till den, inte heller lösenordet. Kontrollera att servern erbjuder STARTTLS på den här porten, eller kryssa i krypterad anslutning och använd port 465.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
-        "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem."
+        "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
+        "environmentTlsUnavailable": "Meddelandet kunde inte skickas eftersom e-postservern inte upprättade någon krypterad anslutning. E-posten sköts av den som driver instansen, så kontakta dem."
       },
       "test": {
         "subject": "Testmeddelande från {{association}}",

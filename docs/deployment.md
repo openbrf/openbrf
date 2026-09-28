@@ -259,6 +259,12 @@ not offer it is a failed send rather than a password sent in the clear. Only a
 relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
 with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
 
+A server the board enters in the settings is held to the same rule once the
+settings are saved. Settings saved by an earlier version keep sending as they
+did, STARTTLS or not, and the SMTP card says so until they are saved again; save
+them and send a test message after upgrading. A test that fails because the
+server offers no TLS says that, and nothing, the password included, was sent.
+
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that
 identifier, and a relay that writes its own (Amazon SES's SMTP interface does)

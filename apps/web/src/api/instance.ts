@@ -53,6 +53,11 @@ export interface StoredSmtpSettings {
   fromAddress: string | null;
   /** Whether a password is stored. The password itself never leaves the API. */
   passwordSet: boolean;
+  /**
+   * Whether the sign-in can go out unencrypted: saved before saving required
+   * TLS, with no implicit TLS, to a host not on loopback. Saving again ends it.
+   */
+  tlsOptional: boolean;
   /** Whether the instance can send mail at all. */
   configured: boolean;
 }
