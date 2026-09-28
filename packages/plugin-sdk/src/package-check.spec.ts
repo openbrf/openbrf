@@ -223,6 +223,22 @@ describe("pluginPackageProblems", () => {
     ["an optional member call", 'module?.require("lodash");'],
     ["an escaped letter in the name", 'requ\\u0069re("lodash");'],
     ["a braced escape in the name", '\\u{72}equire("lodash");'],
+    ["a braced escape padded with zeros", '\\u{0000072}equire("lodash");'],
+    ["a class's heritage", 'class A extends require("lodash") {}'],
+    [
+      "a class's heritage and a comment",
+      'class A extends require("lodash") /* c */ {}',
+    ],
+    [
+      "a class expression's heritage",
+      'const A = class extends require("lodash") {};',
+    ],
+    [
+      "a member call as heritage",
+      'class A extends module.require("lodash") {}',
+    ],
+    ["an optional call as heritage", 'class A extends require?.("lodash") {}'],
+    ["a constructed heritage", 'class A extends new require("lodash") {}'],
   ])("reports a foreign module required with %s", (_how, line) => {
     expect(problemsWith(line)).toEqual([expect.stringMatching(FOREIGN)]);
   });
@@ -314,10 +330,37 @@ describe("pluginPackageProblems", () => {
     expect(problemsWith('require("lodash"')).toEqual([COMPUTED]);
   });
 
+  // The scanner takes each of these regular expressions for a division, so
+  // the `)` inside it closes the call's parenthesis before a `{`.
+  it.each([
+    ["an arrow function", "require(name, () => { if (a) /) {/.test(b); });"],
+    [
+      "a function",
+      'const f = require(function(){ if(a){} /\\){/; return "lodash" }());',
+    ],
+    [
+      "a statement after a semicolon",
+      "start(); require(name, () => { if (a) /) {/.test(b); });",
+    ],
+  ])(
+    "counts a call whose argument holds a regular expression misread in %s",
+    (_how, line) => {
+      expect(problemsWith(line)).toEqual([COMPUTED]);
+    },
+  );
+
   // Each of these once hid the require after it from the check.
   it.each([
     ["a division after an increment", 'a++ / b; const l = require("lodash");'],
     ["a division after a decrement", 'a-- / b; const l = require("lodash");'],
+    [
+      "a regular expression after a prefix increment",
+      'x = ++/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "a regular expression after a prefix decrement",
+      'x = --/"/.lastIndex; require("lodash");',
+    ],
     ["a line comment ended by CR", '// note\rrequire("lodash");'],
     ["a line comment ended by U+2028", '// note\u2028require("lodash");'],
     ["a line comment ended by U+2029", '// note\u2029require("lodash");'],
