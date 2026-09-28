@@ -227,12 +227,37 @@ test.describe("the board's own data protection records", () => {
     await page.getByLabel("De registrerade ska underrättas").check();
     await page.getByRole("button", { name: "Spara beslutet" }).click();
 
-    // Decided, and the strip is quiet again. The second half matters as much as
-    // the first: a board with nothing waiting has to be told so, because an
+    // Decided that IMY is to be notified, which is not the notification: the
+    // clock keeps running on the row and in the strip until it is recorded.
+    await expect(rowFor(page, title)).toContainText(
+      "Väntar på underrättelse till IMY",
+    );
+    await expect(
+      page.getByText(
+        /personuppgiftsincident(er)? (är beslutad|är beslutade) och IMY är ännu inte underrättad/,
+      ),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", {
+        name: `Anteckna underrättelsen till IMY om ${title}`,
+      })
+      .click();
+    await page
+      .getByLabel("Underrättad till IMY")
+      // An hour ago, as a datetime-local control holds it: after the
+      // discovery and well inside the bound, so no reasons are asked for.
+      .fill(new Date(Date.now() - 60 * 60 * 1000).toISOString().slice(0, 16));
+    await page.getByRole("button", { name: "Spara underrättelsen" }).click();
+
+    // Notified, and the strip is quiet again. The second half matters as much
+    // as the first: a board with nothing waiting has to be told so, because an
     // empty strip reads as a screen that has not finished loading.
     await expect(rowFor(page, title)).toContainText("Beslutad");
     await expect(
-      page.getByText("Ingen personuppgiftsincident väntar på beslut."),
+      page.getByText(
+        "Ingen personuppgiftsincident väntar på beslut eller underrättelse till IMY.",
+      ),
     ).toBeVisible();
   });
 
@@ -274,7 +299,7 @@ test.describe("the board's own data protection records", () => {
 
     await expect(
       page.getByText(
-        /personuppgiftsincident(er)? har passerat 72-timmarsgränsen utan beslut/,
+        /personuppgiftsincident(er)? har passerat 72-timmarsgränsen utan att IMY underrättats/,
       ),
     ).toBeVisible();
     await expect(rowFor(page, title)).toContainText("Över tiden");

@@ -60,7 +60,7 @@ beforeAll(async () => {
   );
 });
 
-function render(locale: "sv" | "en") {
+function render(locale: "sv" | "en", decided = false) {
   return service.renderMail({
     locale,
     template: breachReminderMail,
@@ -69,6 +69,7 @@ function render(locale: "sv" | "en") {
       breachTitle: "Felskickad medlemslista",
       discoveredAt: DISCOVERED_AT,
       notifyBy: NOTIFY_BY,
+      decided,
     },
   });
 }
@@ -119,5 +120,21 @@ describe("the breach reminder", () => {
 
     expect(swedish.text).toContain("beslut");
     expect(english.text).toContain("decided");
+  });
+
+  it("says the notification is owed, not the decision, once the board has decided to notify", async () => {
+    /*
+     * Deciding that IMY is to be notified does not stop the clock, so the
+     * reminder still goes - and telling that board nothing had been decided
+     * would be telling it something its own record contradicts.
+     */
+    const swedish = await render("sv", true);
+    const english = await render("en", true);
+
+    expect(swedish.text).not.toContain("Något beslut är ännu inte fattat");
+    expect(swedish.text).toContain("ingen underrättelse är antecknad");
+    expect(english.text).not.toContain("Nothing has been decided yet");
+    expect(english.text).toContain("no notification is recorded");
+    expect(english.text).toContain("without undue delay");
   });
 });

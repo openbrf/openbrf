@@ -11,6 +11,9 @@ import { ProcessorFactsService } from "./processor-facts.service";
 export interface DataProtectionOverview {
   breaches: {
     awaitingDecision: number;
+    /** Decided that IMY is to be notified, and not notified yet. */
+    notificationOwed: number;
+    /** Past the 72-hour bound with the decision or the notification owed. */
     overdue: number;
     /** The nearest 72-hour bound still running, as an ISO instant. */
     nearestDeadline: string | null;
@@ -43,9 +46,27 @@ export class DataProtectionOverviewService {
 
   async read(now: Date = new Date()): Promise<DataProtectionOverview> {
     const [breaches, requests, coverage, processors] = await Promise.all([
+      /*
+       * Every breach that still owes IMY something: the decision, or the
+       * notification the decision said would be made. Deciding to notify stops
+       * nothing - the 72 hours of art. 33(1) run until the notification is
+       * made.
+       */
       this.prisma.personalDataBreach.findMany({
-        where: { decidedAt: null, closedAt: null },
-        select: { discoveredAt: true, decidedAt: true, closedAt: true },
+        where: {
+          closedAt: null,
+          OR: [
+            { decidedAt: null },
+            { imyNotificationRequired: true, imyNotifiedAt: null },
+          ],
+        },
+        select: {
+          discoveredAt: true,
+          decidedAt: true,
+          closedAt: true,
+          imyNotificationRequired: true,
+          imyNotifiedAt: true,
+        },
       }),
       this.prisma.dataSubjectRequest.findMany({
         where: { decision: null, closedAt: null },
@@ -55,9 +76,7 @@ export class DataProtectionOverviewService {
       this.facts.read().then((facts) => this.processors.list(facts)),
     ]);
 
-    const overdueBreaches = breaches.filter(
-      (breach) => breachState(breach, now) === "overdue",
-    ).length;
+    const states = breaches.map((breach) => breachState(breach, now));
 
     /*
      * Bounds that are still running. An expired bound is the most overdue
@@ -72,8 +91,11 @@ export class DataProtectionOverviewService {
 
     return {
       breaches: {
-        awaitingDecision: breaches.length,
-        overdue: overdueBreaches,
+        awaitingDecision: breaches.filter((breach) => breach.decidedAt === null)
+          .length,
+        notificationOwed: breaches.filter((breach) => breach.decidedAt !== null)
+          .length,
+        overdue: states.filter((state) => state === "overdue").length,
         nearestDeadline:
           deadlines[0] === undefined
             ? null

@@ -29,6 +29,7 @@ export class BreachError extends DomainError {
       | "delay-reasons-required"
       | "already-decided"
       | "not-decided"
+      | "imy-notification-owed"
       | "already-closed"
       | "already-subject",
   ) {
@@ -38,6 +39,7 @@ export class BreachError extends DomainError {
         ? HttpStatus.NOT_FOUND
         : reason === "already-decided" ||
             reason === "not-decided" ||
+            reason === "imy-notification-owed" ||
             reason === "already-closed" ||
             reason === "already-subject"
           ? HttpStatus.CONFLICT

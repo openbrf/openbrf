@@ -57,7 +57,12 @@ export function OverviewStrip({
                 count: overview.breaches.awaitingDecision,
                 hours: hoursLeft ?? 0,
               })
-            : t("dataProtection.overview.breachesNone")}
+            : overview.breaches.notificationOwed > 0
+              ? t("dataProtection.overview.breachesNotificationOwed", {
+                  count: overview.breaches.notificationOwed,
+                  hours: hoursLeft ?? 0,
+                })
+              : t("dataProtection.overview.breachesNone")}
       </li>
       <li className={HINT}>
         {overview.requests.overdue > 0

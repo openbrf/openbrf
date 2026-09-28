@@ -21,11 +21,14 @@ import { BreachRegisterPanel } from "./BreachRegisterPanel";
  */
 
 const decideBreach = vi.fn();
+const updateBreach = vi.fn();
 
 vi.mock("../api/data-protection", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/data-protection")>()),
   decideBreach: (breachId: string, input: unknown) =>
     decideBreach(breachId, input),
+  updateBreach: (breachId: string, input: unknown) =>
+    updateBreach(breachId, input),
 }));
 
 /** Discovered a week ago, so anything notified today is past the bound. */
@@ -68,6 +71,7 @@ const BREACH: BreachView = {
 
 beforeEach(() => {
   decideBreach.mockReset().mockResolvedValue({ ok: true, value: BREACH });
+  updateBreach.mockReset().mockResolvedValue({ ok: true, value: BREACH });
 });
 
 /** Opens the decision form on the one breach the panel is given. */
@@ -125,5 +129,87 @@ describe("the date a notification was made", () => {
       imyNotifiedAt: string | null;
     };
     expect(sent.imyNotifiedAt).toBeNull();
+  });
+});
+
+describe("a breach decided with IMY still owed", () => {
+  /** Decided a week ago that IMY is to be notified, and not notified since. */
+  const OWED: BreachView = {
+    ...BREACH,
+    risk: "LIKELY",
+    imyNotificationRequired: true,
+    imyDecisionGround: "Uppgifterna nådde en obehörig mottagare.",
+    subjectsInformationRequired: false,
+    decidedAt: "2026-08-30T12:00:00.000Z",
+    decidedByPersonId: "board-1",
+    state: "overdue",
+  };
+
+  it("keeps its clock on the row and offers to record the notification", () => {
+    render(<BreachRegisterPanel breaches={[OWED]} onDecided={() => {}} />);
+
+    expect(screen.getByText("Över tiden")).toBeTruthy();
+    expect(
+      screen.getByText("-96 timmar kvar till 72-timmarsgränsen."),
+    ).toBeTruthy();
+    // The decision is made, so the act offered is the notification, not a
+    // second decision the API would refuse.
+    expect(
+      screen.queryByRole("button", { name: `Fatta beslut om ${OWED.title}` }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", {
+        name: `Anteckna underrättelsen till IMY om ${OWED.title}`,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("reads as owed rather than decided while it is inside the bound", () => {
+    render(
+      <BreachRegisterPanel
+        breaches={[{ ...OWED, state: "notificationOwed", hoursLeft: 30 }]}
+        onDecided={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Väntar på underrättelse till IMY")).toBeTruthy();
+    expect(screen.queryByText("Beslutad")).toBeNull();
+  });
+
+  it("records when IMY was notified, as an instant, with the reasons for a late one", async () => {
+    const onDecided = vi.fn();
+    render(<BreachRegisterPanel breaches={[OWED]} onDecided={onDecided} />);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Anteckna underrättelsen till IMY om ${OWED.title}`,
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Underrättad till IMY"), {
+      target: { value: "2026-09-06T13:00" },
+    });
+    fireEvent.change(screen.getByLabelText("IMY:s diarienummer (frivilligt)"), {
+      target: { value: "IMY-2026-1234" },
+    });
+    // Past the bound, so the reasons for the delay are asked for here too.
+    fireEvent.change(screen.getByLabelText("Skäl för dröjsmålet (art. 33.1)"), {
+      target: { value: "Styrelsen kunde inte sammanträda förrän nu." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Spara underrättelsen" }),
+    );
+
+    await waitFor(() => {
+      expect(updateBreach).toHaveBeenCalledTimes(1);
+    });
+    expect(updateBreach).toHaveBeenCalledWith(OWED.breachId, {
+      imyNotifiedAt: new Date("2026-09-06T13:00").toISOString(),
+      imyReference: "IMY-2026-1234",
+      delayReasons: "Styrelsen kunde inte sammanträda förrän nu.",
+    });
+    // The screen re-reads, which is what takes the row off the clock.
+    await waitFor(() => {
+      expect(onDecided).toHaveBeenCalledTimes(1);
+    });
   });
 });

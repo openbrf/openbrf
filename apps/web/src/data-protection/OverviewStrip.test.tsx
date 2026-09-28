@@ -18,7 +18,12 @@ import { OverviewStrip } from "./OverviewStrip";
 const READ_AT = new Date("2026-09-06T12:00:00.000Z");
 
 const QUIET: DataProtectionOverview = {
-  breaches: { awaitingDecision: 0, overdue: 0, nearestDeadline: null },
+  breaches: {
+    awaitingDecision: 0,
+    notificationOwed: 0,
+    overdue: 0,
+    nearestDeadline: null,
+  },
   requests: { open: 0, overdue: 0 },
   processors: { notRecorded: 0, pending: 0 },
   notice: { missingHeadings: 0, published: true },
@@ -29,7 +34,9 @@ describe("when nothing is waiting", () => {
     render(<OverviewStrip overview={QUIET} readAt={READ_AT} />);
 
     expect(
-      screen.getByText("Ingen personuppgiftsincident väntar på beslut."),
+      screen.getByText(
+        "Ingen personuppgiftsincident väntar på beslut eller underrättelse till IMY.",
+      ),
     ).toBeTruthy();
     expect(screen.getByText("Ingen begäran väntar på svar.")).toBeTruthy();
     expect(
@@ -52,6 +59,7 @@ describe("when something is waiting", () => {
           ...QUIET,
           breaches: {
             awaitingDecision: 2,
+            notificationOwed: 0,
             overdue: 1,
             nearestDeadline: "2026-09-01T00:00:00.000Z",
           },
@@ -61,7 +69,7 @@ describe("when something is waiting", () => {
 
     expect(
       screen.getByText(
-        "1 personuppgiftsincident har passerat 72-timmarsgränsen utan beslut.",
+        "1 personuppgiftsincident har passerat 72-timmarsgränsen utan att IMY underrättats.",
       ),
     ).toBeTruthy();
   });
@@ -78,6 +86,7 @@ describe("when something is waiting", () => {
           ...QUIET,
           breaches: {
             awaitingDecision: 1,
+            notificationOwed: 0,
             overdue: 0,
             nearestDeadline: inTwelveHours,
           },
@@ -88,6 +97,38 @@ describe("when something is waiting", () => {
     expect(
       screen.getByText(
         "1 personuppgiftsincident väntar på beslut, 12 timmar kvar.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("does not call a breach settled when the board has decided and IMY is still owed", () => {
+    /*
+     * Deciding that IMY is to be notified is not the notification. A strip
+     * reading "nothing waits" over such a breach would tell the board the
+     * clock had stopped when it has not.
+     */
+    const inTwelveHours = new Date(
+      READ_AT.getTime() + 12 * 60 * 60 * 1000,
+    ).toISOString();
+
+    render(
+      <OverviewStrip
+        readAt={READ_AT}
+        overview={{
+          ...QUIET,
+          breaches: {
+            awaitingDecision: 0,
+            notificationOwed: 1,
+            overdue: 0,
+            nearestDeadline: inTwelveHours,
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "1 personuppgiftsincident är beslutad och IMY är ännu inte underrättad, 12 timmar kvar.",
       ),
     ).toBeTruthy();
   });
