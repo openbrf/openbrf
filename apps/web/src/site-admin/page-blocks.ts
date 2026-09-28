@@ -280,6 +280,7 @@ export function blockText(block: PageBlock): string {
       return "";
     // A block from a newer API: whatever it holds, the API scans it.
     default:
+      block satisfies never;
       return "";
   }
 }
@@ -406,6 +407,7 @@ function worthSending(block: PageBlock): boolean {
      * of the body would delete it, without anybody having asked for that.
      */
     default:
+      block satisfies never;
       return true;
   }
 }

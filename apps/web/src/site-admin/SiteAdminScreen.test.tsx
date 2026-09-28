@@ -506,8 +506,8 @@ describe("the editor", () => {
   describe("blocks this screen does not arrange", () => {
     /*
      * A save carries the whole page, so a block the editor leaves out of the
-     * body is a block the save deletes. Nobody is told: the block is not on
-     * the screen to be missed, and the API stores what it was sent.
+     * body is a block the save deletes from the saved page. Nobody is told:
+     * the editor does not show the block, and the API stores what it was sent.
      */
     async function saveAfterEditing(blocks: PageBlock[]) {
       const page: AdminPage = {
@@ -540,7 +540,7 @@ describe("the editor", () => {
     it("keeps the controller's contact block on the privacy notice", async () => {
       /*
        * Placed by the privacy notice screen, and what the notice needs to say
-       * who is responsible for the processing (GDPR art. 13.1 a). Losing it on
+       * who is responsible for the processing (GDPR art. 13(1)(a)). Losing it on
        * a save to a paragraph leaves a notice that no longer names anyone.
        */
       const edit = await saveAfterEditing([
