@@ -193,6 +193,36 @@ function settle(): Promise<void> {
   });
 }
 
+/**
+ * Resolves once something is queued behind this apartment's residency key,
+ * which in the tests that call it can only be the purge they started.
+ *
+ * Read out of `pg_locks` rather than inferred from a delay, so a purge that
+ * reads the residents without taking the key fails the wait instead of
+ * finishing inside it and passing on timing. `hashtext` gives a signed int4 and
+ * the advisory lock space addresses it as two halves of a bigint, which is what
+ * the shifting reassembles.
+ */
+async function waitForApartmentLockWaiter(apartmentId: string): Promise<void> {
+  const key = `residency-apartment:${apartmentId}`;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+      SELECT count(*) AS locks
+      FROM pg_locks
+      WHERE locktype = 'advisory'
+        AND granted = false
+        AND objsubid = 1
+        AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+        AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+    if ((row?.locks ?? 0n) > 0n) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for the purge to block on the apartment.");
+}
+
 /** This suite's own rows out of a list every other test also writes into. */
 function ownRows(list: DebitingList): DebitingListRow[] {
   return list.rows.filter((row) => row.reason.endsWith(suffix));
@@ -1185,7 +1215,7 @@ describe("the purge", () => {
           new Date("2034-01-01T03:17:00.000+01:00"),
         );
 
-      await settle();
+      await waitForApartmentLockWaiter(secondApartmentId);
       commitImport();
       await residencyImport;
 
