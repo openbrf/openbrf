@@ -64,6 +64,18 @@ const COMPOSE_ARGS = [
   ENV_FILE,
 ];
 
+/**
+ * Where mailpit's certificate and key are written, one directory per profile.
+ *
+ * Each profile writes a new pair on every start, so a shared directory would
+ * let a capture replace the key under a suite run that is still going, and that
+ * run's application would then refuse its own mailpit.
+ */
+const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls", PROJECT_NAME);
+
+/** The environment of every compose call that reads the overlay. */
+const COMPOSE_ENV = { ...process.env, OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR };
+
 /** Reads stack.env so the suite and the stack cannot drift apart. */
 function readStackEnv(): Readonly<Record<string, string>> {
   const entries = readFileSync(ENV_FILE, "utf8")
@@ -170,6 +182,7 @@ export function appPath(path = ""): string {
 function compose(args: readonly string[], timeoutMs: number): void {
   execFileSync("docker", [...COMPOSE_ARGS, ...args], {
     cwd: repositoryRoot,
+    env: COMPOSE_ENV,
     stdio: "inherit",
     timeout: timeoutMs,
   });
@@ -188,9 +201,6 @@ export function startStack(): void {
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
 }
 
-/** Where mailpit's certificate and key are written, beside the overlay. */
-const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls");
-
 /**
  * A certificate for mailpit, made for this run.
  *
@@ -204,7 +214,7 @@ const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls");
  */
 function writeMailTls(): void {
   rmSync(MAIL_TLS_DIR, { recursive: true, force: true });
-  mkdirSync(MAIL_TLS_DIR);
+  mkdirSync(MAIL_TLS_DIR, { recursive: true });
   const key = join(MAIL_TLS_DIR, "mailpit.key");
   const certificate = join(MAIL_TLS_DIR, "mailpit.crt");
   execFileSync(
@@ -360,6 +370,7 @@ function runInService(
       [...COMPOSE_ARGS, "exec", "-T", ...overrides, service, ...command],
       {
         cwd: repositoryRoot,
+        env: COMPOSE_ENV,
         encoding: "utf8",
         timeout: timeoutMs,
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
@@ -462,6 +473,7 @@ export function serviceLogs(
     [...COMPOSE_ARGS, "logs", "--no-color", service],
     {
       cwd: repositoryRoot,
+      env: COMPOSE_ENV,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 60_000,
