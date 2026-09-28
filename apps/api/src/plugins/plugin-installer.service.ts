@@ -67,6 +67,28 @@ const STAGING_RENEWAL_MS = 10_000;
  */
 export const ARCHIVE_TIMEOUT_MS = 5 * 60_000;
 
+/**
+ * How long all of one run's downloads may take together.
+ *
+ * The archives are fetched one after another, so a per-archive deadline alone
+ * bounds a run at one deadline per plugin: a host that stalls every tarball
+ * would hold an instance with five plugins for twenty-five minutes. Each
+ * download gets the shorter of its own deadline and what is left of this.
+ */
+export const FETCH_BUDGET_MS = 8 * 60_000;
+
+/**
+ * How long the queue gives one install job before deciding its worker is gone.
+ *
+ * Written down rather than left at pg-boss's fifteen minutes, because a run
+ * adds up to more than that: up to fifteen minutes waiting for another run to
+ * let go of the tree (install-lock.ts), the download budget above, and five
+ * minutes of npm. A job that expires mid-run is started again beside the one
+ * still running, and a run meant to end in a restart never completes, so the
+ * restart never comes.
+ */
+const INSTALL_JOB_EXPIRE_SECONDS = 30 * 60;
+
 export interface PluginInstallJob {
   /** Which plugin triggered the run. Informational: the run reconciles all. */
   reason: string;
@@ -170,7 +192,11 @@ export class PluginInstallerService
    * process that has them on.
    */
   async enqueue(job: PluginInstallJob): Promise<void> {
-    const id = await this.jobs.send(PLUGIN_INSTALL_QUEUE, { ...job });
+    const id = await this.jobs.send(
+      PLUGIN_INSTALL_QUEUE,
+      { ...job },
+      { expireInSeconds: INSTALL_JOB_EXPIRE_SECONDS },
+    );
     if (job.restart && this.env.OPENBRF_PLUGINS_ENABLED && id !== null) {
       this.restart.expectRestart(id);
     }
@@ -291,9 +317,17 @@ export class PluginInstallerService
 
     const archives = new Map<string, string>();
     const allowUncuratedSources = this.catalog.allowsUncuratedSources();
+    const fetchDeadline = Date.now() + FETCH_BUDGET_MS;
 
     for (const record of records) {
       try {
+        const remaining = fetchDeadline - Date.now();
+        if (remaining <= 0) {
+          throw new Error(
+            `The plugin downloads used their ${String(FETCH_BUDGET_MS)} ms ` +
+              "before this one could start.",
+          );
+        }
         const archive = await ensureArchive(
           paths.pluginArchives,
           record.id,
@@ -302,7 +336,7 @@ export class PluginInstallerService
           {
             headers: this.catalog.authorizationFor(record.tarballUrl),
             allowUncuratedSources,
-            timeoutMs: ARCHIVE_TIMEOUT_MS,
+            timeoutMs: Math.min(ARCHIVE_TIMEOUT_MS, remaining),
           },
         );
         archives.set(record.packageName, archive);
@@ -314,6 +348,10 @@ export class PluginInstallerService
         );
         await this.registry.markFailed(record.id, error);
         outcome.failed.push({ id: record.id, error });
+        // The tree is left as it is from here whatever the rest would do, so
+        // the rest are not fetched: a host that stalls one tarball usually
+        // stalls the next. Their rows keep the status they had.
+        break;
       }
     }
 

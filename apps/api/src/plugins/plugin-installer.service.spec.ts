@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -12,12 +13,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../config/env";
-import { type DataPaths, dataPaths } from "../packaging/data-paths";
-import type { InstallLock } from "./install-lock";
 import {
   ARCHIVE_TIMEOUT_MS,
   buildDependencySet,
   collectAbandonedStaging,
+  FETCH_BUDGET_MS,
   type PluginInstallJob,
   PluginInstallerService,
   type ReconcileOutcome,
@@ -269,48 +269,72 @@ describe("the queue worker", () => {
 });
 
 /**
- * The archive download.
+ * The archive downloads.
  *
  * The byte cap bounds size, not time. A release host that sends its headers
  * and then stalls would otherwise hold the install job - and every run waiting
- * for the tree behind it - for as long as it cared to.
+ * for the tree behind it - for as long as it cared to. And the archives are
+ * fetched one after another, so the bound that matters is the run's, not one
+ * archive's: the job expires under a run that outlasts it.
  */
-describe("the archive download", () => {
+describe("the archive downloads", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
-  it("abandons an archive whose body stalls, at the deadline", async () => {
-    vi.useFakeTimers();
-    let pulled!: () => void;
-    const reading = new Promise<void>((resolve) => {
-      pulled = resolve;
-    });
-    vi.stubGlobal("fetch", () =>
-      Promise.resolve(
-        new Response(
-          new ReadableStream<Uint8Array>({
-            pull() {
-              pulled();
-              return new Promise<void>(() => undefined);
-            },
-          }),
-        ),
-      ),
+  const releaseUrl = (id: string): string =>
+    `https://github.com/openbrf/${id}/releases/download/v1.0.0/${id}.tgz`;
+
+  const record = (id: string, checksum = "sha512-unused"): PluginRecord =>
+    ({
+      id,
+      packageName: `openbrf-plugin-${id}`,
+      version: "1.0.0",
+      tarballUrl: releaseUrl(id),
+      checksum,
+    }) as PluginRecord;
+
+  /** A body that starts and never sends a byte. */
+  const stalled = (): Response =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        pull: () => new Promise<void>(() => undefined),
+      }),
     );
 
+  /**
+   * An installer over `records`, whose release hosts answer with `answer`.
+   *
+   * `fetched` settles once the download of the named archive has begun, which
+   * is after its deadline has started running: only then may a spec move the
+   * clock, or the deadline would start late and the spec prove nothing.
+   */
+  function installer(
+    records: PluginRecord[],
+    answer: (id: string) => Promise<Response>,
+  ) {
+    const started = new Map<string, () => void>();
+    const beginnings = new Map(
+      records.map((each) => [
+        each.id,
+        new Promise<void>((resolve) => started.set(each.id, resolve)),
+      ]),
+    );
+    const requested: string[] = [];
+    vi.stubGlobal("fetch", (url: URL) => {
+      const id = records.find((each) => each.tarballUrl === url.href)?.id;
+      if (id === undefined) {
+        throw new Error(`unexpected fetch of ${url.href}`);
+      }
+      requested.push(id);
+      started.get(id)?.();
+      return answer(id);
+    });
+
     const failed: string[] = [];
-    const record = {
-      id: "occupancy",
-      packageName: "openbrf-plugin-occupancy",
-      version: "1.4.0",
-      tarballUrl:
-        "https://github.com/openbrf/occupancy/releases/download/v1.4.0/o.tgz",
-      checksum: "sha512-unused",
-    } as PluginRecord;
     const registry = {
-      list: () => Promise.resolve([record]),
+      list: () => Promise.resolve(records),
       markFailed: (id: string) => {
         failed.push(id);
         return Promise.resolve();
@@ -320,13 +344,7 @@ describe("the archive download", () => {
       allowsUncuratedSources: () => false,
       authorizationFor: () => ({}),
     };
-
-    class Converging extends PluginInstallerService {
-      run(paths: DataPaths): Promise<ReconcileOutcome> {
-        return this.converge(paths, {} as InstallLock);
-      }
-    }
-    const installer = new Converging(
+    const service = new PluginInstallerService(
       { OPENBRF_DATA_DIR: staging } as Env,
       registry as never,
       {} as never,
@@ -336,25 +354,86 @@ describe("the archive download", () => {
     );
 
     let outcome: ReconcileOutcome | undefined;
-    const converging = installer
-      .run(dataPaths(staging))
-      .then((settled) => (outcome = settled));
+    const reconciling = service.reconcile().then((settled) => {
+      outcome = settled;
+      return settled;
+    });
 
-    // Held here until the body is being read, so the clock only moves once
-    // the deadline is already running.
-    await reading;
+    return {
+      fetched: (id: string): Promise<void> =>
+        beginnings.get(id) ?? Promise.reject(new Error(`no ${id}`)),
+      outcome: () => outcome,
+      reconciling,
+      requested,
+      failed,
+    };
+  }
+
+  const timedOut = expect.stringMatching(/did not finish within/) as string;
+
+  it("abandons an archive whose body stalls, at the deadline", async () => {
+    vi.useFakeTimers();
+    const run = installer([record("occupancy")], () =>
+      Promise.resolve(stalled()),
+    );
+
+    await run.fetched("occupancy");
     await vi.advanceTimersByTimeAsync(ARCHIVE_TIMEOUT_MS - 1);
-    expect(outcome).toBeUndefined();
+    expect(run.outcome()).toBeUndefined();
 
     await vi.advanceTimersByTimeAsync(1);
-    await converging;
+    const outcome = await run.reconciling;
 
-    expect(outcome?.failed).toEqual([
-      {
-        id: "occupancy",
-        error: expect.stringMatching(/did not finish within/) as string,
-      },
-    ]);
-    expect(failed).toEqual(["occupancy"]);
+    expect(outcome.failed).toEqual([{ id: "occupancy", error: timedOut }]);
+    expect(run.failed).toEqual(["occupancy"]);
+  });
+
+  it("does not start the next download once one has failed", async () => {
+    vi.useFakeTimers();
+    const run = installer([record("occupancy"), record("bookings")], () =>
+      Promise.resolve(stalled()),
+    );
+
+    await run.fetched("occupancy");
+    await vi.advanceTimersByTimeAsync(ARCHIVE_TIMEOUT_MS);
+    const outcome = await run.reconciling;
+
+    // One deadline, not one per plugin: the tree was going to be left as it
+    // is either way. The row that was never tried keeps the status it had.
+    expect(run.requested).toEqual(["occupancy"]);
+    expect(outcome.failed).toEqual([{ id: "occupancy", error: timedOut }]);
+    expect(run.failed).toEqual(["occupancy"]);
+  });
+
+  it("ends the run within the budget however slowly each archive arrives", async () => {
+    vi.useFakeTimers();
+    const bytes = Buffer.from("a plugin that took its time");
+    const checksum = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+    // In just under its own deadline, so it succeeds and leaves the next one
+    // only what remains of the run's.
+    const slow = (): Promise<Response> =>
+      new Promise((resolve) =>
+        setTimeout(() => {
+          resolve(new Response(bytes));
+        }, ARCHIVE_TIMEOUT_MS - 1),
+      );
+    const run = installer(
+      [record("occupancy", checksum), record("bookings")],
+      (id) => (id === "occupancy" ? slow() : Promise.resolve(stalled())),
+    );
+
+    await run.fetched("occupancy");
+    await vi.advanceTimersByTimeAsync(ARCHIVE_TIMEOUT_MS - 1);
+    await run.fetched("bookings");
+    await vi.advanceTimersByTimeAsync(FETCH_BUDGET_MS - ARCHIVE_TIMEOUT_MS);
+    expect(run.outcome()).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(1);
+    const outcome = await run.reconciling;
+
+    expect(FETCH_BUDGET_MS).toBeLessThan(2 * ARCHIVE_TIMEOUT_MS);
+    expect(outcome.installed).toEqual(["occupancy"]);
+    expect(outcome.failed).toEqual([{ id: "bookings", error: timedOut }]);
+    expect(run.failed).toEqual(["bookings"]);
   });
 });

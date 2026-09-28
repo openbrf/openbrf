@@ -31,20 +31,14 @@ export function archiveFileName(id: string, version: string): string {
   return `${id}-${safeVersion}.tgz`;
 }
 
-export interface ArchiveStoreOptions {
-  /** Applied to the download request; carries the catalog token when set. */
-  headers?: Record<string, string>;
-  /**
-   * Permits http: and file: artifact URLs.
-   *
-   * Off by default, so a curated instance downloads over https and nothing
-   * else: the artifact URL comes from the catalog, and an entry naming a
-   * `file:` path would otherwise make the instance read its own disk.
-   */
-  allowUncuratedSources?: boolean;
-  /** Abandons the download after this long; see FetchOptions.timeoutMs. */
-  timeoutMs?: number;
-}
+/**
+ * What a download from the store takes: the catalog token in the headers, the
+ * uncurated-sources flag and the deadline, each as FetchOptions describes it.
+ */
+export type ArchiveStoreOptions = Pick<
+  FetchOptions,
+  "headers" | "allowUncuratedSources" | "timeoutMs"
+>;
 
 /**
  * Downloads an artifact into `directory`, verifying its digest.
@@ -76,11 +70,7 @@ export async function ensureArchive(
 
   // Verified before anything is written, so a mismatched archive never exists
   // on disk under a name a later run could mistake for a good one.
-  const bytes = await fetchVerified(artifact, {
-    headers: options.headers,
-    allowUncuratedSources: options.allowUncuratedSources,
-    timeoutMs: options.timeoutMs,
-  });
+  const bytes = await fetchVerified(artifact, options);
 
   const temporary = `${target}.${String(process.pid)}.partial`;
   await writeFile(temporary, bytes);
