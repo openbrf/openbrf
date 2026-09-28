@@ -5,6 +5,7 @@ import type {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../config/env";
+import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { PluginAdminService } from "./plugin-admin.service";
 import {
@@ -364,6 +365,83 @@ describe("what the consent step records about the recipient", () => {
     expect(recordProcessor).not.toHaveBeenCalled();
     expect(consent).not.toHaveBeenCalled();
   });
+
+  /*
+   * The rest of what the art. 28 record refuses, asked before the consent row
+   * like the recipient above. These reach the API from the command-line tool or
+   * a script, which do not repeat the web screen's rules, and each used to be
+   * refused only after the consent row was committed.
+   */
+  it.each([
+    {
+      case: "an independent controller with no reason given",
+      answer: {
+        sendsPersonalDataOutside: true,
+        recipient: "Belaggningstjansten AB",
+        classification: "INDEPENDENT_CONTROLLER" as const,
+      },
+      reason: "note-required",
+    },
+    {
+      case: "a personal identity number as the recipient",
+      answer: { sendsPersonalDataOutside: true, recipient: "811228-9874" },
+      reason: "personal-identity-number",
+    },
+    {
+      case: "a personal identity number in the note",
+      answer: {
+        sendsPersonalDataOutside: true,
+        recipient: "Belaggningstjansten AB",
+        note: "Kontakt 811228-9874",
+      },
+      reason: "personal-identity-number",
+    },
+    {
+      case: "a personal identity number in the note of a plugin sending nothing",
+      answer: { sendsPersonalDataOutside: false, note: "Kontakt 811228-9874" },
+      reason: "personal-identity-number",
+    },
+    {
+      case: "an agreement in place with no date",
+      answer: {
+        sendsPersonalDataOutside: true,
+        recipient: "Belaggningstjansten AB",
+        status: "IN_PLACE" as const,
+        termsConfirmed: true,
+      },
+      reason: "signed-on-required",
+    },
+    {
+      case: "an agreement in place without the art. 28(3) terms",
+      answer: {
+        sendsPersonalDataOutside: true,
+        recipient: "Belaggningstjansten AB",
+        status: "IN_PLACE" as const,
+        signedOn: "2026-09-01",
+      },
+      reason: "terms-required",
+    },
+  ])(
+    "refuses $case before any consent is written",
+    async ({ answer, reason }) => {
+      const refused = service.install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: answer,
+        },
+        null,
+        "SYSTEM",
+      );
+
+      await expect(refused).rejects.toBeInstanceOf(ProcessorAgreementError);
+      await expect(refused).rejects.toMatchObject({ reason });
+
+      expect(recordProcessor).not.toHaveBeenCalled();
+      expect(consent).not.toHaveBeenCalled();
+    },
+  );
 
   it("records a processor with the recipient the board named", async () => {
     await service.install(
