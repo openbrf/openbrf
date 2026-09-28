@@ -62,6 +62,8 @@ export class ThemeInstallError extends DomainError {
     message: string,
     readonly reason:
       | "not-in-catalog"
+      /** A first install of an entry the catalog has deprecated. */
+      | "entry-deprecated"
       | "package-unreadable"
       | "manifest-invalid"
       | "identity-mismatch"
@@ -79,7 +81,8 @@ export class ThemeInstallError extends DomainError {
       reason === "not-in-catalog"
         ? HttpStatus.NOT_FOUND
         : reason === "housing-cooperative-missing" ||
-            reason === "theme-not-composed"
+            reason === "theme-not-composed" ||
+            reason === "entry-deprecated"
           ? HttpStatus.CONFLICT
           : HttpStatus.UNPROCESSABLE_ENTITY;
   }
@@ -185,6 +188,25 @@ export class ThemeInstallService {
         `The catalog has no theme ${catalogId}.`,
         "not-in-catalog",
       );
+    }
+
+    /*
+     * Deprecating is a curator's soft withdrawal: the entry stays listed so an
+     * instance that already has the theme can reinstall it or take its update,
+     * but nobody should start using it now. Refused before the download, as
+     * the index alone says it.
+     */
+    if (entry.deprecated) {
+      const installed = await this.prisma.installedTheme.findUnique({
+        where: { id: entry.id },
+        select: { id: true },
+      });
+      if (installed === null) {
+        throw new ThemeInstallError(
+          `The catalog has deprecated ${entry.id}, so it is not installed anew.`,
+          "entry-deprecated",
+        );
+      }
     }
 
     // Verified against the catalog's sha512 before anything is unpacked.

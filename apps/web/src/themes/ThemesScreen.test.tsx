@@ -197,6 +197,36 @@ describe("what a board sees before deciding", () => {
     });
   });
 
+  it("offers no install of a deprecated theme this instance does not have", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [{ ...CATALOG_ENTRY, deprecated: true }],
+    });
+
+    renderScreen();
+
+    const install = await screen.findByRole("button", {
+      name: /^installera$/i,
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("still offers the update of a deprecated theme already installed", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...CATALOG_ENTRY, deprecated: true, installedVersion: "0.9.0" },
+      ],
+    });
+
+    renderScreen();
+
+    const update = await screen.findByRole("button", {
+      name: /^uppdatera till 1\.0\.0$/i,
+    });
+    expect((update as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("does not mark a theme the catalog still maintains", async () => {
     renderScreen();
 

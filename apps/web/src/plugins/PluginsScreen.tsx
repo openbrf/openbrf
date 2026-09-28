@@ -70,8 +70,8 @@ const RESTART_POLL_ATTEMPTS = 30;
  * read the catalog again - right for an entry that changed under the screen and
  * wrong for the first two, where reading the catalog again changes nothing. One
  * names the plugin that has to be removed first, the other says the id is not
- * this plugin's to take; the board's next act is different in each case, so the
- * sentence has to be.
+ * this plugin's to take; a third says the curator has withdrawn the entry. The
+ * board's next act is different in each case, so the sentence has to be.
  *
  * The answer about where the plugin sends personal data is refused in the
  * record's own words, which name the field to correct. The step holds back
@@ -86,6 +86,7 @@ const INSTALL_ERRORS: Readonly<Record<string, TranslationKey>> = {
     "dataProtection.processors.errors.personalIdentityNumber",
   "classification-inconsistent":
     "dataProtection.processors.errors.classificationInconsistent",
+  "entry-deprecated": "plugins.consent.errors.deprecated",
 };
 
 /**

@@ -239,6 +239,40 @@ describe("choosing a plugin from the catalog", () => {
     expect(consentHeading()).toBeNull();
     expect(installPlugin).not.toHaveBeenCalled();
   });
+
+  it("offers no install of a deprecated plugin this instance does not have", async () => {
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, deprecated: true }],
+      },
+    });
+    renderScreen(["association:read", "association:manage"]);
+
+    const install = await screen.findByRole("button", {
+      name: /^installera$/i,
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("still offers to install again a deprecated plugin already installed", async () => {
+    // How a board repairs a plugin it already runs; deprecation must not take
+    // that away.
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, deprecated: true, installedVersion: "1.2.0" }],
+      },
+    });
+    renderScreen(["association:read", "association:manage"]);
+
+    const reinstall = await screen.findByRole("button", {
+      name: /^installera igen$/i,
+    });
+    expect((reinstall as HTMLButtonElement).disabled).toBe(false);
+  });
 });
 
 describe("confirming the consent", () => {
@@ -464,6 +498,17 @@ describe("an install the API refuses", () => {
     await waitFor(() => {
       expect(
         screen.getByText("Skriv varför mottagaren inte behöver något avtal."),
+      ).toBeTruthy();
+    });
+  });
+
+  it("says the catalog has withdrawn the plugin", async () => {
+    // The catalog can deprecate an entry between being browsed and confirmed.
+    await refuse("entry-deprecated");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/anger att det inte underhålls längre/),
       ).toBeTruthy();
     });
   });

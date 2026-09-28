@@ -11,6 +11,7 @@ import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
   PluginConsentMismatchError,
+  PluginEntryDeprecatedError,
   PluginNotFoundError,
   PluginRecipientRequiredError,
   PluginReservedIdError,
@@ -110,6 +111,8 @@ function build(options: Options = {}) {
       consent,
       setActionArmed,
       list: async () => installed.map(({ id }) => ({ id })),
+      find: async (id: string) =>
+        installed.some((record) => record.id === id) ? { id } : null,
       remove: async () => true,
     } as never,
     {
@@ -801,6 +804,42 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.recipientState).toBe("notRecorded");
+  });
+});
+
+/**
+ * A deprecated entry is still listed, but should not be installed anew: the
+ * curator's soft withdrawal of a package, which a label alone would not make.
+ */
+describe("a deprecated catalog entry", () => {
+  const DEPRECATED = { ...ENTRY, deprecated: true } as CatalogPluginEntry;
+
+  it("is refused as a first install, before anything is written", async () => {
+    const { service, consent, record } = build({ entry: DEPRECATED });
+
+    const refused = service.install({ id: ENTRY.id }, null, "WEB");
+
+    await expect(refused).rejects.toBeInstanceOf(PluginEntryDeprecatedError);
+    await expect(refused).rejects.toMatchObject({
+      reason: "entry-deprecated",
+      status: 409,
+    });
+    expect(consent).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("is still installed again where the plugin is already installed", async () => {
+    // Reinstalling and updating are how a board repairs or patches a plugin it
+    // already depends on, and deprecation must not take that away.
+    const { service, consent } = build({
+      entry: DEPRECATED,
+      installed: [{ id: ENTRY.id, manifest: null }],
+    });
+
+    await expect(
+      service.install({ id: ENTRY.id }, null, "WEB"),
+    ).resolves.toEqual({ restarting: true });
+    expect(consent).toHaveBeenCalledOnce();
   });
 });
 
