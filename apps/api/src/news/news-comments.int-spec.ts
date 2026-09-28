@@ -5,6 +5,13 @@ import {
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  type ActionCaller,
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
+import { markAuthenticated } from "../actions/authenticated-request";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
@@ -52,9 +59,14 @@ import { NewsCommentPurgeService } from "./news-comment-purge.service";
  * comment shares an instant. That is the database's own ordering and its own
  * collation, which is exactly what a fake cannot stand in for.
  *
- * And that the purge erases what it says it does, that a legal hold placed
+ * That the purge erases what it says it does, that a legal hold placed
  * against the author stops it, and that the audit entry lands in the same
  * transaction.
+ *
+ * And that removing the news item is not a second way to erase its thread: the
+ * removal is refused while a comment stands under it, from the board's screen
+ * and through an action alike, and the refusal is the database's as well as the
+ * service's.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -65,6 +77,8 @@ let associationCreated = false;
 
 let prisma: PrismaService;
 let purge: NewsCommentPurgeService;
+let registry: ActionRegistryService;
+let callers: ActionCallerFactory;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
@@ -98,10 +112,18 @@ const manager = {
  * erase, and nothing here needs them to sign in.
  */
 const heldMember = { personId: `comment-held-${suffix}` };
+/**
+ * A second held author, for the removal tests. Their own person rather than
+ * {@link heldMember}, because at most one hold stands per person and the purge
+ * tests place that one.
+ */
+const removalHeldMember = { personId: `comment-removal-held-${suffix}` };
 
 /** Everybody this suite signs in as. */
 const actors = [boardMember, member, protectedMember, manager];
-const personIds = [...actors, heldMember].map((actor) => actor.personId);
+const personIds = [...actors, heldMember, removalHeldMember].map(
+  (actor) => actor.personId,
+);
 
 const addressId = `comment-address-${suffix}`;
 const apartmentIds = [1, 2, 3, 4].map(
@@ -129,6 +151,11 @@ const slugs = {
   takenDown: `comment-taken-down-${suffix}`,
   paged: `comment-paged-${suffix}`,
   cursor: `comment-cursor-${suffix}`,
+  removeHeld: `comment-remove-held-${suffix}`,
+  removeCommented: `comment-remove-commented-${suffix}`,
+  removeAction: `comment-remove-action-${suffix}`,
+  removeEmptied: `comment-remove-emptied-${suffix}`,
+  removeRaw: `comment-remove-raw-${suffix}`,
 };
 
 /** The name nobody is ever shown. Distinctive, so a leak is unmistakable. */
@@ -303,6 +330,56 @@ async function readThread(
   return (await readThreadPage(cookie, newsId)).comments;
 }
 
+/**
+ * A caller as a board member's connected app, built where the authorization
+ * guard stands - the way the action suite builds one, since no core route
+ * dispatches an action. Everything the registry decides is the application's
+ * own.
+ */
+function connectedApp(): ActionCaller {
+  const request = {
+    id: `request-${suffix}`,
+    principal: {
+      personId: boardMember.personId,
+      capabilities: new Set<string>(),
+    },
+    token: {
+      clientId: `client-${suffix}`,
+      clientHost: "app.example",
+      scopes: ["mcp:read", "mcp:write"],
+    },
+  } as unknown as RequestWithToken;
+  markAuthenticated(request);
+  return callers.forRequest(request);
+}
+
+/** Asks for a news item's removal from the board's screen. */
+function removeNews(newsId: string) {
+  return inject({
+    method: "DELETE",
+    url: `/api/news/${newsId}`,
+    headers: { cookie: boardCookie },
+  });
+}
+
+/** Whether a comment row is still there. */
+async function commentExists(id: string): Promise<boolean> {
+  return (
+    (await prisma.newsComment.findUnique({
+      where: { id },
+      select: { id: true },
+    })) !== null
+  );
+}
+
+/** Whether a news item row is still there. */
+async function newsExists(id: string): Promise<boolean> {
+  return (
+    (await prisma.news.findUnique({ where: { id }, select: { id: true } })) !==
+    null
+  );
+}
+
 /** Takes a published notice back down, leaving the thread it had. */
 async function unpublishNews(newsId: string): Promise<void> {
   const response = await inject({
@@ -333,6 +410,8 @@ beforeAll(async () => {
 
   prisma = app.get(PrismaService);
   purge = app.get(NewsCommentPurgeService);
+  registry = app.get(ActionRegistryService);
+  callers = app.get(ActionCallerFactory);
 
   /*
    * The association this suite needs, made the way every other suite in this
@@ -376,6 +455,11 @@ beforeAll(async () => {
       {
         id: heldMember.personId,
         firstName: "Harald",
+        lastName: `Kommentar${suffix}`,
+      },
+      {
+        id: removalHeldMember.personId,
+        firstName: "Hedvig",
         lastName: `Kommentar${suffix}`,
       },
     ],
@@ -473,8 +557,7 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
-        // The comments go with the item; deleting the item is enough, and this
-        // is belt and braces for a case that failed part-way through.
+        // The comments first: they refuse the item's delete while they stand.
         () =>
           prisma.newsComment.deleteMany({
             where: { news: { slug: { in: Object.values(slugs) } } },
@@ -1242,6 +1325,110 @@ describe("the purge", () => {
         select: { id: true },
       }),
     ).not.toBeNull();
+  });
+});
+
+describe("removing a news item with comments under it", () => {
+  it("keeps a comment whose author is under a legal hold", async () => {
+    const newsId = await publishedNews(
+      slugs.removeHeld,
+      "MEMBER",
+      "En nyhet med en tvist under.",
+    );
+    const held = await prisma.newsComment.create({
+      data: {
+        newsId,
+        authorPersonId: removalHeldMember.personId,
+        body: "Detta ar vad tvisten handlar om.",
+      },
+      select: { id: true },
+    });
+    await prisma.legalHold.create({
+      data: {
+        personId: removalHeldMember.personId,
+        reason: `Tvist ${suffix}`,
+        placedByPersonId: boardMember.personId,
+      },
+    });
+
+    const response = await removeNews(newsId);
+
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json()).toMatchObject({ reason: "has-comments" });
+    expect(await commentExists(held.id)).toBe(true);
+    expect(await newsExists(newsId)).toBe(true);
+  });
+
+  it("is refused with a reason, and leaves the thread and the log as they were", async () => {
+    const newsId = await publishedNews(
+      slugs.removeCommented,
+      "MEMBER",
+      "Vi byter portkod.",
+    );
+    const comment = await writeComment(memberCookie, newsId, "Tack.");
+
+    const response = await removeNews(newsId);
+
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.json()).toMatchObject({ reason: "has-comments" });
+    expect(await commentExists(comment.id)).toBe(true);
+    expect(await newsExists(newsId)).toBe(true);
+    // Nothing was taken down, so nothing says it was.
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          action: "NEWS_PUBLISHED",
+          targetKind: "news",
+          targetId: newsId,
+          context: { path: ["deleted"], equals: true },
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("is refused the same way through the news_delete action", async () => {
+    const newsId = await publishedNews(
+      slugs.removeAction,
+      "MEMBER",
+      "Vi tvattar trappan.",
+    );
+    const comment = await writeComment(memberCookie, newsId, "Bra.");
+
+    await expect(
+      registry.invoke(connectedApp(), "news_delete", { id: newsId }),
+    ).rejects.toMatchObject({ reason: "has-comments" });
+    expect(await commentExists(comment.id)).toBe(true);
+    expect(await newsExists(newsId)).toBe(true);
+  });
+
+  it("goes through once the thread has gone on its own clock", async () => {
+    const newsId = await publishedNews(
+      slugs.removeEmptied,
+      "MEMBER",
+      "En nyhet vars kommentarer har gallrats.",
+    );
+    const comment = await writeComment(memberCookie, newsId, "Snart borta.");
+    // Standing in for the purge, which is tested above: what matters here is
+    // that an item nobody's words hang under any more can be removed.
+    await prisma.newsComment.delete({ where: { id: comment.id } });
+
+    const response = await removeNews(newsId);
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(await newsExists(newsId)).toBe(false);
+  });
+
+  it("is refused by the database too, for a delete that skips the service", async () => {
+    const newsId = await publishedNews(
+      slugs.removeRaw,
+      "MEMBER",
+      "Raderas direkt.",
+    );
+    await writeComment(memberCookie, newsId, "Kvar.");
+
+    await expect(
+      prisma.news.delete({ where: { id: newsId } }),
+    ).rejects.toMatchObject({ code: "P2003" });
   });
 });
 

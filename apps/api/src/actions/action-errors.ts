@@ -85,6 +85,9 @@ export const NEWS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
     "news.errors.personalIdentityNumber",
   ),
   spec("unsupported-block", "after-edit", "news.errors.unsupportedBlock"),
+  // Comments stand under the item. Nothing the caller sends removes them: they
+  // go on their own purge, and taking the item down is what is left to do.
+  spec("has-comments", "never", "news.errors.hasComments"),
 ];
 
 /** Every refusal `MenuWriteService` raises, as `MenuWriteReason` declares them. */
