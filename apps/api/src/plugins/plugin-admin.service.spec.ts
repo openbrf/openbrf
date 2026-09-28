@@ -368,9 +368,9 @@ describe("what the consent step records about the recipient", () => {
 
   /*
    * The rest of what the art. 28 record refuses, asked before the consent row
-   * like the recipient above. These reach the API from the command-line tool or
-   * a script, which do not repeat the web screen's rules, and each used to be
-   * refused only after the consent row was committed.
+   * like the recipient above. The command-line tool sends no recipient answer,
+   * so these reach the API from a direct caller such as a script, and each used
+   * to be refused only after the consent row was committed.
    */
   it.each([
     {

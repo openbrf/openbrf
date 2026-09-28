@@ -503,8 +503,9 @@ export class PluginAdminService {
      * controller, a personal identity number in the note - was answered 400
      * with a consent row already persisted: the instance then claimed a consent
      * that produced no install, no processing activity in the art. 30 record
-     * and no classification in the art. 28 one. The web screen repeats these
-     * rules, but the command-line tool and a script do not.
+     * and no classification in the art. 28 one. The command-line tool sends no
+     * recipient answer; a direct caller of the API, such as a script, can send
+     * one without any screen's checks in front of it.
      */
     const agreement =
       request.processorAgreement === undefined
