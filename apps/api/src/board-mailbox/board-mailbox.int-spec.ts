@@ -1272,7 +1272,9 @@ describe("collecting the mailbox", () => {
       .mockRejectedValue(new Error("The storage did not answer."));
     const setAside = (): Promise<number> =>
       prisma.boardMailboxIgnoredMessage.count({
-        where: { sourceUid: { contains: `:uid-outage-` } },
+        where: {
+          sourceUid: { contains: `:uid-outage-`, endsWith: `-${suffix}` },
+        },
       });
 
     const start = new Date();

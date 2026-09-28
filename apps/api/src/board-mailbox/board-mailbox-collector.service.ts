@@ -849,6 +849,17 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         // Another collection stored this letter between the query above and this
         // insert. The constraint is what makes that harmless rather than a race
         // the board would see as a duplicate.
+        if (retrying) {
+          // The other collection may not have known it was set aside, and a
+          // stored letter must not go on being listed as one.
+          await this.prisma.boardMailboxIgnoredMessage
+            .deleteMany({ where: { sourceUid: uid } })
+            .catch((cause: unknown) => {
+              this.logger.warn(
+                `Board mailbox: a stored message could not be removed from the set-aside list: ${failureName(cause)}`,
+              );
+            });
+        }
         return "already-held";
       }
       if (isDataRefusal(error)) {

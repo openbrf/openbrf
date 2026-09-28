@@ -362,7 +362,10 @@ function SetAsideLetters({
 
   return (
     <div className="flex flex-col gap-2">
-      <Notice tone="warn">{t("boardMailbox.setAside.intro", { count })}</Notice>
+      {/* Live, because a collection from this screen can change it. */}
+      <Notice tone="warn" live>
+        {t("boardMailbox.setAside.intro", { count })}
+      </Notice>
       <ul className="flex flex-col gap-1">
         {letters.map((letter, position) => (
           <li
@@ -377,20 +380,20 @@ function SetAsideLetters({
                   "boardMailbox.setAside.reasons.unknown",
               )}
             </span>
-            <span>
+            <span className="font-data">
               {letter.letterDate === null
                 ? t("boardMailbox.setAside.undated")
                 : t("boardMailbox.setAside.dated", {
                     date: formatMailboxMoment(letter.letterDate, i18n.language),
                   })}
             </span>
-            <span className="text-ink-muted">
+            <span className="font-data text-ink-muted">
               {t("boardMailbox.setAside.setAsideAt", {
                 date: formatMailboxDay(letter.setAsideAt, i18n.language),
               })}
             </span>
             {letter.retryAt === null ? null : (
-              <span className="text-ink-muted">
+              <span className="font-data text-ink-muted">
                 {t("boardMailbox.setAside.retryFrom", {
                   date: formatMailboxMoment(letter.retryAt, i18n.language),
                 })}

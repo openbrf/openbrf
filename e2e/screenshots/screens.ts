@@ -1773,7 +1773,8 @@ export const SCREENS: readonly Screen[] = [
      * Pointed at mailpit, which is this stack's mail provider and speaks POP3
      * as well as SMTP, so the next entry collects over the path a real
      * association's mailbox takes. Cleartext and port 1110, because that is
-     * what the port inside the compose network is.
+     * what the port inside the compose network is: a fresh instance ticks
+     * "Krypterad anslutning", so the click below clears it.
      *
      * The letter is delivered here because the next entry starts from the
      * mailbox screen. Its sender is an address mailpit accepts and the
