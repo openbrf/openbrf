@@ -42,6 +42,8 @@ export interface ArchiveStoreOptions {
    * `file:` path would otherwise make the instance read its own disk.
    */
   allowUncuratedSources?: boolean;
+  /** Abandons the download after this long; see FetchOptions.timeoutMs. */
+  timeoutMs?: number;
 }
 
 /**
@@ -77,6 +79,7 @@ export async function ensureArchive(
   const bytes = await fetchVerified(artifact, {
     headers: options.headers,
     allowUncuratedSources: options.allowUncuratedSources,
+    timeoutMs: options.timeoutMs,
   });
 
   const temporary = `${target}.${String(process.pid)}.partial`;

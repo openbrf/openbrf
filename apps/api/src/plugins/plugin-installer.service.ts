@@ -55,6 +55,18 @@ const STAGING_LEASE_MS = 60_000;
 /** Comfortably inside the lease, so a busy event loop does not lose one. */
 const STAGING_RENEWAL_MS = 10_000;
 
+/**
+ * How long one plugin archive download may take before it is abandoned.
+ *
+ * The byte cap bounds size, not time. A release host that sends its headers
+ * and then nothing would otherwise hold the install job - or the reinstall at
+ * boot - for as long as it cared to, and every other run waiting for the tree
+ * with it. Minutes rather than the index's seconds: a tarball may be as large
+ * as the 64 MiB cap, and five minutes still lets that through at under
+ * 2 Mbit/s. One deadline per archive, covering redirects and body alike.
+ */
+export const ARCHIVE_TIMEOUT_MS = 5 * 60_000;
+
 export interface PluginInstallJob {
   /** Which plugin triggered the run. Informational: the run reconciles all. */
   reason: string;
@@ -290,6 +302,7 @@ export class PluginInstallerService
           {
             headers: this.catalog.authorizationFor(record.tarballUrl),
             allowUncuratedSources,
+            timeoutMs: ARCHIVE_TIMEOUT_MS,
           },
         );
         archives.set(record.packageName, archive);

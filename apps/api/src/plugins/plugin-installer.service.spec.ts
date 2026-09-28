@@ -9,16 +9,20 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../config/env";
+import { type DataPaths, dataPaths } from "../packaging/data-paths";
+import type { InstallLock } from "./install-lock";
 import {
+  ARCHIVE_TIMEOUT_MS,
   buildDependencySet,
   collectAbandonedStaging,
   type PluginInstallJob,
   PluginInstallerService,
   type ReconcileOutcome,
 } from "./plugin-installer.service";
+import type { PluginRecord } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 /**
@@ -261,5 +265,96 @@ describe("the queue worker", () => {
 
       expect(restart.restartPending).toBe(true);
     });
+  });
+});
+
+/**
+ * The archive download.
+ *
+ * The byte cap bounds size, not time. A release host that sends its headers
+ * and then stalls would otherwise hold the install job - and every run waiting
+ * for the tree behind it - for as long as it cared to.
+ */
+describe("the archive download", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("abandons an archive whose body stalls, at the deadline", async () => {
+    vi.useFakeTimers();
+    let pulled!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      pulled = resolve;
+    });
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              pulled();
+              return new Promise<void>(() => undefined);
+            },
+          }),
+        ),
+      ),
+    );
+
+    const failed: string[] = [];
+    const record = {
+      id: "occupancy",
+      packageName: "openbrf-plugin-occupancy",
+      version: "1.4.0",
+      tarballUrl:
+        "https://github.com/openbrf/occupancy/releases/download/v1.4.0/o.tgz",
+      checksum: "sha512-unused",
+    } as PluginRecord;
+    const registry = {
+      list: () => Promise.resolve([record]),
+      markFailed: (id: string) => {
+        failed.push(id);
+        return Promise.resolve();
+      },
+    };
+    const catalog = {
+      allowsUncuratedSources: () => false,
+      authorizationFor: () => ({}),
+    };
+
+    class Converging extends PluginInstallerService {
+      run(paths: DataPaths): Promise<ReconcileOutcome> {
+        return this.converge(paths, {} as InstallLock);
+      }
+    }
+    const installer = new Converging(
+      { OPENBRF_DATA_DIR: staging } as Env,
+      registry as never,
+      {} as never,
+      catalog as never,
+      {} as never,
+      {} as never,
+    );
+
+    let outcome: ReconcileOutcome | undefined;
+    const converging = installer
+      .run(dataPaths(staging))
+      .then((settled) => (outcome = settled));
+
+    // Held here until the body is being read, so the clock only moves once
+    // the deadline is already running.
+    await reading;
+    await vi.advanceTimersByTimeAsync(ARCHIVE_TIMEOUT_MS - 1);
+    expect(outcome).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await converging;
+
+    expect(outcome?.failed).toEqual([
+      {
+        id: "occupancy",
+        error: expect.stringMatching(/did not finish within/) as string,
+      },
+    ]);
+    expect(failed).toEqual(["occupancy"]);
   });
 });
