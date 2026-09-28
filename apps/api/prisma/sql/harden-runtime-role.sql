@@ -53,9 +53,14 @@ WHERE coalesce(:'app_password', '') = ''
 -- the statutory archive with it. Neither is reachable by any revoke in this
 -- file, so if openbrf_app owns anything the script refuses rather than
 -- reporting a hardening it did not achieve.
+--
+-- The names are quoted as identifiers, not as literals, so the message is
+-- passed to RAISE as a parameter (%L) rather than as its format string: a
+-- name holding ' or % would otherwise end the literal or read as a placeholder.
 SELECT format($sql$DO $body$ BEGIN
-  RAISE EXCEPTION 'openbrf_app owns %s in this database. An owner can disable the statutory triggers, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.';
-END $body$$sql$, string_agg(owned.description, ', ' ORDER BY owned.description))
+  RAISE EXCEPTION '%%', %L;
+END $body$$sql$, format('openbrf_app owns %s in this database. An owner can disable the statutory triggers, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.',
+  string_agg(owned.description, ', ' ORDER BY owned.description)))
 FROM (
   SELECT format('relation %I.%I', n.nspname, c.relname) AS description
   FROM pg_class c
@@ -114,9 +119,12 @@ SELECT format(
 -- grantor, or a superuser, may revoke a membership, and these were granted by
 -- the superuser. So the script refuses and names the superuser's script, which
 -- revokes them, rather than stopping on a bare permission error.
+-- The message is passed as a parameter for the same reason as the ownership
+-- refusal above.
 SELECT format($sql$DO $body$ BEGIN
-  RAISE EXCEPTION 'openbrf_app is a member of %s, whose privileges this script cannot take away. Run docker/db/initdb/10-schema-owner.sql as the database superuser, which revokes these memberships (docs/deployment.md, "Upgrading to a separate schema owner"), then run this again.';
-END $body$$sql$, string_agg(format('role %I', granted.rolname), ', ' ORDER BY granted.rolname))
+  RAISE EXCEPTION '%%', %L;
+END $body$$sql$, format('openbrf_app is a member of %s, whose privileges this script cannot take away. Run docker/db/initdb/10-schema-owner.sql as the database superuser, which revokes these memberships (docs/deployment.md, "Upgrading to a separate schema owner"), then run this again.',
+  string_agg(format('role %I', granted.rolname), ', ' ORDER BY granted.rolname)))
 FROM pg_auth_members m
 JOIN pg_roles member ON member.oid = m.member
 JOIN pg_roles granted ON granted.oid = m.roleid

@@ -226,22 +226,46 @@ If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
 `RUNTIME_DB_PASSWORD` empty), the `migrate` service does not touch it, and a
 role that was granted every write in `public` by an earlier release can still
 write the migration history. The application refuses to start as such a role,
-so constrain it before step 5. If it is `openbrf_app`, apply
+so constrain it before step 5.
+
+If it is `openbrf_app`, apply
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
-again as the owner, after step 4. Otherwise revoke the three privileges the
-release took away, as the superuser, naming your role:
+again as the owner, after step 4, from the checkout. The script also sets the
+role's password, from `RUNTIME_DB_PASSWORD`, so give it the password your
+`DATABASE_URL_RUNTIME` already uses. The variable is set in your shell only and
+handed to the container by name, which keeps it out of the process arguments;
+`.env.production` keeps `RUNTIME_DB_PASSWORD` empty.
 
 ```sh
-compose exec -T db psql -U openbrf -d openbrf <<'SQL'
+read -rs RUNTIME_DB_PASSWORD && export RUNTIME_DB_PASSWORD
+compose exec -T -e RUNTIME_DB_PASSWORD db \
+  psql -U openbrf_owner -d openbrf -f - < apps/api/prisma/sql/harden-runtime-role.sql
+unset RUNTIME_DB_PASSWORD
+```
+
+Otherwise revoke the three privileges the release took away, as the superuser,
+naming your role. pg-boss's maintenance stamps the times it ran on the
+`pgboss.version` row, so the last statement grants `UPDATE` back on every
+column of that table except `version`, read from the catalog as the hardening
+script does. Without it, the application's maintenance fails.
+
+```sh
+compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
+SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
+  string_agg(quote_ident(attname), ', ' ORDER BY attnum))
+FROM pg_attribute
+WHERE attrelid = 'pgboss.version'::regclass
+  AND attnum > 0 AND NOT attisdropped AND attname <> 'version'
+\gexec
+COMMIT;
 SQL
 ```
 
-pg-boss's maintenance stamps the times it ran on the `pgboss.version` row, so
-grant `UPDATE` back on every column of that table except `version`, as the
-hardening script does.
+Run the `GRANT` again after an upgrade that adds a column to `pgboss.version`.
 
 ## Backups
 
