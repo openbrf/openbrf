@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import { dateColumnOf, formatDateColumn, parseLocalDay } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -63,7 +63,8 @@ export type MoveErrorReason =
   | "moved-out-before-moved-in"
   | "transfer-person-not-found"
   | "transfer-reference-required"
-  | "grant-has-no-seller";
+  | "grant-has-no-seller"
+  | "date-not-a-calendar-date";
 
 /**
  * The status each refusal answers with.
@@ -81,6 +82,7 @@ const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
   "moved-out-before-moved-in": 409,
   "transfer-reference-required": 400,
   "grant-has-no-seller": 400,
+  "date-not-a-calendar-date": 400,
 };
 
 export class MoveError extends DomainError {
@@ -831,10 +833,21 @@ export class MoveService implements OnModuleInit {
 /**
  * Reads a calendar date.
  *
- * Parsed as UTC midnight, matching how @db.Date columns come back, so day
- * arithmetic on a purge date cannot drift across a Swedish daylight saving
- * boundary and erase service data a day early.
+ * Written as UTC midnight through `dateColumnOf`, matching how @db.Date columns
+ * come back, so day arithmetic on a purge date cannot drift across a Swedish
+ * daylight saving boundary and erase service data a day early.
+ *
+ * Refused rather than rolled over when the date is not on the calendar: `Date`
+ * reads "2026-02-30" as the 2nd of March, and the register entry, the transfer
+ * and the obligation this date lands on are rows nobody can correct.
  */
 function parseDate(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new MoveError(
+      "That is not a calendar date.",
+      "date-not-a-calendar-date",
+    );
+  }
+  return dateColumnOf(day);
 }

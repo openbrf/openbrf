@@ -1,3 +1,5 @@
+import { parseLocalDay } from "@openbrf/shared";
+
 /**
  * The fields an import can fill, and the guess that saves the board from
  * mapping every column by hand.
@@ -277,13 +279,7 @@ export function parseRole(value: string): "MEMBER" | "RESIDENT" | null {
  */
 export function parseImportDate(value: string): string | null {
   const trimmed = value.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return null;
-  }
-  const parsed = new Date(`${trimmed}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  // Round-tripped so 2026-02-30 is refused rather than rolling into March.
-  return parsed.toISOString().slice(0, 10) === trimmed ? trimmed : null;
+  // Strict about the date being real, so 2026-02-30 is refused rather than
+  // rolling into March.
+  return parseLocalDay(trimmed) === null ? null : trimmed;
 }

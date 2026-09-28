@@ -9,6 +9,7 @@ import {
   Req,
 } from "@nestjs/common";
 import {
+  calendarDateSchema,
   DATA_SUBJECT_CATEGORIES,
   PERSONAL_DATA_CATEGORIES,
 } from "@openbrf/shared";
@@ -146,7 +147,7 @@ const agreementSchema = z.object({
   status: z.enum(["IN_PLACE", "PENDING"]).nullable().optional(),
   counterparty: z.string().trim().max(200).nullable().optional(),
   reference: z.string().trim().max(200).nullable().optional(),
-  signedOn: z.iso.date().nullable().optional(),
+  signedOn: calendarDateSchema.nullable().optional(),
   termsConfirmed: z.boolean().nullable().optional(),
   subProcessorsAuthorised: z.boolean().nullable().optional(),
   subProcessorNote: z.string().trim().max(1000).nullable().optional(),

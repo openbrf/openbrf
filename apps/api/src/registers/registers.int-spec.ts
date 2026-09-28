@@ -1195,6 +1195,122 @@ describe("recording a lien note", () => {
     });
     expect(stored.releasedOn?.toISOString().slice(0, 10)).toBe("2026-05-03");
   });
+
+  /*
+   * `Date` reads "2025-02-31" as the 3rd of March, and a lien note is a row
+   * nobody can delete. A month of 13 is an Invalid Date, which reached the
+   * database as a server error rather than a refusal.
+   */
+  it.each(["2025-02-31", "2026-02-29", "2026-13-01"])(
+    "refuses a note dated %s and writes nothing",
+    async (notedOn) => {
+      const creditor = `Felbanken ${notedOn} ${suffix}`;
+      const response = await inject({
+        method: "POST",
+        url: "/api/apartment-register/liens",
+        payload: { apartmentId: apartments.other, creditor, notedOn },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(await prisma.lienNote.count({ where: { creditor } })).toBe(0);
+    },
+  );
+
+  it("refuses a note dated in the future and writes nothing", async () => {
+    const creditor = `Framtidsbanken ${suffix}`;
+    const tomorrow = formatLocalDay(addLocalDays(localDayOf(new Date()), 1));
+    const response = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens",
+      payload: { apartmentId: apartments.other, creditor, notedOn: tomorrow },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "date-in-the-future",
+    );
+    expect(await prisma.lienNote.count({ where: { creditor } })).toBe(0);
+  });
+
+  it.each([
+    { releasedOn: "2026-04-31", status: 400, reason: undefined },
+    { releasedOn: "2026-13-01", status: 400, reason: undefined },
+    { releasedOn: "tomorrow", status: 400, reason: "date-in-the-future" },
+    // A pledge cannot be released before the association was told of it.
+    {
+      releasedOn: "2026-04-02",
+      status: 409,
+      reason: "lien-released-before-noted",
+    },
+  ])(
+    "refuses a release dated $releasedOn and leaves the note unreleased",
+    async ({ releasedOn, status, reason }) => {
+      const cookie = await signIn(actors.board.email);
+      const created = await inject({
+        method: "POST",
+        url: "/api/apartment-register/liens",
+        payload: {
+          apartmentId: apartments.other,
+          creditor: `Slappbanken ${releasedOn} ${suffix}`,
+          notedOn: "2026-04-03",
+        },
+        headers: { cookie },
+      });
+      expect(created.statusCode).toBe(201);
+      const lien = JSON.parse(created.body) as { id: string };
+
+      const response = await inject({
+        method: "POST",
+        url: "/api/apartment-register/liens/release",
+        payload: {
+          lienId: lien.id,
+          releasedOn:
+            releasedOn === "tomorrow"
+              ? formatLocalDay(addLocalDays(localDayOf(new Date()), 1))
+              : releasedOn,
+        },
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(status);
+      if (reason !== undefined) {
+        expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+          reason,
+        );
+      }
+      const stored = await prisma.lienNote.findUniqueOrThrow({
+        where: { id: lien.id },
+        select: { releasedOn: true },
+      });
+      expect(stored.releasedOn).toBeNull();
+    },
+  );
+
+  it("releases a note on the day it was noted", async () => {
+    const cookie = await signIn(actors.board.email);
+    const created = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens",
+      payload: {
+        apartmentId: apartments.other,
+        creditor: `Samma dag-banken ${suffix}`,
+        notedOn: "2026-04-03",
+      },
+      headers: { cookie },
+    });
+    const lien = JSON.parse(created.body) as { id: string };
+
+    const released = await inject({
+      method: "POST",
+      url: "/api/apartment-register/liens/release",
+      payload: { lienId: lien.id, releasedOn: "2026-04-03" },
+      headers: { cookie },
+    });
+
+    expect(released.statusCode).toBe(200);
+  });
 });
 
 /**
@@ -1347,9 +1463,10 @@ describe("recording a termination", () => {
   });
 
   it("refuses a day the calendar does not have", async () => {
-    // The route's pattern accepts the shape, so this is the service refusing
-    // the date rather than the schema refusing the string. Date.parse would
-    // have answered the 2nd of March.
+    // Refused by the request schema, which reads the date the way the service
+    // does; the service's own refusal is `statutory-date.spec.ts`'s. Date.parse
+    // would have answered the 2nd of March.
+    const reference = `Finns inte ${suffix}`;
     const response = await inject({
       method: "POST",
       url: "/api/apartment-register/terminations",
@@ -1357,15 +1474,13 @@ describe("recording a termination", () => {
         apartmentId: apartments.held,
         kind: "BUILDING_TRANSFERRED",
         tookEffectOn: "2026-02-30",
-        reference: "Finns inte",
+        reference,
       },
       headers: { cookie: await signIn(actors.board.email) },
     });
 
     expect(response.statusCode).toBe(400);
-    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
-      "date-not-a-calendar-date",
-    );
+    expect(await prisma.termination.count({ where: { reference } })).toBe(0);
   });
 
   it("refuses a reference that is only whitespace", async () => {

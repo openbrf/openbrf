@@ -7,6 +7,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -31,13 +32,10 @@ const revealSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-/** ISO calendar date. A statutory date of record is never guessed from prose. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
-
 const lienSchema = z.object({
   apartmentId: z.string().min(1),
   creditor: z.string().min(1).max(200),
-  notedOn: isoDate,
+  notedOn: calendarDateSchema,
   amount: z
     .string()
     .regex(/^\d{1,12}(\.\d{1,2})?$/, "must be a decimal amount")
@@ -46,7 +44,7 @@ const lienSchema = z.object({
 
 const releaseLienSchema = z.object({
   lienId: z.string().min(1),
-  releasedOn: isoDate,
+  releasedOn: calendarDateSchema,
 });
 
 /**
@@ -60,7 +58,7 @@ const releaseLienSchema = z.object({
 const terminationSchema = z.object({
   apartmentId: z.string().min(1),
   kind: z.enum(["GENERAL_MEETING_DECISION", "BUILDING_TRANSFERRED"]),
-  tookEffectOn: isoDate,
+  tookEffectOn: calendarDateSchema,
   // Non-empty after trimming, matching the CHECK on the column. The service
   // trims before it writes, so a value of spaces would otherwise reach the
   // database as an empty string and surface as a driver error.
@@ -90,7 +88,7 @@ const reportBasisSchema = z.object({
     "TO_THE_ASSOCIATION",
     "LIENHOLDING_JURIDICAL_PERSON",
   ]),
-  membershipDecidedOn: isoDate.nullish(),
+  membershipDecidedOn: calendarDateSchema.nullish(),
 });
 
 /**
@@ -105,7 +103,7 @@ const reportBasisSchema = z.object({
 const transferReversalSchema = z.object({
   transferId: z.string().min(1),
   kind: z.enum(["RESCINDED", "RETURNED_TO_SELLER"]),
-  reversedOn: isoDate,
+  reversedOn: calendarDateSchema,
   reference: z.string().trim().min(1).max(500),
 });
 
