@@ -3,6 +3,8 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
@@ -629,6 +631,91 @@ describe("uploading a CSV", () => {
     expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
       "file-empty",
     );
+  });
+});
+
+describe("uploading a CSV saved by Swedish Excel", () => {
+  /**
+   * The fixture files byte for byte, previewed through the mapping the titles
+   * suggest. The preview is what the apply writes, so a name that reads right
+   * here is the name the register gets.
+   */
+  async function previewFixture(name: string): Promise<{
+    session: ImportSessionView;
+    value: ImportPreview;
+  }> {
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      name,
+      readFileSync(
+        join(process.cwd(), "src", "import", "fixtures", name),
+      ).toString("base64"),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: {
+        mapping: session.suggestedMapping,
+        defaultMovedInOn: "2021-04-01",
+      },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return { session, value: JSON.parse(response.body) as ImportPreview };
+  }
+
+  it.each(["medlemmar-windows-1252.csv", "medlemmar-utf-8-bom.csv"])(
+    "reads Åsa Öberg out of %s",
+    async (name) => {
+      const { session, value } = await previewFixture(name);
+
+      // The titles decode too, which is what lets the mapping be guessed.
+      expect(session.columns).toEqual([
+        "Förnamn",
+        "Efternamn",
+        "Lägenhetsnummer",
+        "Roll",
+      ]);
+      expect(session.sample).toEqual([["Åsa", "Öberg", "1101", "Medlem"]]);
+      expect(value.rows[0]?.person).toMatchObject({
+        firstName: "Åsa",
+        lastName: "Öberg",
+      });
+      expect(value.rows[0]?.problems).not.toContainEqual(
+        expect.objectContaining({ reason: "garbled-characters" }),
+      );
+    },
+  );
+
+  it("refuses a row whose name already lost a letter, and says so in the preview", async () => {
+    // UTF-8 that holds U+FFFD itself: a file that went through a wrong decode
+    // before it got here. Nothing can recover the letter, so the row is not
+    // imported rather than written into the register as it stands.
+    const rows = fixtureRows();
+    rows[1] = rows[1]!.map((cell, index) =>
+      index === 2 ? "Bj\uFFFDrk" : cell,
+    );
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    const value = JSON.parse(response.body) as ImportPreview;
+    const garbled = value.rows.find((row) => row.rowNumber === 1);
+
+    expect(garbled?.outcome).toBe("error");
+    expect(garbled?.problems).toContainEqual({
+      field: "firstName",
+      reason: "garbled-characters",
+    });
   });
 });
 

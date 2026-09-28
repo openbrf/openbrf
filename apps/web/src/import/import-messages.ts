@@ -46,6 +46,7 @@ const PROBLEMS: Record<string, TranslationKey> = {
   "invalid-personal-identity-number":
     "import.problem.invalid-personal-identity-number",
   "invalid-email": "import.problem.invalid-email",
+  "garbled-characters": "import.problem.garbled-characters",
 };
 
 export function problemMessage(reason: string): TranslationKey {

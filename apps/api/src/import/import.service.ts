@@ -7,7 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
-import { parseCsv, writeCsv } from "./csv";
+import { decodeCsv, parseCsv, writeCsv } from "./csv";
 import {
   type ImportDecisions,
   ImportApplyService,
@@ -417,7 +417,7 @@ export class ImportService implements OnModuleInit {
   ): Promise<string[][]> {
     try {
       if (format === "CSV") {
-        return parseCsv(bytes.toString("utf8")).rows;
+        return parseCsv(decodeCsv(bytes)).rows;
       }
       return await parseWorkbook(bytes);
     } catch {

@@ -6,9 +6,11 @@
  * not the ones a general CSV library solves. A Swedish board exports from Excel
  * with the system list separator, which is a semicolon; the file arrives with a
  * UTF-8 byte order mark that would otherwise become part of the first column
- * title; and the rows have to survive a quoted field containing the delimiter,
- * a line break or a doubled quote. That is a small, closed problem, and one
- * fewer dependency in the path that handles a whole cooperative's personal data.
+ * title, or saved as "CSV (semikolonavgränsad)" on Swedish Windows, in
+ * Windows-1252 rather than UTF-8 at all; and the rows have to survive a quoted
+ * field containing the delimiter, a line break or a doubled quote. That is a
+ * small, closed problem, and one fewer dependency in the path that handles a
+ * whole cooperative's personal data.
  */
 
 /** Delimiters worth guessing between. Semicolon first: Swedish Excel writes it. */
@@ -44,6 +46,31 @@ export function detectDelimiter(text: string): CsvDelimiter {
     }
   }
   return best;
+}
+
+/**
+ * Turns the bytes of an uploaded CSV file into text.
+ *
+ * UTF-8 first, strictly, and Windows-1252 when the bytes are not UTF-8. Excel
+ * on Swedish Windows saves "CSV (semikolonavgränsad)" in Windows-1252, where
+ * å, ä and ö are single bytes that are never valid UTF-8. Read leniently as
+ * UTF-8 they become U+FFFD, and "Åsa Öberg" would be written into a member
+ * register nobody can edit as "\uFFFDsa \uFFFDberg".
+ *
+ * The guess is safe in that direction: a file that decodes as UTF-8 without a
+ * single error is, in practice, UTF-8, while a Windows-1252 file with even one
+ * Swedish letter in it fails the strict decode. Windows-1252 has no invalid
+ * byte sequences, so the fallback always produces text; the WHATWG decoder maps
+ * its five unassigned bytes to control characters rather than to U+FFFD.
+ *
+ * The strict decoder drops a UTF-8 byte order mark itself.
+ */
+export function decodeCsv(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
 }
 
 /** Parses a CSV document into rows of cells. */

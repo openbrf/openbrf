@@ -327,6 +327,31 @@ describe("the preview", () => {
     expect(screen.getByText(/ÅÅÅÅ-MM-DD/)).toBeTruthy();
   });
 
+  it("flags a name that already lost a letter before anything is written", async () => {
+    // The API refuses such a row; what the board has to see is why, next to
+    // the name it would otherwise have taken for a display glitch.
+    const garbled = PREVIEW.rows[2]!;
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        rows: [
+          {
+            ...garbled,
+            person: { ...garbled.person, firstName: "Bj\uFFFDrk" },
+            problems: [{ field: "firstName", reason: "garbled-characters" }],
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const row = screen.getByText(/Bj\uFFFDrk/).closest("tr");
+    expect(row?.textContent).toMatch(/Ett tecken har redan gått förlorat/);
+    expect(row?.textContent).toMatch(/Importeras inte/);
+  });
+
   it("refuses to apply while a row matches more than one person", async () => {
     const session = userEvent.setup();
     await reachPreview(session);

@@ -2293,6 +2293,7 @@
       "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
       "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
       "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
+      "garbled-characters": "Ett tecken har redan gått förlorat i filen (visas som �). Rätta det i filen och läs in den igen.",
       "unknown": "Raden kunde inte läsas."
     },
     "mappingProblem": {

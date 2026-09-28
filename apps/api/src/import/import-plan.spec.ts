@@ -379,6 +379,35 @@ describe("validating a row", () => {
   });
 });
 
+describe("a value that has already lost characters", () => {
+  it("refuses the row and names the field, so the board sees it before applying", () => {
+    // What a file holds once it has been through a wrong decode somewhere else:
+    // the letter is gone from the bytes, and only U+FFFD is left in its place.
+    const plan = planImport(
+      [prepared({ ...COMPLETE, lastName: "Bj\uFFFDrk" })],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("error");
+    expect(plan.rows[0]?.problems).toEqual([
+      { field: "lastName", reason: "garbled-characters" },
+    ]);
+    expect(plan.summary.error).toBe(1);
+  });
+
+  it("leaves Swedish letters that were read correctly alone", () => {
+    const plan = planImport(
+      [prepared({ ...COMPLETE, firstName: "Åsa", lastName: "Öberg" })],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("create");
+    expect(plan.rows[0]?.problems).toEqual([]);
+  });
+});
+
 describe("one person appearing twice in the file", () => {
   it("attaches the second row to the person the first one creates", () => {
     // A member with two apartments is one person with two residencies, not two
