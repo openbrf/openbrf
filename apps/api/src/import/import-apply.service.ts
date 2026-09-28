@@ -11,6 +11,11 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  appendOwedMembershipEvents,
+  type MemberResidencySpan,
+  readMemberResidencies,
+} from "../registers/membership-transitions";
 import { lockResidencyTransitionsInOrder } from "../registers/residency-lock";
 import {
   type ImportField,
@@ -502,6 +507,12 @@ export class ImportApplyService implements OnModuleInit {
 
     /** Persons this chunk created, so a second row reaches the same one. */
     const createdByRow = new Map<number, string>();
+    /**
+     * Each member's tenant-ownerships as they stood before this chunk's first
+     * row for them, so what the register owes is settled once per person from
+     * the whole chunk rather than row by row in the order the file lists them.
+     */
+    const membersBefore = new Map<string, MemberResidencySpan[]>();
 
     for (const row of plan.rows) {
       if (row.outcome === "error") {
@@ -528,7 +539,17 @@ export class ImportApplyService implements OnModuleInit {
         continue;
       }
 
-      await this.writeResidency(tx, row, personId, result);
+      await this.writeResidency(tx, row, personId, membersBefore, result);
+    }
+
+    // After every row, so a file listing a person's newest apartment first
+    // writes the same rows as one listing it last. A person whose rows fall in
+    // two chunks is settled twice, and the second settles only the days the
+    // second chunk changed.
+    for (const [personId, before] of membersBefore) {
+      result.memberRegisterEntriesCreated += (
+        await appendOwedMembershipEvents(tx, personId, before)
+      ).length;
     }
 
     return result;
@@ -629,12 +650,13 @@ export class ImportApplyService implements OnModuleInit {
   }
 
   /**
-   * Writes the residency and, when the row makes someone a member, the
-   * statutory register entries that go with it.
+   * Writes the residency and, when the row is a member's, remembers what the
+   * person held before the chunk touched them.
    *
    * The same rule as the move flows: the ENTRY row is written when a membership
    * begins and the EXIT row when the last tenant-ownership ends, so a member
-   * with two apartments is recorded as one membership rather than two.
+   * with two apartments is recorded as one membership rather than two. The rows
+   * themselves are written once the chunk's residencies are, by the caller.
    *
    * The residency this row would create is looked up first, which is also what
    * makes a chunk safe to attempt twice: a row whose residency is already there
@@ -645,6 +667,7 @@ export class ImportApplyService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     row: PlannedRow,
     personId: string,
+    membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
   ): Promise<void> {
     if (row.apartment === null || row.role === null || row.movedInOn === null) {
@@ -664,16 +687,11 @@ export class ImportApplyService implements OnModuleInit {
       return;
     }
 
-    const alreadyMember =
-      row.role === "MEMBER"
-        ? (await tx.residency.count({
-            where: {
-              personId,
-              role: "MEMBER",
-              OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedInOn } }],
-            },
-          })) > 0
-        : false;
+    // Read before the insert, and only on the chunk's first row for the person:
+    // the rows after it are part of the same change.
+    if (row.role === "MEMBER" && !membersBefore.has(personId)) {
+      membersBefore.set(personId, await readMemberResidencies(tx, personId));
+    }
 
     await tx.residency.create({
       data: {
@@ -685,67 +703,6 @@ export class ImportApplyService implements OnModuleInit {
       },
     });
     result.residenciesCreated++;
-
-    if (row.role !== "MEMBER") {
-      return;
-    }
-
-    const person = await tx.person.findUniqueOrThrow({
-      where: { id: personId },
-      select: {
-        firstName: true,
-        lastName: true,
-        postalStreet: true,
-        postalCode: true,
-        postalCity: true,
-      },
-    });
-    const recorded = {
-      recordedFirstName: person.firstName,
-      recordedLastName: person.lastName,
-      recordedPostalStreet: person.postalStreet,
-      recordedPostalCode: person.postalCode,
-      recordedPostalCity: person.postalCity,
-    };
-
-    if (!alreadyMember) {
-      await tx.memberRegisterEntry.create({
-        data: {
-          personId,
-          apartmentId: row.apartment.id,
-          eventType: "ENTRY",
-          eventOn: movedInOn,
-          ...recorded,
-        },
-      });
-      result.memberRegisterEntriesCreated++;
-    }
-
-    if (movedOutOn === null) {
-      return;
-    }
-
-    // A row for someone who has already left has to close its own membership,
-    // or the register would show them as a member for ever.
-    const stillHeld = await tx.residency.count({
-      where: {
-        personId,
-        role: "MEMBER",
-        OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedOutOn } }],
-      },
-    });
-    if (stillHeld === 0) {
-      await tx.memberRegisterEntry.create({
-        data: {
-          personId,
-          apartmentId: row.apartment.id,
-          eventType: "EXIT",
-          eventOn: movedOutOn,
-          ...recorded,
-        },
-      });
-      result.memberRegisterEntriesCreated++;
-    }
   }
 }
 
