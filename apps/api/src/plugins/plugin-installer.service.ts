@@ -19,6 +19,7 @@ import {
   type OnApplicationBootstrap,
   type OnModuleInit,
 } from "@nestjs/common";
+import { pluginPackageSchema } from "@openbrf/plugin-sdk";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -94,6 +95,15 @@ export interface PluginInstallJob {
   reason: string;
   /** Whether to replace the process once the volume matches. */
   restart: boolean;
+  /**
+   * Whether that restart is skipped when the run leaves the tree as it was.
+   *
+   * For the run a boot queues: that process already serves the tree on the
+   * volume, so replacing it with another that reads the same tree changes
+   * nothing, and a tree the reconcile cannot fix would restart the instance on
+   * every boot.
+   */
+  onlyIfChanged?: boolean;
 }
 
 export interface ReconcileOutcome {
@@ -178,7 +188,7 @@ export class PluginInstallerService
       "The data volume does not match the installed plugins; queueing a " +
         "reinstall.",
     );
-    await this.enqueue({ reason: "boot", restart: true });
+    await this.enqueue({ reason: "boot", restart: true, onlyIfChanged: true });
   }
 
   /**
@@ -226,8 +236,9 @@ export class PluginInstallerService
           if (job.data.restart) {
             this.restart.expectRestart(job.id);
           }
+          let outcome: ReconcileOutcome;
           try {
-            await this.reconcile();
+            outcome = await this.reconcile();
           } catch (cause) {
             // A run with retries left is still owed its restart: pg-boss runs
             // it again, and that run ends in one.
@@ -237,6 +248,10 @@ export class PluginInstallerService
             throw cause;
           }
           if (!job.data.restart) {
+            continue;
+          }
+          if (job.data.onlyIfChanged === true && !outcome.changed) {
+            this.restart.abandonRestart(job.id);
             continue;
           }
           // Deliberately not awaited: the restart must not begin until this
@@ -316,6 +331,7 @@ export class PluginInstallerService
     };
 
     const archives = new Map<string, string>();
+    const versions = new Map<string, string>();
     const allowUncuratedSources = this.catalog.allowsUncuratedSources();
     const fetchDeadline = Date.now() + FETCH_BUDGET_MS;
 
@@ -340,6 +356,7 @@ export class PluginInstallerService
           },
         );
         archives.set(record.packageName, archive);
+        versions.set(record.packageName, record.version);
         outcome.installed.push(record.id);
       } catch (cause) {
         const error = String(cause);
@@ -385,6 +402,7 @@ export class PluginInstallerService
         paths.pluginStaging,
         desired,
         archives,
+        versions,
         lock,
       );
     } catch (cause) {
@@ -465,6 +483,7 @@ export class PluginInstallerService
     stagingRoot: string,
     desired: Record<string, string>,
     archives: ReadonlyMap<string, string>,
+    versions: ReadonlyMap<string, string>,
     lock: InstallLock,
   ): Promise<void> {
     await mkdir(stagingRoot, { recursive: true });
@@ -489,7 +508,7 @@ export class PluginInstallerService
     renewal.unref();
 
     try {
-      await this.stage(staging, archives);
+      await this.stage(staging, archives, versions);
       // The last moment at which nothing has moved. A run whose claim was
       // taken over stopped renewing for a full lease, so the tree it is about
       // to replace is another run's current one rather than the one it read.
@@ -517,6 +536,7 @@ export class PluginInstallerService
   private async stage(
     staging: string,
     archives: ReadonlyMap<string, string>,
+    versions: ReadonlyMap<string, string>,
   ): Promise<void> {
     await mkdir(join(staging, "archives"), { recursive: true });
 
@@ -557,6 +577,8 @@ export class PluginInstallerService
      * volume in the shape the next run expects to find.
      */
     await mkdir(join(staging, "node_modules"), { recursive: true });
+
+    await assertStagedPackages(join(staging, "node_modules"), versions);
   }
 
   /**
@@ -653,6 +675,62 @@ export function buildDependencySet(
     dependencies[packageName] = `file:./archives/${basename(archive)}`;
   }
   return sorted(dependencies);
+}
+
+/** The fields of a staged package.json that must agree with its consent. */
+const stagedPackageSchema = pluginPackageSchema.pick({
+  name: true,
+  version: true,
+  dependencies: true,
+  optionalDependencies: true,
+  bundleDependencies: true,
+  bundledDependencies: true,
+});
+
+/**
+ * Refuses a staged tree whose packages are not the ones consented to.
+ *
+ * npm installs an archive under the name it is given, whatever the archive's
+ * own package.json says, and the loader refuses a package whose name or
+ * version differs from its consent row. Letting such a tree through would
+ * mark the row installed for a plugin that never loads, and leave a tree the
+ * next reconcile finds already in place. Checked here, before the swap, so the
+ * build fails and the instance keeps what it was running.
+ *
+ * `versions` maps each consented package name to its version.
+ */
+export async function assertStagedPackages(
+  modules: string,
+  versions: ReadonlyMap<string, string>,
+): Promise<void> {
+  for (const [packageName, version] of versions) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(
+        await readFile(join(modules, packageName, "package.json"), "utf8"),
+      );
+    } catch {
+      throw new Error(
+        `The archive for ${packageName} was not installed as a package.`,
+      );
+    }
+
+    const parsed = stagedPackageSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map(
+        (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+      );
+      throw new Error(
+        `The archive for ${packageName} is not an installable plugin package: ${issues.join("; ")}.`,
+      );
+    }
+    if (parsed.data.name !== packageName || parsed.data.version !== version) {
+      throw new Error(
+        `The archive for ${packageName}@${version} holds ` +
+          `${parsed.data.name}@${parsed.data.version}.`,
+      );
+    }
+  }
 }
 
 /**

@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import {
   ARCHIVE_TIMEOUT_MS,
+  assertStagedPackages,
   buildDependencySet,
   collectAbandonedStaging,
   FETCH_BUDGET_MS,
@@ -157,6 +158,71 @@ describe("buildDependencySet", () => {
 });
 
 /**
+ * The staged tree is checked against the consent rows before it is moved into
+ * place. npm installs an archive under the name it is handed, so a verified
+ * archive that holds another package, or another release, would otherwise be
+ * marked installed and then refused by the loader at every boot.
+ */
+describe("assertStagedPackages", () => {
+  const consented = new Map([["openbrf-plugin-occupancy", "1.4.0"]]);
+
+  async function staged(packageJson: Record<string, unknown>): Promise<void> {
+    const directory = join(staging, "openbrf-plugin-occupancy");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, "package.json"),
+      JSON.stringify(packageJson),
+    );
+  }
+
+  it("accepts the package consented to", async () => {
+    await staged({
+      name: "openbrf-plugin-occupancy",
+      version: "1.4.0",
+      dependencies: {},
+    });
+
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses an archive that holds another package", async () => {
+    await staged({ name: "@someone-else/occupancy", version: "1.4.0" });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "The archive for openbrf-plugin-occupancy@1.4.0 holds @someone-else/occupancy@1.4.0.",
+    );
+  });
+
+  it("refuses an archive that holds another version", async () => {
+    await staged({ name: "openbrf-plugin-occupancy", version: "1.3.0" });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "holds openbrf-plugin-occupancy@1.3.0",
+    );
+  });
+
+  it("refuses an archive that declares a runtime dependency", async () => {
+    await staged({
+      name: "openbrf-plugin-occupancy",
+      version: "1.4.0",
+      dependencies: "left-pad",
+    });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      /is not an installable plugin package: dependencies: /,
+    );
+  });
+
+  it("refuses a tree the archive is missing from", async () => {
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "was not installed as a package",
+    );
+  });
+});
+
+/**
  * A reconcile this process did not accept.
  *
  * The command-line tool queues the run the server's worker performs, and the
@@ -213,6 +279,12 @@ describe("the queue worker", () => {
     return { handler, restart };
   }
 
+  const outcome = (changed: boolean): ReconcileOutcome => ({
+    installed: [],
+    failed: changed ? [] : [{ id: "occupancy", error: "no archive" }],
+    changed,
+  });
+
   const install = (id: string, retryCount: number, retryLimit = 2): Batch => [
     {
       id,
@@ -231,6 +303,65 @@ describe("the queue worker", () => {
     void handler(install("job-1", 0));
 
     expect(restart.restartPending).toBe(true);
+  });
+
+  /*
+   * The run a boot queues when the volume does not match. A tree the reconcile
+   * cannot fix - an upgrade whose archive cannot be fetched, say - would
+   * otherwise restart the instance into the same tree on every boot.
+   */
+  describe("the run a boot queues", () => {
+    const boot: Batch = [
+      {
+        id: "job-1",
+        data: { reason: "boot", restart: true, onlyIfChanged: true },
+        retryCount: 0,
+        retryLimit: 2,
+      },
+    ];
+
+    it("does not restart when it changed nothing", async () => {
+      const { handler, restart } = await worker(() =>
+        Promise.resolve(outcome(false)),
+      );
+      const restarting = vi
+        .spyOn(restart, "restartWhenCommitted")
+        .mockResolvedValue(undefined);
+
+      await handler(boot);
+
+      expect(restarting).not.toHaveBeenCalled();
+      expect(restart.restartPending).toBe(false);
+    });
+
+    it("restarts when it rebuilt the tree", async () => {
+      const { handler, restart } = await worker(() =>
+        Promise.resolve(outcome(true)),
+      );
+      const restarting = vi
+        .spyOn(restart, "restartWhenCommitted")
+        .mockResolvedValue(undefined);
+
+      await handler(boot);
+
+      expect(restarting).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("restarts after an install that changed nothing", async () => {
+    // The command-line tool reconciles itself and then leaves the queued run
+    // to the server, which finds the tree already in place and still has to
+    // restart to serve it.
+    const { handler, restart } = await worker(() =>
+      Promise.resolve(outcome(false)),
+    );
+    const restarting = vi
+      .spyOn(restart, "restartWhenCommitted")
+      .mockResolvedValue(undefined);
+
+    await handler(install("job-1", 0));
+
+    expect(restarting).toHaveBeenCalledOnce();
   });
 
   /*
