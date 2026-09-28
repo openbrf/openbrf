@@ -89,7 +89,8 @@ export class MailSettingsResolver implements OnModuleInit {
     ) {
       this.logger.warn(
         `OPENBRF_SMTP_REQUIRE_TLS is false: when ${mail.server.host}:${mail.server.port} ` +
-          "offers no STARTTLS, the sign-in and every message go to it in " +
+          "offers no STARTTLS, or something on the path removes the offer, " +
+          "the sign-in and every message go to it in " +
           "cleartext. Set this only for a relay on a network you trust.",
       );
     }

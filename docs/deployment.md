@@ -264,7 +264,7 @@ A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
 Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
 `OPENBRF_SMTP_REQUIRE_TLS=false`. The instance still upgrades when the relay
 offers STARTTLS, but otherwise sends the sign-in and every message in the clear,
-so set it only when you control every hop between the two, such as a network
+and so does it when something on the path removes the relay's offer. Set it only when you control every hop between the two, such as a network
 that only these containers share. The instance logs a warning at start while it
 is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
 loopback too.

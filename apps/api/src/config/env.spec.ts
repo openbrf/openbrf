@@ -275,9 +275,16 @@ describe("the mail driver's variables", () => {
         .OPENBRF_SMTP_REQUIRE_TLS,
     ).toBe(false);
     expect(
+      loadEnv({ ...REQUIRED, ...SMTP, OPENBRF_SMTP_REQUIRE_TLS: "true" })
+        .OPENBRF_SMTP_REQUIRE_TLS,
+    ).toBe(true);
+    expect(
       problems({ ...HTTP_API, OPENBRF_SMTP_REQUIRE_TLS: "false" }),
     ).toEqual([
       'OPENBRF_SMTP_REQUIRE_TLS: belongs to the "smtp" mail driver, and OPENBRF_MAIL_DRIVER is "http-api"',
+    ]);
+    expect(problems({ OPENBRF_SMTP_REQUIRE_TLS: "false" })).toEqual([
+      'OPENBRF_SMTP_REQUIRE_TLS: belongs to the "smtp" mail driver, and OPENBRF_MAIL_DRIVER is "settings"',
     ]);
   });
 
