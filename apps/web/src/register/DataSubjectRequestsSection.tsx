@@ -306,6 +306,7 @@ function CloseForm({
   const { t } = useTranslation();
   const [reason, setReason] = useState("");
   const [reasonMissing, setReasonMissing] = useState(false);
+  const reasonErrorId = `closeReasonError-${request.requestId}`;
   /*
    * Held beside the save state rather than read from it: two presses inside
    * one render both see "idle", and a second POST would come back as
@@ -350,6 +351,8 @@ function CloseForm({
           rows={2}
           maxLength={500}
           value={reason}
+          aria-invalid={reasonMissing}
+          aria-describedby={reasonMissing ? reasonErrorId : undefined}
           onChange={(event) => {
             setReason(event.target.value);
             setReasonMissing(false);
@@ -358,7 +361,7 @@ function CloseForm({
       </label>
 
       {reasonMissing ? (
-        <p role="alert" className="text-small text-warn">
+        <p id={reasonErrorId} role="alert" className="text-small text-warn">
           {t("register.person.requests.closeReasonRequired")}
         </p>
       ) : null}

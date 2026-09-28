@@ -137,6 +137,7 @@ describe("closing a request", () => {
 
     expect(closeDataSubjectRequest).not.toHaveBeenCalled();
     expect(row.getByText(/Begränsningen hävs/)).not.toBeNull();
+    expect(row.getByText(/Underrätta personen innan/)).not.toBeNull();
     expect(row.getByRole("button", { name: "Avsluta begäran" })).not.toBeNull();
   });
 
@@ -150,6 +151,11 @@ describe("closing a request", () => {
     expect(closeDataSubjectRequest).not.toHaveBeenCalled();
     expect(row.getByRole("alert").textContent).toContain(
       "Skriv varför begäran avslutas",
+    );
+    const field = row.getByLabelText("Varför begäran avslutas");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(
+      row.getByRole("alert").id,
     );
   });
 

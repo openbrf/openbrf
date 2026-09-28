@@ -790,7 +790,7 @@
         "closeConfirm": "Close the request",
         "closeCancel": "Cancel",
         "closeWarning": {
-          "RESTRICTION": "The restriction is lifted, and the person's data is used and purged as before. A closed request cannot be reopened.",
+          "RESTRICTION": "The restriction is lifted, and the person's data is used and purged as before. Tell the person before you close the request (art. 18(3)). A closed request cannot be reopened.",
           "OBJECTION": "The objection is lifted. The person receives the association's mailings and event invitations again. A closed request cannot be reopened.",
           "ERASURE": "The erasure will not be carried out. A closed request cannot be reopened.",
           "other": "A closed request cannot be reopened. If the person asks again, it is recorded as a new request."
