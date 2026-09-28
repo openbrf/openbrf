@@ -194,6 +194,67 @@ describe("installing a theme from the catalog", () => {
     ).rejects.toThrow();
   });
 
+  /*
+   * A theme composed here under the entry's id is the board's own, not the
+   * entry installed. It must not let the deprecated package in over it, and
+   * the catalog must not offer the entry as already installed either. The
+   * composed row is removed afterwards, so the install below is a first one.
+   */
+  it("refuses a deprecated entry over a theme composed under its id", async () => {
+    await installer.compose(
+      {
+        id: exampleEntry.id,
+        displayName: "Husets farger",
+        description: "Foreningens egna farger.",
+        extends: "porttavlan",
+        modes: {
+          light: { "accent-trust": "#2F5D50" },
+          dark: { "accent-trust": "#7FBFAA" },
+        },
+      },
+      null,
+    );
+    const composed = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: exampleEntry.id },
+    });
+
+    try {
+      const path = await exampleEntryChanged("deprecated-composed", {
+        deprecated: true,
+      });
+      const reading = installerReading(path);
+
+      const listed = (await reading.catalog()).find(
+        (theme) => theme.id === exampleEntry.id,
+      );
+      expect(listed?.installedVersion).toBeNull();
+
+      const failure = await refusal(reading.install(exampleEntry.id, null));
+
+      expect(failure.reason).toBe("entry-deprecated");
+      expect(
+        await prisma.installedTheme.findUniqueOrThrow({
+          where: { id: exampleEntry.id },
+        }),
+      ).toEqual(composed);
+    } finally {
+      await prisma.installedTheme.delete({ where: { id: exampleEntry.id } });
+      await rm(join(dataDirectory, "themes", exampleEntry.id), {
+        recursive: true,
+        force: true,
+      });
+      // Composing recorded THEME_COMPOSED for this id, and the log keeps it.
+      // The audit assertions below are about the catalog install, so they
+      // start after it.
+      const recorded = await prisma.auditLogEntry.findFirst({
+        where: { action: "THEME_COMPOSED", targetId: exampleEntry.id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      auditBoundary = recorded?.createdAt ?? auditBoundary;
+    }
+  });
+
   it("installs a theme that inherits the default one", async () => {
     const result = await installer.install("example-theme", null);
 
