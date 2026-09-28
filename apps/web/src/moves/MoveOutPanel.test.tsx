@@ -36,7 +36,8 @@ const TARGET = {
   residencyId: "residency-1",
   personName: "Karin Ohman",
   apartmentNumber: "Storgatan 12 1201",
-};
+  role: "MEMBER",
+} as const;
 
 const noop = (): void => {
   /* intentionally empty */
@@ -164,6 +165,31 @@ describe("when the move-out is refused", () => {
 });
 
 describe("recording a transfer", () => {
+  it("is not offered for a residency that holds no tenant-ownership", () => {
+    // A resident who is not the tenant-owner has nothing to transfer, and the
+    // server refuses a transfer from them. Offering the form would let the
+    // board fill it in only to be told so afterwards.
+    render(
+      <MoveOutPanel
+        target={{ ...TARGET, role: "RESIDENT" }}
+        onClose={noop}
+        onMoved={noop}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("checkbox", { name: /Registrera överlåtelse/ }),
+    ).toBeNull();
+  });
+
+  it("is offered for a tenant-owner's residency", () => {
+    render(<MoveOutPanel target={TARGET} onClose={noop} onMoved={noop} />);
+
+    expect(
+      screen.getByRole("checkbox", { name: /Registrera överlåtelse/ }),
+    ).toBeTruthy();
+  });
+
   it("is off until the board asks for it", async () => {
     render(<MoveOutPanel target={TARGET} onClose={noop} onMoved={noop} />);
 
