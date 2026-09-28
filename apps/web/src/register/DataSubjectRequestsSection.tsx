@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -12,7 +12,7 @@ import {
 } from "../api/data-protection";
 import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { CAUTION_BUTTON, FIELD, LABEL } from "../ui/controls";
+import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 
@@ -149,8 +149,17 @@ function RequestRow({
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const [deciding, setDeciding] = useState(false);
-  const close = useSaveAction(closeDataSubjectRequest, onChanged);
+  const [acting, setActing] = useState<"deciding" | "closing" | null>(null);
+  /*
+   * Closing is offered for as long as the request is open, decided or not.
+   * It is the only thing that lifts a granted restriction or objection - the
+   * person withdrawing it, or the board lifting it once the person has been
+   * told, as art. 18(3) asks - so hiding it once a decision was recorded would
+   * leave that restriction in force for good. A decision is taken once, and
+   * only on an open request.
+   */
+  const open = request.closedAt === null;
+  const decidable = open && request.decision === null;
 
   return (
     <li className="flex flex-col gap-1 border-t border-line pt-3 first:border-t-0 first:pt-0">
@@ -199,49 +208,176 @@ function RequestRow({
         </p>
       )}
 
-      {request.decision === null ? (
+      {open ? (
         <>
           <div className="flex gap-2">
+            {decidable ? (
+              <button
+                type="button"
+                className={CAUTION_BUTTON}
+                onClick={() => {
+                  setActing(acting === "deciding" ? null : "deciding");
+                }}
+              >
+                {t("register.person.requests.decide")}
+              </button>
+            ) : null}
             <button
               type="button"
               className={CAUTION_BUTTON}
               onClick={() => {
-                setDeciding(!deciding);
-              }}
-            >
-              {t("register.person.requests.decide")}
-            </button>
-            <button
-              type="button"
-              className={CAUTION_BUTTON}
-              onClick={() => {
-                void close.submit(request.requestId, {});
+                setActing(acting === "closing" ? null : "closing");
               }}
             >
               {t("register.person.requests.close")}
             </button>
           </div>
-          {deciding ? (
+          {acting === "deciding" && decidable ? (
             <DecideForm
               request={request}
               onDecided={() => {
-                setDeciding(false);
+                setActing(null);
                 onChanged();
+              }}
+            />
+          ) : null}
+          {acting === "closing" ? (
+            <CloseForm
+              request={request}
+              onClosed={() => {
+                setActing(null);
+                onChanged();
+              }}
+              onCancel={() => {
+                setActing(null);
               }}
             />
           ) : null}
         </>
       ) : null}
+    </li>
+  );
+}
 
-      {close.state.kind === "failed" ? (
+/**
+ * What closing this request does, in the board's words.
+ *
+ * Only a granted restriction or objection changes anything beyond the request
+ * itself, and that is the one a board has to read before it presses: the
+ * mailings resume, or the purge and the other uses come back.
+ */
+function closeWarningKey(request: DataSubjectRequestView): TranslationKey {
+  if (request.decision === "GRANTED" && request.executedAt === null) {
+    return `register.person.requests.closeWarning.${request.kind}`;
+  }
+  return "register.person.requests.closeWarning.other";
+}
+
+/**
+ * Closing a request, in two presses and with the reason written down.
+ *
+ * A closure cannot be undone - a closed request stays closed, and a person who
+ * asks again is a new request - and on a granted restriction or objection it
+ * lifts what the person asked for. So it is asked in the page rather than done
+ * on one click, the consequence is said before the confirming press, and the
+ * reason is what the row shows afterwards for why it ended.
+ */
+function CloseForm({
+  request,
+  onClosed,
+  onCancel,
+}: {
+  request: DataSubjectRequestView;
+  onClosed: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState("");
+  const [reasonMissing, setReasonMissing] = useState(false);
+  /*
+   * Held beside the save state rather than read from it: two presses inside
+   * one render both see "idle", and a second POST would come back as
+   * "already closed" under a closure that worked.
+   */
+  const inFlight = useRef(false);
+
+  const save = useSaveAction(closeDataSubjectRequest, onClosed);
+  const saving = save.state.kind === "saving";
+
+  return (
+    <form
+      className="flex flex-col gap-3 border-l border-line pl-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (inFlight.current) {
+          return;
+        }
+        const written = reason.trim();
+        if (written === "") {
+          setReasonMissing(true);
+          return;
+        }
+        inFlight.current = true;
+        void save.submit(request.requestId, { reason: written }).finally(() => {
+          inFlight.current = false;
+        });
+      }}
+    >
+      <Notice tone="warn" live>
+        {t(closeWarningKey(request))}
+      </Notice>
+
+      <label className="flex flex-col gap-1">
+        <span className={LABEL}>
+          {t("register.person.requests.closeReasonLabel")}
+        </span>
+        <textarea
+          className={FIELD}
+          rows={2}
+          maxLength={500}
+          value={reason}
+          onChange={(event) => {
+            setReason(event.target.value);
+            setReasonMissing(false);
+          }}
+        />
+      </label>
+
+      {reasonMissing ? (
+        <p role="alert" className="text-small text-warn">
+          {t("register.person.requests.closeReasonRequired")}
+        </p>
+      ) : null}
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          className={`${CAUTION_BUTTON} disabled:opacity-60`}
+          disabled={saving}
+        >
+          {saving
+            ? t("register.person.requests.saving")
+            : t("register.person.requests.closeConfirm")}
+        </button>
+        <button
+          type="button"
+          className={QUIET_BUTTON}
+          disabled={saving}
+          onClick={onCancel}
+        >
+          {t("register.person.requests.closeCancel")}
+        </button>
+      </div>
+
+      {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
           {t(
-            REASON[close.state.failure.reason ?? ""] ??
+            REASON[save.state.failure.reason ?? ""] ??
               "register.person.requests.reasons.unknown",
           )}
         </Notice>
       ) : null}
-    </li>
+    </form>
   );
 }
 
