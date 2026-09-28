@@ -357,6 +357,8 @@
           "boardPositions": "Förtroendeuppdrag",
           "systemRoles": "Systemroller",
           "account": "Konto",
+          "signInSessions": "Inloggade sessioner",
+          "invitations": "Inbjudningar till konto",
           "connectedApps": "Anslutna appar",
           "memberRegister": "Medlemsförteckningen",
           "transfers": "Upplåtelser och överlåtelser",
@@ -373,12 +375,17 @@
           "subletApplications": "Ansökningar om andrahandsupplåtelse",
           "keyOrders": "Nyckelbeställningar",
           "eventSignups": "Anmälningar till evenemang",
+          "memberCharges": "Debiteringar",
+          "fees": "Avgifter för lägenheter du har bott i",
+          "feeNotices": "Avier för lägenheter du har bott i",
           "newsComments": "Nyhetskommentarer",
+          "newsDeliveries": "Nyhetsutskick och smsutskick till dig",
           "chat": "Det du har skrivit i chatten",
           "chatReports": "Chattmeddelanden du har anmält eller besvarat",
           "boardMailbox": "Korrespondens med styrelsens brevlåda",
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
+          "meetingNoticeDeliveries": "Kallelser till föreningsstämma som skickats till dig",
           "audit": "Granskningsloggen",
           "retention": "Gallring",
           "dataSubjectRequests": "Vad du har begärt om dina uppgifter",
@@ -505,7 +512,30 @@
           "appName": "App",
           "appHost": "Domän",
           "connectedOn": "Ansluten",
-          "accessLastIssued": "Åtkomst senast utfärdad"
+          "accessLastIssued": "Åtkomst senast utfärdad",
+          "chargedTo": "Debiterad",
+          "vat": "Moms",
+          "handedToManager": "Lämnad till ekonomisk förvaltare",
+          "feeKind": "Avgift",
+          "appliesFrom": "Gäller från",
+          "appliesUntil": "Gäller till",
+          "monthlyAmount": "Per månad",
+          "due": "Förfaller",
+          "issued": "Utfärdad",
+          "paymentReference": "Betalningsreferens",
+          "signedIn": "Inloggad",
+          "renewed": "Senast förnyad",
+          "ipAddress": "IP-adress",
+          "userAgent": "Webbläsare, som den angav sig",
+          "passkeys": "Nycklar",
+          "added": "Tillagd",
+          "synced": "Synkas mellan enheter",
+          "sent": "Skickad",
+          "validUntil": "Giltig till",
+          "accepted": "Accepterad",
+          "deliveryChannel": "Skickad som",
+          "queued": "Köad",
+          "notSentBecause": "Varför det inte skickades"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -700,7 +730,32 @@
           "proxyHolder": "Hade fullmakt"
         },
         "yes": "Ja",
-        "no": "Nej"
+        "no": "Nej",
+        "chargeBasis": {
+          "person": "Dig",
+          "apartment": "Lägenheten du bodde i"
+        },
+        "passkeyUnnamed": "Namnlös nyckel",
+        "deliveryChannel": {
+          "EMAIL": "E-post",
+          "SMS": "Sms"
+        },
+        "deliveryStatus": {
+          "PENDING": "Väntar på att skickas",
+          "SENT": "Lämnat för leverans",
+          "FAILED": "Inte skickat"
+        },
+        "deliveryFailure": {
+          "mail-not-configured": "Instansen hade ingen e-postserver",
+          "sms-not-configured": "Instansen hade ingen sms-leverantör",
+          "send-failed": "E-postservern eller sms-leverantören tog inte emot det",
+          "recipient-gone": "Du fanns inte längre i registret",
+          "no-phone-number": "Inget telefonnummer fanns registrerat för dig",
+          "no-email-address": "Ingen e-postadress fanns registrerad för dig",
+          "mailing-interrupted": "Utskicket avbröts innan det nådde dig",
+          "notice-sending-interrupted": "Utskicket avbröts innan det nådde dig",
+          "recipient-objected": "Du hade invänt mot utskicken eller begärt begränsning"
+        }
       },
       "requests": {
         "kind": {
@@ -1055,10 +1110,14 @@
       "testSent": "Ett testmeddelande är på väg till {{email}}.",
       "notConfigured": "E-post är inte inställt, så inbjudningar och inloggningslänkar kan inte skickas. Ingen kan bjudas in innan det är gjort.",
       "configured": "E-post är inställt.",
+      "environment": "E-post skickas av den som driver instansen, via {{host}} från {{fromAddress}}.",
+      "environmentHint": "Den ställs in där instansen körs och kan inte ändras här.",
       "errors": {
         "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
         "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
-        "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord."
+        "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
+        "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem."
       },
       "test": {
         "subject": "Testmeddelande från {{association}}",
@@ -1603,6 +1662,7 @@
       "install": "Installera",
       "update": "Uppdatera till {{version}}",
       "alreadyInstalled": "Installerat",
+      "deprecated": "Underhålls inte längre",
       "contract": "Tokenkontrakt {{range}}"
     },
     "preview": {
@@ -1655,7 +1715,7 @@
       "unknown": "Temana kunde inte hämtas just nu. Försök igen.",
       "loadFailed": "De installerade temana kunde inte läsas.",
       "forbidden": "Att installera och byta tema är en administratörs uppgift.",
-      "catalogNotConfigured": "Ingen temakatalog är konfigurerad för den här instansen.",
+      "catalogNotPermitted": "Instansen pekar på en katalog utanför den granskade. Att installera teman därifrån måste tillåtas uttryckligen i instansens konfiguration.",
       "catalogUnreachable": "Temakatalogen kunde inte nås.",
       "catalogInvalid": "Temakatalogen svarade med något den här versionen inte kan läsa.",
       "packageUnreachable": "Temapaketet kunde inte hämtas.",
@@ -4282,7 +4342,7 @@
           "name": "Adressbok och konton",
           "purpose": "Nå de boende och ge dem tillgång till föreningens tjänster.",
           "legalBasisNote": "Avtal för medlemmar (art. 6(1)(b)); berättigat intresse för övriga boende.",
-          "retention": "Gallras enligt föreningens gallringstid efter utflytt."
+          "retention": "Gallras enligt föreningens gallringstid efter utflytt. En inloggad session upphör trettio dagar efter att den senast förnyades och raderas natten därpå, om inte ett rättsligt bevarandekrav eller en begränsning gäller för personen; den raderas direkt när man loggar ut."
         },
         "connectedApps": {
           "name": "Anslutna appar",
@@ -4300,7 +4360,7 @@
           "name": "Nyhetsutskick",
           "purpose": "Meddela medlemmarna vad styrelsen publicerar.",
           "legalBasisNote": "Berättigat intresse: att hålla medlemmarna underrättade.",
-          "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat."
+          "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat, och tas bort med nyheten om styrelsen tar bort den. Ingen gallring når den."
         },
         "chat": {
           "name": "Chatten",
@@ -4366,7 +4426,7 @@
           "name": "Kontoansökningar och inbjudningar",
           "purpose": "Avgöra vem som ska få ett konto på instansen.",
           "legalBasisNote": "Berättigat intresse: föreningen avgör vem som får tillgång.",
-          "retention": "En avgjord ansökan tas bort av styrelsen. En inbjudan som aldrig accepterats gallras med personens övriga tjänstedata."
+          "retention": "En avgjord ansökan sparas, och ingen gallring når den. En inbjudan, accepterad eller inte, gallras med personens övriga tjänstedata, och en ny inbjudan ersätter en som aldrig accepterats."
         },
         "boardPositionsAndSystemRoles": {
           "name": "Förtroendeuppdrag och systemroller",

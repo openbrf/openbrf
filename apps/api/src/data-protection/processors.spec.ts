@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { Env } from "../config/env";
+import type { FieldEncryptionService } from "../crypto/field-encryption.service";
+import type { PrismaService } from "../database/prisma.service";
+import { MailSettingsResolver } from "../mail/mail-settings";
+import { ProcessorFactsService } from "./processor-facts.service";
 import {
   currentProcessors,
   type OpenAgreementRow,
@@ -8,8 +13,8 @@ import {
 
 function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
   return {
-    smtpHost: "smtp.example.test",
-    smtpFromAddress: "styrelsen@granngarden.test",
+    mailHost: "smtp.example.test",
+    mailFromAddress: "styrelsen@granngarden.test",
     smsDriver: null,
     smsGatewayUrl: null,
     storageDriver: "local",
@@ -55,10 +60,10 @@ describe("currentProcessors", () => {
     // A host with no sender address sends nothing, which the settings screen
     // already reports as an instance that cannot send.
     expect(
-      keys(currentProcessors(facts({ smtpFromAddress: null }), [])),
+      keys(currentProcessors(facts({ mailFromAddress: null }), [])),
     ).not.toContain("smtp");
     expect(
-      keys(currentProcessors(facts({ smtpHost: null }), [])),
+      keys(currentProcessors(facts({ mailHost: null }), [])),
     ).not.toContain("smtp");
   });
 
@@ -375,6 +380,94 @@ describe("currentProcessors", () => {
       // The absence of a row, never a stored status: a stored "unrecorded"
       // would be a claim, and this is the lack of one.
       expect(currentProcessors(facts(), [])[0]?.state).toBe("notRecorded");
+    });
+  });
+});
+
+describe("the mail server, when whoever runs the instance sets the mail", () => {
+  /**
+   * The facts as the service reads them, over a board that stored an SMTP
+   * server of its own before the environment set the mail (ADR 0024).
+   */
+  async function factsUnder(env: Env): Promise<ProcessorFacts> {
+    const prisma = {
+      association: {
+        findUnique: vi.fn().mockResolvedValue({
+          smtpHost: "smtp.stored.example",
+          smtpFromAddress: "styrelsen@granngarden.test",
+          smsDriver: null,
+          smsGatewayUrl: null,
+          boardMailboxAddress: null,
+          boardMailboxPop3Host: null,
+          boardMailboxPop3User: null,
+          boardMailboxPop3PasswordCipher: null,
+        }),
+      },
+      installedPlugin: { findMany: vi.fn().mockResolvedValue([]) },
+      oauthClient: { findMany: vi.fn().mockResolvedValue([]) },
+      mediaFile: { count: vi.fn().mockResolvedValue(0) },
+    } as unknown as PrismaService;
+    const encryption = {
+      decrypt: vi.fn(),
+    } as unknown as FieldEncryptionService;
+
+    return new ProcessorFactsService(
+      env,
+      prisma,
+      new MailSettingsResolver(env, prisma, encryption),
+    ).read();
+  }
+
+  it("names the mail API's host rather than the server the board stored", async () => {
+    // The recipient is the service mail actually goes through. Naming the
+    // stored server would put a recipient in the register that receives
+    // nothing, and leave out the one that receives everything.
+    const descriptors = currentProcessors(
+      await factsUnder({
+        OPENBRF_STORAGE_DRIVER: "local",
+        OPENBRF_MAIL_DRIVER: "http-api",
+        OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+        OPENBRF_MAIL_API_URL: "https://api.mail.example/v1",
+        OPENBRF_MAIL_API_KEY: "key",
+        OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "mail.example",
+      } as Env),
+      [],
+    );
+
+    expect(descriptors.find((d) => d.processorKey === "smtp")).toMatchObject({
+      processorKind: "SMTP",
+      identity: "api.mail.example",
+      detail: "utskick@delad.example",
+    });
+  });
+
+  it("names the environment's SMTP host", async () => {
+    const descriptors = currentProcessors(
+      await factsUnder({
+        OPENBRF_STORAGE_DRIVER: "local",
+        OPENBRF_MAIL_DRIVER: "smtp",
+        OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+        OPENBRF_SMTP_HOST: "smtp.host.example",
+      } as Env),
+      [],
+    );
+
+    expect(descriptors.find((d) => d.processorKey === "smtp")).toMatchObject({
+      identity: "smtp.host.example",
+    });
+  });
+
+  it("names the stored server while the environment sets nothing", async () => {
+    const descriptors = currentProcessors(
+      await factsUnder({
+        OPENBRF_STORAGE_DRIVER: "local",
+        OPENBRF_MAIL_DRIVER: "settings",
+      } as Env),
+      [],
+    );
+
+    expect(descriptors.find((d) => d.processorKey === "smtp")).toMatchObject({
+      identity: "smtp.stored.example",
     });
   });
 });

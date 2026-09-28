@@ -37,6 +37,8 @@
  * matter here (ISO-8859-1 and Windows-1252).
  */
 
+import { CONTROL_CHARACTERS, oneLine } from "../mail/header-text";
+
 /** One file that arrived attached to a message. */
 export interface MimeAttachment {
   /**
@@ -53,7 +55,14 @@ export interface MimeAttachment {
 }
 
 export interface ParsedMessage {
-  /** The subject line, decoded. Empty when the message carried none. */
+  /**
+   * The subject line, decoded and on one line. Empty when the message carried
+   * none.
+   *
+   * One line, because an encoded word decodes to whatever bytes the sender
+   * chose, a line break included, and an answer's subject is built from this
+   * one and becomes a header of its own.
+   */
   readonly subject: string;
   /** The address the message claims to come from, lowercased, or null. */
   readonly fromAddress: string | null;
@@ -110,7 +119,7 @@ export function readMessage(raw: Buffer): ParsedMessage {
   const body = chooseBody(part);
 
   return {
-    subject: decodeEncodedWords(part.headers.get("subject") ?? "").trim(),
+    subject: oneLine(decodeEncodedWords(part.headers.get("subject") ?? "")),
     fromAddress: addressFrom(part.headers.get("from") ?? ""),
     fromName: displayNameFrom(part.headers.get("from") ?? ""),
     messageId: identifierFrom(part.headers.get("message-id") ?? ""),
@@ -515,7 +524,11 @@ function chooseBody(part: MimePart): ChosenBody | null {
   if (part.contentType.subtype === "html") {
     return { part, text: htmlToText(decoded), fromHtml: true };
   }
-  return { part, text: normaliseNewlines(decoded), fromHtml: false };
+  return {
+    part,
+    text: withoutControlCharacters(normaliseNewlines(decoded)),
+    fromHtml: false,
+  };
 }
 
 function lastBody(
@@ -731,21 +744,6 @@ export function decodeEncodedWords(raw: string): string {
   return result + raw.slice(cursor);
 }
 
-/**
- * The characters a sender may not put into a name this application shows.
- *
- * Control characters only. They have no place in a filename or a display name,
- * and a log line, a terminal or a download header is where one of them stops
- * being invisible.
- *
- * The rule against matching control characters in a pattern is disabled for this
- * one line, which is the case it makes an exception for: this pattern exists in
- * order to remove them from a value somebody outside the association chose, and
- * the alternative to naming them is not naming them.
- */
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
-
 // ---------------------------------------------------------------------------
 // Header values.
 // ---------------------------------------------------------------------------
@@ -921,8 +919,11 @@ export function htmlToText(html: string): string {
     index = markup.end;
   }
 
-  return normaliseNewlines(decodeEntities(pieces.join("")))
-    .replaceAll(/[ \t]+\n/g, "\n")
+  return withoutTrailingBlanks(
+    withoutControlCharacters(
+      normaliseNewlines(decodeEntities(pieces.join(""))),
+    ),
+  )
     .replaceAll(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -1127,8 +1128,14 @@ function decodeEntities(text: string): string {
     .replaceAll(/&amp;/g, "&");
 }
 
+/**
+ * The character a numeric entity names, or nothing.
+ *
+ * Nothing for code point zero, as for a value outside Unicode: it is not a
+ * character anybody writes in a letter, and the database refuses to store it.
+ */
 function codePoint(value: number): string {
-  return Number.isFinite(value) && value >= 0 && value <= 0x10ffff
+  return Number.isFinite(value) && value > 0 && value <= 0x10ffff
     ? String.fromCodePoint(value)
     : "";
 }
@@ -1137,4 +1144,47 @@ function normaliseNewlines(text: string): string {
   // The stored body is read on a screen and put back into a reply, and a mixture
   // of line endings in one string shows up in both.
   return text.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+}
+
+/**
+ * Every control character but the tab and the two line endings.
+ *
+ * The rule against control characters in a pattern is disabled for this one
+ * line, because finding them is what the pattern is for.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROLS_IN_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g;
+
+/**
+ * The text with its control characters removed.
+ *
+ * A body is whatever bytes the sender chose, and a NUL among them is not one
+ * PostgreSQL will store in a text column: left in, it makes the letter one the
+ * collector cannot write at all. The others carry nothing a board reads and
+ * are dropped with it. Tab, carriage return and line feed are how the sender
+ * laid the letter out, and stay.
+ */
+function withoutControlCharacters(text: string): string {
+  return text.replaceAll(CONTROLS_IN_TEXT, "");
+}
+
+/**
+ * The text with the spaces and tabs that end each line removed.
+ *
+ * This is a scan rather than a pattern on purpose. A pattern such as
+ * `/[ \t]+\n/g` starts again at every space of a run that no line break
+ * follows, so its cost grows with the square of the run's length, and a body
+ * is as long as the sender chose.
+ */
+function withoutTrailingBlanks(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      let end = line.length;
+      while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t")) {
+        end -= 1;
+      }
+      return end === line.length ? line : line.slice(0, end);
+    })
+    .join("\n");
 }

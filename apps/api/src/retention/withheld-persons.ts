@@ -32,26 +32,77 @@ interface PersonClient {
 }
 
 /**
- * People no purge may touch: a standing legal hold, or a standing restriction.
+ * What makes a person withheld from every purge: a standing legal hold, or a
+ * standing restriction.
  *
  * Not "and": either one alone is enough, and a person can be under both for
  * unrelated reasons - a dispute the board is defending and a request the person
- * made about something else.
+ * made about something else. One predicate for both questions below, so the
+ * list and the single answer cannot come to disagree.
  */
+const WITHHELD: Prisma.PersonWhereInput = {
+  OR: [
+    { legalHolds: { some: { releasedAt: null } } },
+    { processingRestrictedAt: { not: null } },
+  ],
+};
+
+/** People no purge may touch. */
 export async function withheldPersonIds(
   client: PersonClient,
 ): Promise<string[]> {
   const persons = await client.person.findMany({
-    where: {
-      OR: [
-        { legalHolds: { some: { releasedAt: null } } },
-        { processingRestrictedAt: { not: null } },
-      ],
-    },
+    where: WITHHELD,
     select: { id: true },
   });
 
   return persons.map((person) => person.id);
+}
+
+/**
+ * Whether one person is withheld, as the purge that is about to erase their
+ * rows asks it.
+ *
+ * Asked on the purge's own transaction and after it has taken the person's
+ * legal hold key (`legal-hold-lock.ts`), which the hold placement and the
+ * restriction grant both take before they write. Read under that key, the
+ * answer cannot change before the transaction commits; read without it, a hold
+ * committed a moment later loses the rows it was placed to keep.
+ */
+export async function isPersonWithheld(
+  client: PersonClient,
+  personId: string,
+): Promise<boolean> {
+  const persons = await client.person.findMany({
+    where: { id: personId, ...WITHHELD },
+    select: { id: true },
+  });
+
+  return persons.length > 0;
+}
+
+/**
+ * Whether anybody in a set of people is withheld, for the purge whose rows
+ * lead back to more than one of them - an apartment's charges and fees are
+ * read through everybody who has ever lived there.
+ *
+ * Asked under the same conditions as {@link isPersonWithheld}: on the purge's
+ * own transaction, after it has taken the legal hold key of every person in
+ * the set.
+ */
+export async function isAnyPersonWithheld(
+  client: PersonClient,
+  personIds: readonly string[],
+): Promise<boolean> {
+  if (personIds.length === 0) {
+    return false;
+  }
+  const persons = await client.person.findMany({
+    where: { id: { in: [...personIds] }, ...WITHHELD },
+    select: { id: true },
+  });
+
+  return persons.length > 0;
 }
 
 /**

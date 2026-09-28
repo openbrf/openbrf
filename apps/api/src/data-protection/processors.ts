@@ -39,8 +39,14 @@ import {
 
 /** What the settings row, the environment and installed_plugin already hold. */
 export interface ProcessorFacts {
-  smtpHost: string | null;
-  smtpFromAddress: string | null;
+  /**
+   * The host mail actually goes through and the address it is sent from, as
+   * the mail resolver describes them: the board's SMTP server, or the SMTP host
+   * or the mail API's host the environment sets (ADR 0024). Null while the
+   * instance cannot send.
+   */
+  mailHost: string | null;
+  mailFromAddress: string | null;
   smsDriver: string | null;
   smsGatewayUrl: string | null;
   storageDriver: "local" | "s3";
@@ -237,8 +243,8 @@ export function currentProcessors(
   // Mail. Both halves, because the settings screen reports an instance that
   // cannot send as exactly that, and a host with no sender address sends
   // nothing.
-  if (facts.smtpHost !== null && facts.smtpFromAddress !== null) {
-    fixed("smtp", "SMTP", facts.smtpHost, facts.smtpFromAddress);
+  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
+    fixed("smtp", "SMTP", facts.mailHost, facts.mailFromAddress);
   }
 
   // SMS only where a provider is actually configured. An instance with none

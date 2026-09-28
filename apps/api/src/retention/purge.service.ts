@@ -13,6 +13,7 @@ import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
 } from "./connected-app-token-sweep";
+import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";
 import {
   describeRemainder,
   ERASURE_DOMAINS,
@@ -143,6 +144,13 @@ export interface PurgeRunSummary {
    */
   tokensSwept: ConnectedAppTokenSweepOutcome;
   /**
+   * How many ended sign-in sessions the session sweep deleted on this run.
+   *
+   * Not part of anybody's purge and counted apart from it, like the tokens: a
+   * session that has ended has ended whoever it was issued for.
+   */
+  signInSessionsSwept: number;
+  /**
    * Granted erasure requests still open when the run ended, and why each one is.
    *
    * The run's own account of the erasures it did not finish. A request that
@@ -167,9 +175,9 @@ export interface PurgeRunSummary {
  *
  * Contact details and the account: the email and phone ciphers with their blind
  * indexes, the personal locale preference, the Better Auth account with the
- * sessions and credentials that hang off it, and invitations that were never
- * accepted. That is the operational relationship with a person who no longer
- * lives here, and none of it has a purpose once they have gone.
+ * sessions and credentials that hang off it, and the invitations to it. That is
+ * the operational relationship with a person who no longer lives here, and none
+ * of it has a purpose once they have gone.
  *
  * ## What it does not touch, and why
  *
@@ -244,6 +252,13 @@ export interface PurgeRunSummary {
  *
  * A person's own grants are not swept: they go with the account, by the
  * cascades on it, in the same statement that deletes the account below.
+ *
+ * The sign-in sessions that have ended ride the same minute, with one
+ * difference: a session is a record of when and from where somebody signed in
+ * as well as a credential, so the sessions of a person under a legal hold or a
+ * restriction are left as the rest of their data is - decided one person at a
+ * time under the legal hold key, as this purge decides it.
+ * `sign-in-session-sweep.ts` holds that rule.
  *
  * ## Its place in the night
  *
@@ -397,11 +412,29 @@ export class PurgeService implements OnModuleInit {
       );
     }
 
+    /*
+     * The sessions that have ended, after the tokens and on the same clock. A
+     * person purged above took their sessions with the account; what is left
+     * for this is every other account's browser that has not come back.
+     */
+    const signInSessionsSwept = await sweepExpiredSignInSessions(
+      this.prisma,
+      now,
+    );
+    if (signInSessionsSwept > 0) {
+      // A count, like every other line this job writes: never an address, a
+      // browser name or whose sessions they were.
+      this.logger.log(
+        `Swept ${String(signInSessionsSwept)} sign-in sessions that had ended`,
+      );
+    }
+
     return {
       considered: personIds.length,
       purged,
       failed,
       tokensSwept,
+      signInSessionsSwept,
       erasureRequestsOpen,
     };
   }
@@ -750,10 +783,7 @@ export class PurgeService implements OnModuleInit {
             select: { id: true },
           },
           userAccount: { select: { id: true } },
-          invitations: {
-            where: { acceptedAt: null },
-            select: { id: true },
-          },
+          invitations: { select: { id: true } },
         },
       });
 
@@ -840,13 +870,15 @@ export class PurgeService implements OnModuleInit {
           : (await tx.user.deleteMany({ where: { personId } })).count > 0;
 
       /*
-       * Invitations that were never accepted. Each carries a live token hash
-       * for a link somebody could still be holding, so leaving them would
-       * leave a way back into an account the purge just deleted. An accepted
-       * invitation is a spent record of an activation and is left alone.
+       * Every invitation, accepted or not. One never accepted carries a live
+       * token hash for a link somebody could still be holding, so leaving it
+       * would leave a way back into an account the purge just deleted. An
+       * accepted one is a spent record of an activation, which the audit log
+       * already holds as INVITATION_ACCEPTED, and kept past the account it
+       * would be held for no purpose at all.
        */
       const { count: invitationsDeleted } = await tx.invitation.deleteMany({
-        where: { personId, acceptedAt: null },
+        where: { personId },
       });
 
       /*
@@ -1052,14 +1084,14 @@ function clearableStates(defaultLocale: string): Prisma.PersonWhereInput[] {
     { phoneIndex: { not: null } },
     /*
      * The stated language, which purgePerson resets and the scan used to miss.
-     * Somebody with no email, no phone, no account and no open invitation was
+     * Somebody with no email, no phone, no account and no invitation was
      * therefore never selected, and their stated preference stayed on file for
      * good - the exact case this list exists to prevent. Imported members are
      * how that state is reached in practice.
      */
     { preferredLocale: { not: defaultLocale } },
     { userAccount: { isNot: null } },
-    { invitations: { some: { acceptedAt: null } } },
+    { invitations: { some: {} } },
   ];
 }
 

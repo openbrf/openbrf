@@ -191,3 +191,209 @@ describe("the setup link's digest", () => {
     expect((result as Error).message).toContain("OPENBRF_SETUP_TOKEN_DIGEST");
   });
 });
+
+/**
+ * Mail set where the instance runs (ADR 0024).
+ *
+ * Each driver needs its own variables, and a variable of another driver beside
+ * the chosen one is half of a configuration that was being switched. Both are
+ * boot errors naming the variable, so an operator reads what to fix rather than
+ * finding out at the first invitation.
+ */
+describe("the mail driver's variables", () => {
+  const HTTP_API = {
+    OPENBRF_MAIL_DRIVER: "http-api",
+    OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+    OPENBRF_MAIL_API_URL: "https://api.mail.example/v1",
+    OPENBRF_MAIL_API_KEY: "key",
+    OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "mail.example",
+  };
+  const SMTP = {
+    OPENBRF_MAIL_DRIVER: "smtp",
+    OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+    OPENBRF_SMTP_HOST: "smtp.host.example",
+  };
+
+  /** The problems loadEnv named, one per line, or none. */
+  function problems(variables: Record<string, string>): string[] {
+    try {
+      loadEnv({ ...REQUIRED, ...variables });
+    } catch (cause) {
+      expect(cause).toBeInstanceOf(EnvValidationError);
+      return (cause as Error).message
+        .split("\n")
+        .slice(1)
+        .map((line) => line.trim());
+    }
+    return [];
+  }
+
+  it("defaults to the board's own settings, and needs nothing for them", () => {
+    expect(loadEnv(REQUIRED).OPENBRF_MAIL_DRIVER).toBe("settings");
+  });
+
+  it("accepts each driver with its own variables", () => {
+    expect(problems(HTTP_API)).toEqual([]);
+    expect(problems(SMTP)).toEqual([]);
+    expect(
+      problems({
+        ...SMTP,
+        OPENBRF_MAIL_FROM_NAME: "Brf Eksemplet",
+        OPENBRF_MAIL_REPLY_TO: "styrelsen@eksemplet.example",
+        OPENBRF_SMTP_PORT: "2525",
+        OPENBRF_SMTP_SECURE: "true",
+        OPENBRF_SMTP_USER: "relay",
+        OPENBRF_SMTP_PASSWORD: "relay-password",
+      }),
+    ).toEqual([]);
+  });
+
+  it("names every variable the http-api driver needs and was not given", () => {
+    expect(problems({ OPENBRF_MAIL_DRIVER: "http-api" })).toEqual([
+      'OPENBRF_MAIL_FROM_ADDRESS: is required when OPENBRF_MAIL_DRIVER is "http-api"',
+      'OPENBRF_MAIL_API_URL: is required when OPENBRF_MAIL_DRIVER is "http-api"',
+      'OPENBRF_MAIL_API_KEY: is required when OPENBRF_MAIL_DRIVER is "http-api"',
+      'OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: is required when OPENBRF_MAIL_DRIVER is "http-api"',
+    ]);
+  });
+
+  it("names every variable the smtp driver needs and was not given", () => {
+    expect(problems({ OPENBRF_MAIL_DRIVER: "smtp" })).toEqual([
+      'OPENBRF_MAIL_FROM_ADDRESS: is required when OPENBRF_MAIL_DRIVER is "smtp"',
+      'OPENBRF_SMTP_HOST: is required when OPENBRF_MAIL_DRIVER is "smtp"',
+    ]);
+  });
+
+  it("refuses the other driver's variables beside the chosen one", () => {
+    expect(
+      problems({ ...HTTP_API, OPENBRF_SMTP_HOST: "smtp.host.example" }),
+    ).toEqual([
+      'OPENBRF_SMTP_HOST: belongs to the "smtp" mail driver, and OPENBRF_MAIL_DRIVER is "http-api"',
+    ]);
+    expect(problems({ ...HTTP_API, OPENBRF_SMTP_SECURE: "false" })).toEqual([
+      'OPENBRF_SMTP_SECURE: belongs to the "smtp" mail driver, and OPENBRF_MAIL_DRIVER is "http-api"',
+    ]);
+    expect(problems({ ...SMTP, OPENBRF_MAIL_API_KEY: "key" })).toEqual([
+      'OPENBRF_MAIL_API_KEY: belongs to the "http-api" mail driver, and OPENBRF_MAIL_DRIVER is "smtp"',
+    ]);
+  });
+
+  it("refuses a driver's variables when the environment chooses none", () => {
+    // Otherwise an SMTP host set with the driver left at its default would be
+    // ignored without a word, and the board's settings would send instead.
+    expect(
+      problems({
+        OPENBRF_SMTP_HOST: "smtp.host.example",
+        OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+      }),
+    ).toEqual([
+      'OPENBRF_SMTP_HOST: belongs to the "smtp" mail driver, and OPENBRF_MAIL_DRIVER is "settings"',
+      'OPENBRF_MAIL_FROM_ADDRESS: belongs to a mail driver set in the environment, and OPENBRF_MAIL_DRIVER is "settings"',
+    ]);
+  });
+
+  it('reads the SMTP flag as "true" or "false" and names anything else', () => {
+    // "TRUE" or "1" read as false would leave the connection in the clear
+    // until STARTTLS without a word.
+    for (const value of ["TRUE", "1", "yes"]) {
+      expect(problems({ ...SMTP, OPENBRF_SMTP_SECURE: value })).toEqual([
+        'OPENBRF_SMTP_SECURE: must be "true" or "false"',
+      ]);
+    }
+    expect(
+      loadEnv({ ...REQUIRED, ...SMTP, OPENBRF_SMTP_SECURE: "false" })
+        .OPENBRF_SMTP_SECURE,
+    ).toBe(false);
+  });
+
+  it("trims the display name and refuses a blank one", () => {
+    expect(problems({ ...SMTP, OPENBRF_MAIL_FROM_NAME: "   " })).toEqual([
+      "OPENBRF_MAIL_FROM_NAME: must not be blank",
+    ]);
+    expect(
+      loadEnv({
+        ...REQUIRED,
+        ...SMTP,
+        OPENBRF_MAIL_FROM_NAME: " Brf Eksemplet ",
+      }).OPENBRF_MAIL_FROM_NAME,
+    ).toBe("Brf Eksemplet");
+  });
+
+  it("wants an SMTP user and password together or not at all", () => {
+    expect(problems({ ...SMTP, OPENBRF_SMTP_USER: "relay" })).toEqual([
+      "OPENBRF_SMTP_PASSWORD: is required when OPENBRF_SMTP_USER is set",
+    ]);
+    expect(problems({ ...SMTP, OPENBRF_SMTP_PASSWORD: "secret" })).toEqual([
+      "OPENBRF_SMTP_USER: is required when OPENBRF_SMTP_PASSWORD is set",
+    ]);
+  });
+
+  it("refuses a mail API reached over plain http off loopback", () => {
+    // Every message carries the key and a recipient's address.
+    expect(
+      problems({
+        ...HTTP_API,
+        OPENBRF_MAIL_API_URL: "http://api.mail.example/v1",
+      }),
+    ).toEqual([
+      "OPENBRF_MAIL_API_URL: must be an https URL, or http on localhost, and carry no credentials, query or fragment",
+    ]);
+  });
+
+  it("accepts a mail API on loopback over http, and a path on either", () => {
+    expect(
+      problems({
+        ...HTTP_API,
+        OPENBRF_MAIL_API_URL: "http://127.0.0.1:8025/v1",
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses a mail API address carrying credentials, a query or a fragment", () => {
+    for (const url of [
+      "https://user:secret@api.mail.example/v1",
+      "https://api.mail.example/v1?key=1",
+      "https://api.mail.example/v1#top",
+    ]) {
+      expect(problems({ ...HTTP_API, OPENBRF_MAIL_API_URL: url })).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  it("refuses a display name that is not one line", () => {
+    // It becomes part of a header, where a line break starts another one.
+    expect(
+      problems({
+        ...HTTP_API,
+        OPENBRF_MAIL_FROM_NAME: "Brf Eksemplet\r\nBcc: nagon@annan.example",
+      }),
+    ).toEqual([
+      "OPENBRF_MAIL_FROM_NAME: must be one line, with no line break or other control character",
+    ]);
+  });
+
+  it("refuses a sender that is not a bare address", () => {
+    expect(
+      problems({
+        ...HTTP_API,
+        OPENBRF_MAIL_FROM_ADDRESS: "Brf Eksemplet <utskick@delad.example>",
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a Message-ID domain that is not a domain", () => {
+    expect(
+      problems({
+        ...HTTP_API,
+        OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "<getpost.se>",
+      }),
+    ).toHaveLength(1);
+    expect(
+      problems({
+        ...HTTP_API,
+        OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "getpost.se",
+      }),
+    ).toEqual([]);
+  });
+});

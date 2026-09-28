@@ -88,6 +88,7 @@ const SETTINGS: InstanceSettings = {
   },
   branding: { primaryColor: null, logo: null, logoDark: null },
   smtp: {
+    source: "settings",
     host: "smtp.example.se",
     port: 587,
     secure: true,

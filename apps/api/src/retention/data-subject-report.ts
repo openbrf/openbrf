@@ -11,10 +11,18 @@
  * Which is the point of writing it out: the list below is the audit checklist.
  * A module that starts holding personal data about a person adds a section, and
  * a reviewer can read this file to see whether the report is still complete.
+ *
+ * The list is held from the other side too. Every column in the schema that
+ * names a person is in `data-subject-report-coverage.spec.ts`, with the section
+ * that reads it or the reason none does, so a table holding rows about a person
+ * cannot go without a section here unnoticed - and this file stays the
+ * checklist a reviewer reads.
  */
 
 import type { AuditChannelName } from "@openbrf/shared";
 
+import type { MeetingNoticeDeliveryFailure } from "../meetings/meeting-notice-delivery";
+import type { NewsDeliveryFailure } from "../news/news-delivery";
 import type { ReportAuditAction } from "./report-audit-actions";
 
 /** ISO calendar date (YYYY-MM-DD) or instant, as each field documents. */
@@ -66,6 +74,97 @@ export interface ReportAccount {
   email: string;
   twoFactorEnabled: boolean;
   createdAt: string;
+  /** The passkeys the account can be signed in with, newest first. */
+  passkeys: ReportPasskey[];
+}
+
+/**
+ * A passkey on this person's account.
+ *
+ * What the person named it, when it was added and whether it is synced between
+ * their devices - which is what says it is theirs and where it lives. Not the
+ * public key, the credential id, the counter or the transports: those identify
+ * the authenticator to the instance and say nothing about the person that the
+ * name and the date do not. Nothing here can be presented to sign in.
+ *
+ * Inside the account rather than a section of its own, so it rests on the
+ * account's row of the record and goes with the account: the purge deletes a
+ * passkey with the account it belongs to.
+ *
+ * The password and the authenticator app's secret are not on the report at
+ * all. Every account has a password, so that one exists says nothing, and the
+ * rows are the password hash and the TOTP secret with its backup codes -
+ * `twoFactorEnabled` above is what says the second exists.
+ */
+export interface ReportPasskey {
+  /** What the person called it, or null. */
+  name: string | null;
+  /** ISO instant it was added, or null on a row that recorded none. */
+  addedAt: string | null;
+  /** Whether it is synced between devices (WebAuthn backup state). */
+  backedUp: boolean;
+}
+
+/**
+ * One session this person's account is, or was, signed in with.
+ *
+ * On the report because the sign-in library keeps, for every session, when it
+ * began and from where: the IP address the request came from and the name the
+ * browser gave itself. Both are personal data about whoever signed in, held by
+ * the association, and art. 15 is a right to what is held. They are printed as
+ * stored and not shortened, because a shortened address would be a different
+ * datum from the one the association keeps.
+ *
+ * Never the token. It is a live credential for as long as the session lasts,
+ * and the one thing a document handed over on paper must never carry is a way
+ * back into the account it describes.
+ *
+ * Every row held, ended ones included, newest first. A session ends thirty days
+ * after it was last renewed; signing out deletes it at once, and the nightly
+ * sweep deletes an ended one the night after, unless a legal hold or a
+ * restriction stands for the person - `retention.onLegalHold` says whether one
+ * does. So `endsAt` is also when the row goes.
+ */
+export interface ReportSignInSession {
+  /** ISO instant the person signed in. */
+  signedInAt: string;
+  /**
+   * ISO instant the session was last renewed. Renewal happens on use, at most
+   * once a day, so this bounds the last use to within a day and no closer.
+   */
+  renewedAt: string;
+  /** ISO instant it ends unless renewed before then. */
+  endsAt: string;
+  /** As the sign-in recorded it, or null where it recorded none. */
+  ipAddress: string | null;
+  /** As the browser named itself, or null where it named nothing. */
+  userAgent: string | null;
+}
+
+/**
+ * An invitation to activate an account, sent to this person.
+ *
+ * On the report because the association holds it against them: when it was
+ * sent, until when the link worked, and whether they accepted it. The fact is
+ * in the audit log too, as INVITATION_SENT and INVITATION_ACCEPTED, but the row
+ * is what is held until the purge.
+ *
+ * Neither the token nor its hash, in any form: an invitation never accepted is
+ * a live way into an account until it expires. Nor who sent it, on the
+ * precedent of the comment that states whether it was hidden and not who hid
+ * it: the board member who acted is named in the log, where the act is theirs.
+ *
+ * No erasure date of its own. An invitation, accepted or not, goes with the
+ * person's other service data, whose date is `retention.purgeOn`; a new
+ * invitation replaces one never accepted.
+ */
+export interface ReportInvitation {
+  /** ISO instant it was sent. */
+  sentAt: string;
+  /** ISO instant the link stopped, or stops, working. */
+  validUntil: string;
+  /** ISO instant it was accepted, or null. */
+  acceptedAt: string | null;
 }
 
 /**
@@ -745,20 +844,6 @@ export interface ReportFeeNotice {
 }
 
 /**
- * A comment this person wrote on one of the association's news items.
- *
- * Purged, like the bookings above and on the same shape of clock: a comment is
- * erased a year after it was written, on its own window rather than the
- * residency one, so each row states when that runs out.
- *
- * The body is carried in full. Art. 15 asks for the personal data, and what
- * somebody wrote is the personal data here - a report naming a date and a news
- * item without the sentence would be telling its subject that they commented
- * without telling them what they said. It is carried whether or not the comment
- * is hidden, for the same reason: a person is entitled to read the words the
- * board struck through, and `hidden` is what says the board did.
- */
-/**
  * A conversation in the board's shared mailbox this person was established to be
  * the correspondent of.
  *
@@ -807,6 +892,20 @@ export interface ReportBoardMailboxMessage {
   occurredAt: string;
 }
 
+/**
+ * A comment this person wrote on one of the association's news items.
+ *
+ * Purged, like the bookings above and on the same shape of clock: a comment is
+ * erased a year after it was written, on its own window rather than the
+ * residency one, so each row states when that runs out.
+ *
+ * The body is carried in full. Art. 15 asks for the personal data, and what
+ * somebody wrote is the personal data here - a report naming a date and a news
+ * item without the sentence would be telling its subject that they commented
+ * without telling them what they said. It is carried whether or not the comment
+ * is hidden, for the same reason: a person is entitled to read the words the
+ * board struck through, and `hidden` is what says the board did.
+ */
 export interface ReportNewsComment {
   commentId: string;
   /** The news item it was written under, as the board titled it. */
@@ -835,6 +934,44 @@ export interface ReportNewsComment {
    * what says whether one does.
    */
   erasableFrom: string | null;
+}
+
+/**
+ * One copy of one news mailing (nyhetsutskick) or SMS mailing (smsutskick)
+ * addressed to this person.
+ *
+ * On the report because the delivery ledger is the association's record of
+ * what it sent to them, and art. 15 is a right to what is held: which item,
+ * which way, and whether it went out. Where it did not, why - as a closed code
+ * the document states in words, and never as what a mail server said, which
+ * quotes the address back.
+ *
+ * ## No erasure date, and why that is an answer rather than a gap
+ *
+ * No purge reaches the ledger. It is kept as the association's record of what
+ * it sent, and goes only with the news item, if the board removes that. The
+ * meeting sections below state no date for the same kind of reason, and say
+ * so of themselves.
+ */
+export interface ReportNewsDelivery {
+  /** The news item, as the board titled it. */
+  newsTitle: string;
+  /** The item's address under /nyheter. */
+  newsSlug: string;
+  /** Which delivery channel (utskickskanal) this copy went by. */
+  channel: "EMAIL" | "SMS";
+  status: "PENDING" | "SENT" | "FAILED";
+  /**
+   * Why it failed, as a closed code, or null.
+   *
+   * Null too for a stored value outside the set: the document says "not
+   * recorded" rather than printing a code nobody can read.
+   */
+  failure: NewsDeliveryFailure | null;
+  /** ISO instant the copy was queued, which is when the item was published. */
+  queuedAt: string;
+  /** ISO instant it was handed to the mail server or the SMS provider. */
+  sentAt: string | null;
 }
 
 /**
@@ -1087,6 +1224,33 @@ export interface ReportProxyAuthorisation {
 }
 
 /**
+ * One copy of one notice (kallelse) of a general meeting addressed to this
+ * person.
+ *
+ * On the report because the notice's delivery ledger is the association's
+ * record of whom it summoned and whether the summons went out, and a member is
+ * entitled to see what it holds about their own summons. Where a copy did not
+ * go out, why, as a closed code the document states in words.
+ *
+ * States no erasure date, for the reason {@link ReportMeetingAttendance} gives
+ * of the meeting's record: the ledger is kept with it, and no purge reaches it.
+ */
+export interface ReportMeetingNoticeDelivery {
+  /** "YYYY-MM-DD": the day of the meeting summoned. */
+  meetingHeldOn: string;
+  meetingKind: "ORDINARY" | "EXTRAORDINARY";
+  /** The notice goes by email and by nothing else. */
+  channel: "EMAIL";
+  status: "PENDING" | "SENT" | "FAILED";
+  /** Why it failed, as a closed code, or null - as the news ledger's. */
+  failure: MeetingNoticeDeliveryFailure | null;
+  /** ISO instant the copy was queued, which is when the notice was issued. */
+  queuedAt: string;
+  /** ISO instant it was handed to the mail server. */
+  sentAt: string | null;
+}
+
+/**
  * A lien note (pantnotering) that stood against a tenant-ownership this person
  * held.
  *
@@ -1250,6 +1414,10 @@ export interface DataSubjectReport {
   boardPositions: ReportBoardPosition[];
   systemRoles: ("ADMIN" | "PROPERTY_MANAGER")[];
   account: ReportAccount | null;
+  /** The sessions this person's account is, or was, signed in with. */
+  signInSessions: ReportSignInSession[];
+  /** The invitations to an account this person was sent. */
+  invitations: ReportInvitation[];
   /** The external programs allowed to act for this person. */
   connectedApps: ReportConnectedApp[];
   memberRegisterEntries: ReportMemberRegisterEntry[];
@@ -1278,11 +1446,15 @@ export interface DataSubjectReport {
   fees: ReportFee[];
   feeNotices: ReportFeeNotice[];
   newsComments: ReportNewsComment[];
+  /** Every news mailing and SMS mailing addressed to this person. */
+  newsDeliveries: ReportNewsDelivery[];
   chats: ReportChat[];
   chatReports: ReportChatReport[];
   boardMailboxThreads: ReportBoardMailboxThread[];
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];
+  /** Every notice of a general meeting addressed to this person. */
+  meetingNoticeDeliveries: ReportMeetingNoticeDelivery[];
   auditEntries: ReportAuditEntry[];
   dataSubjectRequests: ReportDataSubjectRequest[];
   personalDataBreaches: ReportPersonalDataBreach[];

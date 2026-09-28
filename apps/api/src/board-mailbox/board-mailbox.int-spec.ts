@@ -881,6 +881,165 @@ describe("collecting the mailbox", () => {
     }
   });
 
+  it("stores a letter whose body carries control characters", async () => {
+    // A text column holds no NUL, so a body that kept one would be refused by
+    // the database rather than stored.
+    const subject = `Styrtecken ${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid: `uid-control-${suffix}`,
+        raw: [
+          `From: Granne <${CORRESPONDENT}>`,
+          `To: <${BOARD_ADDRESS}>`,
+          `Subject: ${subject}`,
+          `Message-ID: <control-${suffix}@utanfor.example>`,
+          "Content-Type: text/html; charset=utf-8",
+          "",
+          "<p>Det\u0000 rinner&#0; vatten</p>",
+          "",
+        ].join("\r\n"),
+      },
+    ]);
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.collected).toBe(1);
+
+      const thread = await threadBySubject(subject);
+      const full = await readThread(boardCookie, thread.id);
+      expect(full.messages?.[0]?.body).toBe("Det rinner vatten");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("sets aside a letter the database refuses and collects the ones either side of it", async () => {
+    const before = `Fore ${suffix}`;
+    const refused = `Vagrad ${suffix}`;
+    const after = `Efter ${suffix}`;
+    const server = await serveMailbox(
+      [before, refused, after].map((subject, position) => ({
+        uid: `uid-unstorable-${String(position)}-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev.",
+          messageId: `unstorable-${String(position)}-${suffix}@utanfor.example`,
+        }),
+      })),
+    );
+
+    /*
+     * The second letter's write is refused by PostgreSQL itself, with a value
+     * it will not store in a text column. The reader now removes the one value
+     * a letter could carry to that effect, so the refusal is produced here for
+     * whatever it has not foreseen.
+     */
+    const transaction = prisma.$transaction.bind(prisma);
+    let writes = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      writes += 1;
+      if (writes === 2) {
+        return transaction(async (tx) => {
+          await tx.$executeRaw`SELECT ${"\u0000"}::text`;
+        });
+      }
+      return (transaction as (...rest: unknown[]) => unknown)(...args);
+    }) as typeof prisma.$transaction);
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.collected).toBe(2);
+      expect(summary.skipped).toBe(1);
+
+      await threadBySubject(before);
+      await threadBySubject(after);
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((thread) => thread.subject === refused)).toBe(false);
+
+      const ignored = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:uid-unstorable-1-${suffix}` } },
+      });
+      expect(ignored?.reason).toBe("unstorable");
+
+      // And the next run does not fetch it again.
+      const again = await collector.collect();
+      expect(again.skipped).toBe(0);
+      expect(again.alreadyHeld).toBe(3);
+      expect(writes).toBe(3);
+    } finally {
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
+  it.each([
+    [
+      // Prisma's code for a database that could not be reached.
+      "an unreachable database",
+      "unreachable",
+      () => Object.assign(new Error("unreachable"), { code: "P1001" }),
+    ],
+    [
+      // What Prisma makes of PostgreSQL's admin_shutdown, a server restarting.
+      "a server shutting down",
+      "shutdown",
+      () =>
+        Object.assign(new Error("Database error. Code: `57P01`."), {
+          code: "P2039",
+          meta: {
+            driverAdapterError: {
+              cause: { kind: "postgres", originalCode: "57P01" },
+            },
+          },
+        }),
+    ],
+    [
+      // The driver's own error, which Prisma passes on without a code.
+      "a dropped connection",
+      "dropped",
+      () => new Error("Connection terminated unexpectedly"),
+    ],
+  ])("tries a letter again after %s", async (_failure, tag, failure) => {
+    const subject = `Senare ${tag} ${suffix}`;
+    const uid = `uid-transient-${tag}-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev.",
+          messageId: `transient-${tag}-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    const spy = vi
+      .spyOn(prisma, "$transaction")
+      .mockRejectedValueOnce(failure());
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(0);
+      expect(first.skipped).toBe(1);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.count({
+          where: { sourceUid: { endsWith: `:${uid}` } },
+        }),
+      ).toBe(0);
+
+      const second = await collector.collect();
+      expect(second.collected).toBe(1);
+      await threadBySubject(subject);
+    } finally {
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
   it("reports a refused sign-in as its own kind of failure", async () => {
     const server = await startPop3TestServer({
       user: MAILBOX_USER,
@@ -1312,7 +1471,7 @@ describe("answering a letter", () => {
   it("sends it to the address on the thread, answerable to the board", async () => {
     const { replyMessageId } = await threadWithReply(`Utskick ${suffix}`);
 
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     let sent: Parameters<MailService["send"]>[0] | undefined;
     try {
       expect(await mailer.sendReply(replyMessageId)).toBe("sent");
@@ -1342,7 +1501,7 @@ describe("answering a letter", () => {
   it("hands one answer over at most once, however often the job runs", async () => {
     const { replyMessageId } = await threadWithReply(`Enformig ${suffix}`);
 
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     try {
       expect(await mailer.sendReply(replyMessageId)).toBe("sent");
       // The claim is a conditional update from PENDING, so a retried job reaches
@@ -1447,6 +1606,42 @@ describe("answering a letter", () => {
 });
 
 describe("the purge", () => {
+  /**
+   * How many transactions hold, or are queued behind, the legal hold registry
+   * key, in this worker's database only: the key is the same string in every
+   * worker's, and `pg_locks` shows the whole cluster. `hashtext` gives a signed
+   * int4 and the advisory lock space addresses it as two halves of a bigint,
+   * which is what the shifting reassembles.
+   */
+  async function registryLockCount(granted: boolean): Promise<bigint> {
+    const key = "legal-hold:registry";
+    const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+      SELECT count(*) AS locks
+      FROM pg_locks
+      WHERE locktype = 'advisory'
+        AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+        AND granted = ${granted}
+        AND objsubid = 1
+        AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+        AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+    return row?.locks ?? 0n;
+  }
+
+  /** Polls until the condition holds, or gives up so a failure is a failure. */
+  async function waitFor(
+    condition: () => Promise<boolean>,
+    timeoutMs = 20_000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await condition()) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("Timed out waiting for the purge to block or finish.");
+  }
+
   /** A thread written directly, so its clock can be put where a test needs it. */
   async function agedThread(
     correspondent: string,
@@ -1619,6 +1814,120 @@ describe("the purge", () => {
       await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
     ).not.toBeNull();
   });
+
+  it("keeps a restricted person's correspondence past its window until the restriction is lifted", async () => {
+    /*
+     * Art. 18(2): under a restriction the association may store the data and
+     * little else, so erasing it is the one act the person asked it not to
+     * perform. Matched on the registered address the way a hold is, and lifting
+     * the restriction hands the thread back to the window.
+     *
+     * The resident is given an address for this case only, so no hold from the
+     * cases around it stands against them.
+     */
+    const address = `mailbox-restricted-${suffix}@exempel.se`;
+    await registerAddress(resident.personId, address);
+    await prisma.person.update({
+      where: { id: resident.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+
+    try {
+      const threadId = await agedThread(
+        address,
+        new Date("2020-01-01T00:00:00.000Z"),
+      );
+
+      expect(
+        await purge.eligible(new Date("2026-01-01T00:00:00.000Z"), 730),
+      ).not.toContain(threadId);
+      await purge.run(new Date("2026-01-01T00:00:00.000Z"));
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { processingRestrictedAt: null },
+      });
+      await purge.run(new Date("2026-01-01T00:00:00.000Z"));
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).toBeNull();
+    } finally {
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { processingRestrictedAt: null },
+      });
+      await registerAddress(resident.personId, null);
+    }
+  });
+
+  it("is stopped by a restriction granted while the run is already in flight", async () => {
+    /*
+     * The purge cannot name the person a thread is with, so it takes the
+     * registry key and the grant takes it as well as the person's own. A
+     * restriction that committed between the scan and the delete would
+     * otherwise lose the correspondence it was granted to keep. The wait is
+     * read out of `pg_locks` rather than inferred from a delay.
+     */
+    const address = `mailbox-restricted-race-${suffix}@exempel.se`;
+    await registerAddress(resident.personId, address);
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holder: Promise<void> | undefined;
+
+    try {
+      const threadId = await agedThread(
+        address,
+        new Date("2020-01-01T00:00:00.000Z"),
+      );
+
+      // Longer than the waits below, so the transaction held open on purpose
+      // is not aborted by the five-second default and its lock released early.
+      holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${resident.personId}`}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"legal-hold:registry"}))`;
+          await tx.person.update({
+            where: { id: resident.personId },
+            data: { processingRestrictedAt: new Date() },
+          });
+          await holderDone;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+
+      await waitFor(async () => (await registryLockCount(true)) > 0n);
+
+      const running = purge.purgeThread(
+        threadId,
+        new Date("2026-01-01T00:00:00.000Z"),
+      );
+      await waitFor(async () => (await registryLockCount(false)) > 0n);
+
+      releaseHolder?.();
+      await holder;
+
+      // It erased nothing, because by the time it got the key the restriction
+      // stood.
+      await expect(running).resolves.toBe(false);
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+    } finally {
+      releaseHolder?.();
+      await holder?.catch(() => undefined);
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { processingRestrictedAt: null },
+      });
+      await registerAddress(resident.personId, null);
+    }
+  }, 60_000);
 
   it("is stopped by a legal hold against the person the address belongs to", async () => {
     const threadId = await agedThread(

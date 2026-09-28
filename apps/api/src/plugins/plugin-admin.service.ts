@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import {
   isSupportedApiVersion,
+  type LocalizedText,
   type PluginActionDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
@@ -16,7 +17,11 @@ import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
-import { ProcessorAgreementService } from "../data-protection/processor-agreement.service";
+import {
+  assertConsistent,
+  type ProcessorAgreementInput,
+  ProcessorAgreementService,
+} from "../data-protection/processor-agreement.service";
 import { ProcessorFactsService } from "../data-protection/processor-facts.service";
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import { ENV } from "../config/config.module";
@@ -66,8 +71,17 @@ export interface PluginSummary {
 export interface PluginsOverview {
   /** OPENBRF_PLUGINS_ENABLED. When false nothing is loaded or installable. */
   pluginsEnabled: boolean;
-  /** True once an install has asked for the process to be replaced. */
+  /**
+   * True from the moment an operation that ends in a restart is accepted until
+   * this process is replaced.
+   */
   restartPending: boolean;
+  /**
+   * Which process answered: opaque, and different after every restart. The
+   * one part of an answer that tells the replacement from the process it
+   * replaces.
+   */
+  processId: string;
   plugins: PluginSummary[];
   /** Every reason a plugin on the volume is not running. */
   findings: PluginFinding[];
@@ -86,8 +100,8 @@ export interface CatalogPluginView {
   id: string;
   packageName: string;
   version: string;
-  name: { sv: string; en: string };
-  description: { sv: string; en: string };
+  name: LocalizedText;
+  description: LocalizedText;
   homepage: string | null;
   deprecated: boolean;
   apiVersion: number;
@@ -216,13 +230,18 @@ export class PluginAdminService {
    * anybody. Answering "yes" makes it a recipient, and which kind is the
    * board's own call - a service acting on the association's instructions is a
    * processor, one deciding its own purposes is a controller in its own right.
+   *
+   * Returns the input rather than writing it, and refuses it with the same
+   * rules the art. 28 record applies: `install` asks this before the consent
+   * row, so an answer the record would refuse - an independent controller with
+   * no reason given, a personal identity number in the recipient or the note -
+   * leaves no consent behind that produced no install. The input returned is
+   * the one written, so the check and the row cannot disagree.
    */
-  private async recordPluginProcessor(
-    pluginId: string,
+  private async pluginAgreementInput(
     answer: NonNullable<InstallRequest["processorAgreement"]>,
-    context: { actorPersonId: string | null; channel: AuditChannel },
-  ): Promise<void> {
-    const facts = await this.facts.read();
+  ): Promise<ProcessorAgreementInput> {
+    let input: ProcessorAgreementInput;
 
     if (!answer.sendsPersonalDataOutside) {
       /*
@@ -231,30 +250,20 @@ export class PluginAdminService {
        * stored once and read later by whoever opens the art. 28 record.
        */
       const t = await this.translator();
-      await this.processors.record(
-        pluginProcessorKey(pluginId),
-        {
-          classification: "NOT_A_PROCESSOR",
-          note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
-          actorPersonId: context.actorPersonId,
-          channel: context.channel,
-        },
-        facts,
-      );
-      return;
-    }
+      input = {
+        classification: "NOT_A_PROCESSOR",
+        note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
+      };
+    } else {
+      const recipient = requiredRecipient(answer);
+      // One default, read four times below. Two spellings that drifted apart
+      // would send `record` a classification and processor-only fields that
+      // disagree, and `assertConsistent` would refuse it for a reason the board
+      // cannot act on.
+      const classification = answer.classification ?? "PROCESSOR";
+      const asProcessor = classification === "PROCESSOR";
 
-    const recipient = requiredRecipient(answer);
-    // One default, read four times below. Two spellings that drifted apart
-    // would send `record` a classification and processor-only fields that
-    // disagree, and `assertConsistent` would refuse it for a reason the board
-    // cannot act on.
-    const classification = answer.classification ?? "PROCESSOR";
-    const asProcessor = classification === "PROCESSOR";
-
-    await this.processors.record(
-      pluginProcessorKey(pluginId),
-      {
+      input = {
         classification,
         status: asProcessor ? (answer.status ?? "PENDING") : null,
         counterparty: answer.counterparty ?? recipient,
@@ -266,11 +275,11 @@ export class PluginAdminService {
           : null,
         subProcessorNote: answer.subProcessorNote ?? null,
         note: answer.note ?? null,
-        actorPersonId: context.actorPersonId,
-        channel: context.channel,
-      },
-      facts,
-    );
+      };
+    }
+
+    assertConsistent(input);
+    return input;
   }
 
   /** The association's own language: the record is one document it keeps. */
@@ -287,7 +296,8 @@ export class PluginAdminService {
 
     return {
       pluginsEnabled: this.env.OPENBRF_PLUGINS_ENABLED,
-      restartPending: this.restart.restartRequested,
+      restartPending: this.restart.restartPending,
+      processId: this.restart.processId,
       findings: this.loader.report(),
       plugins: records.map((record) => {
         const loaded = this.loader.get(record.id);
@@ -498,16 +508,20 @@ export class PluginAdminService {
      * first - the catalog entry is what was shown.
      */
     /*
-     * Before the first write, and it needs nothing from the database. The
-     * recipient check used to run after the consent row was committed, so a
-     * board that ticked "sends personal data outside" and named nobody was
-     * answered 400 with a consent row already persisted: the instance then
-     * claimed a consent that produced no install, no processing activity in the
-     * art. 30 record and no classification in the art. 28 one.
+     * Before the first write, and it writes nothing. The recipient answer used
+     * to be checked after the consent row was committed, so an answer the
+     * art. 28 record refuses - nobody named, no reason for an independent
+     * controller, a personal identity number in the note - was answered 400
+     * with a consent row already persisted: the instance then claimed a consent
+     * that produced no install, no processing activity in the art. 30 record
+     * and no classification in the art. 28 one. The command-line tool sends no
+     * recipient answer; a direct caller of the API, such as a script, can send
+     * one without any screen's checks in front of it.
      */
-    if (request.processorAgreement?.sendsPersonalDataOutside === true) {
-      requiredRecipient(request.processorAgreement);
-    }
+    const agreement =
+      request.processorAgreement === undefined
+        ? undefined
+        : await this.pluginAgreementInput(request.processorAgreement);
 
     await this.registry.consent({
       id: entry.id,
@@ -529,11 +543,12 @@ export class PluginAdminService {
      * The recipient is keyed on the plugin id rather than on the installed row,
      * so it survives the reinstall that rewrites that row.
      */
-    if (request.processorAgreement !== undefined) {
-      await this.recordPluginProcessor(entry.id, request.processorAgreement, {
-        actorPersonId,
-        channel,
-      });
+    if (agreement !== undefined) {
+      await this.processors.record(
+        pluginProcessorKey(entry.id),
+        { ...agreement, actorPersonId, channel },
+        await this.facts.read(),
+      );
     }
 
     /*
@@ -598,7 +613,10 @@ export class PluginAdminService {
     await this.processing.endPlugin(id);
 
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
-    return { restarting: true };
+    // What the overview now says, rather than a constant: with plugins
+    // switched off nothing runs the reconcile and nothing is replaced, and a
+    // screen told otherwise would wait for a process that never comes.
+    return { restarting: this.restart.restartPending };
   }
 
   /**
@@ -761,8 +779,9 @@ function sameDeclaration(
  * The recipient the board named, or the refusal for having named nobody.
  *
  * GDPR art. 30(1)(d) asks who receives the data, so "somewhere outside" is not
- * an answer a record can carry. Asked before anything is written and again
- * where the row is built, from one definition, so the two cannot disagree.
+ * an answer a record can carry. Its own error rather than the record's
+ * "counterparty-required", so the consent screen can point at the field it
+ * asked.
  */
 function requiredRecipient(
   answer: NonNullable<InstallRequest["processorAgreement"]>,

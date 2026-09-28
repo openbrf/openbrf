@@ -4,6 +4,14 @@ The reference Open BRF plugin. It exists to be installed by a test, not by a
 housing cooperative, and it exercises every part of the install contract at
 once so that a change to any of them fails a test rather than an instance.
 
+The published reference plugin, the one a housing cooperative installs from
+the catalog and an author starts from, is
+[`openbrf/example-plugin`](https://github.com/openbrf/example-plugin). The two
+differ on purpose: this fixture additionally declares the OAuth protected
+resource and serves its two routes, which the published one must not, because
+an instance has one protected resource and a plugin holding it keeps a
+connector from being installed.
+
 ## What it proves
 
 | Part of the contract          | How this package exercises it                                                             |
@@ -46,10 +54,14 @@ provider's constructor.
 ## How it is built
 
 `node scripts/build-fixture-catalog.mjs` from the repository root, or
-`pnpm fixtures:build`. That script builds this package, packs it into
-`fixtures/.artifacts/`, and writes `fixtures/catalog/catalog.json` with a
-`file:` artifact URL and the tarball's sha512 - which is what lets the
-end-to-end harness run the real install path with no network.
+`pnpm fixtures:build`. That script builds this package, runs the SDK's
+`pluginPackageProblems` on what it packed, packs the themes under
+`fixtures/themes/` beside it into `fixtures/.artifacts/`, and writes
+`fixtures/catalog/catalog.json`: one index in the catalog format, listing the
+plugin and the themes with `file:` artifact URLs and each tarball's sha512 -
+which is what lets the integration suites run the real install path with no
+network. `--out`, `--url-prefix` and `--kind` write the same index elsewhere,
+under another address, or for one kind only.
 
 The package is not a workspace member and carries its own dependency tree,
 installed from this directory with `pnpm install`. That is the point: a plugin
@@ -73,8 +85,8 @@ Two builds produce `dist/`:
   `experimentalDecorators` and `emitDecoratorMetadata` on so NestJS can resolve
   the controller's constructor argument. The emitted bundle requires
   `@nestjs/common` and nothing else, which is what ADR 0003 means by a prebuilt
-  bundle whose only externals are host packages; the build script checks every
-  `require` in the output against that list.
+  bundle whose only externals are host packages and Node's built-in modules;
+  the build script checks every `require` in the output against that rule.
 - `vite build` builds `src/View.tsx` into the remote entry, with `react`,
   `react-dom` and `react-i18next` as shared singletons taken from the host.
 

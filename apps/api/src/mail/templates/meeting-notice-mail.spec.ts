@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../../config/env";
-import type { FieldEncryptionService } from "../../crypto/field-encryption.service";
 import type { PrismaService } from "../../database/prisma.service";
 import { I18nService } from "../../i18n/i18n.service";
+import type { MailSettingsResolver } from "../mail-settings";
 import { MailService } from "../mail.service";
 import {
   type MeetingNoticeMailKind,
@@ -59,7 +59,8 @@ beforeAll(async () => {
       association: { findUnique: vi.fn().mockResolvedValue(ASSOCIATION) },
     } as unknown as PrismaService,
     i18n,
-    { decrypt: vi.fn() } as unknown as FieldEncryptionService,
+    // Rendering never asks where the mail goes.
+    {} as MailSettingsResolver,
   );
 });
 

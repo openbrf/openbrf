@@ -1,4 +1,5 @@
 import type {
+  LocalizedText,
   PluginActionDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
@@ -65,7 +66,17 @@ export interface PluginFinding {
 
 export interface PluginsOverview {
   pluginsEnabled: boolean;
+  /**
+   * Whether the process that answered is to be replaced, from the moment an
+   * operation that ends in a restart was accepted.
+   */
   restartPending: boolean;
+  /**
+   * Which process answered: opaque, and different after every restart. The
+   * screen reads a restart as done when this has changed, which the process
+   * on its way out cannot make happen.
+   */
+  processId: string;
   plugins: PluginSummary[];
   findings: PluginFinding[];
 }
@@ -74,8 +85,8 @@ export interface CatalogPlugin {
   id: string;
   packageName: string;
   version: string;
-  name: { sv: string; en: string };
-  description: { sv: string; en: string };
+  name: LocalizedText;
+  description: LocalizedText;
   homepage: string | null;
   deprecated: boolean;
   apiVersion: number;

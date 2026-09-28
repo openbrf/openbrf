@@ -14,7 +14,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node ../../scripts/copy-licence-files.mjs"
   },
   "devDependencies": {
     "@nestjs/common": "^12.1.0",
@@ -27,11 +28,16 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "!src/**/*.spec.ts",
+    "LICENSE",
+    "LICENSE-EXCEPTION.md"
   ],
   "publishConfig": {
-    "access": "restricted",
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
   },
   "repository": {
     "type": "git",
@@ -48,5 +54,8 @@
   },
   "dependencies": {
     "zod": "^4.6.5"
+  },
+  "bugs": {
+    "url": "https://github.com/openbrf/openbrf/issues"
   }
 }

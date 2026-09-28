@@ -4,7 +4,10 @@ Date: 2026-09-25
 
 ## Status
 
-Accepted
+Accepted. Its consequence that the access report does not carry the
+`news_delivery`, `meeting_notice_delivery`, `invitation` and `auth_session`
+rows is closed by
+[ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md).
 
 ## Context
 

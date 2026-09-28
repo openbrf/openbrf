@@ -103,11 +103,28 @@ services:
 
       OPENBRF_PLUGINS_ENABLED: ${OPENBRF_PLUGINS_ENABLED:-true}
       OPENBRF_CATALOG_URL: ${OPENBRF_CATALOG_URL:-}
-      # Needed only while the catalog repository is private, before public
-      # launch. Sent as the bearer token for the catalog index and for the
-      # release tarballs it points at.
+      # Only for an index that requires a bearer token; the curated catalog is
+      # public.
       OPENBRF_CATALOG_TOKEN: ${OPENBRF_CATALOG_TOKEN:-}
       OPENBRF_UNCURATED_PLUGINS_ENABLED: ${OPENBRF_UNCURATED_PLUGINS_ENABLED:-false}
+
+      # Mail set where the instance runs (ADR 0024; docs/deployment.md, "Mail").
+      # All empty by default, which leaves the mail to the SMTP server the board
+      # enters in the setup wizard and the settings. OPENBRF_MAIL_DRIVER "smtp"
+      # or "http-api" sets it here instead, for every message, and the settings
+      # then show it and cannot change it.
+      OPENBRF_MAIL_DRIVER: ${OPENBRF_MAIL_DRIVER:-}
+      OPENBRF_MAIL_FROM_ADDRESS: ${OPENBRF_MAIL_FROM_ADDRESS:-}
+      OPENBRF_MAIL_FROM_NAME: ${OPENBRF_MAIL_FROM_NAME:-}
+      OPENBRF_MAIL_REPLY_TO: ${OPENBRF_MAIL_REPLY_TO:-}
+      OPENBRF_SMTP_HOST: ${OPENBRF_SMTP_HOST:-}
+      OPENBRF_SMTP_PORT: ${OPENBRF_SMTP_PORT:-}
+      OPENBRF_SMTP_SECURE: ${OPENBRF_SMTP_SECURE:-}
+      OPENBRF_SMTP_USER: ${OPENBRF_SMTP_USER:-}
+      OPENBRF_SMTP_PASSWORD: ${OPENBRF_SMTP_PASSWORD:-}
+      OPENBRF_MAIL_API_URL: ${OPENBRF_MAIL_API_URL:-}
+      OPENBRF_MAIL_API_KEY: ${OPENBRF_MAIL_API_KEY:-}
+      OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: ${OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN:-}
     ports:
       # Bound to the loopback interface: put a TLS terminating reverse proxy in
       # front rather than exposing the application directly. Sessions are

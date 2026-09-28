@@ -30,6 +30,7 @@ const fetchPlugins = vi.fn();
 const fetchCatalog = vi.fn();
 const installPlugin = vi.fn();
 const setPluginActionArmed = vi.fn();
+const uninstallPlugin = vi.fn();
 
 vi.mock("./plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./plugin-api")>()),
@@ -38,6 +39,7 @@ vi.mock("./plugin-api", async (importOriginal) => ({
   installPlugin: (input: unknown) => installPlugin(input),
   setPluginActionArmed: (id: string, actionId: string, armed: boolean) =>
     setPluginActionArmed(id, actionId, armed),
+  uninstallPlugin: (id: string) => uninstallPlugin(id),
 }));
 
 /** The one action the catalog entry proposes, as the consent screen shows it. */
@@ -72,6 +74,7 @@ const ENTRY: CatalogPlugin = {
 const OVERVIEW: PluginsOverview = {
   pluginsEnabled: true,
   restartPending: false,
+  processId: "process-before",
   plugins: [],
   findings: [],
 };
@@ -566,6 +569,119 @@ describe("a restart that never completes", () => {
         ),
       ).toBeTruthy();
       expect(screen.queryByText(/startas om för att läsa in/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * An answer from the process being replaced.
+ *
+ * The process that accepted the operation keeps answering while its job runs
+ * the reconcile and while it drains, and whatever it says, it says about the
+ * code it is running. Taken for the replacement's answer, it leaves the screen
+ * on "Installerat, väntar på omstart" while the new process serves the
+ * plugin. Each poll below is answered in a fixed order, the outgoing process
+ * first, so which answer the screen acts on is not left to timing.
+ */
+describe("a restart the process being replaced still answers for", () => {
+  const NOTICE = /startas om för att läsa in/;
+
+  /** Lets exactly one poll go out and be answered. */
+  async function poll(): Promise<void> {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+  }
+
+  it("keeps waiting after an install until another process answers", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      installPlugin.mockResolvedValue({
+        ok: true,
+        value: { restarting: true },
+      });
+      const session = userEvent.setup({
+        advanceTimers: vi.advanceTimersByTime.bind(vi),
+      });
+      renderScreen(["association:read", "association:manage"]);
+
+      await choose(session);
+      fetchPlugins
+        // The process that accepted the install, reconciled and not yet
+        // handed over to its restart: nothing pending, and the plugin on the
+        // volume but not running.
+        .mockResolvedValueOnce({
+          ok: true,
+          value: { ...OVERVIEW, plugins: [{ ...INSTALLED, loaded: false }] },
+        })
+        // Every poll after it reaches the replacement.
+        .mockResolvedValue({
+          ok: true,
+          value: { ...WITH_ACTIONS, processId: "process-after" },
+        });
+      const readsBefore = fetchPlugins.mock.calls.length;
+      await session.click(screen.getByRole("checkbox"));
+      await session.click(
+        screen.getByRole("button", { name: /^installera$/i }),
+      );
+      await waitFor(() => {
+        expect(screen.getByText(NOTICE)).toBeTruthy();
+      });
+
+      await poll();
+
+      expect(fetchPlugins.mock.calls.length).toBe(readsBefore + 1);
+      expect(screen.getByText(NOTICE)).toBeTruthy();
+      expect(screen.queryByText("Installerat, väntar på omstart")).toBeNull();
+
+      await poll();
+
+      expect(screen.queryByText(NOTICE)).toBeNull();
+      expect(screen.getByText("Körs")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps waiting after a removal until another process answers", async () => {
+    // The same wait, started from the row rather than from the catalog.
+    fetchPlugins.mockResolvedValue({ ok: true, value: WITH_ACTIONS });
+    uninstallPlugin.mockReset().mockResolvedValue({
+      ok: true,
+      value: { restarting: true },
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const session = userEvent.setup({
+        advanceTimers: vi.advanceTimersByTime.bind(vi),
+      });
+      renderScreen(["association:read", "association:manage"]);
+
+      await session.click(
+        await screen.findByRole("button", { name: "Ta bort" }),
+      );
+      fetchPlugins
+        // The outgoing process still lists the plugin it is running.
+        .mockResolvedValueOnce({ ok: true, value: WITH_ACTIONS })
+        .mockResolvedValue({
+          ok: true,
+          value: { ...OVERVIEW, processId: "process-after" },
+        });
+      await session.click(screen.getByRole("button", { name: "Ja, ta bort" }));
+      await waitFor(() => {
+        expect(screen.getByText(NOTICE)).toBeTruthy();
+      });
+
+      await poll();
+
+      expect(screen.getByText(NOTICE)).toBeTruthy();
+
+      await poll();
+
+      expect(screen.queryByText(NOTICE)).toBeNull();
+      expect(screen.getByText("Inga tillägg är installerade.")).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }

@@ -31,10 +31,10 @@ determines the installer, the directory layout, and the boot sequence.
 ### The contract
 
 - **Plugins ship a prebuilt CJS bundle** whose only externals are the host
-  packages. `require` of that bundle yields a `createPlugin` factory that
-  receives a host-injected, permissions-scoped SDK object and returns a NestJS
-  `DynamicModule`. A plugin's controllers, providers, guards and lifecycle
-  hooks are the framework's own.
+  packages and Node's built-in modules. `require` of that bundle yields a
+  `createPlugin` factory that receives a host-injected, permissions-scoped SDK
+  object and returns a NestJS `DynamicModule`. A plugin's controllers,
+  providers, guards and lifecycle hooks are the framework's own.
 - **Plugin modules are loaded before `NestFactory.create` and imported into
   `AppModule`.** NestJS registers controllers only for the modules present when
   the container is built; a module added afterwards through

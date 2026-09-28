@@ -471,8 +471,12 @@ export class ProcessorAgreementService {
  *
  * Each of these is the difference between a record that demonstrates art. 28
  * compliance and one that merely has rows in it.
+ *
+ * Exported for a caller that writes something else first: a plugin install
+ * asks it before the consent row, so an answer refused here leaves nothing
+ * behind. {@link ProcessorAgreementService.record} still asks it again.
  */
-function assertConsistent(input: ProcessorAgreementInput): void {
+export function assertConsistent(input: ProcessorAgreementInput): void {
   for (const value of [
     input.counterparty,
     input.reference,

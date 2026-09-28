@@ -13,6 +13,16 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 > **Status: pre-release, not ready to hold an association's data.** Open BRF is under active development toward a first public release (v1, planned Q1 2027), with a pilot in a real association in December 2026. Most of v1 is built and covered by tests: one `docker compose` command gives a working instance, and the interface takes a board from first boot through the statutory registers to the association's own website. Nothing here has run a housing cooperative yet, and APIs, schemas, and documents are still moving. See [ROADMAP.md](ROADMAP.md) for what is actually implemented.
 
+## På svenska
+
+**Open BRF är ett system för bostadsrättsföreningar, byggt på öppen källkod.** Styrelsen och alla som bor i huset får ett gemensamt verktyg, och föreningen äger sin data: ingen bindningstid, ingen inlåsning, och att drifta systemet själv är gratis för alltid.
+
+- **För styrelsen:** medlemsförteckning och lägenhetsförteckning enligt bostadsrättslagen, adressbok, nyheter och utskick, dokumentarkiv, felanmälningar och ärenden, avgiftsavier och föreningens egen hemsida.
+- **För de boende:** nyheter och dokument, bokning av tvättstuga, bastu och gästlägenhet, evenemang, felanmälan med bild, nyckelbeställning, ansökan om andrahandsuthyrning, motioner till stämman, lägenhetspärmen och chatt med grannarna. Alla i hushållet får ett eget konto.
+- **Svensk lag inbyggd:** GDPR med gallring, registerutdrag och maskering av skyddade personuppgifter, och medlemsförteckningen och lägenhetsförteckningen hålls isär så som lagen kräver.
+
+Open BRF är ännu inte släppt. En pilot i en riktig förening startar i december 2026, och den första publika versionen planeras till första kvartalet 2027. Frågor och idéer är välkomna som issues eller i diskussionerna, på svenska eller engelska.
+
 ## What it does (v1 scope)
 
 - Apartment-based address book and member register, with import. Contact details and personal identity numbers are encrypted at rest; names and postal addresses stay readable, because the statutory register must be searchable and printable
@@ -26,7 +36,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 - Sign-in with passwords, magic links, passkeys (WebAuthn), and TOTP
 - Swedish + English UI (full i18n), light + dark themes, and a WordPress-like plugin and theme system
 
-Resource booking follows in v1.1. General meetings (stämma), board email, and simple finances are planned core features.
+Beyond that scope, and already built ahead of the release they were planned for: resource booking and an event calendar with sign-ups (planned for v1.1), and general meetings (stämma), comments on news and group chat, the board's shared mailbox, the apartment binder, forms for subletting, motions and key orders, fee notices, and charges to members (planned as later core features, free like the rest). [ROADMAP.md](ROADMAP.md) has the detail.
 
 ## Tech stack
 
@@ -55,7 +65,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 
 ## Language
 
-Everything in this repository is in English: code, comments, documentation, commit messages, pull requests, and release notes. The only Swedish in the codebase lives in the `sv` translation files and in domain terms where Swedish law is the point - see [GLOSSARY.md](GLOSSARY.md). Issues and discussions in Swedish are welcome; maintainers reply in Swedish, and record technical decisions in English.
+Everything in this repository is in English: code, comments, documentation, commit messages, pull requests, and release notes. The only Swedish in the codebase lives in the `sv` translation files, in domain terms where Swedish law is the point - see [GLOSSARY.md](GLOSSARY.md) - and in the summary [på svenska](#på-svenska) above, which is there for the Swedish board members the project is built for. Issues and discussions in Swedish are welcome; maintainers reply in Swedish, and record technical decisions in English.
 
 ## License
 

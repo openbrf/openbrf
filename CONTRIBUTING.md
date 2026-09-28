@@ -32,6 +32,8 @@ Thank you for considering a contribution! This document explains how the project
 - Commit messages, PR titles, PR descriptions, and release notes
 - Labels, milestones, and technical decisions recorded in issues
 
+One exception: the root README carries a short summary in Swedish, so the project can be found by the Swedish board members and residents it is built for. It says what the English README says, and a change to one changes the other in the same pull request.
+
 **Swedish is welcome in issues and discussions.** Open BRF is built for Swedish housing cooperatives, and many users are Swedish board members. If you are more comfortable writing in Swedish, do - maintainers will reply in Swedish. When a thread leads to a technical decision, a maintainer summarizes that decision in English so the project history stays readable for everyone.
 
 **Domain terms** from Swedish cooperative law are translated to English in code and docs, following the canonical mapping in [GLOSSARY.md](GLOSSARY.md) (e.g. *medlemsförteckning* -> member register). "BRF" itself is kept as an established abbreviation. When the legal concept is the point, mention the Swedish term in a doc comment. If you need a term that is missing from the glossary, add it in the same PR.
@@ -99,6 +101,7 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
   - **Squash** when the commits inside the PR are working notes. The PR title becomes the commit message on `main`, so that title must follow Conventional Commits.
   - **Rebase** when the commits are already a deliberate sequence worth keeping - a migration split into reviewable steps, for instance. Every commit must then follow Conventional Commits on its own and each must build and pass CI, because each one lands on `main` separately.
 - **Changesets:** user-visible changes need a changeset file (`pnpm changeset`) describing the change and its semver impact. CI reminds you if it is missing; docs/chore PRs don't need one.
+- **Releases of the public packages:** `@openbrf/plugin-sdk`, `@openbrf/theme-tools` and `@openbrf/tokens` are published to npmjs.com with provenance. A maintainer bumps their versions with `pnpm changeset version` in a pull request of its own, and once that is merged runs the **Release** workflow on `main`. Nobody publishes from a laptop.
 - **Every review thread must be resolved before merge.** `main` enforces this, so an open comment thread blocks the merge button. Resolve a thread by fixing what it asks for, or by replying with why the code stays as it is and then resolving it - silently resolving without an answer is not review.
 - Keep PRs focused - one logical change per PR. Split refactoring from behavior changes.
 - Fill in the PR template; it doubles as the review checklist.

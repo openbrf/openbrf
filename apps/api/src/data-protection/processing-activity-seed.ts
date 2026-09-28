@@ -144,7 +144,20 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   meetingRecords: {
     source: "STATUTORY_REGISTER",
     legalBasis: "LEGAL_OBLIGATION",
-    dataSubjectCategories: ["member", "boardMember"],
+    /*
+     * Everybody the meeting's record names. A proxy holder may be the member's
+     * spouse or cohabitant or a person the bylaws allow, and an assistant may
+     * be anybody, so residents and people outside the association are on it as
+     * well as members. Former residents because the list of those present and
+     * the notice's delivery ledger are kept with the minutes for good.
+     */
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "boardMember",
+      "formerResident",
+      "external",
+    ],
     personalDataCategories: ["name", "apartment", "freeText"],
   },
   auditLog: {
@@ -224,7 +237,12 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   newsMailings: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
-    dataSubjectCategories: ["member", "resident"],
+    /*
+     * Former residents as well: the delivery ledger is the association's
+     * record of what it sent, and it outlives the move-out of the member it
+     * names.
+     */
+    dataSubjectCategories: ["member", "resident", "formerResident"],
     personalDataCategories: ["name", "email", "phone"],
   },
   /*
@@ -503,7 +521,21 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   signupRequestsAndInvitations: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
-    dataSubjectCategories: ["applicant"],
+    /*
+     * Whoever asks for an account, and everybody an invitation can go to: the
+     * board invites anybody the register holds - a member, a resident, a board
+     * member, and an external property manager or administrator. Former
+     * residents because a decided request is kept after its applicant has
+     * moved, and an invitation stays until the purge reaches the person.
+     */
+    dataSubjectCategories: [
+      "applicant",
+      "member",
+      "resident",
+      "boardMember",
+      "external",
+      "formerResident",
+    ],
     personalDataCategories: ["name", "email", "freeText"],
   },
   /*
@@ -667,8 +699,8 @@ function clientRecipients(facts: ProcessorFacts, t: TFunction): string {
 
 function messageRecipients(facts: ProcessorFacts, t: TFunction): string {
   const parts: string[] = [];
-  if (facts.smtpHost !== null && facts.smtpFromAddress !== null) {
-    parts.push(facts.smtpHost);
+  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
+    parts.push(facts.mailHost);
   }
   if (facts.smsGatewayUrl !== null && facts.smsGatewayUrl.trim() !== "") {
     parts.push(facts.smsGatewayUrl);
@@ -696,10 +728,10 @@ function mailboxRecipients(facts: ProcessorFacts, t: TFunction): string {
       host: facts.mailbox.host,
     }),
   ];
-  if (facts.smtpHost !== null && facts.smtpFromAddress !== null) {
+  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
     sentences.push(
       t("dataProtection.processing.seed.recipients.replies", {
-        host: facts.smtpHost,
+        host: facts.mailHost,
       }),
     );
   }

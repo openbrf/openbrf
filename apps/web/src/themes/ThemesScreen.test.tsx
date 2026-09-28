@@ -91,10 +91,14 @@ const EXAMPLE: ThemeSummary = {
 
 const CATALOG_ENTRY: CatalogTheme = {
   id: "example-theme",
-  name: "Example",
-  description: "Inherits the default theme.",
+  name: { sv: "Exempeltema", en: "Example theme" },
+  description: {
+    sv: "Ärver standardtemat.",
+    en: "Inherits the default theme.",
+  },
   version: "1.0.0",
   contract: "^1.0.0",
+  deprecated: false,
   installedVersion: null,
 };
 
@@ -153,11 +157,14 @@ describe("what a board sees before deciding", () => {
     renderScreen();
 
     await waitFor(() => {
-      // Once as an installed theme, once as the catalog entry it came from.
-      expect(screen.getAllByRole("heading", { name: "Example" })).toHaveLength(
-        2,
-      );
+      // The installed theme under the name its manifest gives, and the catalog
+      // entry it came from under the catalog's own text, in the viewer's
+      // language.
+      expect(screen.getByRole("heading", { name: "Example" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Exempeltema" })).toBeTruthy();
     });
+    expect(screen.getByText("Ärver standardtemat.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Example theme" })).toBeNull();
 
     // The parent theme, the typeface with its licence, and the layout it picks:
     // all three are things a board is deciding about, not decoration.
@@ -177,17 +184,39 @@ describe("what a board sees before deciding", () => {
     expect(screen.getByText(/^Inbyggt$/)).toBeTruthy();
   });
 
-  it("says so when the instance has no catalog configured", async () => {
+  it("marks a theme the catalog has deprecated, in words", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [{ ...CATALOG_ENTRY, deprecated: true }],
+    });
+
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Underhålls inte längre$/)).toBeTruthy();
+    });
+  });
+
+  it("does not mark a theme the catalog still maintains", async () => {
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Exempeltema" })).toBeTruthy();
+    });
+    expect(screen.queryByText(/^Underhålls inte längre$/)).toBeNull();
+  });
+
+  it("says so when the instance points at a catalog it may not read", async () => {
     fetchThemeCatalog.mockResolvedValue({
       ok: false,
-      failure: { status: 503, reason: "catalog-not-configured" },
+      failure: { status: 503, reason: "catalog-source-not-permitted" },
     });
 
     renderScreen();
 
     await waitFor(() => {
       expect(
-        screen.getByText(/ingen temakatalog är konfigurerad/i),
+        screen.getByText(/pekar på en katalog utanför den granskade/i),
       ).toBeTruthy();
     });
   });

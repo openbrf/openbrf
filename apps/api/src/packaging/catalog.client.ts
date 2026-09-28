@@ -24,13 +24,24 @@ const CACHE_MILLISECONDS = 60_000;
 const MAX_INDEX_BYTES = 4 * 1024 * 1024;
 
 /**
+ * How long reading the index may take before it is abandoned.
+ *
+ * Both install screens read it inside the request, and so does an install
+ * whose cached copy has expired: a host that answers and then goes quiet would
+ * otherwise hold the request handler and its database connection for as long
+ * as it cared to. An index is a small file, and one that stalls is an index
+ * that could not be reached.
+ */
+export const INDEX_TIMEOUT_MS = 30_000;
+
+/**
  * Reads the catalog.
  *
  * Shared by the plugin and theme install screens: one index lists both, so
- * one client fetches it. The optional bearer token is applied to the index and
- * to the release assets alike, because before public launch both live in
- * private repositories (plan section 5); after launch the token is simply
- * unset and nothing in this code changes.
+ * one client fetches it, and both screens are held to the same curation rule,
+ * the same https-only rule and the same cache. The optional bearer token is
+ * for an index that requires one, and goes to the index's own origin only;
+ * the curated catalog is public and needs none.
  *
  * The result is cached briefly. Browsing the catalog is a screen with tabs and
  * a search box, and re-fetching a static index on every keystroke would be an
@@ -71,10 +82,35 @@ export class CatalogClient {
     return configured;
   }
 
-  /** The Authorization header for the index and for its release assets. */
-  authorization(): Record<string, string> {
+  /**
+   * The Authorization header for a request to `url`: the token when one is
+   * set and `url` is on the index's own origin, nothing otherwise.
+   *
+   * An artifact URL is data the index supplies, and it may name a host run by
+   * whoever published the package. The token was issued for the index, so a
+   * request anywhere else goes without it, the first hop included; a redirect
+   * to another origin already drops it in the fetch itself.
+   */
+  authorizationFor(url: string): Record<string, string> {
     const token = this.env.OPENBRF_CATALOG_TOKEN;
-    return token === undefined ? {} : { authorization: `Bearer ${token}` };
+    if (token === undefined) {
+      return {};
+    }
+    const origin = originOf(url);
+    // A file: URL has the opaque origin "null", which equals every other
+    // one, and a file read sends no header anyway.
+    if (origin === null || origin === "null") {
+      return {};
+    }
+    let indexUrl: string;
+    try {
+      indexUrl = this.resolveUrl();
+    } catch {
+      return {};
+    }
+    return originOf(indexUrl) === origin
+      ? { authorization: `Bearer ${token}` }
+      : {};
   }
 
   /**
@@ -120,9 +156,10 @@ export class CatalogClient {
     let bytes: Buffer;
     try {
       bytes = await fetchBytes(url, {
-        headers: { accept: "application/json", ...this.authorization() },
+        headers: { accept: "application/json", ...this.authorizationFor(url) },
         maxBytes: MAX_INDEX_BYTES,
         allowUncuratedSources: this.allowsUncuratedSources(),
+        timeoutMs: INDEX_TIMEOUT_MS,
       });
     } catch (cause) {
       this.logger.warn(
@@ -142,5 +179,13 @@ export class CatalogClient {
         "catalog-malformed",
       );
     }
+  }
+}
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
   }
 }

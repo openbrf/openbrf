@@ -1121,6 +1121,106 @@ describe("the purge", () => {
       });
     }
   }, 60_000);
+
+  it("keeps a restricted person's applications past their window until the restriction is lifted", async () => {
+    /*
+     * Art. 18(2): under a restriction the association may store the data and
+     * little else, so erasing it is the one act the person asked it not to
+     * perform. Lifting the restriction hands the rows back to the window, and
+     * the next run erases them.
+     */
+    const id = `su-restricted-${suffix}`;
+    await seedApplication({
+      id,
+      personId: member.personId,
+      closedAt: daysBefore(90),
+      periodTo: dayColumn(-60),
+      status: "CONSENTED",
+    });
+    await prisma.person.update({
+      where: { id: member.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id } }),
+      ).not.toBeNull();
+
+      await prisma.person.update({
+        where: { id: member.personId },
+        data: { processingRestrictedAt: null },
+      });
+      await purge.run(NOW, RETENTION_DAYS);
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id } }),
+      ).toBeNull();
+    } finally {
+      await prisma.person.update({
+        where: { id: member.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("is stopped by a restriction granted while it runs", async () => {
+    // The hold race above, for the other half of what withholds a person: the
+    // grant takes the same key before it writes the flag.
+    const id = `su-restriction-race-${suffix}`;
+    await seedApplication({
+      id,
+      personId: member.personId,
+      closedAt: daysBefore(90),
+      periodTo: dayColumn(-60),
+      status: "REFUSED",
+    });
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${member.personId}`}))`;
+        await tx.person.update({
+          where: { id: member.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await holdLockCount(member.personId, true)) > 0n,
+      );
+
+      const running = purge.purgePerson(member.personId, NOW, RETENTION_DAYS);
+      await waitFor(
+        async () => (await holdLockCount(member.personId, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      // It erased nothing, because by the time it got the key the restriction
+      // stood.
+      await expect(running).resolves.toBe(0);
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id } }),
+      ).not.toBeNull();
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await prisma.person.update({
+        where: { id: member.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  }, 60_000);
 });
 
 describe("the data subject access report", () => {

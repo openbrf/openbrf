@@ -10,6 +10,7 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MediaService } from "../media/media.service";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
+import { withheldPersonIds } from "../retention/withheld-persons";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -88,6 +89,11 @@ export interface BoardMailboxPurgeRunSummary {
  * booking and the news comment purges. The ground under GDPR art. 17.3 is about
  * the person's data rather than about one table, and a letter to the board is
  * exactly the record a dispute is likely to be about.
+ *
+ * A restriction of processing stops it the same way. Art. 18(2) lets the
+ * association keep storing the data and little else, so erasing it is the one
+ * act the person asked it not to perform; `retention/withheld-persons.ts` is
+ * where every purge asks both questions as one.
  *
  * Reaching those threads is the one place in this module that goes from a person
  * to their correspondence, and it is worth being precise about why that is not
@@ -409,25 +415,20 @@ export class BoardMailboxPurgeService implements OnModuleInit {
   }
 
   /**
-   * This table's blind index for every address a legal hold stands against.
+   * This table's blind index for every address a legal hold or a restriction
+   * of processing stands against.
    *
    * The two stored indexes are not comparable - CipherSweet derives a distinct
    * key per table and field, which `field-encryption.service.ts` states - so each
-   * held person's address is decrypted and re-indexed under this table's own
-   * label. At most one hold stands per person, and a hold is a dispute the board
-   * entered deliberately, so this is a handful of rows in a cooperative that has
+   * withheld person's address is decrypted and re-indexed under this table's own
+   * label. A hold is a dispute the board entered deliberately and a restriction a
+   * request it granted, so this is a handful of rows in a cooperative that has
    * any at all.
    */
   private async heldAddressIndexes(): Promise<string[]> {
-    const holds = await this.prisma.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { person: { select: { id: true, emailCipher: true } } },
-      distinct: ["personId"],
-    });
-
     const indexes: string[] = [];
-    for (const hold of holds) {
-      const index = await this.indexFor(hold.person.emailCipher);
+    for (const person of await this.withheldPersons(this.prisma)) {
+      const index = await this.indexFor(person.emailCipher);
       if (index !== null) {
         indexes.push(index);
       }
@@ -435,24 +436,38 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     return indexes;
   }
 
-  /** The held person whose address this thread is with, if any. */
+  /** The withheld person whose address this thread is with, if any. */
   private async heldPersonFor(
     correspondentEmailIndex: string,
     client: Prisma.TransactionClient = this.prisma,
   ): Promise<string | null> {
-    const holds = await client.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { person: { select: { id: true, emailCipher: true } } },
-      distinct: ["personId"],
-    });
-
-    for (const hold of holds) {
-      const index = await this.indexFor(hold.person.emailCipher);
+    for (const person of await this.withheldPersons(client)) {
+      const index = await this.indexFor(person.emailCipher);
       if (index !== null && index === correspondentEmailIndex) {
-        return hold.person.id;
+        return person.id;
       }
     }
     return null;
+  }
+
+  /**
+   * Everybody no purge may touch, with the address each is matched on.
+   *
+   * Who that is comes from `withheldPersonIds`, the one answer every purge
+   * shares, so this table cannot come to disagree with the others about what a
+   * restriction of processing means.
+   */
+  private async withheldPersons(
+    client: Prisma.TransactionClient,
+  ): Promise<{ id: string; emailCipher: string | null }[]> {
+    const ids = await withheldPersonIds(client);
+    if (ids.length === 0) {
+      return [];
+    }
+    return client.person.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, emailCipher: true },
+    });
   }
 
   private async indexFor(emailCipher: string | null): Promise<string | null> {
