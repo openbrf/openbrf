@@ -107,7 +107,16 @@ for (const file of readdirSync(changesetDirectory).sort()) {
   if (!file.endsWith(".md") || file === "README.md") {
     continue;
   }
-  for (const name of changesetPackages(join(changesetDirectory, file))) {
+  const names = changesetPackages(
+    readFileSync(join(changesetDirectory, file), "utf8"),
+  );
+  if (names === null) {
+    problems.push(
+      `.changeset/${file} could not be read as a changeset, so the release cannot tell which packages it names. Its front matter must be a \`---\` line, one \`"package": bump\` line per package and a closing \`---\` line, with no byte order mark.`,
+    );
+    continue;
+  }
+  for (const name of names) {
     if (PUBLISHED.has(name)) {
       problems.push(
         `.changeset/${file} names ${name}, which is not versioned yet. Run \`pnpm changeset version\` in a pull request first.`,
@@ -127,18 +136,37 @@ for (const project of dependenciesFirst(publicPackages)) {
   console.log(relative(repoRoot, project.path));
 }
 
-/** The package names in a changeset's front matter. */
-function changesetPackages(path) {
-  const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(
-    readFileSync(path, "utf8"),
-  );
-  if (frontMatter === null) {
-    return [];
+/**
+ * The package names in a changeset's front matter, or null when it is not the
+ * plain list of `"package": bump` lines that `pnpm changeset` writes.
+ *
+ * The front matter is YAML, which Changesets reads with a full parser. This
+ * check runs before any dependency is installed, so it reads only that plain
+ * shape and refuses anything else: a file it misread could let a pending
+ * change through unnoticed, while a refused one only needs rewriting.
+ */
+function changesetPackages(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines[0] !== "---") {
+    return null;
   }
-  return frontMatter[1]
-    .split(/\r?\n/)
-    .map((line) => /^\s*["']?([^"':]+?)["']?\s*:/.exec(line)?.[1])
-    .filter((name) => name !== undefined);
+  const end = lines.indexOf("---", 1);
+  if (end === -1) {
+    return null;
+  }
+  const names = [];
+  for (const line of lines.slice(1, end)) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const entry =
+      /^\s*(["']?)([^"'\s:]+)\1\s*:\s*(major|minor|patch|none)\s*$/.exec(line);
+    if (entry === null) {
+      return null;
+    }
+    names.push(entry[2]);
+  }
+  return names;
 }
 
 /**

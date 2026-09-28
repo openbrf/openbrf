@@ -65,19 +65,27 @@ jobs:
           node-version-file: .nvmrc
 
       # Needs no dependency, so it runs before the install: the packages it
-      # names are the only ones installed, built and packed.
+      # names are the only ones installed, built and packed. The output keeps
+      # one directory per line, and the steps below read it line by line into
+      # an array, so a directory is never split on spaces or expanded as a glob.
       - name: Check the packages and their versions
         id: packages
         run: |
           directories=$(node scripts/check-release-packages.mjs)
-          echo "directories=${directories//$'\n'/ }" >> "$GITHUB_OUTPUT"
+          delimiter="directories-$(openssl rand -hex 16)"
+          {
+            echo "directories<<$delimiter"
+            echo "$directories"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies of the published packages
         env:
           PACKAGES: ${{ steps.packages.outputs.directories }}
         run: |
+          mapfile -t directories <<< "$PACKAGES"
           filters=(--filter=openbrf)
-          for directory in $PACKAGES; do
+          for directory in "${directories[@]}"; do
             filters+=("--filter=./$directory...")
           done
           pnpm install --frozen-lockfile "${filters[@]}"
@@ -86,8 +94,9 @@ jobs:
         env:
           PACKAGES: ${{ steps.packages.outputs.directories }}
         run: |
+          mapfile -t directories <<< "$PACKAGES"
           filters=()
-          for directory in $PACKAGES; do
+          for directory in "${directories[@]}"; do
             filters+=("--filter=./$directory")
           done
           pnpm turbo run build lint typecheck test "${filters[@]}"
@@ -100,8 +109,9 @@ jobs:
         env:
           PACKAGES: ${{ steps.packages.outputs.directories }}
         run: |
+          mapfile -t directories <<< "$PACKAGES"
           position=0
-          for directory in $PACKAGES; do
+          for directory in "${directories[@]}"; do
             position=$((position + 1))
             destination="$RUNNER_TEMP/tarballs/$(printf '%03d' "$position")"
             mkdir -p "$destination"
