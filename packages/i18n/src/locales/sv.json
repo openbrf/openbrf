@@ -791,7 +791,7 @@
         "closeCancel": "Avbryt",
         "closeWarning": {
           "RESTRICTION": "Begränsningen hävs, och personens uppgifter används och gallras igen som förut. En avslutad begäran kan inte öppnas igen.",
-          "OBJECTION": "Invändningen hävs. Personen får föreningens utskick igen. En avslutad begäran kan inte öppnas igen.",
+          "OBJECTION": "Invändningen hävs. Personen får föreningens utskick och inbjudningar till evenemang igen. En avslutad begäran kan inte öppnas igen.",
           "ERASURE": "Raderingen verkställs inte. En avslutad begäran kan inte öppnas igen.",
           "other": "En avslutad begäran kan inte öppnas igen. Om personen frågar på nytt antecknas det som en ny begäran."
         },

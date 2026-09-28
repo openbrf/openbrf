@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -192,7 +198,8 @@ describe("closing a request", () => {
         answer = resolve;
       }),
     );
-    const row = renderSection(GRANTED_RESTRICTION);
+    const onChanged = vi.fn();
+    const row = renderSection(GRANTED_RESTRICTION, onChanged);
 
     await userEvent.click(row.getByRole("button", { name: "Avsluta" }));
     await userEvent.type(
@@ -210,8 +217,66 @@ describe("closing a request", () => {
 
     answer({ ok: true, value: { ...GRANTED_RESTRICTION, state: "closed" } });
     await waitFor(() => {
-      expect(closeDataSubjectRequest).toHaveBeenCalledTimes(1);
+      expect(onChanged).toHaveBeenCalledTimes(1);
     });
+    expect(closeDataSubjectRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends one closure when the form is submitted twice before it renders again", async () => {
+    closeDataSubjectRequest.mockReturnValue(new Promise(() => undefined));
+    const row = renderSection(GRANTED_RESTRICTION);
+
+    await userEvent.click(row.getByRole("button", { name: "Avsluta" }));
+    await userEvent.type(
+      row.getByLabelText("Varför begäran avslutas"),
+      "Upphävd.",
+    );
+    // Straight at the form, past the disabled button: what is left to stop the
+    // second POST is the form's own record that one is already on its way.
+    const form = row.getByLabelText("Varför begäran avslutas").closest("form");
+    if (form === null) {
+      throw new Error("the close form is not rendered");
+    }
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(closeDataSubjectRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the form up while the closure is in flight, and shows its failure", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    closeDataSubjectRequest.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const row = renderSection(aRequest());
+
+    await userEvent.click(row.getByRole("button", { name: "Avsluta" }));
+    await userEvent.type(
+      row.getByLabelText("Varför begäran avslutas"),
+      "Personen återkallade begäran.",
+    );
+    await userEvent.click(row.getByRole("button", { name: "Avsluta begäran" }));
+
+    // Neither toggle can take the form away while the answer is outstanding.
+    const toggle = row.getByRole("button", { name: "Avsluta" });
+    const decide = row.getByRole("button", { name: "Fatta beslut" });
+    expect((toggle as HTMLButtonElement).disabled).toBe(true);
+    expect((decide as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(toggle);
+    await userEvent.click(decide);
+
+    answer({ ok: false, failure: { status: 403, reason: "forbidden" } });
+
+    expect(
+      await row.findByText("Ditt konto får inte ändra detta."),
+    ).not.toBeNull();
+    expect(
+      (row.getByLabelText("Varför begäran avslutas") as HTMLTextAreaElement)
+        .value,
+    ).toBe("Personen återkallade begäran.");
+    expect((toggle as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("says why when the closure is refused", async () => {

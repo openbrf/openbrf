@@ -14,7 +14,7 @@ import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { useSaveAction } from "../ui/save-state";
+import { failureMessageKey, useSaveAction } from "../ui/save-state";
 
 export interface DataSubjectRequestsSectionProps {
   personId: string;
@@ -151,6 +151,13 @@ function RequestRow({
   const { t } = useTranslation();
   const [acting, setActing] = useState<"deciding" | "closing" | null>(null);
   /*
+   * Held here rather than in the close form, because it is the row's toggles
+   * that would take the form away. A closure in flight keeps its form up, so
+   * the answer - a refusal, or no connection - is shown where it was asked
+   * and the reason the board wrote is still there to send again.
+   */
+  const [closing, setClosing] = useState(false);
+  /*
    * Closing is offered for as long as the request is open, decided or not.
    * It is the only thing that lifts a granted restriction or objection - the
    * person withdrawing it, or the board lifting it once the person has been
@@ -214,7 +221,8 @@ function RequestRow({
             {decidable ? (
               <button
                 type="button"
-                className={CAUTION_BUTTON}
+                className={`${CAUTION_BUTTON} disabled:opacity-60`}
+                disabled={closing}
                 onClick={() => {
                   setActing(acting === "deciding" ? null : "deciding");
                 }}
@@ -224,7 +232,8 @@ function RequestRow({
             ) : null}
             <button
               type="button"
-              className={CAUTION_BUTTON}
+              className={`${CAUTION_BUTTON} disabled:opacity-60`}
+              disabled={closing}
               onClick={() => {
                 setActing(acting === "closing" ? null : "closing");
               }}
@@ -244,6 +253,7 @@ function RequestRow({
           {acting === "closing" ? (
             <CloseForm
               request={request}
+              onSending={setClosing}
               onClosed={() => {
                 setActing(null);
                 onChanged();
@@ -284,10 +294,12 @@ function closeWarningKey(request: DataSubjectRequestView): TranslationKey {
  */
 function CloseForm({
   request,
+  onSending,
   onClosed,
   onCancel,
 }: {
   request: DataSubjectRequestView;
+  onSending: (sending: boolean) => void;
   onClosed: () => void;
   onCancel: () => void;
 }): ReactElement {
@@ -318,8 +330,10 @@ function CloseForm({
           return;
         }
         inFlight.current = true;
+        onSending(true);
         void save.submit(request.requestId, { reason: written }).finally(() => {
           inFlight.current = false;
+          onSending(false);
         });
       }}
     >
@@ -372,8 +386,11 @@ function CloseForm({
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
           {t(
-            REASON[save.state.failure.reason ?? ""] ??
+            failureMessageKey(
+              save.state.failure,
+              REASON,
               "register.person.requests.reasons.unknown",
+            ),
           )}
         </Notice>
       ) : null}
