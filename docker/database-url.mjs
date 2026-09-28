@@ -34,8 +34,10 @@
 // be taken apart, and passing it on puts the password straight back into the
 // argument the taking apart exists to keep it out of.
 //
-// The runtime role's name is not configurable: prisma/sql/harden-runtime-role.sql
-// creates and constrains that one role, by name.
+// Neither role's name is configurable: prisma/sql/harden-runtime-role.sql
+// creates and constrains openbrf_app by name, and
+// db/initdb/10-schema-owner.sql creates openbrf_owner the same way. The
+// database's superuser is neither of them, and its password is never here.
 //
 // Node built-ins only, like the rest of docker/, so it stays readable and
 // runnable inside the image an operator is debugging.
@@ -45,13 +47,7 @@ const port = process.env.POSTGRES_PORT ?? "5432";
 const database = process.env.POSTGRES_DB ?? "openbrf";
 
 const ROLES = new Map([
-  [
-    "owner",
-    {
-      user: process.env.POSTGRES_USER ?? "openbrf",
-      secret: "POSTGRES_PASSWORD",
-    },
-  ],
+  ["owner", { user: "openbrf_owner", secret: "OWNER_DB_PASSWORD" }],
   ["runtime", { user: "openbrf_app", secret: "RUNTIME_DB_PASSWORD" }],
 ]);
 

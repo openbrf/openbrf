@@ -4,7 +4,7 @@
 # Base image. Debian slim rather than Alpine, for two runtime dependencies that
 # ship prebuilt binaries against glibc and would otherwise have to be compiled
 # inside the image: sodium-native, reached through ciphersweet-js (ADR 0002),
-# and the Prisma schema engine that applies migrations at boot. The image
+# and the Prisma schema engine that applies migrations on every deploy. The image
 # therefore needs no build toolchain. It also carries the npm CLI, which the
 # plugin install job shells out to (ADR 0003).
 #
@@ -53,8 +53,8 @@ RUN pnpm --filter @openbrf/api db:generate
 RUN pnpm build
 
 # Prune the development dependencies from the tree that ships. The Prisma CLI
-# survives because it is a runtime dependency of the API: the entrypoint applies
-# migrations with it on every start.
+# survives because it is a runtime dependency of the API: the migrate service
+# applies migrations with it on every deploy.
 #
 # Switching an existing install to --prod makes pnpm rebuild node_modules, and
 # it asks before doing that unless it is told there is no one to ask.
@@ -63,15 +63,21 @@ RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 # --- runtime ----------------------------------------------------------------
 FROM base AS runtime
 
+# The npm cache under /tmp rather than the home directory: the plugin install
+# job runs npm, and the compose file mounts the root filesystem read-only with
+# a tmpfs at /tmp. CHECKPOINT_DISABLE keeps the Prisma CLI from writing its
+# update check to a cache directory for the same reason.
 ENV NODE_ENV=production \
     PORT=3000 \
     OPENBRF_DATA_DIR=/data \
-    OPENBRF_WEB_ROOT=/app/apps/web/dist
+    OPENBRF_WEB_ROOT=/app/apps/web/dist \
+    npm_config_cache=/tmp/npm-cache \
+    CHECKPOINT_DISABLE=1
 
 # tini forwards signals and reaps orphans, so a restart during a plugin install
 # is a clean shutdown rather than a SIGKILL ten seconds later.
 #
-# psql applies prisma/sql/harden-runtime-role.sql at boot. That script is
+# psql applies prisma/sql/harden-runtime-role.sql in the migrate service. That script is
 # written in psql's own dialect (\getenv, \gexec) because it must keep the
 # runtime password out of the process arguments, so there is no way to run it
 # from a driver. The client is older than the server it talks to, which is
@@ -85,10 +91,18 @@ RUN apt-get update \
 # The pruned workspace, with node_modules laid out exactly as it was built:
 # pnpm's virtual store is a symlink farm, so the tree only resolves at the path
 # it was installed at.
-COPY --from=build --chown=node:node /app /app
+#
+# Owned by root and not writable by the user the application runs as. This is
+# the code the migrate service runs with the schema owner's connection -
+# the SQL, the scripts, the Prisma CLI and every package under them - and the
+# code the application runs on its next start, so none of it may be something
+# the running application can change. /data is the only place it writes.
+COPY --from=build /app /app
 
 COPY docker/entrypoint.sh /usr/local/bin/openbrf-entrypoint
 COPY docker/database-url.mjs /app/docker/database-url.mjs
+COPY docker/psql.mjs /app/docker/psql.mjs
+COPY docker/check-schema-owner.mjs /app/docker/check-schema-owner.mjs
 COPY docker/first-boot.mjs /app/docker/first-boot.mjs
 COPY docker/with-owner-url.mjs /app/docker/with-owner-url.mjs
 COPY docker/harden-runtime-role.mjs /app/docker/harden-runtime-role.mjs
@@ -109,5 +123,8 @@ EXPOSE 3000
 USER node
 WORKDIR /app/apps/api
 
+# The application by default. The migrate service in docker-compose.prod.yml
+# runs the same image with `migrate` instead: the deploy steps, as the schema
+# owner, and nothing after them (docker/entrypoint.sh).
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/openbrf-entrypoint"]
 CMD ["node", "dist/main.js"]

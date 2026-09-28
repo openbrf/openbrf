@@ -95,8 +95,12 @@ function connectionUrl(role: string, passwordVariable: string): string {
 export const stack = {
   baseUrl: required("APP_URL"),
   mailpitUrl: `http://127.0.0.1:${required("E2E_MAILPIT_PORT")}`,
-  /** The owner connection, used only to read the append-only audit log. */
-  databaseUrl: connectionUrl("openbrf", "POSTGRES_PASSWORD"),
+  /**
+   * The schema owner's connection, openbrf_owner: reads of the append-only
+   * audit log and the service-tier rows a spec cannot produce over HTTP. Not
+   * the superuser, which only the database container holds.
+   */
+  databaseUrl: connectionUrl("openbrf_owner", "OWNER_DB_PASSWORD"),
   /**
    * The connection the application itself uses: openbrf_app, as the entrypoint
    * created and constrained it. Nothing in the suite should reach for this to
@@ -105,13 +109,14 @@ export const stack = {
    */
   runtimeDatabaseUrl: connectionUrl("openbrf_app", "RUNTIME_DB_PASSWORD"),
   /**
-   * The two passwords exactly as stack.env spells them, unencoded.
+   * The three passwords exactly as stack.env spells them, unencoded.
    *
-   * Here so a spec can search the container's log for them. The URLs above
-   * carry them percent-encoded, which is not the form a leak would take if
-   * something printed the value rather than the URL it sits in.
+   * Here so a spec can search the containers' logs and environments for them.
+   * The URLs above carry them percent-encoded, which is not the form a leak
+   * would take if something printed the value rather than the URL it sits in.
    */
-  ownerPassword: required("POSTGRES_PASSWORD"),
+  superuserPassword: required("POSTGRES_PASSWORD"),
+  ownerPassword: required("OWNER_DB_PASSWORD"),
   runtimePassword: required("RUNTIME_DB_PASSWORD"),
   /** Reachable from the app container, not from the host. */
   smtpHost: "mailpit",
@@ -187,11 +192,17 @@ export function stopStack(): void {
  * Only the command's own streams are returned: an error object from the runner
  * would carry the docker command line, and this exists to check what a script
  * does and does not put in a log.
+ *
+ * `input` is written to the command's standard input. It is how a spec hands a
+ * value to the command without putting it in that command's environment or
+ * arguments - which matters when what the command looks for is a secret that
+ * must be in neither.
  */
 export function runInAppContainer(
   command: readonly string[],
   environment: Readonly<Record<string, string>>,
   timeoutMs: number,
+  input?: string,
 ): { status: number; output: string } {
   const overrides = Object.entries(environment).flatMap(([name, value]) => [
     "--env",
@@ -207,7 +218,8 @@ export function runInAppContainer(
         cwd: repositoryRoot,
         encoding: "utf8",
         timeout: timeoutMs,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+        ...(input === undefined ? {} : { input }),
       },
     );
     return { status: 0, output: stdout };
@@ -288,18 +300,19 @@ export function productionComposeConfig(
 }
 
 /**
- * The application container's whole log, as it would be shipped off the host.
+ * One container's whole log, as it would be shipped off the host: `migrate`
+ * for the deploy steps, `app` for the application.
  *
  * Read rather than printed: a spec asserts on what is and is not in it. This is
- * the boot that actually ran - the entrypoint's key provisioning, its
- * migrations and the step that reads the owner's password out of DATABASE_URL -
- * so it is the only place the question "did any of that print a credential" has
- * a real answer.
+ * the boot that actually ran - the key provisioning, the migrations and the
+ * step that reads the owner's password out of DATABASE_URL in the one, the
+ * start in the other - so it is the only place the question "did any of that
+ * print a credential" has a real answer.
  */
-export function appLogs(): string {
+export function serviceLogs(service: "migrate" | "app"): string {
   return execFileSync(
     "docker",
-    [...COMPOSE_ARGS, "logs", "--no-color", "app"],
+    [...COMPOSE_ARGS, "logs", "--no-color", service],
     {
       cwd: repositoryRoot,
       encoding: "utf8",
@@ -312,10 +325,10 @@ export function appLogs(): string {
   );
 }
 
-/** Prints the application's logs. Called when the suite fails, not otherwise. */
+/** Prints the instance's logs. Called when the suite fails, not otherwise. */
 export function printAppLogs(): void {
   try {
-    compose(["logs", "--no-color", "--tail", "200", "app"], 60_000);
+    compose(["logs", "--no-color", "--tail", "200", "migrate", "app"], 60_000);
   } catch {
     // Best effort: a missing container must not mask the real failure.
   }

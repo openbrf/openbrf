@@ -8,11 +8,14 @@
 --
 -- Production therefore uses two roles:
 --
---   openbrf        owns the schema and runs `prisma migrate deploy`
+--   openbrf_owner  owns the schema and runs `prisma migrate deploy`; not a
+--                  superuser (docker/db/initdb/10-schema-owner.sql)
 --   openbrf_app    the application connection, owns nothing
 --
 -- Apply this script once, as the owner, after migrations. Then point the
--- application at openbrf_app via DATABASE_URL_RUNTIME.
+-- application at openbrf_app via DATABASE_URL_RUNTIME. The owner needs
+-- CREATEROLE to create openbrf_app, or ADMIN OPTION on it when it exists
+-- already; on PostgreSQL 16 and later that reaches no role it was not given.
 --
 -- Usage:
 --   RUNTIME_DB_PASSWORD="..." psql "$DATABASE_URL" \
@@ -159,6 +162,13 @@ REVOKE UPDATE, DELETE ON public."register_report_obligation" FROM openbrf_app;
 REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM openbrf_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM openbrf_app;
 
+-- The migration history, which the blanket grant above reached as well. The
+-- owner applies whatever the history says has not been applied, so a row
+-- written here by the application would decide which migrations - a new
+-- guard, a new revoke - never run, and one rewritten would stop every
+-- deploy after it. Nothing in the application reads it.
+REVOKE ALL ON public."_prisma_migrations" FROM openbrf_app;
+
 -- Migrations are the owner's job, so the application cannot reshape the schema
 -- and cannot disable the triggers that back the rules above.
 REVOKE CREATE ON SCHEMA public FROM openbrf_app;
@@ -178,26 +188,42 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO openbrf_a
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO openbrf_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO openbrf_app;
 
+-- The job schema's version, which the owner's pg-boss install reads to decide
+-- which of its own migrations to run. The application reads it at start and
+-- has no reason to write it.
+--
+-- The same row carries the timestamps pg-boss's maintenance stamps as it runs
+-- (cron_on and its siblings), and those the application does write. So UPDATE
+-- comes back column by column for every column but the version itself - read
+-- from the catalog, because a pg-boss upgrade adds stamps of its own. The
+-- table-level revoke also takes back any column grant an earlier run made, so
+-- a column pg-boss drops loses its grant with it.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM openbrf_app;
+SELECT format('GRANT UPDATE (%s) ON pgboss.version TO openbrf_app',
+  string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum))
+FROM pg_attribute a
+WHERE a.attrelid = 'pgboss.version'::regclass
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+  AND a.attname <> 'version'
+HAVING count(*) > 0
+\gexec
+
 -- Queues are declared at runtime, by the feature module that owns the queue
--- name, and pg-boss creates a table per queue for some queue shapes. Granting
--- CREATE here is what lets a queue appear without a deploy step, which is also
--- what an installed plugin needs: a plugin that enqueues work must not require
--- the operator to rebuild or re-run a privilege script.
+-- name, and that needs no CREATE: an ordinary queue is a row in pgboss.queue.
+-- The one queue shape that creates a table of its own is a partitioned one,
+-- and attaching that table to pgboss.job requires owning pgboss.job, which the
+-- application never does - so CREATE here bought nothing a queue can use.
 --
--- What this permits: creating, and therefore owning, objects inside pgboss.
---
--- What it does not permit. It is scoped to this schema, so `public` is
--- untouched: the REVOKE CREATE above still stands, migrations remain the
--- owner's job, and the application still cannot reshape or disable the guards
--- on the statutory tables. And CREATE is not ownership. Attaching a partition
--- to a table the owner owns requires being that owner, whatever the schema ACL
--- says, so pg-boss work that partitions `pgboss.job` or `pgboss.queue_stats`
--- stays with the owner at deploy time and is not reachable from here.
-GRANT CREATE ON SCHEMA pgboss TO openbrf_app;
+-- What it did buy was ownership. A table the application created would be the
+-- application's, and the owner's pg-boss install works on the tables named in
+-- pgboss.queue at every deploy; and the ownership refusal at the top of this
+-- file would stop the next boot the moment one existed. An installation that
+-- granted it before this revoke gets it taken away here.
+REVOKE CREATE ON SCHEMA pgboss FROM openbrf_app;
 
 -- Tables the owner adds to that schema later - a pg-boss upgrade migrating its
--- own schema - must be reachable too. Objects the application creates itself
--- need no entry here: it owns those.
+-- own schema - must be reachable too.
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO openbrf_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss

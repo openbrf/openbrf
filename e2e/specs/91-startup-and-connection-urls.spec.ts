@@ -3,10 +3,10 @@ import pg from "pg";
 
 import { jsonBodyOrNothing } from "../src/api";
 import {
-  appLogs,
   appPath,
   productionComposeConfig,
   runInAppContainer,
+  serviceLogs,
   stack,
 } from "../src/stack";
 
@@ -190,16 +190,36 @@ test("a password holding URL delimiters reaches the database intact", async () =
  */
 const COMPOSE_REQUIRED = {
   APP_URL: "https://example.invalid",
-  POSTGRES_PASSWORD: "owner-password-for-rendering",
+  POSTGRES_PASSWORD: "superuser-password-for-rendering",
+  OWNER_DB_PASSWORD: "owner-password-for-rendering",
   BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
 };
 
+type RenderedService = {
+  environment: Record<string, string | null>;
+  read_only?: boolean;
+  cap_drop?: string[];
+  security_opt?: string[];
+  command?: string[];
+  restart?: string;
+  depends_on?: Record<string, { condition: string }>;
+};
+
+/** One service out of a rendered configuration. */
+function renderedService(output: string, name: string): RenderedService {
+  const config = JSON.parse(output) as {
+    services: Record<string, RenderedService>;
+  };
+  const service = config.services[name];
+  if (service === undefined) {
+    throw new Error(`the rendered configuration has no ${name} service`);
+  }
+  return service;
+}
+
 /** The app service's environment out of a rendered configuration. */
 function appEnvironment(output: string): Record<string, string | null> {
-  const config = JSON.parse(output) as {
-    services: { app: { environment: Record<string, string | null> } };
-  };
-  return config.services.app.environment;
+  return renderedService(output, "app").environment;
 }
 
 test("both documented ways to supply the runtime connection reach the container", () => {
@@ -294,19 +314,88 @@ test("mail set where the instance runs reaches the container", () => {
   }
 });
 
-test("the owner's password is still required by the compose file", () => {
-  // The database container is created from it, so there is no second way to
-  // supply it and nothing further on that could report its absence better.
+test("both database passwords the stack is built from are required by the compose file", () => {
+  // The database container is created from them - the superuser's, and the
+  // schema owner's it creates openbrf_owner with - so there is no second way to
+  // supply either and nothing further on that could report its absence better.
+  for (const name of ["POSTGRES_PASSWORD", "OWNER_DB_PASSWORD"] as const) {
+    const rest = Object.fromEntries(
+      Object.entries(COMPOSE_REQUIRED).filter(([key]) => key !== name),
+    );
+    const { status, output } = productionComposeConfig({
+      ...rest,
+      RUNTIME_DB_PASSWORD: "runtime-password",
+    });
+
+    expect(status, `rendering fails without ${name}`).not.toBe(0);
+    // The compose file's own wording, so an unrelated rendering error cannot
+    // stand in for it.
+    expect(output).toContain(`set ${name} in the env file`);
+  }
+});
+
+test("the owner's credentials go to the migrate service and not to the application", () => {
   const { status, output } = productionComposeConfig({
-    APP_URL: COMPOSE_REQUIRED.APP_URL,
-    BETTER_AUTH_SECRET: COMPOSE_REQUIRED.BETTER_AUTH_SECRET,
+    ...COMPOSE_REQUIRED,
     RUNTIME_DB_PASSWORD: "runtime-password",
   });
+  expect(status, output).toBe(0);
 
-  expect(status, "rendering fails without it").not.toBe(0);
-  // The compose file's own wording, so an unrelated rendering error cannot
-  // stand in for it.
-  expect(output).toContain("set POSTGRES_PASSWORD in the env file");
+  // The deploy steps run in a container of their own, which exits once they
+  // have, and the application starts only after they succeeded.
+  const migrate = renderedService(output, "migrate");
+  expect(migrate.command).toEqual(["migrate"]);
+  expect(migrate.restart).toBe("no");
+  expect(migrate.environment.OWNER_DB_PASSWORD).toBe(
+    COMPOSE_REQUIRED.OWNER_DB_PASSWORD,
+  );
+  const app = renderedService(output, "app");
+  expect(app.depends_on?.migrate?.condition).toBe(
+    "service_completed_successfully",
+  );
+
+  // Neither the superuser's password nor the owner's is anywhere in the
+  // application's configuration, under any name.
+  for (const name of [
+    "POSTGRES_PASSWORD",
+    "OWNER_DB_PASSWORD",
+    "DATABASE_URL",
+    "POSTGRES_USER",
+  ]) {
+    expect(Object.keys(app.environment), name).not.toContain(name);
+  }
+  const values = Object.values(app.environment).map((value) => value ?? "");
+  for (const secret of [
+    COMPOSE_REQUIRED.POSTGRES_PASSWORD,
+    COMPOSE_REQUIRED.OWNER_DB_PASSWORD,
+  ]) {
+    expect(
+      values.some((value) => value.includes(secret)),
+      "no value in the application's environment carries a database owner's password",
+    ).toBe(false);
+  }
+  // And the superuser's password is the database container's alone.
+  expect(Object.keys(migrate.environment)).not.toContain("POSTGRES_PASSWORD");
+});
+
+test("the instance's own containers run without capabilities or a writable root", () => {
+  const { status, output } = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(status, output).toBe(0);
+
+  for (const name of ["migrate", "app"]) {
+    const service = renderedService(output, name);
+    expect(service.read_only, `${name} has a read-only root`).toBe(true);
+    expect(service.cap_drop, `${name} drops every capability`).toEqual(["ALL"]);
+    expect(service.security_opt, `${name} gains no privileges`).toContain(
+      "no-new-privileges:true",
+    );
+  }
+  expect(renderedService(output, "db").security_opt).toContain(
+    "no-new-privileges:true",
+  );
 });
 
 test("the entrypoint refuses a production start with no runtime connection", () => {
@@ -315,11 +404,8 @@ test("the entrypoint refuses a production start with no runtime connection", () 
   // Now that neither runtime variable is required by the compose file, this
   // refusal is the only thing between an operator who set up neither and an
   // application connecting as the schema owner - which could disable the
-  // triggers keeping the member register and the audit log append-only.
-  //
-  // Steps 4 and 5 run against the live database on the way here. Both are
-  // idempotent and already applied, which is exactly what a container restart
-  // does, so this costs the suite nothing it has not already paid.
+  // triggers keeping the member register and the audit log append-only. It is
+  // the first thing the entrypoint checks, in either of its two jobs.
   const { status, output } = runInAppContainer(
     ["/usr/local/bin/openbrf-entrypoint", "true"],
     {
@@ -340,6 +426,36 @@ test("the entrypoint refuses a production start with no runtime connection", () 
     output.includes("openbrf: starting"),
     "the server was never reached",
   ).toBe(false);
+});
+
+test("the application's container refuses to start holding an owner credential", () => {
+  test.setTimeout(120_000);
+
+  // The compose file gives the owner's credentials to the migrate service
+  // alone. A configuration that hands one to the application's container
+  // anyway - an older compose file, or one written by hand - is refused by
+  // name rather than started with it.
+  const decoyUrl = `postgresql://openbrf_owner:${DECOY_PASSWORD}@db:5432/openbrf`;
+  for (const [name, value] of [
+    ["OWNER_DB_PASSWORD", DECOY_PASSWORD],
+    ["POSTGRES_PASSWORD", DECOY_PASSWORD],
+    ["DATABASE_URL", decoyUrl],
+  ] as const) {
+    const { status, output } = runInAppContainer(
+      ["/usr/local/bin/openbrf-entrypoint", "true"],
+      { [name]: value },
+      60_000,
+    );
+
+    expect(status, `${name} stops the start: ${output}`).toBe(1);
+    expect(output, name).toContain(
+      `${name} is set in the application's container`,
+    );
+    expect(output.includes("openbrf: starting"), name).toBe(false);
+    expect(output.includes(DECOY_PASSWORD), `${name} is not echoed`).toBe(
+      false,
+    );
+  }
 });
 
 test("an unknown API path answers JSON, and a client route answers the client", async ({
@@ -433,22 +549,27 @@ test("the same paths at the root are the website's not-found, and set no cookie"
   }
 });
 
-test("the boot that just happened logged neither database password", () => {
-  // database-url.mjs writes the owner's password to stdout, because that is
-  // how the entrypoint gets it into PGPASSWORD without it landing in psql's
-  // arguments. Every caller captures that stream in a command substitution, so
-  // it is never printed - and this is what holds that true rather than an
-  // argument that it is true. The container's log is what gets shipped off the
-  // host, read by anyone with Docker access and pasted into a bug report.
-  const logs = appLogs();
+test("the deploy and the boot that just happened logged no database password", () => {
+  // The deploy steps split the owner's password out of its URL to hand it to
+  // psql in PGPASSWORD, and the application's entrypoint prints the runtime URL
+  // into a command substitution to export it. Neither may reach a log, and this
+  // is what holds that true rather than an argument that it is true. A
+  // container's log is what gets shipped off the host, read by anyone with
+  // Docker access and pasted into a bug report.
+  const migrateLogs = serviceLogs("migrate");
+  const appLogs = serviceLogs("app");
 
-  // The boot really is in this log, so the absences below mean something. Both
-  // ends of the entrypoint: the step that reads the password, and the exec.
-  expect(logs).toContain("constraining the application database role");
-  expect(logs).toContain("openbrf: starting");
+  // The deploy and the boot really are in these logs, so the absences below
+  // mean something: the step that reads the owner's password, the end of the
+  // deploy, and the exec.
+  expect(migrateLogs).toContain("constraining the application database role");
+  expect(migrateLogs).toContain("the database is ready for the application");
+  expect(appLogs).toContain("openbrf: starting");
 
+  const logs = `${migrateLogs}\n${appLogs}`;
   for (const [name, secret] of [
-    ["POSTGRES_PASSWORD", stack.ownerPassword],
+    ["POSTGRES_PASSWORD", stack.superuserPassword],
+    ["OWNER_DB_PASSWORD", stack.ownerPassword],
     ["RUNTIME_DB_PASSWORD", stack.runtimePassword],
   ] as const) {
     expect(logs.includes(secret), `the log holds no ${name}`).toBe(false);

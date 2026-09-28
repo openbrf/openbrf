@@ -205,9 +205,15 @@ docker compose -f docker-compose.prod.yml exec -T db \
   pg_restore -U openbrf -d openbrf --clean --if-exists \
   < backups/<stamp>/openbrf.dump
 
-# 5. Start the application. The entrypoint applies any migrations the restored
-#    database is missing, reinstalls the job schema and reapplies the runtime
-#    role's privileges.
+# 5. Give the restored schema to openbrf_owner. A backup taken before that role
+#    existed restores tables the superuser owns, which the migrate service then
+#    cannot migrate; on any other backup this changes nothing.
+docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db \
+  psql -U openbrf -d openbrf -f /docker-entrypoint-initdb.d/10-schema-owner.sql
+
+# 6. Start the application. The migrate service applies any migrations the
+#    restored database is missing, reinstalls the job schema and reapplies the
+#    runtime role's privileges before the application starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 

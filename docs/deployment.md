@@ -1,7 +1,8 @@
 # Running an Open BRF instance
 
 One housing cooperative, one instance: an application container and a
-PostgreSQL container, and nothing else to install.
+PostgreSQL container, a migrate container that prepares the database on every
+deploy and exits, and nothing else to install.
 
 > **Not yet ready to hold a housing cooperative's data.** See
 > [ROADMAP.md](../ROADMAP.md) for what is actually built. This document
@@ -22,13 +23,13 @@ cd openbrf
 cp .env.production.example .env.production
 ```
 
-Fill in the four values `.env.production` asks for, generating each with
+Fill in the five values `.env.production` asks for, generating each with
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Any character is allowed in the two database passwords. They end up inside
+Any character is allowed in the database passwords. They end up inside
 PostgreSQL connection URLs, where `:`, `/`, `@`, `?` and `#` are delimiters, and
 the entrypoint percent-encodes them as it builds those URLs.
 
@@ -81,18 +82,14 @@ next start. It is the only page written outside the wizard, and writing it is
 idempotent: an instance that already has one is left alone, and so is a notice
 the board has since rewritten.
 
-## What happens on every start
+## What happens on every deploy
 
-The entrypoint runs, in this order, before the application listens:
+Every `up` runs the `migrate` service first. It is the same image as the
+application, started with `migrate`, and it does, in this order:
 
-1. The application's connection URL is assembled from the host, the port, the
-   database name and the runtime role's password, percent-encoding as it goes.
-   A `DATABASE_URL_RUNTIME` that is already set is left alone. The owner's URL
-   is built the same way, but separately for each of steps 3 to 6 and inside the
-   process that uses it, so it is never a variable in the entrypoint's shell and
-   is never written to a stream. A `DATABASE_URL` that is already set is used as
-   given.
-2. The data volume's directories are created and checked for writability.
+1. The data volume's directories are created and checked for writability.
+2. The schema owner's connection is checked: it has to work, and it must not be
+   a superuser.
 3. The field encryption key is provisioned if, and only if, this is a genuine
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
@@ -100,10 +97,22 @@ The entrypoint runs, in this order, before the application listens:
 5. The job queue schema is installed or migrated, as the owner.
 6. The application's own database role, `openbrf_app`, is created and
    constrained.
-7. The owner's credentials are dropped from the environment, and the
-   application starts, connecting as `openbrf_app`.
 
-Steps 4 to 6 are idempotent, so upgrading is a newer image and the same `up -d`
+Then it exits, and the application starts only if it succeeded. The owner's URL
+is built separately for each of steps 2 to 6, inside the process that uses it,
+so it is never a shell variable and never written to a stream; a `DATABASE_URL`
+that is set on the `migrate` service is used as given.
+
+The application's container assembles its own connection URL from the runtime
+role's password and starts. It is never given the owner's credentials, and it
+refuses to start if it is: a `POSTGRES_PASSWORD`, an `OWNER_DB_PASSWORD`, or a
+`DATABASE_URL` beside the runtime connection stops it with a message that says
+which. Once started, it asks the database whether the role it connected as is
+a constrained one, and refuses to serve if the answer is no - a superuser, a
+role that owns the database or its tables, or one that can rewrite the member
+register, the audit log or the migration history.
+
+Every step is idempotent, so upgrading is a newer image and the same `up -d`
 that started the instance.
 
 There is no published image yet, so the image is built from the checkout. A
@@ -129,41 +138,80 @@ repository instead, which defines the development database and no application
 at all: the upgrade would touch the wrong volumes and leave the running
 instance on its old image.
 
-## Two database roles, and why
+## Three database roles, and why
 
 The member register and the audit log are append-only, enforced by triggers in
 the database rather than by application code alone. A table's owner can run
 `ALTER TABLE ... DISABLE TRIGGER` and walk straight past them, so the
-application must not be the owner.
+application must not be the owner. And migrations need to own the tables and
+nothing more, so the role that runs them must not be a superuser.
 
-`openbrf` owns the schema and runs migrations. `openbrf_app` owns nothing, holds
-no `CREATE` privilege, and has `UPDATE` and `DELETE` revoked on the statutory
-tables. The entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on
-every start, so the privileges are reapplied after any migration that added a
-table.
+| Role            | What it is                                                                                                                                                                                                                                                                                                             | Password              | Given to                |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ----------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                              | `POSTGRES_PASSWORD`   | the `db` container only |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only `openbrf_app`. Created on the first start of an empty volume by [10-schema-owner.sql](../docker/db/initdb/10-schema-owner.sql).                  | `OWNER_DB_PASSWORD`   | `db` and `migrate`      |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`     |
 
-The owner's credentials never reach the server. Neither password is passed as a
-process argument - `/proc/<pid>/cmdline` is readable by every process in the
-container, and the environment is not - and `DATABASE_URL`, `POSTGRES_PASSWORD`
-and `RUNTIME_DB_PASSWORD` are removed from the environment after step 6, so the
-process that answers requests carries `DATABASE_URL_RUNTIME` and no other
-database credential. A compromise of the application therefore has no owner
-connection to reach for, and the append-only guards on the member register and
-the audit log stay beyond it.
+The owner's credentials never reach the application's container. Neither
+password is passed as a process argument - `/proc/<pid>/cmdline` is readable by
+every process in a container, and the environment is not - and the owner's is
+given to the `migrate` service alone, which exits once the deploy steps have
+run. The application's container runs with a read-only root filesystem, no
+capabilities and `no-new-privileges`, and the code in it is owned by root: the
+user the application runs as can write to `/data` and `/tmp` and nowhere else.
 
-An operator who manages that role themselves can leave `RUNTIME_DB_PASSWORD`
-empty in `.env.production` and set `DATABASE_URL_RUNTIME` there instead; the
-entrypoint then skips step 6 and constrains nothing, so the role has to be
-granted no more than
+An operator who manages the runtime role themselves can leave
+`RUNTIME_DB_PASSWORD` empty in `.env.production` and set `DATABASE_URL_RUNTIME`
+there instead; the `migrate` service then skips step 6 and constrains nothing,
+so the role has to be granted no more than
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) grants
 it. A `DATABASE_URL_RUNTIME` supplied that way is used as written, so its
-password has to be percent-encoded already.
+password has to be percent-encoded already, and the application's own check at
+start is what catches one that names the wrong role.
 
 Neither variable is required by the Compose file, because requiring either one
 would make the other impossible to use. The entrypoint is what refuses a
 production start that has neither, because the alternative is an application
 connecting as the owner - so that refusal, rather than a missing value in the
 env file, is the error an operator who has set up neither will read.
+
+## Upgrading to a separate schema owner
+
+An instance installed before `openbrf_owner` existed ran its migrations as the
+superuser, which owns every table. It moves to the separate owner once, by
+hand; every deploy after that is the ordinary `build` and `up -d`.
+
+```sh
+compose() {
+  docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+}
+
+# 1. Take a backup first (backup-and-restore.md).
+
+# 2. Fetch the release, and add the owner's password to .env.production,
+#    generated like the others:
+#      OWNER_DB_PASSWORD="..."
+git pull
+
+# 3. Build the new image, and recreate the database container so it is given
+#    OWNER_DB_PASSWORD. The running application keeps serving meanwhile.
+compose build
+compose up -d db
+
+# 4. Create openbrf_owner and give it the database, its schemas and everything
+#    in them. Runs as the superuser, inside the database container.
+compose exec -T db \
+  psql -U openbrf -d openbrf -f /docker-entrypoint-initdb.d/10-schema-owner.sql
+
+# 5. Deploy as usual. The migrate service now connects as openbrf_owner.
+compose up -d
+```
+
+Step 4 is the same script the database runs on the first start of an empty
+volume, and it is safe to run again. Skipping it leaves the `migrate` service
+unable to log in, and it stops and names this section rather than starting the
+application. A `migrate` service that finds itself connected as a superuser -
+a `DATABASE_URL` pointed at one - stops the same way.
 
 ## Backups
 
