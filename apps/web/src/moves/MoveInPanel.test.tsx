@@ -284,19 +284,21 @@ it("points at the dates and the price when the request itself is refused", async
 it.each([
   [
     "seller-not-tenant-owner",
-    "Säljaren var inte bostadsrättshavare för den här lägenheten på överlåtelsedagen. Kontrollera säljaren och datumet.",
+    409,
+    "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
   ],
   [
     "seller-is-acquirer",
-    "Säljaren och köparen är samma person. Kontrollera vem som säljer och vem som köper.",
+    400,
+    "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
   ],
 ])(
   "names the refusal %s in the interface's own words",
-  async (reason, message) => {
-    // The server checks the seller against the register; the form cannot, and
+  async (reason, status, message) => {
+    // The server checks the previous holder against the register; the form cannot, and
     // a refusal it could only show as the general fallback would leave the
     // board guessing whether to try again.
-    moveIn.mockResolvedValue({ ok: false, failure: { status: 409, reason } });
+    moveIn.mockResolvedValue({ ok: false, failure: { status, reason } });
     fetchApartment.mockResolvedValue({
       residents: [
         { personId: "person-karin", name: "Karin Ohman", role: "MEMBER" },
