@@ -47,7 +47,10 @@ export const DRAIN_TIMEOUT_MS = 10_000;
 export class RestartCoordinator {
   private readonly logger = new Logger(RestartCoordinator.name);
   private application: ClosableApplication | null = null;
-  private pending = false;
+  /** The restart-ending jobs accepted here that have not reached the restart. */
+  private readonly owed = new Set<string>();
+  /** Set once a restart has been handed over; never cleared. */
+  private handedOver = false;
 
   /**
    * Tells this process from the one that replaces it.
@@ -74,23 +77,38 @@ export class RestartCoordinator {
    * not only once its job hands over to {@link restartWhenCommitted}: the job
    * runs a whole reconcile first, npm included, and a process answering
    * "nothing pending" through that window reads as the replacement already
-   * serving. Never cleared, because the change that asked for the restart
-   * takes effect only in the next process, and only that process starts
-   * without it.
+   * serving. Once a restart has been handed over it is never cleared, because
+   * the change that asked for it takes effect only in the next process, and
+   * only that process starts without it.
+   *
+   * Counted per job rather than held as one flag. A job that fails for good
+   * before the restart replaces nothing, and a flag it could not clear would
+   * report a restart for the rest of the process; a flag it did clear would
+   * hide another job's restart still on its way.
    */
   get restartPending(): boolean {
-    return this.pending;
+    return this.handedOver || this.owed.size > 0;
   }
 
   /**
-   * Records that an operation ending in a restart has been accepted.
+   * Records that a job ending in a restart has been accepted.
    *
    * Called where the reconcile is queued and again where a worker picks it
    * up, so a run the command-line tool queued reads as pending here as well
-   * from the moment this process starts on it.
+   * from the moment this process starts on it. The id makes the second call
+   * the same obligation as the first.
    */
-  expectRestart(): void {
-    this.pending = true;
+  expectRestart(jobId: string): void {
+    this.owed.add(jobId);
+  }
+
+  /**
+   * Releases a job that failed and will not be retried.
+   *
+   * Only its own restart: another job accepted meanwhile still owes one.
+   */
+  abandonRestart(jobId: string): void {
+    this.owed.delete(jobId);
   }
 
   /**
@@ -103,7 +121,7 @@ export class RestartCoordinator {
   async restartWhenCommitted(
     isCommitted: () => Promise<boolean>,
   ): Promise<void> {
-    this.pending = true;
+    this.handedOver = true;
 
     for (let attempt = 0; attempt < COMMIT_POLL_ATTEMPTS; attempt += 1) {
       let committed = false;

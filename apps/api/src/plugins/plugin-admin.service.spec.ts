@@ -79,7 +79,7 @@ function build(options: Options = {}) {
   const installer = new PluginInstallerService(
     env,
     {} as never,
-    { send: vi.fn(async () => undefined) } as never,
+    { send: vi.fn(async () => "job-1") } as never,
     {} as never,
     restart,
     {} as never,

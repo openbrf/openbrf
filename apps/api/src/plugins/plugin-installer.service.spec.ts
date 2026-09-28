@@ -161,24 +161,31 @@ describe("buildDependencySet", () => {
  * npm included, or waiting for the tool's own run to let go of the tree.
  */
 describe("the queue worker", () => {
-  it("reports the restart a run ends in while the run is still reconciling", async () => {
-    type Handler = (
-      batch: { id: string; data: PluginInstallJob }[],
-    ) => Promise<void>;
+  type Batch = {
+    id: string;
+    data: PluginInstallJob;
+    retryCount: number;
+    retryLimit: number;
+  }[];
+  type Handler = (batch: Batch) => Promise<void>;
+
+  /** A worker whose reconcile is `reconcile`, and the coordinator it marks. */
+  async function worker(
+    reconcile: () => Promise<ReconcileOutcome>,
+  ): Promise<{ handler: Handler; restart: RestartCoordinator }> {
     let handler: Handler | undefined;
     const jobs = {
       ensureQueue: async () => undefined,
       instance: {
-        work: async (_queue: string, registered: Handler) => {
+        work: async (_queue: string, _options: object, registered: Handler) => {
           handler = registered;
         },
       },
     };
 
-    /** A reconcile that never finishes, so the run is held inside it. */
     class Reconciling extends PluginInstallerService {
       override reconcile(): Promise<ReconcileOutcome> {
-        return new Promise<ReconcileOutcome>(() => undefined);
+        return reconcile();
       }
     }
 
@@ -196,11 +203,63 @@ describe("the queue worker", () => {
       {} as never,
     ).onModuleInit();
 
-    void handler?.([
-      { id: "job-1", data: { reason: "install:occupancy", restart: true } },
-    ]);
+    if (handler === undefined) {
+      throw new Error("no worker was registered");
+    }
+    return { handler, restart };
+  }
 
-    expect(handler).toBeDefined();
+  const install = (id: string, retryCount: number, retryLimit = 2): Batch => [
+    {
+      id,
+      data: { reason: "install:occupancy", restart: true },
+      retryCount,
+      retryLimit,
+    },
+  ];
+
+  it("reports the restart a run ends in while the run is still reconciling", async () => {
+    // A reconcile that never finishes, so the run is held inside it.
+    const { handler, restart } = await worker(
+      () => new Promise<ReconcileOutcome>(() => undefined),
+    );
+
+    void handler(install("job-1", 0));
+
     expect(restart.restartPending).toBe(true);
+  });
+
+  /*
+   * A run that fails for good replaces nothing, and a restart it left pending
+   * would keep the screen's restart notice up for the rest of the process.
+   */
+  describe("when the reconcile fails", () => {
+    const failing = (): Promise<ReconcileOutcome> =>
+      Promise.reject(new Error("npm failed"));
+
+    it("still reports the restart while the run has retries left", async () => {
+      const { handler, restart } = await worker(failing);
+
+      await expect(handler(install("job-1", 1))).rejects.toThrow("npm failed");
+
+      expect(restart.restartPending).toBe(true);
+    });
+
+    it("stops reporting it once the last attempt has failed", async () => {
+      const { handler, restart } = await worker(failing);
+
+      await expect(handler(install("job-1", 2))).rejects.toThrow("npm failed");
+
+      expect(restart.restartPending).toBe(false);
+    });
+
+    it("keeps reporting the restart another run still owes", async () => {
+      const { handler, restart } = await worker(failing);
+      restart.expectRestart("job-2");
+
+      await expect(handler(install("job-1", 2))).rejects.toThrow("npm failed");
+
+      expect(restart.restartPending).toBe(true);
+    });
   });
 });
