@@ -198,6 +198,85 @@ A named volume inherits the image's ownership and needs nothing else. A bind
 mount does not: `chown` the host directory to uid 1000 first, or the container
 refuses to start and says so.
 
+## Mail
+
+The instance sends invitations, sign-in links, notices and the board mailbox's
+answers itself. Where they go out is decided in one of two places:
+
+- **The board's own settings**, the default. The setup wizard and the settings
+  screen take an SMTP server and a sender address, and the password is stored
+  encrypted.
+- **The environment**, for whoever runs the instance for the association.
+  `OPENBRF_MAIL_DRIVER` set to `smtp` or `http-api` is used for every message,
+  wins over anything the board stored, and locks the settings: the settings and
+  the wizard show who sends the mail, through which host and from which address,
+  and offer to send a test message but nothing to change. SMTP settings the board
+  stored before stay where they are and apply again once `OPENBRF_MAIL_DRIVER` is
+  empty.
+
+| Variable                                     | When                         | Meaning                                                                                                                                                      |
+| -------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OPENBRF_MAIL_DRIVER`                        | always                       | `settings` (empty or unset), `smtp` or `http-api`                                                                                                            |
+| `OPENBRF_MAIL_FROM_ADDRESS`                  | `smtp`, `http-api`, required | the sender's bare address; it need not be on the association's own domain                                                                                    |
+| `OPENBRF_MAIL_FROM_NAME`                     | `smtp`, `http-api`, optional | the display name, one line of at most 255 characters and not blank; unset, the association's registered name, read at each send                              |
+| `OPENBRF_MAIL_REPLY_TO`                      | `smtp`, `http-api`, optional | where replies go when a message names nowhere of its own; unset, the board mailbox's published address while the board mailbox is configured, otherwise none |
+| `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
+| `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
+| `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
+| `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
+| `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
+| `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
+| `OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN`         | `http-api`, required         | the domain the service writes its own `Message-ID` under, `<id>@<domain>`; `getpost.se` for Getpost                                                          |
+
+For Getpost, `OPENBRF_MAIL_API_URL` is `https://api.getpost.se/v1`, and the key is
+a sending key limited to the sending domain.
+
+A variable of a driver other than the chosen one - an SMTP variable beside
+`http-api`, or any of them while the driver is `settings` - stops the instance at
+start with a message naming it. So does a required variable left out.
+`docker-compose.prod.yml` maps every one of them, and `.env.production.example`
+lists them under "Mail set where the instance runs". The key and the SMTP
+password sit in the env file in plain text, as the S3 keys do: keep it where the
+other secrets are kept.
+
+**A sender that is not the association's.** A host may send every association's
+mail from one domain it has verified. The association's registered name is then
+the display name, and replies are directed to the board mailbox, so a
+correspondent sees who wrote and answers the association rather than the shared
+address. A message that names its own Reply-To keeps it. SPF, DKIM and DMARC for
+the sending domain are the operator's to publish; the Reply-To needs no
+alignment.
+
+The registered name is the board's to change, so on a shared domain a board can
+send under any name it types, another association's or an authority's, with
+mail that passes the domain's checks. A host sharing one domain between
+associations should set `OPENBRF_MAIL_FROM_NAME` on each instance, or use a
+service that ties a display name to the key.
+
+**The SMTP relay.** A connection to `OPENBRF_SMTP_HOST` that starts in cleartext
+must upgrade through STARTTLS before the instance signs in, and a relay that does
+not offer it is a failed send rather than a password sent in the clear. Only a
+relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
+with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+
+The relay must also deliver each message under the `Message-ID` the instance
+gives it. The board mailbox recognises a correspondent's reply by that
+identifier, and a relay that writes its own (Amazon SES's SMTP interface does)
+leaves every reply outside its thread, with nothing in the log to say so. For a
+service like that, use `http-api`, which records the identifier the service
+answers with.
+
+**The HTTP mail API.** The wire contract is ADR 0024's: a JSON document posted
+with the bearer key and an `Idempotency-Key`, and never a `Message-ID`, which a
+service of this shape writes itself. The board mailbox records the identifier
+the service delivered each answer with, so a correspondent's reply to it joins
+its thread. The instance sees no delivery events: what it knows is that the
+service accepted the message.
+
+The service mail goes through is a recipient of the association's personal
+data. The data protection screen lists it by its host, the SMTP host or the mail
+API's host, whichever the instance actually sends through.
+
 ## What the configuration says about processors
 
 The association is the controller for the personal data on the instance
@@ -205,9 +284,11 @@ The association is the controller for the personal data on the instance
 data protection screen reads the answer from this configuration rather than
 asking the board to remember it:
 
-- **The SMTP server.** A mailbox provider sending on the association's behalf
-  is a processor and needs an agreement under art. 28. An SMTP server the
-  association runs itself is not a separate recipient at all.
+- **The mail service.** A mailbox provider or mail API sending on the
+  association's behalf is a processor and needs an agreement under art. 28. An
+  SMTP server the association runs itself is not a separate recipient at all.
+  It is named by the host mail actually goes through, whether the board entered
+  it or the environment sets it (see "Mail").
 - **The SMS provider.** The same, and an instance with none configured has no
   recipient there to classify.
 - **File storage.** `local` keeps uploads on the instance's own volume and adds

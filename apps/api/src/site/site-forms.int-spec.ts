@@ -617,7 +617,7 @@ describe("the board's switch for public reports", () => {
 
 describe("telling the board", () => {
   it("sends each board member exactly one message, from its own job", async () => {
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     try {
       const message = `Fanout ${suffix}.`;
       await submit(`/${publicSlug}/kontakt`, {

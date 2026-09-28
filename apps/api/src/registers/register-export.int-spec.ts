@@ -233,6 +233,7 @@ function captureSends(): SendMailInput<unknown>[] {
   const captured: SendMailInput<unknown>[] = [];
   vi.spyOn(mail, "send").mockImplementation(async (input) => {
     captured.push(input as SendMailInput<unknown>);
+    return { messageId: null };
   });
   return captured;
 }
@@ -866,6 +867,7 @@ describe("the notice that a window has opened", () => {
         throw new EnvelopeRefused(input.to);
       }
       reached.push(input.to);
+      return { messageId: null };
     });
 
     await app

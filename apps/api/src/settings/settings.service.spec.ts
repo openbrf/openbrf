@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
+import { MailSettingsResolver } from "../mail/mail-settings";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
 import type { MediaService } from "../media/media.service";
 import type { I18nService } from "../i18n/i18n.service";
@@ -31,6 +32,17 @@ const TEST_ENV = {
   BETTER_AUTH_SECRET: "test-secret-at-least-16-chars",
   OPENBRF_PLUGINS_ENABLED: false,
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
+  OPENBRF_MAIL_DRIVER: "settings",
+} as Env;
+
+/** Mail set where the instance runs, through an HTTP mail API (ADR 0024). */
+const HTTP_API_ENV = {
+  ...TEST_ENV,
+  OPENBRF_MAIL_DRIVER: "http-api",
+  OPENBRF_MAIL_FROM_ADDRESS: "utskick@delad.example",
+  OPENBRF_MAIL_API_URL: "https://api.mail.example/v1",
+  OPENBRF_MAIL_API_KEY: "key-from-the-environment",
+  OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "mail.example",
 } as Env;
 
 const STORED = {
@@ -93,7 +105,11 @@ interface Fakes {
   audit: { record: ReturnType<typeof vi.fn> };
 }
 
-function build(overrides: Partial<Association> = {}, exists = true): Fakes {
+function build(
+  overrides: Partial<Association> = {},
+  exists = true,
+  env: Env = TEST_ENV,
+): Fakes {
   let row: Association | null = exists ? { ...STORED, ...overrides } : null;
 
   const prisma = {
@@ -146,7 +162,7 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
 
   const transactionClient = prisma;
 
-  const mail = { send: vi.fn().mockResolvedValue(undefined) };
+  const mail = { send: vi.fn().mockResolvedValue({ messageId: null }) };
   const sms = {
     send: vi.fn().mockResolvedValue(undefined),
     isConfigured: vi.fn().mockResolvedValue(false),
@@ -160,14 +176,20 @@ function build(overrides: Partial<Association> = {}, exists = true): Fakes {
   const media = { upload: vi.fn(), remove: vi.fn() };
   const audit = { record: vi.fn(async () => undefined) };
 
+  const encryption = new FieldEncryptionService(TEST_ENV);
   const service = new SettingsService(
     prisma as unknown as PrismaService,
-    new FieldEncryptionService(TEST_ENV),
+    encryption,
     mail as unknown as MailService,
     media as unknown as MediaService,
     sms as unknown as SmsService,
     i18n as unknown as I18nService,
     audit as never,
+    new MailSettingsResolver(
+      env,
+      prisma as unknown as PrismaService,
+      encryption,
+    ),
   );
 
   return { service, prisma, mail, sms, i18n, audit, current: () => row };
@@ -183,7 +205,10 @@ describe("reading the settings", () => {
 
     const settings = await service.read();
 
-    expect(settings.smtp.passwordSet).toBe(true);
+    expect(settings.smtp).toMatchObject({
+      source: "settings",
+      passwordSet: true,
+    });
     expect(JSON.stringify(settings)).not.toContain("some-ciphertext");
     expect(Object.keys(settings.smtp)).not.toContain("password");
   });
@@ -378,6 +403,98 @@ describe("SMTP settings", () => {
     await service.updateSmtp({ ...filled, password: "" });
 
     expect(current()?.smtpPasswordCipher).toBeNull();
+  });
+});
+
+describe("mail set where the instance runs", () => {
+  /** What the board stored before the environment said anything. */
+  const storedByTheBoard = {
+    smtpHost: "smtp.stored.example",
+    smtpPort: 2525,
+    smtpUser: "styrelsen",
+    smtpPasswordCipher: "brf:stored-ciphertext",
+    smtpFromAddress: "styrelsen@eksemplet.example",
+  };
+
+  it("is what the settings show, with no user or password fields", async () => {
+    const { service } = build(storedByTheBoard, true, HTTP_API_ENV);
+
+    const settings = await service.read();
+
+    // The service mail goes through and the sender, and nothing the board
+    // could take for something it may change.
+    expect(settings.smtp).toEqual({
+      source: "environment",
+      host: "api.mail.example",
+      fromAddress: "utskick@delad.example",
+      configured: true,
+    });
+    expect(JSON.stringify(settings.smtp)).not.toContain("smtp.stored.example");
+  });
+
+  it("refuses the board's SMTP settings with a conflict, and writes nothing", async () => {
+    const { service, prisma, current } = build(
+      storedByTheBoard,
+      true,
+      HTTP_API_ENV,
+    );
+
+    const refusal = await service
+      .updateSmtp({
+        host: "smtp.other.example",
+        port: 587,
+        secure: false,
+        user: null,
+        password: null,
+        fromAddress: "annan@eksemplet.example",
+      })
+      .catch((error: unknown) => error);
+
+    expect(refusal).toMatchObject({
+      status: 409,
+      reason: "mail-managed-by-environment",
+    });
+    expect(prisma.association.update).not.toHaveBeenCalled();
+    // The stored settings stay, to apply again if the environment is unset.
+    expect(current()).toMatchObject(storedByTheBoard);
+  });
+
+  it("shows the stored settings again once the environment sets nothing", async () => {
+    const { service } = build(storedByTheBoard);
+
+    expect((await service.read()).smtp).toMatchObject({
+      source: "settings",
+      host: "smtp.stored.example",
+      port: 2525,
+      passwordSet: true,
+    });
+  });
+
+  it("sends the test message through the mail service, naming the host", async () => {
+    const { service, prisma, mail } = build({}, true, HTTP_API_ENV);
+    const encryption = new FieldEncryptionService(TEST_ENV);
+    const stored = await encryption.encrypt(
+      "person.email",
+      "holger@exempel.se",
+    );
+    prisma.person.findUnique.mockResolvedValue({
+      firstName: "Holger",
+      emailCipher: stored.cipher,
+      preferredLocale: "sv",
+    });
+
+    const result = await service.sendTestMessage("person-1");
+
+    expect(result).toEqual({
+      sentTo: "holger@exempel.se",
+      host: "api.mail.example",
+    });
+    expect(mail.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "holger@exempel.se",
+        props: { recipientName: "Holger", smtpHost: "api.mail.example" },
+      }),
+    );
   });
 });
 

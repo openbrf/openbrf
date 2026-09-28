@@ -1312,7 +1312,7 @@ describe("answering a letter", () => {
   it("sends it to the address on the thread, answerable to the board", async () => {
     const { replyMessageId } = await threadWithReply(`Utskick ${suffix}`);
 
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     let sent: Parameters<MailService["send"]>[0] | undefined;
     try {
       expect(await mailer.sendReply(replyMessageId)).toBe("sent");
@@ -1342,7 +1342,7 @@ describe("answering a letter", () => {
   it("hands one answer over at most once, however often the job runs", async () => {
     const { replyMessageId } = await threadWithReply(`Enformig ${suffix}`);
 
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     try {
       expect(await mailer.sendReply(replyMessageId)).toBe("sent");
       // The claim is a conditional update from PENDING, so a retried job reaches

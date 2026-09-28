@@ -501,7 +501,9 @@ export class BoardMailboxService {
           // Generated here rather than left to the mail server, because it has
           // to be on the row before the message exists: it is what the
           // correspondent's client threads the answer against, and what a reply
-          // to the reply is matched to when it comes back.
+          // to the reply is matched to when it comes back. A mail service that
+          // writes its own replaces it when the answer is marked sent
+          // (board-mailbox-mailer.service.ts).
           messageId: this.newMessageId(settings.address),
           inReplyTo: thread.messages[0]?.messageId ?? null,
           body: text.slice(0, MAX_REPLY_CHARACTERS),

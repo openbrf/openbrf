@@ -569,6 +569,7 @@ describe("moving in", () => {
     const sent: CapturedMail[] = [];
     const send = vi.spyOn(mail, "send").mockImplementation(async (input) => {
       sent.push(input as unknown as CapturedMail);
+      return { messageId: null };
     });
 
     try {
@@ -716,7 +717,7 @@ describe("moving in", () => {
     // and each append an ENTRY - to a register that refuses UPDATE and DELETE,
     // so the duplicate stays. Two tenant-ownerships are one membership, and the
     // second transaction has to see the first one's row.
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
 
     try {
       await Promise.all([
@@ -920,7 +921,7 @@ describe("moving in", () => {
 
 describe("moving out", () => {
   it("ends the residency, computes the purge date and closes the membership", async () => {
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
 
     try {
       const residency = await prisma.residency.findFirstOrThrow({
@@ -979,7 +980,7 @@ describe("moving out", () => {
   });
 
   it("keeps the membership open while another tenant-ownership remains", async () => {
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
 
     try {
       const residency = await prisma.residency.findFirstOrThrow({
@@ -1066,7 +1067,7 @@ describe("moving out", () => {
     // between the check and the transaction, so holding the first request there
     // while the second runs to completion reproduces exactly the stale
     // precondition, without depending on how two requests happen to interleave.
-    const send = vi.spyOn(mail, "send").mockResolvedValue(undefined);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     const jobs = app.get(JobQueueService);
     const createQueue = jobs.ensureQueue.bind(jobs);
     const held = deferred<undefined>();
@@ -1203,6 +1204,7 @@ describe("when the mail server is refusing", () => {
       if (attempts === 1) {
         throw new Error("mailbox unavailable");
       }
+      return { messageId: null };
     });
 
     try {
@@ -1245,6 +1247,7 @@ describe("the board's move-out reminder", () => {
           message.props as unknown as BoardMoveOutReminderMailProps,
         );
       }
+      return { messageId: null };
     });
 
     try {

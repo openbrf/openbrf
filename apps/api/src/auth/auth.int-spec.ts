@@ -449,7 +449,7 @@ function captureMail(): {
       templateId: input.template.id,
       props: input.props,
     });
-    return Promise.resolve();
+    return Promise.resolve({ messageId: null });
   }) as MailService["send"];
 
   return {

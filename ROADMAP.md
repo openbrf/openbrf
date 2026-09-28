@@ -96,6 +96,10 @@ Every checked item below is implemented and covered by tests.
 - [x] Capability-based authorization, protected by default
 - [x] Swedish and English throughout the backend, including email
 - [x] Transactional email rendered in each recipient's own language
+- [x] Mail set where the instance runs: SMTP, or an HTTP mail API, from the
+      environment, which the settings then show and do not change; the record
+      of processing activities and the processor register name the service
+      mail actually goes through
 - [x] Background job queue
 - [x] Versioned design token contract with WCAG AA contrast enforced in code
 - [x] Default theme in light and dark

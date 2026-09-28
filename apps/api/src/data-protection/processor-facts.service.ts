@@ -4,6 +4,7 @@ import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings"
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import { MailSettingsResolver } from "../mail/mail-settings";
 import { connectedAppHost, type ProcessorFacts } from "./processors";
 
 /**
@@ -13,6 +14,10 @@ import { connectedAppHost, type ProcessorFacts } from "./processors";
  * classification, so the two cannot disagree about what the instance does: the
  * record naming a mail server the classification screen has never heard of
  * would be two answers to one question.
+ *
+ * The mail is the mail resolver's answer, the one sending uses, so the record
+ * and the register name the host mail actually goes through - the environment's
+ * where it sets the mail, and never the board's stored server it overrides.
  *
  * Read at the moment it is asked rather than cached. The settings change from
  * the settings screen and a plugin is installed from another, and a record
@@ -24,16 +29,17 @@ export class ProcessorFactsService {
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
+    private readonly mailSettings: MailSettingsResolver,
   ) {}
 
   async read(): Promise<ProcessorFacts> {
-    const [association, plugins, connectedApps, unencryptedStoredFiles] =
+    const [mail, association, plugins, connectedApps, unencryptedStoredFiles] =
       await Promise.all([
+        // Described rather than resolved: nothing here decrypts a password.
+        this.mailSettings.describe(),
         this.prisma.association.findUnique({
           where: { id: 1 },
           select: {
-            smtpHost: true,
-            smtpFromAddress: true,
             smsDriver: true,
             smsGatewayUrl: true,
             boardMailboxAddress: true,
@@ -79,8 +85,8 @@ export class ProcessorFactsService {
       ]);
 
     return {
-      smtpHost: association?.smtpHost ?? null,
-      smtpFromAddress: association?.smtpFromAddress ?? null,
+      mailHost: mail?.host ?? null,
+      mailFromAddress: mail?.fromAddress ?? null,
       smsDriver: association?.smsDriver ?? null,
       smsGatewayUrl: association?.smsGatewayUrl ?? null,
       storageDriver: this.env.OPENBRF_STORAGE_DRIVER,
