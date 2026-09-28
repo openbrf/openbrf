@@ -2257,6 +2257,7 @@
       "matchedPerson": "Matched person",
       "problems": "Problem",
       "identityNumberOnFile": "The file has a personal identity number for this row.",
+      "identityNumberNotAdded": "The personal identity number will not be added to this person: the row was matched on something else.",
       "decision": "This row is",
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",

@@ -364,6 +364,33 @@ describe("the preview", () => {
     expect(screen.getByText("Matchad person: Dag Dahlström")).toBeTruthy();
   });
 
+  it("says a row's identity number is not added to a person it matched on something else", async () => {
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 1, ambiguous: 0, error: 0 },
+        rows: [
+          created,
+          {
+            ...updated,
+            person: { ...updated.person, hasPersonalIdentityNumber: true },
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByText(/Personnumret läggs inte till på den här personen/),
+    ).toBeTruthy();
+  });
+
   it("says why a row that matched one person still waits for a decision", async () => {
     const [created, , , updated] = PREVIEW.rows;
     if (created === undefined || updated === undefined) {

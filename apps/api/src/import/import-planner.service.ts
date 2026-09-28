@@ -177,12 +177,14 @@ export class ImportPlannerService {
    * Read again for every chunk, and that is the point: a chunk plans against a
    * register that already holds what the chunk before it wrote, so a person
    * listed twice in one file is matched the second time rather than created
-   * twice.
+   * twice. The plan reproduces those writes for the rows of one pass, which is
+   * why the snapshot also carries what decides them: who has an email address
+   * and every apartment each person has lived in.
    */
   private async snapshot(): Promise<RegisterSnapshot> {
     const now = new Date();
 
-    const [apartments, persons] = await Promise.all([
+    const [apartments, persons, withEmail] = await Promise.all([
       this.prisma.apartment.findMany({
         select: {
           id: true,
@@ -198,11 +200,15 @@ export class ImportPlannerService {
           lastName: true,
           emailIndex: true,
           personalIdentityNumberIndex: true,
-          residencies: {
-            where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
-            select: { apartmentId: true },
-          },
+          residencies: { select: { apartmentId: true, movedOutOn: true } },
         },
+      }),
+      // Whether a person has an address at all, which decides whether a row
+      // matched to them gives them one. Asked of the database rather than read
+      // off the ciphertext, which has no business in this process here.
+      this.prisma.person.findMany({
+        where: { emailCipher: { not: null } },
+        select: { id: true },
       }),
     ]);
 
@@ -211,6 +217,7 @@ export class ImportPlannerService {
     const personsByApartmentAndName = new Map<string, string[]>();
     const personNames = new Map<string, string>();
     const identityNumberIndexByPerson = new Map<string, string>();
+    const apartmentsByPerson = new Map<string, Set<string>>();
 
     for (const person of persons) {
       personNames.set(
@@ -231,7 +238,14 @@ export class ImportPlannerService {
       if (person.emailIndex !== null) {
         push(personsByEmail, person.emailIndex, person.id);
       }
+      apartmentsByPerson.set(
+        person.id,
+        new Set(person.residencies.map((residency) => residency.apartmentId)),
+      );
       for (const residency of person.residencies) {
+        if (residency.movedOutOn !== null && residency.movedOutOn <= now) {
+          continue;
+        }
         push(
           personsByApartmentAndName,
           apartmentNameKey(
@@ -256,6 +270,9 @@ export class ImportPlannerService {
       personsByApartmentAndName,
       personNames,
       identityNumberIndexByPerson,
+      personsWithEmail: new Set(withEmail.map((person) => person.id)),
+      apartmentsByPerson,
+      takenAt: now,
     };
   }
 }

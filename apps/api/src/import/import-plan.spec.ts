@@ -42,13 +42,18 @@ const APARTMENTS = [
 ];
 
 function snapshot(overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot {
+  const personsByEmail = overrides.personsByEmail ?? new Map();
   return {
     apartments: APARTMENTS,
     personsByIdentityNumber: new Map(),
-    personsByEmail: new Map(),
+    personsByEmail,
     personsByApartmentAndName: new Map(),
     personNames: new Map(),
     identityNumberIndexByPerson: new Map(),
+    // Everyone found by an address has one, unless a case says otherwise.
+    personsWithEmail: new Set([...personsByEmail.values()].flat()),
+    apartmentsByPerson: new Map(),
+    takenAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -79,6 +84,10 @@ const COMPLETE = {
   role: "Medlem",
   movedInOn: "2019-06-01",
 } as const;
+
+/** Checksum-valid, and nobody's. */
+const PIN_ANNA = "9001010017";
+const PIN_OTHER = "9001010025";
 
 describe("reading a row through the mapping", () => {
   it("puts each cell in the field its column was mapped to", () => {
@@ -539,5 +548,235 @@ describe("one person appearing twice in the file", () => {
       plan.rows.every((row) => row.matchedPersonId === "person-anna"),
     ).toBe(true);
     expect(plan.summary.update).toBe(2);
+  });
+
+  it("attaches a second row through the identity number the first one carries", () => {
+    const plan = planImport(
+      [
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: PIN_ANNA },
+          { rowNumber: 1 },
+        ),
+        prepared(
+          {
+            ...COMPLETE,
+            apartmentNumber: "1102",
+            personalIdentityNumber: PIN_ANNA,
+          },
+          { rowNumber: 2 },
+        ),
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedBy: "personalIdentityNumber",
+      matchedPersonId: null,
+      sameAsRowNumber: 1,
+    });
+  });
+});
+
+describe("a row that contradicts a person an earlier row writes", () => {
+  it("waits for a decision when a second row has the first one's email and another name", () => {
+    // A household sharing one address: folding the second row into the first
+    // would put Bertil's phone number in Anna's record.
+    const plan = planImport(
+      [
+        prepared(COMPLETE, { rowNumber: 1, emailIndex: "shared-index" }),
+        prepared(
+          { ...COMPLETE, firstName: "Bertil", phone: "070-000 00 00" },
+          { rowNumber: 2, emailIndex: "shared-index" },
+        ),
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("create");
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "ambiguous",
+      mismatch: "name",
+      matchedBy: "earlierRow",
+      sameAsRowNumber: 1,
+      matchedPersonId: null,
+      // The person does not exist yet, so there is nobody to choose: the row
+      // is a person of its own or it is left out.
+      candidates: [],
+    });
+  });
+
+  it("waits for a decision when a second row has the first one's email and another identity number", () => {
+    // No identity number in the register, so the preview computes no index:
+    // the rows' own numbers are what is compared.
+    const plan = planImport(
+      [
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: PIN_ANNA },
+          { rowNumber: 1, emailIndex: "shared-index" },
+        ),
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: PIN_OTHER },
+          { rowNumber: 2, emailIndex: "shared-index" },
+        ),
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "ambiguous",
+      mismatch: "personalIdentityNumber",
+    });
+  });
+
+  it.each([
+    {
+      mismatch: "name",
+      lastRow: { ...COMPLETE, firstName: "Bertil" },
+      lastIndex: null,
+    },
+    {
+      mismatch: "personalIdentityNumber",
+      lastRow: { ...COMPLETE, personalIdentityNumber: PIN_OTHER },
+      lastIndex: "pin-other-index",
+    },
+  ])(
+    "reaches the same answer on a different $mismatch however far apart the two rows are",
+    ({ mismatch, lastRow, lastIndex }) => {
+      // The apply plans the file a hundred rows at a time against the register
+      // the previous chunk left, so row 150 meets row 1's person as a register
+      // person. The preview, which plans the whole file at once, has to stop
+      // at row 150 too, or the import stops there with the first chunk written.
+      const filler = Array.from({ length: 148 }, (_, index) =>
+        prepared(
+          { ...COMPLETE, movedInOn: "not a date" },
+          { rowNumber: index + 2 },
+        ),
+      );
+      const first = prepared(
+        { ...COMPLETE, personalIdentityNumber: PIN_ANNA },
+        { rowNumber: 1, emailIndex: "shared-index" },
+      );
+
+      // The preview, against a register with no identity numbers in it, so no
+      // index is computed.
+      const preview = planImport(
+        [
+          first,
+          ...filler,
+          prepared(lastRow, { rowNumber: 150, emailIndex: "shared-index" }),
+        ],
+        snapshot(),
+        DEFAULTS,
+      );
+      expect(preview.rows[149]).toMatchObject({
+        outcome: "ambiguous",
+        mismatch,
+        candidates: [],
+      });
+
+      // The second chunk, planned against the register after the first, where
+      // row 1's person exists and every number is indexed.
+      const secondChunk = planImport(
+        [
+          ...filler.slice(98),
+          prepared(lastRow, {
+            rowNumber: 150,
+            emailIndex: "shared-index",
+            identityNumberIndex: lastIndex,
+          }),
+        ],
+        snapshot({
+          personsByEmail: new Map([["shared-index", ["person-anna"]]]),
+          personsByIdentityNumber: new Map([
+            ["pin-anna-index", ["person-anna"]],
+          ]),
+          identityNumberIndexByPerson: new Map([
+            ["person-anna", "pin-anna-index"],
+          ]),
+          personNames: new Map([["person-anna", "Anna Lindqvist"]]),
+          apartmentsByPerson: new Map([
+            ["person-anna", new Set(["apartment-1101"])],
+          ]),
+        }),
+        DEFAULTS,
+      );
+      expect(secondChunk.rows.at(-1)).toMatchObject({
+        outcome: "ambiguous",
+        mismatch,
+        candidates: [{ personId: "person-anna", name: "Anna Lindqvist" }],
+      });
+    },
+  );
+
+  it("waits for a decision when a row has the address an earlier row gave a register person", () => {
+    // Row 1 reaches Anna by apartment and name and gives her an address she
+    // did not have. Row 2 is somebody else with that address, and nothing of
+    // theirs may be written to Anna.
+    const plan = planImport(
+      [
+        prepared(COMPLETE, { rowNumber: 1, emailIndex: "new-index" }),
+        prepared(
+          { ...COMPLETE, firstName: "Bertil", apartmentNumber: "1102" },
+          { rowNumber: 2, emailIndex: "new-index" },
+        ),
+      ],
+      snapshot({
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-anna"],
+          ],
+        ]),
+        personNames: new Map([["person-anna", "Anna Lindqvist"]]),
+        apartmentsByPerson: new Map([
+          ["person-anna", new Set(["apartment-1101"])],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: "person-anna",
+      matchedBy: "apartmentAndName",
+    });
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      mismatch: "name",
+      matchedPersonId: null,
+      candidates: [{ personId: "person-anna", name: "Anna Lindqvist" }],
+    });
+  });
+
+  it("does not attach a row through an address the matched person will not get", () => {
+    // Anna already has an address, so the apply keeps it and row 1's is not
+    // written. Row 2 therefore reaches nobody, in the preview as in the apply.
+    const plan = planImport(
+      [
+        prepared(COMPLETE, { rowNumber: 1, emailIndex: "other-index" }),
+        prepared(
+          { ...COMPLETE, firstName: "Bertil", apartmentNumber: "1102" },
+          { rowNumber: 2, emailIndex: "other-index" },
+        ),
+      ],
+      snapshot({
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-anna"],
+          ],
+        ]),
+        personNames: new Map([["person-anna", "Anna Lindqvist"]]),
+        personsWithEmail: new Set(["person-anna"]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[1]?.outcome).toBe("create");
   });
 });

@@ -2257,6 +2257,7 @@
       "matchedPerson": "Matchad person",
       "problems": "Problem",
       "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
+      "identityNumberNotAdded": "Personnumret läggs inte till på den här personen: raden matchades på något annat.",
       "decision": "Den här raden är",
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",

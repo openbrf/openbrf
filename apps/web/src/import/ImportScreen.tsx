@@ -701,6 +701,15 @@ function PreviewRow({
               {t("import.preview.identityNumberOnFile")}
             </span>
           ) : null}
+          {row.person.hasPersonalIdentityNumber &&
+          row.outcome === "update" &&
+          row.matchedBy !== "personalIdentityNumber" ? (
+            // The apply stores a number only on the person it identified, so
+            // the board is not left thinking this one will be filled in.
+            <span className="text-chip text-ink-muted">
+              {t("import.preview.identityNumberNotAdded")}
+            </span>
+          ) : null}
         </span>
       </td>
       <td className={DATA_CELL}>

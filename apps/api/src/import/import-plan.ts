@@ -24,6 +24,12 @@
  * email match, a different name. An email address is shared within a household
  * and handed on when someone moves out, and a name repeats across generations,
  * so neither is evidence that the row is about the person the register holds.
+ *
+ * The persons the earlier rows of the same file create or fill in count as the
+ * register, by the same keys and the same rules. The apply plans the file a
+ * chunk at a time against the register the previous chunk left, and a preview
+ * that treated those persons any differently would show a row as an update the
+ * apply then stops at.
  */
 
 import {
@@ -77,6 +83,12 @@ export interface RegisterSnapshot {
   personNames: ReadonlyMap<string, string>;
   /** Blind index of each person's identity number, for those that have one. */
   identityNumberIndexByPerson: ReadonlyMap<string, string>;
+  /** Persons with an email address stored, indexed or not. */
+  personsWithEmail: ReadonlySet<string>;
+  /** Every apartment each person has a residency in, past ones included. */
+  apartmentsByPerson: ReadonlyMap<string, ReadonlySet<string>>;
+  /** When the snapshot was read: a residency counts as current until then. */
+  takenAt: Date;
 }
 
 /** A row after the mapping has been read, with its blind indexes computed. */
@@ -155,7 +167,11 @@ export function apartmentNameKey(
   firstName: string,
   lastName: string,
 ): string {
-  return `${apartmentId}\u0000${normalizeName(`${firstName} ${lastName}`)}`;
+  return apartmentFullNameKey(apartmentId, `${firstName} ${lastName}`);
+}
+
+function apartmentFullNameKey(apartmentId: string, name: string): string {
+  return `${apartmentId}\u0000${normalizeName(name)}`;
 }
 
 /** Reads the cells of one data row through the mapping. */
@@ -189,13 +205,14 @@ export function planImport(
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
 ): ImportPlan {
-  /** Rows already seen, so one person spread over two rows stays one person. */
-  const seenKeys = new Map<
-    string,
-    { rowNumber: number; personId: string | null }
-  >();
+  const written: FileWrites = {
+    byIdentityNumber: new Map(),
+    byEmail: new Map(),
+    byApartmentAndName: new Map(),
+    registered: new Map(),
+  };
 
-  const planned = rows.map((row) => planRow(row, snapshot, defaults, seenKeys));
+  const planned = rows.map((row) => planRow(row, snapshot, defaults, written));
 
   const summary: Record<ImportOutcome, number> = {
     create: 0,
@@ -210,11 +227,65 @@ export function planImport(
   return { rows: planned, summary };
 }
 
+/**
+ * A person as the register will hold them once the earlier rows of the file
+ * are written.
+ */
+interface FilePerson {
+  /** The register's id, or null for a person an earlier row creates. */
+  personId: string | null;
+  /** The row that creates them, when they are new. */
+  createdByRow: number | null;
+  name: string;
+  /**
+   * The normalized number of a person the file creates. A person the register
+   * already holds is compared through their blind index instead, and an import
+   * never gives them a number they did not have.
+   */
+  identityNumber: string | null;
+  hasEmail: boolean;
+  apartmentIds: Set<string>;
+}
+
+/**
+ * What the rows planned so far will have written, keyed the way the register
+ * snapshot is.
+ *
+ * The apply plans one chunk at a time against the register as the chunks
+ * before it left it, so a row far down the file meets the persons earlier rows
+ * wrote as register persons. The preview plans the whole file against the
+ * register as it is now. For the two to agree, every row is matched against the
+ * register and these writes together, by the same keys, the same precedence and
+ * the same contradiction rules - which is also what makes one person listed
+ * twice in a file one person rather than two.
+ *
+ * The identity numbers of new persons are keyed by their normalized value
+ * rather than by the blind index. These keys never leave this pass, the preview
+ * does not compute the index when the register holds no number to match, and
+ * the index is a truncated hash, so two different numbers colliding in it would
+ * fold two people into one.
+ *
+ * Only rows whose writes are known are recorded. An ambiguous row writes what
+ * the board decides, and the plan is not told that.
+ */
+interface FileWrites {
+  byIdentityNumber: Map<string, FilePerson[]>;
+  byEmail: Map<string, FilePerson[]>;
+  byApartmentAndName: Map<string, FilePerson[]>;
+  /** The register's persons, once looked at, carrying what rows added. */
+  registered: Map<string, FilePerson>;
+}
+
+interface PersonMatch {
+  key: ImportMatchKey | null;
+  candidates: readonly FilePerson[];
+}
+
 function planRow(
   row: PreparedRow,
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
-  seenKeys: Map<string, { rowNumber: number; personId: string | null }>,
+  written: FileWrites,
 ): PlannedRow {
   const problems: ImportProblem[] = [];
   const values = row.values;
@@ -262,89 +333,205 @@ function planRow(
     problems,
   };
 
-  if (problems.length > 0) {
+  if (problems.length > 0 || apartment === null) {
     return base;
   }
 
-  const match = matchPerson(row, person, apartment, snapshot);
-  const mismatch = findMismatch(match, row, person, snapshot);
+  const normalizedNumber =
+    identityNumber === null
+      ? null
+      : normalizePersonalIdentityNumber(identityNumber);
+  const match = matchPerson(
+    row,
+    normalizedNumber,
+    person,
+    apartment,
+    snapshot,
+    written,
+  );
+  const mismatch = findMismatch(match, row, normalizedNumber, person, snapshot);
+  const [only] = match.candidates;
+
   if (match.candidates.length > 1 || mismatch !== null) {
+    const earlier =
+      match.candidates.length === 1 ? (only?.createdByRow ?? null) : null;
     return {
       ...base,
       outcome: "ambiguous",
-      matchedBy: match.key,
+      matchedBy: earlier === null ? match.key : "earlierRow",
       mismatch,
-      candidates: match.candidates.map((personId) => ({
-        personId,
-        name: snapshot.personNames.get(personId) ?? personId,
-      })),
+      sameAsRowNumber: earlier,
+      // A person an earlier row creates has no id yet to be chosen by. The
+      // board can still make the row a person of its own or leave it out, and
+      // either decision holds when the apply meets that person in the register.
+      candidates: match.candidates.flatMap((candidate) =>
+        candidate.personId === null
+          ? []
+          : [{ personId: candidate.personId, name: candidate.name }],
+      ),
     };
   }
 
-  const matchedPersonId = match.candidates[0] ?? null;
+  if (only === undefined) {
+    const created: FilePerson = {
+      personId: null,
+      createdByRow: row.rowNumber,
+      name: `${person.firstName} ${person.lastName}`,
+      identityNumber: normalizedNumber,
+      hasEmail: false,
+      apartmentIds: new Set(),
+    };
+    if (normalizedNumber !== null) {
+      push(written.byIdentityNumber, normalizedNumber, created);
+    }
+    recordWrites(written, created, row, apartment, movedOutOn, snapshot);
+    return { ...base, outcome: "create" };
+  }
 
   // A file may list one person twice - two apartments, or a member and their
-  // own resident row. The second occurrence has to reach the same person, not a
-  // duplicate of them, whether that person already existed or was created by
-  // the earlier row.
-  const dedupeKey = withinFileKey(row, person, apartment);
-  const earlier = dedupeKey === null ? undefined : seenKeys.get(dedupeKey);
-  if (earlier !== undefined) {
-    return {
-      ...base,
-      outcome: "update",
-      matchedPersonId: earlier.personId,
-      matchedPersonName: personName(earlier.personId, snapshot),
-      matchedBy: earlier.personId === null ? "earlierRow" : match.key,
-      sameAsRowNumber: earlier.personId === null ? earlier.rowNumber : null,
-    };
-  }
-  if (dedupeKey !== null) {
-    seenKeys.set(dedupeKey, {
-      rowNumber: row.rowNumber,
-      personId: matchedPersonId,
-    });
-  }
-
+  // own resident row. The second occurrence reaches the same person through
+  // what the first one wrote, whether that person already existed or was
+  // created by the earlier row.
+  recordWrites(written, only, row, apartment, movedOutOn, snapshot);
   return {
     ...base,
-    outcome: matchedPersonId === null ? "create" : "update",
-    matchedPersonId,
-    matchedPersonName: personName(matchedPersonId, snapshot),
-    matchedBy: matchedPersonId === null ? null : match.key,
+    outcome: "update",
+    matchedPersonId: only.personId,
+    matchedPersonName: only.personId === null ? null : only.name,
+    // Named by the key when it was the identity number, which the person an
+    // earlier row creates carries: the row then adds nothing they lack.
+    matchedBy:
+      only.personId === null && match.key !== "personalIdentityNumber"
+        ? "earlierRow"
+        : match.key,
+    sameAsRowNumber: only.createdByRow,
   };
 }
 
 function matchPerson(
   row: PreparedRow,
+  identityNumber: string | null,
   person: PlannedPerson,
-  apartment: RegisterApartment | null,
+  apartment: RegisterApartment,
   snapshot: RegisterSnapshot,
-): { key: ImportMatchKey | null; candidates: readonly string[] } {
-  if (row.identityNumberIndex !== null) {
-    const found = snapshot.personsByIdentityNumber.get(row.identityNumberIndex);
-    if (found !== undefined && found.length > 0) {
-      return { key: "personalIdentityNumber", candidates: found };
-    }
+  written: FileWrites,
+): PersonMatch {
+  const byNumber = candidatesUnder(
+    snapshot.personsByIdentityNumber,
+    row.identityNumberIndex,
+    written.byIdentityNumber,
+    identityNumber,
+    snapshot,
+    written,
+  );
+  if (byNumber.length > 0) {
+    return { key: "personalIdentityNumber", candidates: byNumber };
   }
-  if (row.emailIndex !== null) {
-    const found = snapshot.personsByEmail.get(row.emailIndex);
-    if (found !== undefined && found.length > 0) {
-      return { key: "email", candidates: found };
-    }
+
+  const byEmail = candidatesUnder(
+    snapshot.personsByEmail,
+    row.emailIndex,
+    written.byEmail,
+    row.emailIndex,
+    snapshot,
+    written,
+  );
+  if (byEmail.length > 0) {
+    return { key: "email", candidates: byEmail };
   }
-  if (apartment !== null) {
-    const key = apartmentNameKey(
-      apartment.id,
-      person.firstName,
-      person.lastName,
-    );
-    const found = snapshot.personsByApartmentAndName.get(key);
-    if (found !== undefined && found.length > 0) {
-      return { key: "apartmentAndName", candidates: found };
-    }
+
+  const nameKey = apartmentNameKey(
+    apartment.id,
+    person.firstName,
+    person.lastName,
+  );
+  const byName = candidatesUnder(
+    snapshot.personsByApartmentAndName,
+    nameKey,
+    written.byApartmentAndName,
+    nameKey,
+    snapshot,
+    written,
+  );
+  if (byName.length > 0) {
+    return { key: "apartmentAndName", candidates: byName };
   }
+
   return { key: null, candidates: [] };
+}
+
+/** The register's persons under one key and the file's, each person once. */
+function candidatesUnder(
+  inRegister: ReadonlyMap<string, readonly string[]>,
+  registerKey: string | null,
+  inFile: ReadonlyMap<string, readonly FilePerson[]>,
+  fileKey: string | null,
+  snapshot: RegisterSnapshot,
+  written: FileWrites,
+): FilePerson[] {
+  const registered = (
+    registerKey === null ? [] : (inRegister.get(registerKey) ?? [])
+  ).map((personId) => registeredPerson(personId, snapshot, written));
+  const fromFile = fileKey === null ? [] : (inFile.get(fileKey) ?? []);
+  return [...new Set([...registered, ...fromFile])];
+}
+
+/** One register person, the same object every time it is reached. */
+function registeredPerson(
+  personId: string,
+  snapshot: RegisterSnapshot,
+  written: FileWrites,
+): FilePerson {
+  const known = written.registered.get(personId);
+  if (known !== undefined) {
+    return known;
+  }
+  const person: FilePerson = {
+    personId,
+    createdByRow: null,
+    name: snapshot.personNames.get(personId) ?? "",
+    identityNumber: null,
+    hasEmail: snapshot.personsWithEmail.has(personId),
+    apartmentIds: new Set(snapshot.apartmentsByPerson.get(personId)),
+  };
+  written.registered.set(personId, person);
+  return person;
+}
+
+/**
+ * Records what the apply will write for a row that reaches this person.
+ *
+ * The same fields the apply's own rules write: an email address only onto a
+ * person who has none, a residency only in an apartment the person has never
+ * had one in, and no identity number onto anyone who already exists. The
+ * residency is findable by apartment and name only while it is current, as the
+ * register snapshot reads it.
+ */
+function recordWrites(
+  written: FileWrites,
+  target: FilePerson,
+  row: PreparedRow,
+  apartment: RegisterApartment,
+  movedOutOn: string | null,
+  snapshot: RegisterSnapshot,
+): void {
+  if (!target.hasEmail && row.emailIndex !== null) {
+    target.hasEmail = true;
+    push(written.byEmail, row.emailIndex, target);
+  }
+  if (!target.apartmentIds.has(apartment.id)) {
+    target.apartmentIds.add(apartment.id);
+    if (
+      movedOutOn === null ||
+      new Date(`${movedOutOn}T00:00:00.000Z`) > snapshot.takenAt
+    ) {
+      push(
+        written.byApartmentAndName,
+        apartmentFullNameKey(apartment.id, target.name),
+        target,
+      );
+    }
+  }
 }
 
 /**
@@ -356,88 +543,61 @@ function matchPerson(
  * email match against the name as well, which an apartment-and-name match
  * already agrees on by construction.
  *
- * The row's number is compared through its blind index. That index is null when
- * the register holds no identity number at all, and then there is nothing for
- * the row to contradict.
+ * A register person's number is compared through its blind index. That index is
+ * null on the row when the register holds no identity number at all, and then
+ * there is nothing for the row to contradict. A person an earlier row creates is
+ * compared by the number that row carries.
  */
 function findMismatch(
-  match: { key: ImportMatchKey | null; candidates: readonly string[] },
+  match: PersonMatch,
   row: PreparedRow,
+  identityNumber: string | null,
   person: PlannedPerson,
   snapshot: RegisterSnapshot,
 ): ImportMismatch | null {
-  const personId = match.candidates[0];
+  const [candidate] = match.candidates;
   if (
     match.candidates.length !== 1 ||
-    personId === undefined ||
+    candidate === undefined ||
     match.key === "personalIdentityNumber"
   ) {
     return null;
   }
 
-  const registered = snapshot.identityNumberIndexByPerson.get(personId);
-  if (
-    row.identityNumberIndex !== null &&
-    registered !== undefined &&
-    registered !== row.identityNumberIndex
-  ) {
+  const contradicted =
+    candidate.personId === null
+      ? identityNumber !== null &&
+        candidate.identityNumber !== null &&
+        candidate.identityNumber !== identityNumber
+      : differs(
+          row.identityNumberIndex,
+          snapshot.identityNumberIndexByPerson.get(candidate.personId),
+        );
+  if (contradicted) {
     return "personalIdentityNumber";
   }
 
-  if (match.key === "email") {
-    const name = snapshot.personNames.get(personId);
-    if (
-      name === undefined ||
-      normalizeName(name) !==
-        normalizeName(`${person.firstName} ${person.lastName}`)
-    ) {
-      return "name";
-    }
+  if (
+    match.key === "email" &&
+    normalizeName(candidate.name) !==
+      normalizeName(`${person.firstName} ${person.lastName}`)
+  ) {
+    return "name";
   }
   return null;
 }
 
-function personName(
-  personId: string | null,
-  snapshot: RegisterSnapshot,
-): string | null {
-  return personId === null
-    ? null
-    : (snapshot.personNames.get(personId) ?? null);
+function differs(row: string | null, registered: string | undefined): boolean {
+  return row !== null && registered !== undefined && registered !== row;
 }
 
-/**
- * The key that says two rows of one file describe the same person.
- *
- * The same precedence as the register match, so a file that identifies people
- * by email in some rows and by identity number in others still collapses the
- * ones that are genuinely the same.
- *
- * The identity number is keyed by its normalized value rather than by its blind
- * index. The key never leaves this pass, so the index buys nothing here - and
- * the index is a truncated hash, so two different numbers colliding in it would
- * fold two people into one. The row's own number is also the only key available
- * when nothing indexed it, which is the case whenever the register holds no
- * identity number to match against.
- */
-function withinFileKey(
-  row: PreparedRow,
-  person: PlannedPerson,
-  apartment: RegisterApartment | null,
-): string | null {
-  const identityNumber = hasIndexableIdentityNumber(row.values)
-    ? normalizePersonalIdentityNumber(row.values.personalIdentityNumber ?? "")
-    : null;
-  if (identityNumber !== null) {
-    return `pin:${identityNumber}`;
+function push<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const existing = map.get(key);
+  if (existing === undefined) {
+    map.set(key, [value]);
+  } else {
+    existing.push(value);
   }
-  if (row.emailIndex !== null) {
-    return `email:${row.emailIndex}`;
-  }
-  if (apartment !== null) {
-    return `name:${apartmentNameKey(apartment.id, person.firstName, person.lastName)}`;
-  }
-  return null;
 }
 
 function readName(
