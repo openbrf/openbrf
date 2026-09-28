@@ -31,7 +31,8 @@
 --     -f /docker-entrypoint-initdb.d/10-schema-owner.sql
 --
 -- It is idempotent, and on that second path it also moves everything the
--- superuser owns in the application's schemas over to openbrf_owner.
+-- superuser owns in the application's schemas over to openbrf_owner, and
+-- revokes every role openbrf_app was made a member of.
 --
 -- The password is read from OWNER_DB_PASSWORD in the environment, never from
 -- an argument, for the same reason as in harden-runtime-role.sql.
@@ -79,7 +80,7 @@ SELECT format('ALTER DATABASE %I OWNER TO openbrf_owner', current_database())
 -- extension installed is touched.
 --
 -- Anything openbrf_app owns there is moved too. It should own nothing, and
--- harden-runtime-role.sql refuses to start while it does; an earlier release
+-- harden-runtime-role.sql refuses to run while it does; an earlier release
 -- let it create objects in pgboss, so this is where those are put right.
 DO $body$
 DECLARE
@@ -167,6 +168,21 @@ WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'openbrf_app')
       AND member.rolname = 'openbrf_owner'
       AND m.admin_option
   )
+\gexec
+
+-- Any role openbrf_app is a member of lends it privileges that
+-- harden-runtime-role.sql cannot revoke: they belong to the granted role. Nor
+-- can openbrf_owner revoke the membership itself, since on PostgreSQL 16 and
+-- later only the grantor or a superuser may, so it is done here, and the
+-- hardening refuses to run while one is left. CASCADE also takes back anything
+-- openbrf_app passed on through such a membership.
+SELECT format('REVOKE %I FROM openbrf_app GRANTED BY %I CASCADE',
+              granted.rolname, grantor.rolname)
+FROM pg_auth_members m
+JOIN pg_roles member ON member.oid = m.member
+JOIN pg_roles granted ON granted.oid = m.roleid
+JOIN pg_roles grantor ON grantor.oid = m.grantor
+WHERE member.rolname = 'openbrf_app'
 \gexec
 
 COMMIT;

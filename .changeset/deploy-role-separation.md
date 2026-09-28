@@ -18,7 +18,10 @@ Migrations now run as `openbrf_owner`, a schema owner that is not a superuser;
 the superuser's password stays in the database container. A new
 `OWNER_DB_PASSWORD` setting is required. An existing instance creates the new
 role once with the steps in `docs/deployment.md`, "Upgrading to a separate
-schema owner", and deploys as before from then on.
+schema owner", and deploys as before from then on. An operator who manages
+the runtime role themselves (`DATABASE_URL_RUNTIME`) constrains it once in the
+same section, since the start check below refuses a role that an earlier
+release let write the migration history.
 
 The application's role can no longer write the migration history or the job
 schema's version, and no longer holds `CREATE` on the job schema, which no

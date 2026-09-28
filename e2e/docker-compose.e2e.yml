@@ -53,10 +53,3 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
-
-# LOCAL ONLY - revert
-networks:
-  default:
-    ipam:
-      config:
-        - subnet: 10.213.250.0/24

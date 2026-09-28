@@ -109,12 +109,19 @@ SELECT format(
 \gexec
 
 -- A role membership carries privileges that the revokes below cannot reach,
--- because they belong to the granted role rather than to openbrf_app.
-SELECT format('REVOKE %I FROM openbrf_app', granted.rolname)
+-- because they belong to the granted role rather than to openbrf_app. The
+-- owner cannot take one away either: on PostgreSQL 16 and later only the
+-- grantor, or a superuser, may revoke a membership, and these were granted by
+-- the superuser. So the script refuses and names the superuser's script, which
+-- revokes them, rather than stopping on a bare permission error.
+SELECT format($sql$DO $body$ BEGIN
+  RAISE EXCEPTION 'openbrf_app is a member of %s, whose privileges this script cannot take away. Run docker/db/initdb/10-schema-owner.sql as the database superuser, which revokes these memberships (docs/deployment.md, "Upgrading to a separate schema owner"), then run this again.';
+END $body$$sql$, string_agg(format('role %I', granted.rolname), ', ' ORDER BY granted.rolname))
 FROM pg_auth_members m
 JOIN pg_roles member ON member.oid = m.member
 JOIN pg_roles granted ON granted.oid = m.roleid
 WHERE member.rolname = 'openbrf_app'
+HAVING count(*) > 0
 \gexec
 
 -- The database name comes from the connection string in the usage note above,

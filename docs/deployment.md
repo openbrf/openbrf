@@ -167,7 +167,10 @@ so the role has to be granted no more than
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) grants
 it. A `DATABASE_URL_RUNTIME` supplied that way is used as written, so its
 password has to be percent-encoded already, and the application's own check at
-start is what catches one that names the wrong role.
+start is what catches one that names the wrong role. That check also refuses a
+role that can write the migration history, which a role granted everything in
+`public` by an earlier release can; an instance that upgrades has to take that
+away first ("Upgrading to a separate schema owner", below).
 
 Neither variable is required by the Compose file, because requiring either one
 would make the other impossible to use. The entrypoint is what refuses a
@@ -212,6 +215,33 @@ volume, and it is safe to run again. Skipping it leaves the `migrate` service
 unable to log in, and it stops and names this section rather than starting the
 application. A `migrate` service that finds itself connected as a superuser -
 a `DATABASE_URL` pointed at one - stops the same way.
+
+Step 4 also revokes any role that `openbrf_app` has been made a member of. Such
+a membership lends it privileges that no revoke on `openbrf_app` reaches, and
+only the superuser can take back a membership the superuser granted, so the
+`migrate` service refuses to harden the role while one is left and names this
+script.
+
+If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
+`RUNTIME_DB_PASSWORD` empty), the `migrate` service does not touch it, and a
+role that was granted every write in `public` by an earlier release can still
+write the migration history. The application refuses to start as such a role,
+so constrain it before step 5. If it is `openbrf_app`, apply
+[harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
+again as the owner, after step 4. Otherwise revoke the three privileges the
+release took away, as the superuser, naming your role:
+
+```sh
+compose exec -T db psql -U openbrf -d openbrf <<'SQL'
+REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
+REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
+SQL
+```
+
+pg-boss's maintenance stamps the times it ran on the `pgboss.version` row, so
+grant `UPDATE` back on every column of that table except `version`, as the
+hardening script does.
 
 ## Backups
 

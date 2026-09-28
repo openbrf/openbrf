@@ -127,16 +127,24 @@ if [ "${1:-}" = "migrate" ]; then
 fi
 
 # --- the application --------------------------------------------------------
-# The owner's credentials belong to the migrate service alone. Given to this
-# container, they would stay with it for as long as it runs, and anything that
-# reaches the database as the owner can disable the triggers that keep the
-# member register and the audit log append-only. So a configuration that hands
-# them over is refused here, by name, rather than accepted with an unset that
-# could not take them back.
+# The schema owner's credentials belong to the migrate service alone, and the
+# superuser's to the database container. Given to this container, either would
+# stay with it for as long as it runs, and anything that reaches the database
+# as the owner or the superuser can disable the triggers that keep the member
+# register and the audit log append-only. So a configuration that hands one
+# over is refused here, by name, rather than accepted with an unset that could
+# not take it back.
 for owner_variable in OWNER_DB_PASSWORD POSTGRES_PASSWORD; do
   eval "owner_value=\${${owner_variable}:-}"
   if [ -n "${owner_value}" ]; then
-    fail "${owner_variable} is set in the application's container. The schema owner's credentials belong to the migrate service only (docker-compose.prod.yml): remove it from this service's environment."
+    case "${owner_variable}" in
+      POSTGRES_PASSWORD)
+        fail "POSTGRES_PASSWORD is set in the application's container. It is the database superuser's password and belongs to the db service only (docker-compose.prod.yml): remove it from this service's environment."
+        ;;
+      *)
+        fail "${owner_variable} is set in the application's container. The schema owner's credentials belong to the migrate service only (docker-compose.prod.yml): remove it from this service's environment."
+        ;;
+    esac
   fi
 done
 unset owner_value

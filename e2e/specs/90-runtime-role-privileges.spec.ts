@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 
-import { runInAppContainer, stack } from "../src/stack";
+import { runAsSuperuser, runInAppContainer, stack } from "../src/stack";
 
 /**
  * What the application's own database role can and cannot do, and that it is
@@ -249,6 +249,60 @@ test("nor write the record of which migrations have run", async () => {
     await sqlStateOf("UPDATE pgboss.version SET cron_on = cron_on WHERE false"),
     "the job queue's maintenance stamps can still be written",
   ).toBeUndefined();
+});
+
+test("a membership the superuser granted is refused by the hardening and revoked by the upgrade script", async () => {
+  test.setTimeout(180_000);
+
+  // What an instance that migrated as the superuser can carry: a role granted
+  // to openbrf_app, whose privileges no revoke on openbrf_app reaches. The
+  // owner may not revoke a grant the superuser made, so the hardening must
+  // name the script that can rather than stop on a permission error, and that
+  // script must leave the hardening able to run.
+  const probeRole = `runtime_role_probe_${suffix}`;
+  const harden = () =>
+    runInAppContainer(
+      ["node", "/app/docker/harden-runtime-role.mjs"],
+      {
+        DATABASE_URL: OWNER_URL_IN_NETWORK,
+        RUNTIME_DB_PASSWORD: stack.runtimePassword,
+      },
+      60_000,
+    );
+  const memberships = () =>
+    runAsSuperuser([
+      "--tuples-only",
+      "--no-align",
+      "--command",
+      `SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid = m.member WHERE member.rolname = 'openbrf_app'`,
+    ]);
+
+  const granted = runAsSuperuser([
+    "--command",
+    `CREATE ROLE ${probeRole} NOLOGIN; GRANT ${probeRole} TO openbrf_app`,
+  ]);
+  expect(granted.status, granted.output).toBe(0);
+  try {
+    const refused = harden();
+    expect(refused.status, "the hardening refuses").toBe(1);
+    expect(refused.output).toContain(
+      `openbrf_app is a member of role ${probeRole}`,
+    );
+    expect(refused.output).toContain("10-schema-owner.sql");
+    expect(refused.output.includes("permission denied")).toBe(false);
+
+    const upgraded = runAsSuperuser([
+      "--file",
+      "/docker-entrypoint-initdb.d/10-schema-owner.sql",
+    ]);
+    expect(upgraded.status, upgraded.output).toBe(0);
+    expect(memberships().output.trim(), "no membership is left").toBe("0");
+
+    const hardened = harden();
+    expect(hardened.status, hardened.output).toBe(0);
+  } finally {
+    runAsSuperuser(["--command", `DROP ROLE IF EXISTS ${probeRole}`]);
+  }
 });
 
 test("the application's role still cannot rewrite the statutory archive", async () => {

@@ -204,6 +204,47 @@ export function runInAppContainer(
   timeoutMs: number,
   input?: string,
 ): { status: number; output: string } {
+  return runInService("app", command, environment, timeoutMs, input);
+}
+
+/**
+ * Runs SQL in the database container as the superuser, over its local socket,
+ * as docs/deployment.md has an operator do it.
+ *
+ * For the states only the superuser can produce or put right - a membership it
+ * granted to openbrf_app, and 10-schema-owner.sql run by hand on an upgrade.
+ * The suite's own connections are the owner's and the application's.
+ */
+export function runAsSuperuser(
+  psqlArguments: readonly string[],
+  timeoutMs = 60_000,
+): { status: number; output: string } {
+  return runInService(
+    "db",
+    [
+      "psql",
+      "--quiet",
+      "--no-psqlrc",
+      "--set",
+      "ON_ERROR_STOP=on",
+      "-U",
+      "openbrf",
+      "-d",
+      "openbrf",
+      ...psqlArguments,
+    ],
+    {},
+    timeoutMs,
+  );
+}
+
+function runInService(
+  service: "app" | "db",
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+  timeoutMs: number,
+  input?: string,
+): { status: number; output: string } {
   const overrides = Object.entries(environment).flatMap(([name, value]) => [
     "--env",
     `${name}=${value}`,
@@ -213,7 +254,7 @@ export function runInAppContainer(
       "docker",
       // No pseudo-TTY: the two streams stay apart, and nothing here is
       // attached to a terminal in CI.
-      [...COMPOSE_ARGS, "exec", "-T", ...overrides, "app", ...command],
+      [...COMPOSE_ARGS, "exec", "-T", ...overrides, service, ...command],
       {
         cwd: repositoryRoot,
         encoding: "utf8",
