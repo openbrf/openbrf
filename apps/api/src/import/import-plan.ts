@@ -29,7 +29,8 @@
  * register, by the same keys and the same rules. The apply plans the file a
  * chunk at a time against the register the previous chunk left, and a preview
  * that treated those persons any differently would show a row as an update the
- * apply then stops at.
+ * apply then stops at. That includes what the board decided for an ambiguous
+ * row: the person chosen for it, or created by it, is written like any other.
  */
 
 import {
@@ -155,6 +156,15 @@ export interface ImportPlan {
   summary: Record<ImportOutcome, number>;
 }
 
+/** What the board answered for a row the plan could not resolve. */
+export type ImportDecision =
+  | { action: "use-person"; personId: string }
+  | { action: "create" }
+  | { action: "skip" };
+
+/** Keyed by the row's number in the file, as a string. */
+export type ImportDecisions = Record<string, ImportDecision>;
+
 /**
  * The key persons are indexed under for apartment-and-name matching.
  *
@@ -200,10 +210,18 @@ export function hasIndexableIdentityNumber(
   return value !== undefined && isValidPersonalIdentityNumber(value);
 }
 
+/**
+ * Plans the rows in file order.
+ *
+ * The decisions do not change any row's outcome: a row that needs one stays
+ * ambiguous, so the board can still see and change what it chose. They decide
+ * what that row writes, which later rows are matched against.
+ */
 export function planImport(
   rows: readonly PreparedRow[],
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
+  decisions: ImportDecisions = {},
 ): ImportPlan {
   const written: FileWrites = {
     byIdentityNumber: new Map(),
@@ -212,7 +230,9 @@ export function planImport(
     registered: new Map(),
   };
 
-  const planned = rows.map((row) => planRow(row, snapshot, defaults, written));
+  const planned = rows.map((row) =>
+    planRow(row, snapshot, defaults, decisions, written),
+  );
 
   const summary: Record<ImportOutcome, number> = {
     create: 0,
@@ -265,8 +285,8 @@ interface FilePerson {
  * the index is a truncated hash, so two different numbers colliding in it would
  * fold two people into one.
  *
- * Only rows whose writes are known are recorded. An ambiguous row writes what
- * the board decides, and the plan is not told that.
+ * An ambiguous row writes what the board decided for it, and nothing while it
+ * has no decision: the apply will not run until it has one.
  */
 interface FileWrites {
   byIdentityNumber: Map<string, FilePerson[]>;
@@ -285,6 +305,7 @@ function planRow(
   row: PreparedRow,
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
+  decisions: ImportDecisions,
   written: FileWrites,
 ): PlannedRow {
   const problems: ImportProblem[] = [];
@@ -353,6 +374,28 @@ function planRow(
   const [only] = match.candidates;
 
   if (match.candidates.length > 1 || mismatch !== null) {
+    const decision = decisions[String(row.rowNumber)];
+    if (decision?.action === "create") {
+      recordCreated(
+        written,
+        row,
+        person,
+        normalizedNumber,
+        apartment,
+        movedOutOn,
+        snapshot,
+      );
+    } else if (decision?.action === "use-person") {
+      // A person the row did not match is not recorded: the apply refuses that
+      // decision rather than writing it.
+      const chosen = match.candidates.find(
+        (candidate) => candidate.personId === decision.personId,
+      );
+      if (chosen !== undefined) {
+        recordWrites(written, chosen, row, apartment, movedOutOn, snapshot);
+      }
+    }
+
     const earlier =
       match.candidates.length === 1 ? (only?.createdByRow ?? null) : null;
     return {
@@ -373,18 +416,15 @@ function planRow(
   }
 
   if (only === undefined) {
-    const created: FilePerson = {
-      personId: null,
-      createdByRow: row.rowNumber,
-      name: `${person.firstName} ${person.lastName}`,
-      identityNumber: normalizedNumber,
-      hasEmail: false,
-      apartmentIds: new Set(),
-    };
-    if (normalizedNumber !== null) {
-      push(written.byIdentityNumber, normalizedNumber, created);
-    }
-    recordWrites(written, created, row, apartment, movedOutOn, snapshot);
+    recordCreated(
+      written,
+      row,
+      person,
+      normalizedNumber,
+      apartment,
+      movedOutOn,
+      snapshot,
+    );
     return { ...base, outcome: "create" };
   }
 
@@ -498,6 +538,30 @@ function registeredPerson(
   return person;
 }
 
+/** Records the person a row creates, for the rows after it to reach. */
+function recordCreated(
+  written: FileWrites,
+  row: PreparedRow,
+  person: PlannedPerson,
+  identityNumber: string | null,
+  apartment: RegisterApartment,
+  movedOutOn: string | null,
+  snapshot: RegisterSnapshot,
+): void {
+  const created: FilePerson = {
+    personId: null,
+    createdByRow: row.rowNumber,
+    name: `${person.firstName} ${person.lastName}`,
+    identityNumber,
+    hasEmail: false,
+    apartmentIds: new Set(),
+  };
+  if (identityNumber !== null) {
+    push(written.byIdentityNumber, identityNumber, created);
+  }
+  recordWrites(written, created, row, apartment, movedOutOn, snapshot);
+}
+
 /**
  * Records what the apply will write for a row that reaches this person.
  *
@@ -583,6 +647,35 @@ function findMismatch(
       normalizeName(`${person.firstName} ${person.lastName}`)
   ) {
     return "name";
+  }
+  return null;
+}
+
+/**
+ * The first reason the plan cannot be applied with these decisions, if any: an
+ * ambiguous row the board has not answered for, or one answered with a person
+ * it did not match.
+ */
+export function findUndecided(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): "ambiguous-rows-undecided" | "decision-not-a-candidate" | null {
+  for (const row of plan.rows) {
+    if (row.outcome !== "ambiguous") {
+      continue;
+    }
+    const decision = decisions[String(row.rowNumber)];
+    if (decision === undefined) {
+      return "ambiguous-rows-undecided";
+    }
+    if (
+      decision.action === "use-person" &&
+      !row.candidates.some(
+        (candidate) => candidate.personId === decision.personId,
+      )
+    ) {
+      return "decision-not-a-candidate";
+    }
   }
   return null;
 }

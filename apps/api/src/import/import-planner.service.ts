@@ -8,6 +8,7 @@ import { type ImportMapping, validateMapping } from "./import-columns";
 import {
   apartmentNameKey,
   hasIndexableIdentityNumber,
+  type ImportDecisions,
   type ImportPlan,
   type ImportRole,
   planImport,
@@ -57,6 +58,11 @@ export interface ImportPlanRequest {
    * names a row of the file, not a row of a chunk.
    */
   window?: { from: number; count: number };
+  /**
+   * What the board decided for the rows that need it, so the rows after one
+   * are matched against what it writes. None when absent.
+   */
+  decisions?: ImportDecisions;
   /**
    * Whether every valid identity number is indexed.
    *
@@ -132,10 +138,15 @@ export class ImportPlannerService {
       });
     }
 
-    return planImport(prepared, snapshot, {
-      defaultRole: request.defaultRole,
-      defaultMovedInOn: request.defaultMovedInOn,
-    });
+    return planImport(
+      prepared,
+      snapshot,
+      {
+        defaultRole: request.defaultRole,
+        defaultMovedInOn: request.defaultMovedInOn,
+      },
+      request.decisions,
+    );
   }
 
   /**

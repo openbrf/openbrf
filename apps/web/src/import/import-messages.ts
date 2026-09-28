@@ -20,6 +20,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "too-many-rows": "import.errors.tooManyRows",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
+  "preview-outdated": "import.errors.previewOutdated",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",

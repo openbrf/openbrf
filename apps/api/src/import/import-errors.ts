@@ -18,6 +18,7 @@ export type ImportErrorReason =
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
+  | "preview-outdated"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";

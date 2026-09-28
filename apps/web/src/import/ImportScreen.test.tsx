@@ -525,6 +525,93 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
   });
 
+  it("previews again when the decisions make another row need one", async () => {
+    // Bo senior gets row 2's details, and row 4 turns out to contradict him.
+    // The API refuses before writing anything, and the board is shown the
+    // preview the decision produces rather than a refusal it cannot act on.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "ambiguous-rows-undecided" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 0, ambiguous: 2, error: 1 },
+        rows: [
+          created,
+          ambiguous,
+          failed,
+          {
+            ...updated,
+            outcome: "ambiguous",
+            matchedPersonId: null,
+            matchedPersonName: null,
+            mismatch: "name",
+            candidates: [{ personId: "person-bo-senior", name: "Bo Berg" }],
+          },
+        ],
+      },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(previewImport).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+        },
+      }),
+    );
+    const choices = screen.getAllByRole("combobox", {
+      name: /Den här raden är/,
+    });
+    expect((choices[0] as HTMLSelectElement).value).toBe("person-bo-senior");
+    expect((choices[1] as HTMLSelectElement).value).toBe("");
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await session.selectOptions(choices[1] as HTMLSelectElement, "create");
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    await waitFor(() => {
+      expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+          "4": { action: "create" },
+        },
+      });
+    });
+    expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
+  });
+
   it("follows the import to the end", async () => {
     await apply();
     await screen.findByText(/Importen pågår/);

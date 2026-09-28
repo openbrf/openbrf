@@ -151,9 +151,16 @@ export function uploadImport(input: {
   return apiRequest("POST", "/api/import/sessions", input);
 }
 
+/**
+ * What the mapping would do.
+ *
+ * The decisions are the ones made so far, sent when the preview is taken again
+ * because they change what later rows match: a person chosen for a row gets
+ * that row's email address, and a later row can contradict it.
+ */
 export function previewImport(
   sessionId: string,
-  input: ImportMappingInput,
+  input: ImportMappingInput & { decisions?: Record<string, ImportDecision> },
 ): Promise<ApiResult<ImportPreview>> {
   return apiRequest(
     "POST",

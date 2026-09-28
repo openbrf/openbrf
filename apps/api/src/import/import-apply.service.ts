@@ -18,7 +18,13 @@ import {
   type ImportMapping,
 } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
-import type { ImportPlan, PlannedRow } from "./import-plan";
+import {
+  findUndecided,
+  type ImportDecision,
+  type ImportDecisions,
+  type ImportPlan,
+  type PlannedRow,
+} from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
@@ -99,13 +105,6 @@ interface ImportApplyJob {
   sessionId: string;
   [key: string]: unknown;
 }
-
-export type ImportDecision =
-  | { action: "use-person"; personId: string }
-  | { action: "create" }
-  | { action: "skip" };
-
-export type ImportDecisions = Record<string, ImportDecision>;
 
 @Injectable()
 export class ImportApplyService implements OnModuleInit {
@@ -311,6 +310,7 @@ export class ImportApplyService implements OnModuleInit {
       defaultRole: session.defaultRole,
       defaultMovedInOn: session.defaultMovedInOn,
       window: { from: cursor, count: IMPORT_CHUNK_ROWS },
+      decisions,
       // A person this chunk writes carries the index, so it is owed whatever
       // the register looks like.
       indexEveryIdentityNumber: true,
@@ -762,33 +762,8 @@ interface EncryptedRowValues {
   personalIdentityNumber: { cipher: string; index: string | null } | null;
 }
 
-/** The first row of the chunk the board has not answered for, if there is one. */
-function findUndecided(
-  plan: ImportPlan,
-  decisions: ImportDecisions,
-): ImportErrorReason | null {
-  for (const row of plan.rows) {
-    if (row.outcome !== "ambiguous") {
-      continue;
-    }
-    const decision = decisions[String(row.rowNumber)];
-    if (decision === undefined) {
-      return "ambiguous-rows-undecided";
-    }
-    if (
-      decision.action === "use-person" &&
-      !row.candidates.some(
-        (candidate) => candidate.personId === decision.personId,
-      )
-    ) {
-      return "decision-not-a-candidate";
-    }
-  }
-  return null;
-}
-
 /** The stored mapping, read back. An empty entry is a column not imported. */
-function readMapping(stored: readonly string[]): ImportMapping {
+export function readMapping(stored: readonly string[]): ImportMapping {
   return stored.map((field) =>
     (IMPORT_FIELDS as readonly string[]).includes(field)
       ? (field as ImportField)

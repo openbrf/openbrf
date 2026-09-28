@@ -35,7 +35,15 @@ const uploadSchema = z.object({
   content: z.string().min(1).max(MAX_ENCODED_LENGTH),
 });
 
-const mappingSchema = z.object({
+const decisionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("use-person"), personId: z.string().min(1) }),
+  z.object({ action: z.literal("create") }),
+  z.object({ action: z.literal("skip") }),
+]);
+
+const decisionsSchema = z.record(z.string(), decisionSchema).default({});
+
+const previewSchema = z.object({
   mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
   /** Used for rows with no role column. Never guessed. */
   defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
@@ -43,13 +51,12 @@ const mappingSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
     .nullish(),
+  /**
+   * What the board has decided so far. Sent when the screen previews again
+   * because a decision changed what later rows match.
+   */
+  decisions: decisionsSchema,
 });
-
-const decisionSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("use-person"), personId: z.string().min(1) }),
-  z.object({ action: z.literal("create") }),
-  z.object({ action: z.literal("skip") }),
-]);
 
 /**
  * What the board answered for the rows the preview could not resolve.
@@ -58,7 +65,7 @@ const decisionSchema = z.discriminatedUnion("action", [
  * preview was taken with, which is the one the board looked at.
  */
 const applySchema = z.object({
-  decisions: z.record(z.string(), decisionSchema).default({}),
+  decisions: decisionsSchema,
 });
 
 /**
@@ -133,11 +140,12 @@ export class ImportController {
     @Param("id") id: string,
     @Body() body: unknown,
   ): Promise<ImportPreview> {
-    const input = mappingSchema.parse(body);
+    const input = previewSchema.parse(body);
     return this.imports.preview(id, {
       mapping: input.mapping,
       defaultRole: input.defaultRole ?? null,
       defaultMovedInOn: input.defaultMovedInOn ?? null,
+      decisions: input.decisions,
     });
   }
 

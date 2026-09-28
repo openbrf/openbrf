@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { ImportField, ImportMapping } from "./import-columns";
 import {
   apartmentNameKey,
+  findUndecided,
+  type ImportDecisions,
   type ImportDefaults,
   planImport,
   type PreparedRow,
@@ -778,5 +780,127 @@ describe("a row that contradicts a person an earlier row writes", () => {
     );
 
     expect(plan.rows[1]?.outcome).toBe("create");
+  });
+});
+
+describe("a row after one the board decided", () => {
+  // Row 1 is Anna, and the register holds two of her in her apartment: a
+  // parent and a child. Row 2 is Bertil with the address row 1 carries.
+  const twins = snapshot({
+    personsByApartmentAndName: new Map([
+      [
+        apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+        ["person-a", "person-b"],
+      ],
+    ]),
+    personNames: new Map([
+      ["person-a", "Anna Lindqvist"],
+      ["person-b", "Anna Lindqvist"],
+    ]),
+    apartmentsByPerson: new Map([
+      ["person-a", new Set(["apartment-1101"])],
+      ["person-b", new Set(["apartment-1101"])],
+    ]),
+  });
+  const rows = [
+    prepared(COMPLETE, { rowNumber: 1, emailIndex: "anna-index" }),
+    prepared(
+      { ...COMPLETE, firstName: "Bertil", apartmentNumber: "1102" },
+      { rowNumber: 2, emailIndex: "anna-index" },
+    ),
+  ];
+
+  it("meets the person chosen for it with the row's address", () => {
+    // The apply gives person-a row 1's address, and the chunk that meets row 2
+    // after that would stop at it. The plan has to find it first.
+    const plan = planImport(rows, twins, DEFAULTS, {
+      "1": { action: "use-person", personId: "person-a" },
+    });
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      mismatch: "name",
+      candidates: [{ personId: "person-a", name: "Anna Lindqvist" }],
+    });
+  });
+
+  it("meets the person it creates", () => {
+    const plan = planImport(
+      [
+        rows[0] ?? prepared(COMPLETE),
+        prepared(COMPLETE, { rowNumber: 2, emailIndex: "anna-index" }),
+      ],
+      twins,
+      DEFAULTS,
+      { "1": { action: "create" } },
+    );
+
+    // Row 2 is row 1 again, by address and name, and follows it.
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedBy: "earlierRow",
+      matchedPersonId: null,
+      sameAsRowNumber: 1,
+    });
+  });
+
+  it("does not meet anyone when it is left out", () => {
+    const plan = planImport(rows, twins, DEFAULTS, {
+      "1": { action: "skip" },
+    });
+
+    expect(plan.rows[1]?.outcome).toBe("create");
+  });
+
+  it("does not meet a person the row did not match", () => {
+    // The apply refuses that decision; the plan does not write it either.
+    const plan = planImport(rows, twins, DEFAULTS, {
+      "1": { action: "use-person", personId: "person-elsewhere" },
+    });
+
+    expect(plan.rows[1]?.outcome).toBe("create");
+  });
+
+  it("is planned as before while it is undecided", () => {
+    expect(planImport(rows, twins, DEFAULTS).rows[1]?.outcome).toBe("create");
+  });
+});
+
+describe("finding a row the board has not answered for", () => {
+  const plan = planImport(
+    [prepared(COMPLETE)],
+    snapshot({
+      personsByApartmentAndName: new Map([
+        [
+          apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+          ["person-a", "person-b"],
+        ],
+      ]),
+      personNames: new Map([
+        ["person-a", "Anna Lindqvist"],
+        ["person-b", "Anna Lindqvist"],
+      ]),
+    }),
+    DEFAULTS,
+  );
+
+  it.each<[string, ImportDecisions, ReturnType<typeof findUndecided>]>([
+    ["no decision", {}, "ambiguous-rows-undecided"],
+    [
+      "a person the row did not match",
+      { "1": { action: "use-person", personId: "person-c" } },
+      "decision-not-a-candidate",
+    ],
+    [
+      "one of its candidates",
+      { "1": { action: "use-person", personId: "person-b" } },
+      null,
+    ],
+    ["a new person", { "1": { action: "create" } }, null],
+    ["leaving it out", { "1": { action: "skip" } }, null],
+  ])("answers %s", (_, decisions, expected) => {
+    expect(findUndecided(plan, decisions)).toBe(expected);
   });
 });

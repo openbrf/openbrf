@@ -58,6 +58,12 @@ import {
  * person it matched: an email address or a name reached them, and neither says
  * the row is about them.
  *
+ * A decision can change what the rows after it match: the person chosen for a
+ * row gets its email address, and a later row can contradict that. The API
+ * refuses such an apply before writing anything, and the screen then previews
+ * again with the decisions made so far, so the board sees the rows that now
+ * need one.
+ *
  * The fourth step is not this screen's work. Writing the register is a
  * background job, and the screen only watches it: it asks the API how far the
  * import has got and shows that. Which is also why closing the tab costs
@@ -99,6 +105,8 @@ export function ImportScreen(): ReactElement {
   const [decisions, setDecisions] = useState<Record<string, ImportDecision>>(
     {},
   );
+  /** Whether the preview shown was taken again because of the decisions. */
+  const [replanned, setReplanned] = useState(false);
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
@@ -178,33 +186,55 @@ export function ImportScreen(): ReactElement {
     }
   }, []);
 
-  const runPreview = useCallback(async (): Promise<void> => {
-    if (session === null) {
-      return;
-    }
-    setBusy(true);
-    setFailure(null);
-    const response = await previewImport(session.sessionId, {
+  /**
+   * Takes the preview, planned with the decisions to keep.
+   *
+   * A decision is kept only for a row that still needs one: a row the kept
+   * decisions settle is no longer asked about, and an answer left behind for it
+   * would be sent with the apply for a question the board no longer sees.
+   */
+  const runPreview = useCallback(
+    async (kept: Record<string, ImportDecision> = {}): Promise<boolean> => {
+      if (session === null) {
+        return false;
+      }
+      setBusy(true);
+      setFailure(null);
+      setReplanned(false);
+      const response = await previewImport(session.sessionId, {
+        mapping,
+        defaultRole: needsDefaultRole ? defaultRole : null,
+        defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
+        decisions: kept,
+      });
+      setBusy(false);
+      if (!response.ok) {
+        setFailure(failureMessage(response.failure.reason));
+        return false;
+      }
+      setPreview(response.value);
+      setDecisions(
+        Object.fromEntries(
+          response.value.rows.flatMap((row) => {
+            const decision = kept[String(row.rowNumber)];
+            return row.outcome === "ambiguous" && decision !== undefined
+              ? [[String(row.rowNumber), decision]]
+              : [];
+          }),
+        ),
+      );
+      setStep("preview");
+      return true;
+    },
+    [
+      session,
       mapping,
-      defaultRole: needsDefaultRole ? defaultRole : null,
-      defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
-    });
-    setBusy(false);
-    if (!response.ok) {
-      setFailure(failureMessage(response.failure.reason));
-      return;
-    }
-    setPreview(response.value);
-    setDecisions({});
-    setStep("preview");
-  }, [
-    session,
-    mapping,
-    needsDefaultRole,
-    defaultRole,
-    needsDefaultMovedIn,
-    defaultMovedInOn,
-  ]);
+      needsDefaultRole,
+      defaultRole,
+      needsDefaultMovedIn,
+      defaultMovedInOn,
+    ],
+  );
 
   const apply = useCallback(async (): Promise<void> => {
     if (session === null) {
@@ -215,8 +245,19 @@ export function ImportScreen(): ReactElement {
     const response = await applyImport(session.sessionId, { decisions });
     setBusy(false);
     if (!response.ok) {
-      setFailure(failureMessage(response.failure.reason));
-      if (response.failure.reason === "session-already-applied") {
+      const reason = response.failure.reason;
+      if (
+        reason === "ambiguous-rows-undecided" ||
+        reason === "preview-outdated"
+      ) {
+        // The decisions made further rows need one, or settled a row that
+        // needed one. Nothing was written; what the board needs is the preview
+        // those decisions produce.
+        setReplanned(await runPreview(decisions));
+        return;
+      }
+      setFailure(failureMessage(reason));
+      if (reason === "session-already-applied") {
         // Somebody was quicker - the other tab, or the other board member. What
         // this screen should show now is that import rather than a preview step
         // that is over.
@@ -230,13 +271,14 @@ export function ImportScreen(): ReactElement {
     }
     setRun(response.value);
     setStep("apply");
-  }, [session, decisions]);
+  }, [session, decisions, runPreview]);
 
   const restart = useCallback((): void => {
     setRun(null);
     setSession(null);
     setPreview(null);
     setDecisions({});
+    setReplanned(false);
     setMapping([]);
     setFailure(null);
     setStep("upload");
@@ -313,6 +355,7 @@ export function ImportScreen(): ReactElement {
             }));
           }}
           undecided={undecided}
+          replanned={replanned}
           busy={busy}
           onBack={() => {
             setStep("mapping");
@@ -563,6 +606,7 @@ function PreviewStep({
   decisions,
   onDecide,
   undecided,
+  replanned,
   busy,
   onBack,
   onApply,
@@ -571,6 +615,7 @@ function PreviewStep({
   decisions: Record<string, ImportDecision>;
   onDecide: (rowNumber: number, decision: ImportDecision) => void;
   undecided: boolean;
+  replanned: boolean;
   busy: boolean;
   onBack: () => void;
   onApply: () => void;
@@ -598,6 +643,12 @@ function PreviewStep({
           ),
         )}
       </dl>
+
+      {replanned ? (
+        <Notice tone="warn" live>
+          {t("import.preview.replanned")}
+        </Notice>
+      ) : null}
 
       {undecided ? (
         <Notice tone="warn">{t("import.preview.undecided")}</Notice>
