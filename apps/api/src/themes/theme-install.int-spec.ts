@@ -168,6 +168,32 @@ describe("installing a theme from the catalog", () => {
     expect(entry?.installedVersion).toBeNull();
   });
 
+  /*
+   * Deprecation is a curator's soft withdrawal: still listed, not installed
+   * anew. Before the install below, so the id is not installed yet; refused
+   * from the index alone, so nothing is downloaded, written or recorded.
+   */
+  it("refuses a first install of a deprecated entry, and writes nothing", async () => {
+    const path = await exampleEntryChanged("deprecated-first", {
+      deprecated: true,
+    });
+
+    const failure = await refusal(
+      installerReading(path).install(exampleEntry.id, null),
+    );
+
+    expect(failure.reason).toBe("entry-deprecated");
+    expect(failure.status).toBe(409);
+    expect(
+      await prisma.installedTheme.findUnique({
+        where: { id: exampleEntry.id },
+      }),
+    ).toBeNull();
+    await expect(
+      stat(join(dataDirectory, "themes", exampleEntry.id)),
+    ).rejects.toThrow();
+  });
+
   it("installs a theme that inherits the default one", async () => {
     const result = await installer.install("example-theme", null);
 
@@ -315,14 +341,7 @@ describe("installing a theme from the catalog", () => {
   ] as const)(
     "refuses a package whose %s disagrees with its entry",
     async (what, change) => {
-      const index = JSON.parse(await readFile(catalogPath, "utf8")) as {
-        entries: FixtureCatalogEntry[];
-      };
-      index.entries = index.entries.map((entry) =>
-        entry.id === exampleEntry.id ? { ...entry, ...change } : entry,
-      );
-      const path = join(catalogDirectory, `catalog-wrong-${what}.json`);
-      await writeFile(path, JSON.stringify(index));
+      const path = await exampleEntryChanged(`wrong-${what}`, change);
 
       const failure = await refusal(
         installerReading(path).install(exampleEntry.id, null),
@@ -330,7 +349,39 @@ describe("installing a theme from the catalog", () => {
       expect(failure.reason).toBe("identity-mismatch");
     },
   );
+
+  /*
+   * The other half of deprecation: a board that already has the theme can
+   * still install it again and take its updates. Runs after the install
+   * above, so the id is installed.
+   */
+  it("installs a deprecated entry again where the theme is already installed", async () => {
+    const path = await exampleEntryChanged("deprecated", { deprecated: true });
+
+    const result = await installerReading(path).install(exampleEntry.id, null);
+
+    expect(result.theme.id).toBe(exampleEntry.id);
+  });
 });
+
+/**
+ * A copy of the fixture index with the example entry changed, as a curator's
+ * commit between two reads would leave it. Returns the copy's path.
+ */
+async function exampleEntryChanged(
+  name: string,
+  change: Readonly<Record<string, unknown>>,
+): Promise<string> {
+  const index = JSON.parse(await readFile(catalogPath, "utf8")) as {
+    entries: FixtureCatalogEntry[];
+  };
+  index.entries = index.entries.map((entry) =>
+    entry.id === exampleEntry.id ? { ...entry, ...change } : entry,
+  );
+  const path = join(catalogDirectory, `catalog-${name}.json`);
+  await writeFile(path, JSON.stringify(index));
+  return path;
+}
 
 /**
  * The refusal an install produced.

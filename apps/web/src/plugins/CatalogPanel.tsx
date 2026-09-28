@@ -153,7 +153,12 @@ export function CatalogPanel({
               <div className="shrink-0">
                 <button
                   type="button"
-                  disabled={!entry.supported}
+                  disabled={
+                    !entry.supported ||
+                    // Deprecated means "not installed anew": an instance that
+                    // already has it may still reinstall or update it.
+                    (entry.deprecated && entry.installedVersion === null)
+                  }
                   onClick={() => {
                     onChoose(entry);
                   }}
