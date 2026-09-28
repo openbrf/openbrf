@@ -396,6 +396,20 @@ describe("a value that has already lost characters", () => {
     expect(plan.summary.error).toBe(1);
   });
 
+  it("gives a garbled field that problem alone", () => {
+    // "Medl�m" is also no role anybody knows, but the reason it is not is
+    // the lost letter, and that is the one worth reading.
+    const plan = planImport(
+      [prepared({ ...COMPLETE, role: "Medl�m" })],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.problems).toEqual([
+      { field: "role", reason: "garbled-characters" },
+    ]);
+  });
+
   it("leaves Swedish letters that were read correctly alone", () => {
     const plan = planImport(
       [prepared({ ...COMPLETE, firstName: "Åsa", lastName: "Öberg" })],

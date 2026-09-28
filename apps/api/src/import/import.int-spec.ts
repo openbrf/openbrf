@@ -708,6 +708,7 @@ describe("uploading a CSV saved by Swedish Excel", () => {
       payload: { mapping: session.suggestedMapping },
       headers: { cookie },
     });
+    expect(response.statusCode).toBe(200);
     const value = JSON.parse(response.body) as ImportPreview;
     const garbled = value.rows.find((row) => row.rowNumber === 1);
 
@@ -716,6 +717,45 @@ describe("uploading a CSV saved by Swedish Excel", () => {
       field: "firstName",
       reason: "garbled-characters",
     });
+  });
+});
+
+describe("holding an upload between its steps", () => {
+  it("gives back every letter, including those above U+00FF", async () => {
+    // The rows are encrypted into the import session on upload and decrypted
+    // for the preview, so a name that survives here survived the round trip
+    // through the database.
+    const rows = fixtureRows();
+    rows[1] = rows[1]!.map((cell, index) =>
+      index === 2 ? "Åsa" : index === 3 ? "Öberg-Żółkiewska" : cell,
+    );
+    rows[2] = rows[2]!.map((cell, index) => (index === 2 ? "Łukasz" : cell));
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const value = JSON.parse(response.body) as ImportPreview;
+
+    expect(value.rows.find((row) => row.rowNumber === 1)?.person).toMatchObject(
+      { firstName: "Åsa", lastName: "Öberg-Żółkiewska" },
+    );
+    expect(value.rows.find((row) => row.rowNumber === 2)?.person).toMatchObject(
+      { firstName: "Łukasz" },
+    );
+    for (const row of value.rows) {
+      expect(row.problems).not.toContainEqual(
+        expect.objectContaining({ reason: "garbled-characters" }),
+      );
+    }
   });
 });
 

@@ -4,9 +4,9 @@
  *
  * Written here rather than taken from a package because the awkward parts are
  * not the ones a general CSV library solves. A Swedish board exports from Excel
- * with the system list separator, which is a semicolon; the file arrives with a
- * UTF-8 byte order mark that would otherwise become part of the first column
- * title, or saved as "CSV (semikolonavgränsad)" on Swedish Windows, in
+ * with the system list separator, which is a semicolon; the file is either
+ * UTF-8 with a byte order mark that would otherwise become part of the first
+ * column title, or, saved as "CSV (semikolonavgränsad)" on Swedish Windows,
  * Windows-1252 rather than UTF-8 at all; and the rows have to survive a quoted
  * field containing the delimiter, a line break or a doubled quote. That is a
  * small, closed problem, and one fewer dependency in the path that handles a
@@ -63,9 +63,16 @@ export function detectDelimiter(text: string): CsvDelimiter {
  * byte sequences, so the fallback always produces text; the WHATWG decoder maps
  * its five unassigned bytes to control characters rather than to U+FFFD.
  *
- * The strict decoder drops a UTF-8 byte order mark itself.
+ * A byte order mark settles it the other way: the file says it is UTF-8, and
+ * Windows-1252 would turn every letter in it into mojibake that no check
+ * catches, starting with "ï»¿" in the first title. Such a file is read
+ * leniently, so a stray invalid byte becomes one U+FFFD that the preview
+ * refuses on its row. The decoder drops the mark itself.
  */
 export function decodeCsv(bytes: Uint8Array): string {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {

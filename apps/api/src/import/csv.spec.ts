@@ -71,6 +71,22 @@ describe("decoding the bytes", () => {
     // flags it instead.
     expect(decodeCsv(Buffer.from("Bj\uFFFDrk", "utf8"))).toBe("Bj\uFFFDrk");
   });
+
+  it("reads a file with a byte order mark as UTF-8 even when one byte is not", () => {
+    // Read as Windows-1252 the whole file would turn to mojibake nothing flags,
+    // "\u00EF\u00BB\u00BF" first. As UTF-8 only the stray byte is lost, and the preview
+    // refuses its row.
+    const bytes = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from("F\u00F6rnamn;Efternamn\n\u00C5sa;\u00D6berg\nBj", "utf8"),
+      Buffer.from([0xf6]),
+      Buffer.from("rk;Lind", "utf8"),
+    ]);
+
+    expect(decodeCsv(bytes)).toBe(
+      "F\u00F6rnamn;Efternamn\n\u00C5sa;\u00D6berg\nBj\uFFFDrk;Lind",
+    );
+  });
 });
 
 describe("parsing", () => {
