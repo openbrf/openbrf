@@ -360,9 +360,10 @@ export class ImportApplyService implements OnModuleInit {
         }
 
         // Taken before the chunk reads anything about these persons. Whether a
-        // member row begins a membership is decided by counting the person's
-        // other residencies, and a move-in or move-out for the same person can
-        // commit between that count and the register write - which would append
+        // member row begins a membership is decided from the person's other
+        // tenant-ownerships as the chunk reads them, and a move-in or move-out
+        // for the same person can commit between that read and the register
+        // write - which would append
         // a second ENTRY to a register that refuses to have rows removed. In a
         // fixed order, because a chunk holds many of these locks at once.
         await lockResidencyTransitionsInOrder(

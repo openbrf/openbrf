@@ -122,6 +122,9 @@ export async function readMemberResidencies(
   return tx.residency.findMany({
     where: { personId, role: "MEMBER" },
     select: { apartmentId: true, movedInOn: true, movedOutOn: true },
+    // A row names the first residency that fits its day, so two ending on one
+    // day name the same apartment whatever order the database returns them in.
+    orderBy: [{ movedInOn: "asc" }, { id: "asc" }],
   });
 }
 

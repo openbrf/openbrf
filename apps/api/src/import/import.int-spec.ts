@@ -1196,10 +1196,10 @@ describe("a file listing a person's rows out of date order", () => {
 
 describe("an apply overlapping a move", () => {
   it("waits for the move rather than reading round it", async () => {
-    // Whether a member row begins a membership is decided by counting the
-    // person's other tenant-ownerships, and the chunk reads that count before
+    // Whether a member row begins a membership is decided from the person's
+    // other tenant-ownerships held on its date, and the chunk reads them before
     // the row that would answer it exists. A move-in for the same person
-    // committing inside that window is invisible to the count, so the chunk
+    // committing inside that window is invisible to that read, so the chunk
     // appends a second ENTRY - to a register that refuses UPDATE and DELETE,
     // where two tenant-ownerships are one membership and the mistake can only
     // be answered by a later correction row.
