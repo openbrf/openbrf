@@ -34,6 +34,9 @@ export type ImportOutcome = "create" | "update" | "ambiguous" | "error";
 export type ImportMatchKey =
   "personalIdentityNumber" | "email" | "apartmentAndName" | "earlierRow";
 
+/** What a row states differently from the one person it matched. */
+export type ImportMismatch = "personalIdentityNumber" | "name";
+
 export interface ImportSessionView {
   sessionId: string;
   fileName: string;
@@ -63,7 +66,9 @@ export interface ImportPreviewRow {
   movedInOn: string | null;
   movedOutOn: string | null;
   matchedPersonId: string | null;
+  matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
+  mismatch: ImportMismatch | null;
   sameAsRowNumber: number | null;
   candidates: { personId: string; name: string }[];
   problems: { field: ImportField | null; reason: string }[];

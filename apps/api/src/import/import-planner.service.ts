@@ -210,6 +210,7 @@ export class ImportPlannerService {
     const personsByEmail = new Map<string, string[]>();
     const personsByApartmentAndName = new Map<string, string[]>();
     const personNames = new Map<string, string>();
+    const identityNumberIndexByPerson = new Map<string, string>();
 
     for (const person of persons) {
       personNames.set(
@@ -217,6 +218,10 @@ export class ImportPlannerService {
         `${person.firstName} ${person.lastName}`.trim(),
       );
       if (person.personalIdentityNumberIndex !== null) {
+        identityNumberIndexByPerson.set(
+          person.id,
+          person.personalIdentityNumberIndex,
+        );
         push(
           personsByIdentityNumber,
           person.personalIdentityNumberIndex,
@@ -250,6 +255,7 @@ export class ImportPlannerService {
       personsByEmail,
       personsByApartmentAndName,
       personNames,
+      identityNumberIndexByPerson,
     };
   }
 }

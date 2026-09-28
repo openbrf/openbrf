@@ -18,6 +18,12 @@
  * comes back as ambiguous and waits for a human, because the two candidates are
  * usually a parent and a child with the same name in the same apartment, and
  * picking one silently puts a stranger's phone number in someone's record.
+ *
+ * A single match on the weaker keys waits for a human too when the row
+ * contradicts the person it reached: a different identity number, or, for an
+ * email match, a different name. An email address is shared within a household
+ * and handed on when someone moves out, and a name repeats across generations,
+ * so neither is evidence that the row is about the person the register holds.
  */
 
 import {
@@ -38,6 +44,9 @@ export type ImportOutcome = "create" | "update" | "ambiguous" | "error";
 
 export type ImportMatchKey =
   "personalIdentityNumber" | "email" | "apartmentAndName" | "earlierRow";
+
+/** What a row states differently from the one person it matched. */
+export type ImportMismatch = "personalIdentityNumber" | "name";
 
 /** One thing wrong with one row. The screen supplies the wording. */
 export interface ImportProblem {
@@ -66,6 +75,8 @@ export interface RegisterSnapshot {
   /** Key from {@link apartmentNameKey}. */
   personsByApartmentAndName: ReadonlyMap<string, readonly string[]>;
   personNames: ReadonlyMap<string, string>;
+  /** Blind index of each person's identity number, for those that have one. */
+  identityNumberIndexByPerson: ReadonlyMap<string, string>;
 }
 
 /** A row after the mapping has been read, with its blind indexes computed. */
@@ -112,7 +123,14 @@ export interface PlannedRow {
   movedOutOn: string | null;
   /** The existing person this row will be written against. */
   matchedPersonId: string | null;
+  /** Their name as the register holds it, so the board can see who it is. */
+  matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
+  /**
+   * Why a row that matched one person still waits for a decision. Null when it
+   * is ambiguous because it matched several, and on every other outcome.
+   */
+  mismatch: ImportMismatch | null;
   /** The row this one shares a person with, when that person is new. */
   sameAsRowNumber: number | null;
   /** Persons the row could equally well be, when the match was ambiguous. */
@@ -236,7 +254,9 @@ function planRow(
     movedInOn,
     movedOutOn,
     matchedPersonId: null,
+    matchedPersonName: null,
     matchedBy: null,
+    mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
     problems,
@@ -247,11 +267,13 @@ function planRow(
   }
 
   const match = matchPerson(row, person, apartment, snapshot);
-  if (match.candidates.length > 1) {
+  const mismatch = findMismatch(match, row, person, snapshot);
+  if (match.candidates.length > 1 || mismatch !== null) {
     return {
       ...base,
       outcome: "ambiguous",
       matchedBy: match.key,
+      mismatch,
       candidates: match.candidates.map((personId) => ({
         personId,
         name: snapshot.personNames.get(personId) ?? personId,
@@ -272,6 +294,7 @@ function planRow(
       ...base,
       outcome: "update",
       matchedPersonId: earlier.personId,
+      matchedPersonName: personName(earlier.personId, snapshot),
       matchedBy: earlier.personId === null ? "earlierRow" : match.key,
       sameAsRowNumber: earlier.personId === null ? earlier.rowNumber : null,
     };
@@ -287,6 +310,7 @@ function planRow(
     ...base,
     outcome: matchedPersonId === null ? "create" : "update",
     matchedPersonId,
+    matchedPersonName: personName(matchedPersonId, snapshot),
     matchedBy: matchedPersonId === null ? null : match.key,
   };
 }
@@ -321,6 +345,65 @@ function matchPerson(
     }
   }
   return { key: null, candidates: [] };
+}
+
+/**
+ * What the row states that contradicts the one person it matched, if anything.
+ *
+ * An identity-number match is not second-guessed on the name: a person's name
+ * changes over a lifetime and their identity number does not. The weaker keys
+ * are checked against the identity number whenever both sides have one, and an
+ * email match against the name as well, which an apartment-and-name match
+ * already agrees on by construction.
+ *
+ * The row's number is compared through its blind index. That index is null when
+ * the register holds no identity number at all, and then there is nothing for
+ * the row to contradict.
+ */
+function findMismatch(
+  match: { key: ImportMatchKey | null; candidates: readonly string[] },
+  row: PreparedRow,
+  person: PlannedPerson,
+  snapshot: RegisterSnapshot,
+): ImportMismatch | null {
+  const personId = match.candidates[0];
+  if (
+    match.candidates.length !== 1 ||
+    personId === undefined ||
+    match.key === "personalIdentityNumber"
+  ) {
+    return null;
+  }
+
+  const registered = snapshot.identityNumberIndexByPerson.get(personId);
+  if (
+    row.identityNumberIndex !== null &&
+    registered !== undefined &&
+    registered !== row.identityNumberIndex
+  ) {
+    return "personalIdentityNumber";
+  }
+
+  if (match.key === "email") {
+    const name = snapshot.personNames.get(personId);
+    if (
+      name === undefined ||
+      normalizeName(name) !==
+        normalizeName(`${person.firstName} ${person.lastName}`)
+    ) {
+      return "name";
+    }
+  }
+  return null;
+}
+
+function personName(
+  personId: string | null,
+  snapshot: RegisterSnapshot,
+): string | null {
+  return personId === null
+    ? null
+    : (snapshot.personNames.get(personId) ?? null);
 }
 
 /**

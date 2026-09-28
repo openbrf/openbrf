@@ -2254,12 +2254,13 @@
       "apartment": "Lägenhet",
       "role": "Roll",
       "matchedBy": "Matchad på",
+      "matchedPerson": "Matchad person",
       "problems": "Problem",
       "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
       "decision": "Den här raden är",
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
-      "undecided": "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
+      "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
       "apply": "Genomför importen",
       "applying": "Importerar",
       "back": "Ändra kolumnkopplingen",
@@ -2279,6 +2280,10 @@
       "email": "E-postadress",
       "apartmentAndName": "Lägenhet och namn",
       "earlierRow": "En tidigare rad i filen"
+    },
+    "mismatch": {
+      "personalIdentityNumber": "Filens personnummer skiljer sig från den här personens.",
+      "name": "Namnet i filen skiljer sig från den här personens."
     },
     "problem": {
       "name-missing": "Raden saknar namn.",

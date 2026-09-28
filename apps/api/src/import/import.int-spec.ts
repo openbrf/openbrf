@@ -62,6 +62,8 @@ const apartments = {
   e: `imp-apartment-e-${suffix}`,
   /** The one the move-in it overlaps takes. */
   f: `imp-apartment-f-${suffix}`,
+  /** Where the rows that contradict the person they matched are imported. */
+  g: `imp-apartment-g-${suffix}`,
 };
 
 const actors = {
@@ -141,11 +143,19 @@ async function createPerson(input: {
   firstName: string;
   lastName?: string;
   email?: string;
+  identityNumber?: string;
 }): Promise<void> {
   const email =
     input.email === undefined
       ? null
       : await encryption.encrypt("person.email", input.email);
+  const identityNumber =
+    input.identityNumber === undefined
+      ? null
+      : await encryption.encrypt(
+          "person.personalIdentityNumber",
+          input.identityNumber,
+        );
   await prisma.person.create({
     data: {
       id: input.personId,
@@ -153,6 +163,8 @@ async function createPerson(input: {
       lastName: input.lastName ?? surname,
       emailCipher: email?.cipher ?? null,
       emailIndex: email?.index ?? null,
+      personalIdentityNumberCipher: identityNumber?.cipher ?? null,
+      personalIdentityNumberIndex: identityNumber?.index ?? null,
       preferredLocale: "sv",
     },
   });
@@ -451,6 +463,7 @@ beforeAll(async () => {
       { id: apartments.d, addressId, number: "2104", floor: 1 },
       { id: apartments.e, addressId, number: "2105", floor: 1 },
       { id: apartments.f, addressId, number: "2106", floor: 1 },
+      { id: apartments.g, addressId, number: "2107", floor: 1 },
     ],
   });
 
@@ -556,7 +569,7 @@ afterAll(async () => {
     where: { lastName: surname, memberRegisterEntries: { none: {} } },
   });
   await prisma.apartment.deleteMany({
-    where: { id: { in: [apartments.b, apartments.c] } },
+    where: { id: { in: [apartments.b, apartments.c, apartments.g] } },
   });
   await app.close();
 });
@@ -1297,10 +1310,10 @@ describe("an apply that fails", () => {
  * them as indexable. Built rather than listed: what matters is how many
  * distinct ones the file carries.
  */
-function identityNumbers(count: number): string[] {
+function identityNumbers(count: number, birthDate = "900101"): string[] {
   const numbers: string[] = [];
   for (let serial = 0; numbers.length < count; serial++) {
-    const nine = `900101${String(serial).padStart(3, "0")}`;
+    const nine = `${birthDate}${String(serial).padStart(3, "0")}`;
     let sum = 0;
     for (let position = 0; position < 9; position++) {
       const digit = Number(nine[position]);
@@ -1379,6 +1392,174 @@ describe("a file carrying personal identity numbers", () => {
         where: { lastName: surname, firstName: { startsWith: "Pin" } },
       }),
     ).toBe(3);
+  }, 120_000);
+});
+
+describe("a row that contradicts the person it matched", () => {
+  it("waits for the board instead of writing to that person", async () => {
+    // Four people already in the register, one row each. The first two rows
+    // reach their person through an email address or an apartment and a name
+    // but carry someone else's identity number; the third reaches its person
+    // through the identity number itself; the fourth reaches a person who has
+    // no identity number through an email address alone.
+    const cookie = await signIn(actors.board.email);
+    const [emailOwner, rowForEmail, neighbour, rowForName, customer, stranger] =
+      identityNumbers(6, "850615");
+    const people = {
+      byEmail: {
+        personId: `imp-contra-email-${suffix}`,
+        firstName: "Kontakt",
+        email: `imp-contra-email-${suffix}@exempel.se`,
+        identityNumber: emailOwner,
+      },
+      byName: {
+        personId: `imp-contra-name-${suffix}`,
+        firstName: "Grannen",
+        identityNumber: neighbour,
+      },
+      byNumber: {
+        personId: `imp-contra-number-${suffix}`,
+        firstName: "Kund",
+        identityNumber: customer,
+      },
+      withoutNumber: {
+        personId: `imp-contra-none-${suffix}`,
+        firstName: "Utan",
+        email: `imp-contra-none-${suffix}@exempel.se`,
+      },
+    };
+    for (const person of Object.values(people)) {
+      await createPerson(person);
+    }
+    await prisma.residency.create({
+      data: {
+        personId: people.byName.personId,
+        apartmentId: apartments.g,
+        role: "RESIDENT",
+        movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+      },
+    });
+
+    function row(
+      firstName: string,
+      email: string,
+      identityNumber: string | undefined,
+    ): string[] {
+      return [
+        addressLabel,
+        "2107",
+        firstName,
+        surname,
+        "Boende",
+        email,
+        "070-222 00 22",
+        "2021-04-01",
+        identityNumber ?? "",
+      ];
+    }
+    const rows = [
+      [...HEADERS, "Personnummer"],
+      row("Kontakt", people.byEmail.email, rowForEmail),
+      row("Grannen", "", rowForName),
+      row("Kund", `imp-contra-number-${suffix}@exempel.se`, customer),
+      row("Utan", people.withoutNumber.email, stranger),
+    ];
+
+    const session = await upload(
+      cookie,
+      "motsagelser.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const preview = JSON.parse(response.body) as ImportPreview;
+    const planned = (rowNumber: number) =>
+      preview.rows.find((candidate) => candidate.rowNumber === rowNumber);
+
+    expect(planned(1)).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      matchedPersonId: null,
+      mismatch: "personalIdentityNumber",
+      candidates: [
+        { personId: people.byEmail.personId, name: `Kontakt ${surname}` },
+      ],
+    });
+    expect(planned(2)).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "apartmentAndName",
+      matchedPersonId: null,
+      mismatch: "personalIdentityNumber",
+    });
+    expect(planned(3)).toMatchObject({
+      outcome: "update",
+      matchedBy: "personalIdentityNumber",
+      matchedPersonId: people.byNumber.personId,
+      matchedPersonName: `Kund ${surname}`,
+    });
+    expect(planned(4)).toMatchObject({
+      outcome: "update",
+      matchedBy: "email",
+      matchedPersonId: people.withoutNumber.personId,
+    });
+
+    // Undecided, the import does not start at all.
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(400);
+
+    expect(
+      (
+        await applyImport(cookie, session.sessionId, {
+          "1": { action: "skip" },
+          "2": { action: "skip" },
+        })
+      ).statusCode,
+    ).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result).toMatchObject({
+      personsCreated: 0,
+      personsUpdated: 2,
+      skipped: 2,
+    });
+
+    const stored = async (personId: string) =>
+      prisma.person.findUniqueOrThrow({
+        where: { id: personId },
+        select: {
+          phoneCipher: true,
+          personalIdentityNumberIndex: true,
+          residencies: { select: { apartmentId: true } },
+        },
+      });
+    const indexOf = (value: string | undefined) =>
+      encryption.computeIndex("person.personalIdentityNumber", value ?? "");
+
+    // The contradicted persons are exactly as they were.
+    const byEmail = await stored(people.byEmail.personId);
+    expect(byEmail.phoneCipher).toBeNull();
+    expect(byEmail.residencies).toEqual([]);
+    expect(byEmail.personalIdentityNumberIndex).toBe(await indexOf(emailOwner));
+    const byName = await stored(people.byName.personId);
+    expect(byName.phoneCipher).toBeNull();
+    expect(byName.personalIdentityNumberIndex).toBe(await indexOf(neighbour));
+
+    // An identity-number match still fills in what the register lacks.
+    const byNumber = await stored(people.byNumber.personId);
+    expect(byNumber.phoneCipher).not.toBeNull();
+    expect(byNumber.residencies).toEqual([{ apartmentId: apartments.g }]);
+
+    // An email match fills in contact details but never an identity number.
+    const withoutNumber = await stored(people.withoutNumber.personId);
+    expect(withoutNumber.phoneCipher).not.toBeNull();
+    expect(withoutNumber.personalIdentityNumberIndex).toBeNull();
   }, 120_000);
 });
 

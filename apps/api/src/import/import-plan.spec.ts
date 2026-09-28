@@ -48,6 +48,7 @@ function snapshot(overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot {
     personsByEmail: new Map(),
     personsByApartmentAndName: new Map(),
     personNames: new Map(),
+    identityNumberIndexByPerson: new Map(),
     ...overrides,
   };
 }
@@ -133,6 +134,7 @@ describe("the match-key precedence", () => {
 
     expect(plan.rows[0]?.matchedBy).toBe("email");
     expect(plan.rows[0]?.matchedPersonId).toBe("person-email");
+    expect(plan.rows[0]?.matchedPersonName).toBe("Anna Lindqvist");
   });
 
   it("falls back to the apartment and an exact name", () => {
@@ -206,6 +208,119 @@ describe("an ambiguous match", () => {
       "person-b",
     ]);
     expect(plan.summary.ambiguous).toBe(1);
+  });
+});
+
+describe("a single match the row contradicts", () => {
+  it("waits for a decision when an email match has a different identity number", () => {
+    // A shared or handed-on address reaches the wrong person, and filling in
+    // from the row would put one person's identity number in another's record.
+    const plan = planImport(
+      [
+        prepared(COMPLETE, {
+          identityNumberIndex: "pin-row",
+          emailIndex: "email-index",
+        }),
+      ],
+      snapshot({
+        personsByEmail: new Map([["email-index", ["person-a"]]]),
+        personNames: new Map([["person-a", "Anna Lindqvist"]]),
+        identityNumberIndexByPerson: new Map([["person-a", "pin-a"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.rows[0]?.matchedPersonId).toBeNull();
+    expect(plan.rows[0]?.matchedBy).toBe("email");
+    expect(plan.rows[0]?.mismatch).toBe("personalIdentityNumber");
+    expect(plan.rows[0]?.candidates).toEqual([
+      { personId: "person-a", name: "Anna Lindqvist" },
+    ]);
+  });
+
+  it("waits for a decision when an email match has a different name", () => {
+    const plan = planImport(
+      [prepared(COMPLETE, { emailIndex: "email-index" })],
+      snapshot({
+        personsByEmail: new Map([["email-index", ["person-a"]]]),
+        personNames: new Map([["person-a", "Bertil Lindqvist"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.rows[0]?.mismatch).toBe("name");
+  });
+
+  it("reads a name that differs only in case and spacing as the same", () => {
+    const plan = planImport(
+      [prepared(COMPLETE, { emailIndex: "email-index" })],
+      snapshot({
+        personsByEmail: new Map([["email-index", ["person-a"]]]),
+        personNames: new Map([["person-a", "anna  LINDQVIST"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.mismatch).toBeNull();
+  });
+
+  it("waits for a decision when an apartment-and-name match has a different identity number", () => {
+    const plan = planImport(
+      [prepared(COMPLETE, { identityNumberIndex: "pin-row" })],
+      snapshot({
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-a"],
+          ],
+        ]),
+        personNames: new Map([["person-a", "Anna Lindqvist"]]),
+        identityNumberIndexByPerson: new Map([["person-a", "pin-a"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.rows[0]?.matchedBy).toBe("apartmentAndName");
+    expect(plan.rows[0]?.mismatch).toBe("personalIdentityNumber");
+  });
+
+  it("updates when the matched person has no identity number to contradict", () => {
+    const plan = planImport(
+      [
+        prepared(COMPLETE, {
+          identityNumberIndex: "pin-row",
+          emailIndex: "email-index",
+        }),
+      ],
+      snapshot({
+        personsByEmail: new Map([["email-index", ["person-a"]]]),
+        personNames: new Map([["person-a", "Anna Lindqvist"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.matchedPersonId).toBe("person-a");
+  });
+
+  it("does not second-guess an identity-number match on the name", () => {
+    // A name changes over a lifetime; the identity number does not.
+    const plan = planImport(
+      [prepared(COMPLETE, { identityNumberIndex: "pin-a" })],
+      snapshot({
+        personsByIdentityNumber: new Map([["pin-a", ["person-a"]]]),
+        personNames: new Map([["person-a", "Anna Berg"]]),
+        identityNumberIndexByPerson: new Map([["person-a", "pin-a"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.matchedPersonName).toBe("Anna Berg");
   });
 });
 

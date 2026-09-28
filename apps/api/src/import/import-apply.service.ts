@@ -541,6 +541,12 @@ export class ImportApplyService implements OnModuleInit {
    * does not have and never overwrites what it does: a spreadsheet is not a
    * more reliable source than the register it is being loaded into, and a bulk
    * overwrite is how a register stops being evidence.
+   *
+   * The identity number is the exception to filling in: it is written onto an
+   * existing person only when the row reached them through that number. An
+   * email address or a name says who a row is probably about, and an identity
+   * number stored on the strength of a probably is one person's number in
+   * another person's record.
    */
   private async upsertPerson(
     tx: Prisma.TransactionClient,
@@ -614,6 +620,7 @@ export class ImportApplyService implements OnModuleInit {
       data.phoneIndex = values.phone.index;
     }
     if (
+      row.matchedBy === "personalIdentityNumber" &&
       existing.personalIdentityNumberCipher === null &&
       values.personalIdentityNumber !== null
     ) {

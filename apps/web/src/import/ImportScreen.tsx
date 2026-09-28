@@ -54,7 +54,9 @@ import {
  * register does not have and never overwrites what it does. And a row matching
  * more than one person is not resolved by the import: it waits, because the two
  * candidates are usually a parent and a child of the same name in the same
- * apartment.
+ * apartment. So does a row whose identity number or name contradicts the one
+ * person it matched: an email address or a name reached them, and neither says
+ * the row is about them.
  *
  * The fourth step is not this screen's work. Writing the register is a
  * background job, and the screen only watches it: it asks the API how far the
@@ -681,6 +683,13 @@ function PreviewRow({
               {`${t("import.preview.matchedBy")}: ${t(`import.matchedBy.${row.matchedBy}`)}`}
             </span>
           )}
+          {row.matchedPersonName === null ? null : (
+            // Who the row will be written to, so the board can see the match
+            // is the person the row is about before anything is written.
+            <span className="text-chip text-ink-muted">
+              {`${t("import.preview.matchedPerson")}: ${row.matchedPersonName}`}
+            </span>
+          )}
         </span>
       </td>
       <td className={`${CELL} text-body text-ink`}>
@@ -703,37 +712,42 @@ function PreviewRow({
       </td>
       <td className={`${CELL} text-small text-ink-muted`}>
         {row.outcome === "ambiguous" ? (
-          <label className="flex flex-col gap-1">
-            <span className="text-chip uppercase">
-              {t("import.preview.decision")}
-            </span>
-            <select
-              value={decisionValue}
-              onChange={(event) => {
-                const value = event.target.value;
-                onDecide(
-                  row.rowNumber,
-                  value === "create"
-                    ? { action: "create" }
-                    : value === "skip"
-                      ? { action: "skip" }
-                      : { action: "use-person", personId: value },
-                );
-              }}
-              className={FIELD}
-            >
-              <option value="" />
-              {row.candidates.map((candidate) => (
-                <option key={candidate.personId} value={candidate.personId}>
-                  {candidate.name}
+          <div className="flex flex-col gap-1">
+            {row.mismatch === null ? null : (
+              <span>{t(`import.mismatch.${row.mismatch}`)}</span>
+            )}
+            <label className="flex flex-col gap-1">
+              <span className="text-chip uppercase">
+                {t("import.preview.decision")}
+              </span>
+              <select
+                value={decisionValue}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  onDecide(
+                    row.rowNumber,
+                    value === "create"
+                      ? { action: "create" }
+                      : value === "skip"
+                        ? { action: "skip" }
+                        : { action: "use-person", personId: value },
+                  );
+                }}
+                className={FIELD}
+              >
+                <option value="" />
+                {row.candidates.map((candidate) => (
+                  <option key={candidate.personId} value={candidate.personId}>
+                    {candidate.name}
+                  </option>
+                ))}
+                <option value="create">
+                  {t("import.preview.decisionCreate")}
                 </option>
-              ))}
-              <option value="create">
-                {t("import.preview.decisionCreate")}
-              </option>
-              <option value="skip">{t("import.preview.decisionSkip")}</option>
-            </select>
-          </label>
+                <option value="skip">{t("import.preview.decisionSkip")}</option>
+              </select>
+            </label>
+          </div>
         ) : row.problems.length === 0 ? (
           <NotRecorded meaning={t("import.preview.noValue.problems")} />
         ) : (
