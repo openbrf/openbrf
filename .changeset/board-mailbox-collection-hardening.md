@@ -27,6 +27,9 @@ longer records the file name of an attachment the collection stores or removes. 
 from a letter that is stored for good: the letter is tried again with it.
 
 The collection reads no more than four times the stored length of a letter's
-body, and still says when a letter was cut. A sender address carrying a control
+body, decodes no more of its bytes than that needs, and still says when a letter
+was cut. A letter written as alternatives nested inside each other is read in
+time proportional to its parts: each alternative used to be read twice when none
+of them was plain text, so every level of nesting doubled the work. A sender address carrying a control
 character is refused. Characters that reorder text are removed from attachment
 names, so a name cannot show as a different file type from the one it has.

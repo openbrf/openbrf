@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   addressFrom,
@@ -710,6 +710,125 @@ describe("readMessage", () => {
 
     expect(message.text).toBe("");
     expect(message.textTruncated).toBe(true);
+  });
+
+  it("decodes no more of a body's bytes than the bound, and says it was cut", () => {
+    const decode = vi.spyOn(TextDecoder.prototype, "decode");
+    try {
+      const message = readMessage(
+        raw("From: <sender@example.test>", "", "a".repeat(3_000_000), ""),
+      );
+
+      const longest = Math.max(
+        ...decode.mock.calls.map(([input]) =>
+          ArrayBuffer.isView(input) ? input.byteLength : 0,
+        ),
+      );
+      expect(longest).toBeLessThan(2_000_000);
+      expect(message.textTruncated).toBe(true);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it("says a body was cut when its cut bytes decode to nothing", () => {
+    // Soft line breaks decode to nothing, so no cut after decoding sees how much
+    // of the body there was.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: text/plain",
+        "Content-Transfer-Encoding: quoted-printable",
+        "",
+        `${"=\r\n".repeat(1_000_000)}Hej`,
+        "",
+      ),
+    );
+
+    expect(message.text).not.toContain("Hej");
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("reads each part of nested alternatives once", () => {
+    // Each level is one alternative around the next, with an HTML letter at the
+    // bottom. Reading every level's children twice - once for plain text, once
+    // for anything - reads that letter 2^levels times.
+    const levels = 12;
+    const lines = ["From: <sender@example.test>"];
+    for (let level = 0; level < levels; level += 1) {
+      const boundary = `alt${String(level)}x`;
+      lines.push(
+        `Content-Type: multipart/alternative; boundary=${boundary}`,
+        "",
+        `--${boundary}`,
+      );
+    }
+    lines.push("Content-Type: text/html; charset=utf-8", "", "<p>Hej</p>", "");
+
+    const decode = vi.spyOn(TextDecoder.prototype, "decode");
+    try {
+      const message = readMessage(raw(...lines));
+
+      expect(message.text).toBe("Hej");
+      expect(message.textFromHtml).toBe(true);
+      expect(decode.mock.calls.length).toBeLessThanOrEqual(levels + 1);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it("prefers plain text inside a nested alternative over a later HTML one", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=OUTER",
+        "",
+        "--OUTER",
+        "Content-Type: multipart/alternative; boundary=INNER",
+        "",
+        "--INNER",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Inre rendering</p>",
+        "--INNER",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Vad avsandaren skrev",
+        "--INNER--",
+        "--OUTER",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Yttre rendering</p>",
+        "--OUTER--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Vad avsandaren skrev");
+    expect(message.textFromHtml).toBe(false);
+  });
+
+  it("takes the last HTML alternative when no alternative is plain text", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Forsta</p>",
+        "--SEP",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Sista</p>",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Sista");
+    expect(message.textFromHtml).toBe(true);
   });
 
   it("does not split a character when it cuts a body", () => {

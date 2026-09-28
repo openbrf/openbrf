@@ -68,6 +68,17 @@ export const MAX_TEXT_CHARACTERS = 20_000;
  */
 const MAX_BODY_INPUT = 4 * MAX_TEXT_CHARACTERS;
 
+/**
+ * How many of a body's bytes are decoded to produce that much text.
+ *
+ * The cut above bounds the passes over the text, but the transfer and charset
+ * decoding before it would still run over every byte the sender sent. This
+ * bounds them too, with room for the most a character can cost: four bytes in
+ * any charset the decoder knows, three times that written as quoted-printable,
+ * and a margin for the line breaks around it.
+ */
+const MAX_BODY_BYTES = 16 * MAX_BODY_INPUT;
+
 /** One file that arrived attached to a message. */
 export interface MimeAttachment {
   /**
@@ -539,10 +550,7 @@ interface ChosenBody {
 function chooseBody(part: MimePart): ChosenBody | null {
   if (part.children !== null) {
     if (part.contentType.subtype === "alternative") {
-      return (
-        lastBody(part.children, (candidate) => candidate.fromHtml === false) ??
-        lastBody(part.children, () => true)
-      );
+      return lastBody(part.children);
     }
     for (const child of part.children) {
       const chosen = chooseBody(child);
@@ -558,7 +566,13 @@ function chooseBody(part: MimePart): ChosenBody | null {
   }
 
   const charset = part.contentType.parameters.get("charset") ?? "utf-8";
-  const decoded = decodeBytes(decodeTransfer(part), charset);
+  const cut = part.body.length > MAX_BODY_BYTES;
+  const decoded = decodeBytes(
+    decodeTransfer(
+      cut ? { ...part, body: part.body.subarray(0, MAX_BODY_BYTES) } : part,
+    ),
+    charset,
+  );
   const read = prefix(decoded, MAX_BODY_INPUT);
 
   const fromHtml = part.contentType.subtype === "html";
@@ -573,7 +587,7 @@ function chooseBody(part: MimePart): ChosenBody | null {
     // shorter than the bound - an HTML letter whose text sat behind its markup -
     // and the board is owed the same notice for it.
     truncated:
-      read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
+      cut || read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
     fromHtml,
   };
 }
@@ -590,21 +604,32 @@ function prefix(text: string, length: number): string {
   return text.slice(0, last >= 0xd800 && last <= 0xdbff ? length - 1 : length);
 }
 
-function lastBody(
-  children: readonly MimePart[],
-  accept: (candidate: ChosenBody) => boolean,
-): ChosenBody | null {
+/**
+ * The body of a `multipart/alternative`: the last plain-text child, or else the
+ * last child with a body at all.
+ *
+ * One pass, reading each child once. Two passes - one for plain text, one for
+ * anything - would read every child of an HTML-only alternative twice, and an
+ * alternative nested inside another as often as the sender cares to: twenty
+ * levels, the most the walk allows, read the HTML at the bottom a million times.
+ */
+function lastBody(children: readonly MimePart[]): ChosenBody | null {
+  let last: ChosenBody | null = null;
   for (let index = children.length - 1; index >= 0; index -= 1) {
     const child = children[index];
     if (child === undefined) {
       continue;
     }
     const chosen = chooseBody(child);
-    if (chosen !== null && accept(chosen)) {
+    if (chosen === null) {
+      continue;
+    }
+    if (!chosen.fromHtml) {
       return chosen;
     }
+    last ??= chosen;
   }
-  return null;
+  return last;
 }
 
 /**
