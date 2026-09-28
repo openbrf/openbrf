@@ -1122,6 +1122,86 @@ describe("the purge", () => {
     ).toBeNull();
   });
 
+  it("sees a held resident whose residency lands while it runs", async () => {
+    /*
+     * The flat has nobody on record when the purge starts. An import is
+     * bringing in a household that left years ago, and one of them is under a
+     * hold; their residency is written but not yet committed. Read before the
+     * transaction, the purge found no residents, checked nobody and erased the
+     * charge the hold was placed to keep.
+     *
+     * The import is held open here rather than raced, as the correction test
+     * above does it: it takes the apartment's key, writes the residency and
+     * waits, so the purge meets exactly the window the key exists for.
+     */
+    const held = await agedCharge({
+      apartmentId: secondApartmentId,
+      chargedOn: "2026-06-05",
+    });
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: gammal.personId,
+        reason: "Tvist om en debitering fran tiden i lagenheten",
+        placedByPersonId: board.personId,
+      },
+      select: { id: true },
+    });
+
+    try {
+      let commitImport = (): void => undefined;
+      const importHeld = new Promise<void>((resolve) => {
+        commitImport = (): void => {
+          resolve();
+        };
+      });
+      let importReady = (): void => undefined;
+      const importStarted = new Promise<void>((resolve) => {
+        importReady = resolve;
+      });
+
+      const residencyImport = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency-apartment:${secondApartmentId}`}))`;
+          await tx.residency.create({
+            data: {
+              personId: gammal.personId,
+              apartmentId: secondApartmentId,
+              role: "MEMBER",
+              movedInOn: new Date("2020-01-01"),
+              movedOutOn: new Date("2026-08-31"),
+            },
+          });
+          importReady();
+          await importHeld;
+        },
+        { timeout: 20_000 },
+      );
+
+      await importStarted;
+      const purge = app
+        .get(MemberChargePurgeService)
+        .purgeParty(
+          { kind: "apartment", id: secondApartmentId },
+          new Date("2034-01-01T03:17:00.000+01:00"),
+        );
+
+      await settle();
+      commitImport();
+      await residencyImport;
+
+      expect(await purge).toBe(0);
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: held } }),
+      ).not.toBeNull();
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.residency.deleteMany({
+        where: { personId: gammal.personId, apartmentId: secondApartmentId },
+      });
+      await prisma.memberCharge.deleteMany({ where: { id: held } });
+    }
+  });
+
   it("counts from the financial year the charge was recorded under", async () => {
     /*
      * A charge carries the month the association's year began in when it was

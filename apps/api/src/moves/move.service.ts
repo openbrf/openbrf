@@ -19,7 +19,10 @@ import {
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
-import { lockResidencyTransitions } from "../registers/residency-lock";
+import {
+  lockApartmentResidencies,
+  lockResidencyTransitions,
+} from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 
@@ -267,6 +270,9 @@ export class MoveService implements OnModuleInit {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // The apartment first: a purge deciding from who has ever lived here
+      // must either see this residency or finish before it exists.
+      await lockApartmentResidencies(tx, apartment.id);
       await lockResidencyTransitions(tx, person.id);
 
       // A residency on this apartment that would overlap the new one: open, or

@@ -1390,6 +1390,87 @@ describe("the purge", () => {
     await clearFees();
   });
 
+  it("sees a held resident whose residency lands while it runs", async () => {
+    /*
+     * The flat has nobody on record when the purge starts. An import is
+     * bringing in a household that left years ago, and one of them is under a
+     * hold; their residency is written but not yet committed. Read before the
+     * transaction, the purge found no residents, checked nobody and erased the
+     * rates the hold was placed to keep.
+     *
+     * The import is held open rather than raced: it takes the apartment's key,
+     * writes the residency and waits, so the purge meets exactly the window
+     * the key exists for.
+     */
+    await recordFee(
+      feeOn({ apartmentId: emptyApartmentId, appliesFrom: "2020-01-01" }),
+    );
+    await recordFee(
+      feeOn({ apartmentId: emptyApartmentId, appliesFrom: "2020-07-01" }),
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: manager.personId,
+        reason: `Tvist fran tiden i lagenheten ${suffix}`,
+        placedByPersonId: board.personId,
+      },
+    });
+
+    try {
+      let commitImport = (): void => undefined;
+      const importHeld = new Promise<void>((resolve) => {
+        commitImport = (): void => {
+          resolve();
+        };
+      });
+      let importReady = (): void => undefined;
+      const importStarted = new Promise<void>((resolve) => {
+        importReady = resolve;
+      });
+
+      const residencyImport = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency-apartment:${emptyApartmentId}`}))`;
+          await tx.residency.create({
+            data: {
+              personId: manager.personId,
+              apartmentId: emptyApartmentId,
+              role: "MEMBER",
+              movedInOn: new Date("2019-01-01"),
+              movedOutOn: new Date("2021-12-31"),
+            },
+          });
+          importReady();
+          await importHeld;
+        },
+        { timeout: 20_000 },
+      );
+
+      await importStarted;
+      const purge = app
+        .get(FeePurgeService)
+        .purgeApartment(
+          emptyApartmentId,
+          new Date("2029-01-02T12:00:00.000+01:00"),
+        );
+
+      await settle();
+      commitImport();
+      await residencyImport;
+
+      expect(await purge).toEqual({ fees: 0, notices: 0 });
+      expect(
+        await prisma.fee.count({ where: { apartmentId: emptyApartmentId } }),
+      ).toBe(2);
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.residency.deleteMany({
+        where: { personId: manager.personId, apartmentId: emptyApartmentId },
+      });
+      await clearFees();
+    }
+  });
+
   it("erases a notice and the run once nothing of it is left", async () => {
     await recordFee(feeOn({ appliesFrom: "2020-01-01" }));
     const run = await inject({

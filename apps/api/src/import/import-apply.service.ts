@@ -11,7 +11,10 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { lockResidencyTransitionsInOrder } from "../registers/residency-lock";
+import {
+  lockApartmentResidenciesInOrder,
+  lockResidencyTransitionsInOrder,
+} from "../registers/residency-lock";
 import {
   type ImportField,
   IMPORT_FIELDS,
@@ -353,6 +356,13 @@ export class ImportApplyService implements OnModuleInit {
         if (claimed.count === 0) {
           return null;
         }
+
+        // The apartments first, before the persons: the charge and fee purges
+        // decide from everybody who has ever lived in an apartment, and a
+        // historical residency this chunk adds has to be either seen by them
+        // or written after they finish. Ahead of the transition locks, in the
+        // order lockApartmentResidencies gives.
+        await lockApartmentResidenciesInOrder(tx, residencyApartments(plan));
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided by counting the person's
@@ -852,6 +862,20 @@ type RowTarget =
  * refuses to run at all while one is unanswered. A row that shares a new person
  * with an earlier row follows that row, and is skipped when the earlier one was.
  */
+/**
+ * The apartments a chunk may write a residency on.
+ *
+ * Every row that names one and is not an error, whether or not it turns out to
+ * write: a row skipped or already present costs a lock nobody else was waiting
+ * for, and one missed would be a residency written past a purge that never saw
+ * it.
+ */
+function residencyApartments(plan: ImportPlan): string[] {
+  return plan.rows.flatMap((row) =>
+    row.outcome !== "error" && row.apartment !== null ? [row.apartment.id] : [],
+  );
+}
+
 /**
  * The persons a chunk will write to that the register already holds.
  *
