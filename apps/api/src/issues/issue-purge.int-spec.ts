@@ -597,12 +597,19 @@ describe("a report whose address is a withheld person's", () => {
      * perform.
      */
     const issueId = await agedWithheldReport("Hissen stannar mellan vaningar.");
+    // And one from an address no hold or restriction matches, aged the same.
+    // The restriction keeps its own person's report and nobody else's: a scan
+    // or a check that dropped every address once anybody was withheld would
+    // look, from the withheld report alone, exactly like one that works.
+    const unrelatedId = await reportPublicly("Taklampa trasig i tvattstugan.");
+    await close(unrelatedId);
+    await closedDaysAgo(unrelatedId, ISSUE_RETENTION_DAYS + 1);
     await restrict(true);
 
     try {
-      expect(
-        await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
-      ).not.toContain(issueId);
+      const eligible = await purge.eligible(new Date(), ISSUE_RETENTION_DAYS);
+      expect(eligible).not.toContain(issueId);
+      expect(eligible).toContain(unrelatedId);
       await expect(purge.purgeIssue(issueId)).resolves.toBe(false);
       await purge.run();
 
@@ -611,6 +618,12 @@ describe("a report whose address is a withheld person's", () => {
       expect(after.reporterEmailCipher).not.toBeNull();
       expect(after.reporterEmailIndex).not.toBeNull();
       expect(await purgeEntries(issueId)).toBe(0);
+
+      const unrelated = await read(unrelatedId);
+      expect(unrelated.reporterNameCipher).toBeNull();
+      expect(unrelated.reporterEmailCipher).toBeNull();
+      expect(unrelated.reporterEmailIndex).toBeNull();
+      expect(await purgeEntries(unrelatedId)).toBe(1);
     } finally {
       await restrict(false);
     }

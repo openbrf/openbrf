@@ -312,10 +312,10 @@ export class DataSubjectRequestService {
       await lockLegalHold(tx, existing.personId);
       /*
        * And the registry, for the reader that cannot name this person: a
-       * granted restriction stops the board mailbox purge as a hold does, and
-       * that purge discovers the person from an address and so takes only this
-       * key. In the order `LegalHoldService.place` takes the two. See
-       * `legal-hold-lock.ts`.
+       * granted restriction stops the board mailbox purge and the public-form
+       * issue purge as a hold does, and both discover the person from an
+       * address and so take only this key. In the order
+       * `LegalHoldService.place` takes the two. See `legal-hold-lock.ts`.
        */
       await lockLegalHoldRegistry(tx);
       await lockResidencyTransitions(tx, existing.personId);

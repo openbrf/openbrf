@@ -5,6 +5,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
@@ -226,15 +227,7 @@ export class IssuePurgeService implements OnModuleInit {
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = issuePurgeCutoff(now, retentionDays);
-    const withheld = [
-      ...(
-        await withheldAddressIndexes(
-          this.prisma,
-          this.encryption,
-          "issue.reporterEmail",
-        )
-      ).keys(),
-    ];
+    const withheld = [...(await this.withheldAddresses(this.prisma)).keys()];
 
     const issues = await this.prisma.issue.findMany({
       where: {
@@ -300,11 +293,6 @@ export class IssuePurgeService implements OnModuleInit {
     const cutoff = issuePurgeCutoff(now, retentionDays);
 
     return this.prisma.$transaction(async (tx) => {
-      // Before anything is read about holds, and taken whether or not this
-      // report turns out to be withheld: in the ordinary case the address is
-      // nobody's, and there is then no person's key to take.
-      await lockLegalHoldRegistry(tx);
-
       const issue = await tx.issue.findUnique({
         where: { id: issueId },
         select: { reporterEmailIndex: true },
@@ -312,17 +300,18 @@ export class IssuePurgeService implements OnModuleInit {
       if (issue === null) {
         return false;
       }
-      if (
-        issue.reporterEmailIndex !== null &&
-        (
-          await withheldAddressIndexes(
-            tx,
-            this.encryption,
-            "issue.reporterEmail",
-          )
-        ).has(issue.reporterEmailIndex)
-      ) {
-        return false;
+      // A report that left no address matches nobody, whatever holds stand, so
+      // there is nothing to order against a placement. The address is written
+      // when the report is filed and cleared only here, so it cannot appear
+      // between this read and the update.
+      if (issue.reporterEmailIndex !== null) {
+        // Before anything is read about holds, and taken whether or not this
+        // report turns out to be withheld: in the ordinary case the address is
+        // nobody's, and there is then no person's key to take.
+        await lockLegalHoldRegistry(tx);
+        if ((await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)) {
+          return false;
+        }
       }
 
       const { count } = await tx.issue.updateMany({
@@ -371,5 +360,15 @@ export class IssuePurgeService implements OnModuleInit {
 
       return true;
     });
+  }
+
+  private withheldAddresses(
+    client: Prisma.TransactionClient,
+  ): Promise<Map<string, string>> {
+    return withheldAddressIndexes(
+      client,
+      this.encryption,
+      "issue.reporterEmail",
+    );
   }
 }
