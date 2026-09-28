@@ -219,6 +219,10 @@ describe("pluginPackageProblems", () => {
     ["a line break before the parenthesis", 'require\n("lodash");'],
     ["a comment before the parenthesis", 'require /* bundled */ ("lodash");'],
     ["a member call", 'module.require("lodash");'],
+    ["an optional call", 'require?.("lodash");'],
+    ["an optional member call", 'module?.require("lodash");'],
+    ["an escaped letter in the name", 'requ\\u0069re("lodash");'],
+    ["a braced escape in the name", '\\u{72}equire("lodash");'],
   ])("reports a foreign module required with %s", (_how, line) => {
     expect(problemsWith(line)).toEqual([expect.stringMatching(FOREIGN)]);
   });
@@ -279,8 +283,71 @@ describe("pluginPackageProblems", () => {
     ["an optional method call", "ctx?.require(name);"],
     ["a function of that name", "function require(name) { return name; }"],
     ["a reference that is not called", "const resolve = require.resolve;"],
+    [
+      "an object's method",
+      "const loader = { require(name) { return name; } };",
+    ],
+    ["a class's method", "class Loader { static require(name) {} }"],
+    ["an accessor", "const loader = { get require() { return 1; } };"],
+    ["a method with a default", 'const o = { require(n = f("x")) {} };'],
+    ["a private method", "class Loader { #require(name) {} }"],
+    ["a call to a private method", "this.#require(name);"],
+    ["a method's body opened after a comment", "({ require(n) /* c */ {} });"],
   ])("does not read require in %s as a call", (_how, line) => {
     expect(problemsWith(line)).toEqual([]);
+  });
+
+  it("still reads the calls inside a method named require", () => {
+    expect(
+      problemsWith('const o = { require(n) { return require("lodash"); } };'),
+    ).toEqual([expect.stringMatching(FOREIGN)]);
+  });
+
+  it("reads a call followed by a block on the next line as a call", () => {
+    // The line break ends the statement, so this is a call and then a block.
+    expect(problemsWith('require("lodash")\n{ start(); }')).toEqual([
+      expect.stringMatching(FOREIGN),
+    ]);
+  });
+
+  it("counts a call whose parenthesis is never closed", () => {
+    expect(problemsWith('require("lodash"')).toEqual([COMPUTED]);
+  });
+
+  // Each of these once hid the require after it from the check.
+  it.each([
+    ["a division after an increment", 'a++ / b; const l = require("lodash");'],
+    ["a division after a decrement", 'a-- / b; const l = require("lodash");'],
+    ["a line comment ended by CR", '// note\rrequire("lodash");'],
+    ["a line comment ended by U+2028", '// note\u2028require("lodash");'],
+    ["a line comment ended by U+2029", '// note\u2029require("lodash");'],
+    ["a string ended by CR", 'const s = "open\rrequire("lodash");'],
+    [
+      "a string continued over CRLF",
+      'const s = "a\\\r\nb"; require("lodash");',
+    ],
+    ["a regular expression ended by CR", 'const r = /open\rrequire("lodash");'],
+    [
+      "a regular expression ended by U+2028",
+      'const r = /a\u2028require("lodash");',
+    ],
+    [
+      "an escaped line break in a regular expression",
+      'const r = /a\\\nrequire("lodash");',
+    ],
+  ])("still reads the require after %s", (_how, line) => {
+    expect(problemsWith(line)).toEqual([expect.stringMatching(FOREIGN)]);
+  });
+
+  // U+2028 may stand inside a string, so it does not end one.
+  it("reads a string holding U+2028 to its closing quote", () => {
+    expect(problemsWith('const s = "a\u2028 require(name)";')).toEqual([]);
+  });
+
+  it("reads `?.` before a digit as a conditional, not an optional chain", () => {
+    expect(problemsWith('const n = a ?.5 : require("lodash");')).toEqual([
+      expect.stringMatching(FOREIGN),
+    ]);
   });
 
   it("reads a require inside a template's substitution", () => {
@@ -304,6 +371,17 @@ describe("pluginPackageProblems", () => {
     const hostile = `require${"/**/".repeat(50_000)}x`;
     const started = performance.now();
     expect(problemsWith(hostile)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  it.each([
+    ["nested calls", `${"require(".repeat(50_000)}"x"${")".repeat(50_000)}`],
+    ["line comments", "// c\n".repeat(50_000)],
+    ["escaped names", "requ\\u0069re;".repeat(50_000)],
+    ["method parameter lists", "({ require() /**/ {} });".repeat(20_000)],
+  ])("reads a bundle of many %s in linear time", (_what, hostile) => {
+    const started = performance.now();
+    problemsWith(hostile);
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
