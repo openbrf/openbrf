@@ -55,8 +55,10 @@ import type { FeeRegister, FeeRow } from "./fee.service";
  * residency covering its period. A new store of personal data missing from that
  * document is the one failure it cannot have.
  *
- * **The purge erases on the association's financial year and a legal hold stops
- * it**, for real rows, and it never reaches a rate still in force.
+ * **The purge erases on the association's financial year and a legal hold or a
+ * restriction of processing stops it**, for real rows - including a restriction
+ * granted while the purge is in flight - and it never reaches a rate still in
+ * force.
  *
  * **An apartment carrying a fee cannot be removed from the register**, and the
  * refusal names the record in the way rather than surfacing as a foreign key
@@ -229,6 +231,54 @@ async function setStartMonth(month: number): Promise<void> {
   await prisma.association.update({
     where: { id: 1 },
     data: { financialYearStartMonth: month },
+  });
+}
+
+/**
+ * How many transactions hold, or are queued behind, this person's hold key.
+ *
+ * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
+ * halves of a bigint, which is what the shifting reassembles.
+ */
+async function holdLockCount(
+  personId: string,
+  granted: boolean,
+): Promise<bigint> {
+  const key = `legal-hold:${personId}`;
+  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+    SELECT count(*) AS locks
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND granted = ${granted}
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return row?.locks ?? 0n;
+}
+
+/** Polls until the condition holds, or gives up so a failure is a failure. */
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for the purge to block or finish.");
+}
+
+/** Grants or lifts a restriction of processing, as the flag the purge reads. */
+async function setRestricted(
+  personId: string,
+  restricted: boolean,
+): Promise<void> {
+  await prisma.person.update({
+    where: { id: personId },
+    data: { processingRestrictedAt: restricted ? new Date() : null },
   });
 }
 
@@ -1500,6 +1550,90 @@ describe("the purge", () => {
       await clearFees();
     }
   });
+
+  it("is stopped by a restriction on anybody who lived there, until it is lifted", async () => {
+    /*
+     * Art. 18(2): under a restriction the association may store the data and
+     * little else, so erasing it is the one act the person asked it not to
+     * perform. A fee names only the flat, so the restriction is read through
+     * it, the way a hold is. Lifting it hands the rows back to the window, and
+     * the next run erases the ended rate.
+     */
+    await recordFee(feeOn({ appliesFrom: "2020-01-01" }));
+    await recordFee(feeOn({ appliesFrom: "2020-07-01" }));
+    await setRestricted(member.personId, true);
+
+    try {
+      const purge = app.get(FeePurgeService);
+      await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
+      expect(await prisma.fee.count({ where: { apartmentId } })).toBe(2);
+
+      await setRestricted(member.personId, false);
+      await purge.run(new Date("2029-01-02T12:00:00.000+01:00"));
+      expect(await prisma.fee.count({ where: { apartmentId } })).toBe(1);
+    } finally {
+      await setRestricted(member.personId, false);
+      await clearFees();
+    }
+  });
+
+  it("is stopped by a restriction granted while the run is already in flight", async () => {
+    /*
+     * Everything runs at READ COMMITTED. A purge that read "not restricted" and
+     * then deleted would erase exactly the rows a restriction granted a moment
+     * later was meant to keep. The grant takes the person's hold key before it
+     * writes the flag, so it either lands before the purge's read and stops it,
+     * or waits for the purge. The wait is read out of `pg_locks` rather than
+     * inferred from a delay.
+     */
+    await recordFee(feeOn({ appliesFrom: "2020-01-01" }));
+    await recordFee(feeOn({ appliesFrom: "2020-07-01" }));
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    // Longer than the waits below, so the transaction held open on purpose is
+    // not aborted by the five-second default and its lock released early.
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${member.personId}`}))`;
+        await tx.person.update({
+          where: { id: member.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await holdLockCount(member.personId, true)) > 0n,
+      );
+
+      const running = app
+        .get(FeePurgeService)
+        .purgeApartment(apartmentId, new Date("2029-01-02T12:00:00.000+01:00"));
+      await waitFor(
+        async () => (await holdLockCount(member.personId, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      // It erased nothing, because by the time it got the key the restriction
+      // stood.
+      await expect(running).resolves.toEqual({ fees: 0, notices: 0 });
+      expect(await prisma.fee.count({ where: { apartmentId } })).toBe(2);
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await setRestricted(member.personId, false);
+      await clearFees();
+    }
+  }, 60_000);
 
   it("erases a notice and the run once nothing of it is left", async () => {
     await recordFee(feeOn({ appliesFrom: "2020-01-01" }));

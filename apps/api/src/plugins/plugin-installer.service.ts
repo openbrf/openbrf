@@ -147,9 +147,21 @@ export class PluginInstallerService
     await this.enqueue({ reason: "boot", restart: true });
   }
 
-  /** Puts a reconcile on the queue. */
+  /**
+   * Puts a reconcile on the queue.
+   *
+   * A run that ends in a restart makes the restart pending from here rather
+   * than from the end of the reconcile: the caller answers "restarting" as soon
+   * as this returns, and the overview has to agree with that answer for the
+   * whole run. Where plugins are switched off no worker consumes the queue, so
+   * nothing is pending and nothing restarts; the run waits for the first
+   * process that has them on.
+   */
   async enqueue(job: PluginInstallJob): Promise<void> {
-    await this.jobs.send(PLUGIN_INSTALL_QUEUE, { ...job });
+    const id = await this.jobs.send(PLUGIN_INSTALL_QUEUE, { ...job });
+    if (job.restart && this.env.OPENBRF_PLUGINS_ENABLED && id !== null) {
+      this.restart.expectRestart(id);
+    }
   }
 
   /**
@@ -163,22 +175,43 @@ export class PluginInstallerService
     await this.jobs.ensureQueue(PLUGIN_INSTALL_QUEUE);
     const boss = this.jobs.instance;
 
-    await boss.work<PluginInstallJob>(PLUGIN_INSTALL_QUEUE, async (batch) => {
-      for (const job of batch) {
-        await this.reconcile();
-        if (!job.data.restart) {
-          continue;
+    // The metadata says whether a failed run is the last attempt, which is
+    // when the restart it was going to end in stops being owed.
+    const options = { includeMetadata: true } as const;
+    await boss.work<PluginInstallJob, void, typeof options>(
+      PLUGIN_INSTALL_QUEUE,
+      options,
+      async (batch) => {
+        for (const job of batch) {
+          // Marked here as well as at the enqueue: a run the command-line tool
+          // queued was accepted in that process, not in this one.
+          if (job.data.restart) {
+            this.restart.expectRestart(job.id);
+          }
+          try {
+            await this.reconcile();
+          } catch (cause) {
+            // A run with retries left is still owed its restart: pg-boss runs
+            // it again, and that run ends in one.
+            if (job.retryCount >= job.retryLimit) {
+              this.restart.abandonRestart(job.id);
+            }
+            throw cause;
+          }
+          if (!job.data.restart) {
+            continue;
+          }
+          // Deliberately not awaited: the restart must not begin until this
+          // handler has returned and pg-boss has committed the completion,
+          // which is precisely what the coordinator waits for. Awaiting here
+          // would deadlock on a completion that cannot happen yet.
+          void this.restart.restartWhenCommitted(async () => {
+            const stored = await boss.getJobById(PLUGIN_INSTALL_QUEUE, job.id);
+            return stored?.state === "completed";
+          });
         }
-        // Deliberately not awaited: the restart must not begin until this
-        // handler has returned and pg-boss has committed the completion,
-        // which is precisely what the coordinator waits for. Awaiting here
-        // would deadlock on a completion that cannot happen yet.
-        void this.restart.restartWhenCommitted(async () => {
-          const stored = await boss.getJobById(PLUGIN_INSTALL_QUEUE, job.id);
-          return stored?.state === "completed";
-        });
-      }
-    });
+      },
+    );
 
     this.logger.log(`Watching the ${PLUGIN_INSTALL_QUEUE} queue.`);
   }
