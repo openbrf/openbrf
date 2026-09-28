@@ -739,6 +739,29 @@ export async function findPersonIdByName(
   return (await findPersonByName(request, baseUrl, name))?.personId;
 }
 
+/**
+ * Since when the person's processing has been restricted, or null.
+ *
+ * The dated flag every use a restriction stops reads - the mailings, the
+ * resident directory, the published board roster, the purge - so null is what
+ * "no longer withheld" means, and no screen has to be trusted to say it.
+ */
+export async function processingRestrictedAt(
+  request: APIRequestContext,
+  baseUrl: string,
+  personId: string,
+): Promise<string | null> {
+  const response = await request.get(
+    `${baseUrl}/api/address-book/persons/${encodeURIComponent(personId)}`,
+  );
+  await expectOk(response, "GET /api/address-book/persons/:personId");
+  return (
+    (await response.json()) as {
+      readonly processingRestrictedAt: string | null;
+    }
+  ).processingRestrictedAt;
+}
+
 /** A block in a page's body, as the write API takes it. */
 export type SitePageBlock = Record<string, unknown>;
 
