@@ -162,8 +162,9 @@ export interface CollectionSummary {
   /** Messages this instance already held. */
   alreadyHeld: number;
   /**
-   * Messages left where they are: too large, or carrying no address the board
-   * could answer.
+   * Messages left where they are: too large, dated before the retention
+   * window, carrying no address the board could answer, or refused by the
+   * database.
    */
   skipped: number;
 }
@@ -632,7 +633,28 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         // the board would see as a duplicate.
         return "already-held";
       }
-      throw error;
+      if (isTransientFailure(error)) {
+        // Nothing about the letter: the next run tries it again, and the letters
+        // behind it are still tried by this one.
+        this.logger.error(
+          `Board mailbox: a message could not be stored this time: ${failureName(error)}`,
+        );
+        return "skipped";
+      }
+      /*
+       * The database refused this letter as it was read.
+       *
+       * Set aside rather than thrown. Nothing is deleted from the mailbox, so a
+       * letter that stopped the run would stop every run after it at the same
+       * place, and the board would receive nothing from then on. Recorded as
+       * read because the bytes do not change and neither would the answer; the
+       * letter is still in the mailbox for a board member to open.
+       */
+      this.logger.error(
+        `Board mailbox: a message could not be stored and was set aside: ${failureName(error)}`,
+      );
+      await this.ignoreMessage(uid, COLLECTION_REFUSALS.unstorable);
+      return "skipped";
     }
 
     return "collected";
@@ -887,4 +909,66 @@ function isUniqueViolation(error: unknown): boolean {
     error !== null &&
     (error as { code?: unknown }).code === "P2002"
   );
+}
+
+/**
+ * Prisma's codes for a failure of the database rather than of the data: the
+ * connection pool timing out, the transaction API timing out, a write conflict
+ * and too many connections. The P1 range, which is the database being out of
+ * reach, is matched by its prefix.
+ */
+const TRANSIENT_PRISMA_CODES = new Set(["P2024", "P2028", "P2034", "P2037"]);
+
+/**
+ * Prisma's codes for an error PostgreSQL reported that Prisma has no code of
+ * its own for; the SQLSTATE it carries says whether the data was at fault.
+ */
+const DATABASE_ERROR_CODES = new Set(["P2010", "P2039"]);
+
+/**
+ * SQLSTATE classes that say nothing about the data: 08 the connection, 40 a
+ * transaction rolled back, 53 the server out of resources and 57 an operator
+ * or timeout ending the statement or the server. 55P03 is a lock not granted.
+ */
+const TRANSIENT_SQLSTATE_CLASSES = new Set(["08", "40", "53", "57"]);
+
+/**
+ * Whether a database failure says nothing about the letter being written.
+ *
+ * Such a letter would be stored by a later run, so recording it as unstorable
+ * would make a passing failure permanent. Only an answer from the database
+ * about the data - a value a column will not hold, a value too long - is taken
+ * to be the letter's; an error without a Prisma code, such as a connection
+ * dropped by a restarting server, is not.
+ */
+function isTransientFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return true;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (typeof code !== "string") {
+    return true;
+  }
+  if (code.startsWith("P1") || TRANSIENT_PRISMA_CODES.has(code)) {
+    return true;
+  }
+  if (DATABASE_ERROR_CODES.has(code)) {
+    const state = sqlState(error);
+    return (
+      state !== null &&
+      (state === "55P03" || TRANSIENT_SQLSTATE_CLASSES.has(state.slice(0, 2)))
+    );
+  }
+  return false;
+}
+
+/** The SQLSTATE PostgreSQL gave for an error Prisma passed on from the driver. */
+function sqlState(error: object): string | null {
+  const meta = (error as { meta?: unknown }).meta;
+  const state = (
+    meta as
+      | { driverAdapterError?: { cause?: { originalCode?: unknown } } }
+      | undefined
+  )?.driverAdapterError?.cause?.originalCode;
+  return typeof state === "string" ? state : null;
 }

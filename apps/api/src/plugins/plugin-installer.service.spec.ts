@@ -11,10 +11,15 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { Env } from "../config/env";
 import {
   buildDependencySet,
   collectAbandonedStaging,
+  type PluginInstallJob,
+  PluginInstallerService,
+  type ReconcileOutcome,
 } from "./plugin-installer.service";
+import { RestartCoordinator } from "./restart-coordinator.service";
 
 /**
  * The staging root is shared between processes.
@@ -144,5 +149,117 @@ describe("buildDependencySet", () => {
       "openbrf-plugin-notices",
       "openbrf-plugin-occupancy",
     ]);
+  });
+});
+
+/**
+ * A reconcile this process did not accept.
+ *
+ * The command-line tool queues the run the server's worker performs, and the
+ * restart that run ends in is this process's. Unmarked by the worker, the
+ * overview would report nothing pending for as long as the reconcile takes -
+ * npm included, or waiting for the tool's own run to let go of the tree.
+ */
+describe("the queue worker", () => {
+  type Batch = {
+    id: string;
+    data: PluginInstallJob;
+    retryCount: number;
+    retryLimit: number;
+  }[];
+  type Handler = (batch: Batch) => Promise<void>;
+
+  /** A worker whose reconcile is `reconcile`, and the coordinator it marks. */
+  async function worker(
+    reconcile: () => Promise<ReconcileOutcome>,
+  ): Promise<{ handler: Handler; restart: RestartCoordinator }> {
+    let handler: Handler | undefined;
+    const jobs = {
+      ensureQueue: async () => undefined,
+      instance: {
+        work: async (_queue: string, _options: object, registered: Handler) => {
+          handler = registered;
+        },
+      },
+    };
+
+    class Reconciling extends PluginInstallerService {
+      override reconcile(): Promise<ReconcileOutcome> {
+        return reconcile();
+      }
+    }
+
+    const env = {
+      NODE_ENV: "production",
+      OPENBRF_PLUGINS_ENABLED: true,
+    } as unknown as Env;
+    const restart = new RestartCoordinator(env);
+    await new Reconciling(
+      env,
+      {} as never,
+      jobs as never,
+      {} as never,
+      restart,
+      {} as never,
+    ).onModuleInit();
+
+    if (handler === undefined) {
+      throw new Error("no worker was registered");
+    }
+    return { handler, restart };
+  }
+
+  const install = (id: string, retryCount: number, retryLimit = 2): Batch => [
+    {
+      id,
+      data: { reason: "install:occupancy", restart: true },
+      retryCount,
+      retryLimit,
+    },
+  ];
+
+  it("reports the restart a run ends in while the run is still reconciling", async () => {
+    // A reconcile that never finishes, so the run is held inside it.
+    const { handler, restart } = await worker(
+      () => new Promise<ReconcileOutcome>(() => undefined),
+    );
+
+    void handler(install("job-1", 0));
+
+    expect(restart.restartPending).toBe(true);
+  });
+
+  /*
+   * A run that fails for good replaces nothing, and a restart it left pending
+   * would keep the screen's restart notice up for the rest of the process.
+   */
+  describe("when the reconcile fails", () => {
+    const failing = (): Promise<ReconcileOutcome> =>
+      Promise.reject(new Error("npm failed"));
+
+    it("still reports the restart while the run has retries left", async () => {
+      const { handler, restart } = await worker(failing);
+
+      await expect(handler(install("job-1", 1))).rejects.toThrow("npm failed");
+
+      expect(restart.restartPending).toBe(true);
+    });
+
+    it("stops reporting it once the last attempt has failed", async () => {
+      const { handler, restart } = await worker(failing);
+
+      await expect(handler(install("job-1", 2))).rejects.toThrow("npm failed");
+
+      expect(restart.restartPending).toBe(false);
+    });
+
+    it("keeps reporting the restart another run still owes", async () => {
+      const { handler, restart } = await worker(failing);
+      restart.expectRestart("job-2");
+
+      await expect(handler(install("job-1", 2))).rejects.toThrow("npm failed");
+
+      expect(restart.restartPending).toBe(true);
+    });
   });
 });

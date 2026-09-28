@@ -71,8 +71,17 @@ export interface PluginSummary {
 export interface PluginsOverview {
   /** OPENBRF_PLUGINS_ENABLED. When false nothing is loaded or installable. */
   pluginsEnabled: boolean;
-  /** True once an install has asked for the process to be replaced. */
+  /**
+   * True from the moment an operation that ends in a restart is accepted until
+   * this process is replaced.
+   */
   restartPending: boolean;
+  /**
+   * Which process answered: opaque, and different after every restart. The
+   * one part of an answer that tells the replacement from the process it
+   * replaces.
+   */
+  processId: string;
   plugins: PluginSummary[];
   /** Every reason a plugin on the volume is not running. */
   findings: PluginFinding[];
@@ -287,7 +296,8 @@ export class PluginAdminService {
 
     return {
       pluginsEnabled: this.env.OPENBRF_PLUGINS_ENABLED,
-      restartPending: this.restart.restartRequested,
+      restartPending: this.restart.restartPending,
+      processId: this.restart.processId,
       findings: this.loader.report(),
       plugins: records.map((record) => {
         const loaded = this.loader.get(record.id);
@@ -603,7 +613,10 @@ export class PluginAdminService {
     await this.processing.endPlugin(id);
 
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
-    return { restarting: true };
+    // What the overview now says, rather than a constant: with plugins
+    // switched off nothing runs the reconcile and nothing is replaced, and a
+    // screen told otherwise would wait for a process that never comes.
+    return { restarting: this.restart.restartPending };
   }
 
   /**

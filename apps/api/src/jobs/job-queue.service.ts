@@ -196,19 +196,23 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     this.ensuredQueues.add(name);
   }
 
-  /** Enqueues a job for immediate processing. */
+  /**
+   * Enqueues a job for immediate processing.
+   *
+   * Answers the job's id, or null where the backend declined to create one.
+   */
   async send<Data extends object>(
     name: string,
     data: Data,
     options?: JobSendOptions,
-  ): Promise<void> {
+  ): Promise<string | null> {
     await this.ensureQueue(name);
     if (options?.deadLetter !== undefined) {
       // pg-boss requires the queue a job is dead-lettered to, exactly as it
       // requires the queue the job itself goes on.
       await this.ensureQueue(options.deadLetter);
     }
-    await this.boss.send(name, data, options ?? {});
+    return this.boss.send(name, data, options ?? {});
   }
 
   /**

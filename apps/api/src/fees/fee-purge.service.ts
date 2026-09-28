@@ -8,6 +8,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { FINANCIAL_YEAR_START_MONTHS } from "../retention/financial-year";
 import { lockLegalHold } from "../retention/legal-hold-lock";
+import {
+  isAnyPersonWithheld,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
 import { FEE_RETENTION_YEARS, feePurgeCutoff } from "./fee-retention";
 import { FEE_TARGET_KIND } from "./fee.service";
 
@@ -145,6 +149,12 @@ export interface FeePurgeRunSummary {
  * charge. Ever, and not only now, because the rows are from a financial year
  * that has closed and the household that disputes them may have moved out
  * since. That errs towards keeping, which is the direction a hold is for.
+ *
+ * A restriction of processing stops it the same way, read through the same
+ * route. Art. 18(2) lets the association keep storing the data and little
+ * else, so erasing it is the one act the person asked it not to perform;
+ * `retention/withheld-persons.ts` is where every purge asks both questions as
+ * one.
  *
  * The hold is checked twice: once in the scan, and again inside the transaction
  * that deletes. The second one is the one that counts, because a hold placed
@@ -340,20 +350,17 @@ export class FeePurgeService implements OnModuleInit {
         await lockLegalHold(tx, personId);
       }
 
-      if (holdOn.length > 0) {
-        const held = await tx.legalHold.findFirst({
-          where: { personId: { in: holdOn }, releasedAt: null },
-          select: { id: true },
-        });
-        if (held !== null) {
-          /*
-           * Re-checked here rather than trusted from the scan. A hold placed
-           * between the scan and this transaction has to win: the board member
-           * who placed it is entitled to assume it took effect, and this is the
-           * moment where that is either true or a promise nobody kept.
-           */
-          return { fees: 0, notices: 0 };
-        }
+      if (await isAnyPersonWithheld(tx, holdOn)) {
+        /*
+         * Re-checked here rather than trusted from the scan. A hold placed, or
+         * a restriction recorded, between the scan and this transaction has to
+         * win: whoever asked for it is entitled to assume it took effect, and
+         * this is the moment where that is either true or a promise nobody
+         * kept. A restriction refuses for the reason art. 18(2) gives - the
+         * association may store the data, which makes erasing it the one act
+         * the person asked it not to perform.
+         */
+        return { fees: 0, notices: 0 };
       }
 
       const notices = await tx.feeNotice.deleteMany({
@@ -431,24 +438,21 @@ export class FeePurgeService implements OnModuleInit {
   }
 
   /**
-   * Every apartment a legal hold currently reaches.
+   * Every apartment a legal hold or a restriction of processing currently
+   * reaches.
    *
-   * A hold is placed against a person, and a fee names only an apartment, so the
-   * hold is read through the flat: a hold against anybody who has ever held a
-   * residency there keeps that apartment's rows.
+   * Both stand against a person, and a fee names only an apartment, so they are
+   * read through the flat: a hold or a restriction on anybody who has ever held
+   * a residency there keeps that apartment's rows.
    */
   private async heldApartmentIds(): Promise<string[]> {
-    const holds = await this.prisma.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    if (holds.length === 0) {
+    const withheld = await withheldPersonIds(this.prisma);
+    if (withheld.length === 0) {
       return [];
     }
 
     const residencies = await this.prisma.residency.findMany({
-      where: { personId: { in: holds.map((hold) => hold.personId) } },
+      where: { personId: { in: withheld } },
       select: { apartmentId: true },
       distinct: ["apartmentId"],
     });
