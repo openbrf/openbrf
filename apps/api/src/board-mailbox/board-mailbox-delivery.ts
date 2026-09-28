@@ -44,13 +44,17 @@ export type ReplyDeliveryFailure =
   (typeof REPLY_DELIVERY_FAILURES)[keyof typeof REPLY_DELIVERY_FAILURES];
 
 /**
- * Why a collected message was read and then left.
+ * Why a message in the mailbox is not stored, or is no longer.
  *
  * Its own list beside the delivery codes above, and read by nothing on a screen:
  * this one is written into the ledger of messages the collector will not store,
  * so a letter it can do nothing with is not fetched again on every run for as
  * long as the mailbox keeps it. A code rather than prose here for the reason the
  * others are: what could be quoted is a header a stranger wrote.
+ *
+ * Two writers. The collector records a message it read and then left; the purge
+ * records every message it erases with a thread, because that letter is still
+ * in the mailbox and would otherwise be collected again.
  *
  * Only reasons that cannot change. A message this instance would store if it ran
  * again - one too large to fetch, one a retrieval failed on - is not written

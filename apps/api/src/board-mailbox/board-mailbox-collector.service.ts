@@ -521,6 +521,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
        * and recorded as read: time only moves one way, so no later run will
        * judge it differently.
        */
+      this.logger.warn(
+        "Board mailbox: a message dated before the retention window was left in the mailbox.",
+      );
       await this.ignoreMessage(uid, COLLECTION_REFUSALS.pastRetention);
       return "skipped";
     }

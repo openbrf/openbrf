@@ -6496,7 +6496,8 @@ model BoardMailboxAttachment {
   @@map("board_mailbox_attachment")
 }
 
-/// A message in the mailbox that was read and will never be stored.
+/// A message in the mailbox that will not be stored: one read and left, or one
+/// stored once and since erased with its thread.
 ///
 /// Nothing is deleted from the mailbox, so what this instance holds is decided
 /// by what it remembers having seen. A letter it stored is remembered by the
