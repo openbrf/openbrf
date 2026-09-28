@@ -512,6 +512,52 @@ describe("readMessage", () => {
     expect(message.text).toContain("\uFFFD");
   });
 
+  it("keeps no control character in a plain-text body but the line breaks and tabs", () => {
+    // PostgreSQL stores no NUL in a text column, so a body carrying one is a
+    // letter the collector cannot write at all.
+    const message = readMessage(
+      Buffer.concat([
+        raw("From: <sender@example.test>", "", "Ett"),
+        Buffer.from([0x00, 0x07, 0x1b]),
+        raw("\ttva", "tre", ""),
+      ]),
+    );
+
+    expect(message.text).toBe("Ett\ttva\ntre\n");
+  });
+
+  it("keeps no control character in a body that arrives encoded", () => {
+    // The same bytes behind a transfer encoding, which is where a reader that
+    // only looked at the raw message would miss them.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: text/plain; charset=utf-8",
+        "Content-Transfer-Encoding: quoted-printable",
+        "",
+        "Ett=00=0Btva",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Etttva\n");
+  });
+
+  it("keeps no control character in a body read from HTML", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: text/html; charset=utf-8",
+        "Content-Transfer-Encoding: base64",
+        "",
+        Buffer.from("<p>Ett\u0000tva &#0;&#x0;&#00;tre</p>").toString("base64"),
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Etttva tre");
+  });
+
   it("reads a character set it does not know as UTF-8 rather than failing", () => {
     const message = readMessage(
       raw(
@@ -701,5 +747,29 @@ describe("htmlToText", () => {
     // The result is text and is handled as text: entity decoding restores the
     // characters the sender escaped, which is what the sender meant by them.
     expect(htmlToText("<p>&lt;script&gt;</p>")).toBe("<script>");
+  });
+
+  it("decodes an entity for code point zero to nothing", () => {
+    expect(htmlToText("<p>Ett&#0;tva&#x0000;tre</p>")).toBe("Etttvatre");
+  });
+
+  it("decodes no entity to a control character but a line break or a tab", () => {
+    expect(htmlToText("<p>Ett&#27;&#x7;tva&#9;tre&#10;fyra</p>")).toBe(
+      "Etttva\ttre\nfyra",
+    );
+  });
+
+  it("drops the spaces and tabs that end a line", () => {
+    expect(htmlToText("<p>Ett \t </p>tva\t<br>tre   fyra")).toBe(
+      "Ett\ntva\ntre   fyra",
+    );
+  });
+
+  it("reads a long run of spaces with no line break after it in linear time", () => {
+    const started = performance.now();
+    const text = htmlToText(`<p>${" ".repeat(200_000)}x</p>`);
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(text).toBe("x");
   });
 });
