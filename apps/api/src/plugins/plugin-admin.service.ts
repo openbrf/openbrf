@@ -25,6 +25,7 @@ import {
 import { ProcessorFactsService } from "../data-protection/processor-facts.service";
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import { ENV } from "../config/config.module";
+import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
@@ -243,29 +244,40 @@ export class PluginAdminService {
       const t = await this.translator();
       input = {
         classification: "NOT_A_PROCESSOR",
-        note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
+        // An emptied note is no note, so the instance's own reason stands in
+        // for it rather than an empty one `assertConsistent` refuses.
+        note:
+          blankToNull(answer.note) ??
+          t("dataProtection.processors.seed.pluginLocal"),
       };
     } else {
       const recipient = requiredRecipient(answer);
-      // One default, read four times below. Two spellings that drifted apart
-      // would send `record` a classification and processor-only fields that
-      // disagree, and `assertConsistent` would refuse it for a reason the board
-      // cannot act on.
+      // One default, read on every processor-only field below. Two spellings
+      // that drifted apart would send `record` a classification and
+      // processor-only fields that disagree, and `assertConsistent` would
+      // refuse it for a reason the board cannot act on.
       const classification = answer.classification ?? "PROCESSOR";
       const asProcessor = classification === "PROCESSOR";
+      // The agreement's own details - its date, its reference, what it says
+      // about sub-processors - describe an art. 28(3) contract. An independent
+      // controller has none, so an answer that carries them is not recorded
+      // against a recipient they cannot describe.
+      const signedOn = asProcessor ? blankToNull(answer.signedOn) : null;
 
       input = {
         classification,
         status: asProcessor ? (answer.status ?? "PENDING") : null,
-        counterparty: answer.counterparty ?? recipient,
-        reference: answer.reference ?? null,
-        signedOn: answer.signedOn == null ? null : new Date(answer.signedOn),
+        counterparty: blankToNull(answer.counterparty) ?? recipient,
+        reference: asProcessor ? blankToNull(answer.reference) : null,
+        signedOn: signedOn === null ? null : new Date(signedOn),
         termsConfirmed: asProcessor ? (answer.termsConfirmed ?? null) : null,
         subProcessorsAuthorised: asProcessor
           ? (answer.subProcessorsAuthorised ?? null)
           : null,
-        subProcessorNote: answer.subProcessorNote ?? null,
-        note: answer.note ?? null,
+        subProcessorNote: asProcessor
+          ? blankToNull(answer.subProcessorNote)
+          : null,
+        note: blankToNull(answer.note),
       };
     }
 
@@ -773,8 +785,11 @@ function sameDeclaration(
 function requiredRecipient(
   answer: NonNullable<InstallRequest["processorAgreement"]>,
 ): string {
-  const recipient = answer.recipient ?? answer.counterparty;
-  if (recipient === undefined || recipient.trim() === "") {
+  // An emptied field is no answer, so it does not hide the one given in the
+  // other.
+  const recipient =
+    blankToNull(answer.recipient) ?? blankToNull(answer.counterparty);
+  if (recipient === null) {
     throw new PluginRecipientRequiredError();
   }
   return recipient;
