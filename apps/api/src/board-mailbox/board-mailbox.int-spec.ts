@@ -975,9 +975,36 @@ describe("collecting the mailbox", () => {
     }
   });
 
-  it("tries a letter again when the database, not the letter, failed", async () => {
-    const subject = `Senare ${suffix}`;
-    const uid = `uid-transient-${suffix}`;
+  it.each([
+    [
+      // Prisma's code for a database that could not be reached.
+      "an unreachable database",
+      "unreachable",
+      () => Object.assign(new Error("unreachable"), { code: "P1001" }),
+    ],
+    [
+      // What Prisma makes of PostgreSQL's admin_shutdown, a server restarting.
+      "a server shutting down",
+      "shutdown",
+      () =>
+        Object.assign(new Error("Database error. Code: `57P01`."), {
+          code: "P2039",
+          meta: {
+            driverAdapterError: {
+              cause: { kind: "postgres", originalCode: "57P01" },
+            },
+          },
+        }),
+    ],
+    [
+      // The driver's own error, which Prisma passes on without a code.
+      "a dropped connection",
+      "dropped",
+      () => new Error("Connection terminated unexpectedly"),
+    ],
+  ])("tries a letter again after %s", async (_failure, tag, failure) => {
+    const subject = `Senare ${tag} ${suffix}`;
+    const uid = `uid-transient-${tag}-${suffix}`;
     const server = await serveMailbox([
       {
         uid,
@@ -985,17 +1012,14 @@ describe("collecting the mailbox", () => {
           from: CORRESPONDENT,
           subject,
           body: "Ett brev.",
-          messageId: `transient-${suffix}@utanfor.example`,
+          messageId: `transient-${tag}-${suffix}@utanfor.example`,
         }),
       },
     ]);
 
-    // Prisma's code for a database that could not be reached.
     const spy = vi
       .spyOn(prisma, "$transaction")
-      .mockRejectedValueOnce(
-        Object.assign(new Error("unreachable"), { code: "P1001" }),
-      );
+      .mockRejectedValueOnce(failure());
 
     try {
       const first = await collector.collect();

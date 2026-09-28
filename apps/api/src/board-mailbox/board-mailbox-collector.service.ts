@@ -895,24 +895,62 @@ function isUniqueViolation(error: unknown): boolean {
 
 /**
  * Prisma's codes for a failure of the database rather than of the data: the
- * transaction API timing out and a write conflict. The P1 range, which is the
- * database being out of reach, is matched by its prefix.
+ * connection pool timing out, the transaction API timing out, a write conflict
+ * and too many connections. The P1 range, which is the database being out of
+ * reach, is matched by its prefix.
  */
-const TRANSIENT_PRISMA_CODES = new Set(["P2024", "P2028", "P2034"]);
+const TRANSIENT_PRISMA_CODES = new Set(["P2024", "P2028", "P2034", "P2037"]);
+
+/**
+ * Prisma's codes for an error PostgreSQL reported that Prisma has no code of
+ * its own for; the SQLSTATE it carries says whether the data was at fault.
+ */
+const DATABASE_ERROR_CODES = new Set(["P2010", "P2039"]);
+
+/**
+ * SQLSTATE classes that say nothing about the data: 08 the connection, 40 a
+ * transaction rolled back, 53 the server out of resources and 57 an operator
+ * or timeout ending the statement or the server. 55P03 is a lock not granted.
+ */
+const TRANSIENT_SQLSTATE_CLASSES = new Set(["08", "40", "53", "57"]);
 
 /**
  * Whether a database failure says nothing about the letter being written.
  *
  * Such a letter would be stored by a later run, so recording it as unstorable
- * would make a passing failure permanent.
+ * would make a passing failure permanent. Only an answer from the database
+ * about the data - a value a column will not hold, a value too long - is taken
+ * to be the letter's; an error without a Prisma code, such as a connection
+ * dropped by a restarting server, is not.
  */
 function isTransientFailure(error: unknown): boolean {
   if (typeof error !== "object" || error === null) {
-    return false;
+    return true;
   }
   const code = (error as { code?: unknown }).code;
-  return (
-    typeof code === "string" &&
-    (code.startsWith("P1") || TRANSIENT_PRISMA_CODES.has(code))
-  );
+  if (typeof code !== "string") {
+    return true;
+  }
+  if (code.startsWith("P1") || TRANSIENT_PRISMA_CODES.has(code)) {
+    return true;
+  }
+  if (DATABASE_ERROR_CODES.has(code)) {
+    const state = sqlState(error);
+    return (
+      state !== null &&
+      (state === "55P03" || TRANSIENT_SQLSTATE_CLASSES.has(state.slice(0, 2)))
+    );
+  }
+  return false;
+}
+
+/** The SQLSTATE PostgreSQL gave for an error Prisma passed on from the driver. */
+function sqlState(error: object): string | null {
+  const meta = (error as { meta?: unknown }).meta;
+  const state = (
+    meta as
+      | { driverAdapterError?: { cause?: { originalCode?: unknown } } }
+      | undefined
+  )?.driverAdapterError?.cause?.originalCode;
+  return typeof state === "string" ? state : null;
 }
