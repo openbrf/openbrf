@@ -3310,7 +3310,7 @@
       "addressMailed": "The address was mailed to the members, so it cannot be changed.",
       "notPlainText": "That news item holds formatting this editor cannot show. Editing it here would remove it.",
       "notFound": "That news item is gone. The list has been read again.",
-      "hasComments": "Residents have commented on this news item, so it cannot be removed. Take it down instead: the comments are erased on their own schedule, and the item can be removed once they are gone.",
+      "hasComments": "Residents have commented on this news item, so it cannot be removed yet. Taking it down hides it from readers; the comments are erased on their own schedule, and the item can be removed once they are gone.",
       "unknown": "That could not be saved just now. Please try again."
     },
     "site": {
