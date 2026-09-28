@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Req } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -14,13 +15,10 @@ import {
   RegisterReportService,
 } from "./register-report.service";
 
-/** ISO calendar date. A statutory date of record is never guessed from prose. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
-
 const reportMadeSchema = z.object({
   obligationId: z.string().min(1),
   /** The day the anmalan reached Lantmateriet, as the board member states it. */
-  reportedOn: isoDate,
+  reportedOn: calendarDateSchema,
 });
 
 /**

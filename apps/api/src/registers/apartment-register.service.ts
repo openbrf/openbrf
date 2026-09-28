@@ -57,6 +57,7 @@ export type ApartmentRegisterErrorReason =
   | "apartment-not-found"
   | "lien-not-found"
   | "lien-already-released"
+  | "lien-released-before-noted"
   | "transfer-not-found"
   | "membership-decision-already-recorded"
   | "membership-decision-on-a-grant"
@@ -85,6 +86,7 @@ const ERROR_STATUS = {
   "apartment-not-found": 404,
   "lien-not-found": 404,
   "lien-already-released": 409,
+  "lien-released-before-noted": 409,
   "transfer-not-found": 404,
   "membership-decision-already-recorded": 409,
   "membership-decision-on-a-grant": 409,
@@ -378,6 +380,10 @@ export class ApartmentRegisterService {
    * this register does. The log covers changes as well as accesses, and a lien
    * noted against an apartment with nothing saying who noted it would leave the
    * board unable to answer for a statutory date of record.
+   *
+   * The date is refused when it is not on the calendar or has not arrived yet:
+   * a pledge the association has not been told of has no date of record, and
+   * the row is not corrected once written.
    */
   async addLien(input: {
     actorPersonId: string;
@@ -385,6 +391,7 @@ export class ApartmentRegisterService {
     creditor: string;
     notedOn: string;
     amount?: string | null;
+    now?: Date;
   }): Promise<ApartmentRegisterLien> {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id: input.apartmentId },
@@ -397,12 +404,14 @@ export class ApartmentRegisterService {
       );
     }
 
+    const notedOn = statutoryDateColumn(input.notedOn, input.now ?? new Date());
+
     return this.prisma.$transaction(async (tx) => {
       const lien = await tx.lienNote.create({
         data: {
           apartmentId: input.apartmentId,
           creditor: input.creditor,
-          notedOn: new Date(input.notedOn),
+          notedOn,
           amount:
             input.amount === undefined || input.amount === null
               ? null
@@ -440,16 +449,18 @@ export class ApartmentRegisterService {
    * A note that already carries a release date is refused rather than rewritten.
    * The release date is the statutory date of record on a row the database will
    * not let anyone delete, so overwriting it would lose the recorded date with
-   * nothing left saying what it had been.
+   * nothing left saying what it had been. For the same reason the date is
+   * refused when it has not arrived yet or falls before the note it releases.
    */
   async releaseLien(input: {
     actorPersonId: string;
     lienId: string;
     releasedOn: string;
+    now?: Date;
   }): Promise<ApartmentRegisterLien> {
     const existing = await this.prisma.lienNote.findUnique({
       where: { id: input.lienId },
-      select: { id: true, apartmentId: true, releasedOn: true },
+      select: { id: true, apartmentId: true, notedOn: true, releasedOn: true },
     });
     if (existing === null) {
       throw new ApartmentRegisterError("No such lien note.", "lien-not-found");
@@ -461,13 +472,26 @@ export class ApartmentRegisterService {
       );
     }
 
+    const releasedOn = statutoryDateColumn(
+      input.releasedOn,
+      input.now ?? new Date(),
+    );
+    // Both are date columns, midnight UTC, so comparing the instants compares
+    // the days.
+    if (releasedOn.getTime() < existing.notedOn.getTime()) {
+      throw new ApartmentRegisterError(
+        "A lien note cannot be released before the day it was noted.",
+        "lien-released-before-noted",
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       // Conditional on the note still being unreleased, so two releases
       // arriving together cannot both write: the loser sees no row and is
       // answered with the same refusal as a sequential second attempt.
       const claimed = await tx.lienNote.updateMany({
         where: { id: input.lienId, releasedOn: null },
-        data: { releasedOn: new Date(input.releasedOn) },
+        data: { releasedOn },
       });
       if (claimed.count === 0) {
         throw new ApartmentRegisterError(

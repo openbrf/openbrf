@@ -1,5 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import { dateColumnOf, localDayOf } from "@openbrf/shared";
+import { dateColumnOf, localDayOf, parseLocalDay } from "@openbrf/shared";
 
 import type {
   BoardPositionType,
@@ -24,6 +24,7 @@ export type RoleChangeReason =
   | "term-already-ended"
   | "ended-before-elected"
   | "ended-too-far-ahead"
+  | "date-not-a-calendar-date"
   | "last-administrator";
 
 /**
@@ -44,6 +45,7 @@ const ROLE_CHANGE_STATUS: Record<RoleChangeReason, number> = {
   "ended-before-elected": HttpStatus.CONFLICT,
   "ended-too-far-ahead": HttpStatus.CONFLICT,
   "last-administrator": HttpStatus.CONFLICT,
+  "date-not-a-calendar-date": HttpStatus.BAD_REQUEST,
 };
 
 export class RoleChangeError extends DomainError {
@@ -215,7 +217,20 @@ export function revokingWouldLeaveNoAdministrator(input: {
   );
 }
 
-/** An ISO calendar date as the day it names, in UTC. */
+/**
+ * An ISO calendar date as the day it names, in UTC.
+ *
+ * Refused rather than rolled over when the date is not on the calendar: `Date`
+ * reads "2026-02-30" as the 2nd of March, which would put a term on the register
+ * that nobody was elected to.
+ */
 export function parseCalendarDate(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new RoleChangeError(
+      "That is not a calendar date.",
+      "date-not-a-calendar-date",
+    );
+  }
+  return dateColumnOf(day);
 }

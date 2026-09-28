@@ -482,6 +482,56 @@ describe("recording an election", () => {
   });
 });
 
+/*
+ * `Date` reads "2026-02-30" as the 2nd of March, which would put a term on the
+ * register that nobody was elected to, and a month of 13 is an Invalid Date,
+ * which reached the database as a server error rather than a refusal.
+ */
+describe("a date the calendar does not have", () => {
+  it.each(["2026-02-30", "2026-02-29", "2026-13-01"])(
+    "refuses an election on %s and writes no seat",
+    async (electedOn) => {
+      const before = await prisma.boardPosition.count({
+        where: { personId: electee.personId },
+      });
+
+      const response = await inject({
+        method: "POST",
+        url: `/api/board-positions/persons/${electee.personId}`,
+        payload: { position: "DEPUTY_BOARD_MEMBER", electedOn },
+        headers: { cookie: adminCookie },
+      });
+
+      expect(response.statusCode).toBe(400);
+      await expect(
+        prisma.boardPosition.count({ where: { personId: electee.personId } }),
+      ).resolves.toBe(before);
+    },
+  );
+
+  it("refuses ending a term on one and leaves the seat as it was", async () => {
+    const seat = await prisma.boardPosition.findFirstOrThrow({
+      where: { personId: board.personId, position: "BOARD_MEMBER" },
+      select: { id: true, endedOn: true },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/${seat.id}/end`,
+      payload: { endedOn: "2027-04-31" },
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    await expect(
+      prisma.boardPosition.findUniqueOrThrow({
+        where: { id: seat.id },
+        select: { endedOn: true },
+      }),
+    ).resolves.toEqual({ endedOn: seat.endedOn });
+  });
+});
+
 describe("ending a term", () => {
   it("writes the end date and keeps the row", async () => {
     const seat = await elect(

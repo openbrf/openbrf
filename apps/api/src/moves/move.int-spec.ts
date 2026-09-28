@@ -82,6 +82,8 @@ const apartments = {
   refusedGrant: `mv-apartment-k-${suffix}`,
   /** A transfer whose seller the register does not hold. */
   unknownSeller: `mv-apartment-l-${suffix}`,
+  /** Moved into on a date the calendar does not have, and refused. */
+  misdated: `mv-apartment-m-${suffix}`,
 };
 
 const actors = {
@@ -147,6 +149,11 @@ const actors = {
   stale: {
     personId: `mv-stale-${suffix}`,
     email: `mv-stale-${suffix}@exempel.se`,
+  },
+  /** Refused a move-in dated on a day the calendar does not have. */
+  misdated: {
+    personId: `mv-misdated-${suffix}`,
+    email: `mv-misdated-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -331,6 +338,11 @@ beforeAll(async () => {
     personId: actors.stale.personId,
     firstName: "Stina",
     email: actors.stale.email,
+  });
+  await createPerson({
+    personId: actors.misdated.personId,
+    firstName: "Maja",
+    email: actors.misdated.email,
   });
 
   await prisma.residency.create({
@@ -517,6 +529,69 @@ describe("an upplatelse and an overgang are different events", () => {
         where: { apartmentId: apartments.refusedGrant },
       }),
     ).toBe(0);
+  });
+
+  /*
+   * `Date` reads "2026-02-30" as the 2nd of March, and the entry, the transfer
+   * and the obligation a move-in writes are rows the database will not let
+   * anyone correct. A month of 13 is an Invalid Date, which reached the
+   * database as a server error rather than a refusal.
+   */
+  it.each([
+    { movedInOn: "2026-02-30", transferredOn: "2026-02-14" },
+    { movedInOn: "2026-03-01", transferredOn: "2026-02-29" },
+    { movedInOn: "2026-13-01", transferredOn: "2026-02-14" },
+  ])(
+    "refuses a move-in on $movedInOn transferred on $transferredOn and writes nothing",
+    async ({ movedInOn, transferredOn }) => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/moves/move-in",
+        payload: {
+          personId: actors.misdated.personId,
+          apartmentId: apartments.misdated,
+          role: "MEMBER",
+          movedInOn,
+          transfer: {
+            kind: "GRANT",
+            transferredOn,
+            agreementReference: `Upplatelse ${suffix}`,
+          },
+        },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(
+        await prisma.residency.count({
+          where: { personId: actors.misdated.personId },
+        }),
+      ).toBe(0);
+      expect(await registerEntries(actors.misdated.personId)).toEqual([]);
+      expect(
+        await prisma.transfer.count({
+          where: { apartmentId: apartments.misdated },
+        }),
+      ).toBe(0);
+    },
+  );
+
+  it("refuses a date the calendar does not have in the service too", async () => {
+    // The controller refuses first; this is the service's own guard, for a
+    // caller that reaches it without going through the request schema.
+    await expect(
+      moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.misdated.personId,
+        apartmentId: apartments.misdated,
+        role: "MEMBER",
+        movedInOn: "2026-02-30",
+      }),
+    ).rejects.toMatchObject({
+      reason: "date-not-a-calendar-date",
+      status: 400,
+    });
+    expect(await registerEntries(actors.misdated.personId)).toEqual([]);
   });
 
   it("leaves a transfer with an unrecorded seller without a deadline", async () => {
