@@ -637,14 +637,24 @@ describe("the recipients the instance names", () => {
     });
     expect(response.statusCode, response.body).toBe(200);
 
-    const smtp = (
-      response.json() as {
-        processorKey: string;
-        identity: string | null;
-        detail: string | null;
-      }[]
-    ).find((processor) => processor.processorKey === "smtp");
-    expect(smtp).toMatchObject({ identity: api.host, detail: SHARED_SENDER });
+    const processors = response.json() as {
+      processorKey: string;
+      processorKind: string;
+      identity: string | null;
+      detail: string | null;
+    }[];
+    expect(
+      processors.find((processor) => processor.processorKey === "mailApi"),
+    ).toMatchObject({
+      processorKind: "MAIL_API",
+      identity: api.host,
+      detail: SHARED_SENDER,
+    });
+    // The board's stored server is not a recipient while the host sends, so
+    // nothing the board recorded about it is listed against the host's API.
+    expect(processors.map((processor) => processor.processorKey)).not.toContain(
+      "smtp",
+    );
   });
 
   it("are the mail API's host in the record of processing activities", async () => {

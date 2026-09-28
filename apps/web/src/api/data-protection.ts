@@ -175,7 +175,15 @@ export type ProcessorAgreementState =
   | "notRecorded";
 
 export type ProcessorKind =
-  "SMTP" | "SMS" | "STORAGE" | "HOSTING" | "MAILBOX" | "PLUGIN" | "EXTERNAL";
+  | "SMTP"
+  | "HOST_SMTP"
+  | "MAIL_API"
+  | "SMS"
+  | "STORAGE"
+  | "HOSTING"
+  | "MAILBOX"
+  | "PLUGIN"
+  | "EXTERNAL";
 
 export interface ProcessorView {
   processorKey: string;
