@@ -204,6 +204,6 @@ setting does not change that - so it moves no erasure date a data subject access
 report has already stated.
 
 A nightly purge erases the notices and the run once nothing of it is left, unless
-a legal hold stands against anybody who has ever held a residency in the
-apartment. A fee rate still in force is never erased at any age: no preservation
+a legal hold or a restriction of processing stands against anybody who has ever
+held a residency in the apartment. A fee rate still in force is never erased at any age: no preservation
 period has run out on a fact that is still true.
