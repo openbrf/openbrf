@@ -466,6 +466,22 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     return indexes;
   }
 
+  /**
+   * Whether a legal hold or a restriction of processing stands against this
+   * address, given as this table's blind index.
+   *
+   * Asked by the collector about a letter already past the window, which it
+   * would otherwise leave in the mailbox for good. A thread with a withheld
+   * person is exactly what this purge keeps, so a letter to or from one is kept
+   * too, and answered by the same match the purge makes.
+   */
+  async withholds(correspondentEmailIndex: string | null): Promise<boolean> {
+    if (correspondentEmailIndex === null) {
+      return false;
+    }
+    return (await this.heldPersonFor(correspondentEmailIndex)) !== null;
+  }
+
   /** The withheld person whose address this thread is with, if any. */
   private async heldPersonFor(
     correspondentEmailIndex: string,

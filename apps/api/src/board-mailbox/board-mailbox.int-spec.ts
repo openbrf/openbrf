@@ -2109,6 +2109,84 @@ describe("the purge", () => {
     }
   });
 
+  it("collects an old-dated reply to a restricted person's thread rather than leaving it", async () => {
+    /*
+     * A letter past the window is left in the mailbox for good, which is right
+     * for correspondence the purge would erase that night and wrong for one it
+     * keeps. Under a restriction the association was asked not to erase this
+     * person's data, so leaving the letter loses it from the record the
+     * restriction preserves.
+     */
+    const address = `mailbox-restricted-reply-${suffix}@exempel.se`;
+    const subject = `Begransad ${suffix}`;
+    const opening = `restricted-opening-${suffix}@utanfor.example`;
+    await registerAddress(resident.personId, address);
+    await prisma.person.update({
+      where: { id: resident.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+
+    try {
+      const first = await serveMailbox([
+        {
+          uid: `uid-restricted-opening-${suffix}`,
+          raw: letter({
+            from: address,
+            subject,
+            body: "Forsta brevet.",
+            messageId: opening,
+          }),
+        },
+      ]);
+      try {
+        await collector.collect();
+      } finally {
+        await first.close();
+      }
+      const thread = await threadBySubject(subject);
+      const before = await prisma.boardMailboxThread.findUnique({
+        where: { id: thread.id },
+        select: { lastMessageAt: true },
+      });
+
+      const second = await serveMailbox([
+        {
+          uid: `uid-restricted-reply-${suffix}`,
+          raw: letter({
+            from: address,
+            subject: `Re: ${subject}`,
+            body: "Ett svar fran for lange sedan.",
+            messageId: `restricted-reply-${suffix}@utanfor.example`,
+            inReplyTo: opening,
+            date: "Wed, 01 Jan 2020 09:15:00 +0100",
+          }),
+        },
+      ]);
+      try {
+        const summary = await collector.collect();
+        expect(summary.collected).toBe(1);
+        expect(summary.skipped).toBe(0);
+      } finally {
+        await second.close();
+      }
+
+      expect((await threadBySubject(subject)).messageCount).toBe(2);
+      // And the thread's clock stays on its newest letter, or the old date
+      // would hand the recent one to the purge the night the restriction lifts.
+      const after = await prisma.boardMailboxThread.findUnique({
+        where: { id: thread.id },
+        select: { lastMessageAt: true },
+      });
+      expect(after?.lastMessageAt).toEqual(before?.lastMessageAt);
+    } finally {
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { processingRestrictedAt: null },
+      });
+      await registerAddress(resident.personId, null);
+    }
+  });
+
   it("is stopped by a restriction granted while the run is already in flight", async () => {
     /*
      * The purge cannot name the person a thread is with, so it takes the

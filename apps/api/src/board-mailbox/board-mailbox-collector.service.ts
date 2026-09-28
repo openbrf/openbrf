@@ -10,6 +10,7 @@ import { failureName } from "../logging/failure";
 import { MediaError, MediaService } from "../media/media.service";
 import { BoardMailboxError } from "./board-mailbox.error";
 import { COLLECTION_REFUSALS } from "./board-mailbox-delivery";
+import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
@@ -186,6 +187,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly media: MediaService,
     private readonly jobs: JobQueueService,
+    private readonly purge: BoardMailboxPurgeService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -512,23 +514,6 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       return "already-held";
     }
 
-    const occurredAt = trustedDate(parsed.date, now);
-    if (occurredAt.getTime() <= boardMailboxPurgeCutoff(now).getTime()) {
-      /*
-       * A letter already past the retention window when it is first read.
-       *
-       * The date is the one the thread would be anchored on, so storing it
-       * would keep a letter the purge is due to erase that night. Not stored,
-       * and recorded as read: time only moves one way, so no later run will
-       * judge it differently.
-       */
-      this.logger.warn(
-        "Board mailbox: a message dated before the retention window was left in the mailbox.",
-      );
-      await this.ignoreMessage(uid, COLLECTION_REFUSALS.pastRetention);
-      return "skipped";
-    }
-
     if (parsed.fromAddress === null) {
       /*
        * A letter the board could not answer if it wanted to.
@@ -565,6 +550,34 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       "person.email",
       parsed.fromAddress,
     );
+
+    const occurredAt = trustedDate(parsed.date, now);
+    if (
+      occurredAt.getTime() <= boardMailboxPurgeCutoff(now).getTime() &&
+      !(await this.purge.withholds(address.index))
+    ) {
+      /*
+       * A letter already past the retention window when it is first read.
+       *
+       * The date is the one the thread would be anchored on, so storing it
+       * would keep a letter the purge is due to erase that night. Not stored,
+       * and recorded as read: time only moves one way, so no later run will
+       * judge it differently.
+       *
+       * Unless a legal hold or a restriction of processing stands against the
+       * address. The purge keeps that person's correspondence past its window,
+       * so a letter left here would be missing from the very record the hold
+       * or the restriction was placed to preserve - evidence the association
+       * was told to keep, or data it was asked not to erase. Asked here, after
+       * the address is indexed, because the purge matches on nothing else.
+       */
+      this.logger.warn(
+        "Board mailbox: a message dated before the retention window was left in the mailbox.",
+      );
+      await this.ignoreMessage(uid, COLLECTION_REFUSALS.pastRetention);
+      return "skipped";
+    }
+
     const name =
       parsed.fromName === null
         ? null
@@ -701,13 +714,28 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       if (answered !== null) {
         const thread = await tx.boardMailboxThread.findUnique({
           where: { id: answered.threadId },
-          select: { id: true, status: true, takenByPersonId: true },
+          select: {
+            id: true,
+            status: true,
+            takenByPersonId: true,
+            lastMessageAt: true,
+          },
         });
         if (thread !== null) {
           await tx.boardMailboxThread.update({
             where: { id: thread.id },
             data: {
-              lastMessageAt: input.occurredAt,
+              /*
+               * Only ever later. The purge's clock runs from this, so a reply
+               * dated before the thread's newest letter - one kept past the
+               * window under a hold, or one delivered out of order - would
+               * otherwise date the whole conversation back and have the
+               * recent letters on it erased early.
+               */
+              lastMessageAt:
+                input.occurredAt > thread.lastMessageAt
+                  ? input.occurredAt
+                  : undefined,
               /*
                * A conversation the board thought was over is open again.
                *
