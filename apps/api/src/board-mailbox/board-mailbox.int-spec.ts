@@ -231,13 +231,15 @@ function letter(options: {
   messageId: string;
   inReplyTo?: string;
   attachment?: boolean;
+  /** The Date header. A recent fixed date unless a test needs another. */
+  date?: string;
 }): string {
   const headers = [
     `From: Granne <${options.from}>`,
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
     `Message-ID: <${options.messageId}>`,
-    "Date: Tue, 01 Sep 2026 09:15:00 +0200",
+    `Date: ${options.date ?? "Tue, 01 Sep 2026 09:15:00 +0200"}`,
     ...(options.inReplyTo === undefined
       ? []
       : [`In-Reply-To: <${options.inReplyTo}>`]),
@@ -881,6 +883,44 @@ describe("collecting the mailbox", () => {
     }
   });
 
+  it("does not store a letter already past the retention window", async () => {
+    const subject = `Forntida ${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid: `uid-ancient-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev fran for lange sedan.",
+          messageId: `ancient-${suffix}@utanfor.example`,
+          date: "Wed, 01 Jan 2020 09:15:00 +0100",
+        }),
+      },
+    ]);
+
+    try {
+      // Stored, it would be a thread the purge erases the same night: the date
+      // it is anchored on is already more than two years before now.
+      const summary = await collector.collect(
+        new Date("2026-09-28T12:00:00.000Z"),
+      );
+      expect(summary.collected).toBe(0);
+      expect(summary.skipped).toBe(1);
+
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((thread) => thread.subject === subject)).toBe(false);
+
+      // And recorded as read, so the next run does not fetch it again.
+      const again = await collector.collect(
+        new Date("2026-09-28T12:05:00.000Z"),
+      );
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("reports a refused sign-in as its own kind of failure", async () => {
     const server = await startPop3TestServer({
       user: MAILBOX_USER,
@@ -1507,6 +1547,54 @@ describe("the purge", () => {
     expect(entries[0]?.targetKind).toBe("boardMailboxThread");
     // The window it fell out of, and nothing about the correspondence.
     expect(JSON.stringify(entries[0]?.context)).not.toContain("@");
+  });
+
+  it("does not collect a purged letter again from the mailbox", async () => {
+    const subject = `Utgallrad ${suffix}`;
+    const messageId = `purged-${suffix}@utanfor.example`;
+    // The same mailbox before and after the purge: nothing is ever deleted from
+    // it, so the letter is still there once its thread is gone.
+    const server = await serveMailbox([
+      {
+        uid: `uid-purged-${suffix}`,
+        raw: letter({
+          from: `utgallrad-${suffix}@utanfor.example`,
+          subject,
+          body: "Ett brev som ska gallras.",
+          messageId,
+        }),
+      },
+    ]);
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(1);
+
+      const thread = await threadBySubject(subject);
+      await prisma.boardMailboxThread.update({
+        where: { id: thread.id },
+        data: { lastMessageAt: new Date("2020-01-01T00:00:00.000Z") },
+      });
+      expect(
+        await purge.purgeThread(
+          thread.id,
+          new Date("2026-01-01T00:00:00.000Z"),
+        ),
+      ).toBe(true);
+
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+
+      // Nothing of the letter is stored again, under any thread.
+      expect(
+        await prisma.boardMailboxMessage.count({ where: { messageId } }),
+      ).toBe(0);
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((listed) => listed.subject === subject)).toBe(false);
+    } finally {
+      await server.close();
+    }
   });
 
   it("takes an attachment's file and its bytes with the thread", async () => {
