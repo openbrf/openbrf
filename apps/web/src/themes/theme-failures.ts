@@ -10,7 +10,7 @@ import type { TranslationKey } from "../i18n/translation-key";
  * refused by the same rules, with the same findings attached.
  */
 const FAILURE_KEYS: Readonly<Record<string, TranslationKey>> = {
-  "catalog-not-configured": "themeCatalog.errors.catalogNotConfigured",
+  "catalog-source-not-permitted": "themeCatalog.errors.catalogNotPermitted",
   "catalog-unreachable": "themeCatalog.errors.catalogUnreachable",
   "catalog-invalid": "themeCatalog.errors.catalogInvalid",
   "package-unreachable": "themeCatalog.errors.packageUnreachable",

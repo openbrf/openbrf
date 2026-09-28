@@ -1652,6 +1652,7 @@
       "install": "Installera",
       "update": "Uppdatera till {{version}}",
       "alreadyInstalled": "Installerat",
+      "deprecated": "Underhålls inte längre",
       "contract": "Tokenkontrakt {{range}}"
     },
     "preview": {
@@ -1704,7 +1705,7 @@
       "unknown": "Temana kunde inte hämtas just nu. Försök igen.",
       "loadFailed": "De installerade temana kunde inte läsas.",
       "forbidden": "Att installera och byta tema är en administratörs uppgift.",
-      "catalogNotConfigured": "Ingen temakatalog är konfigurerad för den här instansen.",
+      "catalogNotPermitted": "Instansen pekar på en katalog utanför den granskade. Att installera teman därifrån måste tillåtas uttryckligen i instansens konfiguration.",
       "catalogUnreachable": "Temakatalogen kunde inte nås.",
       "catalogInvalid": "Temakatalogen svarade med något den här versionen inte kan läsa.",
       "packageUnreachable": "Temapaketet kunde inte hämtas.",

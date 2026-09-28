@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { CatalogArtifact } from "./catalog-entry";
-import { fetchBytes } from "./fetch-resource";
+import { fetchBytes, type FetchOptions } from "./fetch-resource";
 import { verifySha512 } from "./integrity";
 
 /**
@@ -72,18 +72,34 @@ export async function ensureArchive(
     return target;
   }
 
-  const bytes = await fetchBytes(artifact.url, {
+  // Verified before anything is written, so a mismatched archive never exists
+  // on disk under a name a later run could mistake for a good one.
+  const bytes = await fetchVerified(artifact, {
     headers: options.headers,
     allowUncuratedSources: options.allowUncuratedSources,
   });
-  // Verified before anything is written, so a mismatched archive never exists
-  // on disk under a name a later run could mistake for a good one.
-  verifySha512(bytes, artifact.sha512);
 
   const temporary = `${target}.${String(process.pid)}.partial`;
   await writeFile(temporary, bytes);
   await rename(temporary, target);
   return target;
+}
+
+/**
+ * Downloads an artifact and verifies its digest, holding the bytes in memory.
+ *
+ * The one place a download meets its checksum, for plugins and themes alike,
+ * so the rule that nothing is used before it is verified has one
+ * implementation. Throws the fetch's ResourceFetchError or the digest's
+ * IntegrityError; what either means to a caller is the caller's to say.
+ */
+export async function fetchVerified(
+  artifact: CatalogArtifact,
+  options: FetchOptions,
+): Promise<Buffer> {
+  const bytes = await fetchBytes(artifact.url, options);
+  verifySha512(bytes, artifact.sha512);
+  return bytes;
 }
 
 async function readIfVerified(path: string, sha512: string): Promise<boolean> {

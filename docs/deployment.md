@@ -316,14 +316,40 @@ beside it. ADR 0007 draws the boundary and says why it falls there.
 
 ## Plugins and themes
 
-`OPENBRF_CATALOG_URL` points at the curated catalog. While the catalog
-repository is private, before public launch, `OPENBRF_CATALOG_TOKEN` carries the
-bearer token used for both the index and the release tarballs it points at. A
-running instance never authenticates to a package registry; the installer works
-from tarballs (see [ADR 0003](adr/0003-plugin-loading-and-module-resolution.md)).
+Plugins and themes are installed from the curated catalog: one index listing
+both, kept in the public `openbrf/catalog` repository and read from the address
+built into the instance,
+`https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json`. Leave
+`OPENBRF_CATALOG_URL` empty. An address written there is compared exactly, and
+any other spelling of the curated one is treated as an uncurated index and
+refused.
+
+To install, the instance needs outbound HTTPS on port 443 to three hosts:
+`raw.githubusercontent.com` for the index, `github.com` for the release a listed
+package is published on, and `release-assets.githubusercontent.com`, where a
+release download is redirected. A running instance never contacts a package
+registry; the installer works from tarballs whose sha512 the index states, and
+checks it before anything is unpacked (see
+[ADR 0003](adr/0003-plugin-loading-and-module-resolution.md) and
+[ADR 0020](adr/0020-the-public-catalog-and-the-published-packages.md)).
+
+Installing a plugin ends with the application process exiting, so that the next
+start loads the plugin into it, and the instance depends on its supervisor to
+start it again. `docker-compose.prod.yml` runs the application with
+`restart: unless-stopped`; a deployment that starts the container another way
+needs a restart policy that also covers a clean exit. Installing a theme
+restarts nothing.
+
+`OPENBRF_CATALOG_TOKEN` is for an index that requires a bearer token. It is sent
+to the index, and to an artifact only when the artifact is on the index's own
+origin: a package hosted anywhere else is fetched without it, so a host an
+entry names never receives a token issued for the index. The curated catalog is
+public and needs none.
 
 Installing from sources outside the curated catalog is off by default, and
-turning it on is a deliberate opt-out rather than a setting.
+turning it on with `OPENBRF_UNCURATED_PLUGINS_ENABLED=true` is a deliberate
+opt-out rather than a setting. The same flag is what permits an index or a
+package read over plain http or from the instance's own filesystem.
 
 ## Connected apps
 

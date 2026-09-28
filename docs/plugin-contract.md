@@ -222,9 +222,11 @@ admin screen. That is the honest state rather than a silent "not a processor".
 
 ## The server entry point
 
-A **prebuilt CommonJS bundle** whose only externals are host packages. It
-exports `createPlugin`, which receives the host object and returns a NestJS
-`DynamicModule`.
+A **prebuilt CommonJS bundle** whose only externals are host packages and
+Node's built-in modules. It exports `createPlugin`, which receives the host
+object and returns a NestJS `DynamicModule`. A built-in resolves from any
+directory, the data volume an installed plugin sits on included; any other
+package does not.
 
 ```ts
 import { Controller, Get, Injectable, Module } from "@nestjs/common";
@@ -476,6 +478,8 @@ An instance never contacts a package registry. The catalog lists direct
 tarball URLs with a sha512, and the install job downloads, verifies, and
 installs from the local file.
 
+One index lists plugins and themes alike:
+
 ```jsonc
 {
   "version": 1,
@@ -490,19 +494,95 @@ installs from the local file.
       "description": { "sv": "...", "en": "..." },
       "permissions": ["addressBook:read"],
       "personalData": ["name", "apartment", "residency"],
+      "homepage": "https://github.com/example/openbrf-occupancy",
       "artifact": {
-        "url": "https://example.com/occupancy-1.0.0.tgz",
+        "url": "https://github.com/example/openbrf-occupancy/releases/download/v1.0.0/occupancy-1.0.0.tgz",
         "sha512": "sha512-...",
         "bytes": 89408,
+      },
+    },
+    {
+      "type": "theme",
+      "id": "example-theme",
+      "version": "1.0.0",
+      "name": { "sv": "...", "en": "..." },
+      "description": { "sv": "...", "en": "..." },
+      "contract": "^1.0.0",
+      "extends": "porttavlan",
+      "homepage": "https://github.com/example/openbrf-example-theme",
+      "artifact": {
+        "url": "https://github.com/example/openbrf-example-theme/releases/download/v1.0.0/example-theme-1.0.0.tgz",
+        "sha512": "sha512-...",
+        "bytes": 37806,
       },
     },
   ],
 }
 ```
 
+Every entry carries its `type`, `id` and `version`, a `name` and a
+`description` in Swedish and in English written by whoever curates the catalog,
+and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
+adds `packageName`, the npm name the tarball unpacks as, which the installer
+writes into npm's dependency set; `apiVersion`; and the declaration the consent
+screen shows before anything is downloaded: `permissions`, `personalData`,
+`actions` and, for a connector, `oauthProtectedResource`. A theme entry adds the
+token `contract` range and the theme it `extends`, and names no package: a
+theme is read out of its archive and never installed with npm. The installed
+package is authoritative for both kinds, and one that disagrees with its entry
+is refused.
+
+An `id` appears once in the index, whatever the entry's type. An index that
+lists one twice is refused as a whole, as is an index carrying any entry the
+instance cannot read: a board installing from an index that silently lost an
+entry could not tell it from one delisted on purpose. Every object in the index
+is read strictly, so a field this version of the index does not define is
+refused rather than ignored: a misspelled field of the declaration would
+otherwise be replaced by its default before the consent screen showed it. A new
+field is a new index `version`. `@openbrf/plugin-sdk` exports the schema and
+`parseCatalogIndex`, so a catalog's own check reads the index exactly as an
+instance does.
+
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
 digest does not match is discarded, never unpacked.
+
+### What a listing must meet
+
+The curated catalog lists a package when:
+
+- its artifact is an asset of an immutable GitHub release of the repository its
+  source lives in, at
+  `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>`, the
+  tag being `v` followed by the entry's version, not a pre-release;
+- the tarball carries a build attestation from that repository's release
+  workflow;
+- its size and digest are the ones the entry states;
+- the package agrees with the entry: for a plugin the package name, version,
+  id, API version, permissions, personal data categories, actions and protected
+  resource; for a theme the name, version, contract and parent, the parent
+  being the built-in theme or a theme in the same index;
+- a plugin declares no runtime dependencies and passes the package check below;
+  a theme passes the install lint.
+
+The catalog repository's README states the same rules, how a listing is
+proposed and how one is delisted, and its check runs them on every pull request
+and every night.
+
+`pluginPackageProblems` in `@openbrf/plugin-sdk` is the check a plugin's own CI
+runs on the packed tarball. It reports, one sentence each, the manifest's own
+issues; any runtime dependency; a host package declared as a runtime dependency
+rather than a peer; a declared entry the package does not contain; a server
+bundle that requires anything but the host packages, a path inside one and
+Node's built-in modules, requires something other than a string literal, or
+does not assign `exports.createPlugin`; and locale files that are missing or
+whose keys differ. A package that passes returns none.
+
+The check says whether a package installs and loads, not whether it is safe. A
+plugin runs in the host's process with its privileges (ADR 0003), every Node
+built-in is open to it, and code has ways to load a module that no reading of
+the source follows. A plugin's server bundle is read by a person before its
+listing is merged.
 
 An install is a sequence with a defined commit point: download, verify,
 install into a staging directory, move it into place, mark the job complete
@@ -520,13 +600,13 @@ anything: it stops serving immediately.
 
 ## Operator configuration
 
-| Variable                            | Default           | Effect                                                                                     |
-| ----------------------------------- | ----------------- | ------------------------------------------------------------------------------------------ |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`            | When false, nothing is loaded or installable.                                              |
-| `OPENBRF_CATALOG_URL`               | the curated index | Where the catalog is read from.                                                            |
-| `OPENBRF_CATALOG_TOKEN`             | unset             | Bearer token for the index and its release assets.                                         |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`           | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                    |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`           | Reinstall at boot when the data volume does not carry what the database says is installed. |
+| Variable                            | Default                                                               | Effect                                                                                           |
+| ----------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                    |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                               |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.       |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 

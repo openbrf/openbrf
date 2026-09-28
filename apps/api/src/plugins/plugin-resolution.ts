@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { HOST_SHARED_PACKAGES } from "@openbrf/plugin-sdk";
+
 /**
  * Bridging module resolution between the host and an installed plugin
  * (ADR 0003).
@@ -25,30 +27,10 @@ import { basename, dirname, join, resolve } from "node:path";
  * compares resolved file paths rather than trusting the absence of an error,
  * because a duplicate copy loads happily and fails much later at ModuleRef or
  * an instanceof.
+ *
+ * Which packages are shared is part of the plugin contract, so the list is the
+ * SDK's HOST_SHARED_PACKAGES, the one the check a plugin's own CI runs reads.
  */
-
-/**
- * Packages a plugin must share with the host rather than carry its own copy of.
- *
- * Two reasons a package belongs here, and they are different.
- *
- * The Nest packages hold process-wide state - a DI container, a metadata
- * registry - so a second copy is not a duplicate but a second and disconnected
- * system: decorators from one are invisible to the other.
- *
- * zod holds no state at all, and is here for a reason about identity rather
- * than about state. An action's input and output schemas cross from the plugin
- * into the host, which converts them to the JSON Schema a caller is published
- * and validates against them on every call. A schema built by a second copy
- * carries that copy's internals, so the host's realm check refuses it and its
- * converter could not read it. What matters here is therefore which module the
- * object came from, not what that module remembers.
- */
-export const HOST_SHARED_PACKAGES: readonly string[] = [
-  "@nestjs/common",
-  "@nestjs/core",
-  "zod",
-];
 
 /**
  * A require whose resolution matches the running host's.
