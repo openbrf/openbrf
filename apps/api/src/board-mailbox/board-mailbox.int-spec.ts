@@ -881,6 +881,141 @@ describe("collecting the mailbox", () => {
     }
   });
 
+  it("stores a letter whose body carries control characters", async () => {
+    // A text column holds no NUL, so a body that kept one would be refused by
+    // the database rather than stored.
+    const subject = `Styrtecken ${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid: `uid-control-${suffix}`,
+        raw: [
+          `From: Granne <${CORRESPONDENT}>`,
+          `To: <${BOARD_ADDRESS}>`,
+          `Subject: ${subject}`,
+          `Message-ID: <control-${suffix}@utanfor.example>`,
+          "Content-Type: text/html; charset=utf-8",
+          "",
+          "<p>Det\u0000 rinner&#0; vatten</p>",
+          "",
+        ].join("\r\n"),
+      },
+    ]);
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.collected).toBe(1);
+
+      const thread = await threadBySubject(subject);
+      const full = await readThread(boardCookie, thread.id);
+      expect(full.messages?.[0]?.body).toBe("Det rinner vatten");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("sets aside a letter the database refuses and collects the ones either side of it", async () => {
+    const before = `Fore ${suffix}`;
+    const refused = `Vagrad ${suffix}`;
+    const after = `Efter ${suffix}`;
+    const server = await serveMailbox(
+      [before, refused, after].map((subject, position) => ({
+        uid: `uid-unstorable-${String(position)}-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev.",
+          messageId: `unstorable-${String(position)}-${suffix}@utanfor.example`,
+        }),
+      })),
+    );
+
+    /*
+     * The second letter's write is refused by PostgreSQL itself, with a value
+     * it will not store in a text column. The reader now removes the one value
+     * a letter could carry to that effect, so the refusal is produced here for
+     * whatever it has not foreseen.
+     */
+    const transaction = prisma.$transaction.bind(prisma);
+    let writes = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      writes += 1;
+      if (writes === 2) {
+        return transaction(async (tx) => {
+          await tx.$executeRaw`SELECT ${"\u0000"}::text`;
+        });
+      }
+      return (transaction as (...rest: unknown[]) => unknown)(...args);
+    }) as typeof prisma.$transaction);
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.collected).toBe(2);
+      expect(summary.skipped).toBe(1);
+
+      await threadBySubject(before);
+      await threadBySubject(after);
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((thread) => thread.subject === refused)).toBe(false);
+
+      const ignored = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:uid-unstorable-1-${suffix}` } },
+      });
+      expect(ignored?.reason).toBe("unstorable");
+
+      // And the next run does not fetch it again.
+      const again = await collector.collect();
+      expect(again.skipped).toBe(0);
+      expect(again.alreadyHeld).toBe(3);
+      expect(writes).toBe(3);
+    } finally {
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("tries a letter again when the database, not the letter, failed", async () => {
+    const subject = `Senare ${suffix}`;
+    const uid = `uid-transient-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev.",
+          messageId: `transient-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    // Prisma's code for a database that could not be reached.
+    const spy = vi
+      .spyOn(prisma, "$transaction")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("unreachable"), { code: "P1001" }),
+      );
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(0);
+      expect(first.skipped).toBe(1);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.count({
+          where: { sourceUid: { endsWith: `:${uid}` } },
+        }),
+      ).toBe(0);
+
+      const second = await collector.collect();
+      expect(second.collected).toBe(1);
+      await threadBySubject(subject);
+    } finally {
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
   it("reports a refused sign-in as its own kind of failure", async () => {
     const server = await startPop3TestServer({
       user: MAILBOX_USER,

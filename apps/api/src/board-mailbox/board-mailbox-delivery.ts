@@ -65,6 +65,18 @@ export const COLLECTION_REFUSALS = {
    * no later run will find one: the bytes in the mailbox do not change.
    */
   noSenderAddress: "no-sender-address",
+
+  /**
+   * The database refused the letter as it was read.
+   *
+   * The reader removes what it knows a column cannot hold, and this is the
+   * answer for whatever it has not foreseen: the same bytes read the same way
+   * are refused the same way on every run, so the letter is set aside rather
+   * than left to stop the collection of every letter behind it. A failure that
+   * says nothing about the letter - the database out of reach, a pool that was
+   * busy - is not recorded here; see `isTransientFailure`.
+   */
+  unstorable: "unstorable",
 } as const;
 
 export type CollectionRefusal =
