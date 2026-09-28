@@ -147,6 +147,23 @@ function breachTitle(label: string): string {
   return `${label} ${String(Date.now())}`;
 }
 
+/**
+ * An instant as a datetime-local control holds it: the browser's own wall
+ * clock, to the minute.
+ *
+ * Not `toISOString().slice(0, 16)`, which is the UTC wall clock: read as local
+ * by a browser west of Greenwich it is a moment still to come, and the field
+ * offers nothing later than now.
+ */
+function wallClock(instant: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${String(instant.getFullYear())}-${pad(instant.getMonth() + 1)}-` +
+    `${pad(instant.getDate())}T${pad(instant.getHours())}:` +
+    `${pad(instant.getMinutes())}`
+  );
+}
+
 /** The row a panel renders for one named thing. */
 function rowFor(page: Page, name: string) {
   return page.getByRole("listitem").filter({ hasText: name }).first();
@@ -247,7 +264,7 @@ test.describe("the board's own data protection records", () => {
       .getByLabel("Underrättad till IMY")
       // An hour ago, as a datetime-local control holds it: after the
       // discovery and well inside the bound, so no reasons are asked for.
-      .fill(new Date(Date.now() - 60 * 60 * 1000).toISOString().slice(0, 16));
+      .fill(wallClock(new Date(Date.now() - 60 * 60 * 1000)));
     await page.getByRole("button", { name: "Spara underrättelsen" }).click();
 
     // Notified, and the strip is quiet again. The second half matters as much
@@ -319,7 +336,7 @@ test.describe("the board's own data protection records", () => {
       .getByLabel("Underrättad till IMY")
       // What a datetime-local control holds: the reader's own wall clock, to
       // the minute. The screen turns it into an instant before it is sent.
-      .fill(new Date().toISOString().slice(0, 16));
+      .fill(wallClock(new Date()));
     await page.getByLabel("De registrerade ska underrättas").check();
     await page.getByRole("button", { name: "Spara beslutet" }).click();
 
