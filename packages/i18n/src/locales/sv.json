@@ -2200,6 +2200,8 @@
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "dateNotACalendarDate": "Datumet finns inte i kalendern. Kontrollera dag och månad.",
       "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
+      "sellerIsAcquirer": "Säljaren och köparen är samma person. Kontrollera vem som säljer och vem som köper.",
+      "sellerNotTenantOwner": "Säljaren var inte bostadsrättshavare för den här lägenheten på överlåtelsedagen. Kontrollera säljaren och datumet.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

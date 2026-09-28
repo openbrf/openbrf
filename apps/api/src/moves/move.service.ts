@@ -1,5 +1,11 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { dateColumnOf, formatDateColumn, parseLocalDay } from "@openbrf/shared";
+import {
+  addLocalDays,
+  dateColumnOf,
+  formatDateColumn,
+  localDayOfColumn,
+  parseLocalDay,
+} from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -19,7 +25,8 @@ import {
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
-import { lockResidencyTransitions } from "../registers/residency-lock";
+import { residencyHeldOn } from "../registers/held-on";
+import { lockResidencyTransitionsInOrder } from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 
@@ -64,7 +71,9 @@ export type MoveErrorReason =
   | "transfer-person-not-found"
   | "transfer-reference-required"
   | "grant-has-no-seller"
-  | "date-not-a-calendar-date";
+  | "date-not-a-calendar-date"
+  | "seller-is-acquirer"
+  | "seller-not-tenant-owner";
 
 /**
  * The status each refusal answers with.
@@ -83,6 +92,8 @@ const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
   "transfer-reference-required": 400,
   "grant-has-no-seller": 400,
   "date-not-a-calendar-date": 400,
+  "seller-is-acquirer": 400,
+  "seller-not-tenant-owner": 409,
 };
 
 export class MoveError extends DomainError {
@@ -269,7 +280,16 @@ export class MoveService implements OnModuleInit {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      await lockResidencyTransitions(tx, person.id);
+      // The seller's lock as well as the buyer's, because the transfer below
+      // reads the seller's residencies to decide whether they held what they
+      // are recorded as selling, and a move-out for the seller running beside
+      // this one could change the answer after it was read.
+      await lockResidencyTransitionsInOrder(tx, [
+        person.id,
+        ...(input.transfer?.fromPersonId == null
+          ? []
+          : [input.transfer.fromPersonId]),
+      ]);
 
       // A residency on this apartment that would overlap the new one: open, or
       // ending after the new move-in date. One ending on that date does not
@@ -496,7 +516,12 @@ export class MoveService implements OnModuleInit {
     await this.jobs.ensureQueue(MOVE_OUT_REMINDER_QUEUE);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      await lockResidencyTransitions(tx, person.id);
+      // The acquirer's lock too when a transfer is recorded, taken in the same
+      // order the move-in takes the pair in, so the two flows cannot deadlock.
+      await lockResidencyTransitionsInOrder(tx, [
+        person.id,
+        ...(input.transfer === undefined ? [] : [input.transfer.toPersonId]),
+      ]);
 
       // Conditional on the residency still being open, because the check above
       // ran before this transaction and is only as fresh as the moment it was
@@ -748,6 +773,56 @@ export class MoveService implements OnModuleInit {
         "An upplatelse has no seller.",
         "grant-has-no-seller",
       );
+    }
+
+    /*
+     * A person cannot sell to themselves. A row naming the same person on both
+     * sides records a change of hands that did not happen, and it cannot be
+     * deleted afterwards.
+     */
+    if (
+      input.fromPersonId !== null &&
+      input.fromPersonId === input.toPersonId
+    ) {
+      throw new MoveError(
+        "The seller and the acquirer are the same person.",
+        "seller-is-acquirer",
+      );
+    }
+
+    /*
+     * The seller has to be a tenant-owner of this apartment when it passes on:
+     * a MEMBER residency on it, held on the transfer day or on the day before.
+     * The day before as well, because the move-out date is the first day a
+     * residency is no longer held, and a seller moved out on the day the
+     * apartment passed on held it until that day. Read under the seller's
+     * transition lock, which the caller has taken.
+     *
+     * A transfer row cannot be deleted, and the seller it names is on the
+     * apartment register extract and on their own access report from then on,
+     * so a seller who never held the apartment is refused rather than recorded.
+     */
+    if (input.fromPersonId !== null) {
+      const transferredOn = localDayOfColumn(
+        parseDate(input.transfer.transferredOn),
+      );
+      const held = await tx.residency.count({
+        where: {
+          personId: input.fromPersonId,
+          apartmentId: input.apartmentId,
+          role: "MEMBER",
+          OR: [
+            residencyHeldOn(transferredOn),
+            residencyHeldOn(addLocalDays(transferredOn, -1)),
+          ],
+        },
+      });
+      if (held === 0) {
+        throw new MoveError(
+          "The seller did not hold this apartment on the day of the transfer.",
+          "seller-not-tenant-owner",
+        );
+      }
     }
 
     // Refused rather than stored as null. The apartment register extract has to

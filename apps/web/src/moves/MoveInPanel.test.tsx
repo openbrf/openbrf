@@ -280,3 +280,51 @@ it("points at the dates and the price when the request itself is refused", async
   ).toBeTruthy();
   expect(screen.queryByText(/Försök igen/)).toBeNull();
 });
+
+it.each([
+  [
+    "seller-not-tenant-owner",
+    "Säljaren var inte bostadsrättshavare för den här lägenheten på överlåtelsedagen. Kontrollera säljaren och datumet.",
+  ],
+  [
+    "seller-is-acquirer",
+    "Säljaren och köparen är samma person. Kontrollera vem som säljer och vem som köper.",
+  ],
+])(
+  "names the refusal %s in the interface's own words",
+  async (reason, message) => {
+    // The server checks the seller against the register; the form cannot, and
+    // a refusal it could only show as the general fallback would leave the
+    // board guessing whether to try again.
+    moveIn.mockResolvedValue({ ok: false, failure: { status: 409, reason } });
+    fetchApartment.mockResolvedValue({
+      residents: [
+        { personId: "person-karin", name: "Karin Ohman", role: "MEMBER" },
+      ],
+    });
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
+    await session.selectOptions(
+      screen.getByLabelText(/Tidigare innehavare/),
+      "person-karin",
+    );
+    await session.type(
+      screen.getByLabelText(/Inflyttningsdatum/),
+      "2026-04-07",
+    );
+    await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-04-07");
+    await session.type(
+      screen.getByLabelText(/Avtalshänvisning/),
+      "OVL-2026-1201",
+    );
+    await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+    expect(await screen.findByText(message)).toBeTruthy();
+  },
+);
