@@ -116,6 +116,8 @@ export interface BoardMailboxSetAside {
   /** The letter's own date, where the collection believed it. */
   letterDate: string | null;
   setAsideAt: string;
+  /** When the collection tries it again, if it will. */
+  retryAt: string | null;
 }
 
 /** What one collection did. Counts only: no address and no subject. */

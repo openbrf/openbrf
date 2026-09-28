@@ -75,7 +75,8 @@ export const COLLECTION_REFUSALS = {
    * whatever it has not foreseen: the same bytes read the same way are refused
    * the same way on every run, so the letter is set aside rather than left to
    * stop the collection of every letter behind it. Or it failed for some other
-   * reason on every attempt for longer than the collector retries one. A single
+   * reason on every attempt for longer than the collector retries one, and is
+   * then tried again now and then rather than never. A single
    * failure that says nothing about the letter - the database out of reach or
    * restarting, storage that did not answer - is not recorded here; see
    * `database-refusal.ts`.

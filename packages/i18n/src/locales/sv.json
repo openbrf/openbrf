@@ -2644,8 +2644,9 @@
       "intro_one": "Ett brev kunde inte hämtas. Det ligger kvar i brevlådan: öppna det där med ett e-postprogram.",
       "intro_other": "{{count}} brev kunde inte hämtas. De ligger kvar i brevlådan: öppna dem där med ett e-postprogram.",
       "dated": "Daterat {{date}}",
-      "undated": "Inget datum som hämtningen kunde lita på",
+      "undated": "Datum okänt",
       "setAsideAt": "lagt åt sidan {{date}}",
+      "retryFrom": "prövas igen från {{date}}",
       "more_one": "Och ett till.",
       "more_other": "Och {{count}} till.",
       "reasons": {

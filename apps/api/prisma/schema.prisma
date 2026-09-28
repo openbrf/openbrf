@@ -2838,12 +2838,12 @@ model MediaFile {
   /// How the object at storageKey is held. No default: whatever writes a row
   /// states it, so a new way of writing one cannot leave a file unencrypted by
   /// omission.
-  encryption            MediaEncryption
+  encryption    MediaEncryption
   /// The file's own key, encrypted as the field "mediaFile.dataKey" under the
   /// instance's key (ADR 0002, ADR 0004, ADR 0015). Null exactly when the file
   /// is not encrypted, which a CHECK holds. Deleting the row deletes the only
   /// copy of the key outside the database backups.
-  dataKeyCipher         String?
+  dataKeyCipher String?
   /// Where the file's unencrypted object still is, after the job at start has
   /// replaced it with the encrypted one and until the unencrypted one is gone.
   /// Written in the update that switches the row to the encrypted object, so a
@@ -6516,6 +6516,10 @@ model BoardMailboxAttachment {
 /// the board has not read: it is still in the mailbox, and the screen says so and
 /// when it was dated, so a board member can find it in a mail client.
 ///
+/// Kept only while the mailbox still holds the letter. A collection removes the
+/// rows, under the mailbox it collects, whose identifier the mailbox no longer
+/// lists, so a letter a board member deleted in a mail client leaves the screen.
+///
 /// No personal data. The identifier is the mailbox's own opaque string behind a
 /// fingerprint of the credentials it was seen under, the reason is a code this
 /// module writes, and the date is a moment with nobody attached to it. So it is
@@ -6537,6 +6541,17 @@ model BoardMailboxIgnoredMessage {
   /// letter can sit in the mailbox for a while before it is read.
   letterDate DateTime?
 
+  /// When the collector tries the letter again, for a letter set aside because
+  /// it kept failing rather than because it was refused. Null for a refusal,
+  /// which the same bytes would meet on every run.
+  ///
+  /// A failure that kept on for an hour is as likely to be the instance's as
+  /// the letter's - storage down, a deploy ahead of its migration - and every
+  /// letter tried during it fails alike. Setting those aside for good would lose
+  /// them once the instance recovered; trying each again now and then stores
+  /// them then, and costs one fetch per letter that really cannot be stored.
+  retryAfter DateTime?
+
   createdAt DateTime @default(now())
 
   @@map("board_mailbox_ignored_message")
@@ -6553,8 +6568,8 @@ model BoardMailboxIgnoredMessage {
 /// count that bounds that: past it, the letter is set aside as
 /// BoardMailboxIgnoredMessage and shown on the board's screen.
 ///
-/// The row goes when the letter is stored or set aside. No personal data, on the
-/// ledger's argument above.
+/// The row goes when the letter is stored or set aside, or when the mailbox no
+/// longer lists it. No personal data, on the ledger's argument above.
 model BoardMailboxCollectionFailure {
   id String @id @default(cuid())
 

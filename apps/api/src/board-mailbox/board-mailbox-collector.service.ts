@@ -154,6 +154,20 @@ const MAX_STORE_ATTEMPTS = 12;
 const MIN_RETRY_WINDOW_MS = 60 * 60 * 1000;
 
 /**
+ * How long a letter set aside for failing on every attempt waits before it is
+ * tried again.
+ *
+ * The bound above cannot tell a letter that fails from an instance that does:
+ * storage down for longer than the window, or a deploy ahead of its migration,
+ * fails every letter it touches alike, and all of them reach the bound
+ * together. So the set-aside is not final. Each is tried once more after this
+ * long, stored if the instance has recovered, and set aside for as long again
+ * if not - which is four fetches a day for a letter that really cannot be
+ * stored, and the board's screen lists it meanwhile.
+ */
+const SET_ASIDE_RETRY_MS = 6 * 60 * 60 * 1000;
+
+/**
  * How far ahead of this instance's clock a sender's Date header may be.
  *
  * The header is the sender's own clock and this module orders a thread by it, so
@@ -293,7 +307,8 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
     try {
       const listings = await session.list();
-      const held = await this.heldUids(listings, prefix);
+      await this.forgetDeparted(listings, prefix);
+      const { held, retrying } = await this.heldUids(listings, prefix, now);
 
       let collected = 0;
       let alreadyHeld = 0;
@@ -336,6 +351,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           listing,
           uid,
           now,
+          retrying.has(uid),
         );
         if (stored === "collected") {
           collected += 1;
@@ -422,9 +438,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
   private async heldUids(
     listings: readonly Pop3Listing[],
     prefix: string,
-  ): Promise<ReadonlySet<string>> {
+    now: Date,
+  ): Promise<{ held: ReadonlySet<string>; retrying: ReadonlySet<string> }> {
     if (listings.length === 0) {
-      return new Set();
+      return { held: new Set(), retrying: new Set() };
     }
     const uids = listings.map((listing) => `${prefix}:${listing.uid}`);
 
@@ -439,20 +456,86 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       }),
       this.prisma.boardMailboxIgnoredMessage.findMany({
         where: { sourceUid: { in: uids } },
-        select: { sourceUid: true },
+        select: { sourceUid: true, retryAfter: true },
       }),
     ]);
 
-    return new Set([
-      ...stored
-        .map((row) => row.sourceUid)
-        .filter((uid): uid is string => uid !== null),
-      ...ignored.map((row) => row.sourceUid),
-    ]);
+    // A letter set aside for failing, whose wait is over, is tried again by
+    // this run rather than held.
+    const due = (retryAfter: Date | null): boolean =>
+      retryAfter !== null && retryAfter.getTime() <= now.getTime();
+
+    return {
+      held: new Set([
+        ...stored
+          .map((row) => row.sourceUid)
+          .filter((uid): uid is string => uid !== null),
+        ...ignored
+          .filter((row) => !due(row.retryAfter))
+          .map((row) => row.sourceUid),
+      ]),
+      retrying: new Set(
+        ignored
+          .filter((row) => due(row.retryAfter))
+          .map((row) => row.sourceUid),
+      ),
+    };
   }
 
   /**
-   * Records that a message was read and will not be stored.
+   * Forgets the letters the mailbox no longer holds.
+   *
+   * The ledger of set-aside letters and the count of failures are both keyed by
+   * a letter in the mailbox, and a board member can delete one there in a mail
+   * client. Without this the screen would go on saying such a letter is still in
+   * the mailbox, and counting it, for good. Only rows under the mailbox being
+   * collected: one the settings no longer name is not listed here, so nothing
+   * can be said about what it holds.
+   *
+   * The rows are read and compared here rather than deleted with the listing
+   * as a NOT IN: a mailbox kept for years lists more identifiers than one
+   * statement takes parameters, and these ledgers hold a handful of rows.
+   *
+   * A failure here is logged and the run goes on. What it leaves is a stale row,
+   * which the next run removes.
+   */
+  private async forgetDeparted(
+    listings: readonly Pop3Listing[],
+    prefix: string,
+  ): Promise<void> {
+    const listed = new Set(
+      listings.map((listing) => `${prefix}:${listing.uid}`),
+    );
+    const where = { sourceUid: { startsWith: `${prefix}:` } };
+    const select = { id: true, sourceUid: true } as const;
+    const departed = (rows: readonly { id: string; sourceUid: string }[]) => ({
+      id: {
+        in: rows
+          .filter((row) => !listed.has(row.sourceUid))
+          .map((row) => row.id),
+      },
+    });
+    try {
+      const [ignored, failures] = await Promise.all([
+        this.prisma.boardMailboxIgnoredMessage.findMany({ where, select }),
+        this.prisma.boardMailboxCollectionFailure.findMany({ where, select }),
+      ]);
+      await this.prisma.boardMailboxIgnoredMessage.deleteMany({
+        where: departed(ignored),
+      });
+      await this.prisma.boardMailboxCollectionFailure.deleteMany({
+        where: departed(failures),
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Board mailbox: letters no longer in the mailbox could not be forgotten: ${failureName(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Records that a message was read and will not be stored, for now or for
+   * good.
    *
    * Which is what stops it being fetched again. Without it a letter the
    * collector can do nothing with is read in full on every run for as long as
@@ -462,23 +545,27 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * fills.
    *
    * Written only for a refusal that cannot change its mind, or a letter that
-   * has failed more often than MAX_STORE_ATTEMPTS allows. `createMany` with
-   * `skipDuplicates`, so two runs that read the same letter do not fight over
-   * it, and a write that does not land is logged rather than raised: the letter
-   * stays in the mailbox either way, which is where it was.
+   * has failed more often than MAX_STORE_ATTEMPTS allows. An upsert, so a
+   * letter tried again and set aside again keeps one row, and a write that does
+   * not land is logged rather than raised: the letter stays in the mailbox
+   * either way, which is where it was.
    *
    * @param letterDate The letter's own date, where it is believed, which is
    *   what the board's screen gives to find the letter by in a mail client.
+   * @param retryAfter When to try it again, or null for a refusal.
    */
-  private async ignoreMessage(
+  private async setAside(
     uid: string,
     reason: CollectionRefusal,
     letterDate: Date | null,
+    retryAfter: Date | null,
   ): Promise<void> {
     try {
-      await this.prisma.boardMailboxIgnoredMessage.createMany({
-        data: [{ sourceUid: uid, reason, letterDate }],
-        skipDuplicates: true,
+      await this.prisma.boardMailboxIgnoredMessage.upsert({
+        where: { sourceUid: uid },
+        create: { sourceUid: uid, reason, letterDate, retryAfter },
+        update: { reason, letterDate, retryAfter },
+        select: { id: true },
       });
       // After, and on its own: a count left behind by a failure here is never
       // read again, because a letter in the ledger is not fetched again.
@@ -521,6 +608,57 @@ export class BoardMailboxCollectorService implements OnModuleInit {
   }
 
   /**
+   * Removes the files of a letter whose rows may not have been written.
+   *
+   * A failed transaction is not proof that nothing committed: when the reply to
+   * a COMMIT that landed is lost - a connection dropped just after it, a
+   * failover - the rows are there and the collector is told they are not. The
+   * attachment rows go with their file, so removing a file on that word alone
+   * would empty a stored letter for good. So a file is removed only when no
+   * attachment row names it, and when that cannot be asked, none is: an orphan
+   * object is what the media layer prefers to a lost file.
+   */
+  private async discardUnnamedFiles(
+    files: readonly { id: string }[],
+  ): Promise<void> {
+    if (files.length === 0) {
+      return;
+    }
+    let named: ReadonlySet<string>;
+    try {
+      const rows = await this.prisma.boardMailboxAttachment.findMany({
+        where: { fileId: { in: files.map((file) => file.id) } },
+        select: { fileId: true },
+      });
+      named = new Set(rows.map((row) => row.fileId));
+    } catch (error) {
+      this.logger.warn(
+        `Board mailbox: the attachments of a message that may not have been stored were left in place: ${failureName(error)}`,
+      );
+      return;
+    }
+    await this.discardFiles(files.filter((file) => !named.has(file.id)));
+  }
+
+  /**
+   * Whether this letter is stored after all, although its write failed.
+   *
+   * The same lost reply as above: a letter whose rows committed must not be
+   * counted as failing, or set aside. An answer that cannot be had is no.
+   */
+  private async storedAfterAll(uid: string): Promise<boolean> {
+    try {
+      const message = await this.prisma.boardMailboxMessage.findFirst({
+        where: { sourceUid: uid },
+        select: { id: true },
+      });
+      return message !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Removes the files of a letter whose rows were not written.
    *
    * Nothing names them, so nothing would ever serve or purge them: a letter
@@ -531,7 +669,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
   private async discardFiles(files: readonly { id: string }[]): Promise<void> {
     for (const file of files) {
       await this.media
-        .remove(file.id, null, "SYSTEM")
+        // No file name in the audit log: it is a stranger's words, and a letter
+        // retried for an hour would write it there a dozen times over.
+        .remove(file.id, null, "SYSTEM", { recordFileName: false })
         .catch((error: unknown) => {
           this.logger.warn(
             `Board mailbox: an attachment of a message that was not stored could not be removed: ${failureName(error)}`,
@@ -546,6 +686,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     listing: Pop3Listing,
     uid: string,
     now: Date,
+    retrying: boolean,
   ): Promise<"collected" | "already-held" | "skipped"> {
     let raw: Buffer;
     try {
@@ -560,6 +701,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
 
     const parsed = readMessage(raw);
+    const letterDate = believedDate(parsed.date, now);
 
     const own = await this.ownAnswerId(parsed.messageId);
     if (own !== null) {
@@ -601,10 +743,11 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       // bytes in the mailbox do not change, and a letter fetched afresh every
       // five minutes for nothing is what spends the per-run bound that the mail
       // behind it needs.
-      await this.ignoreMessage(
+      await this.setAside(
         uid,
         COLLECTION_REFUSALS.noSenderAddress,
-        believedDate(parsed.date, now),
+        letterDate,
+        null,
       );
       return "skipped";
     }
@@ -640,8 +783,8 @@ export class BoardMailboxCollectorService implements OnModuleInit {
      * That ordering makes the letter atomic: the thread, the message and its
      * attachment rows all commit together or none of them do, so the board never
      * sees a message that says nothing about files that did arrive. A letter
-     * whose rows do not commit takes its files back out, so a refused or
-     * retried letter leaves no object behind that no row names; what remains is
+     * whose rows do not commit takes back out the files no row names, so a
+     * refused or retried letter leaves no object behind; what remains is
      * the process dying in between, which is the failure the media layer already
      * tolerates in the other direction and states it prefers: an orphan object,
      * never an orphan row.
@@ -692,11 +835,17 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         await tx.boardMailboxCollectionFailure.deleteMany({
           where: { sourceUid: uid },
         });
+        if (retrying) {
+          // And a letter set aside earlier is no longer set aside.
+          await tx.boardMailboxIgnoredMessage.deleteMany({
+            where: { sourceUid: uid },
+          });
+        }
       });
     } catch (error) {
-      await this.discardFiles(stored);
+      await this.discardUnnamedFiles(stored);
 
-      if (isUniqueViolation(error)) {
+      if (isUniqueViolation(error) || (await this.storedAfterAll(uid))) {
         // Another collection stored this letter between the query above and this
         // insert. The constraint is what makes that harmless rather than a race
         // the board would see as a duplicate.
@@ -716,26 +865,33 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         this.logger.error(
           `Board mailbox: a message could not be stored and was set aside: ${failureName(error)}`,
         );
-        await this.ignoreMessage(
+        await this.setAside(
           uid,
           COLLECTION_REFUSALS.unstorable,
-          believedDate(parsed.date, now),
+          letterDate,
+          null,
         );
         return "skipped";
       }
 
-      // Nothing the letter is known to be at fault for: the next run tries it
-      // again, and the letters behind it are still tried by this one. Counted,
-      // so a letter that fails on every run is set aside in the end rather
-      // than retried unseen for as long as the mailbox keeps it.
-      if (await this.countFailure(uid, now)) {
+      /*
+       * Nothing the letter is known to be at fault for: the next run tries it
+       * again, and the letters behind it are still tried by this one. Counted,
+       * so a letter that fails on every run is set aside in the end rather
+       * than retried unseen for as long as the mailbox keeps it - and set aside
+       * until a later try, not for good, because an instance that failed every
+       * letter for an hour fails them all alike. A letter that was already set
+       * aside and failed its later try waits as long again.
+       */
+      if (retrying || (await this.countFailure(uid, now))) {
         this.logger.error(
           `Board mailbox: a message failed to be stored on every attempt and was set aside: ${failureName(error)}`,
         );
-        await this.ignoreMessage(
+        await this.setAside(
           uid,
           COLLECTION_REFUSALS.unstorable,
-          believedDate(parsed.date, now),
+          letterDate,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
         );
       } else {
         this.logger.error(
@@ -935,6 +1091,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           uploadedByPersonId: null,
           // The collector is a job: no person asked for this file to be stored.
           channel: "SYSTEM",
+          // Nor is the name in the audit log: it is a stranger's words, and a
+          // letter retried for an hour would write it there a dozen times over.
+          recordFileName: false,
         });
       } catch (error) {
         if (!(error instanceof MediaError)) {

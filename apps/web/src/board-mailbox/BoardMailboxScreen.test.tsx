@@ -44,11 +44,13 @@ describe("BoardMailboxScreen", () => {
             reason: "unstorable",
             letterDate: "2026-09-01T07:15:00.000Z",
             setAsideAt: "2026-09-02T10:00:00.000Z",
+            retryAt: "2026-09-02T16:00:00.000Z",
           },
           {
             reason: "no-sender-address",
             letterDate: null,
             setAsideAt: "2026-09-01T10:00:00.000Z",
+            retryAt: null,
           },
         ],
         setAsideCount: 3,
@@ -68,9 +70,10 @@ describe("BoardMailboxScreen", () => {
     ).toBeTruthy();
     // The letter's own date, in the association's zone, to the minute.
     expect(screen.getByText(/^Daterat .*09:15/)).toBeTruthy();
-    expect(
-      screen.getByText("Inget datum som hämtningen kunde lita på"),
-    ).toBeTruthy();
+    expect(screen.getByText("Datum okänt")).toBeTruthy();
+    // A letter set aside for failing is tried again, and the board is told
+    // when; one refused for good carries no such line.
+    expect(screen.getAllByText(/^prövas igen från .*18:00/)).toHaveLength(1);
     expect(screen.getByText("Och ett till.")).toBeTruthy();
   });
 

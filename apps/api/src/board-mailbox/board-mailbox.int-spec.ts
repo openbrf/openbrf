@@ -418,7 +418,12 @@ async function threadBySubject(subject: string): Promise<ThreadBody> {
 
 interface StatusBody {
   configured: boolean;
-  setAside: { reason: string; letterDate: string | null; setAsideAt: string }[];
+  setAside: {
+    reason: string;
+    letterDate: string | null;
+    setAsideAt: string;
+    retryAt: string | null;
+  }[];
   setAsideCount: number;
 }
 
@@ -885,7 +890,6 @@ describe("collecting the mailbox", () => {
   });
 
   it("leaves a message with no readable sender in the mailbox, and reads it once", async () => {
-    const setAsideBefore = (await mailboxStatus()).setAsideCount;
     const server = await serveMailbox([
       {
         uid: `uid-headless-${suffix}`,
@@ -921,10 +925,12 @@ describe("collecting the mailbox", () => {
       expect(again.skipped).toBe(0);
       expect(again.alreadyHeld).toBe(1);
 
-      // The board is told there is a letter here that it has not read.
+      // The board is told there is a letter here that it has not read, and
+      // only about the letters this mailbox still holds.
       const status = await mailboxStatus();
-      expect(status.setAsideCount).toBe(setAsideBefore + 1);
+      expect(status.setAsideCount).toBe(1);
       expect(status.setAside[0]?.reason).toBe("no-sender-address");
+      expect(status.setAside[0]?.retryAt).toBeNull();
     } finally {
       await server.close();
     }
@@ -1001,7 +1007,6 @@ describe("collecting the mailbox", () => {
       return (transaction as (...rest: unknown[]) => unknown)(...args);
     }) as typeof prisma.$transaction);
 
-    const setAsideBefore = (await mailboxStatus()).setAsideCount;
     try {
       const summary = await collector.collect();
       expect(summary.collected).toBe(2);
@@ -1023,10 +1028,12 @@ describe("collecting the mailbox", () => {
       // The board is told there is a letter it has not read, and when it was
       // dated, so it can be found in a mail client.
       const status = await mailboxStatus();
-      expect(status.setAsideCount).toBe(setAsideBefore + 1);
+      expect(status.setAsideCount).toBe(1);
       expect(status.setAside[0]).toMatchObject({
         reason: "unstorable",
         letterDate: "2026-09-01T07:15:00.000Z",
+        // Refused for its own values, so never tried again.
+        retryAt: null,
       });
 
       // And the next run does not fetch it again.
@@ -1176,9 +1183,203 @@ describe("collecting the mailbox", () => {
 
       const again = await collector.collect(later);
       expect(again.alreadyHeld).toBe(1);
+
+      // Tried again later, and set aside for as long again on the first
+      // failure rather than after another hour of them.
+      const retried = new Date(later.getTime() + 6 * 60 * 60 * 1000);
+      const retry = await collector.collect(retried);
+      expect(retry.skipped).toBe(1);
+      const row = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${uid}` } },
+      });
+      expect(row?.retryAfter?.getTime()).toBe(
+        retried.getTime() + 6 * 60 * 60 * 1000,
+      );
+      expect((await collector.collect(retried)).alreadyHeld).toBe(1);
     } finally {
       spy.mockRestore();
       await server.close();
+    }
+  });
+
+  it("does not set a letter aside after an hour of failing, until it has been tried twelve times", async () => {
+    // The other half of the bound: a quiet hour with the schedule stopped is
+    // not twelve failures.
+    const uid = `uid-slow-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: `Langsam ${suffix}`,
+          body: "Ett brev.",
+          messageId: `slow-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    const spy = vi
+      .spyOn(prisma, "$transaction")
+      .mockImplementation((() =>
+        Promise.reject(
+          new Error("Connection terminated unexpectedly"),
+        )) as typeof prisma.$transaction);
+    const ignored = (): Promise<number> =>
+      prisma.boardMailboxIgnoredMessage.count({
+        where: { sourceUid: { endsWith: `:${uid}` } },
+      });
+
+    const start = new Date();
+    const later = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    try {
+      await collector.collect(start);
+      for (let attempt = 2; attempt <= 11; attempt += 1) {
+        await collector.collect(later);
+      }
+      expect(await ignored()).toBe(0);
+
+      await collector.collect(later);
+      expect(await ignored()).toBe(1);
+    } finally {
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("collects the letters an outage set aside once the instance has recovered", async () => {
+    /*
+     * Storage down for more than an hour fails every letter with a file, and
+     * every one reaches the bound together - although not one of them is at
+     * fault. They are set aside, the board is told, and they are stored on a
+     * later try once storage answers again.
+     */
+    const subjects = [`Avbrott ett ${suffix}`, `Avbrott tva ${suffix}`];
+    const server = await serveMailbox(
+      subjects.map((subject, position) => ({
+        uid: `uid-outage-${String(position)}-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Se bilagan.",
+          messageId: `outage-${String(position)}-${suffix}@utanfor.example`,
+          attachment: true,
+        }),
+      })),
+    );
+
+    const upload = vi
+      .spyOn(media, "upload")
+      .mockRejectedValue(new Error("The storage did not answer."));
+    const setAside = (): Promise<number> =>
+      prisma.boardMailboxIgnoredMessage.count({
+        where: { sourceUid: { contains: `:uid-outage-` } },
+      });
+
+    const start = new Date();
+    const hourOn = new Date(start.getTime() + 65 * 60 * 1000);
+    try {
+      for (let attempt = 1; attempt <= 12; attempt += 1) {
+        await collector.collect(start);
+      }
+      await collector.collect(hourOn);
+      expect(await setAside()).toBe(2);
+
+      const status = await mailboxStatus();
+      expect(status.setAsideCount).toBe(2);
+      expect(status.setAside.every((row) => row.retryAt !== null)).toBe(true);
+
+      // Storage answers again. Not fetched before the wait is over ...
+      upload.mockRestore();
+      const soon = await collector.collect(
+        new Date(hourOn.getTime() + 5 * 60 * 1000),
+      );
+      expect(soon.collected).toBe(0);
+      expect(soon.alreadyHeld).toBe(2);
+
+      // ... and stored, with their files, once it is.
+      const recovered = await collector.collect(
+        new Date(hourOn.getTime() + 6 * 60 * 60 * 1000),
+      );
+      expect(recovered.collected).toBe(2);
+      expect(await setAside()).toBe(0);
+      expect((await mailboxStatus()).setAsideCount).toBe(0);
+      for (const subject of subjects) {
+        const thread = await threadBySubject(subject);
+        const full = await readThread(boardCookie, thread.id);
+        expect(full.messages?.[0]?.attachments).toHaveLength(1);
+      }
+    } finally {
+      upload.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("forgets a set-aside letter once it has left the mailbox", async () => {
+    const headless = {
+      uid: `uid-departed-${suffix}`,
+      raw: [
+        `Subject: Borta ${suffix}`,
+        "Message-ID: <departed@utanfor.example>",
+        "",
+        "Hej",
+        "",
+      ].join("\r\n"),
+    };
+    const failing = {
+      uid: `uid-departed-failing-${suffix}`,
+      raw: letter({
+        from: CORRESPONDENT,
+        subject: `Borta ocksa ${suffix}`,
+        body: "Ett brev.",
+        messageId: `departed-failing-${suffix}@utanfor.example`,
+      }),
+    };
+    // A row under a mailbox the settings no longer name, which this run cannot
+    // say anything about.
+    const elsewhere = `0000000000000000:uid-elsewhere-${suffix}`;
+    await prisma.boardMailboxIgnoredMessage.create({
+      data: { sourceUid: elsewhere, reason: "no-sender-address" },
+    });
+
+    const first = await serveMailbox([headless, failing]);
+    const spy = vi
+      .spyOn(prisma, "$transaction")
+      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    try {
+      await collector.collect();
+      expect((await mailboxStatus()).setAsideCount).toBe(1);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${failing.uid}` } },
+        }),
+      ).toBe(1);
+    } finally {
+      spy.mockRestore();
+      await first.close();
+    }
+
+    // A board member deleted both in a mail client.
+    const second = await serveMailbox([]);
+    try {
+      await collector.collect();
+      expect((await mailboxStatus()).setAsideCount).toBe(0);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.count({
+          where: { sourceUid: { endsWith: `:${headless.uid}` } },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${failing.uid}` } },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.count({
+          where: { sourceUid: elsewhere },
+        }),
+      ).toBe(1);
+    } finally {
+      await second.close();
     }
   });
 
@@ -1252,6 +1453,98 @@ describe("collecting the mailbox", () => {
       expect(await prisma.mediaFile.count()).toBe(files + 1);
     } finally {
       removed.mockRestore();
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("keeps the files of a letter whose write landed although the answer was lost", async () => {
+    /*
+     * The COMMIT reaches PostgreSQL and the reply to it does not: a connection
+     * dropped just after, a failover. The rows are there, the collector is told
+     * they are not, and the attachment rows go with their file - so taking the
+     * file back out would empty a stored letter for good.
+     */
+    const subject = `Svar borta ${suffix}`;
+    const uid = `uid-lost-reply-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Se bilagan.",
+          messageId: `lost-reply-${suffix}@utanfor.example`,
+          attachment: true,
+        }),
+      },
+    ]);
+
+    const transaction = prisma.$transaction.bind(prisma);
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+      ...args: unknown[]
+    ) =>
+      (
+        (transaction as (...rest: unknown[]) => Promise<unknown>)(
+          ...args,
+        ) as Promise<unknown>
+      ).then(() => {
+        throw new Error("Connection terminated unexpectedly");
+      })) as typeof prisma.$transaction);
+    const removed = vi.spyOn(media, "remove");
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(0);
+      expect(first.alreadyHeld).toBe(1);
+      expect(removed).not.toHaveBeenCalled();
+
+      const thread = await threadBySubject(subject);
+      const full = await readThread(boardCookie, thread.id);
+      expect(full.messages?.[0]?.attachments).toHaveLength(1);
+      // Stored, so not counted as failing either.
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${uid}` } },
+        }),
+      ).toBe(0);
+    } finally {
+      removed.mockRestore();
+      spy.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("leaves the files in place when it cannot tell whether a stored row names them", async () => {
+    const server = await serveMailbox([
+      {
+        uid: `uid-unknown-files-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: `Okant ${suffix}`,
+          body: "Se bilagan.",
+          messageId: `unknown-files-${suffix}@utanfor.example`,
+          attachment: true,
+        }),
+      },
+    ]);
+
+    const spy = vi
+      .spyOn(prisma, "$transaction")
+      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    const lookup = vi
+      .spyOn(prisma.boardMailboxAttachment, "findMany")
+      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    const removed = vi.spyOn(media, "remove");
+
+    try {
+      const first = await collector.collect();
+      expect(first.skipped).toBe(1);
+      // An orphan object, never a lost file.
+      expect(removed).not.toHaveBeenCalled();
+    } finally {
+      removed.mockRestore();
+      lookup.mockRestore();
       spy.mockRestore();
       await server.close();
     }

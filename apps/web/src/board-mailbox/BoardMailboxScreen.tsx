@@ -389,6 +389,13 @@ function SetAsideLetters({
                 date: formatMailboxDay(letter.setAsideAt, i18n.language),
               })}
             </span>
+            {letter.retryAt === null ? null : (
+              <span className="text-ink-muted">
+                {t("boardMailbox.setAside.retryFrom", {
+                  date: formatMailboxMoment(letter.retryAt, i18n.language),
+                })}
+              </span>
+            )}
           </li>
         ))}
       </ul>

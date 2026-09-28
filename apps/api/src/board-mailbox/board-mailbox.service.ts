@@ -203,6 +203,11 @@ export interface BoardMailboxSetAsideView {
   letterDate: string | null;
   /** When the collector set it aside. */
   setAsideAt: string;
+  /**
+   * When the collector tries it again, for a letter set aside because it kept
+   * failing. Null for one it will not try again.
+   */
+  retryAt: string | null;
 }
 
 /**
@@ -252,7 +257,12 @@ export class BoardMailboxService {
         where,
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: MAX_SET_ASIDE_LISTED,
-        select: { reason: true, letterDate: true, createdAt: true },
+        select: {
+          reason: true,
+          letterDate: true,
+          retryAfter: true,
+          createdAt: true,
+        },
       }),
       this.prisma.boardMailboxIgnoredMessage.count({ where }),
     ]);
@@ -264,6 +274,7 @@ export class BoardMailboxService {
         reason: row.reason as CollectionRefusal,
         letterDate: row.letterDate?.toISOString() ?? null,
         setAsideAt: row.createdAt.toISOString(),
+        retryAt: row.retryAfter?.toISOString() ?? null,
       })),
       setAsideCount: count,
     };

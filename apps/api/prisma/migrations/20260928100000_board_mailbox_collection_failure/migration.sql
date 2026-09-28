@@ -4,6 +4,10 @@
 -- collector trusts, and the rows already here were written without one.
 ALTER TABLE "board_mailbox_ignored_message" ADD COLUMN "letterDate" TIMESTAMP(3);
 
+-- When a letter set aside for failing on every attempt is tried again. Null for
+-- a letter the collector refused, which no later run would store.
+ALTER TABLE "board_mailbox_ignored_message" ADD COLUMN "retryAfter" TIMESTAMP(3);
+
 -- A letter the collector failed to store for a reason that said nothing about
 -- the letter, and how often. Retried rather than set aside, but not for ever:
 -- past a bound the letter goes to the ledger above and onto the board's screen.

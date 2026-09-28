@@ -11,14 +11,19 @@ failure to store it - a server that is read-only after a failover, a deploy
 ahead of its migration, an internal error, storage that did not answer - is
 tried again on the next run. A letter that fails on every run for an hour and
 at least twelve times is then set aside, so it is not retried unseen for as
-long as the mailbox keeps it.
+long as the mailbox keeps it. Such a letter is tried again every six hours, so
+the letters an outage longer than an hour set aside are collected once the
+instance has recovered.
 
 The board's mailbox screen now lists the letters the collection set aside, with
-why and the date the letter carried, so a board member can find them in a mail
-client. They are still in the mailbox.
+why, the date the letter carried and when it is tried again, so a board member
+can find them in a mail client. They are still in the mailbox. A letter deleted
+from the mailbox leaves the list at the next collection.
 
 A letter that was not stored no longer leaves its attachments behind in
-storage. An attachment that storage would not take no longer drops the file
+storage. A file is kept when a row names it, so a letter whose write landed
+although the database's answer was lost keeps its attachments. The audit log no
+longer records the file name of an attachment the collection stores or removes. An attachment that storage would not take no longer drops the file
 from a letter that is stored for good: the letter is tried again with it.
 
 The collection reads no more than four times the stored length of a letter's
