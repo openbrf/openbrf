@@ -182,6 +182,27 @@ describe("when the move-out is refused", () => {
     expect(screen.getByText(/finns inte i kalendern/)).toBeTruthy();
     expect(screen.queryByText(/Försök igen/)).toBeNull();
   });
+
+  it("points at the dates and the price when the request itself is refused", async () => {
+    // What the API answers over HTTP for an impossible date or a price that is
+    // not an amount: its request schema refuses before the service is reached.
+    moveOut.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+    const session = userEvent.setup();
+    render(<MoveOutPanel target={TARGET} onClose={noop} onMoved={noop} />);
+
+    await session.type(
+      screen.getByLabelText(/Utflyttningsdatum/),
+      "2026-06-30",
+    );
+    await session.click(screen.getByRole("button", { name: /^Flytta ut$/ }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/Kontrollera datumen och priset/)).toBeTruthy();
+    expect(screen.queryByText(/Försök igen/)).toBeNull();
+  });
 });
 
 describe("recording a transfer", () => {

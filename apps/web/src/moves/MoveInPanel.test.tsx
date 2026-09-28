@@ -257,3 +257,26 @@ it("says the date is not on the calendar rather than asking to try again", async
   expect(await screen.findByText(/finns inte i kalendern/)).toBeTruthy();
   expect(screen.queryByText(/Försök igen/)).toBeNull();
 });
+
+it("points at the dates and the price when the request itself is refused", async () => {
+  // What the API answers over HTTP for an impossible date or a price that is
+  // not an amount: its request schema refuses before the service is reached.
+  moveIn.mockResolvedValue({
+    ok: false,
+    failure: { status: 400, reason: "invalid-body" },
+  });
+  const session = userEvent.setup();
+  render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+  await session.click(
+    await screen.findByRole("button", { name: CHOOSE_PERSON }),
+  );
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  expect(
+    await screen.findByText(/Kontrollera datumen och priset/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Försök igen/)).toBeNull();
+});

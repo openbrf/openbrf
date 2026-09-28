@@ -2189,6 +2189,7 @@
       "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje upplåtelse och varje överlåtelse, och posten går inte att ta bort när den väl är registrerad.",
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "dateNotACalendarDate": "Datumet finns inte i kalendern. Kontrollera dag och månad.",
+      "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

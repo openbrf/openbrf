@@ -2189,6 +2189,7 @@
       "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every grant and every transfer, and the record cannot be removed once written.",
       "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
       "dateNotACalendarDate": "That date is not on the calendar. Check the day and the month.",
+      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },

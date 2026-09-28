@@ -562,6 +562,11 @@ describe("an upplatelse and an overgang are different events", () => {
       });
 
       expect(response.statusCode).toBe(400);
+      // The request schema answers, not the service: the move forms map this
+      // reason to a sentence, so the two must not drift apart unnoticed.
+      expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+        "invalid-body",
+      );
       expect(
         await prisma.residency.count({
           where: { personId: actors.misdated.personId },
