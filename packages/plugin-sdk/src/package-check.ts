@@ -509,12 +509,9 @@ function isLoaderReference(
  */
 function opensBody(source: string, from: number): boolean {
   const end = afterGap(source, from);
-  if (source[end] !== "{") {
-    return false;
-  }
-  NEXT_LINE_TERMINATOR.lastIndex = from;
-  const lineEnd = NEXT_LINE_TERMINATOR.exec(source);
-  return lineEnd === null || lineEnd.index >= end;
+  // Only the gap itself: searching on to the next line break would rescan the
+  // rest of a one-line bundle at every parenthesis.
+  return source[end] === "{" && !LINE_TERMINATOR.test(source.slice(from, end));
 }
 
 /** Whether a `/` after this token opens a regular expression. */

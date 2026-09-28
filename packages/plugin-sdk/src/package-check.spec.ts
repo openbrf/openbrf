@@ -421,7 +421,7 @@ describe("pluginPackageProblems", () => {
     ["nested calls", `${"require(".repeat(50_000)}"x"${")".repeat(50_000)}`],
     ["line comments", "// c\n".repeat(50_000)],
     ["escaped names", "requ\\u0069re;".repeat(50_000)],
-    ["method parameter lists", "({ require() /**/ {} });".repeat(20_000)],
+    ["method parameter lists", "({ require() /**/ {} });".repeat(100_000)],
   ])("reads a bundle of many %s in linear time", (_what, hostile) => {
     const started = performance.now();
     problemsWith(hostile);
