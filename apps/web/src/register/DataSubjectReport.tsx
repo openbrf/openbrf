@@ -1,4 +1,7 @@
-import type { AuditChannelName } from "@openbrf/shared";
+import type {
+  AuditChannelName,
+  DataSubjectReportSection,
+} from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -30,6 +33,8 @@ import {
   type ConnectedAppScope,
   type ConsentScope,
   type DataSubjectReport as Report,
+  type MeetingNoticeDeliveryFailure,
+  type NewsDeliveryFailure,
   type RegisterReportKind,
   type ReportAuditAction,
   type TerminationKind,
@@ -57,6 +62,65 @@ import { usePanelHeadingFocus } from "./use-panel-heading-focus";
  * is no button for one: the board member who produced it prints it and hands it
  * over.
  */
+
+/**
+ * The heading every section of the document is printed under.
+ *
+ * Keyed on the report's own keys as the shared tuple states them, less the two
+ * the header prints (the stamp and the controller), so a section added to the
+ * report fails this file's typecheck until the document has a heading for it.
+ * The browser's copy of the report type and the API's are both held to that
+ * tuple, which is what stops a section the API builds from going unprinted
+ * while both builds stay green.
+ */
+export const SECTION_TITLE = {
+  person: "register.person.report.section.person",
+  residencies: "register.person.report.section.residencies",
+  boardPositions: "register.person.report.section.boardPositions",
+  systemRoles: "register.person.report.section.systemRoles",
+  account: "register.person.report.section.account",
+  signInSessions: "register.person.report.section.signInSessions",
+  invitations: "register.person.report.section.invitations",
+  connectedApps: "register.person.report.section.connectedApps",
+  memberRegisterEntries: "register.person.report.section.memberRegister",
+  transfers: "register.person.report.section.transfers",
+  transferReversals: "register.person.report.section.transferReversals",
+  terminations: "register.person.report.section.terminations",
+  lienNotes: "register.person.report.section.lienNotes",
+  registerReportObligations: "register.person.report.section.reportObligations",
+  publicationConsents: "register.person.report.section.consents",
+  legalHolds: "register.person.report.section.legalHolds",
+  issues: "register.person.report.section.issues",
+  documents: "register.person.report.section.documents",
+  apartmentDocuments: "register.person.report.section.apartmentDocuments",
+  bookings: "register.person.report.section.bookings",
+  motions: "register.person.report.section.motions",
+  subletApplications: "register.person.report.section.subletApplications",
+  keyOrders: "register.person.report.section.keyOrders",
+  eventSignups: "register.person.report.section.eventSignups",
+  memberCharges: "register.person.report.section.memberCharges",
+  fees: "register.person.report.section.fees",
+  feeNotices: "register.person.report.section.feeNotices",
+  newsComments: "register.person.report.section.newsComments",
+  newsDeliveries: "register.person.report.section.newsDeliveries",
+  chats: "register.person.report.section.chat",
+  chatReports: "register.person.report.section.chatReports",
+  boardMailboxThreads: "register.person.report.section.boardMailbox",
+  meetingAttendances: "register.person.report.section.meetingAttendances",
+  proxyAuthorisations: "register.person.report.section.proxyAuthorisations",
+  meetingNoticeDeliveries:
+    "register.person.report.section.meetingNoticeDeliveries",
+  auditEntries: "register.person.report.section.audit",
+  dataSubjectRequests: "register.person.report.section.dataSubjectRequests",
+  personalDataBreaches: "register.person.report.section.personalDataBreaches",
+  retention: "register.person.report.section.retention",
+} as const satisfies Record<
+  Exclude<DataSubjectReportSection, "generatedOn" | "housingCooperative">,
+  TranslationKey
+>;
+
+/** A section the document prints under a heading of its own. */
+type TitledSection = keyof typeof SECTION_TITLE;
 
 const ROLE_LABEL = {
   MEMBER: "register.sign.member",
@@ -192,6 +256,29 @@ const KEY_ORDER_KIND_LABEL = {
   KEY: "keyOrders.kind.KEY",
   TAG: "keyOrders.kind.TAG",
 } as const satisfies Record<string, TranslationKey>;
+
+/**
+ * Who a charge was put on, in words addressed to the person the document is
+ * about: them, or the apartment they were living in. The second is not a claim
+ * that they were the one to pay it, and the sentence says no more than that.
+ */
+const CHARGE_BASIS_LABEL = {
+  person: "register.person.report.chargeBasis.person",
+  apartment: "register.person.report.chargeBasis.apartment",
+} as const satisfies Record<
+  Report["memberCharges"][number]["basis"],
+  TranslationKey
+>;
+
+/*
+ * The fee module's own words for the three standing fees, on the precedent of
+ * the booking and motion statuses above.
+ */
+const FEE_KIND_LABEL = {
+  ANNUAL_FEE: "fees.kind.ANNUAL_FEE",
+  PARKING_SPACE: "fees.kind.PARKING_SPACE",
+  STORAGE_SPACE: "fees.kind.STORAGE_SPACE",
+} as const satisfies Record<Report["fees"][number]["kind"], TranslationKey>;
 
 /*
  * The general meeting's own vocabulary, under the meetings namespace rather
@@ -459,16 +546,85 @@ const AUDIT_CHANNEL_LABEL = {
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**
+ * Which delivery channel (utskickskanal) a copy went by, in words.
+ */
+const DELIVERY_CHANNEL_LABEL = {
+  EMAIL: "register.person.report.deliveryChannel.EMAIL",
+  SMS: "register.person.report.deliveryChannel.SMS",
+} as const satisfies Record<
+  Report["newsDeliveries"][number]["channel"],
+  TranslationKey
+>;
+
+/**
+ * How far a copy got. "Handed over for delivery" and not "delivered": the
+ * ledger records that a mail server or an SMS provider accepted it, and
+ * nothing says anybody received it.
+ */
+const DELIVERY_STATUS_LABEL = {
+  PENDING: "register.person.report.deliveryStatus.PENDING",
+  SENT: "register.person.report.deliveryStatus.SENT",
+  FAILED: "register.person.report.deliveryStatus.FAILED",
+} as const satisfies Record<
+  Report["newsDeliveries"][number]["status"],
+  TranslationKey
+>;
+
+/**
+ * Why a copy did not go out, in words addressed to the person the document is
+ * about. Every code either ledger can hold, so a code added to one without a
+ * sentence here fails to compile rather than printing a code on the page.
+ */
+const DELIVERY_FAILURE_LABEL = {
+  "mail-not-configured":
+    "register.person.report.deliveryFailure.mail-not-configured",
+  "sms-not-configured":
+    "register.person.report.deliveryFailure.sms-not-configured",
+  "send-failed": "register.person.report.deliveryFailure.send-failed",
+  "recipient-gone": "register.person.report.deliveryFailure.recipient-gone",
+  "no-phone-number": "register.person.report.deliveryFailure.no-phone-number",
+  "no-email-address": "register.person.report.deliveryFailure.no-email-address",
+  "mailing-interrupted":
+    "register.person.report.deliveryFailure.mailing-interrupted",
+  "notice-sending-interrupted":
+    "register.person.report.deliveryFailure.notice-sending-interrupted",
+  "recipient-objected":
+    "register.person.report.deliveryFailure.recipient-objected",
+} as const satisfies Record<
+  NewsDeliveryFailure | MeetingNoticeDeliveryFailure,
+  TranslationKey
+>;
+
+/**
  * The day out of an instant. A document states days, not milliseconds.
  *
- * The association's day and not the UTC one. Twenty-nine columns of this
- * document come through here, and the first ten characters of the string answer
- * the UTC day: an act at half past midnight would be dated the day before on
- * every one of them, on the document art. 15 entitles somebody to. The dates
+ * The association's day and not the UTC one. Every column of this document
+ * that states an instant comes through here, and the first ten characters of
+ * the string answer the UTC day: an act at half past midnight would be dated the
+ * day before on every one of them, on the document art. 15 entitles somebody
+ * to. The dates
  * the server already states as days arrive as days and never reach this.
  */
 function day(instant: string | null): string | null {
   return instant === null ? null : localDayOfInstant(instant);
+}
+
+/**
+ * A VAT treatment in the charge and fee modules' own words: no VAT, or the rate
+ * as a percentage. A rate row without a percentage cannot be written, and is
+ * said as the treatment alone rather than as an empty rate.
+ */
+function vatOf(
+  t: TFunction,
+  treatment: "EXEMPT" | "RATE",
+  percent: number | null,
+): string {
+  if (treatment === "EXEMPT") {
+    return t("charges.vat.EXEMPT");
+  }
+  return percent === null
+    ? t("charges.vat.RATE")
+    : t("charges.vat.rateOf", { percent });
 }
 
 /**
@@ -647,7 +803,7 @@ export function DataSubjectReport({
               {t("register.person.report.twoTiers")}
             </p>
 
-            <Section titleKey="register.person.report.section.person">
+            <Section section="person">
               <dl className={FIELD_GRID}>
                 <Field
                   labelKey="register.person.report.field.name"
@@ -700,7 +856,7 @@ export function DataSubjectReport({
               </dl>
             </Section>
 
-            <Section titleKey="register.person.report.section.residencies">
+            <Section section="residencies">
               <Rows
                 empty={report.residencies.length === 0}
                 headings={[
@@ -733,7 +889,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.boardPositions">
+            <Section section="boardPositions">
               <Rows
                 empty={report.boardPositions.length === 0}
                 headings={[
@@ -759,7 +915,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.systemRoles">
+            <Section section="systemRoles">
               {report.systemRoles.length === 0 ? (
                 <Empty />
               ) : (
@@ -773,7 +929,7 @@ export function DataSubjectReport({
               )}
             </Section>
 
-            <Section titleKey="register.person.report.section.account">
+            <Section section="account">
               {report.account === null ? (
                 <Empty />
               ) : (
@@ -796,9 +952,121 @@ export function DataSubjectReport({
                   />
                 </dl>
               )}
+              {/*
+               * The passkeys the account can be signed in with, under its own
+               * heading inside the section: each one's name, when it was added
+               * and whether it is synced between devices. Nothing that would
+               * let anybody present one.
+               */}
+              {report.account === null ? null : (
+                <div className="flex flex-col gap-2">
+                  <h4 className={FIELD_LABEL}>
+                    {t("register.person.report.field.passkeys")}
+                  </h4>
+                  <Rows
+                    empty={report.account.passkeys.length === 0}
+                    headings={[
+                      "register.person.report.field.name",
+                      "register.person.report.field.added",
+                      "register.person.report.field.synced",
+                    ]}
+                  >
+                    {report.account.passkeys.map((passkey, position) => (
+                      <tr
+                        key={`${passkey.addedAt ?? ""}-${String(position)}`}
+                        className={ROW}
+                      >
+                        <td className={TEXT_CELL}>
+                          {passkey.name ??
+                            t("register.person.report.passkeyUnnamed")}
+                        </td>
+                        <td className={DATA_CELL}>
+                          {day(passkey.addedAt) ?? nothing}
+                        </td>
+                        <td className={TEXT_CELL}>
+                          {t(
+                            passkey.backedUp
+                              ? "register.person.report.yes"
+                              : "register.person.report.no",
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </Rows>
+                </div>
+              )}
             </Section>
 
-            <Section titleKey="register.person.report.section.connectedApps">
+            {/*
+             * Every session the account holds, ended ones included, newest
+             * first. The IP address and the browser name are printed as the
+             * sign-in recorded them and not shortened: a shortened address
+             * would be a different datum from the one the association keeps.
+             * "Last renewed" and not "last seen", because renewal happens at
+             * most once a day.
+             */}
+            <Section section="signInSessions">
+              <Rows
+                empty={report.signInSessions.length === 0}
+                headings={[
+                  "register.person.report.field.signedIn",
+                  "register.person.report.field.renewed",
+                  "register.person.report.field.ends",
+                  "register.person.report.field.ipAddress",
+                  "register.person.report.field.userAgent",
+                ]}
+              >
+                {report.signInSessions.map((session, position) => (
+                  <tr
+                    key={`${session.signedInAt}-${String(position)}`}
+                    className={ROW}
+                  >
+                    <td className={DATA_CELL}>{day(session.signedInAt)}</td>
+                    <td className={DATA_CELL}>{day(session.renewedAt)}</td>
+                    <td className={DATA_CELL}>{day(session.endsAt)}</td>
+                    <td className={DATA_CELL}>
+                      {session.ipAddress ?? nothing}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      <span className="block break-words">
+                        {session.userAgent ?? nothing}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * The invitations to an account, accepted or not. Who sent one is
+             * not a column: the act is the board member's, and the audit log
+             * below states it.
+             */}
+            <Section section="invitations">
+              <Rows
+                empty={report.invitations.length === 0}
+                headings={[
+                  "register.person.report.field.sent",
+                  "register.person.report.field.validUntil",
+                  "register.person.report.field.accepted",
+                ]}
+              >
+                {report.invitations.map((invitation, position) => (
+                  <tr
+                    key={`${invitation.sentAt}-${String(position)}`}
+                    className={ROW}
+                  >
+                    <td className={DATA_CELL}>{day(invitation.sentAt)}</td>
+                    <td className={DATA_CELL}>{day(invitation.validUntil)}</td>
+                    <td className={DATA_CELL}>
+                      {day(invitation.acceptedAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section section="connectedApps">
               <Rows
                 empty={report.connectedApps.length === 0}
                 headings={[
@@ -845,7 +1113,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.memberRegister">
+            <Section section="memberRegisterEntries">
               <Rows
                 empty={report.memberRegisterEntries.length === 0}
                 headings={[
@@ -870,7 +1138,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.transfers">
+            <Section section="transfers">
               <Rows
                 empty={report.transfers.length === 0}
                 headings={[
@@ -927,7 +1195,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.transferReversals">
+            <Section section="transferReversals">
               <Rows
                 empty={report.transferReversals.length === 0}
                 headings={[
@@ -950,7 +1218,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.terminations">
+            <Section section="terminations">
               <Rows
                 empty={report.terminations.length === 0}
                 headings={[
@@ -973,7 +1241,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.lienNotes">
+            <Section section="lienNotes">
               <Rows
                 empty={report.lienNotes.length === 0}
                 headings={[
@@ -999,7 +1267,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.reportObligations">
+            <Section section="registerReportObligations">
               <Rows
                 empty={report.registerReportObligations.length === 0}
                 headings={[
@@ -1040,7 +1308,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.consents">
+            <Section section="publicationConsents">
               <Rows
                 empty={report.publicationConsents.length === 0}
                 headings={[
@@ -1068,7 +1336,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.legalHolds">
+            <Section section="legalHolds">
               <Rows
                 empty={report.legalHolds.length === 0}
                 headings={[
@@ -1089,7 +1357,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.issues">
+            <Section section="issues">
               <Rows
                 empty={report.issues.length === 0}
                 headings={[
@@ -1126,7 +1394,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.documents">
+            <Section section="documents">
               <Rows
                 empty={report.documents.length === 0}
                 headings={[
@@ -1149,7 +1417,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.apartmentDocuments">
+            <Section section="apartmentDocuments">
               <Rows
                 empty={report.apartmentDocuments.length === 0}
                 headings={[
@@ -1174,7 +1442,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.bookings">
+            <Section section="bookings">
               <Rows
                 empty={report.bookings.length === 0}
                 headings={[
@@ -1216,7 +1484,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.motions">
+            <Section section="motions">
               <Rows
                 empty={report.motions.length === 0}
                 headings={[
@@ -1261,7 +1529,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.subletApplications">
+            <Section section="subletApplications">
               <Rows
                 empty={report.subletApplications.length === 0}
                 headings={[
@@ -1338,7 +1606,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.keyOrders">
+            <Section section="keyOrders">
               <Rows
                 empty={report.keyOrders.length === 0}
                 headings={[
@@ -1389,7 +1657,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.eventSignups">
+            <Section section="eventSignups">
               <Rows
                 empty={report.eventSignups.length === 0}
                 headings={[
@@ -1437,6 +1705,130 @@ export function DataSubjectReport({
             </Section>
 
             {/*
+             * Charges the association put on this person, or on the apartment
+             * they lived in on the day each was dated. The second column says
+             * which, in words, because a charge on the flat is a record of what
+             * was charged where they lived and not a statement that they owed
+             * it. No payment column: the association holds none.
+             */}
+            <Section section="memberCharges">
+              <Rows
+                empty={report.memberCharges.length === 0}
+                headings={[
+                  "register.person.report.field.dated",
+                  "register.person.report.field.chargedTo",
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.amount",
+                  "register.person.report.field.vat",
+                  "register.person.report.field.reason",
+                  "register.person.report.field.handedToManager",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.memberCharges.map((charge) => (
+                  <tr key={charge.chargeId} className={ROW}>
+                    <td className={DATA_CELL}>{charge.chargedOn}</td>
+                    <td className={TEXT_CELL}>
+                      {t(CHARGE_BASIS_LABEL[charge.basis])}
+                    </td>
+                    <td className={DATA_CELL}>{charge.apartment ?? nothing}</td>
+                    <td className={DATA_CELL}>{charge.amount}</td>
+                    <td className={TEXT_CELL}>
+                      {vatOf(t, charge.vatTreatment, charge.vatRatePercent)}
+                    </td>
+                    {/* Line breaks kept, as every piece of writing on this
+                      document keeps them: the reason is what the association
+                      says the charge was for, and it is printed as written. */}
+                    <td className={TEXT_CELL}>
+                      <span className="block whitespace-pre-line">
+                        {charge.reason}
+                      </span>
+                    </td>
+                    {/*
+                     * When the basis went to whoever keeps the books: a
+                     * recipient outside the association, which is why it is on
+                     * the document at all.
+                     */}
+                    <td className={DATA_CELL}>
+                      {charge.handedToManagerOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>{charge.erasableFrom}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * The fee rates that stood against the apartments this person lived
+             * in. A rate still in force has no end and no erasure date, and the
+             * cells say so rather than inventing one.
+             */}
+            <Section section="fees">
+              <Rows
+                empty={report.fees.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.feeKind",
+                  "register.person.report.field.appliesFrom",
+                  "register.person.report.field.appliesUntil",
+                  "register.person.report.field.monthlyAmount",
+                  "register.person.report.field.vat",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.fees.map((fee) => (
+                  <tr key={fee.feeId} className={ROW}>
+                    <td className={DATA_CELL}>{fee.apartment}</td>
+                    <td className={TEXT_CELL}>{t(FEE_KIND_LABEL[fee.kind])}</td>
+                    <td className={DATA_CELL}>{fee.appliesFrom}</td>
+                    <td className={DATA_CELL}>
+                      {fee.appliesUntil ?? t("register.person.report.standing")}
+                    </td>
+                    <td className={DATA_CELL}>{fee.monthlyAmount}</td>
+                    <td className={TEXT_CELL}>
+                      {vatOf(t, fee.vatTreatment, fee.vatRatePercent)}
+                    </td>
+                    <td className={DATA_CELL}>{fee.erasableFrom ?? nothing}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
+             * The fee notices issued for those apartments, as issued. No payment
+             * and no delivery column: neither is something the platform
+             * records.
+             */}
+            <Section section="feeNotices">
+              <Rows
+                empty={report.feeNotices.length === 0}
+                headings={[
+                  "register.person.report.field.apartment",
+                  "register.person.report.field.period",
+                  "register.person.report.field.due",
+                  "register.person.report.field.issued",
+                  "register.person.report.field.amount",
+                  "register.person.report.field.paymentReference",
+                  "register.person.report.field.erasableFrom",
+                ]}
+              >
+                {report.feeNotices.map((notice) => (
+                  <tr key={notice.noticeId} className={ROW}>
+                    <td className={DATA_CELL}>{notice.apartment}</td>
+                    <td className={DATA_CELL}>
+                      {`${notice.periodFrom} - ${notice.periodTo}`}
+                    </td>
+                    <td className={DATA_CELL}>{notice.dueOn}</td>
+                    <td className={DATA_CELL}>{notice.issuedOn}</td>
+                    <td className={DATA_CELL}>{notice.amount}</td>
+                    <td className={DATA_CELL}>{notice.paymentReference}</td>
+                    <td className={DATA_CELL}>{notice.erasableFrom}</td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
              * The board's shared mailbox.
              *
              * One row per message rather than per conversation, because the
@@ -1450,7 +1842,7 @@ export function DataSubjectReport({
              * it, which is the only claim the mailbox can support - a From header
              * is written by whoever sent the message and nothing checks it.
              */}
-            <Section titleKey="register.person.report.section.boardMailbox">
+            <Section section="boardMailboxThreads">
               <Rows
                 empty={report.boardMailboxThreads.length === 0}
                 headings={[
@@ -1539,7 +1931,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.newsComments">
+            <Section section="newsComments">
               <Rows
                 empty={report.newsComments.length === 0}
                 headings={[
@@ -1585,6 +1977,51 @@ export function DataSubjectReport({
             </Section>
 
             {/*
+             * Every copy of a news mailing or an SMS mailing addressed to this
+             * person, and whether it went out. Where it did not, why, in words:
+             * the ledger holds a closed code and never a mail server's reply,
+             * and a code the document cannot read is said to be not recorded.
+             * No erasure column, because no purge reaches the ledger.
+             */}
+            <Section section="newsDeliveries">
+              <Rows
+                empty={report.newsDeliveries.length === 0}
+                headings={[
+                  "register.person.report.field.newsItem",
+                  "register.person.report.field.deliveryChannel",
+                  "register.person.report.field.outcome",
+                  "register.person.report.field.notSentBecause",
+                  "register.person.report.field.queued",
+                  "register.person.report.field.sent",
+                ]}
+              >
+                {report.newsDeliveries.map((delivery) => (
+                  <tr
+                    key={`${delivery.newsSlug}-${delivery.channel}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>{delivery.newsTitle}</td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {delivery.failure === null
+                        ? nothing
+                        : t(DELIVERY_FAILURE_LABEL[delivery.failure])}
+                    </td>
+                    <td className={DATA_CELL}>{day(delivery.queuedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(delivery.sentAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            {/*
              * What this person wrote in the chat, room by room.
              *
              * One row per message with the room repeated down the left, like the
@@ -1603,7 +2040,7 @@ export function DataSubjectReport({
              * way - and a document that printed it without saying a moderation
              * had happened would leave its subject unaware of one.
              */}
-            <Section titleKey="register.person.report.section.chat">
+            <Section section="chats">
               <Rows
                 empty={report.chats.length === 0}
                 headings={[
@@ -1698,7 +2135,7 @@ export function DataSubjectReport({
              * another person's words belong - which is also why the note is
              * printed only on a row this person wrote.
              */}
-            <Section titleKey="register.person.report.section.chatReports">
+            <Section section="chatReports">
               <Rows
                 empty={report.chatReports.length === 0}
                 headings={[
@@ -1766,7 +2203,7 @@ export function DataSubjectReport({
              * printed because exemption from erasure is not exemption from
              * access.
              */}
-            <Section titleKey="register.person.report.section.meetingAttendances">
+            <Section section="meetingAttendances">
               <Rows
                 empty={report.meetingAttendances.length === 0}
                 headings={[
@@ -1813,7 +2250,7 @@ export function DataSubjectReport({
              * person, on either side of them. The role column is what makes the
              * section answer for both, exactly as it does on the audit log below.
              */}
-            <Section titleKey="register.person.report.section.proxyAuthorisations">
+            <Section section="proxyAuthorisations">
               <Rows
                 empty={report.proxyAuthorisations.length === 0}
                 headings={[
@@ -1852,7 +2289,55 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.audit">
+            {/*
+             * Every copy of a notice of a general meeting addressed to this
+             * person: whom the association summoned, and whether the summons
+             * went out. The meeting is named as the attendance section names
+             * it. No erasure column, for the reason that section gives.
+             */}
+            <Section section="meetingNoticeDeliveries">
+              <Rows
+                empty={report.meetingNoticeDeliveries.length === 0}
+                headings={[
+                  "register.person.report.field.meeting",
+                  "register.person.report.field.date",
+                  "register.person.report.field.deliveryChannel",
+                  "register.person.report.field.outcome",
+                  "register.person.report.field.notSentBecause",
+                  "register.person.report.field.queued",
+                  "register.person.report.field.sent",
+                ]}
+              >
+                {report.meetingNoticeDeliveries.map((delivery) => (
+                  <tr
+                    key={`${delivery.meetingHeldOn}-${delivery.queuedAt}`}
+                    className={ROW}
+                  >
+                    <td className={TEXT_CELL}>
+                      {t(MEETING_KIND_LABEL[delivery.meetingKind])}
+                    </td>
+                    <td className={DATA_CELL}>{delivery.meetingHeldOn}</td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {delivery.failure === null
+                        ? nothing
+                        : t(DELIVERY_FAILURE_LABEL[delivery.failure])}
+                    </td>
+                    <td className={DATA_CELL}>{day(delivery.queuedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(delivery.sentAt) ?? nothing}
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+            </Section>
+
+            <Section section="auditEntries">
               <Rows
                 empty={report.auditEntries.length === 0}
                 headings={[
@@ -1897,7 +2382,7 @@ export function DataSubjectReport({
              * person is handed: a refusal with the reasons left in the
              * database would not have been given to them.
              */}
-            <Section titleKey="register.person.report.section.dataSubjectRequests">
+            <Section section="dataSubjectRequests">
               <Rows
                 empty={report.dataSubjectRequests.length === 0}
                 headings={[
@@ -1980,7 +2465,7 @@ export function DataSubjectReport({
              * account communicated to each affected person as its own act,
              * which is what the last column records the date of.
              */}
-            <Section titleKey="register.person.report.section.personalDataBreaches">
+            <Section section="personalDataBreaches">
               <Rows
                 empty={report.personalDataBreaches.length === 0}
                 headings={[
@@ -2013,7 +2498,7 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section titleKey="register.person.report.section.retention">
+            <Section section="retention">
               <dl className={FIELD_GRID}>
                 <Field
                   labelKey="register.person.report.field.retentionDays"
@@ -2076,18 +2561,23 @@ function contextLine(context: Record<string, unknown> | null): string | null {
   return parts.length === 0 ? null : parts.join("; ");
 }
 
+/**
+ * One section of the document, under the heading {@link SECTION_TITLE} gives
+ * it. Named by the report's own key rather than by a translation key, so a
+ * heading cannot be printed that the title map does not hold.
+ */
 function Section({
-  titleKey,
+  section,
   children,
 }: {
-  titleKey: TranslationKey;
+  section: TitledSection;
   children: ReactNode;
 }): ReactElement {
   const t = useDocumentTranslation();
 
   return (
     <section className={SECTION}>
-      <h3 className={SECTION_HEADING}>{t(titleKey)}</h3>
+      <h3 className={SECTION_HEADING}>{t(SECTION_TITLE[section])}</h3>
       {children}
     </section>
   );

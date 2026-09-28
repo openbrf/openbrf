@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
+
 /**
  * Environment variables are parsed once at boot and never read from
  * process.env again, so a missing or malformed value fails immediately with a
@@ -21,23 +23,87 @@ function envBoolean(defaultValue: boolean) {
     );
 }
 
+/**
+ * Like envBoolean, but absent while the variable is unset, and "true" or
+ * "false" exactly.
+ *
+ * For a flag that belongs to one of several drivers: a value the operator set
+ * beside another driver has to be told apart from one nobody set, so that it
+ * can be named at boot. The reader supplies the default.
+ *
+ * Stricter than envBoolean, because the flag this serves decides whether a
+ * connection is encrypted from the start: "TRUE" or "1" read as false would
+ * leave it in the clear until STARTTLS without a word, so any other value is
+ * named at boot instead.
+ */
+function optionalEnvBoolean() {
+  return z
+    .enum(["true", "false"], { error: 'must be "true" or "false"' })
+    .transform((value) => value === "true")
+    .optional();
+}
+
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
+
+/**
+ * A domain written the way the right-hand side of a Message-ID is: labels of
+ * letters, digits and hyphens, separated by dots.
+ */
+const MESSAGE_ID_DOMAIN =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i;
+
+/** The address parsed, or null for a value that is not a URL at all. */
+function parsedUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether an address may be dialled from here: https, or plain http on a
+ * loopback host, and no credentials written into it.
+ *
+ * Loopback is allowed unencrypted because that is what a development instance
+ * and the end-to-end stack run on; everything else must be https. Deliberately
+ * not a regular expression: a URL is parsed by the parser, and a pattern that
+ * agreed with it on the easy cases would disagree on the ones that matter.
+ */
+function isHttpsOrLoopback(url: URL): boolean {
+  if (url.username !== "" || url.password !== "") {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  if (url.protocol !== "http:") return false;
+  return isLoopbackHost(url.hostname);
+}
+
+/**
+ * Whether a host names this machine: the one place a connection may go
+ * unencrypted, because it never crosses a network.
+ *
+ * Both IPv6 forms, because a URL parser always returns the address bracketed
+ * and an SMTP host is written as the operator typed it.
+ */
+export function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host === "::1"
+  );
+}
 
 /**
  * Whether a client could reach this instance at the address given.
  *
- * Loopback is allowed unencrypted because that is what a development instance
- * and the end-to-end stack run on; everything else must be https, since the
- * address leaves this process in a discovery document and a token's audience.
- * Deliberately not a regular expression: a URL is parsed by the parser, and a
- * pattern that agreed with it on the easy cases would disagree on the ones
- * that matter.
+ * The address leaves this process in a discovery document and a token's
+ * audience, so it has to be one a client can reach safely.
  */
 function isReachableAppUrl(value: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
+  const url = parsedUrl(value);
+  if (url === null) {
     return false;
   }
   /*
@@ -52,25 +118,28 @@ function isReachableAppUrl(value: string): boolean {
    * that is not where their instance is. Refusing the value names the variable
    * at boot instead.
    */
-  if (
-    url.username !== "" ||
-    url.password !== "" ||
-    url.pathname !== "/" ||
-    url.search !== "" ||
-    url.hash !== ""
-  ) {
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") {
     return false;
   }
-  if (url.protocol === "https:") return true;
-  if (url.protocol !== "http:") return false;
-  // The parser always returns an IPv6 host bracketed, so the bracketed form is
-  // the only one that can appear here; an unbracketed one does not survive
-  // parsing to reach this line.
-  return (
-    url.hostname === "localhost" ||
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "[::1]"
-  );
+  return isHttpsOrLoopback(url);
+}
+
+/**
+ * Whether the mail API's address is one this process may post mail to.
+ *
+ * The scheme half of the APP_URL check and not the rest of it: this address is
+ * dialled and never published, and a service versions its API in the path
+ * (`https://mail.example/v1`), so a path is allowed. A query or a fragment is
+ * not, because the driver appends its own path and neither would survive that
+ * as the operator meant it. Every message carries the bearer key and the
+ * recipient's address, which is why plain http is loopback only.
+ */
+function isMailApiUrl(value: string): boolean {
+  const url = parsedUrl(value);
+  if (url === null || url.search !== "" || url.hash !== "") {
+    return false;
+  }
+  return isHttpsOrLoopback(url);
 }
 
 /**
@@ -213,6 +282,83 @@ export const envSchema = z.object({
    * what a token would otherwise reach.
    */
   OPENBRF_ACTIONS_READ_ONLY: envBoolean(false),
+
+  /**
+   * Where the instance's mail goes out (ADR 0024).
+   *
+   * "settings" is what the board enters in the setup wizard and the settings
+   * screen. "smtp" and "http-api" are set by whoever runs the instance, win
+   * over anything stored, and lock the settings: on a hosted instance the host
+   * answers for delivery and for the sending domain's SPF and DKIM, and a board
+   * that could replace them would be the first to find out it had broken both.
+   */
+  OPENBRF_MAIL_DRIVER: z
+    .enum(["settings", "smtp", "http-api"])
+    .default("settings"),
+  /**
+   * The sender's bare address. Need not be on the association's own domain: a
+   * hosted instance sends from a domain it shares with others, under the
+   * association's name, with replies directed to the association.
+   */
+  OPENBRF_MAIL_FROM_ADDRESS: z.email().max(320).optional(),
+  /**
+   * The display name. Unset, the association's registered name, read at each
+   * send. One line, because it becomes part of a header.
+   */
+  OPENBRF_MAIL_FROM_NAME: z
+    .string()
+    .trim()
+    .min(1, "must not be blank")
+    .max(MAX_DISPLAY_NAME)
+    .refine(
+      (value) => !hasControlCharacter(value),
+      "must be one line, with no line break or other control character",
+    )
+    .optional(),
+  /**
+   * Where a reply goes when a message names nowhere of its own. Unset, the
+   * board mailbox's published address while one is configured.
+   */
+  OPENBRF_MAIL_REPLY_TO: z.email().max(320).optional(),
+
+  OPENBRF_SMTP_HOST: z.string().min(1).optional(),
+  /** Unset, 465 with implicit TLS and 587 without (smtp-mail.driver.ts). */
+  OPENBRF_SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+  /** Implicit TLS. Unset is false; absent here so a stray value can be named. */
+  OPENBRF_SMTP_SECURE: optionalEnvBoolean(),
+  OPENBRF_SMTP_USER: z.string().min(1).optional(),
+  /**
+   * In the environment in plain text, as the S3 keys are: the operator supplies
+   * it where the instance runs. A password the board types is encrypted at rest
+   * instead.
+   */
+  OPENBRF_SMTP_PASSWORD: z.string().min(1).optional(),
+
+  /** The mail API's base address; the driver posts to `<this>/emails`. */
+  OPENBRF_MAIL_API_URL: z
+    .string()
+    .min(1)
+    .refine(
+      isMailApiUrl,
+      "must be an https URL, or http on localhost, and carry no credentials, query or fragment",
+    )
+    .optional(),
+  /** The bearer key, in plain text for the reason OPENBRF_SMTP_PASSWORD is. */
+  OPENBRF_MAIL_API_KEY: z.string().min(1).optional(),
+  /**
+   * The domain the service writes its own Message-ID under, as `<id>@<domain>`.
+   *
+   * The service refuses a Message-ID from the caller and sets one itself, so
+   * this is how the instance learns the identifier a reply to the message will
+   * name - which is what the board mailbox threads by.
+   */
+  OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: z
+    .string()
+    .regex(
+      MESSAGE_ID_DOMAIN,
+      "must be a domain name, such as the part after the @ in the service's own Message-ID",
+    )
+    .optional(),
 });
 
 /**
@@ -231,6 +377,112 @@ const S3_REQUIRED = [
   "OPENBRF_S3_SECRET_ACCESS_KEY",
 ] as const;
 
+/**
+ * The variables each mail driver set in the environment reads.
+ *
+ * The sender's three belong to both drivers and to neither of them alone.
+ */
+const MAIL_SENDER_VARIABLES = [
+  "OPENBRF_MAIL_FROM_ADDRESS",
+  "OPENBRF_MAIL_FROM_NAME",
+  "OPENBRF_MAIL_REPLY_TO",
+] as const;
+
+const MAIL_DRIVER_VARIABLES = {
+  smtp: [
+    "OPENBRF_SMTP_HOST",
+    "OPENBRF_SMTP_PORT",
+    "OPENBRF_SMTP_SECURE",
+    "OPENBRF_SMTP_USER",
+    "OPENBRF_SMTP_PASSWORD",
+  ],
+  "http-api": [
+    "OPENBRF_MAIL_API_URL",
+    "OPENBRF_MAIL_API_KEY",
+    "OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN",
+  ],
+} as const;
+
+const MAIL_DRIVER_REQUIRED = {
+  smtp: ["OPENBRF_MAIL_FROM_ADDRESS", "OPENBRF_SMTP_HOST"],
+  "http-api": [
+    "OPENBRF_MAIL_FROM_ADDRESS",
+    "OPENBRF_MAIL_API_URL",
+    "OPENBRF_MAIL_API_KEY",
+    "OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN",
+  ],
+} as const;
+
+/**
+ * A mail driver set in the environment needs its own variables and refuses
+ * everybody else's.
+ *
+ * Checked at boot for the reason the S3 variables are, and refused in the other
+ * direction too: a variable of one driver set beside another is half of a
+ * configuration that was being switched, and an instance that booted with it
+ * would send through something the operator did not mean. Under "settings" every
+ * one of them is refused, because an SMTP host set with the driver left at its
+ * default would otherwise be ignored without a word.
+ */
+function checkMailDriver(value: Env, ctx: z.RefinementCtx): void {
+  const driver = value.OPENBRF_MAIL_DRIVER;
+
+  for (const [owner, names] of Object.entries(MAIL_DRIVER_VARIABLES)) {
+    if (owner === driver) {
+      continue;
+    }
+    for (const name of names) {
+      if (value[name] !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [name],
+          message: `belongs to the "${owner}" mail driver, and OPENBRF_MAIL_DRIVER is "${driver}"`,
+        });
+      }
+    }
+  }
+
+  if (driver === "settings") {
+    for (const name of MAIL_SENDER_VARIABLES) {
+      if (value[name] !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: [name],
+          message:
+            'belongs to a mail driver set in the environment, and OPENBRF_MAIL_DRIVER is "settings"',
+        });
+      }
+    }
+    return;
+  }
+
+  for (const name of MAIL_DRIVER_REQUIRED[driver]) {
+    if (value[name] === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: [name],
+        message: `is required when OPENBRF_MAIL_DRIVER is "${driver}"`,
+      });
+    }
+  }
+
+  // Both or neither: a user with no password, or the reverse, is a credential
+  // half written down, and the server's refusal would arrive at the first send.
+  if (driver === "smtp") {
+    const user = value.OPENBRF_SMTP_USER !== undefined;
+    const password = value.OPENBRF_SMTP_PASSWORD !== undefined;
+    if (user !== password) {
+      ctx.addIssue({
+        code: "custom",
+        path: [user ? "OPENBRF_SMTP_PASSWORD" : "OPENBRF_SMTP_USER"],
+        message: user
+          ? "is required when OPENBRF_SMTP_USER is set"
+          : "is required when OPENBRF_SMTP_PASSWORD is set",
+      });
+    }
+  }
+}
+
 const envChecked = envSchema.superRefine((value, ctx) => {
   // One of the two connections has to be there, because there is no default
   // that could be right. Which one it is says what the process is for: a deploy
@@ -247,6 +499,8 @@ const envChecked = envSchema.superRefine((value, ctx) => {
         "the database this process connects to.",
     });
   }
+
+  checkMailDriver(value, ctx);
 
   if (value.OPENBRF_STORAGE_DRIVER !== "s3") {
     return;

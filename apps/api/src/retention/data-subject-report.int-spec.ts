@@ -139,6 +139,29 @@ const connectedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 const tokenIssuedAt = new Date();
 const tokenExpiresAt = new Date(tokenIssuedAt.getTime() + 60 * 60 * 1000);
 
+/**
+ * The browser the subject signs in with, as it names itself, and the passkey on
+ * their account.
+ *
+ * Per run, so an assertion that the report states the name as it was recorded
+ * cannot be satisfied by another suite's session. The passkey's public key and
+ * credential id are what the report must never carry, and the credential id is
+ * unique across the instance.
+ */
+const SUBJECT_BROWSER = `Utdragslasaren/1.0 (dsar ${suffix})`;
+/**
+ * The hash of the subject's invitation token, per run because the column is
+ * unique across the instance, and the value the report must never carry.
+ */
+const INVITATION_TOKEN_HASH = `dsar-invitation-hash-${suffix}`;
+const invitationSentAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+const invitationAcceptedAt = new Date(
+  invitationSentAt.getTime() + 24 * 60 * 60 * 1000,
+);
+const PASSKEY_NAME = `Telefonen ${suffix}`;
+const PASSKEY_PUBLIC_KEY = `dsar-passkey-public-key-${suffix}`;
+const PASSKEY_CREDENTIAL_ID = `dsar-passkey-credential-${suffix}`;
+
 const meetingHeldOn = dateColumnOf(
   localDayOf(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
 );
@@ -146,6 +169,8 @@ const proxyAuthorisedOn = dateColumnOf(
   localDayOf(new Date(Date.now() - 21 * 24 * 60 * 60 * 1000)),
 );
 const attendanceStruckOffAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+/** When the notice of that meeting was sent, three weeks before it. */
+const noticeQueuedAt = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
 
 /**
  * When the fixture cleaning day ran, and when the subject stood down from it.
@@ -285,11 +310,15 @@ function inject(options: {
     });
 }
 
-async function signIn(email: string): Promise<string> {
+async function signIn(
+  email: string,
+  headers?: Record<string, string>,
+): Promise<string> {
   const response = await inject({
     method: "POST",
     url: "/api/auth/sign-in/email",
     payload: { email, password: PASSWORD },
+    ...(headers === undefined ? {} : { headers }),
   });
   const setCookie = response.headers["set-cookie"];
   const cookies = Array.isArray(setCookie)
@@ -748,6 +777,26 @@ beforeAll(async () => {
   await prisma.meeting.create({
     data: { id: meetingId, kind: "ORDINARY", heldOn: meetingHeldOn },
   });
+  /*
+   * The notice that summoned the meeting, and the subject's copy of it, sent.
+   * The notice restricts the meeting, so the clean-up takes it first.
+   */
+  await prisma.meetingNotice.create({
+    data: {
+      meetingId,
+      startsAt: new Date(meetingHeldOn.getTime() + 18 * 60 * 60 * 1000),
+      place: `Samlingslokalen ${suffix}`,
+      issuedByPersonId: board.personId,
+      deliveries: {
+        create: {
+          personId: subject.personId,
+          status: "SENT",
+          queuedAt: noticeQueuedAt,
+          sentAt: noticeQueuedAt,
+        },
+      },
+    },
+  });
   await prisma.meetingAttendance.createMany({
     data: [
       {
@@ -864,6 +913,30 @@ beforeAll(async () => {
           },
         ],
       },
+      /*
+       * Two copies of the item's mailing to the subject, one each way. The
+       * text message failed because the subject had objected; the email's
+       * failure was stored as a code outside the closed set, which the report
+       * has to state as not recorded rather than pass through.
+       */
+      deliveries: {
+        create: [
+          {
+            personId: subject.personId,
+            channel: "SMS",
+            status: "FAILED",
+            failureReason: "recipient-objected",
+            queuedAt: commentWrittenAt,
+          },
+          {
+            personId: subject.personId,
+            channel: "EMAIL",
+            status: "FAILED",
+            failureReason: `mail-server-said-${suffix}`,
+            queuedAt: commentWrittenAt,
+          },
+        ],
+      },
     },
   });
 
@@ -940,6 +1013,38 @@ beforeAll(async () => {
     },
   });
 
+  /*
+   * A passkey on the subject's account, with the key material the report must
+   * leave behind, and one sign-in by the subject with a browser that names
+   * itself: the session that sign-in leaves is what the report has to state,
+   * with the address it came from and never its token.
+   */
+  await prisma.passkey.create({
+    data: {
+      userId: subjectAccount.id,
+      name: PASSKEY_NAME,
+      publicKey: PASSKEY_PUBLIC_KEY,
+      credentialID: PASSKEY_CREDENTIAL_ID,
+      counter: 7,
+      deviceType: "multiDevice",
+      backedUp: true,
+      transports: "internal",
+    },
+  });
+  await signIn(subject.email, { "user-agent": SUBJECT_BROWSER });
+
+  // The invitation the subject accepted, sent by the board member.
+  await prisma.invitation.create({
+    data: {
+      personId: subject.personId,
+      tokenHash: INVITATION_TOKEN_HASH,
+      createdAt: invitationSentAt,
+      expiresAt: new Date(invitationSentAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+      acceptedAt: invitationAcceptedAt,
+      invitedById: board.personId,
+    },
+  });
+
   boardCookie = await signIn(board.email);
   managerCookie = await signIn(manager.email);
   residentCookie = await signIn(resident.email);
@@ -993,6 +1098,8 @@ afterAll(async () => {
          */
         () => prisma.meetingAttendance.deleteMany({ where: { meetingId } }),
         () => prisma.proxyAuthorisation.deleteMany({ where: { meetingId } }),
+        // The notice restricts the meeting too; its ledger goes with it.
+        () => prisma.meetingNotice.deleteMany({ where: { meetingId } }),
         () => prisma.meeting.deleteMany({ where: { id: meetingId } }),
         () => prisma.document.deleteMany({ where: { mediaFileId } }),
         () =>
@@ -1020,6 +1127,10 @@ afterAll(async () => {
         () =>
           prisma.oauthClient.deleteMany({
             where: { clientId: CONNECTED_APP_CLIENT_ID },
+          }),
+        () =>
+          prisma.invitation.deleteMany({
+            where: { personId: { in: personIds } },
           }),
         () =>
           prisma.session.deleteMany({
@@ -1214,6 +1325,109 @@ describe("what the report contains", () => {
     // And never the credential itself. A document printed and handed over must
     // carry no way back into the account it is about.
     expect(JSON.stringify(report)).not.toContain(connectedAppTokenDigest);
+  });
+
+  it("states each session the account holds, with the address and browser it came from", async () => {
+    /*
+     * The sign-in library keeps, for every session, the IP address the request
+     * came from and the name the browser gave itself. Both are held about
+     * whoever signed in, so both are on the report as stored - and the token,
+     * which is a live credential for as long as the session lasts, is not on it
+     * in any form.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(report.signInSessions).toHaveLength(1);
+    const session = report.signInSessions[0];
+    // The forwarded address this suite's requests carry, recorded verbatim.
+    expect(session?.ipAddress).toMatch(/^10\.22\.\d+\.\d+$/);
+    expect(session?.userAgent).toBe(SUBJECT_BROWSER);
+    expect(Date.parse(session?.endsAt ?? "")).toBeGreaterThan(
+      Date.parse(session?.signedInAt ?? ""),
+    );
+
+    const stored = await prisma.session.findFirstOrThrow({
+      where: { user: { personId: subject.personId } },
+      select: { token: true },
+    });
+    expect(JSON.stringify(report)).not.toContain(stored.token);
+  });
+
+  it("states the invitation and never its token", async () => {
+    /*
+     * When it was sent, until when the link worked and when it was accepted.
+     * Not the token hash, which on an invitation never accepted is a live way
+     * into an account, and not who sent it: that is the board member's act,
+     * and the audit log names it on their report.
+     */
+    const report = await reportFor(boardCookie);
+
+    expect(report.invitations).toEqual([
+      {
+        sentAt: invitationSentAt.toISOString(),
+        validUntil: expect.any(String) as unknown as string,
+        acceptedAt: invitationAcceptedAt.toISOString(),
+      },
+    ]);
+    const written = JSON.stringify(report);
+    expect(written).not.toContain(INVITATION_TOKEN_HASH);
+    expect(written).not.toContain("invitedById");
+  });
+
+  it("states each mailing and notice sent to the person, and why one failed", async () => {
+    /*
+     * The two delivery ledgers are the association's record of what it sent
+     * to this person, and art. 15 is a right to what is held. Where a copy did
+     * not go out the report says why, as the closed code the workers write -
+     * and a stored value outside that set reads as not recorded, because the
+     * document cannot put a code nobody can read into words.
+     */
+    const report = await reportFor(boardCookie);
+
+    const mailings = report.newsDeliveries.filter(
+      (delivery) => delivery.newsSlug === newsSlug,
+    );
+    expect(mailings).toHaveLength(2);
+    const text = mailings.find((delivery) => delivery.channel === "SMS");
+    expect(text).toMatchObject({
+      newsTitle: `Portkoden byts ${suffix}`,
+      status: "FAILED",
+      failure: "recipient-objected",
+      sentAt: null,
+    });
+    const email = mailings.find((delivery) => delivery.channel === "EMAIL");
+    expect(email?.status).toBe("FAILED");
+    expect(email?.failure).toBeNull();
+    expect(JSON.stringify(report)).not.toContain(`mail-server-said-${suffix}`);
+
+    expect(report.meetingNoticeDeliveries).toEqual([
+      {
+        meetingHeldOn: meetingHeldOn.toISOString().slice(0, 10),
+        meetingKind: "ORDINARY",
+        channel: "EMAIL",
+        status: "SENT",
+        failure: null,
+        queuedAt: noticeQueuedAt.toISOString(),
+        sentAt: noticeQueuedAt.toISOString(),
+      },
+    ]);
+  });
+
+  it("lists the passkeys on the account and no key material", async () => {
+    const report = await reportFor(boardCookie);
+
+    expect(report.account?.passkeys).toEqual([
+      {
+        name: PASSKEY_NAME,
+        addedAt: expect.any(String) as unknown as string,
+        backedUp: true,
+      },
+    ]);
+    // Nothing that identifies the authenticator to the instance, and nothing
+    // that could be presented to sign in.
+    const written = JSON.stringify(report);
+    expect(written).not.toContain(PASSKEY_PUBLIC_KEY);
+    expect(written).not.toContain(PASSKEY_CREDENTIAL_ID);
   });
 
   it("carries the statutory tier, which the purge is exempt from but access is not", async () => {
@@ -1728,6 +1942,9 @@ describe("what producing the report records", () => {
     expect(written).toContain("memberRegisterEntries");
     expect(written).not.toContain(IDENTITY_NUMBER);
     expect(written).not.toContain(subject.email);
+    // Nor where anybody signed in from: the entry names the section only.
+    expect(written).toContain("signInSessions");
+    expect(written).not.toMatch(/10\.22\./);
   });
 
   it("writes no entry when the report cannot be produced", async () => {

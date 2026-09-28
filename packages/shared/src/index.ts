@@ -14,6 +14,8 @@ export type {
 } from "./apartment-numbering.ts";
 export { AUDIT_CHANNELS } from "./audit-channels.ts";
 export type { AuditChannelName } from "./audit-channels.ts";
+export { DATA_SUBJECT_REPORT_SECTIONS } from "./data-subject-report-sections.ts";
+export type { DataSubjectReportSection } from "./data-subject-report-sections.ts";
 export {
   DATA_SUBJECT_CATEGORIES,
   PERSONAL_DATA_CATEGORIES,

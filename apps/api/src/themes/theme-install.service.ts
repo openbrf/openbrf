@@ -1,9 +1,10 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import type { LocalizedText } from "@openbrf/plugin-sdk";
 import { checkContrast } from "@openbrf/tokens";
 import {
   BUILT_IN_THEME,
   chainEntryFor,
-  lintTheme,
+  lintThemeAgainst,
   readThemePackage,
   resolveChainTokens,
   resolveThemeChain,
@@ -17,6 +18,8 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import type { CatalogThemeEntry } from "../packaging/catalog-entry";
+import { sha512 } from "../packaging/integrity";
 import {
   COMPOSED_AUDIT_SOURCE,
   composedChecksum,
@@ -24,7 +27,7 @@ import {
   composedSourceUrl,
   type ComposeThemeInput,
 } from "./theme-compose";
-import { CatalogThemeSource, type CatalogEntry } from "./theme-source";
+import { CatalogThemeSource } from "./theme-source";
 import { ThemeStore } from "./theme-store";
 import { ThemeService, type ThemeSummary } from "./theme.service";
 
@@ -114,11 +117,14 @@ interface ThemeProvenance {
 /** A catalog entry as the install screen lists it. */
 export interface CatalogThemeView {
   id: string;
-  name: string;
-  description: string | null;
+  /** The catalog's own text in both languages; the screen picks the viewer's. */
+  name: LocalizedText;
+  description: LocalizedText;
   version: string;
   /** The token contract range the catalog states for the entry. */
   contract: string | null;
+  /** Still listed, but the curator advises against installing it anew. */
+  deprecated: boolean;
   /** The installed version, when this theme is already installed. */
   installedVersion: string | null;
 }
@@ -157,9 +163,10 @@ export class ThemeInstallService {
     return entries.map((entry) => ({
       id: entry.id,
       name: entry.name,
-      description: entry.description ?? null,
+      description: entry.description,
       version: entry.version,
       contract: entry.contract ?? null,
+      deprecated: entry.deprecated,
       installedVersion: versionById.get(entry.id) ?? null,
     }));
   }
@@ -172,9 +179,8 @@ export class ThemeInstallService {
       "Create the housing cooperative before installing a theme.",
     );
 
-    const entries = await this.source.listThemes();
-    const entry = entries.find((candidate) => candidate.id === catalogId);
-    if (entry === undefined) {
+    const entry = await this.source.theme(catalogId);
+    if (entry === null) {
       throw new ThemeInstallError(
         `The catalog has no theme ${catalogId}.`,
         "not-in-catalog",
@@ -202,10 +208,12 @@ export class ThemeInstallService {
       files,
       raw,
       {
-        checksum: entry.sha512,
-        sourceUrl: entry.url,
+        // The digest of the bytes that were verified, in the one spelling the
+        // column holds, whichever of the two the index wrote.
+        checksum: sha512(bytes).toString("hex"),
+        sourceUrl: entry.artifact.url,
         catalogId: entry.id,
-        auditSource: entry.url,
+        auditSource: entry.artifact.url,
       },
       actorPersonId,
     );
@@ -298,11 +306,7 @@ export class ThemeInstallService {
     provenance: ThemeProvenance,
     actorPersonId: string | null,
   ): Promise<ThemeInstallResult> {
-    const lint = await this.lintAgainstInstalled(
-      manifest,
-      [...files.keys()],
-      raw,
-    );
+    const lint = await this.lintAgainstInstalled(manifest, files, raw);
     if (!lint.ok) {
       throw new ThemeInstallError(
         `The theme ${manifest.name} did not pass the install lint.`,
@@ -451,9 +455,14 @@ export class ThemeInstallService {
    * entry called `example-theme` could install a package that names itself
    * something else, and the theme a board thought they were installing would
    * not be the one they got.
+   *
+   * The contract and the parent are compared when the entry states them: the
+   * screen shows the entry's contract to the board, and a package that
+   * disagrees with it would install on the strength of a claim it does not
+   * make. An entry that leaves either out claims nothing to compare.
    */
   private assertIdentityMatches(
-    entry: CatalogEntry,
+    entry: CatalogThemeEntry,
     manifest: ThemeManifest,
   ): void {
     if (manifest.name !== entry.id) {
@@ -468,15 +477,20 @@ export class ThemeInstallService {
         "identity-mismatch",
       );
     }
+    if (entry.contract !== undefined && manifest.contract !== entry.contract) {
+      throw new ThemeInstallError(
+        `The catalog lists ${entry.id} for token contract ${entry.contract} but the package states ${manifest.contract}.`,
+        "identity-mismatch",
+      );
+    }
+    if (entry.extends !== undefined && manifest.extends !== entry.extends) {
+      throw new ThemeInstallError(
+        `The catalog lists ${entry.id} as extending ${entry.extends} but the package extends ${manifest.extends ?? "no theme"}.`,
+        "identity-mismatch",
+      );
+    }
   }
 
-  /**
-   * Lints the manifest against the themes already installed.
-   *
-   * The chain matters: a theme extending another installed theme has to be
-   * measured with its parent's values in place, or a child that only changes
-   * the accent would look like a theme with no colours at all.
-   */
   /**
    * Contrast a save would break in the themes that inherit from it.
    *
@@ -600,28 +614,19 @@ export class ThemeInstallService {
     return findings;
   }
 
+  /**
+   * Lints the theme against the themes already installed, with the same
+   * function a theme's own CI and the catalog's check run.
+   */
   private async lintAgainstInstalled(
     manifest: ThemeManifest,
-    files: readonly string[],
+    files: ThemeArchiveFiles,
     raw: Readonly<Record<string, unknown>>,
   ) {
     const rows = await this.themes.installedRows();
-    const entries: ThemeChainEntry[] = rows
-      .filter((row) => row.id !== manifest.name)
-      .map((row) => ThemeService.chainEntryOf(row));
-
-    const candidate = chainEntryFor(manifest);
-    const byId = new Map<string, ThemeChainEntry>([
-      [BUILT_IN_THEME.id, BUILT_IN_THEME],
-      ...entries.map((entry) => [entry.id, entry] as const),
-      [candidate.id, candidate],
-    ]);
-
-    return lintTheme({
-      manifest,
-      files,
-      chain: resolveThemeChain(manifest.name, (id) => byId.get(id)),
-      rawManifest: raw,
-    });
+    return lintThemeAgainst(
+      { manifest, files, raw },
+      rows.map((row) => ThemeService.chainEntryOf(row)),
+    );
   }
 }

@@ -1,0 +1,180 @@
+# Publishes the packages a plugin or theme is written against -
+# @openbrf/plugin-sdk, @openbrf/theme-tools and @openbrf/tokens - to npmjs.com
+# with a provenance attestation, so an author outside the organization can
+# install them and see which commit and which workflow run built them.
+#
+# Versioning is a separate, reviewed step: `pnpm changeset version` in a pull
+# request of its own consumes the pending changesets and bumps the versions.
+# This workflow then publishes every public package whose version is not on the
+# registry yet and leaves the rest alone, so running it twice is harmless. It
+# creates no git tags: the provenance statement names the commit each version
+# was built from, and that is the record.
+#
+# It runs by hand only. A publish cannot be taken back, and nothing about a
+# merge to main says that it is time for one.
+#
+# Only main may publish, and this file cannot be what enforces that: GitHub
+# reads it from the ref being run, so a branch can carry a copy without the
+# check. The control is the `npm` environment, whose deployment branches are
+# limited to main and which requires a reviewer's approval. Neither the
+# NPM_TOKEN secret nor the OIDC token npm trusts is released to a job on any
+# other ref.
+#
+# The work is split in two so that the one job able to publish runs no code
+# from a dependency: `build` installs, tests and packs without any credential,
+# and `publish` installs nothing and publishes the tarballs with scripts off.
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # A convenience, not the control (see the top of this file): a run
+      # dispatched from another branch fails here rather than going green.
+      - name: Run from main only
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Release runs from main only, not from $GITHUB_REF."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # No dependency cache: a cache written by any other workflow run would be
+      # restored into the job whose output is published.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      # Needs no dependency, so it runs before the install: the packages it
+      # names are the only ones installed, built and packed. The output keeps
+      # one directory per line, and the steps below read it line by line into
+      # an array, so a directory is never split on spaces or expanded as a glob.
+      - name: Check the packages and their versions
+        id: packages
+        run: |
+          directories=$(node scripts/check-release-packages.mjs)
+          delimiter="directories-$(openssl rand -hex 16)"
+          {
+            echo "directories<<$delimiter"
+            echo "$directories"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies of the published packages
+        env:
+          PACKAGES: ${{ steps.packages.outputs.directories }}
+        run: |
+          mapfile -t directories <<< "$PACKAGES"
+          filters=(--filter=openbrf)
+          for directory in "${directories[@]}"; do
+            filters+=("--filter=./$directory...")
+          done
+          pnpm install --frozen-lockfile "${filters[@]}"
+
+      - name: Build and test the published packages
+        env:
+          PACKAGES: ${{ steps.packages.outputs.directories }}
+        run: |
+          mapfile -t directories <<< "$PACKAGES"
+          filters=()
+          for directory in "${directories[@]}"; do
+            filters+=("--filter=./$directory")
+          done
+          pnpm turbo run build lint typecheck test "${filters[@]}"
+
+      # pnpm replaces a `workspace:` range with the version it points at, and
+      # runs each package's `prepack`, which copies in the licence files. Each
+      # tarball goes in a directory numbered in the check's order, dependencies
+      # first, which is the order `publish` publishes them in.
+      - name: Pack
+        env:
+          PACKAGES: ${{ steps.packages.outputs.directories }}
+        run: |
+          mapfile -t directories <<< "$PACKAGES"
+          position=0
+          for directory in "${directories[@]}"; do
+            position=$((position + 1))
+            destination="$RUNNER_TEMP/tarballs/$(printf '%03d' "$position")"
+            mkdir -p "$destination"
+            (cd "$directory" && pnpm pack --pack-destination "$destination")
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs/*/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish to npmjs.com
+    needs: build
+    runs-on: ubuntu-latest
+    # What npm's trusted publisher is bound to, and what limits a publish to
+    # main and to a reviewer's approval (see the top of this file).
+    environment: npm
+    permissions:
+      contents: read
+      # The OIDC token npm exchanges for a short-lived publish token, and signs
+      # the provenance statement with.
+      id-token: write
+    steps:
+      # For .nvmrc only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: tarballs
+          path: ${{ runner.temp }}/tarballs
+
+      # Trusted publishing is tried first and needs no secret. NPM_TOKEN is the
+      # fallback for the first publish of each package, which npm requires
+      # before a trusted publisher can be attached to it; remove the secret
+      # once all three have one. Provenance comes from each package's
+      # publishConfig, which npm reads from the tarball.
+      #
+      # The numbered directories keep the order `build` packed them in, so a
+      # package is published only after every package it depends on, and a
+      # failed publish stops the ones after it.
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for tarball in "$RUNNER_TEMP"/tarballs/*/*.tgz; do
+            manifest=$(tar -xzOf "$tarball" package/package.json)
+            name=$(node -p 'JSON.parse(process.argv[1]).name' "$manifest")
+            version=$(node -p 'JSON.parse(process.argv[1]).version' "$manifest")
+            if [ "$(npm view "$name@$version" version 2>/dev/null)" = "$version" ]; then
+              echo "$name@$version is already on npmjs.com."
+              continue
+            fi
+            npm publish "$tarball" --ignore-scripts
+          done

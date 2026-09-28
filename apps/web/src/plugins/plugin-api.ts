@@ -1,4 +1,5 @@
 import type {
+  LocalizedText,
   PluginActionDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
@@ -75,8 +76,8 @@ export interface CatalogPlugin {
   id: string;
   packageName: string;
   version: string;
-  name: { sv: string; en: string };
-  description: { sv: string; en: string };
+  name: LocalizedText;
+  description: LocalizedText;
   homepage: string | null;
   deprecated: boolean;
   apiVersion: number;

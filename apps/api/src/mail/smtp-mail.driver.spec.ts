@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Env } from "../config/env";
-import type { FieldEncryptionService } from "../crypto/field-encryption.service";
-import type { PrismaService } from "../database/prisma.service";
-import { I18nService } from "../i18n/i18n.service";
-import { MailService } from "./mail.service";
-import { invitationMail } from "./templates";
+import type { OutgoingMail } from "./mail-driver";
+import { SmtpMailDriver } from "./smtp-mail.driver";
 
 /**
  * What a send is allowed to cost when the far end goes quiet.
@@ -40,58 +36,25 @@ vi.mock("nodemailer", () => ({
   createTransport: transport.createTransport,
 }));
 
-const TEST_ENV = {
-  NODE_ENV: "test",
-  PORT: 3000,
-  DATABASE_URL: "postgresql://unused",
-  APP_URL: "https://brf.example.se",
-  OPENBRF_DATA_DIR: "./.data",
-  OPENBRF_ENCRYPTION_KEY: "a".repeat(64),
-  BETTER_AUTH_SECRET: "test-secret-at-least-16-chars",
-  OPENBRF_PLUGINS_ENABLED: false,
-  OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
-} as Env;
-
-/** An association with mail configured, so the send reaches the transport. */
-const ASSOCIATION = {
-  id: 1,
-  name: "Brf Eksemplet",
-  primaryColor: "#8A6D28",
-  logoFileId: null,
-  logoDarkFileId: null,
-  smtpHost: "smtp.exempel.se",
-  smtpFromAddress: "brf@exempel.se",
-  smtpPasswordCipher: null,
-  smtpPort: 587,
-  smtpUser: null,
-  smtpSecure: false,
+const SERVER = {
+  host: "smtp.exempel.se",
+  port: 587,
+  secure: false,
+  requireTls: false,
+  user: null,
+  password: null,
 };
 
-async function buildService(): Promise<MailService> {
-  const i18n = new I18nService();
-  await i18n.init();
-  return new MailService(
-    TEST_ENV,
-    {
-      association: { findUnique: vi.fn().mockResolvedValue(ASSOCIATION) },
-    } as unknown as PrismaService,
-    i18n,
-    { decrypt: vi.fn() } as unknown as FieldEncryptionService,
-  );
-}
-
-function sendOne(service: MailService): Promise<void> {
-  return service.send({
-    to: "anna@exempel.se",
-    locale: "sv",
-    template: invitationMail,
-    props: {
-      recipientName: "Anna",
-      activationUrl: "https://brf.example.se/activate/abc",
-      expiresAt: new Date("2026-09-03T10:00:00Z"),
-    },
-  });
-}
+const MAIL: OutgoingMail = {
+  from: { name: null, address: "brf@exempel.se" },
+  to: "anna@exempel.se",
+  subject: "Ett konto väntar på dig",
+  html: "<p>Aktivera ditt konto</p>",
+  text: "Aktivera ditt konto",
+  replyTo: null,
+  messageId: null,
+  inReplyTo: null,
+};
 
 beforeEach(() => {
   transport.createTransport.mockClear();
@@ -101,9 +64,9 @@ beforeEach(() => {
 
 describe("the mail transport", () => {
   it("is built with a bound on every stage a mail server can stall at", async () => {
-    const service = await buildService();
+    const driver = new SmtpMailDriver(SERVER);
 
-    await sendOne(service);
+    await driver.send(MAIL);
 
     expect(transport.sendMail).toHaveBeenCalledTimes(1);
     // All three, because a server can go quiet at three different points: the
@@ -132,11 +95,77 @@ describe("the mail transport", () => {
   });
 
   it("lets a refusal reach the caller, which is what the bound is for", async () => {
-    const service = await buildService();
+    const driver = new SmtpMailDriver(SERVER);
     transport.sendMail.mockRejectedValue(new Error("connection timed out"));
 
     // The callers that send after committing their work catch this and log it.
     // A send that never settled would never reach them.
-    await expect(sendOne(service)).rejects.toThrow("connection timed out");
+    await expect(driver.send(MAIL)).rejects.toThrow("connection timed out");
+  });
+});
+
+describe("the message handed to the server", () => {
+  it("passes a bare sender as it always has", async () => {
+    await new SmtpMailDriver(SERVER).send(MAIL);
+
+    expect(transport.sendMail.mock.calls[0]?.[0]).toMatchObject({
+      from: "brf@exempel.se",
+    });
+  });
+
+  it("passes a display name for nodemailer to encode", async () => {
+    // Not written into a string here: a name with a letter outside ASCII or a
+    // quote in it has to be encoded, and nodemailer does that from the parts.
+    await new SmtpMailDriver(SERVER).send({
+      ...MAIL,
+      from: { name: 'Brf "Åkern" 1', address: "utskick@delad.example" },
+    });
+
+    expect(transport.sendMail.mock.calls[0]?.[0]).toMatchObject({
+      from: { name: 'Brf "Åkern" 1', address: "utskick@delad.example" },
+    });
+  });
+
+  it("writes both threading headers from the answered identifier", async () => {
+    await new SmtpMailDriver(SERVER).send({
+      ...MAIL,
+      messageId: "svar-1@styrelsen.example",
+      inReplyTo: "fraga-1@utanfor.example",
+    });
+
+    expect(transport.sendMail.mock.calls[0]?.[0]).toMatchObject({
+      messageId: "<svar-1@styrelsen.example>",
+      inReplyTo: "<fraga-1@utanfor.example>",
+      references: ["<fraga-1@utanfor.example>"],
+    });
+  });
+});
+
+describe("the identifier it reports", () => {
+  it("is the one it was given, which an SMTP server does not rewrite", async () => {
+    transport.sendMail.mockResolvedValue({ messageId: "<other@relay>" });
+
+    const sent = await new SmtpMailDriver(SERVER).send({
+      ...MAIL,
+      messageId: "svar-1@styrelsen.example",
+    });
+
+    expect(sent).toEqual({ messageId: "svar-1@styrelsen.example" });
+  });
+
+  it("is nodemailer's own, without brackets, when none was given", async () => {
+    transport.sendMail.mockResolvedValue({
+      messageId: "<abc-123@exempel.se>",
+    });
+
+    const sent = await new SmtpMailDriver(SERVER).send(MAIL);
+
+    expect(sent).toEqual({ messageId: "abc-123@exempel.se" });
+  });
+
+  it("is none when neither was there", async () => {
+    const sent = await new SmtpMailDriver(SERVER).send(MAIL);
+
+    expect(sent).toEqual({ messageId: null });
   });
 });

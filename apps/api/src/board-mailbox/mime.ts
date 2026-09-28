@@ -37,6 +37,8 @@
  * matter here (ISO-8859-1 and Windows-1252).
  */
 
+import { CONTROL_CHARACTERS, oneLine } from "../mail/header-text";
+
 /** One file that arrived attached to a message. */
 export interface MimeAttachment {
   /**
@@ -53,7 +55,14 @@ export interface MimeAttachment {
 }
 
 export interface ParsedMessage {
-  /** The subject line, decoded. Empty when the message carried none. */
+  /**
+   * The subject line, decoded and on one line. Empty when the message carried
+   * none.
+   *
+   * One line, because an encoded word decodes to whatever bytes the sender
+   * chose, a line break included, and an answer's subject is built from this
+   * one and becomes a header of its own.
+   */
   readonly subject: string;
   /** The address the message claims to come from, lowercased, or null. */
   readonly fromAddress: string | null;
@@ -110,7 +119,7 @@ export function readMessage(raw: Buffer): ParsedMessage {
   const body = chooseBody(part);
 
   return {
-    subject: decodeEncodedWords(part.headers.get("subject") ?? "").trim(),
+    subject: oneLine(decodeEncodedWords(part.headers.get("subject") ?? "")),
     fromAddress: addressFrom(part.headers.get("from") ?? ""),
     fromName: displayNameFrom(part.headers.get("from") ?? ""),
     messageId: identifierFrom(part.headers.get("message-id") ?? ""),
@@ -730,21 +739,6 @@ export function decodeEncodedWords(raw: string): string {
 
   return result + raw.slice(cursor);
 }
-
-/**
- * The characters a sender may not put into a name this application shows.
- *
- * Control characters only. They have no place in a filename or a display name,
- * and a log line, a terminal or a download header is where one of them stops
- * being invisible.
- *
- * The rule against matching control characters in a pattern is disabled for this
- * one line, which is the case it makes an exception for: this pattern exists in
- * order to remove them from a value somebody outside the association chose, and
- * the alternative to naming them is not naming them.
- */
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
 
 // ---------------------------------------------------------------------------
 // Header values.

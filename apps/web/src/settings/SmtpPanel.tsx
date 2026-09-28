@@ -1,7 +1,11 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { SmtpSettings } from "../api/instance";
+import type {
+  EnvironmentMailSettings,
+  SmtpSettings,
+  StoredSmtpSettings,
+} from "../api/instance";
 import { saveSmtp, sendSmtpTest } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
@@ -28,6 +32,11 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "no-email": "settings.smtp.errors.noEmail",
 };
 
+const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // The environment began setting the mail after this screen was loaded.
+  "mail-managed-by-environment": "settings.smtp.errors.managedByEnvironment",
+};
+
 /**
  * The port to offer when the settings name none, per transport.
  *
@@ -49,6 +58,97 @@ function defaultPortFor(secure: boolean): string {
 /**
  * How the instance sends mail.
  *
+ * Two cards behind one component, because the wizard and the settings screen
+ * render whichever applies: the board's own SMTP form, or - when whoever runs
+ * the instance sets the mail - a statement of it with no form at all (ADR 0024).
+ */
+export function SmtpPanel(props: SmtpPanelProps): ReactElement {
+  return props.value.source === "environment" ? (
+    <EnvironmentMailPanel
+      value={props.value}
+      editable={props.editable ?? true}
+    />
+  ) : (
+    <StoredSmtpPanel {...props} value={props.value} />
+  );
+}
+
+/**
+ * Mail set where the instance runs.
+ *
+ * The host it goes through and the address it is sent from, and a test the
+ * administrator can still run, because whether the mail arrives is worth
+ * knowing whoever set it up. No form: the host answers for delivery and for the
+ * sending domain, the API refuses a change, and fields that could not be saved
+ * would only suggest otherwise.
+ */
+function EnvironmentMailPanel({
+  value,
+  editable,
+}: {
+  value: EnvironmentMailSettings;
+  editable: boolean;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [testedAddress, setTestedAddress] = useState<string | null>(null);
+  const test = useSaveAction(sendSmtpTest, (result) => {
+    setTestedAddress(result.sentTo);
+  });
+
+  return (
+    <Panel
+      title={t("settings.smtp.title")}
+      notice={
+        test.state.kind === "failed" ? (
+          <Notice tone="danger" live>
+            {t(
+              failureMessageKey(
+                test.state.failure,
+                TEST_FAILURES,
+                // Not the form's advice: this card shows no server, port or
+                // password, and the board cannot change them.
+                "settings.smtp.errors.environmentUnknown",
+              ),
+            )}
+          </Notice>
+        ) : test.state.kind === "saved" && testedAddress !== null ? (
+          <Notice tone="ok" live>
+            {t("settings.smtp.testSent", { email: testedAddress })}
+          </Notice>
+        ) : null
+      }
+    >
+      <p className="text-body">
+        {t("settings.smtp.environment", {
+          host: value.host,
+          fromAddress: value.fromAddress,
+        })}
+      </p>
+      <p className={HINT}>{t("settings.smtp.environmentHint")}</p>
+
+      {editable ? (
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={test.state.kind === "saving"}
+            onClick={() => {
+              void test.submit();
+            }}
+            className={SECONDARY_BUTTON}
+          >
+            {test.state.kind === "saving"
+              ? t("settings.smtp.sending")
+              : t("settings.smtp.sendTest")}
+          </button>
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
+/**
+ * The SMTP server the board enters.
+ *
  * Skippable in the wizard, and the notice says what skipping costs: with no
  * SMTP server there is no way to deliver an invitation, an activation link or a
  * sign-in link, so nobody can be brought into the register at all. The screen
@@ -60,12 +160,12 @@ function defaultPortFor(secure: boolean): string {
  * clearing it - which is stated in the hint, because a form that silently means
  * two different things by "empty" is a trap.
  */
-export function SmtpPanel({
+function StoredSmtpPanel({
   value,
   onSaved,
   submitLabel,
   editable = true,
-}: SmtpPanelProps): ReactElement {
+}: SmtpPanelProps & { value: StoredSmtpSettings }): ReactElement {
   const { t } = useTranslation();
   const [host, setHost] = useState(value.host ?? "");
   const [port, setPort] = useState(
@@ -116,7 +216,7 @@ export function SmtpPanel({
             {t(
               failureMessageKey(
                 save.state.failure,
-                {},
+                SAVE_FAILURES,
                 "settings.errors.unknown",
               ),
             )}

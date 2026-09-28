@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import { catalogText } from "../i18n/catalog-text";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -67,13 +68,12 @@ export function ConsentPanel({
   const recorded = entry.recipientState;
   const answer = recipientAnswer(recipient);
   const answered = recorded !== "notRecorded" || answer !== null;
-  const swedish = locale.startsWith("sv");
 
   return (
     <Panel
       title={t("plugins.consent.title")}
       description={t("plugins.consent.intro", {
-        name: swedish ? entry.name.sv : entry.name.en,
+        name: catalogText(entry.name, locale),
         version: entry.version,
       })}
       notice={<Notice tone="info">{t("plugins.consent.privacyNote")}</Notice>}
@@ -107,7 +107,7 @@ export function ConsentPanel({
       }
     >
       <p className="text-body text-ink">
-        {swedish ? entry.description.sv : entry.description.en}
+        {catalogText(entry.description, locale)}
       </p>
 
       <Declaration

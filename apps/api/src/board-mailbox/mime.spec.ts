@@ -84,6 +84,25 @@ describe("readMessage", () => {
     );
   });
 
+  it("reads an encoded subject that decodes to a line break as one line", () => {
+    // The subject of an answer is built from this one, and a line break in it
+    // would start a header of the sender's choosing.
+    const encoded = Buffer.from("Hej\r\nBcc: nagon@annan.example").toString(
+      "base64",
+    );
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        `Subject: =?UTF-8?B?${encoded}?=`,
+        "",
+        "Hej",
+        "",
+      ),
+    );
+
+    expect(message.subject).toBe("Hej Bcc: nagon@annan.example");
+  });
+
   it("decodes quoted-printable in a non-UTF-8 character set", () => {
     // ISO-8859-1 is what an old client still sends, and it is exactly the case
     // where getting it wrong produces a letter the board can half read.

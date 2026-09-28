@@ -233,7 +233,7 @@ afterAll(async () => {
 beforeEach(() => {
   // Date alone: the database driver's timers keep running on the real clock.
   vi.useFakeTimers({ toFake: ["Date"], now: AFTER_MIDNIGHT });
-  vi.spyOn(app.get(MailService), "send").mockResolvedValue(undefined);
+  vi.spyOn(app.get(MailService), "send").mockResolvedValue({ messageId: null });
 });
 
 afterEach(() => {

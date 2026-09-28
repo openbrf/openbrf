@@ -48,6 +48,10 @@ export const DELIVERY_FAILURES = {
   recipientObjected: "recipient-objected",
 } as const;
 
+/** One of the codes above, as the delivery ledger stores it. */
+export type NewsDeliveryFailure =
+  (typeof DELIVERY_FAILURES)[keyof typeof DELIVERY_FAILURES];
+
 /**
  * Whether the person has told the association to stop, as of this instant.
  *

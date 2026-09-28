@@ -1,3 +1,5 @@
+import type { LocalizedText } from "@openbrf/plugin-sdk";
+
 import { apiRequest, type ApiResult } from "./client";
 
 /**
@@ -78,10 +80,13 @@ export interface ThemeRendering {
 
 export interface CatalogTheme {
   id: string;
-  name: string;
-  description: string | null;
+  /** The catalog's own text in both languages; shown in the viewer's. */
+  name: LocalizedText;
+  description: LocalizedText;
   version: string;
   contract: string | null;
+  /** Still listed, but the curator advises against installing it anew. */
+  deprecated: boolean;
   /** The version already installed, when this theme is installed. */
   installedVersion: string | null;
 }

@@ -7,8 +7,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { DataSubjectReportSection } from "@openbrf/shared";
+
 import i18n from "../i18n";
-import { DataSubjectReport } from "./DataSubjectReport";
+import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
 import type { DataSubjectReport as Report } from "./register-api";
 
 /**
@@ -41,6 +43,21 @@ const ISSUE_DESCRIPTION = [
   "Varst pa morgonen.",
 ].join("\n");
 
+/**
+ * Where a session came from and what the browser called itself, as the sign-in
+ * library recorded them: an address in full, and a browser name long enough to
+ * have to wrap on paper.
+ */
+const SESSION_ADDRESS = "2001:db8::17";
+const SESSION_BROWSER =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
+/** What a charge was for, as the board wrote it: on two lines. */
+const CHARGE_REASON = [
+  "Ny tagg till cykelrummet.",
+  "Den gamla tappades bort.",
+].join("\n");
+
 const { fetchDataSubjectReport } = vi.hoisted(() => ({
   fetchDataSubjectReport: vi.fn(),
 }));
@@ -70,6 +87,8 @@ const EMPTY_REPORT: Report = {
   boardPositions: [],
   systemRoles: [],
   account: null,
+  signInSessions: [],
+  invitations: [],
   connectedApps: [],
   memberRegisterEntries: [],
   transfers: [],
@@ -87,12 +106,17 @@ const EMPTY_REPORT: Report = {
   subletApplications: [],
   keyOrders: [],
   eventSignups: [],
+  memberCharges: [],
+  fees: [],
+  feeNotices: [],
   newsComments: [],
+  newsDeliveries: [],
   chats: [],
   chatReports: [],
   boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
+  meetingNoticeDeliveries: [],
   auditEntries: [],
   dataSubjectRequests: [],
   personalDataBreaches: [],
@@ -101,6 +125,45 @@ const EMPTY_REPORT: Report = {
 
 const FULL_REPORT: Report = {
   ...EMPTY_REPORT,
+  account: {
+    // Not the register's address, which the account's may differ from.
+    email: "siv.holm@exempel.test",
+    twoFactorEnabled: true,
+    createdAt: "2020-03-02T09:00:00.000Z",
+    passkeys: [
+      {
+        name: "Telefonen",
+        addedAt: "2026-04-11T09:00:00.000Z",
+        backedUp: true,
+      },
+      // A passkey the person never named, on a row that recorded no date.
+      { name: null, addedAt: null, backedUp: false },
+    ],
+  },
+  signInSessions: [
+    {
+      signedInAt: "2026-08-20T08:15:00.000Z",
+      renewedAt: "2026-08-27T07:00:00.000Z",
+      endsAt: "2026-09-26T07:00:00.000Z",
+      ipAddress: SESSION_ADDRESS,
+      userAgent: SESSION_BROWSER,
+    },
+    {
+      // A sign-in whose request carried neither, as the library records it.
+      signedInAt: "2026-05-02T10:00:00.000Z",
+      renewedAt: "2026-05-02T10:00:00.000Z",
+      endsAt: "2026-06-01T10:00:00.000Z",
+      ipAddress: null,
+      userAgent: null,
+    },
+  ],
+  invitations: [
+    {
+      sentAt: "2020-03-01T09:00:00.000Z",
+      validUntil: "2020-03-08T09:00:00.000Z",
+      acceptedAt: "2020-03-02T18:00:00.000Z",
+    },
+  ],
   connectedApps: [
     {
       clientName: "Anteckningsappen",
@@ -396,6 +459,79 @@ const FULL_REPORT: Report = {
       erasableFrom: "2028-04-17",
     },
   ],
+  memberCharges: [
+    {
+      /*
+       * A charge on the person, handed to the economic manager, with a reason
+       * written on two lines: the reason is the association's own words about
+       * what the person was charged for, and it is printed as written.
+       */
+      chargeId: "charge-1",
+      basis: "person",
+      chargedOn: "2026-01-12",
+      amount: "450.00",
+      vatTreatment: "EXEMPT",
+      vatRatePercent: null,
+      reason: CHARGE_REASON,
+      apartment: null,
+      handedToManagerOn: "2026-01-31",
+      erasableFrom: "2033-12-31",
+    },
+    {
+      /*
+       * A charge on the apartment while they lived in it. It names no person,
+       * and the document says it was the apartment's rather than theirs.
+       */
+      chargeId: "charge-2",
+      basis: "apartment",
+      chargedOn: "2025-10-03",
+      amount: "1200.00",
+      vatTreatment: "RATE",
+      vatRatePercent: 25,
+      reason: "Byte av las efter inbrott.",
+      apartment: "Storgatan 12 1201",
+      handedToManagerOn: null,
+      erasableFrom: "2032-12-31",
+    },
+  ],
+  fees: [
+    {
+      feeId: "fee-1",
+      apartment: "Storgatan 12 1201",
+      kind: "ANNUAL_FEE",
+      appliesFrom: "2025-01-01",
+      appliesUntil: "2025-12-31",
+      monthlyAmount: "3450.50",
+      vatTreatment: "EXEMPT",
+      vatRatePercent: null,
+      erasableFrom: "2032-12-31",
+    },
+    {
+      // Still in force, so it has no end and no erasure date to state.
+      feeId: "fee-2",
+      apartment: "Storgatan 12 1201",
+      kind: "PARKING_SPACE",
+      appliesFrom: "2025-06-01",
+      appliesUntil: null,
+      monthlyAmount: "400.00",
+      vatTreatment: "RATE",
+      vatRatePercent: 25,
+      erasableFrom: null,
+    },
+  ],
+  feeNotices: [
+    {
+      noticeId: "notice-1",
+      apartment: "Storgatan 12 1201",
+      periodFrom: "2025-10-01",
+      periodTo: "2025-12-31",
+      dueOn: "2025-09-30",
+      issuedOn: "2025-09-01",
+      amount: "10351.50",
+      paymentReference: "2510010017",
+      erasableFrom: "2032-12-31",
+    },
+  ],
   newsComments: [
     {
       commentId: "comment-1",
@@ -414,6 +550,40 @@ const FULL_REPORT: Report = {
       hidden: true,
       writtenAt: "2026-01-21T18:00:00.000Z",
       erasableFrom: "2027-01-21",
+    },
+  ],
+  /*
+   * Three copies of mailings: one handed over, one the person had objected to
+   * before it went, and one whose failure was stored as a code the document
+   * cannot read - which it states as not recorded rather than printing.
+   */
+  newsDeliveries: [
+    {
+      newsTitle: "Portkoden byts",
+      newsSlug: "portkoden-byts",
+      channel: "EMAIL",
+      status: "SENT",
+      failure: null,
+      queuedAt: "2026-01-19T08:00:00.000Z",
+      sentAt: "2026-01-19T08:01:00.000Z",
+    },
+    {
+      newsTitle: "Stamning i tvattstugan",
+      newsSlug: "stamning-i-tvattstugan",
+      channel: "SMS",
+      status: "FAILED",
+      failure: "recipient-objected",
+      queuedAt: "2026-02-03T08:00:00.000Z",
+      sentAt: null,
+    },
+    {
+      newsTitle: "Sophamtning i veckan",
+      newsSlug: "sophamtning-i-veckan",
+      channel: "EMAIL",
+      status: "FAILED",
+      failure: null,
+      queuedAt: "2026-02-10T08:00:00.000Z",
+      sentAt: null,
     },
   ],
   /*
@@ -559,6 +729,18 @@ const FULL_REPORT: Report = {
       ground: "MEMBER",
       authorisedOn: "2027-04-30",
       withdrawnAt: "2027-05-11T08:00:00.000Z",
+    },
+  ],
+  meetingNoticeDeliveries: [
+    {
+      // The notice of the meeting the attendance section records them at.
+      meetingHeldOn: "2027-05-12",
+      meetingKind: "ORDINARY",
+      channel: "EMAIL",
+      status: "FAILED",
+      failure: "no-email-address",
+      queuedAt: "2027-04-14T09:00:00.000Z",
+      sentAt: null,
     },
   ],
   auditEntries: [
@@ -860,9 +1042,10 @@ describe("what the document prints", () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    expect(screen.getByText("Pantnoteringar")).not.toBeNull();
-    expect(screen.getByText("Exempelbanken")).not.toBeNull();
-    expect(screen.getByText("Gäller fortfarande")).not.toBeNull();
+    // Within the section, because a fee rate still in force stands too.
+    const lienNotes = within(sectionOf("Pantnoteringar"));
+    expect(lienNotes.getByText("Exempelbanken")).not.toBeNull();
+    expect(lienNotes.getByText("Gäller fortfarande")).not.toBeNull();
   });
 
   it("prints a booking with the earliest date it can be erased on", async () => {
@@ -1253,6 +1436,7 @@ describe("what the document prints", () => {
       ISSUE_DESCRIPTION,
       "Foreningen bor utreda vad laddstolpar skulle kosta.",
       STANDING_COMMENT,
+      CHARGE_REASON,
     ]) {
       const printed = screen.getByText(written, { normalizer: asWritten });
       expect(printed.className).toContain("whitespace-pre-line");
@@ -1345,7 +1529,7 @@ describe("what the document prints", () => {
 
       // The document, in the subject's Swedish.
       expect(screen.getByText("Personen")).not.toBeNull();
-      expect(screen.getByText("Namn")).not.toBeNull();
+      expect(within(sectionOf("Personen")).getByText("Namn")).not.toBeNull();
       /*
        * Including what an empty cell says. The placeholder that fills a table
        * cell is built once, at the top of the component, and dropped into fifty
@@ -1384,6 +1568,20 @@ describe("what the document prints", () => {
 
     expect(screen.getByText("Upplåtelser och överlåtelser")).not.toBeNull();
     expect(screen.getAllByText("Inget registrerat").length).toBeGreaterThan(5);
+    for (const heading of [
+      "Inloggade sessioner",
+      "Inbjudningar till konto",
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
+      "Debiteringar",
+      "Avgifter för lägenheter du har bott i",
+      "Avier för lägenheter du har bott i",
+    ]) {
+      expect(
+        within(sectionOf(heading)).getByText("Inget registrerat"),
+        heading,
+      ).not.toBeNull();
+    }
   });
 
   it("states the address a mailbox thread is with, and not the registered one", async () => {
@@ -1640,5 +1838,173 @@ describe("breaches that reached this person's data", () => {
     await screen.findByText("Brf Eksemplet");
 
     expect(screen.queryByText(/obehorig mottagare/i)).toBeNull();
+  });
+});
+
+describe("what the document answers for", () => {
+  it("declares exactly the report's keys, as the API does", () => {
+    /*
+     * A type-level assertion, in both directions: the browser's copy of the
+     * report is held to the tuple in `@openbrf/shared`, and so is the API's, so
+     * a section one of them has and the other lacks fails a build. The tuple
+     * wrappers keep the unions from distributing, so each asks whether one
+     * whole union is contained in the other.
+     */
+    type SameKeys = [keyof Report] extends [DataSubjectReportSection]
+      ? [DataSubjectReportSection] extends [keyof Report]
+        ? true
+        : false
+      : false;
+    const sameKeys: SameKeys = true;
+
+    expect(sameKeys).toBe(true);
+  });
+
+  it("prints a heading for every section the report carries", async () => {
+    /*
+     * The runtime half of the guard. The title map is typed over every key of
+     * the report, so a section without a title fails to compile; this holds
+     * the document to printing each title, so a section whose markup went
+     * missing fails here rather than on the paper handed to somebody.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const inSwedish = i18n.getFixedT("sv");
+    const printed = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+    for (const titleKey of Object.values(SECTION_TITLE)) {
+      expect(printed, titleKey).toContain(inSwedish(titleKey));
+    }
+  });
+
+  it("prints a session's address and browser as they were recorded", async () => {
+    /*
+     * Art. 15(3) asks for a copy of the data, and a shortened address or a
+     * browser name cut to its first word would be a different datum from the
+     * one the association holds. A sign-in that recorded neither says so in
+     * words rather than leaving two blank cells.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const sessions = within(sectionOf("Inloggade sessioner"));
+    const row = sessions.getByText(SESSION_ADDRESS).closest("tr");
+    expect(sessions.getByText(SESSION_BROWSER).closest("tr")).toBe(row);
+    // Signed in, last renewed and ends, each as the day it fell on here.
+    expect(row?.textContent).toContain("2026-08-20");
+    expect(row?.textContent).toContain("2026-08-27");
+    expect(row?.textContent).toContain("2026-09-26");
+
+    const [unrecorded] = sessions.getAllByText("2026-05-02");
+    expect(
+      within(unrecorded?.closest("tr") as HTMLElement).getAllByText(
+        "Inget registrerat",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("says in words why a mailing did not reach them, and never a code", async () => {
+    /*
+     * The ledger holds a closed code for a copy that did not go out, and the
+     * document is handed to the person it is about: "recipient-objected" is a
+     * word nobody reading it should have to decode. A code outside the set
+     * arrives as nothing, and is said to be not recorded.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const mailings = within(sectionOf("Nyhetsutskick och smsutskick till dig"));
+    const objected = mailings.getByText("Stamning i tvattstugan").closest("tr");
+    expect(objected?.textContent).toContain("Sms");
+    expect(objected?.textContent).toContain("Inte skickat");
+    expect(objected?.textContent).toContain(
+      "Du hade invänt mot utskicken eller begärt begränsning",
+    );
+    const sent = mailings.getByText("Portkoden byts").closest("tr");
+    expect(sent?.textContent).toContain("Lämnat för leverans");
+    const unreadable = mailings.getByText("Sophamtning i veckan").closest("tr");
+    expect(unreadable?.textContent).toContain("Inget registrerat");
+
+    const notices = within(
+      sectionOf("Kallelser till föreningsstämma som skickats till dig"),
+    );
+    const notice = notices.getByText("2027-05-12").closest("tr");
+    expect(notice?.textContent).toContain("Ordinarie föreningsstämma");
+    expect(notice?.textContent).toContain(
+      "Ingen e-postadress fanns registrerad för dig",
+    );
+
+    // No code, in either section.
+    for (const section of [
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
+    ]) {
+      expect(sectionOf(section).textContent).not.toMatch(
+        /recipient-objected|no-email-address|FAILED|SENT/,
+      );
+    }
+  });
+
+  it("prints the passkeys on the account", async () => {
+    /*
+     * Each passkey's name, when it was added and whether it is synced between
+     * devices, which is what says it is the person's and where it lives. One
+     * the person never named is said to be unnamed rather than left blank.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const account = within(sectionOf("Konto"));
+    expect(account.getByText("Nycklar")).not.toBeNull();
+    const phone = account.getByText("Telefonen").closest("tr");
+    expect(phone?.textContent).toContain("2026-04-11");
+    expect(phone?.textContent).toContain("Ja");
+    const unnamed = account.getByText("Namnlös nyckel").closest("tr");
+    expect(unnamed?.textContent).toContain("Inget registrerat");
+    expect(unnamed?.textContent).toContain("Nej");
+  });
+
+  it("prints the charges, the fee rates and the notices, each with its erasure date", async () => {
+    /*
+     * Three sections the API has always built and the document did not print.
+     * A charge on the apartment is named as the apartment's, because it names
+     * no person: it is a record of what was charged where they lived, not a
+     * statement that they owed it.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const charges = within(sectionOf("Debiteringar"));
+    const own = charges.getByText(/Ny tagg till cykelrummet/).closest("tr");
+    expect(own?.textContent).toContain("Dig");
+    expect(own?.textContent).toContain("450.00");
+    expect(own?.textContent).toContain("Ingen moms");
+    expect(own?.textContent).toContain("2026-01-31");
+    expect(own?.textContent).toContain("2033-12-31");
+    const onTheFlat = charges
+      .getByText("Byte av las efter inbrott.")
+      .closest("tr");
+    expect(onTheFlat?.textContent).toContain("Lägenheten du bodde i");
+    expect(onTheFlat?.textContent).toContain("Storgatan 12 1201");
+    expect(onTheFlat?.textContent).toContain("25 %");
+    expect(onTheFlat?.textContent).toContain("2032-12-31");
+
+    const fees = within(sectionOf("Avgifter för lägenheter du har bott i"));
+    const annual = fees.getByText("Årsavgift").closest("tr");
+    expect(annual?.textContent).toContain("3450.50");
+    expect(annual?.textContent).toContain("2025-12-31");
+    expect(annual?.textContent).toContain("2032-12-31");
+    // A rate still in force stands, and states no erasure date.
+    const parking = fees.getByText("Parkeringsplats").closest("tr");
+    expect(parking?.textContent).toContain("Gäller fortfarande");
+    expect(parking?.textContent).toContain("Inget registrerat");
+
+    const notices = within(sectionOf("Avier för lägenheter du har bott i"));
+    const notice = notices.getByText("2510010017").closest("tr");
+    expect(notice?.textContent).toContain("2025-10-01 - 2025-12-31");
+    expect(notice?.textContent).toContain("10351.50");
+    expect(notice?.textContent).toContain("2032-12-31");
   });
 });

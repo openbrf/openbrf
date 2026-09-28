@@ -245,7 +245,6 @@ export class PluginInstallerService
     };
 
     const archives = new Map<string, string>();
-    const headers = this.catalog.authorization();
     const allowUncuratedSources = this.catalog.allowsUncuratedSources();
 
     for (const record of records) {
@@ -255,7 +254,10 @@ export class PluginInstallerService
           record.id,
           record.version,
           { url: record.tarballUrl, sha512: record.checksum },
-          { headers, allowUncuratedSources },
+          {
+            headers: this.catalog.authorizationFor(record.tarballUrl),
+            allowUncuratedSources,
+          },
         );
         archives.set(record.packageName, archive);
         outcome.installed.push(record.id);

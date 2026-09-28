@@ -153,6 +153,11 @@ export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
     why: "the host hands a plugin a narrowed mailer that demands the mail:send permission and stamps the plugin's id on a template of its own; a plugin injecting this one gets neither, and can mail every member through the association's own templates",
   },
   {
+    exported: "MailSettingsResolver",
+    token: "MailSettingsResolver",
+    why: "it resolves the instance's mail with its credentials - the stored SMTP password decrypted, or the key set where the instance runs - so a plugin holding it could send as the association outside the narrowed mailer, or carry the key away",
+  },
+  {
     exported: "SmsService",
     token: "SmsService",
     why: "the same reach as the mailer, to a channel a member cannot ignore",
@@ -235,7 +240,7 @@ export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
  * Root-injector exports a plugin may hold, with the reason each is safe.
  *
  * Empty, and that is the current answer rather than an oversight: every one of
- * the thirteen names the twelve global modules export is either the register,
+ * the fourteen names the twelve global modules export is either the register,
  * an authority, a channel out of the instance, or a narrowed service the host
  * hands over deliberately. The list exists because the guard script reads both,
  * so a future global export can be classified as safe by somebody willing to

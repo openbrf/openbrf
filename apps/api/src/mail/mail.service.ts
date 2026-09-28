@@ -1,60 +1,28 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 import { render } from "react-email";
-import { createTransport, type Transporter } from "nodemailer";
 
+import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
-import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Association } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { mediaUrl } from "../media/media.service";
+import { MAX_DISPLAY_NAME, oneLine } from "./header-text";
+import { HttpApiMailDriver } from "./http-api-mail.driver";
+import type { MailDriver, SentMail } from "./mail-driver";
+import { type EffectiveMail, MailSettingsResolver } from "./mail-settings";
 import type {
   MailBrand,
   MailTemplate,
   MailTemplateContext,
   RenderedMail,
 } from "./mail-template";
+import { SmtpMailDriver } from "./smtp-mail.driver";
 
 /** Accent used when the association has not chosen a primary colour. */
 const DEFAULT_PRIMARY_COLOR = "#8A6D28";
-
-/**
- * The port to use when the settings name none.
- *
- * Which one depends on the transport, and getting it wrong is a connection
- * failure rather than a cosmetic default: nodemailer's `secure` flag means
- * IMPLICIT TLS, which servers offer on 465, while 587 is the submission port
- * that starts in cleartext and upgrades through STARTTLS. Defaulting a secure
- * connection to 587 asks for a TLS handshake on a port that answers with a
- * greeting, and the send times out.
- */
-const IMPLICIT_TLS_PORT = 465;
-const STARTTLS_SUBMISSION_PORT = 587;
-
-function defaultPortFor(secure: boolean): number {
-  return secure ? IMPLICIT_TLS_PORT : STARTTLS_SUBMISSION_PORT;
-}
-
-/**
- * How long a send may take before it is a failure.
- *
- * Stated rather than left to the transport, because every send in this
- * application is awaited by whatever triggered it - a request handler, or a
- * queue worker - and an unbounded one does not fail, it waits. That is the
- * worse outcome of the two: a caller that has already committed its work
- * catches a rejection and logs it, while a caller holding an open request holds
- * it for as long as the far end stays silent. The defaults are two minutes to
- * connect and ten on an idle socket, which is long enough for a stalled mail
- * server to be indistinguishable from a hung application.
- *
- * The numbers are generous for a working submission server, where the whole
- * exchange is a handshake and a few hundred bytes, and short enough that a
- * board member pressing "send test message" gets an answer.
- */
-const CONNECTION_TIMEOUT_MS = 10_000;
-const GREETING_TIMEOUT_MS = 10_000;
-const SOCKET_TIMEOUT_MS = 20_000;
 
 export class MailNotConfiguredError extends Error {
   constructor() {
@@ -64,15 +32,6 @@ export class MailNotConfiguredError extends Error {
     );
     this.name = "MailNotConfiguredError";
   }
-}
-
-interface SmtpSettings {
-  host: string;
-  port: number;
-  secure: boolean;
-  user?: string;
-  password?: string;
-  from: string;
 }
 
 export interface SendMailInput<Props> {
@@ -121,19 +80,25 @@ export interface SendMailInput<Props> {
  *
  *   Every message carries a plain-text alternative, because some clients show
  *   only that and these emails contain sign-in links.
+ *
+ * Where the message goes is the resolver's answer (mail-settings.ts), and how
+ * it gets there is a driver's (mail-driver.ts). When whoever runs the instance
+ * sets the mail, the sender's address is theirs and need not be on the
+ * association's domain, so this service gives it the association's name and
+ * directs replies to the association (ADR 0024).
  */
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private transporter: Transporter | undefined;
-  /** Fingerprint of the settings the cached transporter was built from. */
-  private transporterKey: string | undefined;
+  private driver: MailDriver | undefined;
+  /** Fingerprint of the settings the cached driver was built from. */
+  private driverKey: string | undefined;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
-    private readonly encryption: FieldEncryptionService,
+    private readonly mailSettings: MailSettingsResolver,
   ) {}
 
   /**
@@ -142,18 +107,7 @@ export class MailService {
   async renderMail<Props>(
     input: Omit<SendMailInput<Props>, "to">,
   ): Promise<RenderedMail> {
-    const brand = await this.loadBrand();
-    const context = this.buildContext(input.locale, brand);
-
-    const subject = input.template.subject(input.props, context);
-    const element = input.template.body(input.props, context);
-
-    const [html, text] = await Promise.all([
-      render(element),
-      render(element, { plainText: true }),
-    ]);
-
-    return { subject, html, text };
+    return this.renderWith(input, this.brandOf(await this.loadAssociation()));
   }
 
   /**
@@ -162,28 +116,28 @@ export class MailService {
    * Exposed because skipping SMTP in the setup wizard is allowed, and the
    * screens that depend on delivery - invitations, sign-in links - have to be
    * able to say so plainly rather than failing when someone presses send.
+   * Always true when the environment chooses a driver.
    */
   async isConfigured(): Promise<boolean> {
-    // The two columns rather than loadSmtpSettings: a presence check has no use
-    // for the password, and going through the loader would decrypt the stored
-    // secret every time a screen asks whether mail works at all.
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { smtpHost: true, smtpFromAddress: true },
-    });
-
-    return (
-      association !== null &&
-      association.smtpHost !== null &&
-      association.smtpFromAddress !== null
-    );
+    // The description rather than the mail itself: a presence check has no use
+    // for the password, and resolving the mail would decrypt the stored secret
+    // every time a screen asks whether mail works at all.
+    return (await this.mailSettings.describe()) !== null;
   }
 
-  async send<Props>(input: SendMailInput<Props>): Promise<void> {
-    const rendered = await this.renderMail(input);
-    const smtp = await this.loadSmtpSettings();
+  /**
+   * Renders and sends one message, and reports the identifier it was delivered
+   * with.
+   *
+   * The identifier is the caller's own unless the transport writes its own; a
+   * caller that threads replies records what this returns (SentMail).
+   */
+  async send<Props>(input: SendMailInput<Props>): Promise<SentMail> {
+    const association = await this.loadAssociation();
+    const rendered = await this.renderWith(input, this.brandOf(association));
+    const mail = await this.mailSettings.current();
 
-    if (smtp === null) {
+    if (mail === null) {
       if (this.env.NODE_ENV === "production") {
         throw new MailNotConfiguredError();
       }
@@ -195,7 +149,7 @@ export class MailService {
         this.logger.warn(
           `SMTP not configured. Would send "${rendered.subject}" to ${input.to}:\n${rendered.text}`,
         );
-        return;
+        return { messageId: null };
       }
 
       // Tests run in CI, whose logs are public on this repository. Record that
@@ -204,25 +158,112 @@ export class MailService {
         `SMTP not configured. Suppressed "${rendered.subject}"; the message ` +
           "body is not logged outside development.",
       );
-      return;
+      return { messageId: null };
     }
 
-    const transporter = this.transporterFor(smtp);
-    await transporter.sendMail({
-      from: smtp.from,
+    const sender = this.senderFor(mail, association);
+    return this.driverFor(mail).send({
+      from: sender.from,
       to: input.to,
-      subject: rendered.subject,
+      // One line whichever driver sends it. A subject can quote one an outside
+      // sender wrote - a board mailbox answer is "Re:" and theirs - and a line
+      // break in it must not reach a service that writes the header as given.
+      subject: oneLine(rendered.subject),
       html: rendered.html,
       text: rendered.text,
-      replyTo: input.replyTo,
-      messageId: input.messageId == null ? undefined : `<${input.messageId}>`,
-      // Both headers, from the one value. In-Reply-To names the message being
-      // answered and References carries the conversation, and a client needs
-      // the second to place the reply in a thread it is already showing.
-      inReplyTo: input.inReplyTo == null ? undefined : `<${input.inReplyTo}>`,
-      references:
-        input.inReplyTo == null ? undefined : [`<${input.inReplyTo}>`],
+      replyTo: input.replyTo ?? sender.replyTo,
+      messageId: input.messageId ?? null,
+      inReplyTo: input.inReplyTo ?? null,
     });
+  }
+
+  /**
+   * Who a message is from, and where a reply goes when it names nowhere itself.
+   *
+   * From the settings, exactly as the board entered it: the stored address with
+   * no display name, and no Reply-To of its own. From the environment, the
+   * address is the host's and may be on a domain many associations share, so a
+   * correspondent needs the association's name to know who wrote, and a reply
+   * has to reach the association rather than that shared address: the
+   * configured Reply-To, else the board mailbox's published address, else none.
+   */
+  private senderFor(
+    mail: EffectiveMail,
+    association: Association | null,
+  ): {
+    from: { name: string | null; address: string };
+    replyTo: string | null;
+  } {
+    if (mail.source === "settings") {
+      return { from: { name: null, address: mail.fromAddress }, replyTo: null };
+    }
+
+    const boardMailbox =
+      association !== null && boardMailboxConfigured(association)
+        ? association.boardMailboxAddress
+        : null;
+
+    return {
+      from: {
+        // Read at each send, so a board that renames the association is named
+        // by the next message.
+        name: mail.fromName ?? displayNameOf(association?.name ?? null),
+        address: mail.fromAddress,
+      },
+      replyTo: mail.replyTo ?? boardMailbox,
+    };
+  }
+
+  /**
+   * The driver for the effective mail, reused while it is unchanged.
+   *
+   * The settings change from the settings screen, so the cached driver is keyed
+   * on them rather than built once at boot; a driver built for other settings
+   * is closed as it is replaced.
+   */
+  private driverFor(mail: EffectiveMail): MailDriver {
+    const key = JSON.stringify(
+      mail.driver === "smtp"
+        ? [
+            mail.driver,
+            mail.server.host,
+            mail.server.port,
+            mail.server.secure,
+            mail.server.requireTls,
+            mail.server.user,
+            mail.server.password,
+          ]
+        : [mail.driver, mail.api.url, mail.api.key, mail.api.messageIdDomain],
+    );
+
+    if (this.driver !== undefined && this.driverKey === key) {
+      return this.driver;
+    }
+
+    this.driver?.close();
+    this.driver =
+      mail.driver === "smtp"
+        ? new SmtpMailDriver(mail.server)
+        : new HttpApiMailDriver(mail.api);
+    this.driverKey = key;
+    return this.driver;
+  }
+
+  private async renderWith<Props>(
+    input: Omit<SendMailInput<Props>, "to">,
+    brand: MailBrand,
+  ): Promise<RenderedMail> {
+    const context = this.buildContext(input.locale, brand);
+
+    const subject = input.template.subject(input.props, context);
+    const element = input.template.body(input.props, context);
+
+    const [html, text] = await Promise.all([
+      render(element),
+      render(element, { plainText: true }),
+    ]);
+
+    return { subject, html, text };
   }
 
   private buildContext(
@@ -259,11 +300,11 @@ export class MailService {
     };
   }
 
-  private async loadBrand(): Promise<MailBrand> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-    });
+  private async loadAssociation(): Promise<Association | null> {
+    return this.prisma.association.findUnique({ where: { id: 1 } });
+  }
 
+  private brandOf(association: Association | null): MailBrand {
     return {
       associationName: association?.name ?? "Open BRF",
       primaryColor: association?.primaryColor ?? DEFAULT_PRIMARY_COLOR,
@@ -289,67 +330,19 @@ export class MailService {
     }
     return new URL(mediaUrl(logoFileId), this.env.APP_URL).toString();
   }
+}
 
-  private async loadSmtpSettings(): Promise<SmtpSettings | null> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-    });
-
-    if (
-      association === null ||
-      association.smtpHost === null ||
-      association.smtpFromAddress === null
-    ) {
-      return null;
-    }
-
-    const password =
-      association.smtpPasswordCipher === null
-        ? undefined
-        : await this.encryption.decrypt(
-            "association.smtpPassword",
-            association.smtpPasswordCipher,
-          );
-
-    return {
-      host: association.smtpHost,
-      port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
-      secure: association.smtpSecure,
-      user: association.smtpUser ?? undefined,
-      password,
-      from: association.smtpFromAddress,
-    };
+/**
+ * The association's registered name as a display name, or null for none.
+ *
+ * One line, because it becomes part of a header: the name is typed into a form,
+ * and a line break or another control character in it is replaced rather than
+ * written where it could start a header of its own.
+ */
+function displayNameOf(name: string | null): string | null {
+  if (name === null) {
+    return null;
   }
-
-  private transporterFor(smtp: SmtpSettings): Transporter {
-    // Settings change from the settings screen, so the cached transporter is
-    // keyed on them rather than built once at boot.
-    const key = JSON.stringify([
-      smtp.host,
-      smtp.port,
-      smtp.secure,
-      smtp.user,
-      smtp.password,
-    ]);
-
-    if (this.transporter !== undefined && this.transporterKey === key) {
-      return this.transporter;
-    }
-
-    this.transporter?.close();
-    this.transporter = createTransport({
-      host: smtp.host,
-      port: smtp.port,
-      secure: smtp.secure,
-      connectionTimeout: CONNECTION_TIMEOUT_MS,
-      greetingTimeout: GREETING_TIMEOUT_MS,
-      socketTimeout: SOCKET_TIMEOUT_MS,
-      auth:
-        smtp.user === undefined
-          ? undefined
-          : { user: smtp.user, pass: smtp.password ?? "" },
-    });
-    this.transporterKey = key;
-    return this.transporter;
-  }
+  const displayName = oneLine(name).slice(0, MAX_DISPLAY_NAME);
+  return displayName === "" ? null : displayName;
 }
