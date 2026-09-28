@@ -552,7 +552,7 @@ importers:
   packages/theme-tools:
     dependencies:
       '@openbrf/tokens':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../tokens
       zod:
         specifier: ^4.6.5
