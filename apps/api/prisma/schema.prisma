@@ -2838,12 +2838,12 @@ model MediaFile {
   /// How the object at storageKey is held. No default: whatever writes a row
   /// states it, so a new way of writing one cannot leave a file unencrypted by
   /// omission.
-  encryption    MediaEncryption
+  encryption            MediaEncryption
   /// The file's own key, encrypted as the field "mediaFile.dataKey" under the
   /// instance's key (ADR 0002, ADR 0004, ADR 0015). Null exactly when the file
   /// is not encrypted, which a CHECK holds. Deleting the row deletes the only
   /// copy of the key outside the database backups.
-  dataKeyCipher String?
+  dataKeyCipher         String?
   /// Where the file's unencrypted object still is, after the job at start has
   /// replaced it with the encrypted one and until the unencrypted one is gone.
   /// Written in the update that switches the row to the encrypted object, so a
@@ -6506,16 +6506,22 @@ model BoardMailboxAttachment {
 /// mailbox stop a collection before it reaches the mail behind them. This is the
 /// row that remembers one: the identifier, and why it was left.
 ///
-/// Only for a letter that nothing will ever change about. A message too large to
-/// fetch is not here - it is never read, so it costs a listing line and no more -
-/// and neither is one a retrieval failed on, because that is a mailbox having a
-/// bad minute and the next run should try it again.
+/// Only for a letter that nothing will ever change about, or one that failed to
+/// be stored more often than BoardMailboxCollectionFailure allows. A message too
+/// large to fetch is not here - it is never read, so it costs a listing line and
+/// no more - and neither is one a retrieval failed on, because that is a mailbox
+/// having a bad minute and the next run should try it again.
+///
+/// Listed on the board's mailbox screen, because a letter set aside is a letter
+/// the board has not read: it is still in the mailbox, and the screen says so and
+/// when it was dated, so a board member can find it in a mail client.
 ///
 /// No personal data. The identifier is the mailbox's own opaque string behind a
-/// fingerprint of the credentials it was seen under, and the reason is a code
-/// this module writes. So it is outside every purge scope and outside the data
-/// subject access report: there is no person to key it to, which is the same
-/// reason the thread purge names no subject.
+/// fingerprint of the credentials it was seen under, the reason is a code this
+/// module writes, and the date is a moment with nobody attached to it. So it is
+/// outside every purge scope and outside the data subject access report: there
+/// is no person to key it to, which is the same reason the thread purge names no
+/// subject.
 model BoardMailboxIgnoredMessage {
   id String @id @default(cuid())
 
@@ -6526,9 +6532,44 @@ model BoardMailboxIgnoredMessage {
   /// Why it will not be stored, as a code. See `board-mailbox-delivery.ts`.
   reason String
 
+  /// The letter's Date header, where the collector believed it. What a board
+  /// member looks for in a mail client; the collection time is not, because a
+  /// letter can sit in the mailbox for a while before it is read.
+  letterDate DateTime?
+
   createdAt DateTime @default(now())
 
   @@map("board_mailbox_ignored_message")
+}
+
+/// A letter the collector could not store for a reason that said nothing about
+/// the letter, and how often that has happened.
+///
+/// Such a failure is retried, because a later run stores the letter: the
+/// database was restarting, a deploy was ahead of its migration, the storage
+/// behind the attachments did not answer. But a letter that fails every time
+/// for a reason nobody foresaw would be fetched and retried on every run for as
+/// long as the mailbox keeps it, and the board would never be told. This is the
+/// count that bounds that: past it, the letter is set aside as
+/// BoardMailboxIgnoredMessage and shown on the board's screen.
+///
+/// The row goes when the letter is stored or set aside. No personal data, on the
+/// ledger's argument above.
+model BoardMailboxCollectionFailure {
+  id String @id @default(cuid())
+
+  /// The POP3 identifier, as the ledger above carries it.
+  sourceUid String @unique
+
+  /// How many collections have failed to store it.
+  attempts Int
+
+  /// When the first of them did. A letter is not set aside before a while has
+  /// passed however often it is tried, so a board pressing "collect now" during
+  /// an outage does not use the attempts up in a minute.
+  firstFailedAt DateTime
+
+  @@map("board_mailbox_collection_failure")
 }
 
 // ---------------------------------------------------------------------------

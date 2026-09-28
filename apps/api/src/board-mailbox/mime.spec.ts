@@ -4,6 +4,7 @@ import {
   addressFrom,
   decodeEncodedWords,
   htmlToText,
+  MAX_TEXT_CHARACTERS,
   readMessage,
 } from "./mime";
 
@@ -252,6 +253,33 @@ describe("readMessage", () => {
     // is reduced to its last segment so it cannot read as a path anywhere it is
     // shown or offered as a download.
     expect(message.attachments[0]?.fileName).toBe("protokoll årsmöte.pdf");
+  });
+
+  it("strips the characters that reorder a file name from it", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: application/pdf",
+        "Content-Transfer-Encoding: base64",
+        "Content-Disposition: attachment;",
+        "\tfilename*=utf-8''faktura%E2%80%AEfdp.exe%E2%81%A6",
+        "",
+        Buffer.from("pdf bytes").toString("base64"),
+        "--SEP--",
+        "",
+      ),
+    );
+
+    // A right-to-left override would show this as "fakturaexe.pdf", and the name
+    // is what a board member decides whether to open it by.
+    expect(message.attachments[0]?.fileName).toBe("fakturafdp.exe");
   });
 
   it("does not treat an inline part with no name as an attachment", () => {
@@ -648,6 +676,59 @@ describe("readMessage", () => {
     expect(message.attachments[0]?.bytes.subarray(0, 8)).toEqual(png);
   });
 
+  it("reads a body no further than the bound, and says it was cut", () => {
+    const message = readMessage(
+      raw("From: <sender@example.test>", "", "a".repeat(5_000_000), ""),
+    );
+
+    expect(message.text).toHaveLength(MAX_TEXT_CHARACTERS);
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("does not call a body that fits cut", () => {
+    const message = readMessage(
+      raw("From: <sender@example.test>", "", "a".repeat(MAX_TEXT_CHARACTERS)),
+    );
+
+    expect(message.text).toHaveLength(MAX_TEXT_CHARACTERS);
+    expect(message.textTruncated).toBe(false);
+  });
+
+  it("does not read an HTML body past the bound, and says it was cut", () => {
+    // Text that sits behind more markup than the reader reads is not reached,
+    // and the board is told the letter was cut although the text it got is
+    // short.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: text/html",
+        "",
+        `<!--${"x".repeat(10 * MAX_TEXT_CHARACTERS)}--><p>Hej</p>`,
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("");
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("does not split a character when it cuts a body", () => {
+    const message = readMessage(
+      Buffer.from(
+        [
+          "From: <sender@example.test>",
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          `${"a".repeat(MAX_TEXT_CHARACTERS - 1)}\u{1f3e0} och mer`,
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+
+    expect(message.text).toBe("a".repeat(MAX_TEXT_CHARACTERS - 1));
+    expect(message.textTruncated).toBe(true);
+  });
+
   it("keeps a date the sender's clock produced", () => {
     const message = readMessage(
       raw(
@@ -678,6 +759,13 @@ describe("addressFrom", () => {
   it("refuses something that is not an address", () => {
     expect(addressFrom("Astrid Lindqvist")).toBeNull();
     expect(addressFrom("<not an address>")).toBeNull();
+  });
+
+  it("refuses an address that carries a control character", () => {
+    // The address becomes the recipient of the board's answer.
+    expect(addressFrom("<a\u0000b@example.test>")).toBeNull();
+    expect(addressFrom("a\u001bb@example.test")).toBeNull();
+    expect(addressFrom("<ab@example.test\u007f>")).toBeNull();
   });
 });
 

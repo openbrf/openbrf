@@ -46,11 +46,12 @@ export type ReplyDeliveryFailure =
 /**
  * Why a collected message was read and then left.
  *
- * Its own list beside the delivery codes above, and read by nothing on a screen:
- * this one is written into the ledger of messages the collector will not store,
- * so a letter it can do nothing with is not fetched again on every run for as
- * long as the mailbox keeps it. A code rather than prose here for the reason the
- * others are: what could be quoted is a header a stranger wrote.
+ * Its own list beside the delivery codes above. This one is written into the
+ * ledger of messages the collector will not store, so a letter it can do
+ * nothing with is not fetched again on every run for as long as the mailbox
+ * keeps it, and the board's mailbox screen lists those letters by it, so the
+ * board knows to open them in a mail client. A code rather than prose here for
+ * the reason the others are: what could be quoted is a header a stranger wrote.
  *
  * Only reasons that cannot change. A message this instance would store if it ran
  * again - one too large to fetch, one a retrieval failed on - is not written
@@ -67,16 +68,17 @@ export const COLLECTION_REFUSALS = {
   noSenderAddress: "no-sender-address",
 
   /**
-   * The database refused the letter as it was read.
+   * The letter could not be stored.
    *
-   * The reader removes what it knows a column cannot hold, and this is the
-   * answer for whatever it has not foreseen: the same bytes read the same way
-   * are refused the same way on every run, so the letter is set aside rather
-   * than left to stop the collection of every letter behind it. A failure that
-   * says nothing about the letter - the database out of reach, restarting or
-   * out of connections, a pool that was busy, a statement cancelled, an error
-   * that is not an answer from the database at all - is not recorded here; see
-   * `isTransientFailure`.
+   * Either the database refused its values as they were read - the reader
+   * removes what it knows a column cannot hold, and this is the answer for
+   * whatever it has not foreseen: the same bytes read the same way are refused
+   * the same way on every run, so the letter is set aside rather than left to
+   * stop the collection of every letter behind it. Or it failed for some other
+   * reason on every attempt for longer than the collector retries one. A single
+   * failure that says nothing about the letter - the database out of reach or
+   * restarting, storage that did not answer - is not recorded here; see
+   * `database-refusal.ts`.
    */
   unstorable: "unstorable",
 } as const;

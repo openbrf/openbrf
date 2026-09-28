@@ -98,6 +98,24 @@ export interface BoardMailboxThreadList {
 export interface BoardMailboxStatus {
   configured: boolean;
   address: string | null;
+  /**
+   * Letters the collection read and set aside, newest first and not all of
+   * them. Every one is still in the mailbox and nowhere on this screen.
+   */
+  setAside: BoardMailboxSetAside[];
+  /** How many are set aside in all. */
+  setAsideCount: number;
+}
+
+/**
+ * A letter the collection will not store. A code and two moments: nothing the
+ * sender wrote reaches the screen through it.
+ */
+export interface BoardMailboxSetAside {
+  reason: string;
+  /** The letter's own date, where the collection believed it. */
+  letterDate: string | null;
+  setAsideAt: string;
 }
 
 /** What one collection did. Counts only: no address and no subject. */
