@@ -114,6 +114,19 @@ export interface EventCalendarBlock {
   count: number;
 }
 
+/**
+ * Who is responsible for the processing, and how to reach them, on the privacy
+ * notice.
+ *
+ * Carries nothing: the contact details are read from the instance's settings
+ * when the page is rendered. Placed by the privacy notice screen, and kept by
+ * the page editor on every save, because the notice has to say who the
+ * controller is (GDPR art. 13.1 a).
+ */
+export interface ControllerContactBlock {
+  type: "controllerContact";
+}
+
 export type PageBlock =
   | ParagraphBlock
   | HeadingBlock
@@ -125,6 +138,7 @@ export type PageBlock =
   | DocumentListBlock
   | BoardRosterBlock
   | AssociationFactsBlock
+  | ControllerContactBlock
   | FaqBlock;
 
 export interface PageContent {
