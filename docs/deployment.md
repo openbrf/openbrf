@@ -337,6 +337,11 @@ is wrong:
   `pg_`, one PostgreSQL reserves such as `public`, and the owner's own. The
   start refuses a role that another database already grants `CONNECT` to,
   because that role is another instance's.
+  With `RUNTIME_DB_PASSWORD` set, a `DATABASE_URL_RUNTIME` you supply has to
+  sign in as that same role, or the entrypoint refuses to start: the
+  application would otherwise run as a role it never constrained. The
+  connection limit the script sets for the role has to be 1 or more; `-1`
+  would mean no limit.
 
 A new database grants `CONNECT` to every role on the server. Each start that
 constrains the runtime role revokes that grant on the instance's own database,

@@ -39,6 +39,9 @@
 // belongs to the whole PostgreSQL server, so instances sharing one each name
 // their own. `node docker/database-url.mjs check-runtime-role` refuses a name
 // that cannot be one, before anything connects, and prints nothing otherwise.
+// It also refuses a DATABASE_URL_RUNTIME that signs in as another role while
+// RUNTIME_DB_PASSWORD asks for the named one to be constrained: the application
+// would then run as a role the hardening never touched.
 //
 // Node built-ins only, like the rest of docker/, so it stays readable and
 // runnable inside the image an operator is debugging.
@@ -236,6 +239,42 @@ function checkedRuntimeRole() {
   }
 }
 
+/**
+ * Refuses a supplied DATABASE_URL_RUNTIME whose user is not the role that
+ * RUNTIME_DB_PASSWORD has the entrypoint constrain.
+ *
+ * Without the password the operator manages the role themselves and the URL is
+ * theirs to write, so nothing is checked. Nothing from the URL is repeated back.
+ */
+function checkedRuntimeUrl() {
+  const supplied = process.env.DATABASE_URL_RUNTIME;
+  const password = process.env.RUNTIME_DB_PASSWORD;
+  if (
+    supplied === undefined ||
+    supplied === "" ||
+    password === undefined ||
+    password === ""
+  ) {
+    return;
+  }
+  try {
+    const user = decodeURIComponent(
+      parseUrl(supplied, "DATABASE_URL_RUNTIME").username,
+    );
+    if (user !== runtimeRole()) {
+      fail(
+        "DATABASE_URL_RUNTIME signs in as a role other than the one " +
+          "RUNTIME_DB_PASSWORD has this entrypoint constrain, RUNTIME_DB_ROLE " +
+          "or openbrf_app, so the application would run as a role that was " +
+          "never hardened. Make the two the same, or unset RUNTIME_DB_PASSWORD " +
+          "to manage the role yourself.",
+      );
+    }
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
 if (import.meta.main) {
   // runtime prints the one URL that is ever printed - see the note at the top
   // of this file for why the owner's never is - and check-runtime-role prints
@@ -246,6 +285,7 @@ if (import.meta.main) {
     );
   } else if (process.argv[2] === "check-runtime-role") {
     checkedRuntimeRole();
+    checkedRuntimeUrl();
   } else {
     fail(
       `database-url.mjs takes runtime or check-runtime-role, not ${String(process.argv[2])}. The owner's connection is not available here: it is built by ownerUrl() in the process that uses it, so that it is never printed.`,

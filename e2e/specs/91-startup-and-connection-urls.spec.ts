@@ -448,6 +448,35 @@ test("the entrypoint refuses a runtime role name that cannot be one, before anyt
   }
 });
 
+test("the entrypoint refuses a runtime URL that signs in as a role it was not asked to constrain", () => {
+  test.setTimeout(120_000);
+
+  // With RUNTIME_DB_PASSWORD the entrypoint hardens the role RUNTIME_DB_ROLE
+  // names, but the application connects as whoever DATABASE_URL_RUNTIME says.
+  // The two have to be the same role, or the application runs as one the
+  // hardening never touched. Nothing listens on port 1, so a start that got as
+  // far as connecting would wait thirty seconds and say so.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_ROLE: "brf_example_app",
+      RUNTIME_DB_PASSWORD: DECOY_PASSWORD,
+      DATABASE_URL_RUNTIME: `postgresql://openbrf_other:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL_RUNTIME signs in as a role other than",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
 test("an unknown API path answers JSON, and a client route answers the client", async ({
   request,
 }) => {

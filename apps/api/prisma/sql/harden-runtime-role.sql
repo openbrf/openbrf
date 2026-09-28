@@ -36,7 +36,8 @@
 -- at once, 15 when it is unset or empty. The entrypoint sets it to the
 -- application's pool plus the job queue's plus three to spare. On a shared
 -- server that is what keeps one instance, or code running inside it, from
--- taking every connection the server has and stopping all the others.
+-- taking every connection the server has and stopping all the others. A value
+-- below 1 is refused: -1 would mean no limit at all.
 
 \set ON_ERROR_STOP on
 
@@ -194,7 +195,15 @@ WHERE rolname = :'app_role'
 -- here rather than taking it over.
 --
 -- The connection limit is cast here, so a value that is not a whole number
--- stops the script instead of reaching the statement as text.
+-- stops the script instead of reaching the statement as text. A whole number
+-- below 1 stops it too: -1 is how PostgreSQL spells "no limit", and a role
+-- without one is what the limit exists to prevent on a shared server.
+SELECT $sql$DO $body$ BEGIN
+  RAISE EXCEPTION 'RUNTIME_DB_CONNECTION_LIMIT has to be a whole number of 1 or more. -1 would remove the runtime role''s connection limit.';
+END $body$$sql$
+WHERE (:'app_connection_limit')::integer < 1
+\gexec
+
 SELECT format(
   CASE
     WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
