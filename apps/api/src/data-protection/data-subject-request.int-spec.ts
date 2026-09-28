@@ -157,6 +157,42 @@ async function recorded(
   return response.json<DataSubjectRequestView>();
 }
 
+/**
+ * How many transactions hold, or are queued behind, the legal hold registry
+ * key, in this worker's database only: the key is the same string in every
+ * worker's, and `pg_locks` shows the whole cluster. `hashtext` gives a signed
+ * int4 and the advisory lock space addresses it as two halves of a bigint,
+ * which is what the shifting reassembles.
+ */
+async function registryLockCount(granted: boolean): Promise<bigint> {
+  const key = "legal-hold:registry";
+  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+    SELECT count(*) AS locks
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND granted = ${granted}
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return row?.locks ?? 0n;
+}
+
+/** Polls until the condition holds, or gives up so a failure is a failure. */
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Timed out waiting for the grant to block or finish.");
+}
+
 function decide(requestId: string, payload: Record<string, unknown>) {
   return inject({
     method: "POST",
@@ -642,6 +678,45 @@ describe("an objection and a restriction", () => {
       }),
     ).resolves.toMatchObject({ processingRestrictedAt: null });
   });
+
+  it("takes the legal hold registry key when it grants a restriction", async () => {
+    /*
+     * The board mailbox purge cannot name the person a thread is with, so it
+     * orders itself against holds and restrictions on the registry key alone.
+     * A grant that did not take that key could commit between the purge's
+     * check and its delete, and the correspondence the restriction was granted
+     * to keep would be gone. So the grant has to wait while somebody else holds
+     * the key - read out of `pg_locks`, not inferred from a delay.
+     */
+    const view = await recorded(subjects.restricter, { kind: "RESTRICTION" });
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"legal-hold:registry"}))`;
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(async () => (await registryLockCount(true)) > 0n);
+
+      const granting = decide(view.requestId, { decision: "GRANTED" });
+      await waitFor(async () => (await registryLockCount(false)) > 0n);
+
+      releaseHolder?.();
+      await holder;
+      expect((await granting).statusCode).toBe(200);
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await close(view.requestId, { reason: "Uppphavd" });
+    }
+  }, 60_000);
 
   it("refuses a second open request of the same kind", async () => {
     const view = await recorded(subjects.objector, { kind: "OBJECTION" });

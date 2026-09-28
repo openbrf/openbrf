@@ -82,6 +82,30 @@ export async function isPersonWithheld(
 }
 
 /**
+ * Whether anybody in a set of people is withheld, for the purge whose rows
+ * lead back to more than one of them - an apartment's charges and fees are
+ * read through everybody who has ever lived there.
+ *
+ * Asked under the same conditions as {@link isPersonWithheld}: on the purge's
+ * own transaction, after it has taken the legal hold key of every person in
+ * the set.
+ */
+export async function isAnyPersonWithheld(
+  client: PersonClient,
+  personIds: readonly string[],
+): Promise<boolean> {
+  if (personIds.length === 0) {
+    return false;
+  }
+  const persons = await client.person.findMany({
+    where: { id: { in: [...personIds] }, ...WITHHELD },
+    select: { id: true },
+  });
+
+  return persons.length > 0;
+}
+
+/**
  * People whose erasure the board has granted and the purge has not yet carried
  * out.
  *
