@@ -3,7 +3,8 @@
 ---
 
 Keep the data of a person under a restriction of processing (GDPR art. 18)
-out of every nightly purge.
+out of the charge, fee, key order, sublet application and board mailbox
+purges.
 
 The charge, fee, key order, sublet application and board mailbox purges
 exempted people under a legal hold but not people under a restriction, so a
