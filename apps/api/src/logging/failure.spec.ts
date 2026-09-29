@@ -77,6 +77,18 @@ describe("failureName", () => {
 });
 
 describe("failureFrames", () => {
+  it("keeps no line of the message, even one that reads like a frame", () => {
+    const error = new Error(
+      "Recipient refused\n    at anna@example.se\n    at /data/plugins/other/index.js:1:1",
+    );
+
+    const frames = failureFrames(error) ?? "";
+
+    expect(frames).not.toContain("anna@example.se");
+    expect(frames).not.toContain("/data/plugins/other/");
+    expect(frames).toContain("failure.spec.ts");
+  });
+
   it("keeps only the call frames", () => {
     const frames = failureFrames(new Error(REVEALING)) ?? "";
 
