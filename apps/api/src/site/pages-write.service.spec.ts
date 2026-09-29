@@ -45,7 +45,7 @@ interface Fakes {
    * the write it records, and an assertion that the argument is defined cannot
    * tell the two apart.
    */
-  txClient: object;
+  txClient: { $executeRaw: ReturnType<typeof vi.fn> };
 }
 
 const DRAFT = {
