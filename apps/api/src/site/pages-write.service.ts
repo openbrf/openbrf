@@ -15,7 +15,7 @@ import {
   pageTextParts,
   readPageContent,
 } from "./page-content";
-import { isUsableSlug } from "./pages.service";
+import { isUsableSlug, PRIVACY_NOTICE_SLUG } from "./pages.service";
 
 /**
  * Where in a page a refused value sits.
@@ -342,7 +342,17 @@ export class PagesWriteService {
     await this.requireFreeSlug(input.slug, null);
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const highest = await tx.page.aggregate({ _max: { sortOrder: true } });
+      /*
+       * After the last page, not counting the privacy notice. The notice is
+       * seeded far down on purpose so it is never the lowest - never the page
+       * the root falls back to - and a page placed after it would put it back
+       * in front: a board that deleted its front page and wrote a new one
+       * would find the privacy notice served at /.
+       */
+      const highest = await tx.page.aggregate({
+        where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+        _max: { sortOrder: true },
+      });
 
       const created = await tx.page
         .create({

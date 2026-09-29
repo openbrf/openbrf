@@ -9,6 +9,7 @@ import {
   PageWriteError,
   type PageWriteReason,
 } from "./pages-write.service";
+import { PRIVACY_NOTICE_SLUG } from "./pages.service";
 
 /**
  * The publication guardrails, as rules rather than as endpoints.
@@ -290,6 +291,35 @@ describe("writing a page", () => {
       data: { published: boolean; sortOrder: number };
     };
     expect(written.data.published).toBe(false);
+    expect(written.data.sortOrder).toBe(4);
+  });
+
+  it("places a new page before the privacy notice, which is never the front page", async () => {
+    // The notice is seeded at 1000 so it is never the lowest page. A page
+    // placed after it would leave the notice first once the pages before it
+    // are gone, and the root would serve it.
+    const { service, page } = build();
+    page.aggregate.mockImplementation(
+      async (args: { where?: { slug?: { not?: string } } }) => ({
+        _max: {
+          sortOrder: args.where?.slug?.not === PRIVACY_NOTICE_SLUG ? 3 : 1000,
+        },
+      }),
+    );
+
+    await service.create(
+      {
+        slug: "ny-framsida",
+        title: "Välkommen",
+        content: paragraphsContent(["Hej."]),
+        visibility: "PUBLIC",
+      },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    const written = page.create.mock.calls[0]?.[0] as {
+      data: { sortOrder: number };
+    };
     expect(written.data.sortOrder).toBe(4);
   });
 
