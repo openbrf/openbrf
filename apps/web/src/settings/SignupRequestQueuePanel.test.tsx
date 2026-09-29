@@ -150,6 +150,28 @@ describe("what a row shows", () => {
 });
 
 describe("approving", () => {
+  it("names a failed apartment read and offers to read it again", async () => {
+    // An empty select would leave Approve disabled for good, with nothing on
+    // screen saying why.
+    fetchApartments.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    expect(
+      within(row()).getByText(/Lägenheterna på adressen kunde inte hämtas/),
+    ).toBeTruthy();
+
+    await session.click(retry);
+
+    await waitForTheRow();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
   it("waits for a real apartment before it offers the decision", async () => {
     renderPanel();
 
