@@ -20,6 +20,7 @@ import {
   ImportService,
   type ImportSessionView,
 } from "./import.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * The import from upload to applied register, against a real database and a
@@ -267,52 +268,21 @@ async function upload(
 }
 
 /**
- * Uploads a file and previews it, which is what the apply now requires: the
- * import that runs is the one the board looked at.
- */
-/**
  * True while a transaction is waiting for this one person's transition lock.
  *
  * This person's, not any: the suite shares its database, and a count of every
  * advisory wait in it would be answered by an unrelated test holding an
  * unrelated lock - which would release the move-in below early and let the case
  * pass without the chunk ever having waited for anything.
- *
- * Postgres addresses the advisory lock space with a 64-bit key and reports it
- * split: the high half in classid, the low half in objid, and objsubid 1 for
- * the one-argument form the lock is taken with. hashtext returns an int4 that
- * the lock function widens to that key, so a negative hash sign-extends and its
- * high half comes back as all ones - which is why both halves are masked out of
- * the key rather than assumed to be zero.
  */
 async function waitsForTransitionLock(personId: string): Promise<boolean> {
-  const key = `residency:${personId}`;
-  const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-    SELECT count(*) AS waiting
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND NOT granted
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return (row?.waiting ?? 0n) > 0n;
+  return (await advisoryLockCount(prisma, `residency:${personId}`, false)) > 0n;
 }
 
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the chunk to block or finish.");
-}
-
+/**
+ * Uploads a file and previews it, which is what the apply now requires: the
+ * import that runs is the one the board looked at.
+ */
 async function uploadAndPreview(
   cookie: string,
   fileName: string,
