@@ -803,8 +803,19 @@ export class ChatService {
      * so does having written it. Nothing else does: a strike answers somebody in
      * the room who asked the board to look at what was said about them, and
      * leaving the text in front of the room afterwards would answer nothing.
+     *
+     * The capability together with a seat, asked of the register as the
+     * report queue asks it (ADR 0012): an administrator holds every
+     * capability, and an administrator who lives here and sits in the room is
+     * not the board. Asked once per page, and only when the page has a struck
+     * message somebody else wrote.
      */
-    const moderates = reader.capabilities.has("chat:moderate");
+    const moderates =
+      reader.capabilities.has("chat:moderate") &&
+      rows.some(
+        (row) => row.struckAt !== null && row.authorPersonId !== reader.personId,
+      ) &&
+      (await holdsBoardSeat(this.prisma, reader.personId, new Date()));
 
     return rows.map((row) =>
       toView(row, {
