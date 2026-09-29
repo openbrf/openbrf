@@ -3350,6 +3350,8 @@
       "indexTitle": "News",
       "heading": "Latest news",
       "allNews": "All news",
+      "newer": "Newer news",
+      "older": "Older news",
       "empty": "Nothing has been written yet."
     }
   },

@@ -4,8 +4,8 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { AuthService } from "../auth/auth.service";
 import { Public } from "../authorization/public.decorator";
 import { isSlugShaped } from "./pages.service";
-import { SiteNewsService } from "./site-news.service";
-import { acceptLanguage, hasSession } from "./site-request";
+import { NEWS_PAGE_PARAM, SiteNewsService } from "./site-news.service";
+import { acceptLanguage, hasSession, queryValue } from "./site-request";
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
 
 /**
@@ -36,19 +36,26 @@ export class SiteNewsController {
     private readonly auth: AuthService,
   ) {}
 
-  /** Everything published that this reader may see, newest first. */
+  /**
+   * What is published that this reader may see, newest first, a page at a
+   * time. The page is a query parameter the index's own anchors write, and it
+   * is handed on as it arrived: reading it is the service's.
+   */
   @Get("nyheter")
   async index(
     @Req() request: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const session = await hasSession(this.auth, request);
-    const items = await this.news.list(session);
+    const page = await this.news.index(
+      session,
+      queryValue(request, NEWS_PAGE_PARAM),
+    );
 
     this.send(
       reply,
       200,
-      await this.renderer.newsIndex(acceptLanguage(request), items, {
+      await this.renderer.newsIndex(acceptLanguage(request), page, {
         hasSession: session,
         // A news document carries no blocks, so nothing on it varies by
         // person. Named all the same, because the visit is what the renderer

@@ -34,7 +34,11 @@ import {
   type SiteDocument,
 } from "./site-html";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
-import { type SiteNewsArticle, SiteNewsService } from "./site-news.service";
+import {
+  type SiteNewsArticle,
+  type SiteNewsIndexPage,
+  SiteNewsService,
+} from "./site-news.service";
 import { PagesService, type SitePage } from "./pages.service";
 import { visitorLocale } from "./visitor-locale";
 
@@ -216,12 +220,12 @@ export class SiteRenderer {
    */
   async newsIndex(
     acceptLanguage: string | undefined,
-    items: readonly SiteNewsArticle[],
+    page: SiteNewsIndexPage,
     visit: SiteVisit,
   ): Promise<string> {
     return renderNewsIndex(
       await this.chrome(acceptLanguage, visit.hasSession),
-      items,
+      page,
     );
   }
 

@@ -43,6 +43,35 @@ const TEASER_LENGTH = 180;
 /** What a shortened teaser ends in. Three periods, never one character. */
 const ELLIPSIS = "...";
 
+/**
+ * How many items one page of the news index lists.
+ *
+ * The index is the one public address that grows with every item the board
+ * publishes, and it is read by anybody, crawlers included, with no session. A
+ * few years of weekly news read in full on every visit would make it the
+ * cheapest way to load the database from the street.
+ */
+export const NEWS_INDEX_PAGE_SIZE = 20;
+
+/**
+ * The query parameter that names a page of the index, in Swedish because the
+ * address is: /nyheter?sida=2. Only the older/newer anchors on the index write
+ * it, as the calendar's month anchors write theirs.
+ */
+export const NEWS_PAGE_PARAM = "sida";
+
+/** One page of the news index, and whether there is another either side. */
+export interface SiteNewsIndexPage {
+  items: SiteNewsArticle[];
+  page: number;
+  /** The page of newer items, or null on the first. */
+  newer: number | null;
+  /** The page of older items, or null on the last. */
+  older: number | null;
+}
+
+const PAGE_NUMBER_PATTERN = /^[1-9]\d{0,5}$/;
+
 @Injectable()
 export class SiteNewsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -51,17 +80,23 @@ export class SiteNewsService {
    * The published news this reader may see, newest first.
    *
    * Public items for everyone, and the member-only ones as well for anyone
-   * signed in - the same rule a page follows, expressed once here so the index,
-   * the teaser block and an article cannot answer it three different ways.
+   * signed in - the same rule a page follows, expressed once in readableBy so
+   * the index and the teaser block cannot answer it two different ways.
+   *
+   * Always bounded. The callers are the index, one page at a time, and the
+   * teaser block, which names its own count.
    */
-  async list(hasSession: boolean, limit?: number): Promise<SiteNewsArticle[]> {
+  private async list(
+    hasSession: boolean,
+    window: { take: number; skip?: number },
+  ): Promise<SiteNewsArticle[]> {
     const rows = await this.prisma.news.findMany({
-      where: {
-        published: true,
-        ...(hasSession ? {} : { visibility: "PUBLIC" }),
-      },
-      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-      ...(limit === undefined ? {} : { take: limit }),
+      where: readableBy(hasSession),
+      // The id last, so two items published in the same instant keep one order
+      // and a page boundary between them cannot show one twice or skip one.
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+      take: window.take,
+      skip: window.skip ?? 0,
       select: {
         slug: true,
         title: true,
@@ -72,6 +107,41 @@ export class SiteNewsService {
     });
 
     return rows.map((row) => toArticle(row));
+  }
+
+  /**
+   * One page of the index, newest first.
+   *
+   * The parameter is taken as it arrived and read here, so what a page may be
+   * is decided in one place - the calendar's rule for its month. Anything that
+   * is not a page number reads as the first page, and a number past the last
+   * page reads as the last: nothing a visitor puts in the address bar is an
+   * error, and no request can make the database skip further than there are
+   * items.
+   */
+  async index(
+    hasSession: boolean,
+    requested: string | undefined,
+  ): Promise<SiteNewsIndexPage> {
+    const total = await this.prisma.news.count({
+      where: readableBy(hasSession),
+    });
+    const last = Math.max(1, Math.ceil(total / NEWS_INDEX_PAGE_SIZE));
+    const asked =
+      requested !== undefined && PAGE_NUMBER_PATTERN.test(requested)
+        ? Number(requested)
+        : 1;
+    const page = Math.min(asked, last);
+
+    return {
+      items: await this.list(hasSession, {
+        take: NEWS_INDEX_PAGE_SIZE,
+        skip: (page - 1) * NEWS_INDEX_PAGE_SIZE,
+      }),
+      page,
+      newer: page > 1 ? page - 1 : null,
+      older: page < last ? page + 1 : null,
+    };
   }
 
   /**
@@ -112,7 +182,7 @@ export class SiteNewsService {
 
   /** The most recent items, as a teaser block shows them. */
   async teasers(hasSession: boolean, limit: number): Promise<NewsTeaser[]> {
-    const articles = await this.list(hasSession, limit);
+    const articles = await this.list(hasSession, { take: limit });
     return articles.map((article) => ({
       slug: article.slug,
       title: article.title,
@@ -120,6 +190,17 @@ export class SiteNewsService {
       teaser: teaserOf(article.content),
     }));
   }
+}
+
+/**
+ * The published items a reader may see: the public ones for everyone, and the
+ * member-only ones as well for anyone signed in.
+ */
+function readableBy(hasSession: boolean) {
+  return {
+    published: true,
+    ...(hasSession ? {} : { visibility: "PUBLIC" as const }),
+  };
 }
 
 /**

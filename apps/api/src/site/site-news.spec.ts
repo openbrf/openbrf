@@ -1,12 +1,19 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { readPageContent } from "./page-content";
 import type { SitePage } from "./pages.service";
 import type { SiteFormState } from "./site-forms";
 import { renderPage, type SiteChrome } from "./site-html";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
-import { type SiteNewsArticle, teaserOf } from "./site-news.service";
+import {
+  NEWS_INDEX_PAGE_SIZE,
+  type SiteNewsArticle,
+  type SiteNewsIndexPage,
+  SiteNewsService,
+  teaserOf,
+} from "./site-news.service";
 
 /**
  * The association's news, on its own website.
@@ -57,9 +64,14 @@ beforeAll(async () => {
   };
 });
 
+/** One page of the index holding these items, with no page either side. */
+function onePage(items: SiteNewsArticle[]): SiteNewsIndexPage {
+  return { items, page: 1, newer: null, older: null };
+}
+
 describe("the news index", () => {
   it("is a whole document listing what the reader may see", () => {
-    const html = renderNewsIndex(chrome, [ARTICLE]);
+    const html = renderNewsIndex(chrome, onePage([ARTICLE]));
 
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).toContain('<html lang="sv">');
@@ -69,18 +81,105 @@ describe("the news index", () => {
   });
 
   it("says so plainly when nothing has been written", () => {
-    const html = renderNewsIndex(chrome, []);
+    const html = renderNewsIndex(chrome, onePage([]));
 
     expect(html).toContain("Inget är skrivet än.");
   });
 
   it("escapes what the board typed, like every other page", () => {
-    const html = renderNewsIndex(chrome, [
-      { ...ARTICLE, title: "<script>alert(1)</script>" },
-    ]);
+    const html = renderNewsIndex(
+      chrome,
+      onePage([{ ...ARTICLE, title: "<script>alert(1)</script>" }]),
+    );
 
     expect(html.includes("<script")).toBe(false);
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("links to older and newer items, and only where there are some", () => {
+    const middle = renderNewsIndex(chrome, {
+      items: [ARTICLE],
+      page: 2,
+      newer: 1,
+      older: 3,
+    });
+    // The first page is the index's own address, not a second one for it.
+    expect(middle).toContain('<a href="/nyheter" rel="prev">Nyare nyheter</a>');
+    expect(middle).toContain(
+      '<a href="/nyheter?sida=3" rel="next">Äldre nyheter</a>',
+    );
+
+    const only = renderNewsIndex(chrome, onePage([ARTICLE]));
+    expect(only).not.toContain("site-news-nav");
+  });
+});
+
+describe("which page of the index a reader is shown", () => {
+  /** A news table holding this many items the reader may see. */
+  function withItems(total: number) {
+    const news = {
+      count: vi.fn().mockResolvedValue(total),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    const service = new SiteNewsService({ news } as unknown as PrismaService);
+    return { service, news };
+  }
+
+  function window(news: { findMany: ReturnType<typeof vi.fn> }) {
+    return news.findMany.mock.calls[0]?.[0] as { take: number; skip: number };
+  }
+
+  it("never reads more than one page of items", async () => {
+    // The whole archive on every anonymous visit is what this bounds.
+    const { service, news } = withItems(500);
+
+    const page = await service.index(false, undefined);
+
+    expect(window(news)).toMatchObject({ take: NEWS_INDEX_PAGE_SIZE, skip: 0 });
+    expect(page).toMatchObject({ page: 1, newer: null, older: 2 });
+  });
+
+  it("reads the page the address names", async () => {
+    const { service, news } = withItems(45);
+
+    const page = await service.index(false, "3");
+
+    expect(window(news)).toMatchObject({
+      take: NEWS_INDEX_PAGE_SIZE,
+      skip: 2 * NEWS_INDEX_PAGE_SIZE,
+    });
+    expect(page).toMatchObject({ page: 3, newer: 2, older: null });
+  });
+
+  it("reads a page past the last as the last", async () => {
+    // So no address can make the database skip further than there are items.
+    const { service, news } = withItems(45);
+
+    const page = await service.index(false, "999999");
+
+    expect(window(news).skip).toBe(2 * NEWS_INDEX_PAGE_SIZE);
+    expect(page.page).toBe(3);
+  });
+
+  it("reads anything that is not a page number as the first page", async () => {
+    for (const requested of ["0", "-1", "2.5", "abc", "01", "9999999"]) {
+      const { service, news } = withItems(45);
+
+      const page = await service.index(false, requested);
+
+      expect(window(news).skip, requested).toBe(0);
+      expect(page.page, requested).toBe(1);
+    }
+  });
+
+  it("answers an empty archive with one empty page", async () => {
+    const { service } = withItems(0);
+
+    expect(await service.index(true, "4")).toMatchObject({
+      page: 1,
+      newer: null,
+      older: null,
+    });
   });
 });
 
