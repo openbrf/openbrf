@@ -2775,9 +2775,9 @@ enum MediaVisibility {
   /// an email client renders it with no cookie to send, and the public website
   /// will serve it to visitors who have no account at all.
   PUBLIC
-  /// Anyone signed in. A file that additionally names a required capability is
-  /// narrowed to holders of it, and every serve of one is written to the audit
-  /// log.
+  /// Holders of the capability the file names, which a CHECK requires it to
+  /// name, and every serve to one is written to the audit log. The reporter of
+  /// an issue also reads the photos on it.
   INTERNAL
   /// A member of the housing cooperative, or a holder of the capability the
   /// file names.
@@ -2890,7 +2890,9 @@ model MediaFile {
   /// declared cannot be checked against that rule.
   showsIdentifiablePersons Boolean?
 
-  visibility MediaVisibility @default(INTERNAL)
+  /// No default: every caller states it, and an INTERNAL file with no
+  /// capability is a state the CHECK below refuses.
+  visibility MediaVisibility
 
   /// A capability this file names, by its name in the capability model.
   ///
@@ -2899,8 +2901,9 @@ model MediaFile {
   /// every serve is written to the audit log. On a MEMBER file it widens: it
   /// names who may read the file besides the members themselves, which is how
   /// the board and an administrator reach the members' shelf without holding a
-  /// residency of their own. Null on a PUBLIC file, and on an INTERNAL one
-  /// that anyone signed in may read.
+  /// residency of their own. Null on a PUBLIC file; never null on an INTERNAL
+  /// one, which a CHECK enforces, since an INTERNAL file with no capability
+  /// would be readable by every account that held its id.
   requiredCapability String?
 
   /// Who uploaded it.

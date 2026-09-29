@@ -406,6 +406,9 @@ export class IssueService {
       bytes: input.bytes,
       fileName: input.fileName,
       visibility: "INTERNAL",
+      // Whoever handles issues, and the reporter, through the issue: see
+      // MediaService.open.
+      requiredCapability: "issues:handle",
       /*
        * Declared true without asking, which is the safe direction.
        *
