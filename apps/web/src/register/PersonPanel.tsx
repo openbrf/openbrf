@@ -119,10 +119,18 @@ function roleErrorMessage(error: unknown): TranslationKey {
  * offers is a correction rather than an end - a date typed into the wrong year
  * has to be reachable from here, or the only way back is the database.
  *
+ * A withdrawn election, ended on or before the day it would have begun, covers
+ * no day and is not running whatever its end date says: the position can be
+ * recorded again, as the server allows.
+ *
  * @see apps/api/src/roles/role-changes.ts
  */
 function isHeld(seat: PersonBoardPosition, today: string): boolean {
-  return seat.endedOn === null || seat.endedOn > today;
+  return (
+    seat.endedOn === null ||
+    (seat.endedOn > today &&
+      (seat.electedOn === null || seat.endedOn > seat.electedOn))
+  );
 }
 
 const CONSENT_SCOPE_LABEL = {
