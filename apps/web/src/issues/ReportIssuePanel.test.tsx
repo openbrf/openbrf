@@ -129,6 +129,19 @@ describe("the type picker", () => {
 });
 
 describe("filing a report", () => {
+  it("stops the place and the description at the lengths the server takes", () => {
+    renderPanel();
+
+    // An overlong report would otherwise be refused only after it was written,
+    // with a sentence that cannot say why.
+    expect(
+      screen.getByLabelText(/var i huset/i).getAttribute("maxlength"),
+    ).toBe("200");
+    expect(
+      screen.getByLabelText(/vad har hänt/i).getAttribute("maxlength"),
+    ).toBe("4000");
+  });
+
   it("sends the apartment and the free-text place with it", async () => {
     const session = userEvent.setup();
     renderPanel();
