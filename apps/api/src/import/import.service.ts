@@ -537,7 +537,7 @@ export class ImportService implements OnModuleInit {
         return (
           candidates !== undefined &&
           (row.outcome !== "ambiguous" ||
-            !sameMembers(
+            !samePeople(
               candidates,
               row.candidates.map((candidate) => candidate.personId),
             ))
@@ -615,12 +615,12 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
   return session;
 }
 
-/** The rows the preview could not resolve, read back from the session. */
 /** Whether two lists of person ids name the same people. */
-function sameMembers(a: readonly string[], b: readonly string[]): boolean {
+function samePeople(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((personId) => b.includes(personId));
 }
 
+/** The rows the preview could not resolve, read back from the session. */
 function readAmbiguousRows(value: unknown): Record<string, string[]> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {};

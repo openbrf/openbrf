@@ -2108,6 +2108,55 @@ describe("a row after one the board decided", () => {
     });
   });
 
+  it("is refused when the people a row matches are not the ones the preview named", async () => {
+    // The preview asked about row 1 with the two Dubbels as its candidates.
+    // The stored candidates are rewritten to stand in for a register that
+    // has changed since then: the board's answer names a person the row no
+    // longer has to choose between, so it must be asked again.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "andrade-kandidater.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2103",
+        twinFirstName,
+        surname,
+        "Boende",
+        `imp-changed-${suffix}@exempel.se`,
+        "",
+        "2021-04-01",
+      ],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        ambiguousRows: { "1": [actors.twinA.personId, actors.board.personId] },
+      },
+    });
+
+    const before = await prisma.person.findUniqueOrThrow({
+      where: { id: actors.twinA.personId },
+      select: { emailIndex: true },
+    });
+
+    const response = await applyImport(cookie, session.sessionId, {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(
+      await prisma.person.findUniqueOrThrow({
+        where: { id: actors.twinA.personId },
+        select: { emailIndex: true },
+      }),
+    ).toEqual(before);
+  });
+
   it("is refused when skips undo the decision the preview was taken with", async () => {
     // Previewed with row 1 given to a Dubbel, row 2 contradicts that twin and
     // is asked about. Skipping both leaves row 2 matching nobody, so it would
