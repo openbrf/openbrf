@@ -10,8 +10,11 @@ Smaller data protection fixes:
   the breach on their access report, as a person added later does.
 - A breach decision's delay reasons are scanned for a personal identity number,
   as an update's are.
-- An apartment binder title is scanned and stored without invisible characters
-  that could hide a personal identity number.
+- An apartment binder title is scanned and stored after the same folding of
+  invisible and lookalike characters, and a title that is empty after it is
+  refused.
+- The person page promises an erasure only where the nightly jobs will carry it
+  out, not for a sitting board member, a resident or a system-role holder.
 - A board member no longer sees "Ta ut" on an entry they filed for the board into
   their own apartment, which the take-out refused.
 - A file that a failed filing could not remove is logged, in the binder and the
