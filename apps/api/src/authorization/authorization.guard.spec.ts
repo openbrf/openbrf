@@ -174,6 +174,41 @@ describe("the resource route is Bearer-only", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "/api/plugin/connector/%6Dcp",
+    "/api/plugin/connector/m%63p",
+    "/api/plugin/connector/%6D%63%70/messages",
+    "/api/plugin/connector%2Fmcp",
+  ])(
+    "reads %s as the router does, and refuses the session there",
+    async (url) => {
+      const { guard, personIdFromHeaders } = build({ resolved: null });
+      const request = requestAt(url, {
+        cookie: "better-auth.session_token=a-valid-session",
+      });
+
+      await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+        BearerUnauthorizedError,
+      );
+      expect(personIdFromHeaders).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reads the route the router matched as well as the path", async () => {
+    const { guard, personIdFromHeaders } = build({ resolved: null });
+    const request = {
+      ...requestAt("/api/plugin/connector/elsewhere", {
+        cookie: "better-auth.session_token=a-valid-session",
+      }),
+      routeOptions: { url: `${RESOURCE}/*` },
+    } as unknown as RequestWithPrincipal;
+
+    await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+      BearerUnauthorizedError,
+    );
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+
   it("matches on the path with the query string dropped", async () => {
     const { guard, personIdFromHeaders } = build({});
     const request = requestAt(`${RESOURCE}?sessionId=1`, {

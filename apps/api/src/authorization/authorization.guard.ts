@@ -118,7 +118,7 @@ export class AuthorizationGuard implements CanActivate {
      */
     if (
       this.resource.declared &&
-      isResourcePath(pathOf(request.url), this.resource.path)
+      isResourceRequest(request, this.resource.path)
     ) {
       return await this.bearerOnly(request, context);
     }
@@ -273,4 +273,37 @@ export class AuthorizationGuard implements CanActivate {
 function pathOf(url: string): string {
   const query = url.indexOf("?");
   return query === -1 ? url : url.slice(0, query);
+}
+
+/**
+ * Whether a request reaches the resource, read as the router reads it.
+ *
+ * The router matches the path after decoding its percent-escapes, so the raw
+ * URL is not what decides which handler runs: `/mcp` spelled with an escaped
+ * letter reaches the resource's handler while the raw text names another path.
+ * The decoded path is compared, and so is the route the router matched, so
+ * either spelling of the resource is Bearer-only. Decoding more than the router
+ * does (an escaped slash) only widens the match, which is the conservative
+ * direction: a 401 on a path that could have been allowed.
+ */
+function isResourceRequest(
+  request: RequestWithPrincipal,
+  base: string,
+): boolean {
+  const matched = (request as { routeOptions?: { url?: string } }).routeOptions
+    ?.url;
+  return (
+    isResourcePath(decodedPathOf(request.url), base) ||
+    (matched !== undefined && isResourcePath(matched, base))
+  );
+}
+
+function decodedPathOf(url: string): string {
+  const path = pathOf(url);
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    // A malformed escape is refused by the router before any guard runs.
+    return path;
+  }
 }
