@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
+import { uniqueSurname } from "../src/identity";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -147,6 +148,23 @@ function breachTitle(label: string): string {
   return `${label} ${String(Date.now())}`;
 }
 
+/**
+ * An instant as a datetime-local control holds it: the browser's own wall
+ * clock, to the minute.
+ *
+ * Not `toISOString().slice(0, 16)`, which is the UTC wall clock: read as local
+ * by a browser west of Greenwich it is a moment still to come, and the field
+ * offers nothing later than now.
+ */
+function wallClock(instant: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${String(instant.getFullYear())}-${pad(instant.getMonth() + 1)}-` +
+    `${pad(instant.getDate())}T${pad(instant.getHours())}:` +
+    `${pad(instant.getMinutes())}`
+  );
+}
+
 /** The row a panel renders for one named thing. */
 function rowFor(page: Page, name: string) {
   return page.getByRole("listitem").filter({ hasText: name }).first();
@@ -227,12 +245,37 @@ test.describe("the board's own data protection records", () => {
     await page.getByLabel("De registrerade ska underrättas").check();
     await page.getByRole("button", { name: "Spara beslutet" }).click();
 
-    // Decided, and the strip is quiet again. The second half matters as much as
-    // the first: a board with nothing waiting has to be told so, because an
+    // Decided that IMY is to be notified, which is not the notification: the
+    // clock keeps running on the row and in the strip until it is recorded.
+    await expect(rowFor(page, title)).toContainText(
+      "Väntar på underrättelse till IMY",
+    );
+    await expect(
+      page.getByText(
+        /personuppgiftsincident(er)? (är beslutad|är beslutade) och IMY är ännu inte underrättad/,
+      ),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", {
+        name: `Anteckna underrättelsen till IMY om ${title}`,
+      })
+      .click();
+    await page
+      .getByLabel("Underrättad till IMY")
+      // An hour ago, as a datetime-local control holds it: after the
+      // discovery and well inside the bound, so no reasons are asked for.
+      .fill(wallClock(new Date(Date.now() - 60 * 60 * 1000)));
+    await page.getByRole("button", { name: "Spara underrättelsen" }).click();
+
+    // Notified, and the strip is quiet again. The second half matters as much
+    // as the first: a board with nothing waiting has to be told so, because an
     // empty strip reads as a screen that has not finished loading.
     await expect(rowFor(page, title)).toContainText("Beslutad");
     await expect(
-      page.getByText("Ingen personuppgiftsincident väntar på beslut."),
+      page.getByText(
+        "Ingen personuppgiftsincident väntar på beslut eller underrättelse till IMY.",
+      ),
     ).toBeVisible();
   });
 
@@ -274,7 +317,7 @@ test.describe("the board's own data protection records", () => {
 
     await expect(
       page.getByText(
-        /personuppgiftsincident(er)? har passerat 72-timmarsgränsen utan beslut/,
+        /personuppgiftsincident(er)? har passerat 72-timmarsgränsen utan att IMY underrättats/,
       ),
     ).toBeVisible();
     await expect(rowFor(page, title)).toContainText("Över tiden");
@@ -294,7 +337,7 @@ test.describe("the board's own data protection records", () => {
       .getByLabel("Underrättad till IMY")
       // What a datetime-local control holds: the reader's own wall clock, to
       // the minute. The screen turns it into an instant before it is sent.
-      .fill(new Date().toISOString().slice(0, 16));
+      .fill(wallClock(new Date()));
     await page.getByLabel("De registrerade ska underrättas").check();
     await page.getByRole("button", { name: "Spara beslutet" }).click();
 
@@ -559,6 +602,109 @@ test.describe("the board's own data protection records", () => {
     await page.getByRole("button", { name: "Spara", exact: true }).click();
 
     await expect(requestRow.getByText("Avslagen")).toBeVisible();
+  });
+
+  test("a granted restriction is lifted again by closing it", async ({
+    page,
+    api: request,
+    clientAddress,
+  }) => {
+    /*
+     * Art. 18(3): a restriction is lifted, and the person told before it is.
+     * Closing the request is the only act that lifts it, so a screen that
+     * stopped offering it once the restriction was granted would keep it in
+     * force for good - the mailings withheld and the purge suspended for a
+     * person who has asked for neither any more.
+     *
+     * A person of this run's own, because a restriction left standing by a run
+     * that failed part way would withhold the shared fixture member from every
+     * spec after it, and refuse the next run's request as already open.
+     */
+    await ensureDataProtectionFixture(request, clientAddress);
+    const address = (await api.listAddresses(request, stack.baseUrl))[0];
+    if (address === undefined) {
+      throw new Error("the instance has no address to move anybody into");
+    }
+    const apartment = (
+      await api.listApartments(request, stack.baseUrl, address.id)
+    )[0];
+    if (apartment === undefined) {
+      throw new Error("the instance has no apartment to move anybody into");
+    }
+    const lastName = uniqueSurname("Begransad");
+    const name = `Rut ${lastName}`;
+    const personId = await api.createPerson(request, stack.baseUrl, {
+      firstName: "Rut",
+      lastName,
+    });
+    await api.moveIn(request, stack.baseUrl, {
+      personId,
+      apartmentId: apartment.id,
+      role: "RESIDENT",
+      movedInOn: "2026-01-01",
+    });
+
+    await browseAs(page, clientAddress, "administrator");
+    await signInThroughTheScreen(
+      page,
+      ADMINISTRATOR.email,
+      ADMINISTRATOR.password,
+    );
+    await page.goto(appPath());
+    await page.getByLabel("Sök i registret").fill(lastName);
+    await page.getByRole("button", { name: `Öppna ${name}` }).click();
+    await expect(page.getByRole("heading", { name })).toBeVisible();
+
+    await page.getByRole("button", { name: "Anteckna en begäran" }).click();
+    await page
+      .getByRole("combobox", { name: "Vad personen begär" })
+      .selectOption("RESTRICTION");
+    await page
+      .getByLabel("Personens egen grund")
+      .fill("Jag bestrider att uppgifterna stämmer.");
+    await page.getByRole("button", { name: "Spara", exact: true }).click();
+
+    const requestRow = rowFor(page, "Jag bestrider att uppgifterna stämmer.");
+    await requestRow.getByRole("button", { name: "Fatta beslut" }).click();
+    await page
+      .getByRole("combobox", { name: "Beslut", exact: true })
+      .selectOption("GRANTED");
+    await page.getByLabel("Styrelsens skäl").fill("Uppgifterna kontrolleras.");
+    await page.getByRole("button", { name: "Spara", exact: true }).click();
+    await expect(requestRow.getByText("Bifallen").first()).toBeVisible();
+    expect(
+      await api.processingRestrictedAt(request, stack.baseUrl, personId),
+    ).not.toBeNull();
+
+    // Decided, and still open: the one press that lifts it is on offer.
+    await expect(
+      requestRow.getByRole("button", { name: "Fatta beslut" }),
+    ).toHaveCount(0);
+    await requestRow.getByRole("button", { name: "Avsluta" }).click();
+    await expect(requestRow.getByText(/Begränsningen hävs/)).toBeVisible();
+    await requestRow
+      .getByLabel("Varför begäran avslutas")
+      .fill("Uppgifterna är kontrollerade och stämmer.");
+
+    const closed = page.waitForResponse(
+      (response) =>
+        response.url().includes("/close") &&
+        response.request().method() === "POST",
+    );
+    await requestRow.getByRole("button", { name: "Avsluta begäran" }).click();
+    expect((await closed).ok()).toBe(true);
+
+    await expect(
+      requestRow.getByText("Avslutad", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      requestRow.getByText("Uppgifterna är kontrollerade och stämmer."),
+    ).toBeVisible();
+    // Closed, so nothing more is offered on it.
+    await expect(requestRow.getByRole("button")).toHaveCount(0);
+    expect(
+      await api.processingRestrictedAt(request, stack.baseUrl, personId),
+    ).toBeNull();
   });
 
   test("a resident takes what they gave the association with them", async ({

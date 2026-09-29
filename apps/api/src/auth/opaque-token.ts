@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 /**
  * The digest an opaque access or refresh token is stored and looked up under.
@@ -31,4 +31,22 @@ import { createHash } from "node:crypto";
  */
 export function hashOpaqueToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("base64url");
+}
+
+/**
+ * Constant-time comparison, for callers that need to compare two tokens
+ * directly rather than by indexed lookup.
+ *
+ * Where a digest is held in memory or in the environment rather than in an
+ * indexed column, the presented token is digested with the function above and
+ * the two digests are compared here, so how long the comparison takes says
+ * nothing about how much of the value was right.
+ */
+export function tokensMatch(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) {
+    return false;
+  }
+  return timingSafeEqual(left, right);
 }

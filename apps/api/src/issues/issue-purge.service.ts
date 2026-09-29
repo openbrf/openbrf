@@ -3,9 +3,13 @@ import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
+import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { ISSUE_RETENTION_DAYS, issuePurgeCutoff } from "./issue-retention";
 
 /** Queue the nightly public-form issue purge runs on. */
@@ -82,17 +86,31 @@ export interface IssuePurgeRunSummary {
  * and a reopened one loses the date it had. The arithmetic and the reasoning
  * are in `issue-retention.ts`.
  *
- * ## Why no legal hold is checked
+ * ## Legal hold and restriction
  *
- * The other purges in the band take an advisory lock and re-read the hold before
- * they erase, because they erase a named person's data and a hold is placed on a
- * person. Nothing this job touches is keyed to a person: it selects on
- * `reporterPersonId` being null, which is another way of saying the register has
- * never heard of whoever wrote in. There is no row a hold could name and no key
- * a placement could contend for, so a lock here would be ceremony rather than a
- * decision. An issue that does have a reporter is left to the residency purge,
- * which does take the hold - reaching one row from both ends would be two jobs
- * racing over it.
+ * A report from the public form is keyed to nobody, but the address on it can
+ * still be a person's: somebody in the register who wrote in without signing
+ * in, or somebody who wrote in first and was entered later. A legal hold or a
+ * restriction of processing standing against that person stops the purge of
+ * their reports, as it stops the board mailbox purge of their letters - the
+ * ground is about the person's data rather than about one table, and art.
+ * 18(2) lets the association keep storing the data and little else, so
+ * erasing it is the one act a restricted person asked it not to perform.
+ *
+ * The match is made from the register's side, the way the board mailbox makes
+ * it: each withheld person's own address is re-indexed under this table's field
+ * and compared (`retention/withheld-addresses.ts`). Nothing here resolves a
+ * reporter to a person for any other purpose.
+ *
+ * The check is made twice: once in the scan, and again inside the transaction
+ * that detaches, under the legal hold registry key in
+ * `retention/legal-hold-lock.ts`. The second one is the one that counts. This
+ * job cannot name the person it might be racing, so it takes the registry key,
+ * which a hold placement and a restriction grant both take as well as the
+ * person's own - a hold or a restriction committed while the run is in flight
+ * has to win. An issue that does have a reporter is left to the residency
+ * purge, which takes the person's own key - reaching one row from both ends
+ * would be two jobs racing over it.
  *
  * ## How it runs
  *
@@ -116,6 +134,7 @@ export class IssuePurgeService implements OnModuleInit {
   constructor(
     @Inject(ENV) private readonly env: Env,
     private readonly prisma: PrismaService,
+    private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
     private readonly jobs: JobQueueService,
   ) {}
@@ -199,19 +218,47 @@ export class IssuePurgeService implements OnModuleInit {
    * A report with all three columns already null is not selected. It has
    * nothing left to detach, and selecting it would spend the run's bound and
    * write an entry a night for ever in a table nobody can tidy.
+   *
+   * Nor is a report whose address is a withheld person's, and it is excluded by
+   * the query rather than dropped from its answer: the bound is applied by the
+   * database, so withheld reports removed afterwards would still have spent it,
+   * and enough of them sorting first would fill every run for as long as the
+   * hold or the restriction stood.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = issuePurgeCutoff(now, retentionDays);
+    const withheld = [...(await this.withheldAddresses(this.prisma)).keys()];
 
     const issues = await this.prisma.issue.findMany({
       where: {
         reporterPersonId: null,
         status: "DONE",
         closedAt: { not: null, lte: cutoff },
-        OR: [
-          { reporterNameCipher: { not: null } },
-          { reporterEmailCipher: { not: null } },
-          { reporterEmailIndex: { not: null } },
+        AND: [
+          {
+            OR: [
+              { reporterNameCipher: { not: null } },
+              { reporterEmailCipher: { not: null } },
+              { reporterEmailIndex: { not: null } },
+            ],
+          },
+          /*
+           * Spelled conditionally rather than as an empty `notIn`, and with the
+           * null branch beside it because `NOT IN` answers null rather than true
+           * for a null column: a report that left a name and no address would
+           * otherwise be invisible to this query for as long as any hold or
+           * restriction stood anywhere in the association.
+           */
+          ...(withheld.length > 0
+            ? [
+                {
+                  OR: [
+                    { reporterEmailIndex: { notIn: withheld } },
+                    { reporterEmailIndex: null },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       orderBy: [{ closedAt: "asc" }],
@@ -234,6 +281,9 @@ export class IssuePurgeService implements OnModuleInit {
    * trusted from the scan. A report reopened between the scan and this
    * transaction is a live matter again, and whoever reopened it is entitled to
    * assume the association can still answer the person who wrote in.
+   *
+   * And the hold and the restriction are read again, under the legal hold
+   * registry key, before anything is detached. See the class comment.
    */
   async purgeIssue(
     issueId: string,
@@ -243,6 +293,27 @@ export class IssuePurgeService implements OnModuleInit {
     const cutoff = issuePurgeCutoff(now, retentionDays);
 
     return this.prisma.$transaction(async (tx) => {
+      const issue = await tx.issue.findUnique({
+        where: { id: issueId },
+        select: { reporterEmailIndex: true },
+      });
+      if (issue === null) {
+        return false;
+      }
+      // A report that left no address matches nobody, whatever holds stand, so
+      // there is nothing to order against a placement. The address is written
+      // when the report is filed and cleared only here, so it cannot appear
+      // between this read and the update.
+      if (issue.reporterEmailIndex !== null) {
+        // Before anything is read about holds, and taken whether or not this
+        // report turns out to be withheld: in the ordinary case the address is
+        // nobody's, and there is then no person's key to take.
+        await lockLegalHoldRegistry(tx);
+        if ((await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)) {
+          return false;
+        }
+      }
+
       const { count } = await tx.issue.updateMany({
         where: {
           id: issueId,
@@ -268,8 +339,8 @@ export class IssuePurgeService implements OnModuleInit {
           // which is what the retention window promised would happen.
           actorPersonId: null,
           // No subject either, which is what distinguishes this job from every
-          // other purge in the band: the report names somebody the register has
-          // never heard of, and the id it detaches is not a person's.
+          // other purge in the band: the report is keyed to nobody in the
+          // register, and the id it detaches is not a person's.
           targetPersonId: null,
           targetKind: "issue",
           targetId: issueId,
@@ -289,5 +360,15 @@ export class IssuePurgeService implements OnModuleInit {
 
       return true;
     });
+  }
+
+  private withheldAddresses(
+    client: Prisma.TransactionClient,
+  ): Promise<Map<string, string>> {
+    return withheldAddressIndexes(
+      client,
+      this.encryption,
+      "issue.reporterEmail",
+    );
   }
 }

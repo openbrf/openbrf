@@ -19,6 +19,7 @@ export type SaveState =
 export function useSaveAction<Args extends unknown[], T>(
   run: (...args: Args) => Promise<ApiResult<T>>,
   onSaved?: (value: T) => void,
+  onFailed?: (failure: ApiFailure) => void,
 ): {
   state: SaveState;
   submit: (...args: Args) => Promise<boolean>;
@@ -33,6 +34,7 @@ export function useSaveAction<Args extends unknown[], T>(
 
       if (!result.ok) {
         setState({ kind: "failed", failure: result.failure });
+        onFailed?.(result.failure);
         return false;
       }
 
@@ -40,7 +42,7 @@ export function useSaveAction<Args extends unknown[], T>(
       onSaved?.(result.value);
       return true;
     },
-    [run, onSaved],
+    [run, onSaved, onFailed],
   );
 
   const reset = useCallback(() => {

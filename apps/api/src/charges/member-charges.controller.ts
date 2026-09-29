@@ -9,6 +9,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -19,9 +20,6 @@ import {
   type DebitingListExport,
   MemberChargeService,
 } from "./member-charge.service";
-
-/** ISO calendar date. A charge is dated by the board, never guessed from prose. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
 
 /**
  * Kronor and ore.
@@ -61,7 +59,7 @@ const chargeSchema = z.object({
    */
   personId: z.string().min(1).nullish(),
   apartmentId: z.string().min(1).nullish(),
-  chargedOn: isoDate,
+  chargedOn: calendarDateSchema,
   amount,
   /**
    * Bounded but generous. A reason says what was bought or done and for whom,
@@ -71,7 +69,7 @@ const chargeSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   vatTreatment: z.enum(VAT_TREATMENTS),
   vatRatePercent: vatRatePercent.nullish(),
-  handedToManagerOn: isoDate.nullish(),
+  handedToManagerOn: calendarDateSchema.nullish(),
 });
 
 /**
@@ -86,17 +84,17 @@ const chargeSchema = z.object({
  * left alone; a field sent as null is a field emptied.
  */
 const correctionSchema = z.object({
-  chargedOn: isoDate.optional(),
+  chargedOn: calendarDateSchema.optional(),
   amount: amount.optional(),
   reason: z.string().trim().min(1).max(500).optional(),
   vatTreatment: z.enum(VAT_TREATMENTS).optional(),
   vatRatePercent: vatRatePercent.nullish(),
-  handedToManagerOn: isoDate.nullish(),
+  handedToManagerOn: calendarDateSchema.nullish(),
 });
 
 const periodSchema = z.object({
-  from: isoDate,
-  to: isoDate,
+  from: calendarDateSchema,
+  to: calendarDateSchema,
 });
 
 /**

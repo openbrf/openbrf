@@ -56,7 +56,16 @@ const resident = {
   personId: `ip-resident-${suffix}`,
   email: `ip-resident-${suffix}@exempel.se`,
 };
-const personIds = [board.personId, resident.personId];
+/**
+ * Somebody in the register who also wrote in through the public form, without
+ * signing in. The report is keyed to nobody; the address on it is theirs, which
+ * is all a legal hold or a restriction can reach it by.
+ */
+const withheld = {
+  personId: `ip-withheld-${suffix}`,
+  email: `ip-withheld-${suffix}@exempel.se`,
+};
+const personIds = [board.personId, resident.personId, withheld.personId];
 
 const addressId = `ip-address-${suffix}`;
 const apartmentId = `ip-apartment-${suffix}`;
@@ -167,12 +176,15 @@ async function read(issueId: string): Promise<ReporterColumns> {
 }
 
 /** Files a report through the public form, as the website does: in process. */
-async function reportPublicly(description: string): Promise<string> {
+async function reportPublicly(
+  description: string,
+  reporterEmail: string | null = REPORTER.email,
+): Promise<string> {
   const { id } = await issues.reportPublicly({
     typeId: publicTypeId,
     description,
     reporterName: REPORTER.name,
-    reporterEmail: REPORTER.email,
+    reporterEmail,
   });
   return id;
 }
@@ -282,12 +294,28 @@ beforeAll(async () => {
     ],
   });
 
+  // No account: the register knows this person, and they wrote in anyway.
+  const withheldEmail = await encryption.encrypt(
+    "person.email",
+    withheld.email,
+  );
+  await prisma.person.create({
+    data: {
+      id: withheld.personId,
+      firstName: "Hedda",
+      lastName: "Hallen",
+      emailCipher: withheldEmail.cipher,
+      emailIndex: withheldEmail.index,
+    },
+  });
+
   boardCookie = await signIn(board.email);
   residentCookie = await signIn(resident.email);
 }, 180_000);
 
 afterAll(async () => {
   await prisma.issue.deleteMany({ where: { typeId: { in: typeIds } } });
+  await prisma.legalHold.deleteMany({ where: { personId: withheld.personId } });
   await prisma.issueType.deleteMany({ where: { id: { in: typeIds } } });
   await prisma.session.deleteMany({
     where: { user: { personId: { in: personIds } } },
@@ -460,5 +488,221 @@ describe("what the purge leaves alone", () => {
 
     const after = await read(issueId);
     expect(after.reporterPersonId).toBe(resident.personId);
+  });
+});
+
+describe("a report whose address is a withheld person's", () => {
+  /** Files a report as the withheld person, closed a year and a day ago. */
+  async function agedWithheldReport(description: string): Promise<string> {
+    const issueId = await reportPublicly(description, withheld.email);
+    await close(issueId);
+    await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+    return issueId;
+  }
+
+  async function purgeEntries(issueId: string): Promise<number> {
+    return prisma.auditLogEntry.count({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "issue",
+        targetId: issueId,
+      },
+    });
+  }
+
+  async function restrict(restricted: boolean): Promise<void> {
+    await prisma.person.update({
+      where: { id: withheld.personId },
+      data: { processingRestrictedAt: restricted ? new Date() : null },
+    });
+  }
+
+  /**
+   * How many transactions hold, or are queued behind, the legal hold registry
+   * key, in this worker's database only: the key is the same string in every
+   * worker's, and `pg_locks` shows the whole cluster. `hashtext` gives a signed
+   * int4 and the advisory lock space addresses it as two halves of a bigint,
+   * which is what the shifting reassembles.
+   */
+  async function registryLockCount(granted: boolean): Promise<bigint> {
+    const key = "legal-hold:registry";
+    const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+      SELECT count(*) AS locks
+      FROM pg_locks
+      WHERE locktype = 'advisory'
+        AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+        AND granted = ${granted}
+        AND objsubid = 1
+        AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+        AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+    return row?.locks ?? 0n;
+  }
+
+  /** Polls until the condition holds, or gives up so a failure is a failure. */
+  async function waitFor(
+    condition: () => Promise<boolean>,
+    timeoutMs = 20_000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await condition()) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("Timed out waiting for the purge to block or finish.");
+  }
+
+  it("keeps its reporter while a legal hold stands against that person", async () => {
+    const issueId = await agedWithheldReport("Vattenskada i trapphuset.");
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: withheld.personId,
+        reason: `Tvist om vattenskadan ${suffix}`,
+        placedByPersonId: board.personId,
+      },
+    });
+
+    try {
+      expect(
+        await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
+      ).not.toContain(issueId);
+      // Asked directly too, so the check inside the transaction is shown on its
+      // own and not only through the scan that skips the report.
+      await expect(purge.purgeIssue(issueId)).resolves.toBe(false);
+      await purge.run();
+
+      const after = await read(issueId);
+      expect(after.reporterNameCipher).not.toBeNull();
+      expect(after.reporterEmailCipher).not.toBeNull();
+      expect(after.reporterEmailIndex).not.toBeNull();
+      expect(await purgeEntries(issueId)).toBe(0);
+    } finally {
+      await prisma.legalHold.update({
+        where: { id: hold.id },
+        data: { releasedAt: new Date(), releaseReason: "Avgjord" },
+      });
+    }
+
+    // Released, the report is back on its window's clock.
+    await purge.run();
+    expect((await read(issueId)).reporterEmailCipher).toBeNull();
+    expect(await purgeEntries(issueId)).toBe(1);
+  });
+
+  it("keeps its reporter while a restriction of processing stands, until it is lifted", async () => {
+    /*
+     * Art. 18(2): under a restriction the association may store the data and
+     * little else, so erasing it is the one act the person asked it not to
+     * perform.
+     */
+    const issueId = await agedWithheldReport("Hissen stannar mellan vaningar.");
+    // And one from an address no hold or restriction matches, aged the same.
+    // The restriction keeps its own person's report and nobody else's: a scan
+    // or a check that dropped every address once anybody was withheld would
+    // look, from the withheld report alone, exactly like one that works.
+    const unrelatedId = await reportPublicly("Taklampa trasig i tvattstugan.");
+    await close(unrelatedId);
+    await closedDaysAgo(unrelatedId, ISSUE_RETENTION_DAYS + 1);
+    await restrict(true);
+
+    try {
+      const eligible = await purge.eligible(new Date(), ISSUE_RETENTION_DAYS);
+      expect(eligible).not.toContain(issueId);
+      expect(eligible).toContain(unrelatedId);
+      await expect(purge.purgeIssue(issueId)).resolves.toBe(false);
+      await purge.run();
+
+      const after = await read(issueId);
+      expect(after.reporterNameCipher).not.toBeNull();
+      expect(after.reporterEmailCipher).not.toBeNull();
+      expect(after.reporterEmailIndex).not.toBeNull();
+      expect(await purgeEntries(issueId)).toBe(0);
+
+      const unrelated = await read(unrelatedId);
+      expect(unrelated.reporterNameCipher).toBeNull();
+      expect(unrelated.reporterEmailCipher).toBeNull();
+      expect(unrelated.reporterEmailIndex).toBeNull();
+      expect(await purgeEntries(unrelatedId)).toBe(1);
+    } finally {
+      await restrict(false);
+    }
+
+    await purge.run();
+    expect((await read(issueId)).reporterEmailCipher).toBeNull();
+    expect(await purgeEntries(issueId)).toBe(1);
+  });
+
+  it("is kept by a restriction granted while the run is already in flight", async () => {
+    /*
+     * The purge cannot name the person a report is from, so it takes the
+     * registry key and the grant takes it as well as the person's own. A
+     * restriction that committed between the scan and the update would
+     * otherwise lose the address it was granted to keep. The wait is read out
+     * of `pg_locks` rather than inferred from a delay.
+     */
+    const issueId = await agedWithheldReport("Sopnedkastet luktar.");
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holder: Promise<void> | undefined;
+
+    try {
+      // Longer than the waits below, so the transaction held open on purpose
+      // is not aborted by the five-second default and its lock released early.
+      holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${withheld.personId}`}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"legal-hold:registry"}))`;
+          await tx.person.update({
+            where: { id: withheld.personId },
+            data: { processingRestrictedAt: new Date() },
+          });
+          await holderDone;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+
+      await waitFor(async () => (await registryLockCount(true)) > 0n);
+
+      const running = purge.purgeIssue(issueId);
+      await waitFor(async () => (await registryLockCount(false)) > 0n);
+
+      releaseHolder?.();
+      await holder;
+
+      // It detached nothing, because by the time it got the key the
+      // restriction stood.
+      await expect(running).resolves.toBe(false);
+      expect((await read(issueId)).reporterEmailCipher).not.toBeNull();
+      expect(await purgeEntries(issueId)).toBe(0);
+    } finally {
+      releaseHolder?.();
+      await holder?.catch(() => undefined);
+      await restrict(false);
+    }
+  }, 60_000);
+
+  it("does not keep a report that left no address while a restriction stands", async () => {
+    /*
+     * A name alone matches nobody, and a report without an address must not be
+     * dropped from the scan by the `NOT IN` a withheld address adds to it.
+     */
+    const issueId = await reportPublicly("Cykel lamnad i entren.", null);
+    await close(issueId);
+    await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+    await restrict(true);
+
+    try {
+      expect(await purge.eligible(new Date(), ISSUE_RETENTION_DAYS)).toContain(
+        issueId,
+      );
+      await purge.run();
+      expect((await read(issueId)).reporterNameCipher).toBeNull();
+    } finally {
+      await restrict(false);
+    }
   });
 });

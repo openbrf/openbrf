@@ -4,6 +4,7 @@ import {
   BREACH_NOTIFICATION_HOURS,
   BREACH_REMINDER_HOURS_LEFT,
   breachState,
+  type BreachClock,
   computeBreachDeadline,
   computeBreachReminderAt,
   hoursLeft,
@@ -14,12 +15,14 @@ const MILLISECONDS_PER_HOUR = 60 * 60 * 1000;
 /** A breach clock with nothing decided, so the state functions have a row. */
 function clock(
   discoveredAt: Date,
-  overrides: { decidedAt?: Date | null; closedAt?: Date | null } = {},
-): { discoveredAt: Date; decidedAt: Date | null; closedAt: Date | null } {
+  overrides: Partial<Omit<BreachClock, "discoveredAt">> = {},
+): BreachClock {
   return {
     discoveredAt,
     decidedAt: overrides.decidedAt ?? null,
     closedAt: overrides.closedAt ?? null,
+    imyNotificationRequired: overrides.imyNotificationRequired ?? null,
+    imyNotifiedAt: overrides.imyNotifiedAt ?? null,
   };
 }
 
@@ -116,7 +119,7 @@ describe("breachState", () => {
     ).toBe("overdue");
   });
 
-  it("is decided whatever the bound says, because the lateness is on the row", () => {
+  it("is decided whatever the bound says once IMY has been notified, because the lateness is on the row", () => {
     /*
      * A notification made after 72 hours carries the reasons for the delay
      * (art. 33(1)), which is where the lateness is recorded. Leaving such a
@@ -125,10 +128,47 @@ describe("breachState", () => {
      */
     const decided = clock(discoveredAt, {
       decidedAt: new Date("2026-09-11T09:00:00.000Z"),
+      imyNotificationRequired: true,
+      imyNotifiedAt: new Date("2026-09-11T10:00:00.000Z"),
     });
 
     expect(breachState(decided, new Date("2026-09-12T09:00:00.000Z"))).toBe(
       "decided",
+    );
+  });
+
+  it("is decided once the board has found no notification owed", () => {
+    const decided = clock(discoveredAt, {
+      decidedAt: new Date("2026-09-11T09:00:00.000Z"),
+      imyNotificationRequired: false,
+    });
+
+    expect(breachState(decided, new Date("2026-09-12T09:00:00.000Z"))).toBe(
+      "decided",
+    );
+  });
+
+  it("owes the notification while the board has decided to notify IMY and has not", () => {
+    /*
+     * The decision is not the act art. 33(1) asks for: deciding that IMY is to
+     * be notified leaves the notification itself owed, on the same clock.
+     */
+    const owed = clock(discoveredAt, {
+      decidedAt: new Date("2026-09-07T12:00:00.000Z"),
+      imyNotificationRequired: true,
+    });
+
+    expect(breachState(owed, now)).toBe("notificationOwed");
+  });
+
+  it("is overdue once the bound has passed with the notification still owed", () => {
+    const owed = clock(discoveredAt, {
+      decidedAt: new Date("2026-09-07T12:00:00.000Z"),
+      imyNotificationRequired: true,
+    });
+
+    expect(breachState(owed, new Date("2026-09-10T09:00:00.000Z"))).toBe(
+      "overdue",
     );
   });
 

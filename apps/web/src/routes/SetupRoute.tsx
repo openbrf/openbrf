@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next";
 
 import { fetchSetupState, fetchViewer } from "../api/instance";
 import { AdministratorStep } from "../setup/AdministratorStep";
+import { takeClaimFromAddress } from "../setup/setup-claim";
 import { SetupWizard } from "../setup/SetupWizard";
 import { PANEL, SECONDARY_BUTTON } from "../ui/controls";
 
 type Access =
   | { kind: "loading" }
-  | { kind: "first-boot" }
+  | { kind: "first-boot"; claimFromLink: string | null }
   | { kind: "authorized-admin" }
   | { kind: "closed" };
 
@@ -20,7 +21,10 @@ type Access =
  *
  *   First boot. The instance is unclaimed - no account exists and setup has
  *   never been completed - so the wizard is served to whoever reaches it,
- *   starting at the administrator step. This is the only unauthenticated path.
+ *   starting at the administrator step. This is the only unauthenticated path,
+ *   and its one write creates the administrator only for the holder of the
+ *   setup link (ADR 0023), which names this route so that no redirect stands
+ *   between the link and the wizard that reads it.
  *
  *   An authorised admin. Setup was started and left unfinished, so an admin who
  *   is signed in can resume it. The administrator step is not offered: the
@@ -38,10 +42,14 @@ export function SetupRoute(): ReactElement {
   const [access, setAccess] = useState<Access>({ kind: "loading" });
 
   useEffect(() => {
+    // Before anything is awaited: if the server cannot be reached the wizard
+    // never mounts, and the link must not stay in the address bar meanwhile.
+    const claimFromLink = takeClaimFromAddress();
+
     const decide = async (): Promise<void> => {
       const state = await fetchSetupState();
       if (state.ok && state.value.setupRequired) {
-        setAccess({ kind: "first-boot" });
+        setAccess({ kind: "first-boot", claimFromLink });
         return;
       }
 
@@ -88,6 +96,7 @@ export function SetupRoute(): ReactElement {
   return (
     <SetupWizard
       administratorNeeded={access.kind === "first-boot"}
+      claimFromLink={access.kind === "first-boot" ? access.claimFromLink : null}
       administratorStep={(props) => <AdministratorStep {...props} />}
       onFinished={() => {
         void navigate({ to: "/" });

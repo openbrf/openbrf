@@ -54,15 +54,43 @@ Then:
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-Open `APP_URL`. An unclaimed instance sends every visitor to the setup wizard,
-which creates the first administrator account, the housing cooperative, its
-addresses and its apartments, the email settings and the accent colour.
-Everything after the administrator account and the name can be skipped and
-finished later in settings.
+An unclaimed instance prints its setup link to its log once it is up:
+
+```sh
+docker compose -f docker-compose.prod.yml --env-file .env.production logs app
+```
+
+```
+This instance is unclaimed. Open https://brf.example.se/app/setup#claim=... to
+create the first administrator. The link works until the instance is claimed or
+restarted.
+```
+
+Open that link. The setup wizard creates the first administrator account, the
+housing cooperative, its addresses and its apartments, the email settings and
+the accent colour. Everything after the administrator account and the name can
+be skipped and finished later in settings.
 
 The wizard is public only while the instance is unclaimed - no account exists
 and setup has never been completed - and admin-only from its second screen
-onwards.
+onwards. Its first step creates the administrator only for whoever holds the
+setup link, so somebody who merely finds a fresh instance cannot claim it
+([ADR 0023](adr/0023-claiming-a-fresh-instance.md)). Reached without the link,
+the wizard asks for the setup code, which is the part of the link after
+`#claim=`.
+
+The link lives in the process's memory, not in the database. It stops working
+once the instance is claimed, and a restart before that prints a new link and
+ends the old one, so a link that may have been seen by somebody else is ended
+by restarting. The link is in the container's log for as long as that log is
+kept, and wherever the log is shipped; it opens nothing once the instance is
+claimed.
+
+A host that hands the link to the board instead mints the token itself and sets
+its digest as `OPENBRF_SETUP_TOKEN_DIGEST` before the first start
+(`.env.production.example` shows how). The instance then prints no link, only
+that it waits for its setup link, and the link is
+`<APP_URL>/app/setup#claim=<token>`.
 
 Once the instance is claimed, `APP_URL` serves the association's own public
 website and the application moves to `/app` under it. Finishing the wizard
@@ -223,6 +251,7 @@ answers itself. Where they go out is decided in one of two places:
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
 | `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is on loopback. See "The SMTP relay" below                |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
@@ -258,6 +287,15 @@ must upgrade through STARTTLS before the instance signs in, and a relay that doe
 not offer it is a failed send rather than a password sent in the clear. Only a
 relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
 with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+
+A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
+Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
+`OPENBRF_SMTP_REQUIRE_TLS=false`. The instance still upgrades when the relay
+offers STARTTLS, but otherwise sends the sign-in and every message in the clear,
+and so does it when something on the path removes the relay's offer. Set it only when you control every hop between the two, such as a network
+that only these containers share. The instance logs a warning at start while it
+is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
+loopback too.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that
