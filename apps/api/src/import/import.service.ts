@@ -45,9 +45,9 @@ import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
  * background job (ADR 0002) and this service only claims the session and queues
  * it. What the board previewed is recorded on the session, and the apply runs
  * that - so what is written is what was looked at. The request that starts it
- * plans the file once more when the board's decisions write something, which
- * costs what a preview costs, and otherwise neither decrypts a row nor computes
- * an index.
+ * plans the file once more when the board has made any decision, which costs
+ * what a preview costs, and otherwise neither decrypts a row nor computes an
+ * index.
  */
 
 /** The largest upload accepted, decoded. A member list is far below this. */
@@ -356,7 +356,14 @@ export class ImportService implements OnModuleInit {
 
     const claimed = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.importSession.updateMany({
-        where: { id: sessionId, status: "MAPPING" },
+        // The preview this apply was checked against. One taken meanwhile
+        // may have recorded another mapping, and its rows are not the ones
+        // these decisions answer.
+        where: {
+          id: sessionId,
+          status: "MAPPING",
+          previewedAt: session.previewedAt,
+        },
         data: {
           status: "QUEUED",
           decisions: input.decisions as Prisma.InputJsonValue,
@@ -372,6 +379,16 @@ export class ImportService implements OnModuleInit {
       return true;
     });
     if (!claimed) {
+      const current = await this.prisma.importSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true },
+      });
+      if (current?.status === "MAPPING") {
+        throw new ImportError(
+          "The import was previewed again while it was being started.",
+          "preview-outdated",
+        );
+      }
       throw new ImportError(
         "That import has already been started.",
         "session-already-applied",
@@ -476,11 +493,16 @@ export class ImportService implements OnModuleInit {
    * and the screen previews again with the decisions so the board sees why.
    *
    * The same goes for a row the preview showed as needing a decision that no
-   * longer does: its decision would be dropped without anyone seeing that.
+   * longer does, or that now matches other people: its decision would be
+   * dropped, or name somebody the row no longer offers, without anyone seeing
+   * that.
    *
-   * Skipped when no decision writes anything, which leaves the plan exactly as
-   * it was previewed. Otherwise it costs what a preview costs, and indexes an
-   * identity number only when the register holds one to match it against.
+   * The preview may itself have been planned with decisions, so even a skip
+   * can change what the rows after it match: skipping a row the preview had
+   * written to a person takes that write away again. Only an apply with no
+   * decisions at all plans exactly what was previewed, and is not planned
+   * again. Otherwise it costs what a preview costs, and indexes an identity
+   * number only when the register holds one to match it against.
    */
   private async checkDecidedPlan(
     session: {
@@ -493,9 +515,7 @@ export class ImportService implements OnModuleInit {
     },
     decisions: ImportDecisions,
   ): Promise<void> {
-    if (
-      Object.values(decisions).every((decision) => decision.action === "skip")
-    ) {
+    if (Object.keys(decisions).length === 0) {
       return;
     }
 
@@ -509,6 +529,27 @@ export class ImportService implements OnModuleInit {
       indexEveryIdentityNumber: false,
       indexes: new Map(),
     });
+
+    const previewed = readAmbiguousRows(session.ambiguousRows);
+    if (
+      plan.rows.some((row) => {
+        const candidates = previewed[String(row.rowNumber)];
+        return (
+          candidates !== undefined &&
+          (row.outcome !== "ambiguous" ||
+            !sameMembers(
+              candidates,
+              row.candidates.map((candidate) => candidate.personId),
+            ))
+        );
+      })
+    ) {
+      throw new ImportError(
+        "Given these decisions, a row the preview showed as needing a " +
+          "decision no longer does, or matches other people.",
+        "preview-outdated",
+      );
+    }
 
     const undecided = findUndecided(plan, decisions);
     if (undecided === "ambiguous-rows-undecided") {
@@ -524,21 +565,6 @@ export class ImportService implements OnModuleInit {
         undecided,
       );
     }
-
-    const previewed = readAmbiguousRows(session.ambiguousRows);
-    if (
-      plan.rows.some(
-        (row) =>
-          row.outcome !== "ambiguous" &&
-          previewed[String(row.rowNumber)] !== undefined,
-      )
-    ) {
-      throw new ImportError(
-        "Given these decisions, a row the preview showed as needing a " +
-          "decision no longer does.",
-        "preview-outdated",
-      );
-    }
   }
 
   private async loadForApply(sessionId: string): Promise<{
@@ -550,8 +576,8 @@ export class ImportService implements OnModuleInit {
     previewedAt: Date | null;
     ambiguousRows: Prisma.JsonValue;
   }> {
-    // The uploaded rows are read, but only decrypted when the decisions write
-    // something the preview did not plan with.
+    // The uploaded rows are read, but only decrypted when the board has made
+    // decisions to plan them with.
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
@@ -590,6 +616,11 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
 }
 
 /** The rows the preview could not resolve, read back from the session. */
+/** Whether two lists of person ids name the same people. */
+function sameMembers(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((personId) => b.includes(personId));
+}
+
 function readAmbiguousRows(value: unknown): Record<string, string[]> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {};

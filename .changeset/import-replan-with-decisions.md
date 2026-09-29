@@ -14,6 +14,9 @@ already in the register.
 
 Starting an import now plans the whole file again with the decisions, and
 refuses before anything is written if a further row needs a decision, or if a
-row the preview asked about no longer does. The import screen then previews
-the file again with the decisions made so far, keeps them, and shows the rows
-that now need one.
+row the preview asked about no longer does or now matches other people. That
+holds when every decision is to skip a row too, since skipping can undo what
+the preview was planned with. An import previewed again while it was being
+started is refused rather than started with the other preview's mapping. The import screen then previews
+the file again with the decisions made so far, keeps those that still apply,
+and shows the rows that now need one.

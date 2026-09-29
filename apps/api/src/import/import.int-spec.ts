@@ -1963,6 +1963,70 @@ describe("a row after one the board decided", () => {
       status: "MAPPING",
     });
   });
+
+  it("is refused when skips undo the decision the preview was taken with", async () => {
+    // Previewed with row 1 given to a Dubbel, row 2 contradicts that twin and
+    // is asked about. Skipping both leaves row 2 matching nobody, so it would
+    // be created - the row the board skipped. The skips alone must not pass
+    // for the plan that was previewed.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-skipped-${suffix}@exempel.se`;
+    const row = (apartment: string, firstName: string) => [
+      addressLabel,
+      apartment,
+      firstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      "2021-04-01",
+    ];
+    const session = await upload(
+      cookie,
+      "hoppade-rader.csv",
+      encode(
+        writeCsv([HEADERS, row("2103", twinFirstName), row("2102", "Hoppad")]),
+      ),
+    );
+    const decided = {
+      "1": { action: "use-person", personId: actors.twinB.personId },
+    };
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping, decisions: decided },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(200);
+    expect(
+      (JSON.parse(previewed.body) as ImportPreview).rows.map(
+        (planned) => planned.outcome,
+      ),
+    ).toEqual(["ambiguous", "ambiguous"]);
+
+    const response = await applyImport(cookie, session.sessionId, {
+      "1": { action: "skip" },
+      "2": { action: "skip" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: "Hoppad" },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.person.findUniqueOrThrow({
+        where: { id: actors.twinB.personId },
+        select: { emailIndex: true },
+      }),
+    ).toEqual({ emailIndex: null });
+  });
 });
 
 describe("expired uploads", () => {

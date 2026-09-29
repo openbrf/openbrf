@@ -191,7 +191,8 @@ export function ImportScreen(): ReactElement {
    *
    * A decision is kept only for a row that still needs one: a row the kept
    * decisions settle is no longer asked about, and an answer left behind for it
-   * would be sent with the apply for a question the board no longer sees.
+   * would be sent with the apply for a question the board no longer sees. A
+   * person chosen for a row is kept only while the row still offers them.
    */
   const runPreview = useCallback(
     async (kept: Record<string, ImportDecision> = {}): Promise<boolean> => {
@@ -217,7 +218,14 @@ export function ImportScreen(): ReactElement {
         Object.fromEntries(
           response.value.rows.flatMap((row) => {
             const decision = kept[String(row.rowNumber)];
-            return row.outcome === "ambiguous" && decision !== undefined
+            const stillOffered =
+              decision?.action !== "use-person" ||
+              row.candidates.some(
+                (candidate) => candidate.personId === decision.personId,
+              );
+            return row.outcome === "ambiguous" &&
+              decision !== undefined &&
+              stillOffered
               ? [[String(row.rowNumber), decision]]
               : [];
           }),
@@ -248,11 +256,12 @@ export function ImportScreen(): ReactElement {
       const reason = response.failure.reason;
       if (
         reason === "ambiguous-rows-undecided" ||
-        reason === "preview-outdated"
+        reason === "preview-outdated" ||
+        reason === "decision-not-a-candidate"
       ) {
-        // The decisions made further rows need one, or settled a row that
-        // needed one. Nothing was written; what the board needs is the preview
-        // those decisions produce.
+        // The decisions made further rows need one, settled a row that needed
+        // one, or chose somebody a row no longer matches. Nothing was written;
+        // what the board needs is the preview those decisions produce.
         setReplanned(await runPreview(decisions));
         return;
       }

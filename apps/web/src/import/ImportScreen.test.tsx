@@ -612,6 +612,67 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
   });
 
+  it("drops a chosen person the row no longer matches", async () => {
+    // The register changed after the preview, and row 2 now matches other
+    // people. Keeping Bo senior would send an answer the row no longer offers,
+    // and the apply would refuse it again with nothing for the board to change.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "decision-not-a-candidate" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        rows: [
+          created,
+          {
+            ...ambiguous,
+            candidates: [{ personId: "person-bo-other", name: "Bo Berg" }],
+          },
+          failed,
+          updated,
+        ],
+      },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("combobox", {
+          name: /Den här raden är/,
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
   it("follows the import to the end", async () => {
     await apply();
     await screen.findByText(/Importen pågår/);
