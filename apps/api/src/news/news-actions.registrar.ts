@@ -407,22 +407,21 @@ export class NewsActionsRegistrar implements OnModuleInit {
           title: titleSchema,
           blocks: blocksSchema,
           /*
-           * Required here, although the HTTP route takes it as optional, and
-           * for the reason page_update requires it: a save carries the whole
-           * body, and a caller that is a model will otherwise write a copy it
-           * composed from memory or from a read made many turns ago over what
-           * a board member saved since. Requiring the number means it has to
-           * read the item first. The HTTP route stays optional so a client
-           * written before the field existed keeps working; a caller of this
-           * action reads the published schema, and one that omits the field
-           * is answered with a 400 naming it rather than with a lost edit.
+           * Optional, as it is on the HTTP route and as the page actions have
+           * it. news_update was armed before the field existed, and a required
+           * input field on an armed action would break every connected app that
+           * has it armed (ADR-0008). A caller that sends the number they read
+           * gets the refusal when somebody has saved since; one that leaves it
+           * out writes over the current copy, as before.
            */
           expectedRevision: z
             .int()
             .nonnegative()
+            .optional()
             .describe(
-              "The item's revision as it was read. The write is refused if " +
-                "somebody else has written the item since, so read it first.",
+              "The item's revision as it was read. When given, the write is " +
+                "refused if somebody else has written the item since, so " +
+                "read the item first and send it back.",
             ),
         }),
         output: adminViewSchema,
