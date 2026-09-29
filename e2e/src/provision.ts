@@ -5,7 +5,7 @@ import {
 
 import * as api from "./api";
 import { linkFrom, waitForMessage } from "./mailpit";
-import { stack } from "./stack";
+import { claimLinkFromLog, claimTokenOf, stack } from "./stack";
 
 /**
  * The instance every spec after the first one expects to find.
@@ -90,11 +90,14 @@ export async function ensureInstance(
 ): Promise<void> {
   const state = await api.setupState(request, stack.baseUrl);
   if (state.setupRequired) {
+    // With the link the instance printed, as its operator would: the stack
+    // sets no digest of its own.
     await api.createFirstAdministrator(request, stack.baseUrl, {
       firstName: ADMINISTRATOR.firstName,
       lastName: ADMINISTRATOR.lastName,
       email: ADMINISTRATOR.email,
       password: ADMINISTRATOR.password,
+      claimToken: claimTokenOf(await claimLinkFromLog()),
     });
   }
 

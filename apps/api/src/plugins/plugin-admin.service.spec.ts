@@ -494,6 +494,134 @@ describe("what the consent step records about the recipient", () => {
     });
   });
 
+  /*
+   * A form sends an emptied field as an empty string, not as a missing key.
+   * Read as an answer, it would win over the value it was meant to leave alone.
+   */
+  it("names the recipient as the other party when the other party was left empty", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          counterparty: "  ",
+          note: "Decides its own purposes for the occupancy data.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      counterparty: "Belaggningstjansten AB",
+    });
+  });
+
+  it("gives the instance's own reason when a plugin sending nothing has an empty note", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false, note: "" },
+      },
+      null,
+      "WEB",
+    );
+
+    // The translator in `build` answers with the key it was asked for.
+    expect(classified()).toMatchObject({
+      classification: "NOT_A_PROCESSOR",
+      note: "dataProtection.processors.seed.pluginLocal",
+    });
+  });
+
+  it("reads the other party as the recipient when the recipient was left empty", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "",
+          counterparty: "Belaggningstjansten AB",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "PROCESSOR",
+      counterparty: "Belaggningstjansten AB",
+    });
+  });
+
+  it("records no agreement details for an independent controller", async () => {
+    /*
+     * The date an agreement was signed, its reference and its note on
+     * sub-processors describe an art. 28(3) contract, and an independent
+     * controller has none to describe.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          signedOn: "2026-09-01",
+          reference: "Avtal 2026/14",
+          subProcessorNote: "Hosts with Driftbolaget AB.",
+          note: "Decides its own purposes for the occupancy data.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      signedOn: null,
+      reference: null,
+      subProcessorNote: null,
+    });
+  });
+
+  it("keeps the agreement details for a processor", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+          status: "IN_PLACE",
+          termsConfirmed: true,
+          signedOn: "2026-09-01",
+          reference: "Avtal 2026/14",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "PROCESSOR",
+      signedOn: new Date("2026-09-01"),
+      reference: "Avtal 2026/14",
+    });
+  });
+
   it("keeps the classification out of the declaration a reinstall compares", async () => {
     /*
      * The consent row asserts what the board was shown and agreed to. A

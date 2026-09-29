@@ -158,6 +158,12 @@ services:
 
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in the env file}
 
+      # The digest of a setup link minted for this instance, set by a host that
+      # hands the link to the board. Left empty, an unclaimed instance prints a
+      # setup link of its own to this container's log when it starts, and only
+      # that link can create the first administrator (ADR 0023).
+      OPENBRF_SETUP_TOKEN_DIGEST: ${OPENBRF_SETUP_TOKEN_DIGEST:-}
+
       # Left unset on purpose: the migrate service generates a key into
       # /data/keys on first boot and refuses to invent one afterwards. Set it
       # only when a hosting platform injects the key instead of mounting a
@@ -184,6 +190,7 @@ services:
       OPENBRF_SMTP_HOST: ${OPENBRF_SMTP_HOST:-}
       OPENBRF_SMTP_PORT: ${OPENBRF_SMTP_PORT:-}
       OPENBRF_SMTP_SECURE: ${OPENBRF_SMTP_SECURE:-}
+      OPENBRF_SMTP_REQUIRE_TLS: ${OPENBRF_SMTP_REQUIRE_TLS:-}
       OPENBRF_SMTP_USER: ${OPENBRF_SMTP_USER:-}
       OPENBRF_SMTP_PASSWORD: ${OPENBRF_SMTP_PASSWORD:-}
       OPENBRF_MAIL_API_URL: ${OPENBRF_MAIL_API_URL:-}

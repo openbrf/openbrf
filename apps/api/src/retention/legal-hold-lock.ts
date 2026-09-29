@@ -50,12 +50,14 @@ export async function lockLegalHold(
  *
  * Every purge above this one is keyed on a person: it is erasing that person's
  * rows, so it knows the id, takes the key above and reads the hold underneath
- * it. The board mailbox is not. A thread is keyed on an address an envelope
- * asserted, and which person that address belongs to - if any - is discovered by
- * computing each held person's own index and comparing, which answers "nobody"
- * in the ordinary case. There is then no person to lock on, and a placement for
- * somebody the scan did not see can commit between the scan and the delete: the
- * board member is told the person is held, and the correspondence has gone.
+ * it. The board mailbox is not, and nor is the public-form issue purge. A board
+ * mailbox thread is keyed on an address an envelope asserted, and a public-form
+ * report on an address somebody typed into the form. Which person that address
+ * belongs to - if any - is discovered by computing each withheld person's own
+ * index and comparing, which answers "nobody" in the ordinary case. There is
+ * then no person to lock on, and a placement for somebody the scan did not see
+ * can commit between the scan and the erasure: the board member is told the
+ * person is held, and the correspondence or the report's reporter has gone.
  *
  * So the key is the registry rather than a row in it. A writer that can name its
  * person takes this as well as its own, and a reader that cannot name one takes

@@ -16,6 +16,7 @@ import {
 } from "../testing/integration-env";
 import { SubletPurgeService } from "./sublet-purge.service";
 import type { SubletIntakeView, SubletQueueView } from "./sublet.service";
+import { holdLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * Subletting applications against a real database.
@@ -217,43 +218,6 @@ async function queue(cookie: string): Promise<SubletQueueView> {
   });
   expect(response.statusCode).toBe(200);
   return response.json<SubletQueueView>();
-}
-
-/**
- * How many transactions hold, or are queued behind, this person's hold key.
- *
- * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
- * halves of a bigint, which is what the shifting reassembles.
- */
-async function holdLockCount(
-  personId: string,
-  granted: boolean,
-): Promise<bigint> {
-  const key = `legal-hold:${personId}`;
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND granted = ${granted}
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return row?.locks ?? 0n;
-}
-
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the purge to block or finish.");
 }
 
 /** Writes an application straight to the database, with dates of its own. */
@@ -1096,13 +1060,13 @@ describe("the purge", () => {
 
     try {
       await waitFor(
-        async () => (await holdLockCount(member.personId, true)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, true)) > 0n,
       );
 
       // The purge starts now and must block on the key rather than read past it.
       const running = purge.purgePerson(member.personId, NOW, RETENTION_DAYS);
       await waitFor(
-        async () => (await holdLockCount(member.personId, false)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, false)) > 0n,
       );
 
       releaseHolder?.();
@@ -1195,12 +1159,12 @@ describe("the purge", () => {
 
     try {
       await waitFor(
-        async () => (await holdLockCount(member.personId, true)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, true)) > 0n,
       );
 
       const running = purge.purgePerson(member.personId, NOW, RETENTION_DAYS);
       await waitFor(
-        async () => (await holdLockCount(member.personId, false)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, false)) > 0n,
       );
 
       releaseHolder?.();

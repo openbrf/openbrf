@@ -18,6 +18,7 @@ import {
 import { MeetingNoticeMailerService } from "./meeting-notice-mailer.service";
 import type { MeetingNoticeView } from "./meeting-notice.service";
 import type { MeetingSummaryView, MeetingView } from "./meeting.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * The notice (kallelse), and the link from a motion to the meeting it is taken
@@ -248,40 +249,14 @@ async function ownLedger(noticeId: string) {
 /**
  * How many transactions hold, or are queued behind, this meeting's agenda key.
  *
- * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
- * halves of a bigint, which is what the shifting reassembles. The key is spelled
- * out here rather than imported, so a writer that quietly changed it would fail
+ * The key is spelled out here rather than imported, so a writer that quietly changed it would fail
  * this assertion instead of passing under a new name.
  */
 async function agendaLockCount(
   meetingId: string,
   granted: boolean,
 ): Promise<bigint> {
-  const key = `meeting-agenda:${meetingId}`;
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND granted = ${granted}
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return row?.locks ?? 0n;
-}
-
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("The condition did not hold within the time allowed.");
+  return advisoryLockCount(prisma, `meeting-agenda:${meetingId}`, granted);
 }
 
 let boardCookie = "";

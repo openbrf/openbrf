@@ -7,7 +7,7 @@ import {
   ADMINISTRATOR,
   HOUSING_COOPERATIVE,
 } from "../src/provision";
-import { appPath } from "../src/stack";
+import { appPath, claimLinkFromLog } from "../src/stack";
 
 /**
  * Exit criterion 1.
@@ -20,6 +20,12 @@ import { appPath } from "../src/stack";
  * instance is unclaimed exactly once, and every later spec claims it. The
  * suite's global setup recreates the stack's volumes for that reason, and the
  * file name orders it ahead of the rest.
+ *
+ * It is also the one moment the setup link can be proven (ADR 0023). The stack
+ * sets no digest, so the production image mints the link itself and prints it
+ * to its log, and the walk claims the instance with the link read from there -
+ * the self-hosted path. The digest a host provisions is the integration
+ * suite's to prove.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -47,6 +53,36 @@ test("first boot walks the wizard and claims the instance", async ({
   await expect(
     page.getByRole("heading", { name: "Kom i gång med Open BRF" }),
   ).toBeVisible();
+
+  // --- the setup link -------------------------------------------------------
+  // Reaching the wizard is not claiming the instance. Without the link it asks
+  // for the setup code, and the one public write refuses whoever holds
+  // neither, before anything is written.
+  await expect(page.getByLabel(/^Installationskod/)).toBeVisible();
+  for (const claimToken of [undefined, "a-guess-at-the-setup-token"]) {
+    const refused = await api.attemptFirstAdministrator(
+      request,
+      stack.baseUrl,
+      { ...ADMINISTRATOR, claimToken },
+    );
+    expect(refused, `claim token ${String(claimToken)}`).toEqual({
+      status: 403,
+      reason: "claim-token-invalid",
+    });
+  }
+  expect((await api.setupState(request, stack.baseUrl)).setupRequired).toBe(
+    true,
+  );
+
+  // The link the instance printed when it started, opened in the tab that
+  // already shows the wizard, the way an operator pastes it from the log.
+  await page.goto(await claimLinkFromLog());
+  await expect(
+    page.getByText("Du använder installationslänken."),
+  ).toBeVisible();
+  await expect(page.getByLabel(/^Installationskod/)).toHaveCount(0);
+  // The token is out of the address bar: nothing left to bookmark or share.
+  await expect(page).toHaveURL(new RegExp(`${appPath("/setup")}$`));
 
   // --- the administrator account -------------------------------------------
   await page
