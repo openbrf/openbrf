@@ -36,7 +36,8 @@ export class PersonError extends Error {
       | "person-not-found"
       | "invalid-personal-identity-number"
       | "invalid-email"
-      | "field-not-masked",
+      | "field-not-masked"
+      | "personal-identity-number",
   ) {
     super(message);
     this.name = "PersonError";
