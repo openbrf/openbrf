@@ -181,6 +181,9 @@ const INVISIBLE = /[\p{C}\p{Default_Ignorable_Code_Point}]/u;
  */
 const SEPARATOR = /[\t\n\v\f\r\u0085\p{Z}]/u;
 
+/** {@link SEPARATOR} as a run, for collapsing to one space. */
+const SEPARATOR_RUN = new RegExp(`${SEPARATOR.source}+`, "gu");
+
 /**
  * Whether a character is dropped from free text before it is stored or scanned.
  *
@@ -225,7 +228,7 @@ export function normalizeFreeText(text: string): string {
  * ends are trimmed.
  */
 export function normalizeSingleLineText(text: string): string {
-  return normalizeFreeText(text).replace(/\s+/gu, " ").trim();
+  return normalizeFreeText(text).replace(SEPARATOR_RUN, " ").trim();
 }
 
 /** Text folded for scanning, with where each folded character came from. */
@@ -241,7 +244,8 @@ interface FoldedText {
  *
  * A line break stays: whitespace is a boundary in free text, and dropping it
  * would let the end of one line join the start of the next into a number.
- * What is dropped is decided by the same rule as in `normalizeFreeText`. Folded one code point at a time so every character of the result has a known
+ * What is dropped is decided by the same rule as in `normalizeFreeText`.
+ * Folded one code point at a time so every character of the result has a known
  * origin; a compatibility form that expands to several characters (a ligature,
  * a circled digit) has them share one.
  */
