@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   dateColumnOf,
   formatLocalDay,
@@ -18,6 +18,7 @@ import type {
   ApartmentDocumentFiler,
   ApartmentDocumentKind,
 } from "../generated/prisma/enums";
+import { failureName } from "../logging/failure";
 import { MediaService, mediaUrl, safeFileName } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -200,6 +201,8 @@ export interface FileEntryInput {
  */
 @Injectable()
 export class ApartmentBinderService {
+  private readonly logger = new Logger(ApartmentBinderService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
@@ -583,9 +586,13 @@ export class ApartmentBinderService {
         .remove(file.id, input.actor.personId, "WEB", {
           recordFileName: false,
         })
-        .catch(() => {
-          /* Reported by the media service; the original failure is the one to
-             raise. */
+        .catch((removal: unknown) => {
+          // The original failure is the one to raise, but a file left behind
+          // is one nothing references, so its id goes to the log. Never its
+          // name, which is the household's own words.
+          this.logger.error(
+            `Removing file ${file.id} after a failed filing failed: ${failureName(removal)}`,
+          );
         });
       throw cause;
     }
