@@ -1413,6 +1413,9 @@
       "save": "Spara",
       "withdraw": "Ta ur bokning",
       "withdrawNamed": "Ta {{resource}} ur bokning",
+      "withdrawConfirm": "Ja, ta ur bokning",
+      "withdrawCancel": "Behåll",
+      "withdrawWarning": "Inget nytt kan bokas på {{resource}} efteråt, och det går inte att ångra härifrån.",
       "withdrawnTitle": "Ur bokning",
       "withdrawnHint": "Inget tas bort, och bokningarna som gjorts på dem fortsätter att säga vad de gällde. Inget nytt kan bokas på dem, och en borttagning ur bokning ångras inte härifrån.",
       "errors": {
