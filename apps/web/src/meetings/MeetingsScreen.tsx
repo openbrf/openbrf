@@ -76,6 +76,10 @@ export interface MeetingsScreenProps {
  * below tie those drafts to the answer they were seeded from, so a save that
  * landed replaces the fields and a re-read that changed nothing leaves a
  * half-typed correction alone.
+ *
+ * That remount is also why the screen holds what was last saved. A save always
+ * changes the key, so a panel holding its own "saved" would lose it the moment
+ * the re-read landed - too soon for a screen reader to announce it.
  */
 /**
  * What ties the agenda draft to the answer it was seeded from.
@@ -142,6 +146,9 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
    * are told, and it keeps them the only things that read.
    */
   const [refreshes, setRefreshes] = useState(0);
+  /** Whether the agenda's last save landed, and whose decision's last did. */
+  const [agendaSaved, setAgendaSaved] = useState(false);
+  const [decisionSaved, setDecisionSaved] = useState<string | null>(null);
 
   /*
    * Read only for a viewer who will be shown a meeting. The route asks for a
@@ -249,6 +256,8 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   const selectMeeting = (meetingId: string): void => {
     if (meetingId !== selectedId) {
       setMeeting(null);
+      setAgendaSaved(false);
+      setDecisionSaved(null);
       // A new meeting is a new read, so whatever the last one failed at is not
       // a fact about this one.
       setMeetingFailed(false);
@@ -297,6 +306,8 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
           <MeetingAgendaPanel
             key={agendaKeyOf(meeting)}
             meeting={meeting}
+            saved={agendaSaved}
+            onSaved={setAgendaSaved}
             onChanged={reload}
           />
 
@@ -324,6 +335,12 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
             key={decisionsKeyOf(meeting)}
             meeting={meeting}
             people={people}
+            savedItemId={decisionSaved}
+            onSaved={(agendaItemId, landed) => {
+              setDecisionSaved((held) =>
+                landed ? agendaItemId : held === agendaItemId ? null : held,
+              );
+            }}
             onChanged={reload}
           />
         </>
