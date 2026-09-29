@@ -317,6 +317,30 @@ describe("recording and withdrawing", () => {
     expect(row.recordedByPersonId).toBe(board.personId);
   });
 
+  it("refuses a note sent with a withdrawal instead of dropping it", async () => {
+    const cookie = await signIn(board.email);
+    const before = await prisma.publicationConsent.findFirstOrThrow({
+      where: { personId: subject.personId, scope: "NAME_ON_SITE" },
+    });
+
+    const response = await setConsent(cookie, {
+      scope: "NAME_ON_SITE",
+      granted: false,
+      note: "Ångrade sig",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((response.json() as { reason?: string }).reason).toBe(
+      "invalid-body",
+    );
+    // Refused before anything was read, so the consent still stands.
+    const after = await prisma.publicationConsent.findFirstOrThrow({
+      where: { personId: subject.personId, scope: "NAME_ON_SITE" },
+    });
+    expect(after.withdrawnAt).toBeNull();
+    expect(after.id).toBe(before.id);
+  });
+
   it("refuses a note carrying a personal identity number", async () => {
     const cookie = await signIn(board.email);
     const response = await setConsent(cookie, {

@@ -17,7 +17,10 @@ export interface SetPublicationConsentInput {
   /** True records a consent, false withdraws the one in force. */
   granted: boolean;
   actorPersonId: string;
-  /** What the person said, kept with the grant it describes. */
+  /**
+   * What the person said, kept with the grant it describes. Only with
+   * `granted: true`: a withdrawal closes a row and writes no note.
+   */
   note?: string;
 }
 
@@ -210,8 +213,6 @@ export class ConsentService {
             // The period the consent covered, which is what a later question
             // about an already published page is asked against.
             grantedAt: standing.grantedAt.toISOString(),
-            // As on a grant: whether there was a note, never the note.
-            ...(input.note === undefined ? {} : { hasNote: true }),
           },
         },
         tx,
