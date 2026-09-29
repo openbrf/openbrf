@@ -718,24 +718,12 @@ export class BoardMailboxCollectorService implements OnModuleInit {
             id: true,
             status: true,
             takenByPersonId: true,
-            lastMessageAt: true,
           },
         });
         if (thread !== null) {
           await tx.boardMailboxThread.update({
             where: { id: thread.id },
             data: {
-              /*
-               * Only ever later. The purge's clock runs from this, so a reply
-               * dated before the thread's newest letter - one kept past the
-               * window under a hold, or one delivered out of order - would
-               * otherwise date the whole conversation back and have the
-               * recent letters on it erased early.
-               */
-              lastMessageAt:
-                input.occurredAt > thread.lastMessageAt
-                  ? input.occurredAt
-                  : undefined,
               /*
                * A conversation the board thought was over is open again.
                *
@@ -754,6 +742,23 @@ export class BoardMailboxCollectorService implements OnModuleInit {
               closedAt: null,
               closedByPersonId: null,
             },
+          });
+          /*
+           * The retention anchor moves forward only. A reply's date is the
+           * sender's Date header, and one dated long before the last thing said
+           * on the thread - a letter held up somewhere, a client with a wrong
+           * clock, a reply to an old copy - is still a message on a live
+           * conversation. Taking its date would put the whole thread back to
+           * that day and hand it to the purge while it was still running.
+           *
+           * The comparison is in the statement rather than read first and
+           * written after, so a reply collected at the same moment cannot
+           * interleave with this one and leave the older date on the row:
+           * Postgres checks the condition again against the row it locks.
+           */
+          await tx.boardMailboxThread.updateMany({
+            where: { id: thread.id, lastMessageAt: { lt: input.occurredAt } },
+            data: { lastMessageAt: input.occurredAt },
           });
           return thread.id;
         }
