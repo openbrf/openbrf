@@ -351,8 +351,14 @@ export function toResidentDirectoryRow(
     personId: record.personId,
     name: fullName(record),
     apartment: record.apartment,
-    signs: signsFor(record, options.today),
+    // A residency held today has no past move-out date, so a date here is a
+    // future one: a household that has announced it is leaving, and the day
+    // its flat will stand empty. That is the seller's side of what is kept
+    // from the other households for a buyer's move-in, so it is not sent.
+    signs: signsFor(record, options.today).filter(
+      (sign) => sign !== "MOVED_OUT",
+    ),
     movedInOn: formatDateColumn(record.movedInOn),
-    movedOutOn: formatDateColumn(record.movedOutOn),
+    movedOutOn: null,
   };
 }
