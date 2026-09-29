@@ -9,7 +9,6 @@ import {
   type MeetingSummary,
 } from "../api/meetings";
 import { LoadFailure } from "../ui/LoadFailure";
-import { Notice } from "../ui/Notice";
 import { MeetingAgendaPanel } from "./MeetingAgendaPanel";
 import { MeetingCheckInPanel } from "./MeetingCheckInPanel";
 import { MeetingDecisionsPanel } from "./MeetingDecisionsPanel";
@@ -272,9 +271,10 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
           without them: every identifier renders as itself. Said once here rather
           than repeated on the six panels that would each have to say it. */}
       {people.failed ? (
-        <Notice tone="warn" live>
-          {t("meetings.peopleLoadFailed")}
-        </Notice>
+        <LoadFailure
+          messageKey="meetings.peopleLoadFailed"
+          onRetry={people.retry}
+        />
       ) : null}
 
       {!canManage ? null : meetings === null ? (
