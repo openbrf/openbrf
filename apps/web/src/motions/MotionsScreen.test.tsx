@@ -952,4 +952,66 @@ describe("a queue longer than one page", () => {
     expect(await screen.findByText("Cykelrum i källaren")).not.toBeNull();
     expect(screen.queryByText("Visa fler motioner")).toBeNull();
   });
+
+  it("keeps the pages it has read when a later page fails during the re-read after an act", async () => {
+    const submitter = {
+      kind: "member",
+      personId: "person-maja",
+      name: "Maja Medlem",
+    };
+    const first = { ...OWN_MOTION, submitter, closedByPersonId: null };
+    const second = { ...first, id: "motion-2", title: "Cykelrum i källaren" };
+    const third = { ...first, id: "motion-3", title: "Ny grind" };
+    const cursorOne = "SUBMITTED|2027-01-20T09:00:00.000Z|motion-1";
+    const cursorTwo = "SUBMITTED|2027-01-21T09:00:00.000Z|motion-2";
+    const page = (motions: readonly unknown[], nextCursor: string | null) => ({
+      ok: true,
+      value: { deadline: DEADLINE, motions, nextCursor },
+    });
+    let secondPageFails = false;
+    fetchMotionQueue.mockImplementation((input?: { after?: string }) => {
+      if (input?.after === cursorOne) {
+        return Promise.resolve(
+          secondPageFails
+            ? { ok: false, failure: { status: 503, reason: "unexpected" } }
+            : page([second], cursorTwo),
+        );
+      }
+      if (input?.after === cursorTwo) {
+        return Promise.resolve(page([third], null));
+      }
+      return Promise.resolve(page([first], cursorOne));
+    });
+
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await userEvent.click(await screen.findByText("Visa fler motioner"));
+    await userEvent.click(await screen.findByText("Visa fler motioner"));
+    await screen.findByText("Ny grind");
+
+    // The next read of page two fails, as the re-read after the act reaches it.
+    secondPageFails = true;
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Anteckna motionen Ny grind som mottagen",
+      }),
+    );
+
+    // What was read before the failure stays, the failure is said beside the
+    // control, and the screen-wide failure is not raised.
+    expect(
+      await screen.findByText(/Fler motioner kunde inte läsas just nu/u),
+    ).not.toBeNull();
+    expect(screen.getByText(OWN_MOTION.title)).not.toBeNull();
+    expect(
+      screen.queryByText("Motionerna kunde inte läsas just nu."),
+    ).toBeNull();
+
+    // The control offers the page that failed, and gets it.
+    secondPageFails = false;
+    await userEvent.click(screen.getByText("Visa fler motioner"));
+    expect(await screen.findByText("Cykelrum i källaren")).not.toBeNull();
+    expect(
+      screen.queryByText(/Fler motioner kunde inte läsas just nu/u),
+    ).toBeNull();
+  });
 });
