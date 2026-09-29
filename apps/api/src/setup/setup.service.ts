@@ -20,6 +20,7 @@ import {
 } from "../i18n/i18n.service";
 import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
 import { PagesService } from "../site/pages.service";
+import { SetupClaimService } from "./setup-claim.service";
 
 export class SetupError extends DomainError {
   readonly status: number;
@@ -27,11 +28,18 @@ export class SetupError extends DomainError {
   constructor(
     message: string,
     readonly reason:
-      "already-claimed" | "invalid-email" | "housing-cooperative-missing",
+      | "already-claimed"
+      | "claim-token-invalid"
+      | "invalid-email"
+      | "housing-cooperative-missing",
   ) {
     super(message);
     this.status =
-      reason === "invalid-email" ? HttpStatus.BAD_REQUEST : HttpStatus.CONFLICT;
+      reason === "invalid-email"
+        ? HttpStatus.BAD_REQUEST
+        : reason === "claim-token-invalid"
+          ? HttpStatus.FORBIDDEN
+          : HttpStatus.CONFLICT;
   }
 }
 
@@ -52,6 +60,8 @@ export interface CreateFirstAdministratorInput {
   email: string;
   password: string;
   preferredLocale?: string;
+  /** The token from the setup link (ADR 0023). */
+  claimToken?: string;
 }
 
 /**
@@ -79,6 +89,11 @@ export interface CreateFirstAdministratorInput {
  * the wizard is admin-only from its second screen onwards. That is the other
  * half of the guard: the flow is not "public until finished", it is "public for
  * exactly one call on an unclaimed instance".
+ *
+ * And that one call needs the setup link. Whether the instance is unclaimed is
+ * checked first, because the public state endpoint already says so and a
+ * claimed instance has nothing left to guard with a token; then the token,
+ * before anything is encrypted or written (SetupClaimService, ADR 0023).
  */
 @Injectable()
 export class SetupService implements OnModuleInit {
@@ -94,6 +109,7 @@ export class SetupService implements OnModuleInit {
     // The record of processing activities, written when the wizard finishes:
     // the instance only knows what it processes once it knows who it is.
     private readonly dataProtection: DataProtectionSeedService,
+    private readonly claims: SetupClaimService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -146,7 +162,7 @@ export class SetupService implements OnModuleInit {
   }
 
   async state(): Promise<SetupState> {
-    return { setupRequired: await this.isUnclaimed() };
+    return { setupRequired: await this.claims.isUnclaimed() };
   }
 
   /**
@@ -161,12 +177,22 @@ export class SetupService implements OnModuleInit {
   async createFirstAdministrator(
     input: CreateFirstAdministratorInput,
   ): Promise<{ personId: string }> {
-    if (!(await this.isUnclaimed())) {
+    if (!(await this.claims.isUnclaimed())) {
       throw new SetupError(
         "This instance already has an account. Setup is closed.",
         "already-claimed",
       );
     }
+
+    // A refusal writes no audit entry: there is no association yet and nobody
+    // to write it against. The rate limit on the route bounds the attempts.
+    if (!this.claims.matches(input.claimToken ?? "")) {
+      throw new SetupError(
+        "That setup link does not claim this instance.",
+        "claim-token-invalid",
+      );
+    }
+    const claimedWith = this.claims.source();
 
     const email = await this.encryption.encrypt("person.email", input.email);
     if (email.index === null) {
@@ -182,8 +208,10 @@ export class SetupService implements OnModuleInit {
       // window to the account creation that follows. It does not close it: the
       // account goes through Better Auth's adapter, which takes no transaction.
       // The window is one request wide on an instance nobody has signed in to
-      // yet, and the second administrator would be visible in the register, so
-      // it is documented rather than defended with an advisory lock.
+      // yet, and only a holder of the setup link reaches it (ADR 0023), so the
+      // two requests that could race both come from the claimant. The second
+      // administrator would be visible in the register, so it is documented
+      // rather than defended with a reservation held across the account write.
       const accounts = await tx.user.count();
       if (accounts > 0) {
         throw new SetupError(
@@ -216,7 +244,7 @@ export class SetupService implements OnModuleInit {
           channel: "WEB",
           actorPersonId: person.id,
           targetPersonId: person.id,
-          context: { role: "ADMIN", grantedBy: "setup-wizard" },
+          context: { role: "ADMIN", grantedBy: "setup-wizard", claimedWith },
         },
         tx,
       );
@@ -239,6 +267,7 @@ export class SetupService implements OnModuleInit {
       throw cause;
     }
 
+    this.claims.spend();
     this.logger.log(`Created the first administrator, person ${personId}`);
     return { personId };
   }
@@ -337,19 +366,6 @@ export class SetupService implements OnModuleInit {
 
     this.logger.log(`Setup completed by person ${actorPersonId}`);
     return { completedAt };
-  }
-
-  /** True while no account exists and setup has never been completed. */
-  private async isUnclaimed(): Promise<boolean> {
-    const [accounts, association] = await Promise.all([
-      this.prisma.user.count(),
-      this.prisma.association.findUnique({
-        where: { id: 1 },
-        select: { setupCompletedAt: true },
-      }),
-    ]);
-
-    return accounts === 0 && association?.setupCompletedAt == null;
   }
 
   /**

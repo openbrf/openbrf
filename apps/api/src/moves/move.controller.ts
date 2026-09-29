@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -10,11 +11,8 @@ import {
   MoveService,
 } from "./move.service";
 
-/** ISO calendar date. A register date is never guessed from free text. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
-
 const transferSchema = z.object({
-  transferredOn: isoDate,
+  transferredOn: calendarDateSchema,
   price: z
     .string()
     .regex(/^\d{1,12}(\.\d{1,2})?$/, "must be a decimal amount")
@@ -26,7 +24,7 @@ const moveInSchema = z.object({
   personId: z.string().min(1),
   apartmentId: z.string().min(1),
   role: z.enum(["MEMBER", "RESIDENT"]),
-  movedInOn: isoDate,
+  movedInOn: calendarDateSchema,
   transfer: transferSchema
     .extend({
       /*
@@ -42,7 +40,7 @@ const moveInSchema = z.object({
 
 const moveOutSchema = z.object({
   residencyId: z.string().min(1),
-  movedOutOn: isoDate,
+  movedOutOn: calendarDateSchema,
   transfer: transferSchema.extend({ toPersonId: z.string().min(1) }).optional(),
 });
 

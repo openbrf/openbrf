@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../config/env";
@@ -155,6 +156,68 @@ describe("the environment", () => {
         false,
       );
     }
+  });
+
+  it("lets the host vouch for the network to a relay elsewhere", async () => {
+    const mail = await resolver({
+      ...SMTP_ENV,
+      OPENBRF_SMTP_HOST: "postfix",
+      OPENBRF_SMTP_REQUIRE_TLS: false,
+    }).resolver.current();
+
+    expect(mail?.driver === "smtp" ? mail.server.requireTls : null).toBe(false);
+  });
+
+  it("requires STARTTLS on loopback too when the host says so", async () => {
+    const mail = await resolver({
+      ...SMTP_ENV,
+      OPENBRF_SMTP_HOST: "127.0.0.1",
+      OPENBRF_SMTP_REQUIRE_TLS: true,
+    }).resolver.current();
+
+    expect(mail?.driver === "smtp" ? mail.server.requireTls : null).toBe(true);
+  });
+});
+
+describe("the warning at start", () => {
+  function warnings(env: Env): unknown[][] {
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      resolver(env).resolver.onModuleInit();
+      return warn.mock.calls;
+    } finally {
+      warn.mockRestore();
+    }
+  }
+
+  it("names the relay the host lets go without STARTTLS", () => {
+    const logged = warnings({
+      ...SMTP_ENV,
+      OPENBRF_SMTP_HOST: "postfix",
+      OPENBRF_SMTP_PORT: 25,
+      OPENBRF_SMTP_REQUIRE_TLS: false,
+    });
+
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0]?.[0])).toContain("OPENBRF_SMTP_REQUIRE_TLS");
+    expect(String(logged[0]?.[0])).toContain("postfix:25");
+  });
+
+  it("says nothing when STARTTLS is required or the connection is TLS from the start", () => {
+    expect(warnings(SMTP_ENV)).toEqual([]);
+    expect(warnings({ ...SMTP_ENV, OPENBRF_SMTP_HOST: "localhost" })).toEqual(
+      [],
+    );
+    expect(
+      warnings({
+        ...SMTP_ENV,
+        OPENBRF_SMTP_SECURE: true,
+        OPENBRF_SMTP_REQUIRE_TLS: false,
+      }),
+    ).toEqual([]);
+    expect(warnings(BASE_ENV)).toEqual([]);
   });
 });
 

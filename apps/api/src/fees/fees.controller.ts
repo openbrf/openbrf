@@ -9,6 +9,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -25,9 +26,6 @@ import {
   type FeeRow,
   FeeService,
 } from "./fee.service";
-
-/** ISO calendar date. A fee is dated by the board, never guessed from prose. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
 
 /**
  * Kronor and ore.
@@ -59,7 +57,7 @@ const vatRatePercent = z.coerce.number().int().min(1).max(100);
 const feeSchema = z.object({
   apartmentId: z.string().min(1),
   kind: z.enum(FEE_KINDS),
-  appliesFrom: isoDate,
+  appliesFrom: calendarDateSchema,
   monthlyAmount: amount,
   vatTreatment: z.enum(VAT_TREATMENTS),
   vatRatePercent: vatRatePercent.nullish(),
@@ -67,13 +65,13 @@ const feeSchema = z.object({
 
 const registerQuerySchema = z.object({
   /** The day the rates are read as in force on. */
-  on: isoDate,
+  on: calendarDateSchema,
 });
 
 const notificationSchema = z.object({
-  from: isoDate,
-  to: isoDate,
-  dueOn: isoDate,
+  from: calendarDateSchema,
+  to: calendarDateSchema,
+  dueOn: calendarDateSchema,
 });
 
 /**

@@ -69,6 +69,7 @@ const ENTRY: CatalogPlugin = {
   oauthProtectedResource: null,
   supported: true,
   installedVersion: null,
+  recipientState: "notRecorded",
 };
 
 const OVERVIEW: PluginsOverview = {
@@ -136,10 +137,22 @@ const catalogHeading = () => screen.queryByRole("heading", { name: "Katalog" });
 const consentHeading = () =>
   screen.queryByRole("heading", { name: "Granska innan installation" });
 
-/** Opens the consent screen for the one catalog entry. */
+/**
+ * Opens the consent screen for the one catalog entry, and answers that the
+ * plugin sends no personal data outside the instance.
+ *
+ * The answer is what every install below gives unless it says otherwise, so a
+ * case about the restart or a refusal reads as ticking the acknowledgement and
+ * pressing the button. A case about the answer changes it after this.
+ */
 async function choose(session: ReturnType<typeof userEvent.setup>) {
   await session.click(
     await screen.findByRole("button", { name: /^installera$/i }),
+  );
+  await session.click(
+    screen.getByRole("radio", {
+      name: "Nej, det skickar inga personuppgifter utanför instansen",
+    }),
   );
 }
 
@@ -251,8 +264,82 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // The board's answer, which `choose` gave. Without it the recipient
+        // reads as not classified until somebody opens the data protection
+        // screen, although the board answered here.
+        processorAgreement: { sendsPersonalDataOutside: false },
       });
     });
+  });
+
+  it("sends the recipient the board named and what it is", async () => {
+    /*
+     * The API records the answer as the plugin's recipient in the art. 28
+     * record, keyed on the plugin id. What reaches it has to be what the board
+     * chose on screen, not the answer `choose` gave before it changed.
+     */
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(
+      screen.getByRole("radio", {
+        name: "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+      }),
+    );
+    await session.type(
+      screen.getByRole("textbox", { name: "Mottagare" }),
+      "Grannbrev AB",
+    );
+    await session.click(
+      screen.getByRole("radio", { name: "Personuppgiftsbiträde" }),
+    );
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          processorAgreement: {
+            sendsPersonalDataOutside: true,
+            recipient: "Grannbrev AB",
+            classification: "PROCESSOR",
+          },
+        }),
+      );
+    });
+  });
+
+  it("leaves the record alone on an update over a recorded classification", async () => {
+    /*
+     * The API keeps the recipient's classification when an install carries no
+     * answer. An update that sent one would turn a signed agreement back into
+     * one being made.
+     */
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [
+          { ...ENTRY, installedVersion: "1.1.0", recipientState: "inPlace" },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await session.click(
+      await screen.findByRole("button", { name: /^uppdatera till/i }),
+    );
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalled();
+    });
+    expect(installPlugin.mock.calls[0]?.[0]).not.toHaveProperty(
+      "processorAgreement",
+    );
   });
 
   it("sends back the sign-in address the screen disclosed", async () => {
@@ -368,6 +455,16 @@ describe("an install the API refuses", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/mcp-connector är reserverat/)).toBeTruthy();
+    });
+  });
+
+  it("names the part of the answer the record refused", async () => {
+    await refuse("note-required");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Skriv varför mottagaren inte behöver något avtal."),
+      ).toBeTruthy();
     });
   });
 

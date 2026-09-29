@@ -23,6 +23,7 @@ import {
   startPop3TestServer,
   type Pop3TestServer,
 } from "./testing/pop3-test-server";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * The shared board mailbox, over HTTP and against a real database.
@@ -81,6 +82,7 @@ let mail: MailService;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const administrator = {
   personId: `mailbox-admin-${suffix}`,
@@ -231,13 +233,15 @@ function letter(options: {
   messageId: string;
   inReplyTo?: string;
   attachment?: boolean;
+  /** The Date header, where a test needs a particular one. */
+  date?: string;
 }): string {
   const headers = [
     `From: Granne <${options.from}>`,
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
     `Message-ID: <${options.messageId}>`,
-    "Date: Tue, 01 Sep 2026 09:15:00 +0200",
+    `Date: ${options.date ?? "Tue, 01 Sep 2026 09:15:00 +0200"}`,
     ...(options.inReplyTo === undefined
       ? []
       : [`In-Reply-To: <${options.inReplyTo}>`]),
@@ -1126,6 +1130,73 @@ describe("threading a follow-up", () => {
     }
   });
 
+  it("keeps the thread's clock at its newest message when a reply is dated earlier", async () => {
+    const subject = `Sent svar ${suffix}`;
+    const opening = `late-open-${suffix}@utanfor.example`;
+    // Relative to the clock the collector reads, so the letters stay inside
+    // the retention window whatever day the suite runs on.
+    const now = Date.now();
+    const recent = new Date(now - DAY_MS);
+    const longAgo = new Date(now - 700 * DAY_MS);
+
+    const first = await serveMailbox([
+      {
+        uid: `uid-late-open-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Forsta brevet.",
+          messageId: opening,
+          date: recent.toUTCString(),
+        }),
+      },
+    ]);
+    await collector.collect();
+    await first.close();
+
+    const second = await serveMailbox([
+      {
+        uid: `uid-late-reply-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: `Re: ${subject}`,
+          body: "Ett svar som blev liggande.",
+          messageId: `late-reply-${suffix}@utanfor.example`,
+          inReplyTo: opening,
+          // A reply whose Date header says it was written almost two years ago:
+          // a client with a wrong clock, or a letter held up somewhere.
+          date: longAgo.toUTCString(),
+        }),
+      },
+    ]);
+
+    try {
+      await collector.collect();
+
+      const thread = await threadBySubject(subject);
+      expect(thread.messageCount).toBe(2);
+      const stored = await prisma.boardMailboxThread.findUniqueOrThrow({
+        where: { id: thread.id },
+        select: { lastMessageAt: true },
+      });
+      // Header dates carry whole seconds.
+      expect(stored.lastMessageAt.getTime()).toBe(
+        Math.floor(recent.getTime() / 1000) * 1000,
+      );
+
+      // The first run after the older reply's own window has closed. Had its
+      // date become the thread's, this run would erase the conversation.
+      await purge.run(new Date(now + 31 * DAY_MS));
+      expect(
+        await prisma.boardMailboxThread.findUnique({
+          where: { id: thread.id },
+        }),
+      ).not.toBeNull();
+    } finally {
+      await second.close();
+    }
+  });
+
   it("refuses to let a stranger post into somebody else's thread", async () => {
     const subject = `Insprutning ${suffix}`;
     const opening = `injected-open-${suffix}@utanfor.example`;
@@ -1609,37 +1680,10 @@ describe("the purge", () => {
   /**
    * How many transactions hold, or are queued behind, the legal hold registry
    * key, in this worker's database only: the key is the same string in every
-   * worker's, and `pg_locks` shows the whole cluster. `hashtext` gives a signed
-   * int4 and the advisory lock space addresses it as two halves of a bigint,
-   * which is what the shifting reassembles.
+   * worker's, and `pg_locks` shows the whole cluster.
    */
   async function registryLockCount(granted: boolean): Promise<bigint> {
-    const key = "legal-hold:registry";
-    const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-      SELECT count(*) AS locks
-      FROM pg_locks
-      WHERE locktype = 'advisory'
-        AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-        AND granted = ${granted}
-        AND objsubid = 1
-        AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-        AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-    return row?.locks ?? 0n;
-  }
-
-  /** Polls until the condition holds, or gives up so a failure is a failure. */
-  async function waitFor(
-    condition: () => Promise<boolean>,
-    timeoutMs = 20_000,
-  ): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (await condition()) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    throw new Error("Timed out waiting for the purge to block or finish.");
+    return advisoryLockCount(prisma, "legal-hold:registry", granted);
   }
 
   /** A thread written directly, so its clock can be put where a test needs it. */

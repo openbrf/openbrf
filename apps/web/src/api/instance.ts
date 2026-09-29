@@ -241,6 +241,8 @@ export function createFirstAdministrator(input: {
   email: string;
   password: string;
   preferredLocale?: string;
+  /** The setup link's token, or the code typed in its place (ADR 0023). */
+  claimToken: string;
 }): Promise<ApiResult<{ personId: string }>> {
   return apiRequest("POST", "/api/setup/administrator", input);
 }

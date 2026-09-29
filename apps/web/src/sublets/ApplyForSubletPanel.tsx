@@ -2,7 +2,13 @@ import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { applyForSublet, type SubletApartment } from "../api/sublets";
-import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import {
+  FIELD_DATA,
+  FIELD_MULTILINE,
+  HINT,
+  LABEL,
+  PRIMARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -194,7 +200,7 @@ export function ApplyForSubletPanel({
         <label className={LABEL}>
           {t("sublets.apply.reasonField")}
           <textarea
-            className={`${FIELD} min-h-32 py-2`}
+            className={`${FIELD_MULTILINE} min-h-32`}
             value={draft.reason}
             maxLength={4000}
             required

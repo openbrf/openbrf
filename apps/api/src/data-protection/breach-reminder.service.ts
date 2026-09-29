@@ -9,7 +9,7 @@ import { failureName } from "../logging/failure";
 import { activeBoardRecipientsWhere } from "../mail/board-recipients";
 import { MailService } from "../mail/mail.service";
 import { breachReminderMail } from "../mail/templates";
-import { computeBreachDeadline } from "./breach-deadline";
+import { computeBreachDeadline, imyNotificationOwed } from "./breach-deadline";
 import {
   BREACH_REMINDER_QUEUE,
   type BreachReminderJob,
@@ -23,10 +23,13 @@ import {
  * established, and the clock is already running. This is what stops that
  * becoming a missed deadline nobody meant to miss.
  *
- * One reminder, and only while the breach has no decision. A board that has
- * decided has done what the article asks; a board that closed the breach has
- * finished with it. Anything more would be a product nagging about a record
- * that is already complete.
+ * One reminder, and only while the art. 33(1) act is still owed: the breach
+ * has no decision, or the board decided IMY is to be notified and no
+ * notification is recorded. Deciding to notify is not notifying, and the
+ * reminder exists for exactly the board that meant to and has not yet. A board
+ * that has notified, or found no notification owed, has done what the article
+ * asks; a board that closed the breach has finished with it. Anything more
+ * would be a product nagging about a record that is already complete.
  *
  * ## Why it no-ops rather than cancels
  *
@@ -70,8 +73,8 @@ export class BreachReminderService implements OnModuleInit {
   /**
    * Sends one reminder, and answers how many board members it reached.
    *
-   * Zero is an ordinary answer and not a failure: the breach was decided, or
-   * closed, or the reminder is a stale one from a corrected discovery date.
+   * Zero is an ordinary answer and not a failure: the breach was decided with
+   * nothing owed to IMY, or closed, or the reminder is a stale one from a corrected discovery date.
    */
   async sendBreachReminder(job: BreachReminderJob): Promise<number> {
     const breach = await this.prisma.personalDataBreach.findUnique({
@@ -82,15 +85,22 @@ export class BreachReminderService implements OnModuleInit {
         discoveredAt: true,
         decidedAt: true,
         closedAt: true,
+        imyNotificationRequired: true,
+        imyNotifiedAt: true,
       },
     });
 
     if (breach === null) {
       return 0;
     }
-    if (breach.decidedAt !== null || breach.closedAt !== null) {
-      // The board has answered art. 33 and art. 34, or finished with the
-      // breach entirely. Nothing left to remind anybody about.
+    const notificationOwed = imyNotificationOwed(breach);
+    if (
+      breach.closedAt !== null ||
+      (breach.decidedAt !== null && !notificationOwed)
+    ) {
+      // The board has answered art. 33 and art. 34 with nothing left owed to
+      // IMY, or finished with the breach entirely. Nothing left to remind
+      // anybody about.
       return 0;
     }
     if (breach.discoveredAt.toISOString() !== job.discoveredAt) {
@@ -129,6 +139,7 @@ export class BreachReminderService implements OnModuleInit {
             breachTitle: breach.title,
             discoveredAt: breach.discoveredAt,
             notifyBy: computeBreachDeadline(breach.discoveredAt),
+            decided: breach.decidedAt !== null,
           },
         });
         sent += 1;

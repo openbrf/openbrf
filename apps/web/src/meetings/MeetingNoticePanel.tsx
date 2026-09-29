@@ -9,7 +9,14 @@ import {
 } from "../api/meetings";
 import { formatTimeOfDay } from "../bookings/booking-calendar";
 import { formatEventDay } from "../events/event-calendar";
-import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import {
+  FIELD,
+  FIELD_DATA,
+  FIELD_MULTILINE,
+  HINT,
+  LABEL,
+  PRIMARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -231,7 +238,7 @@ export function MeetingNoticePanel({
               <label className={LABEL}>
                 {t("meetings.notice.participation")}
                 <textarea
-                  className={`${FIELD} min-h-24 py-2`}
+                  className={`${FIELD_MULTILINE} min-h-24`}
                   maxLength={MEETING_DIGITAL_PARTICIPATION_MAX}
                   value={participation}
                   onChange={(event) => {

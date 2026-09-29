@@ -106,12 +106,27 @@ A person may be moved back into an apartment on the day an earlier residency of
 theirs on it ended, which is how a resident becomes a joint holder without a day
 held twice.
 
-Two write-time decisions keep reading the end alone: whether a move-in begins a
-membership and whether a move-out ends one. Each counts the person's other
-tenant-ownerships that have not ended, including one recorded ahead of time,
-because it decides what an append-only archive records at the moment of
-writing; a gap between two recorded holdings is written as one continuous
-membership.
+Whether a move begins or ends a membership is decided by the same "held on the
+day". The move flows and the import share one helper,
+`registers/membership-transitions.ts`, which reads the person's `MEMBER`
+residencies before and after the change and asks `isResidencyHeldOn` of every
+day either set begins or ends one. It appends the ENTRY and EXIT rows that make
+the member register read as the residencies do. A move-out writes the EXIT when
+no tenant-ownership is held on its date, even if one bought for later exists,
+and then the ENTRY for that later one; a back-dated move-in writes its ENTRY on
+its own date.
+
+_Amended 2026-09-28._ These two decisions first kept reading the end alone:
+each counted the person's other tenant-ownerships that had not ended, including
+one recorded ahead of time, and wrote a gap between two recorded holdings as one
+continuous membership. That made an append-only register depend on the order
+moves were typed in. A move-in back-dated before a purchase already entered
+wrote no ENTRY, so the membership was dated from the later purchase. Two
+move-outs entered against their date order each saw the other apartment as
+still held, so the EXIT was never written at all. A member who left one
+apartment before taking over one bought for later was recorded as a member for
+the days in between. The import copied the same count, so its register depended
+on the order of the rows in the file.
 
 The purge and the erasure refusal that mirrors it compare the end date against
 an instant. The difference is a delay of up to two hours after midnight before a

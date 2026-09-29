@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
+import { forgetClaim, readHeldClaim } from "../setup/setup-claim";
 import { SetupRoute } from "./SetupRoute";
 
 /**
@@ -71,6 +72,8 @@ const administratorHeading = () =>
 beforeEach(() => {
   fetchSetupState.mockReset();
   fetchViewer.mockReset();
+  window.history.replaceState(null, "", "/app/setup");
+  forgetClaim();
 });
 
 describe("on an unclaimed instance", () => {
@@ -176,5 +179,61 @@ describe("when the state cannot be read", () => {
       expect(screen.getByRole("heading", { name: /redan klar/i })).toBeTruthy();
     });
     expect(administratorHeading()).toBeNull();
+  });
+});
+
+/**
+ * The setup link's token must leave the address bar whether or not the wizard
+ * mounts (ADR 0023): a failed request shows "closed", and a live link left
+ * behind it could be bookmarked or copied while the instance is still open.
+ */
+describe("the setup link", () => {
+  const TOKEN = "Zm9vYmFyLXRoZS10b2tlbi1vbi10aGUtbGluay0wMDM";
+
+  it("is taken out of the address even when the state cannot be read", async () => {
+    fetchSetupState.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    fetchViewer.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    window.history.replaceState(null, "", `/app/setup#claim=${TOKEN}`);
+
+    render(<SetupRoute />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /redan klar/i })).toBeTruthy();
+    });
+    expect(window.location.hash).toBe("");
+    // Held for this tab, so a reload once the server answers still has it.
+    expect(readHeldClaim()).toBe(TOKEN);
+  });
+
+  it("reaches the wizard without session storage", async () => {
+    fetchSetupState.mockResolvedValue({
+      ok: true,
+      value: { setupRequired: true },
+    });
+    const unusable = vi
+      .spyOn(globalThis, "sessionStorage", "get")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    window.history.replaceState(null, "", `/app/setup#claim=${TOKEN}`);
+
+    try {
+      render(<SetupRoute />);
+
+      await waitFor(() => {
+        expect(administratorHeading()).toBeTruthy();
+      });
+      expect(window.location.hash).toBe("");
+      // The route handed the token down, so no code is asked for.
+      expect(screen.queryByLabelText(/^Installationskod/)).toBeNull();
+    } finally {
+      unusable.mockRestore();
+    }
   });
 });
