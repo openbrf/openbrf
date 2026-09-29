@@ -30,6 +30,7 @@ export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
   isValidPersonalIdentityNumber,
   normalizeFreeText,
+  normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
   scanForPersonalIdentityNumbers,

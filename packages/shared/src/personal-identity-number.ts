@@ -168,20 +168,64 @@ export interface PersonalIdentityNumberMatch {
 }
 
 /**
- * Free text as it is stored and scanned: compatibility forms folded, and the
- * Unicode "other" category removed.
+ * A character that is not on screen: the Unicode "other" category (control,
+ * format, surrogate, private-use, unassigned) and the default-ignorable code
+ * points, which include marks a renderer draws as nothing - the combining
+ * grapheme joiner, the variation selectors - and the byte order mark.
+ */
+const INVISIBLE = /[\p{C}\p{Default_Ignorable_Code_Point}]/u;
+
+/**
+ * What separates one thing from the next: spaces, tabs, line breaks. The byte
+ * order mark is not one, although a JavaScript `\s` says it is.
+ */
+const SEPARATOR = /[\t\n\v\f\r\u0085\p{Z}]/u;
+
+/**
+ * Whether a character is dropped from free text before it is stored or scanned.
  *
- * A soft hyphen or a zero-width space is invisible on screen and splits a
- * number the scanner would otherwise see; a fullwidth digit reads as a digit
- * and is not one to a pattern written for ASCII. NFKC turns the second into
- * the first's ASCII form, and the strip drops the first: control, format,
- * surrogate, private-use and unassigned characters, line breaks included. Use
- * it for a value that is written to the database, so that what is stored is
- * what was checked. The scanner applies the same rule to what it is given,
- * without the line breaks, and reports where the number sits in the original.
+ * Invisible, and not a separator: dropping a separator would join the two
+ * halves either side of it into one run, which is how a number written across
+ * a line break would become a number. One rule for the stored form and the
+ * scanned form, so the scanner cannot be blind to what the store would join.
+ */
+function isDropped(character: string): boolean {
+  return INVISIBLE.test(character) && !SEPARATOR.test(character);
+}
+
+/**
+ * Free text as it is stored and scanned: the invisible removed, compatibility
+ * forms folded.
+ *
+ * A soft hyphen, a zero-width space or a byte order mark is invisible on
+ * screen and splits a number the scanner would otherwise see; a fullwidth
+ * digit reads as a digit and is not one to a pattern written for ASCII. The
+ * strip drops the first kind and NFKC turns the second into ASCII. The strip
+ * runs first, so that a character removed from between a letter and a
+ * combining mark lets the two compose in this call and not in the next: the
+ * result is its own normal form. Line breaks and other separators stay, so two
+ * lines do not join into one run of digits. Use it for a value that is written
+ * to the database, so that what is stored is what was checked. The scanner
+ * applies the same rule to what it is given and reports where the number sits
+ * in the original.
  */
 export function normalizeFreeText(text: string): string {
-  return text.normalize("NFKC").replace(/\p{C}/gu, "");
+  let kept = "";
+  for (const character of text) {
+    if (!isDropped(character)) {
+      kept += character;
+    }
+  }
+  return kept.normalize("NFKC");
+}
+
+/**
+ * {@link normalizeFreeText} for a value that is one line, a title or a name:
+ * every run of separators, line breaks included, becomes one space, and the
+ * ends are trimmed.
+ */
+export function normalizeSingleLineText(text: string): string {
+  return normalizeFreeText(text).replace(/\s+/gu, " ").trim();
 }
 
 /** Text folded for scanning, with where each folded character came from. */
@@ -197,7 +241,7 @@ interface FoldedText {
  *
  * A line break stays: whitespace is a boundary in free text, and dropping it
  * would let the end of one line join the start of the next into a number.
- * Folded one code point at a time so every character of the result has a known
+ * What is dropped is decided by the same rule as in `normalizeFreeText`. Folded one code point at a time so every character of the result has a known
  * origin; a compatibility form that expands to several characters (a ligature,
  * a circled digit) has them share one.
  */
@@ -209,7 +253,7 @@ function foldForScan(text: string): FoldedText {
     const start = offset;
     offset += character.length;
 
-    if (/\p{C}/u.test(character) && !/\s/u.test(character)) {
+    if (isDropped(character)) {
       continue;
     }
     const form = character.normalize("NFKC");

@@ -5,7 +5,7 @@ import {
   type LocalDay,
   localDayOf,
   localDayOfColumn,
-  normalizeFreeText,
+  normalizeSingleLineText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
@@ -532,12 +532,12 @@ export class ApartmentBinderService {
     }
 
     /*
-     * The title as the shared rule folds it: the Unicode "other" category,
-     * invisible on screen, gone, and fullwidth forms in their ordinary shape.
+     * The title as the shared rule folds it: what is invisible on screen gone,
+     * fullwidth forms in their ordinary shape, and a line break a space.
      * Scanned and stored as it is here. The route has already refused a title
      * that nothing is left of.
      */
-    const title = normalizeFreeText(input.title).trim();
+    const title = normalizeSingleLineText(input.title);
 
     /*
      * The name as it will be stored, not as it arrived. `safeFileName` strips
