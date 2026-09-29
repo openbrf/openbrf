@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasTermEnded,
+  latestElection,
   latestTermEnd,
+  overlapsRecordedTerm,
   parseCalendarDate,
   refuseTermEnd,
   RoleChangeError,
@@ -90,6 +92,19 @@ describe("the date a term is recorded as ending on", () => {
     expect(refuse("2026-04-13")).toBe("ended-before-elected");
   });
 
+  it("lets an election that has not begun be withdrawn before its date", () => {
+    // The correction for a mistyped year: 2062 for 2026 could otherwise be
+    // given no end at all, before the election or past the horizon.
+    expect(
+      refuseTermEnd({
+        electedOn: new Date("2062-04-14T00:00:00Z"),
+        currentEndedOn: null,
+        endedOn: new Date("2026-06-01T00:00:00Z"),
+        now: NOW,
+      }),
+    ).toBeNull();
+  });
+
   it("refuses a year typed with the wrong century", () => {
     /*
      * The mistake this bound exists for. A seat goes on conferring what a
@@ -161,6 +176,44 @@ describe("the date a term is recorded as ending on", () => {
     expect(refuse("2026-07-01", new Date("2026-06-01T00:00:00Z"))).toBe(
       "term-already-ended",
     );
+  });
+});
+
+describe("the date an election is recorded on", () => {
+  it("reaches a year ahead and no further", () => {
+    expect(formatDateColumn(latestElection(NOW))).toBe("2027-06-01");
+  });
+});
+
+describe("an election against the terms already recorded", () => {
+  const seat = (electedOn: string, endedOn: string | null) => ({
+    electedOn: new Date(`${electedOn}T00:00:00Z`),
+    endedOn: endedOn === null ? null : new Date(`${endedOn}T00:00:00Z`),
+  });
+  const on = (day: string) => new Date(`${day}T00:00:00Z`);
+
+  it("overlaps a term that runs past its date", () => {
+    expect(
+      overlapsRecordedTerm([seat("2022-04-14", "2023-04-14")], on("2022-06-01")),
+    ).toBe(true);
+  });
+
+  it("overlaps a later term, because the new one is open", () => {
+    expect(
+      overlapsRecordedTerm([seat("2023-04-14", "2024-04-14")], on("2022-06-01")),
+    ).toBe(true);
+  });
+
+  it("follows a term that ended on or before its date", () => {
+    expect(
+      overlapsRecordedTerm([seat("2022-04-14", "2023-04-14")], on("2023-04-14")),
+    ).toBe(false);
+  });
+
+  it("ignores an election withdrawn before it began", () => {
+    expect(
+      overlapsRecordedTerm([seat("2062-04-14", "2026-06-01")], on("2026-04-14")),
+    ).toBe(false);
   });
 });
 

@@ -21,6 +21,9 @@ export type RoleChangeReason =
   | "person-not-found"
   | "board-position-not-found"
   | "position-already-held"
+  | "term-overlaps"
+  | "elected-too-far-ahead"
+  | "board-seat-required"
   | "term-already-ended"
   | "ended-before-elected"
   | "ended-too-far-ahead"
@@ -41,11 +44,16 @@ const ROLE_CHANGE_STATUS: Record<RoleChangeReason, number> = {
   // what a second board member pressing the same button a moment later meets,
   // or a date that is well formed and impossible against the row's own dates.
   "position-already-held": HttpStatus.CONFLICT,
+  "term-overlaps": HttpStatus.CONFLICT,
+  "elected-too-far-ahead": HttpStatus.CONFLICT,
   "term-already-ended": HttpStatus.CONFLICT,
   "ended-before-elected": HttpStatus.CONFLICT,
   "ended-too-far-ahead": HttpStatus.CONFLICT,
   "last-administrator": HttpStatus.CONFLICT,
   "date-not-a-calendar-date": HttpStatus.BAD_REQUEST,
+  // Forbidden rather than a conflict: the request is refused for who makes
+  // it, and the same request from a board member would be recorded.
+  "board-seat-required": HttpStatus.FORBIDDEN,
 };
 
 export class RoleChangeError extends DomainError {
@@ -122,9 +130,30 @@ export function hasTermEnded(
  */
 const TERM_HORIZON_YEARS = 5;
 
+/**
+ * How far past today an election may be dated.
+ *
+ * A general meeting elects a board whose term begins at the meeting or at a
+ * date the meeting sets, which is never more than a year off. A later date is a
+ * mistyped year, and one that cannot be let through: a seat dated past the
+ * term horizon could never be given an end date, since every end would fall
+ * before the election or beyond the horizon, and the person could never be
+ * elected to that position again.
+ */
+const ELECTION_HORIZON_YEARS = 1;
+
 /** The last day a term may be recorded as ending on. */
 export function latestTermEnd(now: Date): Date {
-  const year = now.getUTCFullYear() + TERM_HORIZON_YEARS;
+  return yearsAhead(now, TERM_HORIZON_YEARS);
+}
+
+/** The last day an election may be dated. */
+export function latestElection(now: Date): Date {
+  return yearsAhead(now, ELECTION_HORIZON_YEARS);
+}
+
+function yearsAhead(now: Date, years: number): Date {
+  const year = now.getUTCFullYear() + years;
   const month = now.getUTCMonth();
   /*
    * Date.UTC rolls a day past the end of its month into the next one, so 29
@@ -144,6 +173,12 @@ export type TermEndRefusal =
 
 /**
  * Whether this seat can be recorded as ending on this date.
+ *
+ * A seat whose term has not begun is the exception to the second refusal: it
+ * may be given an end before its election date, which withdraws an election
+ * recorded in error. The row then covers no day, grants nothing and stays on
+ * file with the act that withdrew it, and the position is free to be recorded
+ * again with the right date.
  *
  * Three refusals, and the first is what makes a mistyped date correctable. A
  * term is amendable for as long as it is still held - which is exactly the
@@ -171,13 +206,36 @@ export function refuseTermEnd(input: {
   if (hasTermEnded({ endedOn: input.currentEndedOn }, input.now)) {
     return "term-already-ended";
   }
-  if (input.endedOn.getTime() < input.electedOn.getTime()) {
+  const begun =
+    input.electedOn.getTime() <= dateColumnOf(localDayOf(input.now)).getTime();
+  if (begun && input.endedOn.getTime() < input.electedOn.getTime()) {
     return "ended-before-elected";
   }
   if (input.endedOn.getTime() > latestTermEnd(input.now).getTime()) {
     return "ended-too-far-ahead";
   }
   return null;
+}
+
+/**
+ * Whether a new election overlaps a term already recorded for the same
+ * position.
+ *
+ * The new term is open, so it overlaps every earlier one that has not ended by
+ * the day it begins: two rows for one position covering the same day would
+ * record the person as elected to it twice (ADR 0014). A withdrawn election,
+ * ended before it began, covers no day and overlaps nothing.
+ */
+export function overlapsRecordedTerm(
+  seats: readonly { electedOn: Date; endedOn: Date | null }[],
+  electedOn: Date,
+): boolean {
+  return seats.some(
+    (seat) =>
+      seat.endedOn === null ||
+      (seat.endedOn.getTime() > seat.electedOn.getTime() &&
+        seat.endedOn.getTime() > electedOn.getTime()),
+  );
 }
 
 /**

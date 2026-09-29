@@ -309,6 +309,9 @@
         "systemWorking": "Saving",
         "errors": {
           "positionAlreadyHeld": "This person already holds that position. End the term before recording a new election to it.",
+          "termOverlaps": "An earlier term in that position runs past this election date. Check the date.",
+          "electedTooFarAhead": "An election cannot be dated that far into the future. Check the year.",
+          "boardSeatRequired": "The board records its own seats. Without a seat you can record only the first board, and never your own seat.",
           "termAlreadyEnded": "That term has already ended. Its dates are the record of a period that has run and they stand.",
           "endedBeforeElected": "A term cannot end before the election that began it.",
           "endedTooFarAhead": "A term cannot run that far into the future. Check the year.",

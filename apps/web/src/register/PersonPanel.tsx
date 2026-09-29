@@ -80,6 +80,9 @@ const BOARD_POSITION_LABEL = {
  */
 const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
+  "term-overlaps": "register.person.roles.errors.termOverlaps",
+  "elected-too-far-ahead": "register.person.roles.errors.electedTooFarAhead",
+  "board-seat-required": "register.person.roles.errors.boardSeatRequired",
   "term-already-ended": "register.person.roles.errors.termAlreadyEnded",
   "ended-before-elected": "register.person.roles.errors.endedBeforeElected",
   "ended-too-far-ahead": "register.person.roles.errors.endedTooFarAhead",
@@ -90,13 +93,15 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
 
 function roleErrorMessage(error: unknown): TranslationKey {
   if (error instanceof RegisterRequestError) {
-    if (error.status === 403) {
-      return "register.person.roles.errors.forbidden";
-    }
+    // Read before the status: a refusal that names its reason says why,
+    // where "your account may not do this" leaves the board guessing.
     const known =
       error.reason === null ? undefined : ROLE_ERROR_MESSAGE[error.reason];
     if (known !== undefined) {
       return known;
+    }
+    if (error.status === 403) {
+      return "register.person.roles.errors.forbidden";
     }
   }
   return "register.person.roles.errors.failed";
