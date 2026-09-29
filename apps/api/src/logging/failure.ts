@@ -84,13 +84,18 @@ export function failureName(cause: unknown): string {
   return code === "" || code === name ? name : `${name} (${code})`;
 }
 
+/** A V8 call frame: `at ` indented by exactly four spaces. */
+const FRAME = /^ {4}at \S/;
+
 /**
  * The stack's call frames, without any of its message lines.
  *
  * A V8 stack begins with `Name: message` and a multi-line message runs on over
  * the lines below it. That block is cut off first, since a message line can
  * itself begin with `at ` - "at anna@example.se" is one - and then only a line
- * beginning with `at ` is kept as a frame.
+ * with the indentation of a V8 frame is kept. That is also what holds when
+ * the block cannot be cut, because the message changed after the stack was
+ * read: a line the message adds begins at the margin.
  *
  * What survives is function names and file paths. Those are in the same
  * category as a class name - written into the source, not composed from the
@@ -110,7 +115,7 @@ export function failureFrames(cause: unknown): string | undefined {
 
   const frames = stack
     .split("\n")
-    .filter((line) => line.trimStart().startsWith("at "))
+    .filter((line) => FRAME.test(line))
     .slice(0, MAX_FRAMES);
 
   return frames.length === 0 ? undefined : frames.join("\n");
