@@ -2750,6 +2750,7 @@
     "description": "Everybody holding a board seat is in this room, and nobody else. Nothing here is published, nothing is mailed, and nothing is shown on the association's website.",
     "loading": "Opening the chat...",
     "loadFailed": "The chat could not be opened just now. Reload the page.",
+    "relistFailed": "The list of rooms could not be read again just now.",
     "notOffered": "The chat is for the board and for the people who live in the building. An account that holds neither a board seat nor a home here does not reach it.",
     "reading": "Reading the messages...",
     "empty": "Nothing has been written here yet.",

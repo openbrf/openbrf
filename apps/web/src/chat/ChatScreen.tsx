@@ -28,6 +28,7 @@ import {
   PRIMARY_BUTTON,
   QUIET_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -135,9 +136,15 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const [roomList, setRoomList] = useState<ChatRoomList | null>(null);
-  const [loadOutcome, setLoadOutcome] = useState<
-    "reading" | "failed" | "notOffered"
-  >("reading");
+  /**
+   * The last read of the list that did not answer, and the room it was to open.
+   * Before the first list it is the whole screen; after it, a notice beside the
+   * rooms still on screen, whose retry asks again with the same room.
+   */
+  const [listFailure, setListFailure] = useState<{
+    outcome: "failed" | "notOffered";
+    open: string | null;
+  } | null>(null);
   const [conversationState, setConversation] = useState<Conversation | null>(
     null,
   );
@@ -222,9 +229,13 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
        * again" to somebody who holds no capability would be telling them a
        * part of the product is broken rather than not theirs.
        */
-      setLoadOutcome(result.failure.status === 403 ? "notOffered" : "failed");
+      setListFailure({
+        outcome: result.failure.status === 403 ? "notOffered" : "failed",
+        open,
+      });
       return;
     }
+    setListFailure(null);
     setRoomList(result.value);
     if (open !== null) {
       setOpenRoomId(open);
@@ -588,7 +599,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     conversation.failure !== null &&
     conversation.messages.length === 0;
 
-  if (loadOutcome === "failed") {
+  if (rooms === null && listFailure?.outcome === "failed") {
     return (
       <Notice tone="danger" live>
         {t("chat.loadFailed")}
@@ -596,7 +607,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     );
   }
 
-  if (loadOutcome === "notOffered") {
+  if (rooms === null && listFailure?.outcome === "notOffered") {
     return (
       <Panel title={t("chat.title")} description={t("chat.intro")}>
         <Notice tone="info">{t("chat.notOffered")}</Notice>
@@ -620,7 +631,9 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * be a heading over a list of one.
    */
   const roomsPanel =
-    rooms.length > 1 || roomList?.mayCreateGroup === true ? (
+    rooms.length > 1 ||
+    roomList?.mayCreateGroup === true ||
+    listFailure !== null ? (
       <Panel
         title={t("chat.title")}
         description={t("chat.intro")}
@@ -629,6 +642,13 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
             <Notice tone="danger" live>
               {t(chatFailureKey(createFailure))}
             </Notice>
+          ) : listFailure !== null ? (
+            <LoadFailure
+              messageKey="chat.relistFailed"
+              onRetry={() => {
+                void loadRooms(listFailure.open);
+              }}
+            />
           ) : null
         }
       >

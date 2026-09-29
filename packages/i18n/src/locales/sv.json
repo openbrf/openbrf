@@ -2750,6 +2750,7 @@
     "description": "Alla som har ett uppdrag i styrelsen är med i rummet, och ingen annan. Ingenting här publiceras, ingenting skickas med e-post, och ingenting visas på föreningens webbplats.",
     "loading": "Öppnar chatten...",
     "loadFailed": "Chatten kunde inte öppnas just nu. Ladda om sidan.",
+    "relistFailed": "Listan över rummen kunde inte läsas om just nu.",
     "notOffered": "Chatten är för styrelsen och för dem som bor i huset. Ett konto som varken har ett uppdrag i styrelsen eller ett hem här når den inte.",
     "reading": "Läser meddelandena...",
     "empty": "Ingenting har skrivits här än.",
