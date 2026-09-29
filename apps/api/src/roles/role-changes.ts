@@ -104,14 +104,16 @@ export interface SystemRoleGrantsView {
  * Read on the association's calendar, because the column is a `@db.Date` and an
  * instant would put the boundary at midnight UTC.
  *
- * Given the election date as well, a withdrawn election - one ended on or
- * before the day it would have begun - counts as ended even while that end
- * date is still ahead, the way {@link overlapsRecordedTerm} reads it.
+ * The election date is required: a withdrawn election - one ended on or before
+ * the day it would have begun - counts as ended even while that end date is
+ * still ahead, the way {@link overlapsRecordedTerm} reads it. Left out, a
+ * caller would read the same seat as running, and the two would disagree about
+ * whether the position can be recorded again.
  *
  * @see apps/api/src/registers/held-on.ts
  */
 export function hasTermEnded(
-  seat: { electedOn?: Date; endedOn: Date | null },
+  seat: { electedOn: Date; endedOn: Date | null },
   now: Date,
 ): boolean {
   if (seat.endedOn === null) {
@@ -120,10 +122,7 @@ export function hasTermEnded(
   // A withdrawn election, ended before it began, covers no day whatever the
   // end date says about today: it is over, and the position can be recorded
   // again without waiting for a date that will never matter.
-  if (
-    seat.electedOn !== undefined &&
-    seat.endedOn.getTime() <= seat.electedOn.getTime()
-  ) {
+  if (seat.endedOn.getTime() <= seat.electedOn.getTime()) {
     return true;
   }
   return seat.endedOn.getTime() <= dateColumnOf(localDayOf(now)).getTime();
@@ -216,7 +215,15 @@ export function refuseTermEnd(input: {
   endedOn: Date;
   now: Date;
 }): TermEndRefusal | null {
-  if (hasTermEnded({ endedOn: input.currentEndedOn }, input.now)) {
+  // Settled includes a withdrawn election: once the position has been recorded
+  // again from a later date, moving the withdrawn seat's end past that date
+  // would leave two overlapping rows for the same person and position.
+  if (
+    hasTermEnded(
+      { electedOn: input.electedOn, endedOn: input.currentEndedOn },
+      input.now,
+    )
+  ) {
     return "term-already-ended";
   }
   const begun =

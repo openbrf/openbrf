@@ -885,6 +885,41 @@ describe("an election dated in the wrong year", () => {
   });
 });
 
+describe("a withdrawn election", () => {
+  it("cannot have its end moved over the election that replaced it", async () => {
+    const withdrawn = await prisma.boardPosition.create({
+      data: {
+        personId: misdated.personId,
+        position: "BOARD_MEMBER",
+        electedOn: new Date(`${daysFromToday(60)}T00:00:00Z`),
+        endedOn: new Date(`${daysFromToday(30)}T00:00:00Z`),
+      },
+    });
+    await elect(
+      boardCookie,
+      misdated.personId,
+      "BOARD_MEMBER",
+      daysFromToday(75),
+    );
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/${withdrawn.id}/end`,
+      payload: { endedOn: daysFromToday(240) },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "term-already-ended" });
+    const stored = await prisma.boardPosition.findUniqueOrThrow({
+      where: { id: withdrawn.id },
+    });
+    expect(stored.endedOn?.toISOString()).toBe(
+      `${daysFromToday(30)}T00:00:00.000Z`,
+    );
+  });
+});
+
 describe("an election that overlaps an earlier term", () => {
   it("is refused, and writes no seat", async () => {
     await prisma.boardPosition.create({
