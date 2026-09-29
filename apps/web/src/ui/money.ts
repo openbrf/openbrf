@@ -33,8 +33,12 @@
  * English document say the same thing in its own order.
  */
 
-/** A sum of kronor and ore as a column of this product holds it. */
-const DECIMAL = /^(\d+)(?:\.(\d{1,2}))?$/;
+/**
+ * A sum of kronor and ore as a column of this product holds it, or as the
+ * browser works one out: the fee screen's unallocated remainder goes below
+ * zero when the shares add up to more than one.
+ */
+const DECIMAL = /^(-)?(\d+)(?:\.(\d{1,2}))?$/;
 
 /**
  * Groups and separates a decimal amount for one locale.
@@ -48,17 +52,20 @@ const DECIMAL = /^(\d+)(?:\.(\d{1,2}))?$/;
  */
 export function formatAmount(amount: string, locale: string): string {
   const match = DECIMAL.exec(amount);
-  const whole = match?.[1];
+  const whole = match?.[2];
   if (whole === undefined) {
     return amount;
   }
-  const fraction = (match?.[2] ?? "").padEnd(2, "0");
+  const fraction = (match?.[3] ?? "").padEnd(2, "0");
+  // The sign is put on separately rather than formatted with the whole part,
+  // which for "-0.50" is a zero and has none.
+  const sign = match?.[1] === undefined ? "" : minusSignFor(locale);
 
   const grouped = new Intl.NumberFormat(locale, {
     maximumFractionDigits: 0,
   }).format(BigInt(whole));
 
-  return `${grouped}${decimalSeparatorFor(locale)}${fraction}`;
+  return `${sign}${grouped}${decimalSeparatorFor(locale)}${fraction}`;
 }
 
 /**
@@ -73,4 +80,13 @@ function decimalSeparatorFor(locale: string): string {
     minimumFractionDigits: 1,
   }).formatToParts(1.1);
   return parts.find((part) => part.type === "decimal")?.value ?? ".";
+}
+
+/** The character this locale puts before a negative number, read off a sample. */
+function minusSignFor(locale: string): string {
+  return (
+    new Intl.NumberFormat(locale)
+      .formatToParts(-1)
+      .find((part) => part.type === "minusSign")?.value ?? "-"
+  );
 }
