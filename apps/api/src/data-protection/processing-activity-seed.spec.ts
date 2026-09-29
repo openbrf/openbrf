@@ -353,7 +353,55 @@ describe("seedRows", () => {
           smsGatewayUrl: "https://sms.example.test/send",
         }),
       ).recipients,
-    ).toBe("smtp.example.test, https://sms.example.test/send");
+    ).toBe("smtp.example.test, sms.example.test");
+  });
+
+  it("names the gateway as the processor register does, only when it is the driver", () => {
+    // An address left behind under another driver is no recipient: nothing
+    // is handed to it.
+    expect(
+      rowFor(
+        "newsMailings",
+        facts({
+          smsDriver: null,
+          smsGatewayUrl: "https://sms.example.test/send",
+        }),
+      ).recipients,
+    ).toBe("smtp.example.test");
+  });
+
+  it("names the mail server on every row that mails somebody", () => {
+    // Art. 30(1)(d): a hosted mail provider is a recipient of a meeting
+    // notice, a booking confirmation, an invitation, a sign-in link and the
+    // contact form's copy to the board, and not only of the news.
+    for (const key of [
+      "meetingRecords",
+      "addressBookAndAccounts",
+      "bookings",
+      "contactSubmissions",
+      "signupRequestsAndInvitations",
+    ] as const) {
+      expect(rowFor(key).recipients, key).toContain("smtp.example.test");
+      expect(rowFor(key).personalDataCategories, key).toContain("email");
+    }
+    // An SMS gateway is named only by the rows that send by SMS.
+    expect(
+      rowFor(
+        "bookings",
+        facts({
+          smsDriver: "http-gateway",
+          smsGatewayUrl: "https://sms.example.test/send",
+        }),
+      ).recipients,
+    ).toBe("smtp.example.test");
+  });
+
+  it("counts a former resident among the subjects of rows kept past the residency", () => {
+    for (const key of ["bookings", "events", "motions"] as const) {
+      expect(rowFor(key).dataSubjectCategories, key).toContain(
+        "formerResident",
+      );
+    }
   });
 
   it("says so when there is no mail server to name", () => {
@@ -397,7 +445,7 @@ describe("seedRows", () => {
 
   it("leaves rows that store no files out of the transfer question", () => {
     expect(rowFor("memberRegister", S3).thirdCountryTransfer).toBe(false);
-    expect(rowFor("bookings", S3).recipients).toBeNull();
+    expect(rowFor("events", S3).recipients).toBeNull();
   });
 
   it("names the mailbox, the mail server replies go through and the storage for the board mailbox", () => {
