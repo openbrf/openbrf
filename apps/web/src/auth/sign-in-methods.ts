@@ -141,17 +141,19 @@ export async function signInWithPasskey(): Promise<SignInOutcome> {
     return { status: "failed", code: "passkey-cancelled" };
   }
 
-  const result = await authClient.signIn.passkey();
+  const result = await answered(() => authClient.signIn.passkey());
   const error = result?.error;
   if (error !== null && error !== undefined) {
-    // Better Auth reports a dismissed or timed-out WebAuthn prompt with no
-    // HTTP status, because no request was ever made.
-    if (error.status === 0 || error.status === undefined) {
-      return { status: "failed", code: "passkey-cancelled" };
-    }
     // The passkey endpoints answer with a bare HTTP status on some paths and
     // with a named code on others, so the code is read defensively.
-    return toFailure("code" in error ? { code: error.code } : {});
+    const code = "code" in error ? error.code : undefined;
+    // A prompt that produced no credential - dismissed, timed out or refused
+    // by the browser - comes back as a 400 with AUTH_CANCELLED or one of the
+    // WebAuthn library's ERROR_ codes, although no request was made.
+    if (code === "AUTH_CANCELLED" || code?.startsWith("ERROR_") === true) {
+      return { status: "failed", code: "passkey-cancelled" };
+    }
+    return toFailure({ code });
   }
   return { status: "signed-in" };
 }
