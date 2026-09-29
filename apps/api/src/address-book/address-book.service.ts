@@ -635,7 +635,14 @@ export class AddressBookService {
     }
 
     if (options.audience === "resident") {
-      conditions.push({
+      /*
+       * Only residencies held today, whatever the filter says. A neighbour
+       * has a reason to find who lives here now and none to list who used to,
+       * or who is about to: a former household stays in the register for the
+       * board until the purge, and a buyer's move-in date is not the other
+       * households' business before the day. So "moved out" is empty here.
+       */
+      conditions.push(residencyHeldOn(localDayOf(now)), {
         person: residentVisibilityWhere(options.viewerPersonId),
       });
     }
@@ -669,7 +676,11 @@ export class AddressBookService {
       { residencies: { none: {} } },
     ];
 
-    if (query.filter === "board") {
+    // Residents are shown only the board among the people who live nowhere
+    // here - an external board member is somebody they may need to find. An
+    // administrator, the property manager and a person not yet moved in are
+    // not.
+    if (query.filter === "board" || options.audience === "resident") {
       conditions.push({
         boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
       });
