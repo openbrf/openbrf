@@ -215,6 +215,64 @@ describe("writing a page", () => {
     expect(refusal.status).toBe(409);
   });
 
+  it("answers an address taken since it was checked as taken, not as a failure", async () => {
+    // Two creates to one address at once both pass the check, and the unique
+    // index refuses the second write. That is the conflict the check answers,
+    // and the client already knows how to show it.
+    const { service, page } = build();
+    page.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.create(
+        {
+          slug: "hem",
+          title: "Hej",
+          content: paragraphsContent(["Hej."]),
+          visibility: "PUBLIC",
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("slug-taken");
+    expect(refusal.status).toBe(409);
+  });
+
+  it("answers a rename to an address taken since it was checked the same way", async () => {
+    const { service, page } = build();
+    page.findUnique.mockImplementation(
+      async (args: { where: { id?: string } }) =>
+        args.where.id === undefined ? null : DRAFT,
+    );
+    page.updateMany.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    for (const expectedRevision of [undefined, DRAFT.revision]) {
+      const refusal = await refusalOf(
+        service.update(
+          "page-1",
+          {
+            slug: "hem",
+            title: DRAFT.title,
+            content: DRAFT.content,
+            ...(expectedRevision === undefined ? {} : { expectedRevision }),
+          },
+          { personId: "person-1", channel: "WEB" },
+        ),
+      );
+      expect(refusal.reason, String(expectedRevision)).toBe("slug-taken");
+    }
+  });
+
   it("writes a new page unpublished whatever else it says", async () => {
     const { service, page } = build();
 

@@ -16,6 +16,7 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { PagesWriteService, PageWriteError } from "./pages-write.service";
 
 /**
  * The board's own screen for the association's website, over HTTP.
@@ -68,6 +69,7 @@ const slugs = {
   internalImage: `site-admin-internal-image-${suffix}`,
   spare: `site-admin-spare-${suffix}`,
   concurrent: `site-admin-concurrent-${suffix}`,
+  race: `site-admin-race-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -371,6 +373,33 @@ describe("writing a page", () => {
     // behind it.
     const visitor = await inject({ method: "GET", url: `/${slugs.public}` });
     expect(visitor.statusCode).toBe(404);
+  });
+
+  it("answers two creates at one address with one page and one conflict", async () => {
+    // Both pass the check that the address is free, and the unique index
+    // decides. Called on the service, so the two interleave as tightly as the
+    // database lets them.
+    const pages = app.get(PagesWriteService);
+    const create = () =>
+      pages.create(
+        {
+          slug: slugs.race,
+          title: "Samma adress",
+          content: { version: 1, blocks: [] },
+          visibility: "PUBLIC",
+        },
+        { personId: boardMember.personId, channel: "WEB" },
+      );
+
+    const outcomes = await Promise.allSettled([create(), create()]);
+
+    const refused = outcomes.flatMap((outcome) =>
+      outcome.status === "rejected" ? [outcome.reason as unknown] : [],
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toBeInstanceOf(PageWriteError);
+    expect(refused[0]).toMatchObject({ reason: "slug-taken", status: 409 });
+    expect(await prisma.page.count({ where: { slug: slugs.race } })).toBe(1);
   });
 
   it("refuses a save built on a copy somebody has already written over", async () => {

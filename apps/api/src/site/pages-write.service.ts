@@ -344,17 +344,19 @@ export class PagesWriteService {
     const row = await this.prisma.$transaction(async (tx) => {
       const highest = await tx.page.aggregate({ _max: { sortOrder: true } });
 
-      const created = await tx.page.create({
-        data: {
-          slug: input.slug,
-          title: input.title,
-          content: asJson(input.content),
-          visibility: input.visibility,
-          published: false,
-          sortOrder: (highest._max.sortOrder ?? 0) + 1,
-        },
-        select: PAGE_COLUMNS,
-      });
+      const created = await tx.page
+        .create({
+          data: {
+            slug: input.slug,
+            title: input.title,
+            content: asJson(input.content),
+            visibility: input.visibility,
+            published: false,
+            sortOrder: (highest._max.sortOrder ?? 0) + 1,
+          },
+          select: PAGE_COLUMNS,
+        })
+        .catch(refuseTakenSlug(input.slug));
 
       await this.audit.record(
         {
@@ -437,7 +439,7 @@ export class PagesWriteService {
             revision: { increment: 1 },
           },
         }),
-      );
+      ).catch(refuseTakenSlug(input.slug));
     }
 
     /*
@@ -459,7 +461,7 @@ export class PagesWriteService {
           revision: { increment: 1 },
         },
       }),
-    );
+    ).catch(refuseTakenSlug(input.slug));
   }
 
   /**
@@ -1044,6 +1046,29 @@ export class PagesWriteService {
       );
     }
   }
+}
+
+/**
+ * Answers a lost race for an address with the refusal `requireFreeSlug` gives.
+ *
+ * The read there narrows the window and the unique index closes it. Two
+ * creates or renames to one address at the same moment both pass the read, and
+ * the second write raises P2002 - which, unanswered, reaches the caller as a
+ * 500 for a conflict its client already knows how to show.
+ */
+function refuseTakenSlug(slug: string): (cause: unknown) => never {
+  return (cause) => {
+    if (
+      cause instanceof Prisma.PrismaClientKnownRequestError &&
+      cause.code === "P2002"
+    ) {
+      throw new PageWriteError(
+        `The address /${slug} is already a page.`,
+        "slug-taken",
+      );
+    }
+    throw cause;
+  };
 }
 
 /** The blocks at these positions, as the one location shape. */
