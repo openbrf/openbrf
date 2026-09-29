@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -504,11 +504,14 @@ describe("the general meeting screen", () => {
 
     await screen.findByText("Strukna från förteckningen");
 
-    // The overtaken answer arrives last and must not put the line back.
-    overtaken();
-    await waitFor(() => {
-      expect(screen.getByText("Strukna från förteckningen")).toBeTruthy();
+    // The overtaken answer arrives last and must not put the line back. Settled
+    // inside act before asserting, so the check sees the screen after the stale
+    // answer has had its chance to land rather than before.
+    await act(async () => {
+      overtaken();
+      await slow;
     });
+    expect(screen.getByText("Strukna från förteckningen")).toBeTruthy();
   });
 
   it("keeps the meeting on screen when a re-read fails", async () => {
