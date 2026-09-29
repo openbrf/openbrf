@@ -296,6 +296,37 @@ describe("a person with protected personal data", () => {
     expect(revealFields).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a field's reveal busy until that field's answer arrives", async () => {
+    // Every reveal is an audit entry, so a button re-enabled by another field's
+    // answer invites a second, duplicate reveal of the one still in flight.
+    let answerEmail = (): void => {};
+    revealFields.mockImplementation(
+      async (_personId: string, fields: string[]) =>
+        new Promise((resolve) => {
+          if (fields[0] === "email") {
+            answerEmail = () => {
+              resolve({ email: EMAIL });
+            };
+          }
+        }),
+    );
+    renderPanel(PROTECTED_PERSON);
+    await screen.findByText("Sara Berg");
+
+    const revealOf = (name: string): HTMLElement =>
+      screen
+        .getAllByRole("button")
+        .find((button) =>
+          button.getAttribute("aria-label")?.includes(name),
+        ) as HTMLElement;
+    await userEvent.click(revealOf("Personnummer"));
+    await userEvent.click(revealOf("E-postadress"));
+    answerEmail();
+    await screen.findByText(EMAIL);
+
+    expect(revealOf("Personnummer")).toHaveProperty("disabled", true);
+  });
+
   it("says so when the masking could not be changed", async () => {
     // The call site does not await, so an unreported rejection would leave the
     // button clicked and nothing said - and a board member reading that as
@@ -392,6 +423,47 @@ describe("a person who is not protected", () => {
 
     expect(screen.getAllByText("Pågående")).toHaveLength(1);
     expect(screen.getAllByText("Avslutat")).toHaveLength(1);
+  });
+
+  it("drops a reveal that answers after the person was masked", async () => {
+    // Switching protection on clears what was revealed. A reveal still in
+    // flight must not put a value back on the screen afterwards.
+    let answer = (): void => {};
+    revealFields.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          answer = () => {
+            resolve({ personalIdentityNumber: IDENTITY_NUMBER });
+          };
+        }),
+    );
+    setProtectedPersonalData.mockResolvedValue({ protectedPersonalData: true });
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /^Visa/ })
+        .find((button) =>
+          button.getAttribute("aria-label")?.includes("Personnummer"),
+        ) as HTMLElement,
+    );
+    fetchPerson.mockResolvedValue({
+      ...PLAIN_PERSON,
+      protectedPersonalData: true,
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Maskera den här personen/ }),
+    );
+    await screen.findByText(
+      "Maskeras överallt; varje visning loggas i granskningsloggen",
+    );
+    answer();
+
+    await waitFor(() => {
+      expect(screen.queryByText("Visar")).toBeNull();
+    });
+    expect(screen.queryByText(IDENTITY_NUMBER)).toBeNull();
   });
 
   it("offers to start masking the person, and says what that does", async () => {
