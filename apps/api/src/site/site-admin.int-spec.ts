@@ -70,6 +70,9 @@ const slugs = {
   spare: `site-admin-spare-${suffix}`,
   concurrent: `site-admin-concurrent-${suffix}`,
   race: `site-admin-race-${suffix}`,
+  firstListed: `site-admin-first-listed-${suffix}`,
+  secondListed: `site-admin-second-listed-${suffix}`,
+  thirdListed: `site-admin-third-listed-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -1008,6 +1011,47 @@ describe("the order the pages sit in", () => {
       .filter((one) => one.slug.includes(suffix))
       .map((one) => one.id);
     expect(after).toEqual([...mine].reverse());
+  });
+});
+
+describe("reading the pages a few at a time", () => {
+  it("carries on past a page deleted since the last call", async () => {
+    // Sorted in front of every other page on the instance, so the first call
+    // from the start of the list reads them in this order.
+    const listed = [slugs.firstListed, slugs.secondListed, slugs.thirdListed];
+    await prisma.page.createMany({
+      data: listed.map((slug, index) => ({
+        slug,
+        title: slug,
+        content: { version: 1, blocks: [] },
+        visibility: "PUBLIC" as const,
+        published: false,
+        sortOrder: -1000 + index,
+      })),
+    });
+    const pages = app.get(PagesWriteService);
+
+    const first = await pages.listSummaries({ limit: 1 });
+    expect(first.pages.map((page) => page.slug)).toEqual([slugs.firstListed]);
+    expect(first.nextCursor).not.toBeNull();
+
+    // Somebody deletes the page the caller stopped at before it asks again.
+    await prisma.page.delete({ where: { slug: slugs.firstListed } });
+
+    const second = await pages.listSummaries({
+      limit: 1,
+      cursor: first.nextCursor ?? undefined,
+    });
+    expect(second.pages.map((page) => page.slug)).toEqual([slugs.secondListed]);
+    expect(second.nextCursor).not.toBeNull();
+  });
+
+  it("refuses a cursor it did not write rather than starting over", async () => {
+    const pages = app.get(PagesWriteService);
+
+    await expect(
+      pages.listSummaries({ limit: 1, cursor: "no-such-place" }),
+    ).rejects.toMatchObject({ reason: "not-found" });
   });
 });
 

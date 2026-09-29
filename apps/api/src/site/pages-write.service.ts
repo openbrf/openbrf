@@ -281,21 +281,38 @@ export class PagesWriteService {
    * ceiling alone is 200 blocks of 200 runs of 5000 characters.
    *
    * Summary rows, so reading a body is a second, deliberate call.
+   *
+   * The cursor is the position of the last page returned rather than the
+   * page itself. A cursor naming a row answers nothing once that row is gone:
+   * a caller paging through while somebody deleted the page it stopped at was
+   * told the list had ended, and silently missed every page after it.
    */
   async listSummaries(options: {
     limit: number;
     cursor?: string | undefined;
     publishedOnly?: boolean | undefined;
   }): Promise<{ pages: PageSummary[]; nextCursor: string | null }> {
+    const after =
+      options.cursor === undefined ? null : readPageCursor(options.cursor);
+
     // One more than asked for, so "is there another page" is answered by the
     // read rather than by a second count query.
     const rows = await this.prisma.page.findMany({
-      where: options.publishedOnly === true ? { published: true } : {},
+      where: {
+        ...(options.publishedOnly === true ? { published: true } : {}),
+        // Everything after that position in the order below, whether or not
+        // the page that stood there still does.
+        ...(after === null
+          ? {}
+          : {
+              OR: [
+                { sortOrder: { gt: after.sortOrder } },
+                { sortOrder: after.sortOrder, id: { gt: after.id } },
+              ],
+            }),
+      },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
       take: options.limit + 1,
-      ...(options.cursor === undefined
-        ? {}
-        : { cursor: { id: options.cursor }, skip: 1 }),
       select: {
         id: true,
         slug: true,
@@ -310,6 +327,7 @@ export class PagesWriteService {
     });
 
     const page = rows.slice(0, options.limit);
+    const last = page.at(-1);
     return {
       pages: page.map((row) => ({
         id: row.id,
@@ -323,7 +341,9 @@ export class PagesWriteService {
         updatedAt: row.updatedAt.toISOString(),
       })),
       nextCursor:
-        rows.length > options.limit ? (page.at(-1)?.id ?? null) : null,
+        rows.length > options.limit && last !== undefined
+          ? `${String(last.sortOrder)}:${last.id}`
+          : null,
     };
   }
 
@@ -1079,6 +1099,27 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
     }
     throw cause;
   };
+}
+
+/**
+ * The position a `listSummaries` cursor names: a sort order and an id.
+ *
+ * Refused as a page that is not there when it is not one this service wrote,
+ * rather than read as the start of the list - which would hand a caller that
+ * sent a stale or mangled cursor the first pages again as if they were the
+ * next ones.
+ */
+function readPageCursor(cursor: string): { sortOrder: number; id: string } {
+  const match = /^(-?\d{1,10}):([^:]+)$/.exec(cursor);
+  const sortOrder = Number(match?.[1]);
+  const id = match?.[2];
+  if (id === undefined || !Number.isSafeInteger(sortOrder)) {
+    throw new PageWriteError(
+      "There is no such place in the list of pages. Start it again without a cursor.",
+      "not-found",
+    );
+  }
+  return { sortOrder, id };
 }
 
 /** The blocks at these positions, as the one location shape. */
