@@ -18,6 +18,7 @@ import {
 import type { DebitingList, DebitingListRow } from "./debiting-list";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import type { DebitingListExport } from "./member-charge.service";
+import { holdLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * Charges to members, against a real database.
@@ -126,43 +127,6 @@ function inject(options: {
         ...options.headers,
       },
     });
-}
-
-/**
- * How many transactions hold, or are queued behind, this person's hold key.
- *
- * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
- * halves of a bigint, which is what the shifting reassembles.
- */
-async function holdLockCount(
-  personId: string,
-  granted: boolean,
-): Promise<bigint> {
-  const key = `legal-hold:${personId}`;
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND granted = ${granted}
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return row?.locks ?? 0n;
-}
-
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the purge to block or finish.");
 }
 
 async function signIn(email: string): Promise<string> {
@@ -1369,7 +1333,7 @@ describe("the purge", () => {
 
     try {
       await waitFor(
-        async () => (await holdLockCount(member.personId, true)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, true)) > 0n,
       );
 
       const running = app
@@ -1379,7 +1343,7 @@ describe("the purge", () => {
           new Date("2034-01-01T03:17:00.000+01:00"),
         );
       await waitFor(
-        async () => (await holdLockCount(member.personId, false)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, false)) > 0n,
       );
 
       releaseHolder?.();

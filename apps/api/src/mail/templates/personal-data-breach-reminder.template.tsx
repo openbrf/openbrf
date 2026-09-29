@@ -13,11 +13,17 @@ export interface BreachReminderMailProps {
   discoveredAt: Date;
   /** The bound art. 33(1) sets on that discovery. */
   notifyBy: Date;
+  /**
+   * Whether the board has already decided that IMY is to be notified, in which
+   * case what is owed is the notification rather than the decision.
+   */
+  decided: boolean;
 }
 
 /**
  * Sent to the board a day before the 72 hours of GDPR art. 33(1) run out on a
- * recorded breach that nobody has decided about.
+ * recorded breach that nobody has decided about, or that the board decided to
+ * notify IMY of and has not yet.
  *
  * Scheduled as a job rather than sent inline, because the trigger is a date
  * rather than a request - the same shape as the board's move-out reminder.
@@ -31,7 +37,12 @@ export const breachReminderMail: MailTemplate<BreachReminderMailProps> = {
   id: "personal-data-breach-reminder",
 
   subject: (props, { t }) =>
-    t("email.breachReminder.subject", { title: props.breachTitle }),
+    t(
+      props.decided
+        ? "email.breachReminder.subjectNotificationOwed"
+        : "email.breachReminder.subject",
+      { title: props.breachTitle },
+    ),
 
   body: (props, context): ReactElement => {
     const { t, formatDate, formatTime, appUrl } = context;
@@ -39,10 +50,17 @@ export const breachReminderMail: MailTemplate<BreachReminderMailProps> = {
     return (
       <MailLayout
         context={context}
-        preview={t("email.breachReminder.subject", {
-          title: props.breachTitle,
-        })}
-        heading={t("email.breachReminder.heading")}
+        preview={t(
+          props.decided
+            ? "email.breachReminder.subjectNotificationOwed"
+            : "email.breachReminder.subject",
+          { title: props.breachTitle },
+        )}
+        heading={t(
+          props.decided
+            ? "email.breachReminder.headingNotificationOwed"
+            : "email.breachReminder.heading",
+        )}
         recipientName={props.recipientName}
       >
         <Text
@@ -53,11 +71,16 @@ export const breachReminderMail: MailTemplate<BreachReminderMailProps> = {
             margin: "0 0 8px 0",
           }}
         >
-          {t("email.breachReminder.body", {
-            title: props.breachTitle,
-            discoveredAt: formatDate(props.discoveredAt),
-            notifyBy: `${formatDate(props.notifyBy)} ${formatTime(props.notifyBy)}`,
-          })}
+          {t(
+            props.decided
+              ? "email.breachReminder.bodyNotificationOwed"
+              : "email.breachReminder.body",
+            {
+              title: props.breachTitle,
+              discoveredAt: formatDate(props.discoveredAt),
+              notifyBy: `${formatDate(props.notifyBy)} ${formatTime(props.notifyBy)}`,
+            },
+          )}
         </Text>
 
         <MailAction

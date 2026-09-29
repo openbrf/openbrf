@@ -17,6 +17,10 @@ const administratorSchema = z.object({
   // error from inside the account creation, halfway through the flow.
   password: z.string().min(12).max(200),
   preferredLocale: z.enum(SUPPORTED_LOCALES).optional(),
+  // Optional here on purpose. A schema failure answers invalid-body, which the
+  // wizard can only read as a weak password; a missing or malformed token is
+  // refused by the service instead, with a reason of its own.
+  claimToken: z.string().max(200).optional(),
 });
 
 /**
@@ -25,8 +29,9 @@ const administratorSchema = z.object({
  * The wizard is filled in once, by one person, on an instance nobody has
  * claimed yet - but a rejected password or address is an attempt too, so the
  * budget leaves room for the retries that come with typing into a form. The
- * window this endpoint is open at all is the reason it is limited: whoever
- * reaches it first becomes the administrator of the instance.
+ * window this endpoint is open at all is the reason it is limited. The setup
+ * link's token is 256 random bits and needs no budget of its own; this one
+ * bounds the work a stream of wrong guesses costs.
  */
 const ADMINISTRATOR_ATTEMPTS_PER_MINUTE = 10;
 

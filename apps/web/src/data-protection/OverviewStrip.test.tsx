@@ -18,7 +18,13 @@ import { OverviewStrip } from "./OverviewStrip";
 const READ_AT = new Date("2026-09-06T12:00:00.000Z");
 
 const QUIET: DataProtectionOverview = {
-  breaches: { awaitingDecision: 0, overdue: 0, nearestDeadline: null },
+  breaches: {
+    awaitingDecision: 0,
+    notificationOwed: 0,
+    overdue: 0,
+    nearestDecisionDeadline: null,
+    nearestNotificationDeadline: null,
+  },
   requests: { open: 0, overdue: 0 },
   processors: { notRecorded: 0, pending: 0 },
   notice: { missingHeadings: 0, published: true },
@@ -29,7 +35,9 @@ describe("when nothing is waiting", () => {
     render(<OverviewStrip overview={QUIET} readAt={READ_AT} />);
 
     expect(
-      screen.getByText("Ingen personuppgiftsincident väntar på beslut."),
+      screen.getByText(
+        "Ingen personuppgiftsincident väntar på beslut eller underrättelse till IMY.",
+      ),
     ).toBeTruthy();
     expect(screen.getByText("Ingen begäran väntar på svar.")).toBeTruthy();
     expect(
@@ -52,8 +60,10 @@ describe("when something is waiting", () => {
           ...QUIET,
           breaches: {
             awaitingDecision: 2,
+            notificationOwed: 0,
             overdue: 1,
-            nearestDeadline: "2026-09-01T00:00:00.000Z",
+            nearestDecisionDeadline: null,
+            nearestNotificationDeadline: null,
           },
         }}
       />,
@@ -61,7 +71,7 @@ describe("when something is waiting", () => {
 
     expect(
       screen.getByText(
-        "1 personuppgiftsincident har passerat 72-timmarsgränsen utan beslut.",
+        "1 personuppgiftsincident har passerat 72-timmarsgränsen utan att IMY underrättats.",
       ),
     ).toBeTruthy();
   });
@@ -78,8 +88,10 @@ describe("when something is waiting", () => {
           ...QUIET,
           breaches: {
             awaitingDecision: 1,
+            notificationOwed: 0,
             overdue: 0,
-            nearestDeadline: inTwelveHours,
+            nearestDecisionDeadline: inTwelveHours,
+            nearestNotificationDeadline: null,
           },
         }}
       />,
@@ -88,6 +100,72 @@ describe("when something is waiting", () => {
     expect(
       screen.getByText(
         "1 personuppgiftsincident väntar på beslut, 12 timmar kvar.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("does not call a breach settled when the board has decided and IMY is still owed", () => {
+    /*
+     * Deciding that IMY is to be notified is not the notification. A strip
+     * reading "nothing waits" over such a breach would tell the board the
+     * clock had stopped when it has not.
+     */
+    const inTwelveHours = new Date(
+      READ_AT.getTime() + 12 * 60 * 60 * 1000,
+    ).toISOString();
+
+    render(
+      <OverviewStrip
+        readAt={READ_AT}
+        overview={{
+          ...QUIET,
+          breaches: {
+            awaitingDecision: 0,
+            notificationOwed: 1,
+            overdue: 0,
+            nearestDecisionDeadline: null,
+            nearestNotificationDeadline: inTwelveHours,
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "1 personuppgiftsincident är beslutad och IMY är ännu inte underrättad, 12 timmar kvar.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names both a decision and a notification owed, each with its own hours", () => {
+    /*
+     * Two different acts with two different clocks. Naming only the decision
+     * would hide the notification still owed, and hours taken from the nearer
+     * of the two would put the notification's clock beside the decision.
+     */
+    const hoursFromRead = (hours: number): string =>
+      new Date(READ_AT.getTime() + hours * 60 * 60 * 1000).toISOString();
+
+    render(
+      <OverviewStrip
+        readAt={READ_AT}
+        overview={{
+          ...QUIET,
+          breaches: {
+            awaitingDecision: 2,
+            notificationOwed: 1,
+            overdue: 0,
+            nearestDecisionDeadline: hoursFromRead(40),
+            nearestNotificationDeadline: hoursFromRead(5),
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "2 personuppgiftsincidenter väntar på beslut, 40 timmar kvar för den närmaste. " +
+          "1 personuppgiftsincident är beslutad och IMY är ännu inte underrättad, 5 timmar kvar.",
       ),
     ).toBeTruthy();
   });

@@ -20,6 +20,7 @@ import type {
   FeeNotificationSummary,
 } from "./fee-notification.service";
 import type { FeeRegister, FeeRow } from "./fee.service";
+import { holdLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * Fees and their notices, against a real database.
@@ -232,43 +233,6 @@ async function setStartMonth(month: number): Promise<void> {
     where: { id: 1 },
     data: { financialYearStartMonth: month },
   });
-}
-
-/**
- * How many transactions hold, or are queued behind, this person's hold key.
- *
- * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
- * halves of a bigint, which is what the shifting reassembles.
- */
-async function holdLockCount(
-  personId: string,
-  granted: boolean,
-): Promise<bigint> {
-  const key = `legal-hold:${personId}`;
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND granted = ${granted}
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return row?.locks ?? 0n;
-}
-
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the purge to block or finish.");
 }
 
 /** Grants or lifts a restriction of processing, as the flag the purge reads. */
@@ -1610,14 +1574,14 @@ describe("the purge", () => {
 
     try {
       await waitFor(
-        async () => (await holdLockCount(member.personId, true)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, true)) > 0n,
       );
 
       const running = app
         .get(FeePurgeService)
         .purgeApartment(apartmentId, new Date("2029-01-02T12:00:00.000+01:00"));
       await waitFor(
-        async () => (await holdLockCount(member.personId, false)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, false)) > 0n,
       );
 
       releaseHolder?.();

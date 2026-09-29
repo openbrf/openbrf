@@ -7,6 +7,7 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -26,7 +27,7 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
  */
 const recordSchema = z.object({
   kind: z.enum(["ERASURE", "OBJECTION", "RESTRICTION"]),
-  requestedOn: z.iso.date(),
+  requestedOn: calendarDateSchema,
   ground: z.string().trim().min(1).max(500),
   erasureGround: z
     .enum([

@@ -8,6 +8,7 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -39,10 +40,7 @@ const mappingSchema = z.object({
   mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
   /** Used for rows with no role column. Never guessed. */
   defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
-  defaultMovedInOn: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
-    .nullish(),
+  defaultMovedInOn: calendarDateSchema.nullish(),
 });
 
 const decisionSchema = z.discriminatedUnion("action", [

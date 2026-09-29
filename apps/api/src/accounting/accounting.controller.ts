@@ -1,4 +1,5 @@
 import { Controller, HttpCode, Post, Query, Req } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -9,12 +10,9 @@ import {
   AccountingBasisService,
 } from "./accounting-basis.service";
 
-/** ISO calendar date. A period is stated by the board, never guessed from prose. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
-
 const periodSchema = z.object({
-  from: isoDate,
-  to: isoDate,
+  from: calendarDateSchema,
+  to: calendarDateSchema,
 });
 
 /**
