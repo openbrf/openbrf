@@ -999,7 +999,7 @@
     "readOnlyNotice": "You can see these settings but not change them.",
     "errors": {
       "unknown": "That could not be saved just now. Please try again.",
-      "loadFailed": "The settings could not be read just now. Reload the page.",
+      "loadFailed": "The settings could not be read just now.",
       "forbidden": "Your account is not allowed to change this.",
       "housingCooperativeMissing": "Name the housing cooperative first; the other settings hang off it."
     },
