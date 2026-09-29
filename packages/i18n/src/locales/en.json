@@ -3331,6 +3331,7 @@
       "addressMailed": "The address was mailed to the members, so it cannot be changed.",
       "notPlainText": "That news item holds formatting this editor cannot show. Editing it here would remove it.",
       "notFound": "That news item is gone. The list has been read again.",
+      "hasComments": "Residents have commented on this news item, so it cannot be removed yet. Taking it down hides it from readers; the comments are erased on their own schedule, and the item can be removed once they are gone.",
       "unknown": "That could not be saved just now. Please try again."
     },
     "site": {
@@ -4757,7 +4758,7 @@
     },
     "news_delete": {
       "title": "Delete a news item",
-      "description": "Removes the news item for good. It cannot be undone. The item must exist, and a published one is taken off the website by the same call."
+      "description": "Removes the news item for good. It cannot be undone. The item must exist and have no comments under it; one with comments is refused, and can be taken down with news_unpublish instead. A published item is taken off the website by the same call."
     },
     "news_request_mailing": {
       "title": "Request a mailing",

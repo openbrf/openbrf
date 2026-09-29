@@ -1069,8 +1069,7 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
-        // The comments go with the item; deleting the item is enough, and the
-        // first step is belt and braces for a run that failed part-way through.
+        // The comments first: they refuse the item's delete while they stand.
         () =>
           prisma.newsComment.deleteMany({
             where: { news: { slug: newsSlug } },
