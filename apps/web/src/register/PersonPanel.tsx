@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -218,7 +218,20 @@ export function PersonPanel({
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const [revealed, setRevealed] = useState<RevealedFields>({});
-  const [revealing, setRevealing] = useState<MaskableField | null>(null);
+  /*
+   * Per field, because every reveal is an audit entry: one shared flag let the
+   * first answer to arrive re-enable a button whose own reveal was still in
+   * flight, inviting a second, duplicate reveal of it.
+   */
+  const [revealing, setRevealing] = useState<ReadonlySet<MaskableField>>(
+    new Set(),
+  );
+  /*
+   * Bumped when the person's masking changes, which also clears what was
+   * revealed. A reveal answers into the generation it was asked in, so one
+   * still in flight across the change cannot put a value back on the screen.
+   */
+  const revealGeneration = useRef(0);
   const [revealFailed, setRevealFailed] = useState(false);
   const [protectionFailed, setProtectionFailed] = useState(false);
   const [consentFailed, setConsentFailed] = useState(false);
@@ -331,15 +344,24 @@ export function PersonPanel({
 
   const reveal = useCallback(
     async (field: MaskableField): Promise<void> => {
-      setRevealing(field);
+      const generation = revealGeneration.current;
+      setRevealing((current) => new Set(current).add(field));
       setRevealFailed(false);
       try {
         const result = await revealFields(personId, [field]);
-        setRevealed((current) => ({ ...current, ...result }));
+        if (generation === revealGeneration.current) {
+          setRevealed((current) => ({ ...current, ...result }));
+        }
       } catch {
-        setRevealFailed(true);
+        if (generation === revealGeneration.current) {
+          setRevealFailed(true);
+        }
       } finally {
-        setRevealing(null);
+        setRevealing((current) => {
+          const next = new Set(current);
+          next.delete(field);
+          return next;
+        });
       }
     },
     [personId],
@@ -370,6 +392,7 @@ export function PersonPanel({
         setProtectionFailed(true);
         return;
       }
+      revealGeneration.current += 1;
       setRevealed({});
       setReloadToken((token) => token + 1);
       onChanged();
@@ -705,7 +728,7 @@ export function PersonPanel({
                     ? person.contact.email
                     : (revealed.email ?? null)
                 }
-                revealing={revealing === "email"}
+                revealing={revealing.has("email")}
                 onReveal={() => {
                   void reveal("email");
                 }}
@@ -729,7 +752,7 @@ export function PersonPanel({
                     ? person.contact.phone
                     : (revealed.phone ?? null)
                 }
-                revealing={revealing === "phone"}
+                revealing={revealing.has("phone")}
                 onReveal={() => {
                   void reveal("phone");
                 }}
@@ -750,7 +773,7 @@ export function PersonPanel({
                 masked
                 present={person.hasPersonalIdentityNumber}
                 value={revealed.personalIdentityNumber ?? null}
-                revealing={revealing === "personalIdentityNumber"}
+                revealing={revealing.has("personalIdentityNumber")}
                 onReveal={() => {
                   void reveal("personalIdentityNumber");
                 }}
@@ -779,7 +802,7 @@ export function PersonPanel({
                   // nothing to show, and no reason to ask a second time.
                   present={revealedPostalAddress !== ""}
                   value={revealedPostalAddress ?? null}
-                  revealing={revealing === "postalAddress"}
+                  revealing={revealing.has("postalAddress")}
                   onReveal={() => {
                     void reveal("postalAddress");
                   }}
