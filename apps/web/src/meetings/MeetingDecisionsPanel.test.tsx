@@ -109,6 +109,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={onChanged}
       />,
     );
@@ -149,6 +151,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -178,6 +182,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -213,6 +219,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -255,6 +263,8 @@ describe("what the meeting decided", () => {
           ],
         })}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -278,6 +288,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting({ concludedAt: null })}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
