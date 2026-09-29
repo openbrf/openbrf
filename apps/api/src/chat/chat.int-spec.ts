@@ -882,6 +882,15 @@ describe("the purge", () => {
       expect(await purge.eligible(now, 365)).toContain(resident.personId);
       await purge.purgePerson(resident.personId, now, 365);
 
+      const where = { personId: resident.personId };
+      expect(await prisma.chatGroupMember.count({ where })).toBe(0);
+      expect(await prisma.chatRead.count({ where })).toBe(0);
+      expect(
+        await prisma.chatMessageReport.count({
+          where: { reporterPersonId: resident.personId },
+        }),
+      ).toBe(0);
+      // And the closing purge, counting the same rows, finds nothing owed.
       await expect(
         erasureRemainder(prisma, resident.personId, now),
       ).resolves.toEqual([]);
