@@ -267,6 +267,26 @@ describe("requestMagicLink", () => {
     });
   });
 
+  it("keeps an escaped consent query intact through the emailed link", async () => {
+    signInMagicLink.mockResolvedValue({ data: {}, error: null });
+    const destination =
+      "/app/oauth/consent?client_id=https%3A%2F%2Fapp.example%2Fclient&scope=openid%20email&sig=a%2Bb%3D";
+
+    await requestMagicLink({ email: "a@b.se", destination });
+
+    const [{ callbackURL }] = signInMagicLink.mock.calls[0] as [
+      { callbackURL: string },
+    ];
+    // What Better Auth 1.7 does with it: set as a query parameter on the
+    // verify link, read back from that query, then decoded once more.
+    const link = new URL("https://brf.example/api/auth/magic-link/verify");
+    link.searchParams.set("callbackURL", callbackURL);
+    const landed = decodeURIComponent(
+      new URL(link.toString()).searchParams.get("callbackURL") ?? "",
+    );
+    expect(landed).toBe(destination);
+  });
+
   it("lands the link at the application's start by default", async () => {
     // The plugin's own default is the origin's root, which is the
     // association's public website rather than the application.

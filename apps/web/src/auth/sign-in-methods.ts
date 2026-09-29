@@ -182,7 +182,12 @@ export async function requestMagicLink(input: {
       // Where the verification lands. Better Auth's magic-link plugin has no
       // instance-wide default for this, and its own is the origin's root - which
       // is the association's public website, not the application.
-      callbackURL: input.destination ?? APP_BASE_PATH,
+      //
+      // The plugin decodes the address once more than it encodes it, which
+      // would turn a consent screen's `client_id=https%3A%2F%2F...` into
+      // `client_id=https://...` and break the request's signature. Escaping
+      // the percent signs here is what that extra decode takes off again.
+      callbackURL: (input.destination ?? APP_BASE_PATH).replaceAll("%", "%25"),
     }),
   );
 
