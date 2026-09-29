@@ -63,8 +63,11 @@
     },
     "breachReminder": {
       "subject": "A personal data breach is awaiting your decision: {{title}}",
+      "subjectNotificationOwed": "IMY is still to be notified of a personal data breach: {{title}}",
       "heading": "A personal data breach is awaiting a decision",
+      "headingNotificationOwed": "IMY is still to be notified of a personal data breach",
       "body": "The association became aware of {{title}} on {{discoveredAt}}. IMY is notified without undue delay and, where feasible, within 72 hours of that, which falls on {{notifyBy}} - unless the board finds the breach unlikely to result in a risk to the people concerned. Nothing has been decided yet.",
+      "bodyNotificationOwed": "The association became aware of {{title}} on {{discoveredAt}}. The board has decided that IMY is to be notified, and no notification is recorded yet. IMY is notified without undue delay and, where feasible, within 72 hours of the association becoming aware, which falls on {{notifyBy}}. Once the notification is made, record when in the data protection records.",
       "action": "Open the data protection records"
     },
     "contactSubmission": {
@@ -4597,19 +4600,24 @@
       "none": "No breach is recorded.",
       "decide": "Decide",
       "decideNamed": "Decide on {{title}}",
+      "recordNotification": "Record the notification",
+      "recordNotificationNamed": "Record the notification to IMY about {{title}}",
       "save": "Save the decision",
       "saving": "Saving...",
+      "saveNotification": "Save the notification",
       "hoursLeft": "{{hours}} hours left of the 72.",
       "discoveredOn": "Discovered {{date}}.",
       "riskLabel": "Risk to the people concerned",
       "imyRequired": "IMY is to be notified",
       "imyGround": "Ground for the decision about IMY",
       "imyNotifiedAt": "Notified to IMY",
+      "imyReference": "IMY's reference (optional)",
       "delayReasons": "Reasons for the delay (art. 33(1))",
       "subjectsRequired": "The people affected are to be told",
       "subjectsGround": "Exemption under art. 34(3)",
       "state": {
         "awaitingDecision": "Awaiting a decision",
+        "notificationOwed": "Awaiting the notification to IMY",
         "overdue": "Past the bound",
         "decided": "Decided",
         "closed": "Closed"
@@ -4618,18 +4626,22 @@
         "riskInconsistent": "IMY is notified unless the breach is unlikely to result in a risk. Change the risk or the decision.",
         "subjectsGroundRequired": "At a high risk, not telling the people affected needs a ground under art. 34(3).",
         "delayReasonsRequired": "A notification made after 72 hours carries the reasons for the delay.",
+        "notifiedOutOfRange": "The date IMY was notified comes after the breach was discovered, and cannot be in the future.",
         "alreadyDecided": "This breach has already been decided.",
         "alreadySubject": "That person is already recorded on this breach.",
         "personalIdentityNumber": "Write it without a personal identity number.",
-        "unknown": "The decision could not be saved just now."
+        "unknown": "The decision could not be saved just now.",
+        "unknownNotification": "The notification could not be saved just now."
       }
     },
     "overview": {
-      "breachesOverdue": "{{count}} personal data breach is past the 72 hours with no decision.",
-      "breachesOverdue_other": "{{count}} personal data breaches are past the 72 hours with no decision.",
+      "breachesOverdue": "{{count}} personal data breach is past the 72 hours with IMY not notified.",
+      "breachesOverdue_other": "{{count}} personal data breaches are past the 72 hours with IMY not notified.",
       "breachesWaiting": "{{count}} personal data breach awaits a decision, {{hours}} hours left.",
       "breachesWaiting_other": "{{count}} personal data breaches await a decision, {{hours}} hours left on the nearest.",
-      "breachesNone": "No personal data breach awaits a decision.",
+      "breachesNotificationOwed": "{{count}} personal data breach is decided and IMY is not notified yet, {{hours}} hours left.",
+      "breachesNotificationOwed_other": "{{count}} personal data breaches are decided and IMY is not notified yet, {{hours}} hours left on the nearest.",
+      "breachesNone": "No personal data breach awaits a decision or a notification to IMY.",
       "requestsOverdue": "{{count}} request is past the month you have to answer in.",
       "requestsOverdue_other": "{{count}} requests are past the month you have to answer in.",
       "requestsOpen": "{{count}} request awaits an answer.",

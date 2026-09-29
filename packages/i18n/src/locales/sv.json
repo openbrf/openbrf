@@ -63,8 +63,11 @@
     },
     "breachReminder": {
       "subject": "En personuppgiftsincident väntar på beslut: {{title}}",
+      "subjectNotificationOwed": "IMY ska ännu underrättas om en personuppgiftsincident: {{title}}",
       "heading": "En personuppgiftsincident väntar på beslut",
+      "headingNotificationOwed": "IMY ska ännu underrättas om en personuppgiftsincident",
       "body": "Föreningen fick kännedom om {{title}} den {{discoveredAt}}. IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från dess, vilket infaller {{notifyBy}} - om inte styrelsen bedömer att incidenten sannolikt inte medför någon risk för de registrerade. Något beslut är ännu inte fattat.",
+      "bodyNotificationOwed": "Föreningen fick kännedom om {{title}} den {{discoveredAt}}. Styrelsen har beslutat att IMY ska underrättas, och ingen underrättelse är antecknad ännu. IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från det att föreningen fick kännedom, vilket infaller {{notifyBy}}. När underrättelsen är gjord antecknar ni när i dataskyddsuppgifterna.",
       "action": "Öppna dataskyddsuppgifterna"
     },
     "contactSubmission": {
@@ -4597,19 +4600,24 @@
       "none": "Ingen incident är antecknad.",
       "decide": "Fatta beslut",
       "decideNamed": "Fatta beslut om {{title}}",
+      "recordNotification": "Anteckna underrättelsen",
+      "recordNotificationNamed": "Anteckna underrättelsen till IMY om {{title}}",
       "save": "Spara beslutet",
       "saving": "Sparar...",
+      "saveNotification": "Spara underrättelsen",
       "hoursLeft": "{{hours}} timmar kvar till 72-timmarsgränsen.",
       "discoveredOn": "Upptäckt {{date}}.",
       "riskLabel": "Risk för de registrerade",
       "imyRequired": "IMY ska underrättas",
       "imyGround": "Skäl för beslutet om IMY",
       "imyNotifiedAt": "Underrättad till IMY",
+      "imyReference": "IMY:s diarienummer (frivilligt)",
       "delayReasons": "Skäl för dröjsmålet (art. 33.1)",
       "subjectsRequired": "De registrerade ska underrättas",
       "subjectsGround": "Undantag enligt art. 34.3",
       "state": {
         "awaitingDecision": "Väntar på beslut",
+        "notificationOwed": "Väntar på underrättelse till IMY",
         "overdue": "Över tiden",
         "decided": "Beslutad",
         "closed": "Avslutad"
@@ -4618,18 +4626,22 @@
         "riskInconsistent": "IMY underrättas om det inte är osannolikt att incidenten medför en risk. Ändra risken eller beslutet.",
         "subjectsGroundRequired": "Vid hög risk krävs ett skäl enligt art. 34.3 för att inte underrätta de registrerade.",
         "delayReasonsRequired": "En underrättelse efter 72 timmar ska åtföljas av skälen för dröjsmålet.",
+        "notifiedOutOfRange": "Datumet då IMY underrättades ska ligga efter att incidenten upptäcktes och kan inte ligga i framtiden.",
         "alreadyDecided": "Incidenten är redan beslutad.",
         "alreadySubject": "Personen är redan antecknad på incidenten.",
         "personalIdentityNumber": "Skriv utan personnummer.",
-        "unknown": "Beslutet kunde inte sparas just nu."
+        "unknown": "Beslutet kunde inte sparas just nu.",
+        "unknownNotification": "Underrättelsen kunde inte sparas just nu."
       }
     },
     "overview": {
-      "breachesOverdue": "{{count}} personuppgiftsincident har passerat 72-timmarsgränsen utan beslut.",
-      "breachesOverdue_other": "{{count}} personuppgiftsincidenter har passerat 72-timmarsgränsen utan beslut.",
+      "breachesOverdue": "{{count}} personuppgiftsincident har passerat 72-timmarsgränsen utan att IMY underrättats.",
+      "breachesOverdue_other": "{{count}} personuppgiftsincidenter har passerat 72-timmarsgränsen utan att IMY underrättats.",
       "breachesWaiting": "{{count}} personuppgiftsincident väntar på beslut, {{hours}} timmar kvar.",
       "breachesWaiting_other": "{{count}} personuppgiftsincidenter väntar på beslut, {{hours}} timmar kvar för den närmaste.",
-      "breachesNone": "Ingen personuppgiftsincident väntar på beslut.",
+      "breachesNotificationOwed": "{{count}} personuppgiftsincident är beslutad och IMY är ännu inte underrättad, {{hours}} timmar kvar.",
+      "breachesNotificationOwed_other": "{{count}} personuppgiftsincidenter är beslutade och IMY är ännu inte underrättad, {{hours}} timmar kvar för den närmaste.",
+      "breachesNone": "Ingen personuppgiftsincident väntar på beslut eller underrättelse till IMY.",
       "requestsOverdue": "{{count}} begäran har passerat månaden ni har på er att svara.",
       "requestsOverdue_other": "{{count}} begäranden har passerat månaden ni har på er att svara.",
       "requestsOpen": "{{count}} begäran väntar på svar.",

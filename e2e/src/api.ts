@@ -946,7 +946,8 @@ export type BreachRow = {
   readonly breachId: string;
   readonly title: string;
   readonly discoveredAt: string;
-  readonly state: "awaitingDecision" | "overdue" | "decided" | "closed";
+  readonly state:
+    "awaitingDecision" | "notificationOwed" | "overdue" | "decided" | "closed";
 };
 
 /**

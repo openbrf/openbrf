@@ -291,6 +291,23 @@ async function perform(page: Page, action: Action): Promise<void> {
     await locate(page, action.select).selectOption({ label: action.option });
     return;
   }
+  if ("recordBreach" in action) {
+    const breach = action.recordBreach;
+    // The page's own request context, so the breach is recorded by whoever
+    // the walk is signed in as, with that browser's session and address.
+    await api.recordPersonalDataBreach(page.request, stack.baseUrl, {
+      title: breach.title,
+      description: breach.description,
+      discoveredAt: new Date(
+        Date.now() - breach.discoveredHoursAgo * 60 * 60 * 1000,
+      ),
+      dataDescription: breach.dataDescription,
+      effects: breach.effects,
+      measures: breach.measures,
+    });
+    await page.reload();
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.
