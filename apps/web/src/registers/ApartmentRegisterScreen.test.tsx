@@ -445,6 +445,45 @@ describe("noting a lien", () => {
     });
   });
 
+  it("reads an amount typed with a decimal comma and grouped with spaces", async () => {
+    // The field offers a Swedish keyboard its comma key, and the API reads only
+    // a point.
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Notera pant/ }),
+    );
+    await session.type(screen.getByLabelText(/Panthavare/), "Handelsbanken");
+    await session.type(screen.getByLabelText(/Anteckningsdag/), "2026-03-14");
+    await session.type(screen.getByLabelText(/^Belopp/), "1 500 000,50");
+    await session.click(screen.getByRole("button", { name: /Notera panten/ }));
+
+    expect(noteLien).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: "1500000.50" }),
+    );
+  });
+
+  it("names the amount when a lien is refused", async () => {
+    noteLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Notera pant/ }),
+    );
+    await session.type(screen.getByLabelText(/Panthavare/), "Handelsbanken");
+    await session.type(screen.getByLabelText(/Anteckningsdag/), "2026-03-14");
+    await session.click(screen.getByRole("button", { name: /Notera panten/ }));
+
+    expect(
+      (await screen.findByText(/Panten kunde inte registreras/)).textContent,
+    ).toMatch(/belopp/);
+  });
+
   it("notes the lien once however often the form is submitted", async () => {
     // lien_note is append-only with no uniqueness rule, so a second click on a
     // slow request writes a second lien into the statutory register.
