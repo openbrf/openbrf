@@ -539,11 +539,12 @@ describe("serving a file with S3 behind it", () => {
     expect(response.statusCode).toBe(200);
   });
 
-  it("refuses an internal file to a visitor with no session", async () => {
+  it("refuses an internal file to a visitor with no session, and to an account without its capability", async () => {
     const internal = await app.get(MediaService).upload({
       bytes: pngBytes(20, 20),
       fileName: "gard.png",
       visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
       showsIdentifiablePersons: true,
       uploadedByPersonId: admin.personId,
       channel: "WEB",
@@ -557,7 +558,8 @@ describe("serving a file with S3 behind it", () => {
     });
 
     expect(anonymous.statusCode).toBe(404);
-    expect(signedIn.statusCode).toBe(200);
+    // Signed in is not enough: an INTERNAL file is its capability's.
+    expect(signedIn.statusCode).toBe(404);
   });
 
   it("serves a capability-restricted file to a holder only, and records the read", async () => {

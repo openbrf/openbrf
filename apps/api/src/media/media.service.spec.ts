@@ -92,6 +92,8 @@ interface Fakes {
   service: MediaService;
   rows: Map<string, Row>;
   residencies: ResidencyRow[];
+  /** Issue photos, as the file each is and who reported its issue. */
+  issuePhotos: { fileId: string; reporterPersonId: string }[];
   objects: Map<string, Buffer>;
   audited: AuditedEntry[];
   storage: {
@@ -118,6 +120,7 @@ function build(
 ): Fakes {
   const rows = new Map<string, Row>();
   const residencies = options.residencies ?? [];
+  const issuePhotos: Fakes["issuePhotos"] = [];
   const objects = new Map<string, Buffer>();
   const audited: AuditedEntry[] = [];
   let nextId = 0;
@@ -245,9 +248,25 @@ function build(
     ),
   };
 
+  const issuePhoto = {
+    count: vi.fn(
+      async ({
+        where,
+      }: {
+        where: { fileId: string; issue: { reporterPersonId: string } };
+      }) =>
+        issuePhotos.filter(
+          (photo) =>
+            photo.fileId === where.fileId &&
+            photo.reporterPersonId === where.issue.reporterPersonId,
+        ).length,
+    ),
+  };
+
   const prisma = {
     mediaFile,
     residency,
+    issuePhoto,
     /*
      * Rolls back, because that is the property under test rather than a
      * convenience. A statement that succeeded inside a transaction whose later
@@ -311,6 +330,7 @@ function build(
     service,
     rows,
     residencies,
+    issuePhotos,
     objects,
     audited,
     storage,
@@ -581,11 +601,27 @@ describe("uploading", () => {
       bytes: pngBytes(10, 10),
       fileName: "sommarfest.png",
       visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
       showsIdentifiablePersons: true,
       channel: "WEB",
     });
 
     expect(file.showsIdentifiablePersons).toBe(true);
+  });
+
+  it("refuses an internal file that names no capability, and stores nothing", async () => {
+    // It would be readable by every account that held its id.
+    await expect(
+      fakes.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "brev.png",
+        visibility: "INTERNAL",
+        showsIdentifiablePersons: true,
+        channel: "SYSTEM",
+      }),
+    ).rejects.toThrow("names the capability");
+    expect(fakes.objects.size).toBe(0);
+    expect(fakes.rows.size).toBe(0);
   });
 
   it("writes the upload to the audit log", async () => {
@@ -630,11 +666,15 @@ describe("serving", () => {
       bytes?: Buffer;
     } = {},
   ): Promise<string> {
+    const visibility = overrides.visibility ?? "INTERNAL";
     const file = await fakes.service.upload({
       bytes: overrides.bytes ?? pngBytes(10, 10),
       fileName: "logotyp.png",
-      visibility: overrides.visibility ?? "INTERNAL",
-      requiredCapability: overrides.requiredCapability,
+      visibility,
+      // An INTERNAL file always names one; see the upload refusal above.
+      requiredCapability:
+        overrides.requiredCapability ??
+        (visibility === "INTERNAL" ? "issues:handle" : undefined),
       showsIdentifiablePersons: false,
       channel: "WEB",
     });
@@ -678,7 +718,9 @@ describe("serving", () => {
 
       const served = await fakes.service.open(
         id,
-        principal({ isMember: true }),
+        visibility === "INTERNAL"
+          ? withCapability("issues:handle")
+          : principal({ isMember: true }),
       );
 
       expect(served.byteSize).toBe(bytes.length);
@@ -821,12 +863,31 @@ describe("serving", () => {
     expect((refused as MediaError).status).toBe((absent as MediaError).status);
   });
 
-  it("serves an internal file to anyone signed in", async () => {
+  it("refuses an internal file to a signed-in account without its capability", async () => {
     const id = await upload({ visibility: "INTERNAL" });
+
+    await expect(fakes.service.open(id, principal())).rejects.toMatchObject({
+      reason: "not-found",
+    });
+  });
+
+  it("serves an issue's photo to the person who reported the issue", async () => {
+    const id = await upload({
+      visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
+    });
+    fakes.issuePhotos.push({ fileId: id, reporterPersonId: "person-1" });
 
     await expect(fakes.service.open(id, principal())).resolves.toMatchObject({
       contentType: "image/png",
     });
+    // Their own report: not a read by capability, and not logged as one.
+    expect(
+      fakes.audited.filter((entry) => entry.action === "MEDIA_ACCESSED"),
+    ).toEqual([]);
+    await expect(
+      fakes.service.open(id, principal({ personId: "person-2" })),
+    ).rejects.toMatchObject({ reason: "not-found" });
   });
 
   it("narrows a file to the capability it names", async () => {
@@ -903,7 +964,6 @@ describe("serving", () => {
       visibility: "INTERNAL",
       requiredCapability: "memberRegister:read",
     });
-    const ordinary = await upload({ visibility: "INTERNAL" });
     const open = await upload({ visibility: "PUBLIC" });
     const members = await upload({
       visibility: "MEMBER",
@@ -911,7 +971,6 @@ describe("serving", () => {
     });
 
     await fakes.service.open(restricted, withCapability("memberRegister:read"));
-    await fakes.service.open(ordinary, principal());
     await fakes.service.open(open, null);
     await fakes.service.open(members, principal({ isMember: true }));
     await fakes.service.open(members, withCapability("documents:manage"));

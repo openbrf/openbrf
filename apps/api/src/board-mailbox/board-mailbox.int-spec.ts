@@ -810,6 +810,14 @@ describe("collecting the mailbox", () => {
       const attachment = full.messages?.[0]?.attachments[0];
       expect(attachment?.fileName).toBe("tak.png");
       expect(attachment?.url).toMatch(/^\/api\/media\//);
+
+      // A letter to the board is read by whoever handles its mail: a
+      // resident or the property manager holding the address reads nothing.
+      const read = (cookie: string) =>
+        inject({ method: "GET", url: attachment?.url ?? "", headers: { cookie } });
+      expect((await read(residentCookie)).statusCode).toBe(404);
+      expect((await read(managerCookie)).statusCode).toBe(404);
+      expect((await read(boardCookie)).statusCode).toBe(200);
     } finally {
       await server.close();
     }

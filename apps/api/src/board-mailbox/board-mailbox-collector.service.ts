@@ -835,6 +835,8 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           fileName: attachment.fileName,
           accept,
           visibility: "INTERNAL",
+          // Letters to the board are read by whoever handles its mail.
+          requiredCapability: "boardMailbox:handle",
           showsIdentifiablePersons: accept === "image" ? true : undefined,
           uploadedByPersonId: null,
           // The collector is a job: no person asked for this file to be stored.
