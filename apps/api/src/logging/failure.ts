@@ -88,9 +88,9 @@ export function failureName(cause: unknown): string {
  * The stack's call frames, without any of its message lines.
  *
  * A V8 stack begins with `Name: message` and a multi-line message runs on over
- * the lines below it, so the frames are selected rather than the first line
- * dropped: only a line beginning with `at ` is a frame, and no line a message
- * spans can be mistaken for one.
+ * the lines below it. That block is cut off first, since a message line can
+ * itself begin with `at ` - "at anna@example.se" is one - and then only a line
+ * beginning with `at ` is kept as a frame.
  *
  * What survives is function names and file paths. Those are in the same
  * category as a class name - written into the source, not composed from the
@@ -103,7 +103,12 @@ export function failureFrames(cause: unknown): string | undefined {
     return undefined;
   }
 
-  const frames = cause.stack
+  const head = String(cause);
+  const stack = cause.stack.startsWith(head)
+    ? cause.stack.slice(head.length)
+    : cause.stack;
+
+  const frames = stack
     .split("\n")
     .filter((line) => line.trimStart().startsWith("at "))
     .slice(0, MAX_FRAMES);
