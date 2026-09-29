@@ -30,7 +30,7 @@ import {
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 const MODE_LABEL: Readonly<Record<BookingResourceMode, TranslationKey>> = {
   TIME_SLOTS: "settings.bookableResources.mode.TIME_SLOTS",
@@ -68,7 +68,17 @@ const RESOURCE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "resource-not-found": "settings.bookableResources.errors.resourceNotFound",
   "resource-deactivated": "settings.bookableResources.errors.resourceWithdrawn",
   "resource-in-use": "settings.bookableResources.errors.resourceInUse",
-  "invalid-body": "settings.bookableResources.errors.unknown",
+};
+
+/** The form's label for each field a schema refusal can name. */
+const INPUT_LABELS: Readonly<Record<string, TranslationKey>> = {
+  name: "settings.bookableResources.name",
+  description: "settings.bookableResources.descriptionLabel",
+  slotMinutes: "settings.bookableResources.slotMinutes",
+  opensAtMinute: "settings.bookableResources.opensAt",
+  closesAtMinute: "settings.bookableResources.closesAt",
+  maxConcurrentBookings: "settings.bookableResources.maxConcurrentBookings",
+  maxBookingsPerWeek: "settings.bookableResources.maxBookingsPerWeek",
 };
 
 /**
@@ -328,12 +338,12 @@ export function BookableResourcesPanel(): ReactElement {
           </Notice>
         ) : failure === null ? null : (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                RESOURCE_FAILURES,
-                "settings.bookableResources.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              RESOURCE_FAILURES,
+              "settings.bookableResources.errors.unknown",
+              INPUT_LABELS,
             )}
             {scanned.length === 0
               ? null
@@ -591,6 +601,8 @@ function ResourceFields({
           <input
             type="text"
             name="resourceName"
+            required
+            maxLength={100}
             autoComplete="off"
             placeholder={t("settings.bookableResources.namePlaceholder")}
             value={draft.name}
@@ -630,6 +642,7 @@ function ResourceFields({
         <textarea
           name="resourceDescription"
           rows={2}
+          maxLength={1000}
           value={draft.description}
           disabled={disabled}
           onChange={(event) => {

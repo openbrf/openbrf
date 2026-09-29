@@ -999,6 +999,9 @@
     "readOnlyNotice": "Du kan se de här inställningarna men inte ändra dem.",
     "errors": {
       "unknown": "Det kunde inte sparas just nu. Försök igen.",
+      "invalidBody": "Något i formuläret godtogs inte. Kontrollera uppgifterna och spara igen.",
+      "fieldsRefused_one": "{{fields}} godtogs inte. Rätta fältet och spara igen.",
+      "fieldsRefused_other": "{{fields}} godtogs inte. Rätta fälten och spara igen.",
       "loadFailed": "Inställningarna kunde inte hämtas just nu.",
       "forbidden": "Ditt konto får inte ändra detta.",
       "housingCooperativeMissing": "Namnge föreningen först; de övriga inställningarna hänger på den."
