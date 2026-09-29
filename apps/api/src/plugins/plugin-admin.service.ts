@@ -191,9 +191,8 @@ export interface InstallRequest {
    * Omitted by the command-line tool, which records no classification: the
    * recipient reads as not recorded until the board answers on the screen.
    *
-   * Only for a plugin the record does not yet classify. An answer for one it
-   * does is refused, because changing a classification is the data protection
-   * screen's act and not the install's.
+   * Only for a plugin the record does not yet classify; an answer for one it
+   * does is refused.
    */
   processorAgreement?: {
     sendsPersonalDataOutside: boolean;
@@ -551,12 +550,8 @@ export class PluginAdminService {
      * recipient answer; a direct caller of the API, such as a script, can send
      * one without any screen's checks in front of it.
      *
-     * Neither can change a classification the record already holds. The
-     * consent step asks only where there is none, so an answer for a plugin
-     * that has one comes from a screen opened before somebody classified it, or
-     * from a caller with no screen at all - and recording it would let the
-     * permission to install plugins turn an agreement the board recorded as in
-     * place back into one being made. That is the data protection screen's act.
+     * Neither can change a classification the record already holds; see
+     * {@link PluginRecipientAlreadyRecordedError}.
      */
     if (
       request.processorAgreement !== undefined &&
@@ -590,10 +585,10 @@ export class PluginAdminService {
      * The recipient is keyed on the plugin id rather than on the installed row,
      * so it survives the reinstall that rewrites that row.
      *
-     * Only where the record is still empty. The check above is a read taken
-     * before the consent row; a classification written on the data protection
-     * screen in between is kept, and this install goes on without its answer
-     * rather than failing after the consent is already committed.
+     * Only where the record is still empty: the check above was taken before
+     * the consent row, so a classification written in between is kept and this
+     * install goes on without its answer rather than failing after the consent
+     * is already committed.
      */
     if (agreement !== undefined) {
       await this.processors.record(

@@ -4,7 +4,6 @@ import type { TFunction } from "i18next";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
 import type {
   AuditChannel,
   ProcessorAgreementStatus,
@@ -12,6 +11,7 @@ import type {
   ProcessorKind,
 } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { lockProcessorAgreement } from "./processor-agreement-lock";
 import { externalProcessorKey, parseProcessorKey } from "./processor-key";
 import {
   currentProcessors,
@@ -407,16 +407,7 @@ export class ProcessorAgreementService {
     let replaced = false;
 
     await this.prisma.$transaction(async (tx) => {
-      /*
-       * One writer per recipient at a time. One open row per recipient is what
-       * `list` and `forPlugins` read the record through, and at READ COMMITTED
-       * two writers can both close the same row and both insert, leaving a
-       * dated record that says the association agreed two different things
-       * with one recipient over the same period. It is also what makes
-       * `onlyIfUnrecorded` a decision rather than a race: the row it finds
-       * absent cannot be written by the data protection screen before this
-       * insert commits.
-       */
+      // One writer per recipient at a time; see the lock for why.
       await lockProcessorAgreement(tx, processorKey);
 
       if (onlyIfUnrecorded) {
@@ -494,23 +485,6 @@ export class ProcessorAgreementService {
     }
     return view;
   }
-}
-
-/**
- * The lock a transaction takes before it writes a recipient's row.
- *
- * An advisory lock rather than a constraint: "one open row per recipient" is a
- * partial uniqueness Prisma's schema cannot state, and the rows are few and
- * written by hand, so a writer waiting a moment for another is never felt. Held
- * in this one place because every writer has to use the same key for it to
- * serialise anything. Taken for the transaction, so the commit or the rollback
- * releases it.
- */
-async function lockProcessorAgreement(
-  tx: Prisma.TransactionClient,
-  processorKey: string,
-): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`processor-agreement:${processorKey}`}))`;
 }
 
 /**

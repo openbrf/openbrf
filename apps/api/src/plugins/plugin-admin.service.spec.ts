@@ -90,6 +90,7 @@ function build(options: Options = {}) {
   );
   const consent = vi.fn(async () => undefined);
   const recordProcessor = vi.fn(async () => undefined);
+  const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
   const record = vi.fn(async () => undefined);
   /*
@@ -134,10 +135,7 @@ function build(options: Options = {}) {
       record: recordProcessor,
       forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
-    {
-      seedPlugin: vi.fn(async () => undefined),
-      endPlugin: vi.fn(async () => undefined),
-    } as never,
+    { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
     { read: async () => FACTS } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
@@ -148,6 +146,7 @@ function build(options: Options = {}) {
     service,
     consent,
     recordProcessor,
+    seedPlugin,
     setActionArmed,
     record,
     prisma,
@@ -768,6 +767,7 @@ describe("an install for a plugin the record already classifies", () => {
     // refuses: no consent row claiming an update that never happened.
     expect(built.recordProcessor).not.toHaveBeenCalled();
     expect(built.consent).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "notAProcessor", "independentController"])(

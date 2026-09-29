@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
@@ -1619,6 +1620,51 @@ describe("processors", () => {
       }),
     ).toBe(auditBefore);
   });
+
+  it("takes the recipient's key before it replaces the recipient's row", async () => {
+    /*
+     * One open row per recipient holds only while writers of one recipient are
+     * ordered: at READ COMMITTED two of them can both close the row and both
+     * insert. So a classification has to wait while somebody else holds the
+     * recipient's key - read out of `pg_locks`, not inferred from a delay. The
+     * key is spelled out here so that a writer which changed it fails this
+     * instead of passing under a new name.
+     */
+    const key = "processor-agreement:hosting";
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      const classifying = classify("hosting", {
+        classification: "PROCESSOR",
+        status: "PENDING",
+        counterparty: "Driftleverantoren AB",
+      });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+      expect((await classifying).statusCode).toBe(200);
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+    }
+  }, 60_000);
 
   it("answers the plugin views from the same rows", async () => {
     const states = await app.get(ProcessorAgreementService).forPlugins();

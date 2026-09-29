@@ -20,5 +20,5 @@ the consent screen says the record changed since it was opened and that the
 answer is changed on the data protection screen. An install that sends no
 answer goes ahead and leaves the record as it is. The art. 28 write also keeps
 a classification that lands between that check and the install's own write,
-and serialises writers per recipient, so two concurrent classifications can no
-longer leave two open rows for one recipient.
+and serialises concurrent classifications of one recipient, so they can no
+longer leave two open rows for it.
