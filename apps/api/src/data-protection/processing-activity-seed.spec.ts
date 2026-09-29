@@ -380,6 +380,10 @@ describe("seedRows", () => {
       "bookings",
       "contactSubmissions",
       "signupRequestsAndInvitations",
+      // The reporting-obligation notice and the breach reminder, which mail
+      // every board member.
+      "cooperativeHousingRegisterReporting",
+      "personalDataBreaches",
     ] as const) {
       expect(rowFor(key).recipients, key).toContain("smtp.example.test");
       expect(rowFor(key).personalDataCategories, key).toContain("email");
