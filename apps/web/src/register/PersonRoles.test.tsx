@@ -343,12 +343,44 @@ describe("ending a term", () => {
   });
 
   it("says the register keeps an ended term", async () => {
-    renderPanel(ON_THE_BOARD, BOARD_POSITIONS);
+    // On a seat that has ended, so the sentence is read beside what it is
+    // about: the term that ran out is still listed with both of its dates.
+    renderPanel(FORMER_BOARD, BOARD_POSITIONS);
     await screen.findByText("Elsa Nyman");
 
     expect(
       screen.queryByText(/Ett avslutat uppdrag ligger kvar/),
     ).not.toBeNull();
+    expect(screen.queryByText("2020-04-14")).not.toBeNull();
+    expect(screen.queryByText("2022-04-14")).not.toBeNull();
+  });
+
+  it("signs a seat whose end date has not arrived as held", async () => {
+    // The seat still confers what a seat confers until its end date passes
+    // (ADR 0014), so the sign at the top of the panel stays until then. The
+    // list of seats carries one sign per seat as well, so the one at the top is
+    // the second.
+    renderPanel(STANDING_DOWN);
+    await screen.findByText("Elsa Nyman");
+
+    expect(screen.getAllByText("Ordförande")).toHaveLength(2);
+  });
+
+  it("does not sign a seat elected from a day still to come", async () => {
+    renderPanel({
+      ...PERSON,
+      boardPositions: [
+        {
+          boardPositionId: "seat-chair",
+          position: "CHAIR",
+          electedOn: AHEAD,
+          endedOn: null,
+        },
+      ],
+    });
+    await screen.findByText("Elsa Nyman");
+
+    expect(screen.getAllByText("Ordförande")).toHaveLength(1);
   });
 
   it("offers a term ending in the future a correction and not an end", async () => {

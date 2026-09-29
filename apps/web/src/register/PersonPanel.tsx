@@ -245,6 +245,8 @@ export function PersonPanel({
    * not known yet is not offered an end date.
    */
   const [heldSeats, setHeldSeats] = useState<ReadonlySet<string>>(new Set());
+  /** The association's day when the register was read, for the same reason. */
+  const [readOn, setReadOn] = useState("");
   const [endedOn, setEndedOn] = useState("");
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   /*
@@ -306,6 +308,7 @@ export function PersonPanel({
          * offered an act on a term the server no longer treats as running.
          */
         const today = localDayNow();
+        setReadOn(today);
         setHeldSeats(
           new Set(
             detail.boardPositions
@@ -670,7 +673,11 @@ export function PersonPanel({
               <SignChip sign="PROTECTED" />
             ) : null}
             {person.boardPositions
-              .filter((position) => position.endedOn === null)
+              .filter(
+                (position) =>
+                  heldSeats.has(position.boardPositionId) &&
+                  (position.electedOn ?? "") <= readOn,
+              )
               .map((position) => (
                 <SignChip key={position.position} sign={position.position} />
               ))}
@@ -827,7 +834,8 @@ export function PersonPanel({
                         toLabelKey="register.column.movedOut"
                       />
                       <span className="text-small text-ink-muted">
-                        {residency.movedOutOn === null
+                        {residency.movedOutOn === null ||
+                        residency.movedOutOn > readOn
                           ? t("register.person.current")
                           : t("register.person.ended")}
                       </span>
