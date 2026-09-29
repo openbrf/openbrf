@@ -1942,7 +1942,7 @@
         "releaseSubmit": "Registrera avnoteringen",
         "releaseSubmitLabel": "Registrera avnoteringen av panten från {{creditor}}",
         "releasing": "Avnoterar",
-        "failed": "Panten kunde inte registreras. Kontrollera panthavare och datum."
+        "failed": "Panten kunde inte registreras. Kontrollera panthavare, datum och belopp."
       },
       "transfers": {
         "heading": "Upplåtelser och överlåtelser",
@@ -2135,7 +2135,7 @@
           "forbidden": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
           "association-not-set-up": "Föreningens egen post saknas, så filen skulle inte identifiera någon. Slutför uppstarten först.",
           "association-name-missing": "Föreningen har inget namn registrerat, så filen skulle inte identifiera någon. Registrera det i inställningarna först.",
-          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det på lägenhetsförteckningens skärm först.",
+          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det först under Inställningar, Föreningen.",
           "unexpected": "Det inledande uppgiftslämnandet kunde inte tas fram just nu. Försök igen."
         },
         "download": "Spara filen",
