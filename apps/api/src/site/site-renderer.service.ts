@@ -70,18 +70,31 @@ import { visitorLocale } from "./visitor-locale";
  * what somebody typed back to this instance - which is the promise the contact
  * form and the report form are making to the person filling them in.
  *
- * `vary: cookie` because a member-only page answers differently to a visitor
- * carrying a session, and a cache that missed that would serve one visitor's
- * page to another. `no-cache` for the same reason, one layer down: the response
- * may be stored, but it must be revalidated before it is reused.
+ * `frame-ancestors 'self'` because `default-src` does not cover who may frame
+ * the page either: without it any site could put the public forms inside a
+ * frame of its own and dress them as something else.
+ *
+ * `vary: cookie, accept-language` because a member-only page answers
+ * differently to a visitor carrying a session, and the page is rendered in the
+ * language the visitor's browser asks for: a cache that missed either would
+ * serve one visitor's page to another. `no-cache` for the same reason, one
+ * layer down: the response may be stored, but it must be revalidated before it
+ * is reused.
+ *
+ * `referrer-policy: same-origin` so a visitor following a link off the website
+ * does not tell the other host which page they came from. The links carry
+ * noreferrer as well; this is the floor under any link that misses it. Not
+ * `no-referrer`, which would also send `Origin: null` on the forms' own posts
+ * back to this instance.
  */
 export const SITE_HTML_HEADERS: Readonly<Record<string, string>> = {
   "content-type": "text/html; charset=utf-8",
   "x-content-type-options": "nosniff",
   "content-security-policy":
-    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; form-action 'self'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'self'",
   "cache-control": "no-cache",
-  vary: "cookie",
+  "referrer-policy": "same-origin",
+  vary: "cookie, accept-language",
 };
 
 /** What the visitor has just done on the page being rendered, if anything. */
