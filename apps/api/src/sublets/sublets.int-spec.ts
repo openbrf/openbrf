@@ -9,6 +9,8 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import type { SubletApplicationStatus } from "../generated/prisma/enums";
 import {
   loadEnvForIntegrationTests,
@@ -1185,6 +1187,63 @@ describe("the purge", () => {
       });
     }
   }, 60_000);
+
+  it("erases a closed application at once on a granted erasure request, and keeps an open one", async () => {
+    // As the key orders do: brought forward by the request, and counted by the
+    // service-data purge before it may close it.
+    const closed = `su-requested-closed-${suffix}`;
+    const open = `su-requested-open-${suffix}`;
+    await seedApplication({
+      id: closed,
+      personId: member.personId,
+      closedAt: daysBefore(2),
+      periodTo: dayColumn(-1),
+      status: "WITHDRAWN",
+    });
+    await seedApplication({
+      id: open,
+      personId: member.personId,
+      closedAt: null,
+      periodTo: dayColumn(30),
+      status: "SUBMITTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: member.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      member.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: closed } }),
+      ).toBeNull();
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: open } }),
+      ).not.toBeNull();
+      // Nothing owed, and the open ones - this one among them - kept, so the
+      // request stays open rather than being called carried out.
+      expect(await erasureRemainder(prisma, member.personId, NOW)).toEqual([
+        expect.objectContaining({
+          domain: "sublet applications",
+          owed: 0,
+          keptBecause: "an open sublet application is still with the board",
+        }),
+      ]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: member.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
 });
 
 describe("the data subject access report", () => {

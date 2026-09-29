@@ -9,8 +9,18 @@ import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MediaService } from "../media/media.service";
+import {
+  boardMailboxThreadsErasedOnRequest,
+  remainingRunBound,
+} from "../retention/erasure-domains";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
+import {
+  erasureRequestedPersonIds,
+  isErasureInForce,
+  isPersonWithheld,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -36,6 +46,9 @@ const PURGE_CRON = "5 3 * * *";
  * the day the retention window is shortened. Nothing is lost by stopping -
  * eligibility is computed from the data rather than marked on it, so the next
  * night's run finds the rest.
+ *
+ * The threads a granted erasure request reaches are taken before it and cannot
+ * be cut by it: `retention/erasure-domains.ts` has the whole of why.
  */
 const MAX_THREADS_PER_RUN = 500;
 
@@ -108,12 +121,26 @@ export interface BoardMailboxPurgeRunSummary {
  * data subject access report reaches the same rows by the same route and for the
  * same reason.
  *
+ * The address is not the only route. A thread opened with its correspondent
+ * established as a person carries `correspondentPersonId`, and a hold against
+ * that person keeps the thread whatever address the register holds for them
+ * now: a held person who changed or removed their registered address would
+ * otherwise lose the letters they wrote before.
+ *
  * The hold is checked twice: once in the scan, and again inside the transaction
  * that deletes, under the advisory lock in `retention/legal-hold-lock.ts`. The
  * second one is the one that counts, because a hold placed while the run was in
  * flight has to win and the board member who placed it is entitled to assume it
  * did. Held addresses are excluded by the query rather than dropped from its
  * answer, so they cannot spend a run's bound without anything being erased.
+ *
+ * ## A granted erasure request
+ *
+ * Reaches the threads linked to the person by `correspondentPersonId`, the
+ * link the access report lists them by, and erases them on the next run
+ * however recent they are. Only that link: a thread whose correspondent could
+ * not be established as one person is linked to nobody, and erasing on the
+ * strength of an address would be the attribution this module refuses.
  */
 @Injectable()
 export class BoardMailboxPurgeService implements OnModuleInit {
@@ -204,37 +231,66 @@ export class BoardMailboxPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = boardMailboxPurgeCutoff(now, retentionDays);
     const held = await this.heldAddressIndexes();
+    const withheld = await withheldPersonIds(this.prisma);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
-    const threads = await this.prisma.boardMailboxThread.findMany({
-      where: {
-        lastMessageAt: { lte: cutoff },
-        /*
-         * Spelled conditionally rather than as an empty `notIn`, so what the
-         * query asks does not depend on how the client renders a list of none.
-         *
-         * And the null branch beside it, because `NOT IN` in SQL does not answer
-         * true for null - it answers null, and the row is dropped. A thread whose
-         * correspondent carries no index would therefore have been invisible to
-         * this query for as long as any hold stood anywhere in the association,
-         * and invisible to it is never erased: the retention window would pass
-         * and nothing would say so. `purgeThread` reads a null index as nobody
-         * held, and these two have to agree about that.
-         */
-        ...(held.length > 0
-          ? {
-              OR: [
-                { correspondentEmailIndex: { notIn: held } },
-                { correspondentEmailIndex: null },
+    // Every thread linked to them, however recent, and taken ahead of the
+    // bound: see `retention/erasure-domains.ts`.
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.boardMailboxThread.findMany({
+            where: boardMailboxThreadsErasedOnRequest({ in: requested }),
+            orderBy: [{ lastMessageAt: "asc" }],
+            select: { id: true },
+          });
+
+    const bound = remainingRunBound(onRequest.length, MAX_THREADS_PER_RUN);
+    const threads =
+      bound === 0
+        ? []
+        : await this.prisma.boardMailboxThread.findMany({
+            where: {
+              lastMessageAt: { lte: cutoff },
+              AND: [
+                /*
+                 * Spelled conditionally rather than as an empty `notIn`, so
+                 * what the query asks does not depend on how the client renders
+                 * a list of none.
+                 *
+                 * And the null branch beside each, because `NOT IN` in SQL does
+                 * not answer true for null - it answers null, and the row is
+                 * dropped. A thread whose correspondent carries no index, or
+                 * was linked to nobody, would therefore have been invisible to
+                 * this query for as long as any hold stood anywhere in the
+                 * association, and invisible to it is never erased.
+                 * `purgeThread` reads a null as nobody held, and these have to
+                 * agree about that.
+                 */
+                held.length > 0
+                  ? {
+                      OR: [
+                        { correspondentEmailIndex: { notIn: held } },
+                        { correspondentEmailIndex: null },
+                      ],
+                    }
+                  : {},
+                withheld.length > 0
+                  ? {
+                      OR: [
+                        { correspondentPersonId: { notIn: withheld } },
+                        { correspondentPersonId: null },
+                      ],
+                    }
+                  : {},
               ],
-            }
-          : {}),
-      },
-      orderBy: [{ lastMessageAt: "asc" }],
-      take: MAX_THREADS_PER_RUN,
-      select: { id: true },
-    });
+            },
+            orderBy: [{ lastMessageAt: "asc" }],
+            take: bound,
+            select: { id: true },
+          });
 
-    return threads.map((thread) => thread.id);
+    return [...new Set([...onRequest, ...threads].map((thread) => thread.id))];
   }
 
   /**
@@ -254,7 +310,11 @@ export class BoardMailboxPurgeService implements OnModuleInit {
 
     const thread = await this.prisma.boardMailboxThread.findUnique({
       where: { id: threadId },
-      select: { id: true, correspondentEmailIndex: true },
+      select: {
+        id: true,
+        correspondentEmailIndex: true,
+        correspondentPersonId: true,
+      },
     });
     if (thread === null) {
       return false;
@@ -313,9 +373,19 @@ export class BoardMailboxPurgeService implements OnModuleInit {
       if (heldPersonId !== null) {
         return false;
       }
+      // The person the thread was linked to as it was opened, whatever
+      // address the register holds for them now.
+      const linked = thread.correspondentPersonId;
+      if (linked !== null && (await isPersonWithheld(tx, linked))) {
+        return false;
+      }
+      const onRequest =
+        linked !== null && (await isErasureInForce(tx, linked, now));
 
       const { count } = await tx.boardMailboxThread.deleteMany({
-        where: { id: threadId, lastMessageAt: { lte: cutoff } },
+        where: onRequest
+          ? { id: threadId }
+          : { id: threadId, lastMessageAt: { lte: cutoff } },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the thread went, or
@@ -347,7 +417,10 @@ export class BoardMailboxPurgeService implements OnModuleInit {
           // entry outlives the rows it describes by design and the log is exempt
           // from every purge, so anything copied here would be the one copy the
           // purge did not reach.
-          context: { retentionDaysAfterLastMessage: retentionDays },
+          context: {
+            retentionDaysAfterLastMessage: retentionDays,
+            ...(onRequest ? { requested: true } : {}),
+          },
         },
         tx,
       );
