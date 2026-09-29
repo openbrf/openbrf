@@ -2105,15 +2105,20 @@ async function latestTokenIssuedPerClient(
  * on the charges module: the two are separate concepts with separate tables, and
  * this document is the one place that reads both.
  *
- * Both boundaries are closed, on that module's own argument: a residency that
- * ended on the day a period opened did overlap it, and so did one that began on
- * the day it closed. An open end - a rate still in force, which carries no
- * closing date - overlaps every residency that has not ended before it began.
+ * The residency's end is open, as that module's `isResidencyHeldOn` reads it:
+ * the move-out date is the first day the apartment is no longer held (ADR
+ * 0014), so a period that opens on it is the next holder's, and putting its
+ * notice with its amount and payment reference on the seller's report would
+ * disclose a third party's finances (art. 15(4)). The period's own end is
+ * closed, because `appliesUntil` and `periodTo` are inclusive: a residency that
+ * began on the day a period closed did overlap it. An open end - a rate still
+ * in force, which carries no closing date - overlaps every residency that has
+ * not ended by the day it began.
  *
  * Read as calendar days rather than as instants, because these are date columns
  * and a date column read back is midnight UTC.
  */
-function overlapsResidency(
+export function overlapsResidency(
   residencies: readonly {
     apartmentId: string;
     from: Date;
@@ -2135,7 +2140,7 @@ function overlapsResidency(
       residency.until === null ? null : localDayOfColumn(residency.until);
 
     const startsBeforeResidencyEnds =
-      residencyEnd === null || compareLocalDays(start, residencyEnd) <= 0;
+      residencyEnd === null || compareLocalDays(start, residencyEnd) < 0;
     const endsAfterResidencyStarts =
       end === null || compareLocalDays(end, residencyStart) >= 0;
 
