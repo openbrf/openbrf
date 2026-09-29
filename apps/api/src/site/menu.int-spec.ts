@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import { MenuWriteService } from "./menu-write.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -474,6 +475,110 @@ describe("arranging the menu", () => {
     await prisma.page.delete({ where: { id: spareId } });
 
     expect(await prisma.menuItem.count({ where: { id: entry.id } })).toBe(0);
+  });
+});
+
+describe("two board members arranging the menu at once", () => {
+  const actor = { personId: boardMember.personId, channel: "WEB" as const };
+
+  /**
+   * Both calls started together, answering with what each one came to.
+   *
+   * Called on the service rather than through two requests, so the two reads
+   * and the two writes interleave as tightly as the database lets them.
+   */
+  async function together(
+    first: () => Promise<unknown>,
+    second: () => Promise<unknown>,
+  ): Promise<string[]> {
+    const outcomes = await Promise.allSettled([first(), second()]);
+    return outcomes.map((outcome) =>
+      outcome.status === "fulfilled"
+        ? "moved"
+        : String((outcome.reason as { reason?: unknown }).reason),
+    );
+  }
+
+  it("never hangs two entries from each other", async () => {
+    // Several rounds, because one interleaving that happens to serialise
+    // proves nothing. Before the lock, the two checks both read a menu with
+    // both entries at the top, both passed, and both wrote.
+    const menu = app.get(MenuWriteService);
+    for (let round = 0; round < 5; round++) {
+      const a = await addEntry(boardCookie, {
+        kind: "PAGE",
+        pageId: pageIds.home,
+      });
+      const b = await addEntry(boardCookie, {
+        kind: "PAGE",
+        pageId: pageIds.member,
+      });
+
+      const outcomes = await together(
+        () =>
+          menu.update(
+            a.id,
+            { kind: "PAGE", label: "", pageId: pageIds.home, parentId: b.id },
+            actor,
+          ),
+        () =>
+          menu.update(
+            b.id,
+            { kind: "PAGE", label: "", pageId: pageIds.member, parentId: a.id },
+            actor,
+          ),
+      );
+
+      expect(outcomes.sort()).toEqual(["moved", "nesting-too-deep"]);
+      const rows = await prisma.menuItem.findMany({
+        where: { id: { in: [a.id, b.id] } },
+        select: { parentId: true },
+      });
+      expect(rows.filter((row) => row.parentId === null)).toHaveLength(1);
+      await clearMenu();
+    }
+  });
+
+  it("never makes a third level of an entry moved while one is added under it", async () => {
+    const menu = app.get(MenuWriteService);
+    for (let round = 0; round < 5; round++) {
+      const a = await addEntry(boardCookie, {
+        kind: "PAGE",
+        pageId: pageIds.home,
+      });
+      const b = await addEntry(boardCookie, {
+        kind: "PAGE",
+        pageId: pageIds.member,
+      });
+
+      const outcomes = await together(
+        () =>
+          menu.update(
+            a.id,
+            { kind: "PAGE", label: "", pageId: pageIds.home, parentId: b.id },
+            actor,
+          ),
+        async () => {
+          const added = await menu.create(
+            { kind: "PAGE", label: "", pageId: pageIds.child, parentId: a.id },
+            actor,
+          );
+          written.push(added.id);
+        },
+      );
+
+      expect(outcomes.sort()).toEqual(["moved", "nesting-too-deep"]);
+      // Whichever landed first, nothing hangs from an entry that itself hangs.
+      const rows = await prisma.menuItem.findMany({
+        where: { id: { in: written } },
+        select: { id: true, parentId: true },
+      });
+      const hanging = new Set(
+        rows.filter((row) => row.parentId !== null).map((row) => row.id),
+      );
+      expect(rows.filter((row) => hanging.has(row.parentId ?? ""))).toEqual([]);
+      await clearMenu();
+    }
   });
 });
 
