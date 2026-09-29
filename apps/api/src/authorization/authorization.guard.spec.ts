@@ -488,3 +488,55 @@ describe("the per-token budget", () => {
     await expect(send()).rejects.toThrow(TokenRateLimitedError);
   });
 });
+
+describe("a change sent with the session cookie", () => {
+  const change = (headers: Record<string, unknown>, method = "POST") =>
+    ({
+      url: "/api/invitations",
+      method,
+      headers: {
+        cookie: "better-auth.session_token=a-valid-session",
+        ...headers,
+      },
+    }) as unknown as RequestWithPrincipal;
+
+  it.each([
+    ["another origin", { origin: "https://evil.example" }],
+    ["a sibling site", { "sec-fetch-site": "same-site" }],
+    ["another site", { "sec-fetch-site": "cross-site" }],
+  ])(
+    "is refused from %s, before the session is read",
+    async (_name, headers) => {
+      const { guard, personIdFromHeaders } = build({});
+
+      await expect(
+        guard.canActivate(contextFor(change(headers))),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(personIdFromHeaders).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "this application's own pages",
+      { origin: "https://brf.example", "sec-fetch-site": "same-origin" },
+    ],
+    ["a client that is not a browser", {}],
+  ])("is accepted from %s", async (_name, headers) => {
+    const { guard } = build({});
+
+    await expect(guard.canActivate(contextFor(change(headers)))).resolves.toBe(
+      true,
+    );
+  });
+
+  it("leaves a read from another origin alone", async () => {
+    const { guard } = build({});
+
+    await expect(
+      guard.canActivate(
+        contextFor(change({ origin: "https://evil.example" }, "GET")),
+      ),
+    ).resolves.toBe(true);
+  });
+});

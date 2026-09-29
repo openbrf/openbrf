@@ -40,6 +40,9 @@ import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
  */
 const BEARER_SCHEME = "bearer ";
 
+/** The methods that change something, which a page on another site can send. */
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 /**
  * What a bearer token established about the caller.
  *
@@ -77,6 +80,8 @@ export class AuthorizationGuard implements CanActivate {
    * singleton. It is per process by design; token-rate-limit.ts says why.
    */
   private readonly tokens: TokenRateLimiter;
+  /** Where this application's own pages are served from. */
+  private readonly appOrigin: string;
 
   constructor(
     private readonly auth: AuthService,
@@ -87,6 +92,7 @@ export class AuthorizationGuard implements CanActivate {
     @Inject(PROTECTED_RESOURCE) private readonly resource: ProtectedResource,
   ) {
     this.tokens = new TokenRateLimiter(env.OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE);
+    this.appOrigin = new URL(env.APP_URL).origin;
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -122,6 +128,8 @@ export class AuthorizationGuard implements CanActivate {
     ) {
       return await this.bearerOnly(request, context);
     }
+
+    this.refuseForeignOrigin(request);
 
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
@@ -166,6 +174,38 @@ export class AuthorizationGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  /**
+   * Refuses a change sent with the session cookie from a page on another
+   * origin.
+   *
+   * The cookie is SameSite=Lax, which keeps it off a cross-site form post but
+   * not off one from a same-site page: a sibling subdomain under the same
+   * registrable domain, which is how instances are often hosted. A browser
+   * names where a request came from in `Origin` on every POST, PUT, PATCH and
+   * DELETE, and in `Sec-Fetch-Site`, so a change whose page was not this
+   * application is refused here. A request carrying neither was not sent by a
+   * page at all, and a page cannot make a browser drop them.
+   *
+   * Reads are left alone: they change nothing, and the answer is not readable
+   * across origins. The sign-in routes under /api/auth are the library's own,
+   * with an origin check of their own, and the resource route takes no cookie.
+   */
+  private refuseForeignOrigin(request: RequestWithPrincipal): void {
+    if (!UNSAFE_METHODS.has(request.method)) {
+      return;
+    }
+    const origin = request.headers.origin;
+    const site = request.headers["sec-fetch-site"];
+    const foreignOrigin = origin !== undefined && origin !== this.appOrigin;
+    const foreignSite =
+      site !== undefined && site !== "same-origin" && site !== "none";
+    if (foreignOrigin || foreignSite) {
+      throw new ForbiddenException(
+        "A change has to be made from this application's own pages.",
+      );
+    }
   }
 
   /**
