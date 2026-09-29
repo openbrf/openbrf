@@ -37,8 +37,13 @@ export interface AssociationFacts {
   updatedAt: string | null;
 }
 
-/** What a save carries. Every field is written; an emptied one is cleared. */
-export type AssociationFactsInput = Omit<AssociationFacts, "updatedAt">;
+/**
+ * What a save carries. An absent field is left as it is; an emptied one is
+ * cleared.
+ */
+export type AssociationFactsInput = Partial<
+  Omit<AssociationFacts, "updatedAt">
+>;
 
 export function fetchAssociationFacts(): Promise<ApiResult<AssociationFacts>> {
   return apiRequest("GET", "/api/site/facts");
