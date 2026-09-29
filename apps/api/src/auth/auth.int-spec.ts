@@ -196,6 +196,9 @@ describe("magic link and the second-factor policy", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    // Sent after the answer: let it land here rather than in the next test's
+    // capture.
+    await app.get(AuthService).magicLinksSettled();
   });
 
   it("sends no magic link for an account with TOTP enrolled, and says so only by mail", async () => {
@@ -219,6 +222,7 @@ describe("magic link and the second-factor policy", () => {
         payload: { email: `nobody-${suffix}@exempel.se` },
       });
     } finally {
+      await app.get(AuthService).magicLinksSettled();
       restore();
     }
 
@@ -237,6 +241,46 @@ describe("magic link and the second-factor policy", () => {
     expect(enrolled.body).not.toContain("authenticator");
   });
 
+  it("answers at once and alike, whatever the mail server does", async () => {
+    /*
+     * Awaiting delivery made an address with an account answer after an SMTP
+     * round trip, and fail when mail was down, while an unknown address
+     * answered at once: which addresses have accounts was readable from the
+     * outside. The link now goes out after the answer.
+     */
+    const mail = app.get(MailService);
+    const original = mail.send.bind(mail) as MailService["send"];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      mail.send = (() =>
+        held.then(() => {
+          throw new Error("550 recipient refused");
+        })) as unknown as MailService["send"];
+
+      const known = await inject({
+        method: "POST",
+        url: "/api/auth/sign-in/magic-link",
+        payload: { email: plain.email },
+      });
+      const unknown = await inject({
+        method: "POST",
+        url: "/api/auth/sign-in/magic-link",
+        payload: { email: `nobody-else-${suffix}@exempel.se` },
+      });
+
+      // Answered while the mail server still has not replied.
+      expect(known.statusCode).toBe(200);
+      expect(known.body).toBe(unknown.body);
+    } finally {
+      release();
+      await app.get(AuthService).magicLinksSettled();
+      mail.send = original;
+    }
+  });
+
   it("mails nothing to an address that has no account", async () => {
     // The plugin invokes the delivery callback before it checks whether the
     // user exists, so without the guard anyone could make this instance send
@@ -250,6 +294,7 @@ describe("magic link and the second-factor policy", () => {
       });
       expect(response.statusCode).toBe(200);
     } finally {
+      await app.get(AuthService).magicLinksSettled();
       restore();
     }
 
@@ -265,6 +310,7 @@ describe("magic link and the second-factor policy", () => {
         payload: { email: plain.email },
       });
     } finally {
+      await app.get(AuthService).magicLinksSettled();
       restore();
     }
 

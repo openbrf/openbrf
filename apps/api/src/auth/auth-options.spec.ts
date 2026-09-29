@@ -35,6 +35,7 @@ const options = buildAuthOptions(
       Promise.resolve({ exists: false, hasSecondFactor: false }),
     send: () => Promise.resolve(),
     sendSecondFactorNotice: () => Promise.resolve(),
+    background: () => undefined,
   },
   {
     declared: true,
@@ -77,6 +78,7 @@ function recording(state: AccountState): Recorded {
         notices.push(email);
         return Promise.resolve();
       },
+      background: (task) => void task(),
     },
   };
 }
