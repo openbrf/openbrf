@@ -462,11 +462,12 @@ describe("withdrawing a resource", () => {
 
     await session.click(screen.getByRole("button", { name: "Behåll" }));
     expect(deactivateBookableResource).not.toHaveBeenCalled();
-    expect(
+    // And back to the row's own button, so a keyboard keeps its place.
+    expect(document.activeElement).toBe(
       screen.getByRole("button", {
         name: "Ta Tvättstugan i port 12 ur bokning",
       }),
-    ).toBeTruthy();
+    );
   });
 
   it("leaves the resource readable, with what it left standing", async () => {

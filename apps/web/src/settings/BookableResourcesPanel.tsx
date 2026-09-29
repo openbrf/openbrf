@@ -476,13 +476,20 @@ function ResourceRow({
    * Two presses, as disconnecting an app asks for: the API has no route back
    * from a withdrawal. The confirm button takes focus as it appears, because the
    * button that was pressed is gone and the browser would drop focus to the body.
+   * Declining hands focus back to the withdraw button for the same reason, once
+   * the question has been asked; not when the row first renders.
    */
   const [confirming, setConfirming] = useState(false);
   const confirmButton = useRef<HTMLButtonElement | null>(null);
+  const withdrawButton = useRef<HTMLButtonElement | null>(null);
+  const asked = useRef(false);
 
   useEffect(() => {
     if (confirming) {
+      asked.current = true;
       confirmButton.current?.focus();
+    } else if (asked.current) {
+      withdrawButton.current?.focus();
     }
   }, [confirming]);
 
@@ -548,6 +555,7 @@ function ResourceRow({
         ) : (
           <button
             type="button"
+            ref={withdrawButton}
             disabled={busy}
             // The name carries the resource, because every row offers the same
             // act and "withdraw" on its own does not say which one goes.
