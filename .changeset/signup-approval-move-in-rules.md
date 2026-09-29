@@ -22,4 +22,4 @@ unique index keeps one pending request per address.
 
 An approval whose invitation cannot be sent is no longer reported as a failure.
 It answers `invitationSent: false`, and the board's queue says the person is in
-the register and needs an invitation from the address book.
+the register and needs an invitation from the person's own view.
