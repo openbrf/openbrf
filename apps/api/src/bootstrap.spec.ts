@@ -1,7 +1,8 @@
 import type { DynamicModule } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { blame } from "./bootstrap";
+import { blame, listen } from "./bootstrap";
+import { loadEnv } from "./config/env";
 import {
   type BootPlugin,
   emptyPluginBoot,
@@ -172,5 +173,31 @@ describe("blame", () => {
     };
 
     expect(blame(bootWith(viewOnly), new Error("OccupancyModule"))).toBeNull();
+  });
+});
+
+describe("the port the application listens on", () => {
+  const REQUIRED = {
+    DATABASE_URL: "postgresql://openbrf:openbrf@localhost:5432/openbrf",
+    BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+  };
+
+  async function listenedOn(port: string | undefined): Promise<unknown[]> {
+    const app = { listen: vi.fn().mockResolvedValue(undefined) };
+    await listen(app, loadEnv({ ...REQUIRED, PORT: port }));
+    return app.listen.mock.calls[0] as unknown[];
+  }
+
+  it("is the port that was set", async () => {
+    expect(await listenedOn("8080")).toEqual([8080, "0.0.0.0"]);
+  });
+
+  it("is the default when PORT is empty, and not a random port", async () => {
+    // Number("") is 0, which asks the operating system for any free port.
+    expect(await listenedOn("")).toEqual([3000, "0.0.0.0"]);
+  });
+
+  it("is the default when PORT is unset", async () => {
+    expect(await listenedOn(undefined)).toEqual([3000, "0.0.0.0"]);
   });
 });

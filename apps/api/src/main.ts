@@ -1,4 +1,9 @@
-import { createApplication, loadBootEnv, loadPluginsAtBoot } from "./bootstrap";
+import {
+  createApplication,
+  listen,
+  loadBootEnv,
+  loadPluginsAtBoot,
+} from "./bootstrap";
 import { ENV } from "./config/config.module";
 import type { Env } from "./config/env";
 import { registerMultipart } from "./http/multipart";
@@ -59,9 +64,7 @@ async function bootstrap(): Promise<void> {
     },
   );
 
-  // The validated value: an empty PORT reads as unset there, where Number("")
-  // would be 0 and a random port.
-  await app.listen(app.get<Env>(ENV).PORT, "0.0.0.0");
+  await listen(app, app.get<Env>(ENV));
 
   // After listen, so the link is printed only once it opens something, and
   // here rather than in a module hook, so only the process that serves the
