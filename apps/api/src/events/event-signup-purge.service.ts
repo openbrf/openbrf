@@ -259,9 +259,7 @@ export class EventSignupPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = eventSignupPurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
-    const requested = (
-      await erasureRequestedPersonIds(this.prisma, now)
-    ).filter((personId) => !withheld.includes(personId));
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
     /*
      * Every sign-up of theirs, however recent: bringing the purge forward is

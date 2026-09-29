@@ -207,7 +207,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         `Purged ${String(purged)} of ${String(threadIds.length)} eligible board mailbox threads`,
       );
     }
-    if (threadIds.length === MAX_THREADS_PER_RUN) {
+    if (threadIds.length >= MAX_THREADS_PER_RUN) {
       this.logger.log(
         `Board mailbox purge stopped at its per-run bound of ${String(
           MAX_THREADS_PER_RUN,

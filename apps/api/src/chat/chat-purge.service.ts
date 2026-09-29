@@ -470,9 +470,6 @@ export class ChatPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = chatMessagePurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
-    const requested = (
-      await erasureRequestedPersonIds(this.prisma, now)
-    ).filter((personId) => !withheld.includes(personId));
 
     /*
      * Every one of them, whether or not a message of theirs is left: a place
@@ -482,9 +479,8 @@ export class ChatPurgeService implements OnModuleInit {
      * had carried out, and `purgePerson` writes nothing for one who has nothing
      * here.
      */
-    const onRequest = requested;
-
-    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
+    const bound = remainingRunBound(requested.length, MAX_PERSONS_PER_RUN);
     const excluded = [...withheld, ...requested];
     const expired =
       bound === 0
@@ -504,7 +500,7 @@ export class ChatPurgeService implements OnModuleInit {
             take: bound,
           });
 
-    return [...onRequest, ...expired.map((group) => group.authorPersonId)];
+    return [...requested, ...expired.map((group) => group.authorPersonId)];
   }
 
   /**
