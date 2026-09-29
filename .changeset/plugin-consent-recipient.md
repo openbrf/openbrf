@@ -16,7 +16,8 @@ records the plugin as a recipient that is no processor. "Yes" asks who the
 recipient is and whether it is a processor, whose agreement is then recorded as
 being made, or an independent controller, for which the reason no agreement is
 needed is asked as well. An answer carrying a personal identity number holds the
-install shut, because the record refuses one.
+install shut, because the record refuses one; the warning stands directly under
+the field that holds it, and that field takes the error border.
 
 The catalog entry says which personal data a plugin handles and not where it
 sends it, so the question is asked of every plugin, including one that declares

@@ -165,22 +165,17 @@ export function RecipientQuestion({
   const introId = useId();
   const recipientHintId = useId();
   const hintIdPrefix = useId();
-  const warningId = useId();
+  const recipientWarningId = useId();
+  const noteWarningId = useId();
 
   const update = (change: Partial<RecipientDraft>): void => {
     onChange({ ...draft, ...change });
   };
 
-  // Per field, so the one holding the number is the one marked invalid.
+  // Per field, so the one holding the number is the one marked invalid and the
+  // one the warning stands under.
   const { recipient: recipientInvalid, note: noteInvalid } =
     identityNumberIn(draft);
-  const identityNumberTyped = recipientInvalid || noteInvalid;
-
-  /** Marks a field invalid and names the warning, or says nothing. */
-  const invalidAttributes = (
-    invalid: boolean,
-  ): { "aria-invalid"?: true; "aria-errormessage"?: string } =>
-    invalid ? { "aria-invalid": true, "aria-errormessage": warningId } : {};
 
   return (
     <section className="flex flex-col gap-3">
@@ -237,13 +232,21 @@ export function RecipientQuestion({
                 maxLength={200}
                 autoComplete="off"
                 disabled={disabled}
-                aria-describedby={recipientHintId}
-                {...invalidAttributes(recipientInvalid)}
+                aria-invalid={recipientInvalid ? true : undefined}
+                aria-describedby={
+                  recipientInvalid
+                    ? `${recipientWarningId} ${recipientHintId}`
+                    : recipientHintId
+                }
                 onChange={(event) => {
                   update({ recipient: event.target.value });
                 }}
               />
             </label>
+            <IdentityNumberWarning
+              id={recipientWarningId}
+              shown={recipientInvalid}
+            />
             <p id={recipientHintId} className={HINT}>
               {t("plugins.consent.recipient.recipientHint")}
             </p>
@@ -280,48 +283,61 @@ export function RecipientQuestion({
           </fieldset>
 
           {draft.classification === "INDEPENDENT_CONTROLLER" ? (
-            <label className="flex flex-col gap-1">
-              <span className={LABEL}>
-                {t("dataProtection.processors.note")}
-              </span>
-              <textarea
-                className={FIELD}
-                rows={2}
-                value={draft.note}
-                required
-                maxLength={1000}
-                disabled={disabled}
-                {...invalidAttributes(noteInvalid)}
-                onChange={(event) => {
-                  update({ note: event.target.value });
-                }}
-              />
-            </label>
+            <div className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1">
+                <span className={LABEL}>
+                  {t("dataProtection.processors.note")}
+                </span>
+                <textarea
+                  className={FIELD}
+                  rows={2}
+                  value={draft.note}
+                  required
+                  maxLength={1000}
+                  disabled={disabled}
+                  aria-invalid={noteInvalid ? true : undefined}
+                  aria-describedby={noteInvalid ? noteWarningId : undefined}
+                  onChange={(event) => {
+                    update({ note: event.target.value });
+                  }}
+                />
+              </label>
+              <IdentityNumberWarning id={noteWarningId} shown={noteInvalid} />
+            </div>
           ) : null}
-
-          {/*
-            The live region is mounted with the fields and stays, and only the
-            warning inside it comes and goes: a status region inserted together
-            with its message can stay silent (see Notice), and this warning is
-            not a failure that earns an alert. The Notice inside is therefore not
-            live itself, which would nest one region in another. Empty, it takes
-            no room: the negative margin cancels the gap above it.
-          */}
-          <div
-            id={warningId}
-            role="status"
-            aria-live="polite"
-            className="empty:-mt-3"
-          >
-            {identityNumberTyped ? (
-              <Notice tone="warn">
-                {t("dataProtection.processors.errors.personalIdentityNumber")}
-              </Notice>
-            ) : null}
-          </div>
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * The warning that stands directly under the field holding an identity number.
+ *
+ * The live region is mounted with the field and stays, and only the warning
+ * inside it comes and goes: a status region inserted together with its message
+ * can stay silent (see Notice), so the field's own `aria-describedby` names the
+ * message for a reader who is on the field, and the region announces it to one
+ * who is typing. The Notice inside is therefore not live itself, which would
+ * nest one region in another. Empty, the region takes no room: the negative
+ * margin cancels the gap the field's column puts above it.
+ */
+function IdentityNumberWarning({
+  id,
+  shown,
+}: {
+  id: string;
+  shown: boolean;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div id={id} role="status" aria-live="polite" className="empty:-mt-1">
+      {shown ? (
+        <Notice tone="danger">
+          {t("dataProtection.processors.errors.personalIdentityNumber")}
+        </Notice>
+      ) : null}
+    </div>
   );
 }
 

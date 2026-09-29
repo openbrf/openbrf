@@ -12,9 +12,15 @@
  * variants, and nothing here widens that.
  */
 
-/** Text input, select and textarea. min-h-11 is the 44px touch target. */
+/**
+ * Text input, select and textarea. min-h-11 is the 44px touch target.
+ *
+ * A field marked `aria-invalid` takes the error state DESIGN.md fixes: a 2px
+ * danger border, in light and dark alike through the token. The padding gives
+ * back the pixel the wider border takes, so the text does not move.
+ */
 export const FIELD =
-  "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 text-body text-ink";
+  "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 text-body text-ink aria-invalid:border-2 aria-invalid:border-danger aria-invalid:px-[11px]";
 
 /** The data face, for anything that belongs on the mono grid. */
 export const FIELD_DATA = `${FIELD} font-data`;
