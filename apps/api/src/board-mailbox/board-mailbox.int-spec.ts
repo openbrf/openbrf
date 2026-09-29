@@ -23,6 +23,7 @@ import {
   startPop3TestServer,
   type Pop3TestServer,
 } from "./testing/pop3-test-server";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * The shared board mailbox, over HTTP and against a real database.
@@ -1609,37 +1610,10 @@ describe("the purge", () => {
   /**
    * How many transactions hold, or are queued behind, the legal hold registry
    * key, in this worker's database only: the key is the same string in every
-   * worker's, and `pg_locks` shows the whole cluster. `hashtext` gives a signed
-   * int4 and the advisory lock space addresses it as two halves of a bigint,
-   * which is what the shifting reassembles.
+   * worker's, and `pg_locks` shows the whole cluster.
    */
   async function registryLockCount(granted: boolean): Promise<bigint> {
-    const key = "legal-hold:registry";
-    const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-      SELECT count(*) AS locks
-      FROM pg_locks
-      WHERE locktype = 'advisory'
-        AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-        AND granted = ${granted}
-        AND objsubid = 1
-        AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-        AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-    return row?.locks ?? 0n;
-  }
-
-  /** Polls until the condition holds, or gives up so a failure is a failure. */
-  async function waitFor(
-    condition: () => Promise<boolean>,
-    timeoutMs = 20_000,
-  ): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (await condition()) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    throw new Error("Timed out waiting for the purge to block or finish.");
+    return advisoryLockCount(prisma, "legal-hold:registry", granted);
   }
 
   /** A thread written directly, so its clock can be put where a test needs it. */

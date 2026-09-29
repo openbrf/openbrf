@@ -20,6 +20,7 @@ import {
   ImportService,
   type ImportSessionView,
 } from "./import.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * The import from upload to applied register, against a real database and a
@@ -62,10 +63,17 @@ const apartments = {
   e: `imp-apartment-e-${suffix}`,
   /** The one the move-in it overlaps takes. */
   f: `imp-apartment-f-${suffix}`,
-  /** Where the rows that contradict the person they matched are imported. */
+  /** The out-of-order cases: two apartments per person, g to l. */
   g: `imp-apartment-g-${suffix}`,
-  /** Where a row gives a register person an address a later row also has. */
   h: `imp-apartment-h-${suffix}`,
+  i: `imp-apartment-i-${suffix}`,
+  j: `imp-apartment-j-${suffix}`,
+  k: `imp-apartment-k-${suffix}`,
+  l: `imp-apartment-l-${suffix}`,
+  /** Where the rows that contradict the person they matched are imported. */
+  m: `imp-apartment-m-${suffix}`,
+  /** Where a row gives a register person an address a later row also has. */
+  n: `imp-apartment-n-${suffix}`,
 };
 
 const actors = {
@@ -89,6 +97,22 @@ const actors = {
   mover: {
     personId: `imp-mover-${suffix}`,
     email: `imp-mover-${suffix}@exempel.se`,
+  },
+  /**
+   * The out-of-order cases, one person each. Matched by email, and never in
+   * `personIds`: the rows they get are the member register's, which keeps them.
+   */
+  backDater: {
+    personId: `imp-back-${suffix}`,
+    email: `imp-back-${suffix}@exempel.se`,
+  },
+  lateRecorder: {
+    personId: `imp-late-${suffix}`,
+    email: `imp-late-${suffix}@exempel.se`,
+  },
+  newestFirst: {
+    personId: `imp-newest-${suffix}`,
+    email: `imp-newest-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -258,52 +282,21 @@ async function upload(
 }
 
 /**
- * Uploads a file and previews it, which is what the apply now requires: the
- * import that runs is the one the board looked at.
- */
-/**
  * True while a transaction is waiting for this one person's transition lock.
  *
  * This person's, not any: the suite shares its database, and a count of every
  * advisory wait in it would be answered by an unrelated test holding an
  * unrelated lock - which would release the move-in below early and let the case
  * pass without the chunk ever having waited for anything.
- *
- * Postgres addresses the advisory lock space with a 64-bit key and reports it
- * split: the high half in classid, the low half in objid, and objsubid 1 for
- * the one-argument form the lock is taken with. hashtext returns an int4 that
- * the lock function widens to that key, so a negative hash sign-extends and its
- * high half comes back as all ones - which is why both halves are masked out of
- * the key rather than assumed to be zero.
  */
 async function waitsForTransitionLock(personId: string): Promise<boolean> {
-  const key = `residency:${personId}`;
-  const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-    SELECT count(*) AS waiting
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND NOT granted
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return (row?.waiting ?? 0n) > 0n;
+  return (await advisoryLockCount(prisma, `residency:${personId}`, false)) > 0n;
 }
 
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the chunk to block or finish.");
-}
-
+/**
+ * Uploads a file and previews it, which is what the apply now requires: the
+ * import that runs is the one the board looked at.
+ */
 async function uploadAndPreview(
   cookie: string,
   fileName: string,
@@ -467,6 +460,12 @@ beforeAll(async () => {
       { id: apartments.f, addressId, number: "2106", floor: 1 },
       { id: apartments.g, addressId, number: "2107", floor: 1 },
       { id: apartments.h, addressId, number: "2108", floor: 1 },
+      { id: apartments.i, addressId, number: "2109", floor: 1 },
+      { id: apartments.j, addressId, number: "2110", floor: 1 },
+      { id: apartments.k, addressId, number: "2111", floor: 1 },
+      { id: apartments.l, addressId, number: "2112", floor: 1 },
+      { id: apartments.m, addressId, number: "2113", floor: 1 },
+      { id: apartments.n, addressId, number: "2114", floor: 1 },
     ],
   });
 
@@ -489,6 +488,21 @@ beforeAll(async () => {
     personId: actors.mover.personId,
     firstName: "Mover",
     email: actors.mover.email,
+  });
+  await createPerson({
+    personId: actors.backDater.personId,
+    firstName: "Bodil",
+    email: actors.backDater.email,
+  });
+  await createPerson({
+    personId: actors.lateRecorder.personId,
+    firstName: "Lars",
+    email: actors.lateRecorder.email,
+  });
+  await createPerson({
+    personId: actors.newestFirst.personId,
+    firstName: "Nora",
+    email: actors.newestFirst.email,
   });
   await createPerson({
     personId: actors.twinA.personId,
@@ -573,7 +587,7 @@ afterAll(async () => {
   });
   await prisma.apartment.deleteMany({
     where: {
-      id: { in: [apartments.b, apartments.c, apartments.g, apartments.h] },
+      id: { in: [apartments.b, apartments.c, apartments.m, apartments.n] },
     },
   });
   await app.close();
@@ -1038,12 +1052,142 @@ describe("two applies of one session", () => {
   }, 60_000);
 });
 
+describe("a file listing a person's rows out of date order", () => {
+  /*
+   * The same cases the move flows are held to in move.int-spec.ts, entered
+   * through a file instead. The register a file leaves must not depend on which
+   * of a person's apartments it lists first, and must read as the moves would
+   * have left it: an import is how an association's earlier history reaches
+   * the register, and that history is rarely sorted.
+   */
+
+  const OUT_OF_ORDER_HEADERS = [
+    "Adress",
+    "Lägenhetsnummer",
+    "Förnamn",
+    "Efternamn",
+    "Roll",
+    "E-postadress",
+    "Inflyttningsdatum",
+    "Utflyttningsdatum",
+  ];
+
+  function memberRow(
+    actor: { email: string },
+    firstName: string,
+    apartmentNumber: string,
+    movedInOn: string,
+    movedOutOn = "",
+  ): string[] {
+    return [
+      addressLabel,
+      apartmentNumber,
+      firstName,
+      surname,
+      "Medlem",
+      actor.email,
+      movedInOn,
+      movedOutOn,
+    ];
+  }
+
+  async function importRows(cookie: string, rows: string[][]): Promise<void> {
+    const session = await uploadAndPreview(cookie, "historik.csv", [
+      OUT_OF_ORDER_HEADERS,
+      ...rows,
+    ]);
+    const response = await applyImport(cookie, session.sessionId);
+    expect(response.statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }
+
+  async function registerRows(personId: string) {
+    const entries = await prisma.memberRegisterEntry.findMany({
+      where: { personId },
+      orderBy: [{ eventOn: "asc" }, { createdAt: "asc" }],
+      select: { eventType: true, eventOn: true, apartmentId: true },
+    });
+    return entries.map((entry) => ({
+      eventType: entry.eventType,
+      eventOn: entry.eventOn.toISOString().slice(0, 10),
+      apartmentId: entry.apartmentId,
+    }));
+  }
+
+  it("enters a back-dated move-in imported after a later one", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    // Two files, as a board loading its history in two goes would: the later
+    // purchase first, the earlier one after it. The same register the move
+    // flow writes for the same two move-ins.
+    await importRows(cookie, [
+      memberRow(actors.backDater, "Bodil", "2108", "2027-01-01"),
+    ]);
+    await importRows(cookie, [
+      memberRow(actors.backDater, "Bodil", "2107", "2026-10-01"),
+    ]);
+
+    expect(await registerRows(actors.backDater.personId)).toEqual([
+      { eventType: "ENTRY", eventOn: "2026-10-01", apartmentId: apartments.g },
+      { eventType: "ENTRY", eventOn: "2027-01-01", apartmentId: apartments.h },
+    ]);
+  }, 60_000);
+
+  it("writes the EXIT when the earlier move-out is listed first", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    await importRows(cookie, [
+      memberRow(
+        actors.lateRecorder,
+        "Lars",
+        "2110",
+        "2021-01-01",
+        "2026-11-01",
+      ),
+      memberRow(
+        actors.lateRecorder,
+        "Lars",
+        "2109",
+        "2020-01-01",
+        "2026-12-01",
+      ),
+    ]);
+
+    // One membership, ended on the later move-out, exactly as the move flow
+    // records these two apartments.
+    expect(await registerRows(actors.lateRecorder.personId)).toEqual([
+      { eventType: "ENTRY", eventOn: "2020-01-01", apartmentId: apartments.i },
+      { eventType: "EXIT", eventOn: "2026-12-01", apartmentId: apartments.i },
+    ]);
+  }, 60_000);
+
+  it("keeps an earlier membership a file lists after a later one", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    await importRows(cookie, [
+      memberRow(actors.newestFirst, "Nora", "2112", "2022-01-01"),
+      memberRow(actors.newestFirst, "Nora", "2111", "2010-01-01", "2015-01-01"),
+    ]);
+
+    // Listed newest first, this used to read as "member since 2022".
+    expect(await registerRows(actors.newestFirst.personId)).toEqual([
+      { eventType: "ENTRY", eventOn: "2010-01-01", apartmentId: apartments.k },
+      { eventType: "EXIT", eventOn: "2015-01-01", apartmentId: apartments.k },
+      { eventType: "ENTRY", eventOn: "2022-01-01", apartmentId: apartments.l },
+    ]);
+  }, 60_000);
+});
+
 describe("an apply overlapping a move", () => {
   it("waits for the move rather than reading round it", async () => {
-    // Whether a member row begins a membership is decided by counting the
-    // person's other tenant-ownerships, and the chunk reads that count before
+    // Whether a member row begins a membership is decided from the person's
+    // other tenant-ownerships held on its date, and the chunk reads them before
     // the row that would answer it exists. A move-in for the same person
-    // committing inside that window is invisible to the count, so the chunk
+    // committing inside that window is invisible to that read, so the chunk
     // appends a second ENTRY - to a register that refuses UPDATE and DELETE,
     // where two tenant-ownerships are one membership and the mistake can only
     // be answered by a later correction row.
@@ -1439,7 +1583,7 @@ describe("a row that contradicts the person it matched", () => {
     await prisma.residency.create({
       data: {
         personId: people.byName.personId,
-        apartmentId: apartments.g,
+        apartmentId: apartments.m,
         role: "RESIDENT",
         movedInOn: new Date("2018-01-01T00:00:00.000Z"),
       },
@@ -1452,7 +1596,7 @@ describe("a row that contradicts the person it matched", () => {
     ): string[] {
       return [
         addressLabel,
-        "2107",
+        "2113",
         firstName,
         surname,
         "Boende",
@@ -1559,7 +1703,7 @@ describe("a row that contradicts the person it matched", () => {
     // An identity-number match still fills in what the register lacks.
     const byNumber = await stored(people.byNumber.personId);
     expect(byNumber.phoneCipher).not.toBeNull();
-    expect(byNumber.residencies).toEqual([{ apartmentId: apartments.g }]);
+    expect(byNumber.residencies).toEqual([{ apartmentId: apartments.m }]);
 
     // An email match fills in contact details but never an identity number.
     const withoutNumber = await stored(people.withoutNumber.personId);
@@ -1706,7 +1850,7 @@ describe("a row that contradicts a person an earlier row writes", () => {
     await prisma.residency.create({
       data: {
         personId: person.personId,
-        apartmentId: apartments.h,
+        apartmentId: apartments.n,
         role: "RESIDENT",
         movedInOn: new Date("2018-01-01T00:00:00.000Z"),
       },
@@ -1718,7 +1862,7 @@ describe("a row that contradicts a person an earlier row writes", () => {
       header,
       [
         addressLabel,
-        "2108",
+        "2114",
         "Ensam",
         surname,
         "Boende",
@@ -1792,7 +1936,7 @@ describe("a row that contradicts a person an earlier row writes", () => {
       postalStreet: null,
       postalCode: null,
       postalCity: null,
-      residencies: [{ apartmentId: apartments.h }],
+      residencies: [{ apartmentId: apartments.n }],
     });
     expect(
       await prisma.person.count({

@@ -63,8 +63,11 @@
     },
     "breachReminder": {
       "subject": "A personal data breach is awaiting your decision: {{title}}",
+      "subjectNotificationOwed": "IMY is still to be notified of a personal data breach: {{title}}",
       "heading": "A personal data breach is awaiting a decision",
+      "headingNotificationOwed": "IMY is still to be notified of a personal data breach",
       "body": "The association became aware of {{title}} on {{discoveredAt}}. IMY is notified without undue delay and, where feasible, within 72 hours of that, which falls on {{notifyBy}} - unless the board finds the breach unlikely to result in a risk to the people concerned. Nothing has been decided yet.",
+      "bodyNotificationOwed": "The association became aware of {{title}} on {{discoveredAt}}. The board has decided that IMY is to be notified, and no notification is recorded yet. IMY is notified without undue delay and, where feasible, within 72 hours of the association becoming aware, which falls on {{notifyBy}}. Once the notification is made, record when in the data protection records.",
       "action": "Open the data protection records"
     },
     "contactSubmission": {
@@ -785,6 +788,16 @@
         "record": "Record a request",
         "decide": "Decide",
         "close": "Close",
+        "closeReasonLabel": "Why the request is closed",
+        "closeReasonRequired": "Write why the request is closed. The reason stays on the request.",
+        "closeConfirm": "Close the request",
+        "closeCancel": "Cancel",
+        "closeWarning": {
+          "RESTRICTION": "The restriction is lifted, and the person's data is used and purged as before. Tell the person before you close the request (art. 18(3)). A closed request cannot be reopened.",
+          "OBJECTION": "The objection is lifted. The person receives the association's mailings and event invitations again. A closed request cannot be reopened.",
+          "ERASURE": "The erasure will not be carried out. A closed request cannot be reopened.",
+          "other": "A closed request cannot be reopened. If the person asks again, it is recorded as a new request."
+        },
         "save": "Save",
         "saving": "Saving...",
         "kindLabel": "What the person asks for",
@@ -952,8 +965,14 @@
       "password": "Password",
       "passwordHint": "At least 12 characters. A passphrase of a few words is both easier to remember and harder to guess.",
       "submit": "Create the account",
+      "claim": {
+        "label": "Setup code",
+        "hint": "Use the setup link you were given. If you run the instance yourself, the link is in the application's log from when it started.",
+        "fromLink": "You are using the setup link."
+      },
       "errors": {
         "alreadyClaimed": "This instance already has an account, so setup is closed. Sign in instead.",
+        "claimTokenInvalid": "That setup link or code does not work. If the instance has restarted since, use the newest link.",
         "invalidEmail": "That email address could not be read. Check it and try again.",
         "weakPassword": "The password needs at least 12 characters.",
         "unknown": "The account could not be created just now. Please try again."
@@ -2188,6 +2207,8 @@
       "transferPersonRequired": "Choose the new holder, or turn off recording a transfer.",
       "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every grant and every transfer, and the record cannot be removed once written.",
       "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
+      "dateNotACalendarDate": "That date is not on the calendar. Check the day and the month.",
+      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },
@@ -4593,19 +4614,24 @@
       "none": "No breach is recorded.",
       "decide": "Decide",
       "decideNamed": "Decide on {{title}}",
+      "recordNotification": "Record the notification",
+      "recordNotificationNamed": "Record the notification to IMY about {{title}}",
       "save": "Save the decision",
       "saving": "Saving...",
+      "saveNotification": "Save the notification",
       "hoursLeft": "{{hours}} hours left of the 72.",
       "discoveredOn": "Discovered {{date}}.",
       "riskLabel": "Risk to the people concerned",
       "imyRequired": "IMY is to be notified",
       "imyGround": "Ground for the decision about IMY",
       "imyNotifiedAt": "Notified to IMY",
+      "imyReference": "IMY's reference (optional)",
       "delayReasons": "Reasons for the delay (art. 33(1))",
       "subjectsRequired": "The people affected are to be told",
       "subjectsGround": "Exemption under art. 34(3)",
       "state": {
         "awaitingDecision": "Awaiting a decision",
+        "notificationOwed": "Awaiting the notification to IMY",
         "overdue": "Past the bound",
         "decided": "Decided",
         "closed": "Closed"
@@ -4614,18 +4640,22 @@
         "riskInconsistent": "IMY is notified unless the breach is unlikely to result in a risk. Change the risk or the decision.",
         "subjectsGroundRequired": "At a high risk, not telling the people affected needs a ground under art. 34(3).",
         "delayReasonsRequired": "A notification made after 72 hours carries the reasons for the delay.",
+        "notifiedOutOfRange": "The date IMY was notified comes after the breach was discovered, and cannot be in the future.",
         "alreadyDecided": "This breach has already been decided.",
         "alreadySubject": "That person is already recorded on this breach.",
         "personalIdentityNumber": "Write it without a personal identity number.",
-        "unknown": "The decision could not be saved just now."
+        "unknown": "The decision could not be saved just now.",
+        "unknownNotification": "The notification could not be saved just now."
       }
     },
     "overview": {
-      "breachesOverdue": "{{count}} personal data breach is past the 72 hours with no decision.",
-      "breachesOverdue_other": "{{count}} personal data breaches are past the 72 hours with no decision.",
+      "breachesOverdue": "{{count}} personal data breach is past the 72 hours with IMY not notified.",
+      "breachesOverdue_other": "{{count}} personal data breaches are past the 72 hours with IMY not notified.",
       "breachesWaiting": "{{count}} personal data breach awaits a decision, {{hours}} hours left.",
       "breachesWaiting_other": "{{count}} personal data breaches await a decision, {{hours}} hours left on the nearest.",
-      "breachesNone": "No personal data breach awaits a decision.",
+      "breachesNotificationOwed": "{{count}} personal data breach is decided and IMY is not notified yet, {{hours}} hours left.",
+      "breachesNotificationOwed_other": "{{count}} personal data breaches are decided and IMY is not notified yet, {{hours}} hours left on the nearest.",
+      "breachesNone": "No personal data breach awaits a decision or a notification to IMY.",
       "requestsOverdue": "{{count}} request is past the month you have to answer in.",
       "requestsOverdue_other": "{{count}} requests are past the month you have to answer in.",
       "requestsOpen": "{{count}} request awaits an answer.",

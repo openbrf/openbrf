@@ -15,6 +15,7 @@ import {
   pluginIdSchema,
   pluginManifestSchema,
 } from "@openbrf/plugin-sdk";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -70,7 +71,7 @@ const installSchema = z.object({
       status: z.enum(["IN_PLACE", "PENDING"]).optional(),
       counterparty: z.string().trim().max(200).optional(),
       reference: z.string().trim().max(200).optional(),
-      signedOn: z.iso.date().optional(),
+      signedOn: calendarDateSchema.optional(),
       termsConfirmed: z.boolean().optional(),
       subProcessorsAuthorised: z.boolean().optional(),
       subProcessorNote: z.string().trim().max(1000).optional(),

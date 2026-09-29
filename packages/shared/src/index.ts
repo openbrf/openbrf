@@ -13,6 +13,7 @@ export type {
   GenerateApartmentNumbersInput,
 } from "./apartment-numbering.ts";
 export { AUDIT_CHANNELS } from "./audit-channels.ts";
+export { calendarDateSchema } from "./calendar-date-schema.ts";
 export type { AuditChannelName } from "./audit-channels.ts";
 export { DATA_SUBJECT_REPORT_SECTIONS } from "./data-subject-report-sections.ts";
 export type { DataSubjectReportSection } from "./data-subject-report-sections.ts";

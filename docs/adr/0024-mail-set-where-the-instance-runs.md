@@ -61,6 +61,7 @@ Each driver's variables are checked at boot (`apps/api/src/config/env.ts`):
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required     |                                                                                  |
 | `OPENBRF_SMTP_PORT`                          | `smtp`               | 465 with implicit TLS, 587 without                                               |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`               | implicit TLS, `true` or `false` exactly; unset is false                          |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`               | STARTTLS before the sign-in, `true` or `false`; unset, required off loopback     |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`               | both or neither                                                                  |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required | https, or http on loopback; no credentials, query or fragment; a path is allowed |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required | the bearer key                                                                   |
@@ -127,7 +128,10 @@ the selection.
 
 `SmtpMailDriver` requires STARTTLS before it signs in to the environment's relay,
 unless the relay is on loopback, so a relay whose offer of STARTTLS an attacker
-on the path strips gets no password in the clear. A server the board entered is
+on the path strips gets no password in the clear. `OPENBRF_SMTP_REQUIRE_TLS=false`
+lets a host vouch for the network to a relay that offers none, such as a sidecar
+on the Compose network, and the instance logs a warning at start while it is set.
+A server the board entered is
 used as before. The SMTP driver also reports the `Message-ID` it handed over as
 the delivered one, so the environment's relay must keep it; one that rewrites it
 belongs behind `http-api`.

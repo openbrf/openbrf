@@ -1,5 +1,6 @@
 import { loadNearestEnvFile } from "../config/load-env-file";
 import {
+  BASE_URL_VARIABLE,
   redirectToWorker,
   withDatabase,
   workerDatabaseName,
@@ -18,17 +19,6 @@ import {
  * leaves a variable that is already set alone, which is what makes this the one
  * place the decision is made.
  */
-
-/**
- * Where the original connection string is kept.
- *
- * Vitest runs the setup files once per test file and reuses the worker process
- * between them, so this module is evaluated many times against a process.env it
- * has already rewritten. Deriving the worker's database from DATABASE_URL a
- * second time would name it after the first rewrite - openbrf_test_1_test_1 -
- * so the untouched string is kept aside and every derivation starts there.
- */
-const BASE_URL_VARIABLE = "OPENBRF_TEST_BASE_DATABASE_URL";
 
 loadNearestEnvFile();
 
