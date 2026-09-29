@@ -71,13 +71,20 @@ const protectedFlagSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-const publicationConsentSchema = z.object({
-  scope: z.enum(CONSENT_SCOPES),
-  granted: z.boolean(),
-  // What the person said, in the board's words. Bounded like every other free
-  // text the board types into the register.
-  note: z.string().max(500).optional(),
-});
+const publicationConsentSchema = z
+  .object({
+    scope: z.enum(CONSENT_SCOPES),
+    granted: z.boolean(),
+    // What the person said, in the board's words. Bounded like every other free
+    // text the board types into the register.
+    note: z.string().max(500).optional(),
+  })
+  // The note is kept on the row a grant creates. A withdrawal only closes a
+  // row, so a note sent with one would be accepted and stored nowhere.
+  .refine((input) => input.granted || input.note === undefined, {
+    message: "A note goes with a consent that is recorded, not one withdrawn.",
+    path: ["note"],
+  });
 
 const revealSchema = z.object({
   // Bounded and deduplicated. The entry recording who saw a personal identity
