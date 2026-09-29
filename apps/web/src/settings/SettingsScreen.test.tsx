@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -395,6 +395,46 @@ describe("a failed load", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
+    });
+  });
+
+  it("locks the instance panels when the settings cannot be read", async () => {
+    /*
+     * The cooperative write upserts. A form seeded from a read that failed shows
+     * a blank name, and saving it would set the organisation number to null and
+     * the language to Swedish on a cooperative that already has both.
+     */
+    fetchSettings.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    renderScreen([
+      "association:read",
+      "association:manage",
+      "addressBook:read",
+      "addressBook:write",
+      "self:manage",
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
+    });
+    expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^adresser$/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^lägenheter$/i })).toBeNull();
+    // Nothing is known about the setup either, so the wizard is not offered.
+    expect(
+      screen.queryByRole("link", { name: /återuppta konfigurationen/i }),
+    ).toBeNull();
+
+    // The way out is a retry, which brings the panels back once a read lands.
+    fetchSettings.mockResolvedValue({ ok: true, value: SETTINGS });
+    fireEvent.click(screen.getByRole("button", { name: /försök igen/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /^föreningen$/i }),
+      ).toBeTruthy();
     });
   });
 });
