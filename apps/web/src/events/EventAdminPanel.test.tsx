@@ -255,7 +255,10 @@ describe("the period on screen", () => {
 
     await user.click(screen.getByRole("button", { name: "Tidigare" }));
     await waitFor(() => {
-      expect(fetchEventSeries).toHaveBeenCalledWith({
+      // The last call rather than any call: the read at mount asked for the
+      // same period, and would otherwise stand in for a "Tidigare" that did
+      // nothing.
+      expect(fetchEventSeries).toHaveBeenLastCalledWith({
         from: "2026-04-01",
         to: "2026-06-01",
       });
