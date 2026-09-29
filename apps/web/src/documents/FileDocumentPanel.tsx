@@ -14,7 +14,7 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { AudienceField } from "./AudienceField";
-import { audienceForBinder, isMinutesBinder } from "./document-shelf";
+import { audienceForBinder } from "./document-shelf";
 import {
   type ArchivedDocument,
   type DocumentAudience,
@@ -209,8 +209,8 @@ export function FileDocumentPanel({
         onChange={onAudienceChange}
       />
 
-      {guarded || (isMinutesBinder(category) && audience !== "PUBLIC") ? (
-        <Notice tone="warn" live={guarded}>
+      {guarded ? (
+        <Notice tone="warn" live>
           {t("documents.upload.minutesGuard")}
         </Notice>
       ) : null}
