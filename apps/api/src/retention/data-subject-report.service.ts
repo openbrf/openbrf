@@ -849,8 +849,9 @@ export class DataSubjectReportService {
      *
      * Reached through the residency, exactly as an apartment-keyed charge is: a
      * fee names an apartment and never a person, so the overlap between the
-     * row's own period and the residency is the whole of the inference. Both
-     * boundaries are closed, on `charges/apartment-charges.ts`'s argument.
+     * row's own period and the residency is the whole of the inference. The
+     * residency ends on the day before its move-out date and the row's own
+     * period ends on its last day, as `overlapsResidency` reads them.
      *
      * A rate still in force has no end date, so its overlap is open at that end
      * and it is on the report of anybody living there now.

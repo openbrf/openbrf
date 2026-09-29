@@ -1,9 +1,8 @@
 import type { Prisma } from "../generated/prisma/client";
 
 /**
- * The two questions every purge in the product has to ask about a person before
- * it erases anything, kept in one file so five jobs cannot answer them
- * differently.
+ * The questions every purge in the product has to ask about a person before it
+ * erases anything, kept in one file so the jobs cannot answer them differently.
  *
  * A legal hold suspends purging for one person (GDPR art. 17(3)), and so does a
  * restriction of processing - art. 18(2) permits the association to keep
@@ -16,9 +15,12 @@ import type { Prisma } from "../generated/prisma/client";
  * The other direction is the erasure request: a person the board has granted
  * erasure to is purged on the next run whatever their retention window says.
  * That is the whole of what "brings the purge forward" means - the same job
- * erases the same data, only sooner.
+ * erases the same data, only sooner. It brings it forward only where nothing
+ * refuses: a hold or restriction, a seat on the board, a system role or a
+ * residency held today. Every job that erases on a request, and the person
+ * panel that promises the erasure, asks that one question.
  *
- * Both take a client rather than a service, so a purge can call them on its own
+ * All take a client rather than a service, so a purge can call them on its own
  * transaction and get the answer that is true inside it.
  */
 
