@@ -199,7 +199,7 @@ export class KeyOrderPurgeService implements OnModuleInit {
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
         `Key order purge stopped at its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,

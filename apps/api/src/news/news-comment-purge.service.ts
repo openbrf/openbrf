@@ -255,9 +255,7 @@ export class NewsCommentPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = newsCommentPurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
-    const requested = (
-      await erasureRequestedPersonIds(this.prisma, now)
-    ).filter((personId) => !withheld.includes(personId));
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
     /*
      * Every comment of theirs, however recent: bringing the purge forward is
