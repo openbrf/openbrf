@@ -462,6 +462,34 @@ describe("validating a row", () => {
     expect(plan.rows[0]?.outcome).toBe("create");
   });
 
+  it("applies the move-in date chosen for the file when the row has none", () => {
+    const { movedInOn: _ignored, ...withoutMovedIn } = COMPLETE;
+    const plan = planImport([prepared(withoutMovedIn)], snapshot(), {
+      defaultRole: null,
+      defaultMovedInOn: "2019-06-01",
+    });
+
+    expect(plan.rows[0]?.movedInOn).toBe("2019-06-01");
+    expect(plan.rows[0]?.problems).toEqual([]);
+  });
+
+  it("refuses a move-in date for the file that is not on the calendar", () => {
+    // The default lands on every row without a date of its own, so it is read
+    // by the same parser as a cell rather than rolled over into March.
+    const { movedInOn: _ignored, ...withoutMovedIn } = COMPLETE;
+    const plan = planImport([prepared(withoutMovedIn)], snapshot(), {
+      defaultRole: null,
+      defaultMovedInOn: "2026-02-30",
+    });
+
+    expect(plan.rows[0]?.movedInOn).toBeNull();
+    expect(plan.rows[0]?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "date-not-iso",
+    });
+    expect(plan.rows[0]?.outcome).toBe("error");
+  });
+
   it("refuses a move-out earlier than the move-in", () => {
     const plan = planImport(
       [prepared({ ...COMPLETE, movedOutOn: "2015-01-01" })],

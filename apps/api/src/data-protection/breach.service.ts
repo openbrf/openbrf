@@ -13,6 +13,7 @@ import {
   computeBreachDeadline,
   computeBreachReminderAt,
   hoursLeft,
+  imyNotificationOwed,
 } from "./breach-deadline";
 import { BREACH_REMINDER_QUEUE } from "./breach-reminder.queue";
 
@@ -105,7 +106,7 @@ export interface BreachView {
   imyNotifyBy: string;
   remindAt: string;
   hoursLeft: number;
-  state: "awaitingDecision" | "overdue" | "decided" | "closed";
+  state: ReturnType<typeof breachState>;
   subjects: { personId: string; informedAt: string | null }[];
 }
 
@@ -404,6 +405,14 @@ export class BreachService {
           delayReasons: true,
         },
       });
+      assertNotifiedInRange({
+        discoveredAt: input.discoveredAt ?? held.discoveredAt,
+        imyNotifiedAt:
+          input.imyNotifiedAt === undefined
+            ? held.imyNotifiedAt
+            : input.imyNotifiedAt,
+        now: new Date(),
+      });
       assertDelayReasons({
         discoveredAt: input.discoveredAt ?? held.discoveredAt,
         imyNotifiedAt:
@@ -568,6 +577,14 @@ export class BreachService {
           imyNotifiedAt: true,
           delayReasons: true,
         },
+      });
+      assertNotifiedInRange({
+        discoveredAt: held.discoveredAt,
+        imyNotifiedAt:
+          input.imyNotifiedAt === undefined
+            ? held.imyNotifiedAt
+            : input.imyNotifiedAt,
+        now: new Date(),
       });
       assertDelayReasons({
         discoveredAt: held.discoveredAt,
@@ -796,6 +813,18 @@ export class BreachService {
         "not-decided",
       );
     }
+    if (imyNotificationOwed(existing)) {
+      /*
+       * Closing is saying the association has nothing left to do, and a
+       * notification the board decided to make is still to do. Closing it
+       * anyway would stop the art. 33(1) clock on the register, the reminder
+       * and the overview while IMY is still owed the notification.
+       */
+      throw new BreachError(
+        "IMY is notified before the breach is closed.",
+        "imy-notification-owed",
+      );
+    }
     if (existing.closedAt !== null) {
       /*
        * Closing twice would rewrite who finished with the breach and when. The
@@ -818,7 +847,17 @@ export class BreachService {
        * cannot be corrected.
        */
       const { count } = await tx.personalDataBreach.updateMany({
-        where: { id: breachId, decidedAt: { not: null }, closedAt: null },
+        where: {
+          id: breachId,
+          decidedAt: { not: null },
+          closedAt: null,
+          // A decided row always holds the answer about IMY, so `false` or a
+          // notified-at is the whole of "not owed".
+          OR: [
+            { imyNotificationRequired: false },
+            { imyNotifiedAt: { not: null } },
+          ],
+        },
         data: { closedAt: new Date(), closedByPersonId: actorPersonId },
       });
       if (count === 0) {
@@ -852,6 +891,8 @@ export class BreachService {
     discoveredAt: Date;
     decidedAt: Date | null;
     closedAt: Date | null;
+    imyNotificationRequired: boolean | null;
+    imyNotifiedAt: Date | null;
   }> {
     const row = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
@@ -860,6 +901,8 @@ export class BreachService {
         discoveredAt: true,
         decidedAt: true,
         closedAt: true,
+        imyNotificationRequired: true,
+        imyNotifiedAt: true,
       },
     });
     if (row === null) {
@@ -879,6 +922,36 @@ const SUBJECT_SELECT = {
   orderBy: [{ createdAt: "asc" }],
   select: { personId: true, informedAt: true },
 } satisfies { orderBy: { createdAt: "asc" }[]; select: object };
+
+/**
+ * A notification is made after the breach was discovered and not later than
+ * now.
+ *
+ * Either end broken is a record that cannot be true: IMY cannot have been told
+ * about a breach nobody knew of yet, and a notification still to come has not
+ * been made - taking it would stop the art. 33(1) clock on a breach IMY still
+ * knows nothing about. Checked against the discovery instant the row will
+ * hold, so a corrected discovery cannot move past a notification either.
+ */
+function assertNotifiedInRange(input: {
+  discoveredAt: Date;
+  imyNotifiedAt: Date | null;
+  now: Date;
+}): void {
+  if (input.imyNotifiedAt === null) {
+    return;
+  }
+  const notifiedAt = input.imyNotifiedAt.getTime();
+  if (
+    notifiedAt < input.discoveredAt.getTime() ||
+    notifiedAt > input.now.getTime()
+  ) {
+    throw new BreachError(
+      "IMY is notified after the breach was discovered, and not later than now.",
+      "notified-out-of-range",
+    );
+  }
+}
 
 /**
  * A notification made later than the bound carries the reasons for the delay
