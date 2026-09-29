@@ -31,10 +31,9 @@ function envBoolean(defaultValue: boolean) {
  * beside another driver has to be told apart from one nobody set, so that it
  * can be named at boot. The reader supplies the default.
  *
- * Stricter than envBoolean, because the flag this serves decides whether a
- * connection is encrypted from the start: "TRUE" or "1" read as false would
- * leave it in the clear until STARTTLS without a word, so any other value is
- * named at boot instead.
+ * Stricter than envBoolean, because the flags this serves decide whether a
+ * connection is encrypted: "TRUE" or "1" read as false would leave it in the
+ * clear without a word, so any other value is named at boot instead.
  */
 function optionalEnvBoolean() {
   return z
@@ -346,6 +345,13 @@ export const envSchema = z.object({
   OPENBRF_SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   /** Implicit TLS. Unset is false; absent here so a stray value can be named. */
   OPENBRF_SMTP_SECURE: optionalEnvBoolean(),
+  /**
+   * Whether the sign-in waits for STARTTLS. Unset, it does unless the relay is
+   * on loopback (mail-settings.ts). "false" is the host vouching for the
+   * network between the instance and a relay that offers no STARTTLS, such as
+   * a sidecar on the Compose network, and is logged at start.
+   */
+  OPENBRF_SMTP_REQUIRE_TLS: optionalEnvBoolean(),
   OPENBRF_SMTP_USER: z.string().min(1).optional(),
   /**
    * In the environment in plain text, as the S3 keys are: the operator supplies
@@ -413,6 +419,7 @@ const MAIL_DRIVER_VARIABLES = {
     "OPENBRF_SMTP_HOST",
     "OPENBRF_SMTP_PORT",
     "OPENBRF_SMTP_SECURE",
+    "OPENBRF_SMTP_REQUIRE_TLS",
     "OPENBRF_SMTP_USER",
     "OPENBRF_SMTP_PASSWORD",
   ],

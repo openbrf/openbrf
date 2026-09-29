@@ -251,6 +251,7 @@ answers itself. Where they go out is decided in one of two places:
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
 | `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is on loopback. See "The SMTP relay" below                |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
@@ -286,6 +287,15 @@ must upgrade through STARTTLS before the instance signs in, and a relay that doe
 not offer it is a failed send rather than a password sent in the clear. Only a
 relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
 with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+
+A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
+Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
+`OPENBRF_SMTP_REQUIRE_TLS=false`. The instance still upgrades when the relay
+offers STARTTLS, but otherwise sends the sign-in and every message in the clear,
+and so does it when something on the path removes the relay's offer. Set it only when you control every hop between the two, such as a network
+that only these containers share. The instance logs a warning at start while it
+is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
+loopback too.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that
