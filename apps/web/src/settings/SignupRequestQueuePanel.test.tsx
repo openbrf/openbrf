@@ -231,6 +231,32 @@ describe("approving", () => {
     });
     expect(fetchSignupRequests).toHaveBeenCalledTimes(2);
   });
+
+  it("points the board at rejecting when the address already has an account", async () => {
+    // Every retry would get the same refusal, so "try again" is the one thing
+    // this must not say.
+    approveSignupRequest.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "already-has-account" },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    await waitForTheRow();
+    await session.selectOptions(
+      screen.getByLabelText("Lägenhet i registret"),
+      "apartment-1203",
+    );
+    await session.click(approveButton());
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain(
+        "har redan ett konto",
+      );
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Avslå ansökan");
+  });
 });
 
 describe("rejecting", () => {

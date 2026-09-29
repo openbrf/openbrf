@@ -49,6 +49,9 @@ const DECISION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // gone by the time they decide it.
   "not-found": "settings.signupQueue.errors.notFound",
   "apartment-not-found": "settings.signupQueue.errors.apartmentNotFound",
+  // Refused on every retry: the person can sign in already, so the request is
+  // one to reject.
+  "already-has-account": "settings.signupQueue.errors.alreadyHasAccount",
   // Not a failed approval. The person, the residency and the invitation are
   // written before the email is sent, so this says the account exists and the
   // letter did not go out.
