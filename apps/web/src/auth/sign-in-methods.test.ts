@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   requestMagicLink,
+  signInWithPasskey,
   signInWithPassword,
   verifySecondFactor,
 } from "./sign-in-methods";
@@ -20,6 +21,7 @@ import {
 const signInEmail = vi.fn();
 const signInMagicLink = vi.fn();
 const verifyTotp = vi.fn();
+const signInPasskey = vi.fn();
 
 /*
  * The indirection through an arrow is load-bearing, not style: vi.mock factories
@@ -33,6 +35,7 @@ vi.mock("./auth-client", () => ({
     signIn: {
       email: (...args: unknown[]) => signInEmail(...args),
       magicLink: (...args: unknown[]) => signInMagicLink(...args),
+      passkey: (...args: unknown[]) => signInPasskey(...args),
     },
     twoFactor: {
       verifyTotp: (...args: unknown[]) => verifyTotp(...args),
@@ -44,7 +47,21 @@ beforeEach(() => {
   signInEmail.mockReset();
   signInMagicLink.mockReset();
   verifyTotp.mockReset();
+  signInPasskey.mockReset();
 });
+
+/** A browser that can offer a passkey prompt, which jsdom is not on its own. */
+function withWebAuthn(): void {
+  beforeEach(() => {
+    Object.defineProperty(navigator, "credentials", {
+      value: {},
+      configurable: true,
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "credentials");
+  });
+}
 
 describe("a request that never reaches the server", () => {
   /*
@@ -53,6 +70,8 @@ describe("a request that never reaches the server", () => {
    * would leave it on "working" for good, so each method reports it as an
    * ordinary failure instead.
    */
+  withWebAuthn();
+
   it.each([
     [
       "signInWithPassword",
@@ -69,6 +88,7 @@ describe("a request that never reaches the server", () => {
       signInMagicLink,
       () => requestMagicLink({ email: "a@b.se" }),
     ],
+    ["signInWithPasskey", signInPasskey, () => signInWithPasskey()],
   ])("is a failure from %s, not a rejection", async (_name, call, attempt) => {
     call.mockRejectedValue(new TypeError("Failed to fetch"));
 
@@ -195,6 +215,39 @@ describe("verifySecondFactor", () => {
     await expect(verifySecondFactor({ code: "000000" })).resolves.toEqual({
       status: "failed",
       code: "second-factor-expired",
+    });
+  });
+});
+
+describe("signInWithPasskey", () => {
+  withWebAuthn();
+
+  it.each(["AUTH_CANCELLED", "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY"])(
+    "reads a prompt that ended with %s as cancelled",
+    async (code) => {
+      // The library answers a dismissed or timed-out prompt with a 400 and a
+      // code of its own, having sent nothing to the server.
+      signInPasskey.mockResolvedValue({
+        data: null,
+        error: { code, status: 400, statusText: "BAD_REQUEST" },
+      });
+
+      await expect(signInWithPasskey()).resolves.toEqual({
+        status: "failed",
+        code: "passkey-cancelled",
+      });
+    },
+  );
+
+  it("does not read a refusal from the server as cancelled", async () => {
+    signInPasskey.mockResolvedValue({
+      data: null,
+      error: { code: "PASSKEY_NOT_FOUND", status: 401, statusText: "" },
+    });
+
+    await expect(signInWithPasskey()).resolves.toEqual({
+      status: "failed",
+      code: "unknown",
     });
   });
 });
