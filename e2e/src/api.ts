@@ -3,12 +3,12 @@ import type { APIRequestContext } from "@playwright/test";
 /**
  * The API, as the suite uses it.
  *
- * Two kinds of call live here. Some set up state that the interface cannot
- * create yet - a residency, for instance, is only written by the sign-up
- * approval path - so a spec about something else should not pretend to click
- * its way there. The others are the endpoints a criterion is actually about,
- * where no screen exists: an invitation is sent and accepted over HTTP today,
- * and the criterion is about the invitation, not about a form.
+ * Two kinds of call live here. Some set up state a spec needs but is not
+ * about - a person moved into an apartment, for instance - so a spec about
+ * something else should not click its way there. The others are the endpoints
+ * a criterion is actually about, where no screen exists: an invitation is sent
+ * and accepted over HTTP today, and the criterion is about the invitation, not
+ * about a form.
  *
  * Where a screen does exist, the specs drive the screen.
  */
@@ -477,20 +477,6 @@ export async function listSignupRequests(
   return (await response.json()) as readonly PendingSignupRequest[];
 }
 
-export async function approveSignupRequest(
-  request: APIRequestContext,
-  baseUrl: string,
-  id: string,
-  input: { apartmentId: string; role: "MEMBER" | "RESIDENT" },
-): Promise<string> {
-  const response = await request.post(
-    `${baseUrl}/api/signup-requests/${id}/approve`,
-    { data: input },
-  );
-  await expectOk(response, "POST approve");
-  return ((await response.json()) as { personId: string }).personId;
-}
-
 export async function setProtectedPersonalData(
   request: APIRequestContext,
   baseUrl: string,
@@ -719,12 +705,12 @@ export type AddressBookRow = {
  * ## Why the row and not only the id
  *
  * An `ensure*` helper does several writes, and only the first of them creates
- * the person: the sign-up approval that follows records the residency, the
- * move-in that follows records the tenant-ownership. A run that failed between
- * them leaves the person behind without any of it, and a helper that asked only
- * "does this person exist" would return early on that wreckage every time
- * afterwards. What fails is then an assertion several tests later, timing out
- * on a screen that is empty for a reason nothing reports.
+ * the person: the move-in that follows records the residency and the
+ * tenant-ownership. A run that failed between them leaves the person behind
+ * without any of it, and a helper that asked only "does this person exist"
+ * would return early on that wreckage every time afterwards. What fails is then
+ * an assertion several tests later, timing out on a screen that is empty for a
+ * reason nothing reports.
  *
  * So the rule for every `ensure*` helper in this directory is: return early
  * only on evidence that the whole thing it ensures is there, not on evidence

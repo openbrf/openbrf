@@ -98,8 +98,8 @@ test("a reveal is an explicit act and lands in the audit log", async ({
   await signInAsAdministrator(request);
 
   // A subject of this spec's own, because a reveal needs something to reveal
-  // and the register fixture reaches its people through sign-up approval,
-  // which records no personal identity number.
+  // and the register fixture records no personal identity number for its
+  // people.
   const fullName = `${REVEALED.firstName} ${REVEALED.lastName}`;
   const personId = await api.createPerson(request, stack.baseUrl, {
     firstName: REVEALED.firstName,
