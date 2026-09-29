@@ -1,3 +1,4 @@
+import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
 import {
   useState,
   type ChangeEvent,
@@ -37,14 +38,6 @@ const ACCEPTED_TYPES = "image/png,image/jpeg,image/webp,image/gif";
 
 /** Matches the server's cap, so the form stops before the API has to. */
 const MAX_PHOTOS = 6;
-
-/**
- * The longest place and description the API stores, mirrored from the report
- * schema in `apps/api/src/issues/issues.controller.ts`. On the fields so an
- * overlong report is stopped by the box, not refused after it was written.
- */
-const LOCATION_MAX_LENGTH = 200;
-const DESCRIPTION_MAX_LENGTH = 4000;
 
 const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "type-not-found": "issues.report.errors.typeNotFound",
@@ -260,7 +253,7 @@ export function ReportIssuePanel({
             type="text"
             name="issueLocation"
             autoComplete="off"
-            maxLength={LOCATION_MAX_LENGTH}
+            maxLength={ISSUE_REPORT_LIMITS.location}
             value={draft.location}
             onChange={(event) => {
               setDraft({ ...draft, location: event.target.value });
@@ -275,7 +268,7 @@ export function ReportIssuePanel({
           <textarea
             name="issueDescription"
             rows={5}
-            maxLength={DESCRIPTION_MAX_LENGTH}
+            maxLength={ISSUE_REPORT_LIMITS.description}
             value={draft.description}
             onChange={(event) => {
               setDraft({ ...draft, description: event.target.value });
