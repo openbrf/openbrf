@@ -538,9 +538,12 @@ export class BreachService {
     }
 
     assertNoIdentityNumber(
-      [input.imyDecisionGround, input.subjectsDecisionGround].filter(
-        (value): value is string => typeof value === "string",
-      ),
+      [
+        input.imyDecisionGround,
+        input.subjectsDecisionGround,
+        // As `update` scans them: the reasons go to IMY and onto the record.
+        input.delayReasons,
+      ].filter((value): value is string => typeof value === "string"),
     );
 
     if (!input.imyNotificationRequired && input.risk !== "UNLIKELY") {
