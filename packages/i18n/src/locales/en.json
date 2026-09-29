@@ -1313,6 +1313,7 @@
       "selectAddress": "Address in the register",
       "selectApartment": "Apartment in the register",
       "apartmentRequired": "Choose an apartment",
+      "apartmentsLoadFailed": "The apartments at this address could not be read just now.",
       "approve": "Approve",
       "approving": "Approving...",
       "approved": "The request is approved. An invitation is on its way to {{email}}.",

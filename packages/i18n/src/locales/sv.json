@@ -1313,6 +1313,7 @@
       "selectAddress": "Adress i registret",
       "selectApartment": "Lägenhet i registret",
       "apartmentRequired": "Välj lägenhet",
+      "apartmentsLoadFailed": "Lägenheterna på adressen kunde inte hämtas just nu.",
       "approve": "Godkänn",
       "approving": "Godkänner...",
       "approved": "Ansökan är godkänd. En inbjudan är på väg till {{email}}.",

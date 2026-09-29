@@ -18,6 +18,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -268,17 +269,22 @@ function RequestRow({
       : (addresses[0]?.id ?? "");
 
   const [apartments, setApartments] = useState<readonly ApartmentView[]>([]);
+  const [apartmentsFailed, setApartmentsFailed] = useState(false);
+  /** Bumped by the retry, which reads the same address again. */
+  const [attempt, setAttempt] = useState(0);
   const [apartmentId, setApartmentId] = useState("");
   const [reason, setReason] = useState("");
 
+  // Null for a failed read, which an empty list would hide: Approve would stay
+  // disabled for good with nothing saying why.
   const readApartments = useCallback(async (): Promise<
-    readonly ApartmentView[]
+    readonly ApartmentView[] | null
   > => {
     if (addressId === "") {
       return [];
     }
     const result = await fetchApartments(addressId);
-    return result.ok ? result.value : [];
+    return result.ok ? result.value : null;
   }, [addressId]);
 
   useEffect(() => {
@@ -287,7 +293,8 @@ function RequestRow({
     let active = true;
     void readApartments().then((rows) => {
       if (active) {
-        setApartments(rows);
+        setApartments(rows ?? []);
+        setApartmentsFailed(rows === null);
         // The chosen apartment belonged to the previous address.
         setApartmentId("");
       }
@@ -295,7 +302,7 @@ function RequestRow({
     return () => {
       active = false;
     };
-  }, [readApartments]);
+  }, [readApartments, attempt]);
 
   return (
     <li className="flex flex-col gap-3 border-t border-line pt-5 first:border-t-0 first:pt-0">
@@ -328,6 +335,15 @@ function RequestRow({
           {localDayOfInstant(request.createdAt)}
         </span>
       </p>
+
+      {apartmentsFailed ? (
+        <LoadFailure
+          messageKey="settings.signupQueue.apartmentsLoadFailed"
+          onRetry={() => {
+            setAttempt((count) => count + 1);
+          }}
+        />
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-3">
         <label className={`${LABEL} min-w-40 flex-1`}>
