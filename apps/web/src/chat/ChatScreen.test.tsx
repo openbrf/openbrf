@@ -604,6 +604,56 @@ describe("a group", () => {
     });
   });
 
+  it("keeps the rooms on screen when the list cannot be read again", async () => {
+    /*
+     * The list is read again after a group is made. A failure of that read is
+     * not the chat failing to open: the rooms are already on screen, so it is
+     * said beside the list, with a retry that opens the group just made.
+     */
+    inTheGarden();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    fetchChats.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Listan över rummen kunde inte läsas om just nu.",
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByText(/Chatten kunde inte öppnas/)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    ).not.toBeNull();
+
+    fetchChats.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        mayCreateGroup: true,
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: "Uppgång C" })
+          .getAttribute("aria-current"),
+      ).toBe("true");
+    });
+    expect(
+      screen.queryByText("Listan över rummen kunde inte läsas om just nu."),
+    ).toBeNull();
+  });
+
   it("offers reporting a neighbour's message and never one's own", async () => {
     inTheGarden();
     readChat.mockResolvedValue({
