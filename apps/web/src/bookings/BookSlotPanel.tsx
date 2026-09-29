@@ -80,6 +80,11 @@ export interface BookSlotPanelProps {
   apartments: readonly BookingApartment[];
   /** Called once a booking has been made, so the caller can reload the lists. */
   onBooked: () => void;
+  /**
+   * Bumped by the screen when a booking is cancelled in another panel, which
+   * frees a slot this grid would otherwise go on drawing as held.
+   */
+  cancellations?: number;
 }
 
 /** A stay being put together, as the two clicks that make one arrive. */
@@ -129,6 +134,7 @@ export function BookSlotPanel({
   resources,
   apartments,
   onBooked,
+  cancellations = 0,
 }: BookSlotPanelProps): ReactElement {
   const { t, i18n } = useTranslation();
 
@@ -194,7 +200,7 @@ export function BookSlotPanel({
     return () => {
       active = false;
     };
-  }, [read, refreshes]);
+  }, [read, refreshes, cancellations]);
 
   const claim = useSaveAction(bookSlot, () => {
     setStay(null);
