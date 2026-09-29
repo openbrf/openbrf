@@ -150,6 +150,49 @@ describe("the APP_URL check", () => {
 });
 
 /**
+ * The setup link's digest (ADR 0023).
+ *
+ * Refused at boot when it is not the shape hashOpaqueToken writes: a value
+ * that could never equal any token's digest would leave the instance
+ * unclaimable, and the first sign of it would be a board told its link does
+ * not work.
+ */
+describe("the setup link's digest", () => {
+  const DIGEST = "Dw2IjKhXMqZmAQPb-7sHzcTMAl5w-M6-vjgoiaP5WP8";
+
+  function withDigest(value: string): Error | string | undefined {
+    try {
+      return loadEnv({ ...REQUIRED, OPENBRF_SETUP_TOKEN_DIGEST: value })
+        .OPENBRF_SETUP_TOKEN_DIGEST;
+    } catch (cause) {
+      return cause as Error;
+    }
+  }
+
+  it("accepts one base64url SHA-256 digest", () => {
+    expect(withDigest(DIGEST)).toBe(DIGEST);
+  });
+
+  it("reads an empty value as absent", () => {
+    // Compose passes an unset optional variable as an empty string, and an
+    // absent digest is the self-hosted path: the link is minted and logged.
+    expect(withDigest("")).toBeUndefined();
+  });
+
+  it.each([
+    ["the token rather than its digest, as hex", "a".repeat(64)],
+    ["padded base64", `${DIGEST.slice(0, 42)}=`],
+    ["plain base64's alphabet", `${DIGEST.slice(0, 42)}+`],
+    ["one character short", DIGEST.slice(0, 42)],
+    ["two digests", `${DIGEST},${DIGEST}`],
+  ])("refuses %s", (_what, value) => {
+    const result = withDigest(value);
+    expect(result).toBeInstanceOf(EnvValidationError);
+    expect((result as Error).message).toContain("OPENBRF_SETUP_TOKEN_DIGEST");
+  });
+});
+
+/**
  * Mail set where the instance runs (ADR 0024).
  *
  * Each driver needs its own variables, and a variable of another driver beside

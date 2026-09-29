@@ -16,11 +16,12 @@ import {
   ensureAccountFor,
   ensureRegisterFixture,
 } from "../src/provision";
-import { appPath, repositoryRoot, stack } from "../src/stack";
+import { appPath, claimLinkFromLog, repositoryRoot, stack } from "../src/stack";
 import { MEMBER, RESIDENT } from "./people";
 import { assertSafeToPublish, freezeScripts } from "./safety";
 import {
   SCREENS,
+  SETUP_CLAIM_LINK,
   type Action,
   type Actor,
   type Screen,
@@ -543,7 +544,13 @@ test("captures every declared screen in light and dark", async ({
         screen.viewport === "phone" ? PHONE : BROWSER.viewport,
       );
       if (screen.goto !== undefined) {
-        await page.goto(screen.goto);
+        // The setup link exists only in the log of the stack this walk
+        // started, so it is read from there at the moment it is needed.
+        await page.goto(
+          screen.goto === SETUP_CLAIM_LINK
+            ? await claimLinkFromLog()
+            : screen.goto,
+        );
       }
       for (const action of screen.prepare ?? []) {
         await perform(page, action);

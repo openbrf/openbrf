@@ -965,8 +965,14 @@
       "password": "Lösenord",
       "passwordHint": "Minst 12 tecken. En fras med några ord är både lättare att minnas och svårare att gissa.",
       "submit": "Skapa kontot",
+      "claim": {
+        "label": "Installationskod",
+        "hint": "Använd installationslänken ni fick. Driver ni instansen själva finns länken i applikationens logg från när den startade.",
+        "fromLink": "Du använder installationslänken."
+      },
       "errors": {
         "alreadyClaimed": "Den här instansen har redan ett konto, så konfigurationen är stängd. Logga in i stället.",
+        "claimTokenInvalid": "Installationslänken eller koden fungerar inte. Har instansen startats om sedan dess gäller den senaste länken.",
         "invalidEmail": "Den e-postadressen kunde inte läsas. Kontrollera den och försök igen.",
         "weakPassword": "Lösenordet behöver minst 12 tecken.",
         "unknown": "Kontot kunde inte skapas just nu. Försök igen."
