@@ -422,3 +422,32 @@ describe("the mail driver's variables", () => {
     ).toEqual([]);
   });
 });
+
+describe("the sign-in secret in production", () => {
+  const production = (secret: string) =>
+    loadEnv({
+      ...REQUIRED,
+      NODE_ENV: "production",
+      APP_URL: "https://brf.example",
+      BETTER_AUTH_SECRET: secret,
+    });
+
+  it.each([
+    ["the published development placeholder", "dev-only-secret-change-me"],
+    ["one of sixteen characters", "0123456789abcdef"],
+  ])("refuses %s, naming the variable", (_name, secret) => {
+    expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
+  });
+
+  it("takes a long enough one", () => {
+    const secret = "k".repeat(48);
+    expect(production(secret).BETTER_AUTH_SECRET).toBe(secret);
+  });
+
+  it("keeps the shorter floor outside production", () => {
+    expect(
+      loadEnv({ ...REQUIRED, BETTER_AUTH_SECRET: "dev-only-secret-change-me" })
+        .BETTER_AUTH_SECRET,
+    ).toBe("dev-only-secret-change-me");
+  });
+});

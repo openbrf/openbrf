@@ -510,6 +510,49 @@ function checkMailDriver(value: Env, ctx: z.RefinementCtx): void {
   }
 }
 
+/**
+ * The development placeholder from `.env.example`. Published, so a copy of it
+ * in production is a secret everybody has.
+ */
+const PLACEHOLDER_AUTH_SECRETS = new Set(["dev-only-secret-change-me"]);
+
+/** The fewest characters a production secret may have. */
+const PRODUCTION_AUTH_SECRET_MIN = 32;
+
+/**
+ * A production secret that is long enough, and not the published placeholder.
+ *
+ * It signs sessions and encrypts the TOTP secrets and OAuth client secrets at
+ * rest, so a guessable one lets anybody holding a database copy undo the
+ * second factor of every account. Development and tests keep the shorter
+ * floor the schema sets.
+ */
+function checkAuthSecret(
+  value: z.infer<typeof envSchema>,
+  ctx: z.RefinementCtx,
+): void {
+  if (value.NODE_ENV !== "production") {
+    return;
+  }
+  if (PLACEHOLDER_AUTH_SECRETS.has(value.BETTER_AUTH_SECRET)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["BETTER_AUTH_SECRET"],
+      message:
+        "is the development placeholder. Generate one with " +
+        "`openssl rand -base64 48`.",
+    });
+  } else if (value.BETTER_AUTH_SECRET.length < PRODUCTION_AUTH_SECRET_MIN) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["BETTER_AUTH_SECRET"],
+      message:
+        `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in ` +
+        "production. Generate one with `openssl rand -base64 48`.",
+    });
+  }
+}
+
 const envChecked = envSchema.superRefine((value, ctx) => {
   // One of the two connections has to be there, because there is no default
   // that could be right. Which one it is says what the process is for: a deploy
@@ -528,6 +571,7 @@ const envChecked = envSchema.superRefine((value, ctx) => {
   }
 
   checkMailDriver(value, ctx);
+  checkAuthSecret(value, ctx);
 
   if (value.OPENBRF_STORAGE_DRIVER !== "s3") {
     return;
