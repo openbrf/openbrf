@@ -11,6 +11,7 @@ import { localDayOfInstant } from "../bookings/booking-calendar";
 import {
   FIELD,
   FIELD_DATA,
+  FIELD_MULTILINE,
   LABEL,
   QUIET_BUTTON,
   SECONDARY_BUTTON,
@@ -177,7 +178,7 @@ export function OwnKeyOrdersPanel({
                     <label className={LABEL}>
                       {t("keyOrders.place.noteField")}
                       <textarea
-                        className={`${FIELD} min-h-20 py-2`}
+                        className={`${FIELD_MULTILINE} min-h-20`}
                         value={editing.note}
                         maxLength={1000}
                         onChange={(event) => {

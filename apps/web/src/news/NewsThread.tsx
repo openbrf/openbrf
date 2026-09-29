@@ -12,7 +12,7 @@ import {
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
-  FIELD,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   PRIMARY_BUTTON,
@@ -436,7 +436,7 @@ export function NewsThread({
         <label className={LABEL}>
           {t("newsReader.thread.field")}
           <textarea
-            className={`${FIELD} min-h-24 py-2`}
+            className={`${FIELD_MULTILINE} min-h-24`}
             value={draft}
             maxLength={COMMENT_MAX_LENGTH}
             required
