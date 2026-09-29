@@ -1,3 +1,4 @@
+import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -136,10 +137,10 @@ describe("filing a report", () => {
     // with a sentence that cannot say why.
     expect(
       screen.getByLabelText(/var i huset/i).getAttribute("maxlength"),
-    ).toBe("200");
+    ).toBe(String(ISSUE_REPORT_LIMITS.location));
     expect(
       screen.getByLabelText(/vad har hänt/i).getAttribute("maxlength"),
-    ).toBe("4000");
+    ).toBe(String(ISSUE_REPORT_LIMITS.description));
   });
 
   it("sends the apartment and the free-text place with it", async () => {
