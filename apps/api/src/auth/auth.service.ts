@@ -6,6 +6,7 @@ import { PrincipalService } from "../authorization/principal.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
 import {
@@ -39,6 +40,8 @@ export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   readonly instance: AuthInstance;
+  /** Magic-link deliveries still running after their response. */
+  private readonly deliveries = new Set<Promise<void>>();
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -56,6 +59,14 @@ export class AuthService {
         this.clientManagement(),
       ),
     );
+  }
+
+  /**
+   * Settles once every magic-link delivery started so far has finished, for a
+   * test that asserts on what was sent.
+   */
+  async magicLinksSettled(): Promise<void> {
+    await Promise.allSettled([...this.deliveries]);
   }
 
   /** The Web Fetch handler Better Auth exposes, mounted by the controller. */
@@ -101,6 +112,18 @@ export class AuthService {
           template: magicLinkRefusedMail,
           props: { recipientName: recipient.name },
         });
+      },
+
+      background: (task) => {
+        const delivery = task().catch((cause: unknown) => {
+          // By its class only: a mail server's refusal quotes the envelope,
+          // and the envelope holds the address.
+          this.logger.error(
+            `A sign-in link could not be delivered: ${failureName(cause)}`,
+          );
+        });
+        this.deliveries.add(delivery);
+        void delivery.finally(() => this.deliveries.delete(delivery));
       },
     };
   }
