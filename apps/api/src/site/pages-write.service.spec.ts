@@ -352,6 +352,43 @@ describe("writing a page", () => {
     expect(JSON.stringify(refusal.details())).not.toContain("9876");
   });
 
+  it("refuses a personal identity number in a link's address", async () => {
+    // Nobody reads the address as text, and it is in the page's HTML all the
+    // same: a mailto: link carries whatever was typed into its subject line.
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: {
+            version: 1,
+            blocks: [
+              {
+                type: "paragraph",
+                runs: [
+                  {
+                    text: "Skriv till Anna",
+                    link: "mailto:anna@exempel.se?subject=19811218-9876",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 0, offset: 47 },
+    ]);
+  });
+
   it("scans the title as well as the body", async () => {
     const { service, page } = build();
     page.findUnique.mockResolvedValue(DRAFT);

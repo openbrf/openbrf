@@ -258,17 +258,15 @@ export function blockText(block: PageBlock): string {
   switch (block.type) {
     case "paragraph":
     case "heading":
-      return block.runs.map((run) => run.text).join("");
+      return runsText(block.runs);
     case "image":
       return [block.alt, block.caption ?? ""].join(" ").trim();
     case "contactForm":
     case "issueReportForm":
-      return (block.intro ?? []).map((run) => run.text).join("");
+      return runsText(block.intro ?? []);
     case "faq":
       return block.items
-        .map((item) =>
-          [item.question, ...item.answer.map((run) => run.text)].join(" "),
-        )
+        .map((item) => [item.question, runsText(item.answer)].join(" "))
         .join(" ")
         .trim();
     case "newsTeaser":
@@ -278,6 +276,33 @@ export function blockText(block: PageBlock): string {
     case "associationFacts":
       return "";
   }
+}
+
+/**
+ * The words of a list of runs, then the addresses they link to.
+ *
+ * The API's own reading, so a number in a mailto: link's subject line is warned
+ * about here and refused there: an address is in the page's HTML as surely as
+ * the words are. Read decoded as well as written, so an escaped hyphen hides
+ * nothing.
+ */
+function runsText(runs: readonly TextRun[]): string {
+  const words = runs.map((run) => run.text).join("");
+  const addresses = runs.flatMap((run) =>
+    run.link === undefined ? [] : addressForms(run.link),
+  );
+  return addresses.length === 0 ? words : [words, ...addresses].join(" ");
+}
+
+/** An address as written, and decoded when decoding changes it. */
+function addressForms(link: string): string[] {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(link);
+  } catch {
+    return [link];
+  }
+  return decoded === link ? [link] : [link, decoded];
 }
 
 /** Every run of a text block joined into one string, for a plain input. */

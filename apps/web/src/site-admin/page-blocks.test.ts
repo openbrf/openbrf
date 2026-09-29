@@ -343,6 +343,26 @@ describe("warning before the server refuses", () => {
     ).toEqual([]);
   });
 
+  it("reads a link's address, which the page publishes in its HTML", () => {
+    expect(
+      scanPage({
+        title: "Kontakt",
+        blocks: [
+          TEXT,
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv till Anna",
+                link: "mailto:anna@exempel.se?subject=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([{ block: 1 }]);
+  });
+
   it("reads an image's description as published prose", () => {
     expect(
       scanPage({

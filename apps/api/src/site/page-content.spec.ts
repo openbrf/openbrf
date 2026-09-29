@@ -1,4 +1,5 @@
 import { actionInputJsonSchema } from "@openbrf/plugin-sdk";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -868,6 +869,80 @@ describe("the FAQ block", () => {
         }),
       ),
     ).toEqual([{ index: 0, text: "Vem är ordförande? Anna." }]);
+  });
+});
+
+describe("the addresses a body links to", () => {
+  /*
+   * An address is in the page's HTML for anybody who reads the source, and a
+   * mailto: link carries whatever was typed into its subject line. Every block
+   * that holds runs is checked, because each one reads its runs its own way.
+   */
+  const MAILTO = "mailto:anna@exempel.se?subject=19811218-9876";
+
+  it("puts them in front of the guardrail scan, after the words", () => {
+    const content = readPageContent({
+      blocks: [
+        { type: "paragraph", runs: [{ text: "Skriv", link: MAILTO }] },
+        { type: "heading", level: 2, runs: [{ text: "Hem", link: "/hem" }] },
+        { type: "contactForm", intro: [{ text: "Eller", link: MAILTO }] },
+        {
+          type: "faq",
+          items: [
+            { question: "Vem?", answer: [{ text: "Anna", link: MAILTO }] },
+          ],
+        },
+      ],
+    });
+
+    expect(pageTextParts(content)).toEqual([
+      { index: 0, text: `Skriv ${MAILTO}` },
+      { index: 1, text: "Hem /hem" },
+      { index: 2, text: `Eller ${MAILTO}` },
+      { index: 3, text: `Vem? Anna ${MAILTO}` },
+    ]);
+    for (const part of pageTextParts(content)) {
+      if (part.index !== 1) {
+        expect(
+          scanForPersonalIdentityNumbers(part.text),
+          `block ${part.index}`,
+        ).toHaveLength(1);
+      }
+    }
+  });
+
+  it("reads an address decoded, so an escaped hyphen hides nothing", () => {
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv",
+                link: "mailto:anna@exempel.se?subject=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+  });
+
+  it("leaves a paragraph with no links scanned exactly as before", () => {
+    // The offsets a refusal names are into the words, so a body with no links
+    // must not gain so much as a trailing space.
+    expect(
+      pageTextParts(
+        readPageContent({
+          blocks: [
+            { type: "paragraph", runs: [{ text: "Hej" }, { text: " alla" }] },
+          ],
+        }),
+      ),
+    ).toEqual([{ index: 0, text: "Hej alla" }]);
   });
 });
 

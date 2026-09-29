@@ -598,7 +598,8 @@ export interface PageTextPart {
  * block type added later is scanned the day it is added instead of the day
  * somebody remembers to extend the scanner. An image's alternative text and
  * caption are in here for the same reason: they are published prose, whatever
- * they describe.
+ * they describe. So is every address a run links to, which is published in the
+ * page's HTML even though no reader sees it as text.
  */
 export function pageTextParts(content: PageContent): PageTextPart[] {
   return content.blocks.map((block, index) => ({
@@ -639,7 +640,7 @@ function blockText(block: PageBlock): string {
   switch (block.type) {
     case "paragraph":
     case "heading":
-      return block.runs.map((run) => run.text).join("");
+      return runsText(block.runs);
     case "image":
       return [block.alt, block.caption ?? ""].join(" ").trim();
     case "contactForm":
@@ -647,15 +648,13 @@ function blockText(block: PageBlock): string {
       // The intro only. The labels and the button are chrome, translated
       // rather than written by the board, so they are not the board's text to
       // be scanned or held against them.
-      return (block.intro ?? []).map((run) => run.text).join("");
+      return runsText(block.intro ?? []);
     case "faq":
       // Both halves, because both are the board's own writing published on the
       // page. A question is as good a place to paste a personal identity
       // number into as an answer.
       return block.items
-        .map((item) =>
-          [item.question, ...item.answer.map((run) => run.text)].join(" "),
-        )
+        .map((item) => [item.question, runsText(item.answer)].join(" "))
         .join(" ")
         .trim();
     case "newsTeaser":
@@ -672,6 +671,38 @@ function blockText(block: PageBlock): string {
       // prose, and it is bounded to the archive's own category.
       return "";
   }
+}
+
+/**
+ * The words of a list of runs, then the addresses they link to.
+ *
+ * An address is published as surely as the words are: it sits in the page's
+ * HTML, and a mailto: link carries whatever was typed into its subject line.
+ * Each address is read decoded as well as written, so a number whose hyphen is
+ * spelled %2D is still the number. The words come first, so an offset into them
+ * means what it meant before links were scanned, and every piece is separated
+ * by a space - a boundary to the scanner, so the end of one piece and the start
+ * of the next never join into a number neither holds.
+ */
+function runsText(runs: readonly TextRun[]): string {
+  const words = runs.map((run) => run.text).join("");
+  const addresses = runs.flatMap((run) =>
+    run.link === undefined ? [] : addressForms(run.link),
+  );
+  return addresses.length === 0 ? words : [words, ...addresses].join(" ");
+}
+
+/** An address as written, and decoded when decoding changes it. */
+function addressForms(link: string): string[] {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(link);
+  } catch {
+    // A stray % that begins no escape. The address is scanned as written,
+    // which is also how the browser will print it.
+    return [link];
+  }
+  return decoded === link ? [link] : [link, decoded];
 }
 
 /**
