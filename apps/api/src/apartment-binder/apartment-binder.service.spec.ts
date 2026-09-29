@@ -216,6 +216,40 @@ describe("filing as a tenant-owner", () => {
     expect(fakes.upload).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a byte order mark", "Ritning 19811218\uFEFF-9876"],
+    ["a combining grapheme joiner", "Ritning 19811218\u034F-9876"],
+    ["a variation selector", "Ritning 19811218\uFE0F-9876"],
+  ])(
+    "refuses a title whose number is hidden behind %s",
+    async (_name, title) => {
+      const fakes = build();
+
+      await expect(fakes.service.file(filing({ title }))).rejects.toMatchObject(
+        {
+          reason: "personal-identity-number",
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+        },
+      );
+      expect(fakes.upload).not.toHaveBeenCalled();
+    },
+  );
+
+  it("stores a title with a line break as one line, and does not join a number across it", async () => {
+    const fakes = build();
+
+    await fakes.service.file(filing({ title: "Ritning\nbadrum" }));
+
+    expect(fakes.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ title: "Ritning badrum" }),
+      }),
+    );
+    await expect(
+      build().service.file(filing({ title: "Ritning 19811218\n9876" })),
+    ).resolves.toBeDefined();
+  });
+
   it("refuses a title carrying a personal identity number, naming the field", async () => {
     const fakes = build();
 

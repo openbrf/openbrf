@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, Param, Post, Req } from "@nestjs/common";
-import { normalizeFreeText, parseLocalDay } from "@openbrf/shared";
+import { normalizeSingleLineText, parseLocalDay } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -50,7 +50,7 @@ const entrySchema = z.object({
    */
   title: z
     .string()
-    .transform((value) => normalizeFreeText(value).trim())
+    .transform((value) => normalizeSingleLineText(value))
     .pipe(z.string().min(1).max(BINDER_TITLE_MAX_LENGTH)),
   /**
    * A calendar date as YYYY-MM-DD, or absent.
