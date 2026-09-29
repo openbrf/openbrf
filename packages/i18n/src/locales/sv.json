@@ -1929,6 +1929,10 @@
         "submit": "Notera panten",
         "release": "Avnotera",
         "releaseLabel": "Avnotera panten från {{creditor}}",
+        "releasedOnLabel": "Avnoterad den",
+        "releasedOnLabelFor": "Avnoterad den, för panten från {{creditor}}",
+        "releaseSubmit": "Registrera avnoteringen",
+        "releaseSubmitLabel": "Registrera avnoteringen av panten från {{creditor}}",
         "releasing": "Avnoterar",
         "failed": "Panten kunde inte registreras. Kontrollera panthavare och datum."
       },
