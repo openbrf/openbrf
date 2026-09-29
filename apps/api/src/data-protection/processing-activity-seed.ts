@@ -139,7 +139,13 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     source: "STATUTORY_REGISTER",
     legalBasis: "LEGAL_OBLIGATION",
     dataSubjectCategories: ["member"],
-    personalDataCategories: ["name", "apartment", "personalIdentityNumber"],
+    // Email because the board is notified of an obligation by mail.
+    personalDataCategories: [
+      "name",
+      "email",
+      "apartment",
+      "personalIdentityNumber",
+    ],
   },
   meetingRecords: {
     source: "STATUTORY_REGISTER",
@@ -585,7 +591,8 @@ const SHAPES: Record<SeedKey, SeedShape> = {
       "formerResident",
       "boardMember",
     ],
-    personalDataCategories: ["name", "freeText"],
+    // Email because the board is reminded of the 72 hours by mail.
+    personalDataCategories: ["name", "email", "freeText"],
   },
   /*
    * Legitimate interest: establishing, exercising or defending a legal claim,
@@ -638,8 +645,10 @@ const MESSAGE_SENDING: readonly SeedKey[] = ["newsMailings"];
 /**
  * Which seeded rows mail a person, and so name the mail server: a meeting
  * notice, a booking confirmation, an invitation, a sign-in link or a move
- * notice, and the contact form's copy to the board. Art. 30(1)(d) asks for
- * every recipient, and a hosted mail provider is one.
+ * notice, and the contact form's copy to the board, and the notices to the
+ * board of a reporting obligation and of the 72 hours of a breach. The board's
+ * move-out reminder is sent under the address book row, which is named already.
+ * Art. 30(1)(d) asks for every recipient, and a hosted mail provider is one.
  */
 const MAIL_SENDING: readonly SeedKey[] = [
   "meetingRecords",
@@ -647,6 +656,8 @@ const MAIL_SENDING: readonly SeedKey[] = [
   "bookings",
   "contactSubmissions",
   "signupRequestsAndInvitations",
+  "cooperativeHousingRegisterReporting",
+  "personalDataBreaches",
 ];
 
 /**
