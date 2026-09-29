@@ -13,6 +13,7 @@ version, what was typed stays in the form, and saving again writes it over
 theirs.
 
 `PUT /api/news/:id` takes `expectedRevision` as optional, so older clients keep
-working. The `news_update` action requires it, as `page_update` does, so a
-connected app has to read the item before it rewrites it. The migration adds
+working. The `news_update` action takes it as optional too, since the action was
+armed before the field existed; a connected app that sends the revision it read
+gets the same refusal. The migration adds
 `news.revision` with a default of 1.

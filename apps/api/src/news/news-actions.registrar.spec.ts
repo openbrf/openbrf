@@ -51,12 +51,20 @@ const EDIT = {
 };
 
 describe("news_update", () => {
-  it("refuses an input that does not say which copy it was built on", async () => {
-    const { action } = build();
+  it("accepts an input that does not say which copy it was built on", async () => {
+    const { action, update } = build();
 
-    const result = await action.input["~standard"].validate(EDIT);
+    const parsed = await action.input["~standard"].validate(EDIT);
+    if (parsed.issues !== undefined) {
+      throw new Error("The input was expected to be accepted.");
+    }
+    await action.handler(parsed.value, BOARD_MEMBER);
 
-    expect(result.issues).toBeDefined();
+    expect(update).toHaveBeenCalledWith(
+      "news-1",
+      expect.objectContaining({ expectedRevision: undefined }),
+      expect.anything(),
+    );
   });
 
   it("hands the revision the caller read to the service", async () => {
