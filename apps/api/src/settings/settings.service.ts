@@ -913,9 +913,10 @@ export class SettingsService {
       },
     });
 
-    // The host and the address the board publishes. The password is a secret and
-    // the mailbox user name is close enough to one that it has no business in a
-    // log line either - the SMTP block's own rule.
+    // The host, and whether an address is set rather than the address: it is
+    // the board's mailbox and no business of a log line. The password is a secret and the mailbox
+    // user name is close enough to one that it stays out too - the SMTP block's
+    // own rule.
     this.logger.log(
       `Updated board mailbox settings: host=${input.host ?? "none"}, address ${input.address === null ? "not set" : "set"}`,
     );
