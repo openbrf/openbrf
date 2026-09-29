@@ -861,13 +861,34 @@ describe("the financial year and the giro numbers", () => {
 });
 
 describe("retention and self-signup", () => {
-  it("stores the retention policy", async () => {
-    const { service, current } = build();
+  it("stores the retention policy, and records who changed it from what", async () => {
+    const { service, current, audit } = build();
+    const before = current()?.retentionDaysAfterMoveOut;
 
     await expect(
-      service.updateRetention({ daysAfterMoveOut: 730 }),
+      service.updateRetention({
+        actorPersonId: "person-1",
+        daysAfterMoveOut: 730,
+      }),
     ).resolves.toEqual({ daysAfterMoveOut: 730 });
     expect(current()?.retentionDaysAfterMoveOut).toBe(730);
+
+    // It moves every pending purge date at once.
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ASSOCIATION_RETENTION_RECORDED",
+        actorPersonId: "person-1",
+        context: { daysAfterMoveOutFrom: before, daysAfterMoveOutTo: 730 },
+      }),
+      expect.anything(),
+    );
+
+    // Saved again unchanged, it records nothing.
+    await service.updateRetention({
+      actorPersonId: "person-1",
+      daysAfterMoveOut: 730,
+    });
+    expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("keeps self-signup off unless it is turned on deliberately", async () => {
@@ -901,7 +922,10 @@ describe("retention and self-signup", () => {
     const { service } = build({}, false);
 
     await expect(
-      service.updateRetention({ daysAfterMoveOut: 730 }),
+      service.updateRetention({
+        actorPersonId: "person-1",
+        daysAfterMoveOut: 730,
+      }),
     ).rejects.toMatchObject({ reason: "housing-cooperative-missing" });
     await expect(
       service.updateSelfSignup({ enabled: true }),

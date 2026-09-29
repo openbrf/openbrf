@@ -1,9 +1,11 @@
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { DocumentAudience } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { failureName } from "../logging/failure";
 import {
   MediaService,
   type MediaVisibility,
@@ -53,6 +55,7 @@ export interface EditDocumentInput {
   title: string;
   category: string;
   audience: DocumentAudience;
+  actorPersonId: string;
 }
 
 /**
@@ -145,9 +148,12 @@ export function audiencesFor(
  */
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
+    private readonly audit: AuditLogService,
   ) {}
 
   /**
@@ -239,10 +245,15 @@ export class DocumentsService {
     } catch (cause) {
       // The upload is already in the audit log, and so is this removal. That
       // pair is the honest record of what happened.
-      await this.media.remove(file.id, input.actorPersonId, "WEB").catch(() => {
-        /* Reported by the media service; the original failure is the one to
-           raise. */
-      });
+      await this.media
+        .remove(file.id, input.actorPersonId, "WEB")
+        .catch((removal: unknown) => {
+          // The original failure is the one to raise, but a file left behind
+          // is one nothing references, so its id goes to the log.
+          this.logger.error(
+            `Removing file ${file.id} after a failed filing failed: ${failureName(removal)}`,
+          );
+        });
       throw cause;
     }
   }
@@ -263,7 +274,12 @@ export class DocumentsService {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.document.findUnique({
         where: { id },
-        select: { mediaFileId: true },
+        select: {
+          mediaFileId: true,
+          title: true,
+          category: true,
+          audience: true,
+        },
       });
       if (existing === null) {
         throw new DocumentError("No such document.", "not-found");
@@ -276,6 +292,38 @@ export class DocumentsService {
           requiredCapability: transport.requiredCapability,
         },
       });
+
+      /*
+       * Who changed what, and above all who changed who a document is for:
+       * that decides whether the file can be fetched without a session, as
+       * an upload and a removal already are recorded. Which fields and the
+       * audience either side, never the title - the log outlives the
+       * document. A save that changes nothing records nothing.
+       */
+      const fields = (["title", "category", "audience"] as const).filter(
+        (field) => existing[field] !== input[field],
+      );
+      if (fields.length > 0) {
+        await this.audit.record(
+          {
+            action: "DOCUMENT_UPDATED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetKind: "document",
+            targetId: id,
+            context: {
+              fields,
+              ...(fields.includes("audience")
+                ? {
+                    audienceFrom: existing.audience,
+                    audienceTo: input.audience,
+                  }
+                : {}),
+            },
+          },
+          tx,
+        );
+      }
 
       const document = await tx.document.update({
         where: { id },

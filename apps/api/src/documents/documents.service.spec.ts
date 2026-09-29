@@ -8,6 +8,7 @@ import {
 import type { PrismaService } from "../database/prisma.service";
 import type { DocumentAudience } from "../generated/prisma/enums";
 import type { MediaService } from "../media/media.service";
+import type { AuditLogService } from "../audit/audit-log.service";
 import { audiencesFor, DocumentsService } from "./documents.service";
 
 /**
@@ -53,6 +54,7 @@ interface RecordedWrite {
 
 interface Fakes {
   service: DocumentsService;
+  audit: { record: ReturnType<typeof vi.fn> };
   documents: Map<string, DocumentRow>;
   files: Map<string, FileRow>;
   writes: RecordedWrite[];
@@ -208,9 +210,15 @@ function makeFakes(): Fakes {
   });
 
   const media = { upload, remove } as unknown as MediaService;
+  const audit = { record: vi.fn(async () => undefined) };
 
   return {
-    service: new DocumentsService(prisma, media),
+    service: new DocumentsService(
+      prisma,
+      media,
+      audit as unknown as AuditLogService,
+    ),
+    audit,
     documents,
     files,
     writes,
@@ -335,6 +343,7 @@ describe("changing who a document is for", () => {
       title: document.title,
       category: document.category,
       audience: "MEMBER",
+      actorPersonId: "person-1",
     });
 
     // The direction that matters for this audience too: a file left PUBLIC
@@ -353,6 +362,7 @@ describe("changing who a document is for", () => {
       title: document.title,
       category: document.category,
       audience: "BOARD",
+      actorPersonId: "person-1",
     });
 
     expect(fakes.files.get("file-1")).toMatchObject({
@@ -368,6 +378,36 @@ describe("changing who a document is for", () => {
     ]);
   });
 
+  it("records who gave a document to another audience, and not its title", async () => {
+    const document = await file("BOARD");
+
+    await fakes.service.edit(document.id, {
+      title: document.title,
+      category: document.category,
+      audience: "PUBLIC",
+      actorPersonId: "person-1",
+    });
+
+    // Board minutes made PUBLIC can be fetched without a session, so who did
+    // it and when is the entry an upload and a removal already have.
+    expect(fakes.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "DOCUMENT_UPDATED",
+        actorPersonId: "person-1",
+        targetId: document.id,
+        context: {
+          fields: ["audience"],
+          audienceFrom: "BOARD",
+          audienceTo: "PUBLIC",
+        },
+      }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(fakes.audit.record.mock.calls)).not.toContain(
+      document.title,
+    );
+  });
+
   it("publishes the file when a document is put on the public shelf", async () => {
     const document = await file("BOARD");
 
@@ -375,6 +415,7 @@ describe("changing who a document is for", () => {
       title: document.title,
       category: document.category,
       audience: "PUBLIC",
+      actorPersonId: "person-1",
     });
 
     expect(fakes.files.get("file-1")).toMatchObject({
@@ -389,6 +430,7 @@ describe("changing who a document is for", () => {
         title: "Stadgar",
         category: "Stadgar",
         audience: "PUBLIC",
+        actorPersonId: "person-1",
       }),
     ).rejects.toMatchObject({ reason: "not-found", status: 404 });
 

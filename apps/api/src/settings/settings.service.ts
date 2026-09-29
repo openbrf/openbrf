@@ -1086,13 +1086,43 @@ export class SettingsService {
    * shorten the statutory retention the law requires.
    */
   async updateRetention(input: {
+    actorPersonId: string;
     daysAfterMoveOut: number;
   }): Promise<{ daysAfterMoveOut: number }> {
     await this.requireAssociation();
 
-    const association = await this.prisma.association.update({
-      where: { id: 1 },
-      data: { retentionDaysAfterMoveOut: input.daysAfterMoveOut },
+    /*
+     * Audited, for the reason the finances are: it moves every pending purge
+     * date at once, and who shortened the time a former resident's data is
+     * kept, and from what, is a question the log has to answer. Read in the
+     * transaction that writes, so the entry names the value it replaced.
+     */
+    const association = await this.prisma.$transaction(async (tx) => {
+      const before = await tx.association.findUniqueOrThrow({
+        where: { id: 1 },
+        select: { retentionDaysAfterMoveOut: true },
+      });
+      const updated = await tx.association.update({
+        where: { id: 1 },
+        data: { retentionDaysAfterMoveOut: input.daysAfterMoveOut },
+      });
+      if (before.retentionDaysAfterMoveOut !== input.daysAfterMoveOut) {
+        await this.audit.record(
+          {
+            action: "ASSOCIATION_RETENTION_RECORDED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetKind: "association",
+            targetId: String(updated.id),
+            context: {
+              daysAfterMoveOutFrom: before.retentionDaysAfterMoveOut,
+              daysAfterMoveOutTo: input.daysAfterMoveOut,
+            },
+          },
+          tx,
+        );
+      }
+      return updated;
     });
 
     this.logger.log(
