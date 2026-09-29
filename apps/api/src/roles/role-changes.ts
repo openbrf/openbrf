@@ -104,16 +104,29 @@ export interface SystemRoleGrantsView {
  * Read on the association's calendar, because the column is a `@db.Date` and an
  * instant would put the boundary at midnight UTC.
  *
+ * Given the election date as well, a withdrawn election - one ended on or
+ * before the day it would have begun - counts as ended even while that end
+ * date is still ahead, the way {@link overlapsRecordedTerm} reads it.
+ *
  * @see apps/api/src/registers/held-on.ts
  */
 export function hasTermEnded(
-  seat: { endedOn: Date | null },
+  seat: { electedOn?: Date; endedOn: Date | null },
   now: Date,
 ): boolean {
-  return (
-    seat.endedOn !== null &&
-    seat.endedOn.getTime() <= dateColumnOf(localDayOf(now)).getTime()
-  );
+  if (seat.endedOn === null) {
+    return false;
+  }
+  // A withdrawn election, ended before it began, covers no day whatever the
+  // end date says about today: it is over, and the position can be recorded
+  // again without waiting for a date that will never matter.
+  if (
+    seat.electedOn !== undefined &&
+    seat.endedOn.getTime() <= seat.electedOn.getTime()
+  ) {
+    return true;
+  }
+  return seat.endedOn.getTime() <= dateColumnOf(localDayOf(now)).getTime();
 }
 
 /**

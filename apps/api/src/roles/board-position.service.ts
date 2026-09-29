@@ -5,7 +5,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { BoardPositionType } from "../generated/prisma/enums";
-import { boardSeatHeldOn } from "../registers/held-on";
+import { boardSeatHeldOn, boardSeatNotEndedOn } from "../registers/held-on";
 import {
   type BoardPositionView,
   hasTermEnded,
@@ -16,7 +16,7 @@ import {
   RoleChangeError,
   type TermEndRefusal,
 } from "./role-changes";
-import { lockBoardPositions } from "./role-lock";
+import { lockBoardPositions, lockBoardRegister } from "./role-lock";
 
 /**
  * The sentence each end-of-term refusal carries.
@@ -55,7 +55,7 @@ export interface EndTermInput {
 }
 
 /**
- * Positions of trust (fortroendeuppdrag): who sits on the board, and when they
+ * Positions of trust (förtroendeuppdrag): who sits on the board, and when they
  * did.
  *
  * The table is history rather than state. A term is not a flag that is on or
@@ -119,6 +119,7 @@ export class BoardPositionService {
     }
 
     const seat = await this.prisma.$transaction(async (tx) => {
+      await lockBoardRegister(tx);
       await lockBoardPositions(tx, input.personId);
       await refuseUnseatedActor(tx, input.actorPersonId, input.personId, now);
 
@@ -227,6 +228,7 @@ export class BoardPositionService {
         );
       }
 
+      await lockBoardRegister(tx);
       await lockBoardPositions(tx, existing.personId);
       await refuseUnseatedActor(
         tx,
@@ -308,14 +310,23 @@ export class BoardPositionService {
 
 /**
  * Refuses a write to the board's seats by somebody who holds none, unless it
- * records the first board, and never on their own seat.
+ * is the first board being recorded, and never on their own seat.
  *
- * Recording a seat is the board's own act (GLOSSARY, fortroendeuppdrag), and a
+ * Recording a seat is the board's own act (GLOSSARY, förtroendeuppdrag), and a
  * seat confers what no grant of capabilities carries (ADR 0017): an
  * administrator who could seat themselves would hold it by their own hand. The
- * administrator's `boardPosition:manage` is kept for one case, an instance with
- * no board yet, where somebody has to record the one the meeting elected; once
- * a seat is held, the board keeps its own register.
+ * administrator's `boardPosition:manage` is kept for one case, a register with
+ * no board that could act yet, where somebody has to record the one the meeting
+ * elected - all of it, and a correction to it, because a chair with no account
+ * cannot record the seats beside their own.
+ *
+ * "A board that could act" is a seat that has not ended, held by a person who
+ * can sign in. It is read from the whole register and not from the seats held
+ * today, so the days between one board's end and the next one's start - an
+ * incoming board recorded from a day still to come - are not a window: those
+ * seats are the board's. Once one exists the board keeps its own register.
+ *
+ * Counted under {@link lockBoardRegister}, which the caller holds.
  */
 async function refuseUnseatedActor(
   tx: Prisma.TransactionClient,
@@ -323,9 +334,9 @@ async function refuseUnseatedActor(
   targetPersonId: string,
   now: Date,
 ): Promise<void> {
-  const heldToday = boardSeatHeldOn(localDayOf(now));
+  const today = localDayOf(now);
   const actorSeated = await tx.boardPosition.count({
-    where: { personId: actorPersonId, ...heldToday },
+    where: { personId: actorPersonId, ...boardSeatHeldOn(today) },
   });
   if (actorSeated > 0) {
     return;
@@ -337,10 +348,19 @@ async function refuseUnseatedActor(
       "board-seat-required",
     );
   }
-  const boardSeated = await tx.boardPosition.count({ where: heldToday });
-  if (boardSeated > 0) {
+  const candidates = await tx.boardPosition.findMany({
+    where: {
+      ...boardSeatNotEndedOn(today),
+      person: { userAccount: { isNot: null } },
+    },
+    select: { electedOn: true, endedOn: true },
+  });
+  // A withdrawn election that is still dated ahead has not ended by its date
+  // but covers no day, and is no board.
+  if (candidates.some((seat) => !hasTermEnded(seat, now))) {
     throw new RoleChangeError(
-      "Only a board member records the board's seats while a board is seated.",
+      "Only a board member records the board's seats once a board has been " +
+        "elected.",
       "board-seat-required",
     );
   }

@@ -50,6 +50,32 @@ describe("whether a term has ended", () => {
     ).toBe(false);
   });
 
+  it("counts a withdrawn election as ended while its end date is still ahead", () => {
+    // Elected from July and withdrawn with an end date in June: it covers no
+    // day, and the position can be recorded again.
+    expect(
+      hasTermEnded(
+        {
+          electedOn: new Date("2026-07-01T00:00:00Z"),
+          endedOn: new Date("2026-06-15T00:00:00Z"),
+        },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("counts a seat that has begun and ends ahead as running", () => {
+    expect(
+      hasTermEnded(
+        {
+          electedOn: new Date("2026-04-14T00:00:00Z"),
+          endedOn: new Date("2026-12-31T00:00:00Z"),
+        },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
   it("ends a term at the association's midnight on its end date", () => {
     // 00:30 on the 22nd of June here is 22:30 on the 21st in UTC. The term
     // ending on the 22nd has ended here; read against the instant, it would
