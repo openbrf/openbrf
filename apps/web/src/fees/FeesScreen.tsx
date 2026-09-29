@@ -122,6 +122,12 @@ export function FeesScreen(): ReactElement {
 
   const [on, setOn] = useState(() => today());
   const [register, setRegister] = useState<FeeRegister | null>(null);
+  /**
+   * The date the register on screen was asked for. The document and its
+   * remove buttons are shown only while it is the date on the control, so a
+   * board changing the date is never offered the previous day's fees.
+   */
+  const [registerOn, setRegisterOn] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [forbidden, setForbidden] = useState(false);
@@ -154,6 +160,7 @@ export function FeesScreen(): ReactElement {
       setLoading(false);
       if (result.ok) {
         setRegister(result.value);
+        setRegisterOn(on);
         setFailed(false);
         setForbidden(false);
         return;
@@ -466,7 +473,11 @@ export function FeesScreen(): ReactElement {
         </button>
       </div>
 
-      {register === null || failed ? null : (
+      {register === null || failed ? null : registerOn !== on ? (
+        <p role="status" className="text-body text-ink-muted">
+          {t("fees.loading")}
+        </p>
+      ) : (
         <section {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
           <header className="flex flex-col gap-1">
             <h2 className="text-title">{t("fees.documentTitle")}</h2>
