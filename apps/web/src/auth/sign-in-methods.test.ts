@@ -46,6 +46,39 @@ beforeEach(() => {
   verifyTotp.mockReset();
 });
 
+describe("a request that never reaches the server", () => {
+  /*
+   * The auth client resolves with an error for anything the server answered,
+   * but rejects when the request itself fails. A rejection reaching the form
+   * would leave it on "working" for good, so each method reports it as an
+   * ordinary failure instead.
+   */
+  it.each([
+    [
+      "signInWithPassword",
+      signInEmail,
+      () => signInWithPassword({ email: "a@b.se", password: "x" }),
+    ],
+    [
+      "verifySecondFactor",
+      verifyTotp,
+      () => verifySecondFactor({ code: "123456" }),
+    ],
+    [
+      "requestMagicLink",
+      signInMagicLink,
+      () => requestMagicLink({ email: "a@b.se" }),
+    ],
+  ])("is a failure from %s, not a rejection", async (_name, call, attempt) => {
+    call.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(attempt()).resolves.toEqual({
+      status: "failed",
+      code: "unknown",
+    });
+  });
+});
+
 describe("signInWithPassword", () => {
   it("reports a session as signed in", async () => {
     signInEmail.mockResolvedValue({ data: { user: {} }, error: null });

@@ -56,6 +56,24 @@ function toFailure(error: { code?: string | undefined }): SignInOutcome {
   return { status: "failed", code: code ?? "unknown" };
 }
 
+/*
+ * The auth client resolves with `error` for anything the server answered, but
+ * rejects when the request itself fails - offline, or a dropped connection.
+ * Every form awaiting one of these would then stay on "working" for good, so a
+ * rejection is read as an answer without a code, which is the generic failure.
+ */
+const UNANSWERED = { data: null, error: {} } as const;
+
+async function answered<T>(
+  request: () => Promise<T>,
+): Promise<T | typeof UNANSWERED> {
+  try {
+    return await request();
+  } catch {
+    return UNANSWERED;
+  }
+}
+
 /**
  * Signs in with an email address and password.
  *
@@ -67,10 +85,12 @@ export async function signInWithPassword(input: {
   email: string;
   password: string;
 }): Promise<SignInOutcome> {
-  const { data, error } = await authClient.signIn.email({
-    email: input.email,
-    password: input.password,
-  });
+  const { data, error } = await answered(() =>
+    authClient.signIn.email({
+      email: input.email,
+      password: input.password,
+    }),
+  );
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
@@ -90,9 +110,11 @@ export async function signInWithPassword(input: {
 export async function verifySecondFactor(input: {
   code: string;
 }): Promise<SignInOutcome> {
-  const { error } = await authClient.twoFactor.verifyTotp({
-    code: input.code,
-  });
+  const { error } = await answered(() =>
+    authClient.twoFactor.verifyTotp({
+      code: input.code,
+    }),
+  );
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
@@ -147,13 +169,15 @@ export async function signInWithPasskey(): Promise<SignInOutcome> {
 export async function requestMagicLink(input: {
   email: string;
 }): Promise<SignInOutcome> {
-  const { error } = await authClient.signIn.magicLink({
-    email: input.email,
-    // Where the verification lands. Better Auth's magic-link plugin has no
-    // instance-wide default for this, and its own is the origin's root - which
-    // is the association's public website, not the application.
-    callbackURL: "/app",
-  });
+  const { error } = await answered(() =>
+    authClient.signIn.magicLink({
+      email: input.email,
+      // Where the verification lands. Better Auth's magic-link plugin has no
+      // instance-wide default for this, and its own is the origin's root - which
+      // is the association's public website, not the application.
+      callbackURL: "/app",
+    }),
+  );
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
