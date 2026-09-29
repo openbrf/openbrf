@@ -572,6 +572,73 @@ describe("filing", () => {
     expect(JSON.stringify(body)).not.toContain("19811218");
   });
 
+  it("refuses a title whose number is split by an invisible character", async () => {
+    // A zero-width space shows nothing on screen and would split the number
+    // the scanner looks for, so the title is scanned as it is stored: without
+    // the Unicode "other" category.
+    const refused = await fileEntry(
+      holderCookie,
+      `/api/apartment-binder/${apartmentId}/documents`,
+      {
+        kind: "INSPECTION",
+        audience: "HOUSEHOLD",
+        title: `Ritning 19811218\u200b-9876 ${suffix}`,
+      },
+      "ritning.pdf",
+    );
+
+    expect(refused.statusCode).toBe(422);
+    expect((refused.json() as { reason: string }).reason).toBe(
+      "personal-identity-number",
+    );
+  });
+
+  it("offers a board member no take-out of what they filed for the board into their own home", async () => {
+    // Taking an entry out is the tenant-owner's route, which refuses an entry
+    // filed as the board, so offering it would answer 404.
+    const home = await prisma.residency.create({
+      data: {
+        personId: boardMember.personId,
+        apartmentId,
+        role: "MEMBER",
+        movedInOn: LONG_AGO,
+      },
+      select: { id: true },
+    });
+    let entryId: string | null = null;
+    try {
+      const filed = await fileEntry(
+        boardCookie,
+        `/api/apartment-binders/${apartmentId}/documents`,
+        {
+          kind: "DRAWING",
+          audience: "HOUSEHOLD",
+          title: `Ritning kok ${suffix}`,
+        },
+      );
+      expect(filed.statusCode).toBe(201);
+      const entry = filed.json() as EntryBody;
+      entryId = entry.id;
+      expect(entry.filedByYou).toBe(false);
+
+      const shown = (await bindersOf(boardCookie))
+        .flatMap((binder) => binder.entries)
+        .find((candidate) => candidate.id === entry.id);
+      expect(shown?.filedByYou).toBe(false);
+    } finally {
+      // Through the board's own route, so the entries later tests count are
+      // the ones they set up.
+      if (entryId !== null) {
+        await inject({
+          method: "DELETE",
+          url: `/api/apartment-binders/documents/${entryId}`,
+          headers: { cookie: boardCookie },
+        });
+      }
+      await prisma.residency.delete({ where: { id: home.id } });
+    }
+  });
+
   it("refuses the board's permission to a tenant-owner", async () => {
     const refused = await fileEntry(
       holderCookie,
@@ -636,6 +703,7 @@ describe("filing", () => {
     const entries = await prisma.apartmentDocument.findMany({
       where: { apartmentId: { in: [apartmentId, otherApartmentId] } },
       select: {
+        apartmentId: true,
         audience: true,
         mediaFile: {
           select: {
@@ -651,7 +719,7 @@ describe("filing", () => {
     expect(entries.length).toBeGreaterThan(0);
     for (const entry of entries) {
       expect(entry.mediaFile.visibility).toBe(entry.audience);
-      expect(entry.mediaFile.apartmentId).toBe(apartmentId);
+      expect(entry.mediaFile.apartmentId).toBe(entry.apartmentId);
       expect(entry.mediaFile.requiredCapability).toBe("apartmentBinder:manage");
       // Every stored file is encrypted at rest (ADR 0015), a binder's included.
       expect(entry.mediaFile.encryption).toBe("SECRETSTREAM_64K");
@@ -756,12 +824,16 @@ describe("the board's way in", () => {
   it("keeps the file name out of the upload entry", async () => {
     // The audit log is append-only and exempt from every purge, and a
     // household's file name is its own words about its own home.
+    // The board's uploads and a tenant-owner's, which take different routes.
     const uploads = await prisma.auditLogEntry.findMany({
-      where: { action: "MEDIA_UPLOADED", actorPersonId: boardMember.personId },
-      select: { context: true },
+      where: {
+        action: "MEDIA_UPLOADED",
+        actorPersonId: { in: [boardMember.personId, holder.personId] },
+      },
+      select: { actorPersonId: true, context: true },
     });
 
-    expect(uploads.length).toBeGreaterThan(0);
+    expect(new Set(uploads.map((upload) => upload.actorPersonId)).size).toBe(2);
     for (const upload of uploads) {
       expect(upload.context).not.toHaveProperty("fileName");
     }

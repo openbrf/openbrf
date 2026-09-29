@@ -111,7 +111,11 @@ export interface BinderEntryView {
    * them.
    */
   filedAs: ApartmentDocumentFiler;
-  /** Whether the reader filed it themselves, which is what offers "Ta ut". */
+  /**
+   * Whether the reader filed it themselves as a tenant-owner, which is what
+   * offers "Ta ut". One a board member filed into their own apartment through
+   * the board is the board's to remove, and offering it would answer 404.
+   */
   filedByYou: boolean;
   fileName: string;
   contentType: string;
@@ -272,7 +276,9 @@ export class ApartmentBinderService {
         .filter((row) => row.apartmentId === apartmentId)
         .map((row) => ({
           ...toEntryView(row),
-          filedByYou: row.filedByPersonId === viewer.personId,
+          filedByYou:
+            row.filedByPersonId === viewer.personId &&
+            row.filedAs === "TENANT_OWNER",
         })),
     }));
   }
@@ -525,6 +531,13 @@ export class ApartmentBinderService {
     }
 
     /*
+     * The title without the Unicode "other" category, which is invisible on
+     * screen and would otherwise split a number the scanner then does not see.
+     * Scanned and stored as it is here.
+     */
+    const title = input.title.replace(/\p{C}/gu, "").trim();
+
+    /*
      * The name as it will be stored, not as it arrived. `safeFileName` strips
      * the Unicode "other" category and path punctuation, and stripping a
      * character joins what it separated: "1981:1218-9876.pdf" carries no
@@ -532,7 +545,7 @@ export class ApartmentBinderService {
      * stored name is what every later household reads, so it is the value the
      * rule has to be true of.
      */
-    refusePersonalIdentityNumbers(input.title, safeFileName(input.fileName));
+    refusePersonalIdentityNumbers(title, safeFileName(input.fileName));
 
     /*
      * Counted from what is stored rather than from a running total, and counted
@@ -569,7 +582,7 @@ export class ApartmentBinderService {
           apartmentId: input.apartmentId,
           kind: input.kind,
           audience: input.audience,
-          title: input.title.trim(),
+          title,
           datedOn: input.datedOn === null ? null : dateColumnOf(input.datedOn),
           filedAs,
           filedByPersonId: input.actor.personId,
@@ -578,7 +591,10 @@ export class ApartmentBinderService {
         select: ENTRY_SELECT,
       });
 
-      return { ...toEntryView(entry), filedByYou: true };
+      return {
+        ...toEntryView(entry),
+        filedByYou: filedAs === "TENANT_OWNER",
+      };
     } catch (cause) {
       // The upload is already in the audit log, and so is this removal. That
       // pair is the honest record of what happened.
