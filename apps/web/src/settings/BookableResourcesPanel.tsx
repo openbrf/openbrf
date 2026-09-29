@@ -1,4 +1,10 @@
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -456,6 +462,19 @@ function ResourceRow({
 }): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<Draft>(() => draftOf(resource));
+  /*
+   * Two presses, as disconnecting an app asks for: the API has no route back
+   * from a withdrawal. The confirm button takes focus as it appears, because the
+   * button that was pressed is gone and the browser would drop focus to the body.
+   */
+  const [confirming, setConfirming] = useState(false);
+  const confirmButton = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (confirming) {
+      confirmButton.current?.focus();
+    }
+  }, [confirming]);
 
   return (
     <form
@@ -494,20 +513,54 @@ function ResourceRow({
           })}
         </span>
 
-        <button
-          type="button"
-          disabled={busy}
-          // The name carries the resource, because every row offers the same
-          // act and "withdraw" on its own does not say which one goes.
-          aria-label={t("settings.bookableResources.withdrawNamed", {
+        {confirming ? (
+          <span className="ml-auto flex flex-wrap gap-2">
+            <button
+              type="button"
+              ref={confirmButton}
+              disabled={busy}
+              onClick={onWithdraw}
+              className={QUIET_BUTTON}
+            >
+              {t("settings.bookableResources.withdrawConfirm")}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+              }}
+              className={QUIET_BUTTON}
+            >
+              {t("settings.bookableResources.withdrawCancel")}
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            // The name carries the resource, because every row offers the same
+            // act and "withdraw" on its own does not say which one goes.
+            aria-label={t("settings.bookableResources.withdrawNamed", {
+              resource: resource.name,
+            })}
+            onClick={() => {
+              setConfirming(true);
+            }}
+            className={`${QUIET_BUTTON} ml-auto`}
+          >
+            {t("settings.bookableResources.withdraw")}
+          </button>
+        )}
+      </div>
+
+      {confirming ? (
+        <Notice tone="warn" live>
+          {t("settings.bookableResources.withdrawWarning", {
             resource: resource.name,
           })}
-          onClick={onWithdraw}
-          className={`${QUIET_BUTTON} ml-auto`}
-        >
-          {t("settings.bookableResources.withdraw")}
-        </button>
-      </div>
+        </Notice>
+      ) : null}
     </form>
   );
 }

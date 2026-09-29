@@ -1413,6 +1413,9 @@
       "save": "Save",
       "withdraw": "Withdraw from booking",
       "withdrawNamed": "Withdraw {{resource}} from booking",
+      "withdrawConfirm": "Yes, withdraw",
+      "withdrawCancel": "Keep",
+      "withdrawWarning": "Nothing new can be booked on {{resource}} afterwards, and this cannot be undone from here.",
       "withdrawnTitle": "Withdrawn from booking",
       "withdrawnHint": "Nothing is deleted, and the bookings made against these keep saying what they were for. Nothing new can be booked on them, and a withdrawal is not undone from here.",
       "errors": {
