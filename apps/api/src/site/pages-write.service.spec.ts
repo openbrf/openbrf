@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "./page-content";
 import {
   PagesWriteService,
@@ -32,6 +33,7 @@ interface Fakes {
     deleteMany: ReturnType<typeof vi.fn>;
   };
   mediaFile: { findMany: ReturnType<typeof vi.fn> };
+  menuItem: { findMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   prisma: { $transaction: ReturnType<typeof vi.fn> };
   /**
@@ -83,9 +85,16 @@ function build(): Fakes {
     deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
   const mediaFile = { findMany: vi.fn().mockResolvedValue([]) };
+  const menuItem = { findMany: vi.fn().mockResolvedValue([]) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
-  const client = { page, mediaFile };
+  // `$executeRaw` is the menu lock a removal takes.
+  const client = {
+    page,
+    mediaFile,
+    menuItem,
+    $executeRaw: vi.fn().mockResolvedValue(1),
+  };
 
   const prisma = {
     ...client,
@@ -110,6 +119,7 @@ function build(): Fakes {
     ),
     page,
     mediaFile,
+    menuItem,
     audit,
     prisma,
     txClient: client,
@@ -740,6 +750,7 @@ describe("removing a page", () => {
   it("records taking a published page off the website", async () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.delete.mockResolvedValue({ ...DRAFT, published: true });
 
     await service.remove(
       "page-1",
@@ -747,12 +758,96 @@ describe("removing a page", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
-    expect(page.deleteMany).toHaveBeenCalledWith({ where: { id: "page-1" } });
+    expect(page.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "page-1" } }),
+    );
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { deleted: boolean } },
     ];
     expect(entry.action).toBe("PAGE_PUBLISHED");
     expect(entry.context.deleted).toBe(true);
+  });
+
+  it("records a page published after it was read, from the row it deleted", async () => {
+    // Read as a draft, published by somebody else, then deleted: deciding from
+    // the read would take a public page off the website with nothing said.
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    page.delete.mockResolvedValue({ ...DRAFT, published: true });
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    const [entry] = audit.record.mock.calls[0] as [
+      { action: string; context: Record<string, unknown> },
+    ];
+    expect(entry.action).toBe("PAGE_PUBLISHED");
+    expect(entry.context).toEqual({
+      slug: "om-foreningen",
+      published: false,
+      deleted: true,
+    });
+  });
+
+  it("records each menu entry the page takes with it", async () => {
+    // The cascade removes them, and every menu write is audited whichever way
+    // it was reached: the log has to say what left the menu, and who took it.
+    const { service, page, menuItem, audit, txClient } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    menuItem.findMany.mockResolvedValue([
+      { id: "item-1", kind: "PAGE", _count: { children: 5 } },
+      { id: "item-2", kind: "PAGE", _count: { children: 0 } },
+    ]);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(menuItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pageId: "page-1" } }),
+    );
+    const entries = audit.record.mock.calls.map(
+      ([entry, tx]) => [entry, tx] as [Record<string, unknown>, unknown],
+    );
+    expect(entries.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        actorPersonId: "person-1",
+        targetKind: "menuItem",
+        targetId: "item-1",
+        context: { kind: "PAGE", childrenRemoved: 5, withPage: "page-1" },
+      }),
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        targetId: "item-2",
+        context: { kind: "PAGE", childrenRemoved: 0, withPage: "page-1" },
+      }),
+    ]);
+    for (const [, tx] of entries) {
+      expect(tx).toBe(txClient);
+    }
+  });
+
+  it("finds the entries under the menu lock, so none can be added unrecorded", async () => {
+    const { service, page, menuItem, txClient } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    expect(menuItem.findMany.mock.invocationCallOrder[0]).toBeGreaterThan(
+      locked,
+    );
+    expect(page.delete.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
   });
 
   it("records nothing for a draft nobody could read", async () => {
@@ -922,9 +1017,9 @@ describe("a write built on a copy somebody else has replaced", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
-    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
-      where: { id: "page-1", revision: 4 },
-    });
+    expect(fakes.page.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "page-1", revision: 4 } }),
+    );
   });
 
   it("refuses the deletion and records nothing when the claim finds no row", async () => {
@@ -933,7 +1028,15 @@ describe("a write built on a copy somebody else has replaced", () => {
     // work they never saw.
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
-    fakes.page.deleteMany.mockResolvedValue({ count: 0 });
+    fakes.menuItem.findMany.mockResolvedValue([
+      { id: "item-1", kind: "PAGE", _count: { children: 0 } },
+    ]);
+    fakes.page.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("No record was found.", {
+        code: "P2025",
+        clientVersion: "test",
+      }),
+    );
 
     const refusal = await refusalOf(
       fakes.service.remove(
@@ -1100,8 +1203,8 @@ describe("a write built on a copy somebody else has replaced", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
-    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
-      where: { id: "page-1" },
-    });
+    expect(fakes.page.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "page-1" } }),
+    );
   });
 });

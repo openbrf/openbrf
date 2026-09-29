@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
 import { MenuWriteService } from "./menu-write.service";
+import { PagesWriteService } from "./pages-write.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -591,6 +592,44 @@ describe("what the log keeps about the board's own menu edits", () => {
       select: { action: true, channel: true, targetId: true, context: true },
     });
   }
+
+  it("records the entries a page removal takes with it", async () => {
+    // The cascade is the database's, and every menu write is audited however
+    // it was reached: "Om oss" and the dropdown under it leaving the menu is
+    // something the log has to be able to say.
+    const spareId = `site-menu-removed-${suffix}`;
+    await prisma.page.create({
+      data: {
+        id: spareId,
+        slug: `site-menu-removed-${suffix}`,
+        title: "Om oss",
+        content: { version: 1, blocks: [] },
+        visibility: "PUBLIC",
+        published: false,
+        sortOrder: 9,
+      },
+    });
+    const top = await addEntry(boardCookie, { kind: "PAGE", pageId: spareId });
+    const under = [pageIds.home, pageIds.member, pageIds.child];
+    for (const pageId of under) {
+      await addEntry(boardCookie, { kind: "PAGE", pageId, parentId: top.id });
+    }
+
+    await app
+      .get(PagesWriteService)
+      .remove(spareId, {}, { personId: boardMember.personId, channel: "WEB" });
+
+    expect(
+      await prisma.menuItem.count({ where: { id: { in: written } } }),
+    ).toBe(0);
+    const [latest] = await entries();
+    expect(latest).toMatchObject({
+      action: "MENU_ITEM_REMOVED",
+      channel: "WEB",
+      targetId: top.id,
+      context: { kind: "PAGE", childrenRemoved: 3, withPage: spareId },
+    });
+  });
 
   it("records one entry per write, through the web interface", async () => {
     const before = (await entries()).length;

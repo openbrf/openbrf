@@ -5,9 +5,10 @@ import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { lockMenu } from "./menu-lock";
 import {
   imageReferences,
   type PageContent,
@@ -774,9 +775,21 @@ export class PagesWriteService {
    * The precondition matters most here of the four writes that take one,
    * because this is the one with nothing to read again afterwards: a board
    * member deleting a page on the strength of a copy somebody else has since
-   * rewritten is deleting work they never saw. `deleteMany` rather than
-   * `delete`, so the revision can sit in the predicate and a claim that matches
-   * nothing is a refusal rather than a thrown record-not-found.
+   * rewritten is deleting work they never saw. The revision sits in the
+   * delete's own predicate, so a claim that matches nothing is a refusal.
+   *
+   * Whether the page was published is read off the row the delete took rather
+   * than off the read above. A page published between the two would otherwise
+   * leave the website with no entry saying so - the one record ADR 0006 asks
+   * of every publication change.
+   *
+   * The page's menu entries go with it, by cascade, and so do the entries
+   * hanging under them. Each entry pointing at the page is recorded as the
+   * removal it is, with how many hung under it, exactly as the menu's own
+   * removal records one: every menu write is audited, and this is one reached
+   * through the page rather than through the menu. The menu lock is what makes
+   * the record true - nothing can be hung under those entries, or pointed at
+   * this page, between the read that finds them and the delete that takes them.
    */
   async remove(
     id: string,
@@ -786,40 +799,81 @@ export class PagesWriteService {
     },
     actor: ActorContext,
   ): Promise<void> {
-    const page = await this.require(id);
+    await this.require(id);
 
-    await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.page.deleteMany({
-        where: {
-          id,
-          ...(input.expectedRevision === undefined
-            ? {}
-            : { revision: input.expectedRevision }),
+    const removed = await this.prisma.$transaction(async (tx) => {
+      await lockMenu(tx);
+      const entries = await tx.menuItem.findMany({
+        where: { pageId: id },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          kind: true,
+          _count: { select: { children: true } },
         },
       });
 
-      if (claimed.count === 0) {
-        throw new PageWriteError(
-          "The page changed after it was read.",
-          "page-changed",
-        );
+      let deleted: { slug: string; published: boolean };
+      try {
+        deleted = await tx.page.delete({
+          where: {
+            id,
+            ...(input.expectedRevision === undefined
+              ? {}
+              : { revision: input.expectedRevision }),
+          },
+          select: { slug: true, published: true },
+        });
+      } catch (cause) {
+        // Nothing matched: the page is not the one the caller read, or it is
+        // no longer there at all.
+        if (
+          cause instanceof Prisma.PrismaClientKnownRequestError &&
+          cause.code === "P2025"
+        ) {
+          throw new PageWriteError(
+            "The page changed after it was read.",
+            "page-changed",
+          );
+        }
+        throw cause;
       }
 
-      if (page.published) {
+      if (deleted.published) {
         await this.audit.record(
           {
             action: "PAGE_PUBLISHED",
             ...auditActor(actor),
             targetKind: "page",
             targetId: id,
-            context: { slug: page.slug, published: false, deleted: true },
+            context: { slug: deleted.slug, published: false, deleted: true },
           },
           tx,
         );
       }
+
+      for (const entry of entries) {
+        await this.audit.record(
+          {
+            action: "MENU_ITEM_REMOVED",
+            ...auditActor(actor),
+            targetKind: "menuItem",
+            targetId: entry.id,
+            context: {
+              kind: entry.kind,
+              childrenRemoved: entry._count.children,
+              // Why it went, since nobody removed it from the menu itself.
+              withPage: id,
+            },
+          },
+          tx,
+        );
+      }
+
+      return deleted;
     });
 
-    this.logger.log(`Removed the page at /${page.slug}`);
+    this.logger.log(`Removed the page at /${removed.slug}`);
   }
 
   /**
