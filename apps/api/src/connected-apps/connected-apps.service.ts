@@ -236,6 +236,13 @@ export class ConnectedAppsService {
    *
    * The audit entry is written inside the same transaction, so a connection
    * cannot be cut without a record of who cut it.
+   *
+   * The tokens are cut whether or not a consent row was there. A refresh or a
+   * code exchange racing a disconnect can mint a token after the consent went,
+   * and a second disconnect is the only thing that can clean it up: answering
+   * "no such connection" from inside the transaction would roll that cleanup
+   * back. So the 404 is thrown once the cut has committed, and it says only
+   * that there was no consent to remove.
    */
   async disconnect(input: {
     /** The account holding the grant. */
@@ -247,7 +254,7 @@ export class ConnectedAppsService {
     /** True when somebody other than the grantor is doing this. */
     onBehalf: boolean;
   }): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const removed = await this.prisma.$transaction(async (tx) => {
       await tx.oauthAccessToken.deleteMany({
         where: { userId: input.userId, clientId: input.clientId },
       });
@@ -262,10 +269,10 @@ export class ConnectedAppsService {
       const consents = await tx.oauthConsent.deleteMany({
         where: { userId: input.userId, clientId: input.clientId },
       });
-      // Nothing to cut, and nothing to record: an entry for a connection that
+      // Nothing to record when there was no connection: an entry for one that
       // never existed would stand in the log for good.
       if (consents.count === 0) {
-        throw new NotFoundException("No such connection.");
+        return false;
       }
 
       /*
@@ -287,7 +294,12 @@ export class ConnectedAppsService {
           tx,
         );
       }
+      return true;
     });
+
+    if (!removed) {
+      throw new NotFoundException("No such connection.");
+    }
   }
 
   /**

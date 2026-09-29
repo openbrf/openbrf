@@ -69,6 +69,7 @@ export class BearerPrincipalService {
         id: true,
         clientId: true,
         userId: true,
+        createdAt: true,
         expiresAt: true,
         revoked: true,
         resources: true,
@@ -105,10 +106,17 @@ export class BearerPrincipalService {
      * The grant the token was issued under has to stand. A disconnect deletes
      * the consent and the tokens it can see, but a refresh racing it, or an
      * authorization code exchanged after it, can still mint a token; without
-     * the consent that token names a connection the member has cut.
+     * the consent that token names a connection the member has cut - and if
+     * the member later reconnects the same app, a consent that is newer than
+     * the token is not the grant it was issued under, so that token stays dead
+     * instead of coming back to life.
      */
     const consent = await this.prisma.oauthConsent.findFirst({
-      where: { userId: row.userId, clientId: row.clientId },
+      where: {
+        userId: row.userId,
+        clientId: row.clientId,
+        createdAt: { lte: row.createdAt },
+      },
       select: { id: true },
     });
     if (consent === null) {
