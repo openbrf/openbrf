@@ -230,6 +230,92 @@ export class MoveService implements OnModuleInit {
   }
 
   /**
+   * Creates a residency inside the caller's transaction, under the rules every
+   * path that moves somebody in shares: the person's transition lock, no
+   * second residency on the same apartment for the same days, the member
+   * register row the move owes, and the close of a granted erasure request
+   * the move-in has overtaken.
+   *
+   * Public for the board's approval of a sign-up request, which creates a
+   * residency in the transaction that claims the request. A second copy of
+   * these rules there is how the two paths would come to disagree.
+   */
+  async enterResidency(
+    tx: Prisma.TransactionClient,
+    input: {
+      actorPersonId: string;
+      personId: string;
+      apartmentId: string;
+      role: ResidencyRole;
+      movedInOn: Date;
+    },
+  ): Promise<{
+    residency: { id: string };
+    memberRegisterEntryRecorded: boolean;
+  }> {
+    const { personId, apartmentId, movedInOn } = input;
+    await lockResidencyTransitions(tx, personId);
+
+    // A residency on this apartment that would overlap the new one: open, or
+    // ending after the new move-in date. One ending on that date does not
+    // overlap it, because the move-out date is the first day a residency is
+    // no longer held - so moving back in on it, as a partner becoming a
+    // joint holder does, leaves no day held twice.
+    const existing = await tx.residency.count({
+      where: {
+        personId,
+        apartmentId,
+        OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedInOn } }],
+      },
+    });
+    if (existing > 0) {
+      throw new MoveError(
+        "This person already has a residency on that apartment.",
+        "already-resident",
+      );
+    }
+
+    // Read before the insert: what the register owes this move-in depends on
+    // what the person held without it, and the row about to be created would
+    // answer its own question.
+    const memberResidencies =
+      input.role === "MEMBER" ? await readMemberResidencies(tx, personId) : null;
+
+    const residency = await tx.residency.create({
+      data: { personId, apartmentId, role: input.role, movedInOn },
+      select: { id: true },
+    });
+
+    /*
+     * Somebody moving back in has a relationship with the association again,
+     * so the ground a standing erasure request rested on has gone. Closed
+     * here, under the residency lock this transaction already holds, because
+     * the purge would otherwise never reach the request: it refuses anybody
+     * with a current residency, and the request would sit granted and
+     * unexecuted while the person's page kept promising an erasure.
+     *
+     * Not a refusal of the right. Asking again is a new request.
+     */
+    await this.dataSubjectRequests.closeForMoveIn(
+      tx,
+      personId,
+      input.actorPersonId,
+    );
+
+    // Whether the person held a tenant-ownership on the day they move in, and
+    // not whether one had merely not ended by then: a purchase entered ahead
+    // of a back-dated one held nothing on the earlier day, and counting it
+    // dated the membership from the later one.
+    const memberRegisterEntryRecorded =
+      memberResidencies !== null &&
+      (await appendOwedMembershipEvents(tx, personId, memberResidencies)).some(
+        (event) => event.eventType === "ENTRY",
+      );
+
+    return { residency, memberRegisterEntryRecorded };
+  }
+
+  /**
    * Moves a person into an apartment.
    *
    * The welcome email is sent after the transaction commits rather than inside
@@ -270,70 +356,14 @@ export class MoveService implements OnModuleInit {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      await lockResidencyTransitions(tx, person.id);
-
-      // A residency on this apartment that would overlap the new one: open, or
-      // ending after the new move-in date. One ending on that date does not
-      // overlap it, because the move-out date is the first day a residency is
-      // no longer held - so moving back in on it, as a partner becoming a
-      // joint holder does, leaves no day held twice.
-      const existing = await tx.residency.count({
-        where: {
-          personId: person.id,
-          apartmentId: apartment.id,
-          OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedInOn } }],
-        },
-      });
-      if (existing > 0) {
-        throw new MoveError(
-          "This person already has a residency on that apartment.",
-          "already-resident",
-        );
-      }
-
-      // Read before the insert: what the register owes this move-in depends on
-      // what the person held without it, and the row about to be created would
-      // answer its own question.
-      const memberResidencies =
-        input.role === "MEMBER"
-          ? await readMemberResidencies(tx, person.id)
-          : null;
-
-      const residency = await tx.residency.create({
-        data: {
+      const { residency, memberRegisterEntryRecorded } =
+        await this.enterResidency(tx, {
+          actorPersonId: input.actorPersonId,
           personId: person.id,
           apartmentId: apartment.id,
           role: input.role,
           movedInOn,
-        },
-        select: { id: true },
-      });
-
-      /*
-       * Somebody moving back in has a relationship with the association again,
-       * so the ground a standing erasure request rested on has gone. Closed
-       * here, under the residency lock this transaction already holds, because
-       * the purge would otherwise never reach the request: it refuses anybody
-       * with a current residency, and the request would sit granted and
-       * unexecuted while the person's page kept promising an erasure.
-       *
-       * Not a refusal of the right. Asking again is a new request.
-       */
-      await this.dataSubjectRequests.closeForMoveIn(
-        tx,
-        person.id,
-        input.actorPersonId ?? null,
-      );
-
-      // Whether the person held a tenant-ownership on the day they move in, and
-      // not whether one had merely not ended by then: a purchase entered ahead
-      // of a back-dated one held nothing on the earlier day, and counting it
-      // dated the membership from the later one.
-      const memberRegisterEntryRecorded =
-        memberResidencies !== null &&
-        (
-          await appendOwedMembershipEvents(tx, person.id, memberResidencies)
-        ).some((event) => event.eventType === "ENTRY");
+        });
 
       const transferId =
         input.transfer === undefined

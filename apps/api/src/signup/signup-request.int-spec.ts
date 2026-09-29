@@ -3,12 +3,13 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { InvitationService } from "../invitations/invitation.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { SignupRequestService } from "./signup-request.service";
 
@@ -48,6 +49,58 @@ const claimedApartmentNumber = `1105-${suffix}`;
  */
 const botApartmentNumber = `1106-${suffix}`;
 let apartmentId: string;
+/*
+ * Applicants other than the main one, for the blocks that need a request of
+ * their own. Listed so the cleanup finds the persons their approvals created.
+ */
+const extraEmails = [
+  `shared-${suffix}@exempel.se`,
+  `returning-${suffix}@exempel.se`,
+  `midnight-${suffix}@exempel.se`,
+  `unsent-${suffix}@exempel.se`,
+  `member-${suffix}@exempel.se`,
+  `audited-${suffix}@exempel.se`,
+];
+const otherClaim = `1107-${suffix}`;
+
+/** Submits a request of its own for `email`, and returns its id. */
+async function submitFor(email: string): Promise<string> {
+  await setSelfSignup(true);
+  const response = await inject({
+    method: "POST",
+    url: "/api/signup-requests/submit",
+    payload: { ...submission(), email, claimedApartmentNumber: otherClaim },
+  });
+  expect(response.statusCode).toBe(202);
+  const stored = await prisma.signupRequest.findMany({
+    where: { claimedApartmentNumber: otherClaim, status: "PENDING" },
+    select: { id: true, emailCipher: true },
+  });
+  for (const request of stored) {
+    if (
+      (await encryption.decrypt("signupRequest.email", request.emailCipher)) ===
+      email
+    ) {
+      return request.id;
+    }
+  }
+  throw new Error(`No pending request for ${email}.`);
+}
+
+/** A person already in the register under `email`, as the board entered them. */
+async function registeredPerson(email: string, id: string): Promise<string> {
+  const encrypted = await encryption.encrypt("person.email", email);
+  await prisma.person.create({
+    data: {
+      id,
+      firstName: "Registered",
+      lastName: "Person",
+      emailCipher: encrypted.cipher,
+      emailIndex: encrypted.index,
+    },
+  });
+  return id;
+}
 
 let ipCounter = 0;
 function inject(options: {
@@ -106,8 +159,8 @@ const submission = () => ({
  * Called by every block that needs one, so no block depends on a request an
  * earlier block happened to create: a single test run in isolation, or a
  * reordering, would otherwise fail in findFirstOrThrow rather than on the
- * behaviour under test. Submitting twice is safe because a resubmission from
- * the same address replaces the outstanding request.
+ * behaviour under test. An outstanding request is kept as it is, since a
+ * resubmission from the same address never replaces it.
  */
 async function ensurePendingRequest(): Promise<void> {
   await setSelfSignup(true);
@@ -192,20 +245,28 @@ afterAll(async () => {
    * Nothing here depends on the rows being gone either - every assertion below
    * selects on a per-request id.
    */
-  const applicantIndex = await encryption.computeIndex(
-    "person.email",
-    applicantEmail,
+  const applicantIndexes = await Promise.all(
+    [applicantEmail, ...extraEmails].map((email) =>
+      encryption.computeIndex("person.email", email),
+    ),
   );
   const applicants = await prisma.person.findMany({
-    where: { emailIndex: applicantIndex ?? "none" },
+    where: {
+      emailIndex: {
+        in: applicantIndexes.filter((index) => index !== null),
+      },
+    },
     select: { id: true },
   });
   const personIds = [board.personId, ...applicants.map((p) => p.id)];
 
+  await prisma.dataSubjectRequest.deleteMany({
+    where: { personId: { in: personIds } },
+  });
   await prisma.signupRequest.deleteMany({
     where: {
       claimedApartmentNumber: {
-        in: [claimedApartmentNumber, botApartmentNumber],
+        in: [claimedApartmentNumber, botApartmentNumber, otherClaim],
       },
     },
   });
@@ -302,17 +363,33 @@ describe("a pending request", () => {
     expect(person).toBeNull();
   });
 
-  it("replaces an earlier pending request from the same address", async () => {
-    await inject({
-      method: "POST",
-      url: "/api/signup-requests/submit",
-      payload: submission(),
+  it("keeps the first pending request when the same address submits again", async () => {
+    const first = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber, status: "PENDING" },
+      select: { id: true, firstName: true, claimedAddress: true },
     });
 
-    const pending = await prisma.signupRequest.count({
-      where: { claimedApartmentNumber, status: "PENDING" },
+    // Anybody can submit the form with a resident's address, so a second
+    // submission must not replace the claim the board is about to read.
+    const response = await inject({
+      method: "POST",
+      url: "/api/signup-requests/submit",
+      payload: {
+        ...submission(),
+        firstName: "Someone",
+        claimedAddress: "Annan gata 1",
+      },
     });
-    expect(pending).toBe(1);
+    // Answered as a stored request is, so the caller learns nothing about
+    // whether the address already has one waiting.
+    expect(response.statusCode).toBe(202);
+    expect(Object.keys(response.json() as object)).toEqual(["id"]);
+
+    const pending = await prisma.signupRequest.findMany({
+      where: { claimedApartmentNumber, status: "PENDING" },
+      select: { id: true, firstName: true, claimedAddress: true },
+    });
+    expect(pending).toEqual([first]);
   });
 
   it("is not readable without the deciding capability", async () => {
@@ -365,6 +442,188 @@ describe("approval", () => {
     expect(invitation).not.toBeNull();
   }, 60_000);
 
+  it("writes nothing to the member register", async () => {
+    const decided = await prisma.signupRequest.findFirstOrThrow({
+      where: { claimedApartmentNumber, status: "APPROVED" },
+      select: { id: true },
+    });
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "SIGNUP_REQUEST_APPROVED", targetId: decided.id },
+      select: { targetPersonId: true },
+    });
+
+    expect(
+      await prisma.memberRegisterEntry.count({
+        where: { personId: entry.targetPersonId ?? "none" },
+      }),
+    ).toBe(0);
+  });
+
+  it("refuses a request that asks for membership, and creates nothing", async () => {
+    const requestId = await submitFor(`member-${suffix}@exempel.se`);
+    const cookie = await signIn(board.email);
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/signup-requests/${requestId}/approve`,
+      payload: { apartmentId, role: "MEMBER" },
+      headers: { cookie },
+    });
+
+    /*
+     * Membership is entered by a move-in with its transfer, where the member
+     * register row is written. An approval that granted it would leave a
+     * member with no ENTRY, and an EXIT for them later that nothing began.
+     */
+    expect(response.statusCode).toBe(400);
+    const request = await prisma.signupRequest.findUniqueOrThrow({
+      where: { id: requestId },
+      select: { status: true },
+    });
+    expect(request.status).toBe("PENDING");
+
+    await requests.reject({
+      requestId,
+      decidedByPersonId: board.personId,
+    });
+  });
+
+  it("dates the residency by the day in Stockholm, not in UTC", async () => {
+    const email = `midnight-${suffix}@exempel.se`;
+    const requestId = await submitFor(email);
+
+    // 00:30 on 22 June in Stockholm is still 21 June in UTC.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-21T22:30:00Z"));
+    let personId: string;
+    try {
+      ({ personId } = await requests.approve({
+        requestId,
+        apartmentId,
+        decidedByPersonId: board.personId,
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId },
+      select: { movedInOn: true },
+    });
+    expect(residency.movedInOn.toISOString().slice(0, 10)).toBe("2026-06-22");
+  }, 60_000);
+
+  it("keeps the approval when the invitation cannot be sent, and says so", async () => {
+    const requestId = await submitFor(`unsent-${suffix}@exempel.se`);
+    const invite = vi
+      .spyOn(app.get(InvitationService), "invite")
+      .mockRejectedValueOnce(new Error("550 recipient refused"));
+
+    try {
+      const result = await requests.approve({
+        requestId,
+        apartmentId,
+        decidedByPersonId: board.personId,
+      });
+
+      expect(result.invitationSent).toBe(false);
+      const request = await prisma.signupRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        select: { status: true },
+      });
+      expect(request.status).toBe("APPROVED");
+      expect(
+        await prisma.residency.count({ where: { personId: result.personId } }),
+      ).toBe(1);
+    } finally {
+      invite.mockRestore();
+    }
+  }, 60_000);
+
+  it("refuses to link a request to an address two persons share", async () => {
+    const email = `shared-${suffix}@exempel.se`;
+    await registeredPerson(email, `su-shared-a-${suffix}`);
+    await registeredPerson(email, `su-shared-b-${suffix}`);
+    const requestId = await submitFor(email);
+
+    await expect(
+      requests.approve({
+        requestId,
+        apartmentId,
+        decidedByPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "email-shared" });
+
+    // Neither household member was given the applicant's residency.
+    expect(
+      await prisma.residency.count({
+        where: {
+          personId: { in: [`su-shared-a-${suffix}`, `su-shared-b-${suffix}`] },
+        },
+      }),
+    ).toBe(0);
+
+    await requests.reject({ requestId, decidedByPersonId: board.personId });
+  });
+
+  it("follows the move-in's rules for a person already in the register", async () => {
+    const email = `returning-${suffix}@exempel.se`;
+    const personId = await registeredPerson(email, `su-returning-${suffix}`);
+    await prisma.residency.create({
+      data: {
+        personId,
+        apartmentId,
+        role: "RESIDENT",
+        movedInOn: new Date("2024-01-01"),
+      },
+    });
+    const erasure = await prisma.dataSubjectRequest.create({
+      data: {
+        personId,
+        kind: "ERASURE",
+        requestedOn: new Date("2025-01-10"),
+        ground: "Flyttat",
+        decision: "GRANTED",
+        decidedAt: new Date("2025-01-11"),
+      },
+      select: { id: true },
+    });
+
+    // A residency on the same apartment for the same days is refused, and the
+    // refusal leaves the request undecided.
+    const first = await submitFor(email);
+    await expect(
+      requests.approve({
+        requestId: first,
+        apartmentId,
+        decidedByPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "already-resident" });
+    const refused = await prisma.signupRequest.findUniqueOrThrow({
+      where: { id: first },
+      select: { status: true },
+    });
+    expect(refused.status).toBe("PENDING");
+
+    // Once the old residency has ended, the move-in closes the erasure it
+    // overtakes, as every other move-in does.
+    await prisma.residency.updateMany({
+      where: { personId },
+      data: { movedOutOn: new Date("2024-12-31") },
+    });
+    await requests.approve({
+      requestId: first,
+      apartmentId,
+      decidedByPersonId: board.personId,
+    });
+    const closed = await prisma.dataSubjectRequest.findUniqueOrThrow({
+      where: { id: erasure.id },
+      select: { closedAt: true, closeReason: true },
+    });
+    expect(closed.closedAt).toBeInstanceOf(Date);
+    expect(closed.closeReason).toBe("moved-in");
+  }, 60_000);
+
   it("refuses to decide the same request twice", async () => {
     const decided = await prisma.signupRequest.findFirstOrThrow({
       where: { claimedApartmentNumber, status: "APPROVED" },
@@ -415,9 +674,9 @@ describe("the audit trail of a decision", () => {
   beforeAll(ensurePendingRequest);
 
   it("records an approval, naming the request and the person it produced", async () => {
-    const pending = await prisma.signupRequest.findFirstOrThrow({
-      where: { claimedApartmentNumber, status: "PENDING" },
-    });
+    // An applicant of its own: the main one already lives in the apartment
+    // after the approval block, and a second residency there is refused.
+    const pending = { id: await submitFor(`audited-${suffix}@exempel.se`) };
 
     const result = await requests.approve({
       requestId: pending.id,

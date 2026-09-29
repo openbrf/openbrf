@@ -90,7 +90,10 @@ beforeEach(() => {
   });
   approveSignupRequest
     .mockReset()
-    .mockResolvedValue({ ok: true, value: { personId: "person-1" } });
+    .mockResolvedValue({
+      ok: true,
+      value: { personId: "person-1", invitationSent: true },
+    });
   rejectSignupRequest.mockReset().mockResolvedValue({ ok: true });
   fetchApartments.mockReset().mockResolvedValue({
     ok: true,
@@ -181,8 +184,8 @@ describe("approving", () => {
 
   it("says the approval landed even when the invitation could not be sent", async () => {
     approveSignupRequest.mockResolvedValue({
-      ok: false,
-      failure: { status: 503, reason: "mail-not-configured" },
+      ok: true,
+      value: { personId: "person-1", invitationSent: false },
     });
 
     const session = userEvent.setup();
@@ -197,12 +200,11 @@ describe("approving", () => {
 
     await waitFor(() => {
       /*
-       * The person, the residency and the invitation are written before the
-       * email goes out, so this is not a failed approval. A board told "that
-       * could not be saved" would approve the same request again and put a
-       * second residency on the apartment.
+       * The person and the residency are written before the email goes out,
+       * so this is not a failed approval. A board told "that could not be
+       * saved" would approve the same request again.
        */
-      expect(screen.getByRole("alert").textContent).toContain(
+      expect(screen.getByRole("status").textContent).toContain(
         "Ansökan är godkänd och personen finns i registret",
       );
     });

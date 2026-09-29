@@ -756,6 +756,9 @@ model SignupRequest {
   createdAt DateTime @default(now())
 
   @@index([status])
+  /// At most one PENDING request per address is a partial unique index written
+  /// by hand in the migration, with no @@unique counterpart here: a decided
+  /// request is history, and the address may ask again after a rejection.
   @@index([emailIndex])
   @@map("signup_request")
 }
