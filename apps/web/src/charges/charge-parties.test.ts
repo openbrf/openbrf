@@ -131,6 +131,25 @@ describe("loadChargeParties", () => {
     ).rejects.toThrow();
   });
 
+  it("stops at the last page even when a person is on two of its rows", async () => {
+    // The total counts rows, one per residency, and a person with two
+    // residencies is one person: comparing people with rows would ask for a
+    // page past the end.
+    fetchBoardRegister.mockResolvedValue({
+      rows: [
+        { personId: "bo", name: "Bo Ekwall", apartment: null, movedInOn: null },
+        { personId: "bo", name: "Bo Ekwall", apartment: null, movedInOn: null },
+      ],
+      addresses: [],
+      total: 2,
+    });
+
+    const parties = await loadChargeParties(new AbortController().signal);
+
+    expect(parties.persons).toHaveLength(1);
+    expect(fetchBoardRegister).toHaveBeenCalledTimes(1);
+  });
+
   it("does not walk the address list once the load is abandoned", async () => {
     const controller = new AbortController();
     controller.abort();

@@ -376,6 +376,29 @@ describe("when the read fails", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
   });
+
+  it("takes the refusal away once a corrected period is read", async () => {
+    render(<ChargesScreen />);
+    await screen.findByText("Nyckel till cykelrummet");
+
+    fetchDebitingList.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 422, reason: "range-invalid" },
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2027-02-01" },
+    });
+    await screen.findByText("Perioden kan inte sluta innan den börjar.");
+
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2026-01-01" },
+    });
+
+    expect(await screen.findByText("Nyckel till cykelrummet")).toBeTruthy();
+    expect(
+      screen.queryByText("Perioden kan inte sluta innan den börjar."),
+    ).toBeNull();
+  });
 });
 
 describe("removing a charge", () => {
@@ -396,5 +419,23 @@ describe("removing a charge", () => {
     await waitFor(() => {
       expect(fetchDebitingList.mock.calls.length).toBeGreaterThan(1);
     });
+  });
+
+  it("does not read the address book again", async () => {
+    // The parties are the same after a removal, and reading them walks the
+    // whole address book plus one request per address.
+    removeCharge.mockResolvedValue({ ok: true, value: undefined });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+
+    await waitFor(() => {
+      expect(fetchDebitingList).toHaveBeenCalledTimes(2);
+    });
+    expect(loadChargeParties).toHaveBeenCalledTimes(1);
   });
 });

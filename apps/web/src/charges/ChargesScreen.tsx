@@ -129,6 +129,8 @@ export function ChargesScreen(): ReactElement {
     null,
   );
   const [reload, setReload] = useState(0);
+  /** Its own counter, so a recorded or removed charge re-reads only the list. */
+  const [partiesRead, setPartiesRead] = useState(0);
 
   /*
    * The parties are read once and the list on every period change, so changing
@@ -159,7 +161,7 @@ export function ChargesScreen(): ReactElement {
     return () => {
       controller.abort();
     };
-  }, [reload]);
+  }, [partiesRead]);
 
   /*
    * Which read the list on the screen came from. The period cannot say it on
@@ -185,6 +187,8 @@ export function ChargesScreen(): ReactElement {
         setList(result.value);
         setFailed(false);
         setForbidden(false);
+        // A period the server refused is no longer the one on the controls.
+        setRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
@@ -235,7 +239,10 @@ export function ChargesScreen(): ReactElement {
     setFailed(false);
     setLoading(true);
     setReload((count) => count + 1);
-  }, []);
+    if (parties === null) {
+      setPartiesRead((count) => count + 1);
+    }
+  }, [parties]);
 
   const refresh = useCallback(() => {
     // The file is from the period as it stood; a charge recorded or removed
