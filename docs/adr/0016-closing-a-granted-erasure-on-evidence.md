@@ -147,3 +147,23 @@ the commit would be left behind a closed request. It is a sub-second window and
 the person is by then a former resident whose account is being deleted in that
 same transaction, so there is nobody to write it; locking six tables per person
 to close it would make every writer in the house wait on the purge.
+
+## Update, 2026-09-29
+
+Two things this record described have changed.
+
+The domains. Key orders, sublet applications, the board mailbox (threads linked
+to the person by `correspondentPersonId`) and the rest of the chat (group
+memberships, read markers and reports) were holding a person's rows that no
+domain counted, so a request closed with them standing. They are domains now,
+and an open key order or sublet application is kept, as an open motion is.
+Member charges and fee notices stay out on purpose: they are accounting records
+kept for seven years under BFL 7 kap. 2 §, so art. 17(3)(b) exempts them.
+
+The "blocked" case. The domain jobs used to erase on any open granted request,
+checking only a hold and a restriction, while the closing job also refused a
+board seat, a system role and a residency not yet ended. A request could then be
+logged as blocked after the domain jobs had already erased rows, which is not an
+erasure that has not started. Every job that erases on a request now selects on
+the same predicate (`erasureRequestedPersonIds` and `isErasureInForce` in
+`retention/withheld-persons.ts`), so "blocked" again means nothing was erased.
