@@ -273,6 +273,23 @@ export class BreachService {
         tx,
       );
 
+      // One entry naming each person the breach reached, as adding one later
+      // writes: it is what puts the breach on that person's access report.
+      for (const personId of new Set(input.subjectPersonIds)) {
+        await this.audit.record(
+          {
+            action: "PERSONAL_DATA_BREACH_UPDATED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetPersonId: personId,
+            targetKind: "personalDataBreach",
+            targetId: row.id,
+            context: { fields: ["subjects"] },
+          },
+          tx,
+        );
+      }
+
       await this.jobs.sendAtInTransaction(
         tx,
         BREACH_REMINDER_QUEUE,
