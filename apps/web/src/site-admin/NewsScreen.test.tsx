@@ -20,6 +20,7 @@ import type { NewsItem } from "./news-api";
 const fetchNews = vi.fn();
 const fetchRecipientCount = vi.fn();
 const createNews = vi.fn();
+const editNews = vi.fn();
 const publishNews = vi.fn();
 
 vi.mock("./news-api", async (importOriginal) => ({
@@ -27,6 +28,7 @@ vi.mock("./news-api", async (importOriginal) => ({
   fetchNews: () => fetchNews(),
   fetchRecipientCount: () => fetchRecipientCount(),
   createNews: (fields: unknown) => createNews(fields),
+  editNews: (id: string, fields: unknown) => editNews(id, fields),
   publishNews: (id: string, fields: unknown) => publishNews(id, fields),
 }));
 
@@ -49,6 +51,7 @@ const DRAFT: NewsItem = {
     sms: { pending: 0, sent: 0, failed: 0, notConfigured: false },
   },
   mailingRequested: false,
+  revision: 4,
   updatedAt: "2026-09-01T10:00:00.000Z",
 };
 
@@ -143,6 +146,61 @@ describe("the news screen", () => {
           ],
         },
       });
+    });
+  });
+});
+
+describe("two board members editing the same item", () => {
+  it("claims the save on the copy that was opened", async () => {
+    editNews.mockResolvedValue({ ok: true, value: DRAFT });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Ändra" }));
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    await waitFor(() => {
+      expect(editNews).toHaveBeenCalledWith(
+        "news-1",
+        expect.objectContaining({ expectedRevision: 4 }),
+      );
+    });
+  });
+
+  it("says somebody else saved first, keeps the text, and claims the next save on their copy", async () => {
+    // Refusing every save until a reload would lose what the board wrote to
+    // protect a version they have not seen. The message says the next save
+    // writes over it.
+    editNews
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 409, reason: "news-changed" },
+      })
+      .mockResolvedValue({ ok: true, value: DRAFT });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Ändra" }));
+    fetchNews.mockResolvedValue({
+      ok: true,
+      value: [{ ...DRAFT, title: "Deras rubrik", revision: 5 }],
+    });
+    await user.type(screen.getByLabelText(/^Text/), " Med min rättelse.");
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    expect(await screen.findByText(/Någon annan sparade nyheten/)).toBeTruthy();
+    await screen.findByRole("heading", { name: "Deras rubrik" });
+    expect(screen.getByLabelText(/^Text/)).toHaveProperty(
+      "value",
+      "Från måndag gäller nya tider. Med min rättelse.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+    await waitFor(() => {
+      expect(editNews).toHaveBeenLastCalledWith(
+        "news-1",
+        expect.objectContaining({ expectedRevision: 5 }),
+      );
     });
   });
 });
