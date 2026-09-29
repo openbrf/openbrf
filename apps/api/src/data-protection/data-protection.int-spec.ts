@@ -3,7 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
+import { MailService } from "../mail/mail.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
@@ -871,6 +872,52 @@ describe("breaches", () => {
         }),
       ).resolves.toBe(0);
     });
+
+    it("fails, to be tried again, when the mail server is down", async () => {
+      /*
+       * The only warning before the 72-hour bound. A job that completed after
+       * reaching nobody would never be tried again, so every address failing
+       * is a failure the queue sees, on a job that carries retries.
+       */
+      const view = await recorded();
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+      try {
+        await expect(
+          app.get(BreachReminderService).sendBreachReminder({
+            breachId: view.breachId,
+            discoveredAt: view.discoveredAt,
+          }),
+        ).rejects.toThrow(/reached none/);
+      } finally {
+        send.mockRestore();
+      }
+
+      const [job] = await prisma.$queryRawUnsafe<{ retry_limit: number }[]>(
+        "SELECT retry_limit FROM pgboss.job WHERE name = $1 AND data->>'breachId' = $2",
+        BREACH_REMINDER_QUEUE,
+        view.breachId,
+      );
+      expect(job?.retry_limit).toBe(5);
+    });
+  });
+
+  it("queues no second reminder when the discovery time is saved unchanged", async () => {
+    // Both jobs would carry the same clock, so the stale-job check could not
+    // tell them apart and the board would be reminded twice.
+    const view = await recorded();
+
+    const updated = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: { discoveredAt: view.discoveredAt },
+      headers: { cookie: boardCookie },
+    });
+    expect(updated.statusCode).toBe(200);
+
+    await expect(reminderJobs(view.breachId)).resolves.toHaveLength(1);
   });
 });
 

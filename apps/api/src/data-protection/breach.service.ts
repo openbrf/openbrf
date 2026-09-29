@@ -15,7 +15,10 @@ import {
   hoursLeft,
   imyNotificationOwed,
 } from "./breach-deadline";
-import { BREACH_REMINDER_QUEUE } from "./breach-reminder.queue";
+import {
+  BREACH_REMINDER_QUEUE,
+  BREACH_REMINDER_RETRY,
+} from "./breach-reminder.queue";
 
 const BREACH_SELECT = {
   id: true,
@@ -278,6 +281,7 @@ export class BreachService {
           discoveredAt: input.discoveredAt.toISOString(),
         },
         computeBreachReminderAt(input.discoveredAt),
+        BREACH_REMINDER_RETRY,
       );
 
       return row;
@@ -459,7 +463,12 @@ export class BreachService {
        * no-ops when it fires: its payload no longer matches the row, which is
        * the whole of the cancellation strategy.
        */
-      if (input.discoveredAt !== undefined) {
+      if (
+        input.discoveredAt !== undefined &&
+        // Re-saved unchanged, the clock is the one the queued job carries,
+        // and a second job for it would fire as a second reminder.
+        input.discoveredAt.getTime() !== held.discoveredAt.getTime()
+      ) {
         await this.jobs.sendAtInTransaction(
           tx,
           BREACH_REMINDER_QUEUE,
@@ -468,6 +477,7 @@ export class BreachService {
             discoveredAt: input.discoveredAt.toISOString(),
           },
           computeBreachReminderAt(input.discoveredAt),
+          BREACH_REMINDER_RETRY,
         );
       }
 
