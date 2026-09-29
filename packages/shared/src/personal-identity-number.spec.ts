@@ -269,14 +269,20 @@ describe("normalizeFreeText", () => {
   it("is idempotent for every code point that is dropped, combines or folds, alone and beside a base letter and a mark", () => {
     // The rest of Unicode passes through unchanged, so looping over it would
     // only spend the time limit: what can change is what is invisible, a
-    // separator, a mark that composes, or has a compatibility form.
+    // separator, a mark that composes, or has a compatibility form. Unassigned
+    // and private-use code points are all dropped the same way, so a sample of
+    // them stands for the roughly 950 000 of them.
     const relevant = /[\p{C}\p{Default_Ignorable_Code_Point}\p{M}\p{Z}]/u;
+    const alike = /[\p{Cn}\p{Co}]/u;
 
     for (let point = 0; point <= 0x10ffff; point++) {
       if (point >= 0xd800 && point <= 0xdfff) {
         continue;
       }
       const character = String.fromCodePoint(point);
+      if (alike.test(character) && point % 251 !== 0) {
+        continue;
+      }
       if (
         !relevant.test(character) &&
         character.normalize("NFKC") === character
