@@ -55,17 +55,26 @@ const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "unsupported-block": "news.errors.unsupportedBlock",
   "address-mailed": "news.errors.addressMailed",
   "not-found": "news.errors.notFound",
+  "news-changed": "news.errors.newsChanged",
 };
 
 /** What the compose panel is holding. Empty ids mean a new item. */
 interface Draft {
   id: string | null;
+  /** The revision of the copy being edited, which the save is claimed on. */
+  revision: number | null;
   slug: string;
   title: string;
   body: string;
 }
 
-const EMPTY: Draft = { id: null, slug: "", title: "", body: "" };
+const EMPTY: Draft = {
+  id: null,
+  revision: null,
+  slug: "",
+  title: "",
+  body: "",
+};
 
 export interface NewsScreenProps {
   viewer: Viewer;
@@ -156,11 +165,42 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
       };
       return current.id === null
         ? createNews(fields)
-        : editNews(current.id, fields);
+        : editNews(current.id, {
+            ...fields,
+            ...(current.revision === null
+              ? {}
+              : { expectedRevision: current.revision }),
+          });
     },
     () => {
       setDraft(EMPTY);
       reload();
+    },
+    (failure) => {
+      if (failure.reason !== "news-changed") {
+        return;
+      }
+      /*
+       * Somebody else saved the item while it was open here. Read the list
+       * again, so their version is on the screen, and move the revision the
+       * draft holds while leaving what the board has written where it is - as
+       * the page editor does. The next save then writes over their version,
+       * which the message says; refusing until a reload would lose the board's
+       * unsaved text to protect a version it has not seen.
+       */
+      void (async () => {
+        const list = await fetchNews();
+        if (!list.ok) {
+          return;
+        }
+        setItems(list.value);
+        setDraft((current) => {
+          const fresh = list.value.find((one) => one.id === current.id);
+          return fresh === undefined
+            ? current
+            : { ...current, revision: fresh.revision };
+        });
+      })();
     },
   );
 
@@ -362,6 +402,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
             setNotEditable(false);
             setDraft({
               id: chosen.id,
+              revision: chosen.revision,
               slug: chosen.slug,
               title: chosen.title,
               body: textFromContent(chosen.content),

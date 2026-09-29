@@ -4244,6 +4244,16 @@ model News {
 
   authorPersonId String?
 
+  /// The optimistic token a save is claimed on, as Page.revision is.
+  ///
+  /// A save carries the whole item, so a board member saving a copy read
+  /// before somebody else's save would replace that text with no error and
+  /// nothing to recover from. The caller sends the revision it read and the
+  /// write matches on it, so the second save is refused rather than applied.
+  /// A counter and not `updatedAt`, and incremented by the writer in the same
+  /// statement as the content, for the reasons Page.revision gives.
+  revision Int @default(1)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

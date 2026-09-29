@@ -215,6 +215,12 @@ const adminViewSchema = z.strictObject({
       "Whether a mailing to the members has been asked for and is waiting " +
         "for a board member to answer it.",
     ),
+  revision: z
+    .int()
+    .describe(
+      "What this copy of the item is. Send it back as expectedRevision to " +
+        "rewrite the item; it is not a version anybody displays.",
+    ),
   updatedAt: z.iso.datetime().describe("When it was last written to."),
 });
 
@@ -400,6 +406,24 @@ export class NewsActionsRegistrar implements OnModuleInit {
           slug: slugSchema,
           title: titleSchema,
           blocks: blocksSchema,
+          /*
+           * Required here, although the HTTP route takes it as optional, and
+           * for the reason page_update requires it: a save carries the whole
+           * body, and a caller that is a model will otherwise write a copy it
+           * composed from memory or from a read made many turns ago over what
+           * a board member saved since. Requiring the number means it has to
+           * read the item first. The HTTP route stays optional so a client
+           * written before the field existed keeps working; a caller of this
+           * action reads the published schema, and one that omits the field
+           * is answered with a 400 naming it rather than with a lost edit.
+           */
+          expectedRevision: z
+            .int()
+            .nonnegative()
+            .describe(
+              "The item's revision as it was read. The write is refused if " +
+                "somebody else has written the item since, so read it first.",
+            ),
         }),
         output: adminViewSchema,
         handler: async (
@@ -412,6 +436,7 @@ export class NewsActionsRegistrar implements OnModuleInit {
               slug: input.slug,
               title: input.title,
               content: submittedContent({ blocks: input.blocks }),
+              expectedRevision: input.expectedRevision,
             },
             actorOf(context),
           ),

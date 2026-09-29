@@ -41,6 +41,8 @@ export type NewsWriteReason =
   | "already-mailed"
   | "personal-identity-number"
   | "unsupported-block"
+  /** Somebody else saved the item after the caller read it. */
+  | "news-changed"
   /**
    * Comments stand under the item. They are erased by their own purge, never
    * with the item, so it can be taken down but not removed until they are gone.
@@ -62,7 +64,9 @@ export class NewsWriteError extends DomainError {
     this.status =
       reason === "not-found"
         ? HttpStatus.NOT_FOUND
-        : reason === "slug-taken"
+        : // A conflict rather than a refusal on the merits, as for a page:
+          // somebody else wrote first, and the caller reads the item again.
+          reason === "slug-taken" || reason === "news-changed"
           ? HttpStatus.CONFLICT
           : reason === "invalid-slug"
             ? HttpStatus.BAD_REQUEST
@@ -140,6 +144,11 @@ export interface NewsAdminView {
    * requester would invite them to answer "who asked" instead.
    */
   mailingRequested: boolean;
+  /**
+   * What this copy of the item is, for a caller that means to write it back
+   * as `expectedRevision`. It is not a version anybody displays.
+   */
+  revision: number;
   updatedAt: string;
 }
 
@@ -147,6 +156,19 @@ export interface NewsInput {
   slug: string;
   title: string;
   content: PageContent;
+}
+
+/** What an ordinary save carries beyond the item's words. */
+export interface UpdateNewsInput extends NewsInput {
+  /**
+   * The item's `revision` as the caller last read it, and the save is refused
+   * with `news-changed` if somebody else has saved since.
+   *
+   * Optional, as it is on a page, and absent means write: a caller written
+   * before the field existed keeps working rather than failing on a
+   * precondition it does not know about.
+   */
+  expectedRevision?: number;
 }
 
 /** What writing a new item needs beyond an ordinary save. */
@@ -224,6 +246,7 @@ const NEWS_COLUMNS = {
   emailQueuedAt: true,
   smsQueuedAt: true,
   mailingRequestedAt: true,
+  revision: true,
   updatedAt: true,
 } as const;
 
@@ -427,7 +450,7 @@ export class NewsWriteService {
    */
   async update(
     id: string,
-    input: NewsInput,
+    input: UpdateNewsInput,
     actor: ActorContext,
   ): Promise<NewsAdminView> {
     const news = await this.require(id);
@@ -447,13 +470,33 @@ export class NewsWriteService {
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.news.update({
-        where: { id },
+      /*
+       * Claimed against the copy the caller read, when they said which: one
+       * conditional statement either matches the item as it still stands or
+       * matches nothing, as a page save does. Without a revision it writes,
+       * and the revision still moves, so a copy read before this save cannot
+       * match afterwards.
+       */
+      const claimed = await tx.news.updateMany({
+        where:
+          input.expectedRevision === undefined
+            ? { id }
+            : { id, revision: input.expectedRevision },
         data: {
           slug: input.slug,
           title: input.title,
           content: asJson(content),
+          revision: { increment: 1 },
         },
+      });
+      if (claimed.count === 0) {
+        throw new NewsWriteError(
+          "The news item changed after it was read.",
+          "news-changed",
+        );
+      }
+      const updated = await tx.news.findUniqueOrThrow({
+        where: { id },
         select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
       });
 
@@ -1072,6 +1115,7 @@ function toAdminView(row: {
   emailQueuedAt: Date | null;
   smsQueuedAt: Date | null;
   mailingRequestedAt: Date | null;
+  revision: number;
   updatedAt: Date;
   deliveries: readonly {
     channel: string;
@@ -1104,6 +1148,7 @@ function toAdminView(row: {
         DELIVERY_FAILURES.smsNotConfigured,
       ),
     },
+    revision: row.revision,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

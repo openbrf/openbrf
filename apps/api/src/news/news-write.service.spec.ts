@@ -30,6 +30,7 @@ const ITEM = {
   smsQueuedAt: null as Date | null,
   mailingRequestedAt: null as Date | null,
   mailingRequestedByPersonId: null as string | null,
+  revision: 3,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
   deliveries: [] as {
     channel: string;
@@ -360,7 +361,7 @@ describe("the personal identity number guardrail", () => {
       { personId: "board-1", channel: "WEB" },
     );
 
-    expect(news.update).toHaveBeenCalled();
+    expect(news.updateMany).toHaveBeenCalled();
   });
 
   it("refuses to move an item the members have already been mailed", async () => {
@@ -381,7 +382,7 @@ describe("the personal identity number guardrail", () => {
     );
 
     expect(refusal.reason).toBe("address-mailed");
-    expect(news.update).not.toHaveBeenCalled();
+    expect(news.updateMany).not.toHaveBeenCalled();
   });
 
   it("still corrects a mailed item at the address it was mailed at", async () => {
@@ -399,7 +400,7 @@ describe("the personal identity number guardrail", () => {
       { personId: "board-1", channel: "WEB" },
     );
 
-    expect(news.update).toHaveBeenCalled();
+    expect(news.updateMany).toHaveBeenCalled();
   });
 
   it("refuses to publish an item that carries one", async () => {
@@ -569,13 +570,16 @@ describe("editing a published item", () => {
       { personId: "board-1", channel: "WEB" },
     );
 
-    const written = news.update.mock.calls[0]?.[0] as { data: object };
+    // The save is the one write, and it names the item's words and the
+    // revision they are claimed on - never a mailing column.
+    expect(news.updateMany).toHaveBeenCalledTimes(1);
+    const written = news.updateMany.mock.calls[0]?.[0] as { data: object };
     expect(Object.keys(written.data).sort()).toEqual([
       "content",
+      "revision",
       "slug",
       "title",
     ]);
-    expect(news.updateMany).not.toHaveBeenCalled();
   });
 
   it("records the correction against the item, in the write's own transaction", async () => {
@@ -611,6 +615,67 @@ describe("editing a published item", () => {
       published: true,
     });
     expect(tx).toBeDefined();
+  });
+});
+
+describe("two board members editing the same item", () => {
+  const edit = {
+    slug: "tvattstugan",
+    title: "Tvättstugan",
+    content: paragraphsContent(["Nya tider från tisdag."]),
+  };
+
+  it("claims the save on the copy the caller read, and moves the revision", async () => {
+    const { service, news } = build();
+
+    const saved = await service.update(
+      "news-1",
+      { ...edit, expectedRevision: 3 },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(news.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "news-1", revision: 3 },
+        data: expect.objectContaining({ revision: { increment: 1 } }),
+      }),
+    );
+    // The view carries the revision, which is what the next save sends back.
+    expect(saved.revision).toBe(3);
+  });
+
+  it("refuses a save built on a copy somebody else has saved over, and records nothing", async () => {
+    const { service, audit } = build({}, { claims: false });
+
+    const refusal = await refusalOf(
+      service.update(
+        "news-1",
+        { ...edit, expectedRevision: 2 },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("news-changed");
+    expect(refusal.status).toBe(409);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("still writes, and still moves the revision, for a caller that sent none", async () => {
+    // The revision has to move on every save, or a copy read before this one
+    // would still match afterwards.
+    const { service, news } = build();
+
+    await service.update("news-1", edit, {
+      personId: "board-1",
+      channel: "WEB",
+    });
+
+    expect(news.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "news-1" },
+        data: expect.objectContaining({ revision: { increment: 1 } }),
+      }),
+    );
   });
 });
 
