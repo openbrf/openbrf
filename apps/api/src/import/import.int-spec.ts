@@ -62,6 +62,13 @@ const apartments = {
   e: `imp-apartment-e-${suffix}`,
   /** The one the move-in it overlaps takes. */
   f: `imp-apartment-f-${suffix}`,
+  /** The out-of-order cases: two apartments per person, g to l. */
+  g: `imp-apartment-g-${suffix}`,
+  h: `imp-apartment-h-${suffix}`,
+  i: `imp-apartment-i-${suffix}`,
+  j: `imp-apartment-j-${suffix}`,
+  k: `imp-apartment-k-${suffix}`,
+  l: `imp-apartment-l-${suffix}`,
 };
 
 const actors = {
@@ -85,6 +92,22 @@ const actors = {
   mover: {
     personId: `imp-mover-${suffix}`,
     email: `imp-mover-${suffix}@exempel.se`,
+  },
+  /**
+   * The out-of-order cases, one person each. Matched by email, and never in
+   * `personIds`: the rows they get are the member register's, which keeps them.
+   */
+  backDater: {
+    personId: `imp-back-${suffix}`,
+    email: `imp-back-${suffix}@exempel.se`,
+  },
+  lateRecorder: {
+    personId: `imp-late-${suffix}`,
+    email: `imp-late-${suffix}@exempel.se`,
+  },
+  newestFirst: {
+    personId: `imp-newest-${suffix}`,
+    email: `imp-newest-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -451,6 +474,12 @@ beforeAll(async () => {
       { id: apartments.d, addressId, number: "2104", floor: 1 },
       { id: apartments.e, addressId, number: "2105", floor: 1 },
       { id: apartments.f, addressId, number: "2106", floor: 1 },
+      { id: apartments.g, addressId, number: "2107", floor: 1 },
+      { id: apartments.h, addressId, number: "2108", floor: 1 },
+      { id: apartments.i, addressId, number: "2109", floor: 1 },
+      { id: apartments.j, addressId, number: "2110", floor: 1 },
+      { id: apartments.k, addressId, number: "2111", floor: 1 },
+      { id: apartments.l, addressId, number: "2112", floor: 1 },
     ],
   });
 
@@ -473,6 +502,21 @@ beforeAll(async () => {
     personId: actors.mover.personId,
     firstName: "Mover",
     email: actors.mover.email,
+  });
+  await createPerson({
+    personId: actors.backDater.personId,
+    firstName: "Bodil",
+    email: actors.backDater.email,
+  });
+  await createPerson({
+    personId: actors.lateRecorder.personId,
+    firstName: "Lars",
+    email: actors.lateRecorder.email,
+  });
+  await createPerson({
+    personId: actors.newestFirst.personId,
+    firstName: "Nora",
+    email: actors.newestFirst.email,
   });
   await createPerson({
     personId: actors.twinA.personId,
@@ -1020,12 +1064,142 @@ describe("two applies of one session", () => {
   }, 60_000);
 });
 
+describe("a file listing a person's rows out of date order", () => {
+  /*
+   * The same cases the move flows are held to in move.int-spec.ts, entered
+   * through a file instead. The register a file leaves must not depend on which
+   * of a person's apartments it lists first, and must read as the moves would
+   * have left it: an import is how an association's earlier history reaches
+   * the register, and that history is rarely sorted.
+   */
+
+  const OUT_OF_ORDER_HEADERS = [
+    "Adress",
+    "Lägenhetsnummer",
+    "Förnamn",
+    "Efternamn",
+    "Roll",
+    "E-postadress",
+    "Inflyttningsdatum",
+    "Utflyttningsdatum",
+  ];
+
+  function memberRow(
+    actor: { email: string },
+    firstName: string,
+    apartmentNumber: string,
+    movedInOn: string,
+    movedOutOn = "",
+  ): string[] {
+    return [
+      addressLabel,
+      apartmentNumber,
+      firstName,
+      surname,
+      "Medlem",
+      actor.email,
+      movedInOn,
+      movedOutOn,
+    ];
+  }
+
+  async function importRows(cookie: string, rows: string[][]): Promise<void> {
+    const session = await uploadAndPreview(cookie, "historik.csv", [
+      OUT_OF_ORDER_HEADERS,
+      ...rows,
+    ]);
+    const response = await applyImport(cookie, session.sessionId);
+    expect(response.statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }
+
+  async function registerRows(personId: string) {
+    const entries = await prisma.memberRegisterEntry.findMany({
+      where: { personId },
+      orderBy: [{ eventOn: "asc" }, { createdAt: "asc" }],
+      select: { eventType: true, eventOn: true, apartmentId: true },
+    });
+    return entries.map((entry) => ({
+      eventType: entry.eventType,
+      eventOn: entry.eventOn.toISOString().slice(0, 10),
+      apartmentId: entry.apartmentId,
+    }));
+  }
+
+  it("enters a back-dated move-in imported after a later one", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    // Two files, as a board loading its history in two goes would: the later
+    // purchase first, the earlier one after it. The same register the move
+    // flow writes for the same two move-ins.
+    await importRows(cookie, [
+      memberRow(actors.backDater, "Bodil", "2108", "2027-01-01"),
+    ]);
+    await importRows(cookie, [
+      memberRow(actors.backDater, "Bodil", "2107", "2026-10-01"),
+    ]);
+
+    expect(await registerRows(actors.backDater.personId)).toEqual([
+      { eventType: "ENTRY", eventOn: "2026-10-01", apartmentId: apartments.g },
+      { eventType: "ENTRY", eventOn: "2027-01-01", apartmentId: apartments.h },
+    ]);
+  }, 60_000);
+
+  it("writes the EXIT when the earlier move-out is listed first", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    await importRows(cookie, [
+      memberRow(
+        actors.lateRecorder,
+        "Lars",
+        "2110",
+        "2021-01-01",
+        "2026-11-01",
+      ),
+      memberRow(
+        actors.lateRecorder,
+        "Lars",
+        "2109",
+        "2020-01-01",
+        "2026-12-01",
+      ),
+    ]);
+
+    // One membership, ended on the later move-out, exactly as the move flow
+    // records these two apartments.
+    expect(await registerRows(actors.lateRecorder.personId)).toEqual([
+      { eventType: "ENTRY", eventOn: "2020-01-01", apartmentId: apartments.i },
+      { eventType: "EXIT", eventOn: "2026-12-01", apartmentId: apartments.i },
+    ]);
+  }, 60_000);
+
+  it("keeps an earlier membership a file lists after a later one", async () => {
+    const cookie = await signIn(actors.board.email);
+
+    await importRows(cookie, [
+      memberRow(actors.newestFirst, "Nora", "2112", "2022-01-01"),
+      memberRow(actors.newestFirst, "Nora", "2111", "2010-01-01", "2015-01-01"),
+    ]);
+
+    // Listed newest first, this used to read as "member since 2022".
+    expect(await registerRows(actors.newestFirst.personId)).toEqual([
+      { eventType: "ENTRY", eventOn: "2010-01-01", apartmentId: apartments.k },
+      { eventType: "EXIT", eventOn: "2015-01-01", apartmentId: apartments.k },
+      { eventType: "ENTRY", eventOn: "2022-01-01", apartmentId: apartments.l },
+    ]);
+  }, 60_000);
+});
+
 describe("an apply overlapping a move", () => {
   it("waits for the move rather than reading round it", async () => {
-    // Whether a member row begins a membership is decided by counting the
-    // person's other tenant-ownerships, and the chunk reads that count before
+    // Whether a member row begins a membership is decided from the person's
+    // other tenant-ownerships held on its date, and the chunk reads them before
     // the row that would answer it exists. A move-in for the same person
-    // committing inside that window is invisible to the count, so the chunk
+    // committing inside that window is invisible to that read, so the chunk
     // appends a second ENTRY - to a register that refuses UPDATE and DELETE,
     // where two tenant-ownerships are one membership and the mistake can only
     // be answered by a later correction row.
