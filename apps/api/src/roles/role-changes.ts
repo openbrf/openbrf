@@ -256,8 +256,9 @@ export function overlapsRecordedTerm(
  * Revoking from somebody who is not an administrator is not a lockout: it
  * changes nothing, and the service answers with the state as it is.
  *
- * @param administratorPersonIds every person holding ADMIN, read in the same
- * transaction as the write this guards.
+ * @param administratorPersonIds every person holding ADMIN who has an account
+ * to sign in with, read in the same transaction as the write this guards. A
+ * grant nobody can sign in with keeps no way in open.
  */
 export function revokingWouldLeaveNoAdministrator(input: {
   role: SystemRoleType;

@@ -1105,6 +1105,36 @@ describe("the administrator grant", () => {
     ]);
   });
 
+  it("does not count an administrator who cannot sign in", async () => {
+    // A grant on a person with no account keeps nobody able to reach the
+    // settings: the instance would be locked all the same.
+    const granted = await setSystemRole(
+      adminCookie,
+      electee.personId,
+      "ADMIN",
+      true,
+    );
+    expect(granted.statusCode).toBe(200);
+
+    const response = await setSystemRole(
+      adminCookie,
+      admin.personId,
+      "ADMIN",
+      false,
+    );
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "last-administrator" });
+
+    // Revoking the grant that could never be used is not a lockout.
+    const revoked = await setSystemRole(
+      adminCookie,
+      electee.personId,
+      "ADMIN",
+      false,
+    );
+    expect(revoked.statusCode).toBe(200);
+  });
+
   it("lets go once somebody else holds the grant", async () => {
     // The way out of the refusal, and the sentence the screen says: grant it to
     // somebody else first.
