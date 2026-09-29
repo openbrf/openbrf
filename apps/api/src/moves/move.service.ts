@@ -1,5 +1,10 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { dateColumnOf, formatDateColumn, parseLocalDay } from "@openbrf/shared";
+import {
+  dateColumnOf,
+  formatDateColumn,
+  type MoveErrorReason,
+  parseLocalDay,
+} from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -57,18 +62,6 @@ import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
  * the move-out closes the residency with a conditional update so a second one
  * is refused rather than writing a second EXIT.
  */
-
-export type MoveErrorReason =
-  | "person-not-found"
-  | "apartment-not-found"
-  | "residency-not-found"
-  | "already-resident"
-  | "already-moved-out"
-  | "moved-out-before-moved-in"
-  | "transfer-person-not-found"
-  | "transfer-reference-required"
-  | "grant-has-no-seller"
-  | "date-not-a-calendar-date";
 
 /**
  * The status each refusal answers with.

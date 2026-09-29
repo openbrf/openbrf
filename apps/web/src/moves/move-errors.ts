@@ -1,5 +1,6 @@
+import type { MoveErrorReason } from "@openbrf/shared";
+
 import type { TranslationKey } from "../i18n/translation-key";
-import type { MoveErrorReason } from "./moves-api";
 
 /**
  * The API's machine-readable reason, turned into a key this interface owns.

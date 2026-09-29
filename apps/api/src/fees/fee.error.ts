@@ -1,28 +1,7 @@
 import { HttpStatus } from "@nestjs/common";
+import type { FeeReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
-
-export type FeeReason =
-  | "not-found"
-  | "apartment-not-found"
-  | "housing-cooperative-missing"
-  | "date-not-a-calendar-date"
-  | "amount-not-a-sum"
-  | "amount-not-positive"
-  | "vat-rate-required"
-  | "vat-rate-not-applicable"
-  | "vat-rate-out-of-range"
-  | "ends-before-it-begins"
-  | "fee-already-recorded-later"
-  | "fee-already-in-force"
-  | "fee-notified"
-  | "period-not-whole-months"
-  | "period-too-long"
-  | "period-already-issued"
-  | "period-overlaps-a-run"
-  | "due-before-period"
-  | "nothing-to-bill"
-  | "too-many-notices";
 
 /**
  * A refusal from the fees module.
