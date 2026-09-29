@@ -66,7 +66,7 @@ import {
   terminationsDuringHolding,
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
-import { connectedAppHost } from "../data-protection/processors";
+import { connectedAppHost } from "../connected-apps/client-host";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -428,7 +428,12 @@ export class DataSubjectReportService {
               scopes: true,
               createdAt: true,
               client: {
-                select: { name: true, clientDiscoveryId: true, uri: true },
+                select: {
+                  clientId: true,
+                  name: true,
+                  clientDiscoveryId: true,
+                  uri: true,
+                },
               },
             },
           });

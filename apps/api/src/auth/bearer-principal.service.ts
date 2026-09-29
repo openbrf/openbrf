@@ -6,6 +6,7 @@ import { PrismaService } from "../database/prisma.service";
 import { hashOpaqueToken } from "./opaque-token";
 import type { ProtectedResource } from "./protected-resource";
 import { PROTECTED_RESOURCE } from "./protected-resource.module";
+import { connectedAppHost } from "../connected-apps/client-host";
 
 /**
  * What a bearer token was resolved to.
@@ -100,6 +101,20 @@ export class BearerPrincipalService {
       return null;
     }
 
+    /*
+     * The grant the token was issued under has to stand. A disconnect deletes
+     * the consent and the tokens it can see, but a refresh racing it, or an
+     * authorization code exchanged after it, can still mint a token; without
+     * the consent that token names a connection the member has cut.
+     */
+    const consent = await this.prisma.oauthConsent.findFirst({
+      where: { userId: row.userId, clientId: row.clientId },
+      select: { id: true },
+    });
+    if (consent === null) {
+      return null;
+    }
+
     const account = await this.prisma.user.findUnique({
       where: { id: row.userId },
       select: { personId: true },
@@ -115,32 +130,15 @@ export class BearerPrincipalService {
 
     const client = await this.prisma.oauthClient.findUnique({
       where: { clientId: row.clientId },
-      select: { clientDiscoveryId: true, uri: true },
+      select: { clientId: true, clientDiscoveryId: true, uri: true },
     });
 
     return {
       principal,
       tokenRowId: row.id,
       clientId: row.clientId,
-      clientHost: hostOf(client?.clientDiscoveryId ?? client?.uri ?? null),
+      clientHost: client === null ? null : connectedAppHost(client),
       scopes: row.scopes,
     };
-  }
-}
-
-/**
- * The host a client is reached at, for the audit entry and the screens.
- *
- * A host rather than the whole URL: what a board member needs to recognise is
- * which app this is, and a full URL with its path and query is both longer and
- * less recognisable. Null rather than a placeholder when it cannot be parsed,
- * so that a screen shows nothing rather than something untrue.
- */
-function hostOf(value: string | null): string | null {
-  if (value === null) return null;
-  try {
-    return new URL(value).host;
-  } catch {
-    return null;
   }
 }

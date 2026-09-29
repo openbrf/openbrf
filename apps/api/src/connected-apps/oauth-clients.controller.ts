@@ -10,6 +10,7 @@ import { isLoopbackHost } from "../config/env";
 import { forwardHeaders } from "../auth/fastify-bridge";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
+import { hostOf } from "./client-host";
 
 const registerSchema = z.strictObject({
   clientName: z.string().min(1).max(200),
@@ -132,20 +133,14 @@ export class OAuthClientsController {
       targetId: created.client_id,
       // The hosts, never the secret. The secret is shown to the administrator
       // once, in the response, and is not ours to repeat anywhere else.
-      context: { redirectHosts: input.redirectUris.map(hostOf) },
+      context: {
+        redirectHosts: input.redirectUris.map((uri) => hostOf(uri)),
+      },
     });
 
     return {
       clientId: created.client_id,
       clientSecret: created.client_secret ?? null,
     };
-  }
-}
-
-function hostOf(value: string): string {
-  try {
-    return new URL(value).host;
-  } catch {
-    return "";
   }
 }

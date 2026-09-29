@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { ActorContext } from "../audit/actor-context";
@@ -6,6 +6,7 @@ import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
+import { connectedAppHost } from "./client-host";
 
 /**
  * What a person, or a board member, can see and do about connected apps.
@@ -104,7 +105,14 @@ export class ConnectedAppsService {
         clientId: true,
         scopes: true,
         createdAt: true,
-        client: { select: { name: true, clientDiscoveryId: true, uri: true } },
+        client: {
+          select: {
+            clientId: true,
+            name: true,
+            clientDiscoveryId: true,
+            uri: true,
+          },
+        },
       },
     });
 
@@ -116,9 +124,7 @@ export class ConnectedAppsService {
     return consents.map((consent) => ({
       clientId: consent.clientId,
       clientName: consent.client.name,
-      clientHost: hostOf(
-        consent.client.clientDiscoveryId ?? consent.client.uri ?? null,
-      ),
+      clientHost: connectedAppHost(consent.client),
       scopes: consent.scopes,
       connectedAt: consent.createdAt,
       lastTokenIssuedAt: issued.get(consent.clientId) ?? null,
@@ -142,7 +148,14 @@ export class ConnectedAppsService {
         userId: true,
         scopes: true,
         createdAt: true,
-        client: { select: { name: true, clientDiscoveryId: true, uri: true } },
+        client: {
+          select: {
+            clientId: true,
+            name: true,
+            clientDiscoveryId: true,
+            uri: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -191,9 +204,7 @@ export class ConnectedAppsService {
         userId: consent.userId ?? consent.user?.id ?? "",
         clientId: consent.clientId,
         clientName: consent.client.name,
-        clientHost: hostOf(
-          consent.client.clientDiscoveryId ?? consent.client.uri ?? null,
-        ),
+        clientHost: connectedAppHost(consent.client),
         scopes: consent.scopes,
         connectedAt: consent.createdAt,
         lastTokenIssuedAt:
@@ -248,9 +259,14 @@ export class ConnectedAppsService {
         },
         data: { revoked: new Date() },
       });
-      await tx.oauthConsent.deleteMany({
+      const consents = await tx.oauthConsent.deleteMany({
         where: { userId: input.userId, clientId: input.clientId },
       });
+      // Nothing to cut, and nothing to record: an entry for a connection that
+      // never existed would stand in the log for good.
+      if (consents.count === 0) {
+        throw new NotFoundException("No such connection.");
+      }
 
       /*
        * A person disconnecting their own app writes no entry, the way removing
@@ -361,13 +377,4 @@ function isDormant(principal: Principal | null): boolean {
     }
   }
   return true;
-}
-
-function hostOf(value: string | null): string | null {
-  if (value === null) return null;
-  try {
-    return new URL(value).host;
-  } catch {
-    return null;
-  }
 }
