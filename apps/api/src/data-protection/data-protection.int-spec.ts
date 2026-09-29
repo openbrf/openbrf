@@ -739,6 +739,21 @@ describe("breaches", () => {
     expect(reasonOf(second)).toBe("already-subject");
   });
 
+  it("names each person it reached when it is recorded, as adding one later does", async () => {
+    // The entry naming them is what puts the breach on their access report.
+    const view = await recorded({ subjectPersonIds: [subject.personId] });
+
+    await expect(
+      prisma.auditLogEntry.count({
+        where: {
+          action: "PERSONAL_DATA_BREACH_UPDATED",
+          targetPersonId: subject.personId,
+          targetId: view.breachId,
+        },
+      }),
+    ).resolves.toBe(1);
+  });
+
   it("records that a person was told, with them as the subject of the entry", async () => {
     const view = await recorded();
     await inject({
