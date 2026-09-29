@@ -193,6 +193,47 @@ describe("the board", () => {
       );
     });
   });
+
+  it("reads the slots again after a cancellation, so the hour reads free", async () => {
+    // The slot grid is the booking panel's own read. Without being told, it
+    // would go on drawing the cancelled hour as held until the week changed.
+    fetchManagedBookings.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          id: "booking-1",
+          resourceId: "resource-laundry",
+          resourceName: "Tvättstugan i port 12",
+          mode: "TIME_SLOTS",
+          status: "BOOKED",
+          startsAt: "2026-09-16T05:00:00.000Z",
+          endsAt: "2026-09-16T08:00:00.000Z",
+          apartment: { id: "apartment-1201", number: "1201", address: "" },
+          bookedBy: { kind: "unknown" },
+        },
+      ],
+    });
+
+    const session = userEvent.setup();
+    render(
+      <BookingsScreen viewer={viewer(["bookings:book", "bookings:manage"])} />,
+    );
+
+    const cancelButton = await waitFor(() =>
+      screen.getByRole("button", { name: /^Avboka/ }),
+    );
+    await waitFor(() => {
+      expect(fetchBookableSlots).toHaveBeenCalled();
+    });
+    const readsBeforeCancelling = fetchBookableSlots.mock.calls.length;
+    await session.click(cancelButton);
+
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThan(
+        readsBeforeCancelling,
+      );
+    });
+  });
 });
 
 /**
