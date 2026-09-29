@@ -20,6 +20,9 @@ import type { MeetingPeople } from "./use-meeting-people";
 export interface MeetingDecisionsPanelProps {
   meeting: Meeting;
   people: MeetingPeople;
+  /** The item whose last decision save landed, held by the screen. */
+  savedItemId: string | null;
+  onSaved: (agendaItemId: string, landed: boolean) => void;
   onChanged: () => void;
 }
 
@@ -69,6 +72,8 @@ export interface MeetingDecisionsPanelProps {
 export function MeetingDecisionsPanel({
   meeting,
   people,
+  savedItemId,
+  onSaved,
   onChanged,
 }: MeetingDecisionsPanelProps): ReactElement {
   const { t } = useTranslation();
@@ -99,6 +104,10 @@ export function MeetingDecisionsPanel({
                 item={item}
                 held={held}
                 people={people}
+                saved={savedItemId === item.id}
+                onSaved={(landed) => {
+                  onSaved(item.id, landed);
+                }}
                 onChanged={onChanged}
               />
             </li>
@@ -124,12 +133,16 @@ function ItemDecision({
   item,
   held,
   people,
+  saved,
+  onSaved,
   onChanged,
 }: {
   meetingId: string;
   item: AgendaItem;
   held: boolean;
   people: MeetingPeople;
+  saved: boolean;
+  onSaved: (landed: boolean) => void;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -181,7 +194,8 @@ function ItemDecision({
           closedBallot,
         },
       })
-      .then(() => {
+      .then((landed) => {
+        onSaved(landed);
         onChanged();
       });
   };
@@ -243,7 +257,8 @@ function ItemDecision({
         <Notice tone="danger" live>
           {t(meetingFailureKey(save.state.failure))}
         </Notice>
-      ) : save.state.kind === "saved" ? (
+      ) : save.state.kind === "saved" ||
+        (saved && save.state.kind === "idle") ? (
         <Notice tone="ok" live>
           {t("meetings.decisions.saved")}
         </Notice>

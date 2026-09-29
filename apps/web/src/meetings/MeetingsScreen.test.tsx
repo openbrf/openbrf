@@ -39,6 +39,8 @@ const fetchMeetings = vi.fn();
 const fetchMeeting = vi.fn();
 const recordAttendance = vi.fn();
 const withdrawAttendance = vi.fn();
+const setMeetingAgenda = vi.fn();
+const recordDecision = vi.fn();
 
 vi.mock("../api/meetings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/meetings")>()),
@@ -46,6 +48,8 @@ vi.mock("../api/meetings", async (importOriginal) => ({
   fetchMeeting: (id: string) => fetchMeeting(id),
   recordAttendance: (input: unknown) => recordAttendance(input),
   withdrawAttendance: (input: unknown) => withdrawAttendance(input),
+  setMeetingAgenda: (input: unknown) => setMeetingAgenda(input),
+  recordDecision: (input: unknown) => recordDecision(input),
 }));
 
 const fetchBoardRegister = vi.fn();
@@ -208,6 +212,8 @@ beforeEach(() => {
   fetchMeeting.mockReset().mockResolvedValue({ ok: true, value: ARRANGING });
   recordAttendance.mockReset();
   withdrawAttendance.mockReset();
+  setMeetingAgenda.mockReset();
+  recordDecision.mockReset();
   fetchBoardRegister
     .mockReset()
     .mockResolvedValue(structuredClone(REGISTER_PAGE));
@@ -471,6 +477,74 @@ describe("the general meeting screen", () => {
     await screen.findByText(
       /Medlemsf.rteckningen visar inte den h.r personen som medlem/u,
     );
+  });
+
+  it("still says the agenda was saved once the re-read has landed", async () => {
+    /*
+     * The panel is remounted on the agenda the server answers with, which a
+     * saved change always alters. The outcome is held by the screen, so the
+     * notice outlives the remount long enough for a screen reader to announce.
+     */
+    const user = userEvent.setup();
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+
+    const saved: Meeting = {
+      ...ARRANGING,
+      agenda: [{ id: "item-2", position: 1, title: "Arvoden", decision: null }],
+    };
+    setMeetingAgenda.mockResolvedValue({ ok: true, value: saved });
+    fetchMeeting.mockResolvedValue({ ok: true, value: saved });
+
+    const field = screen.getByLabelText("Punkt 1");
+    await user.clear(field);
+    await user.type(field, "Arvoden");
+    await user.click(
+      screen.getByRole("button", { name: "Spara dagordningen" }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMeeting).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText("Dagordningen är sparad.")).toBeTruthy();
+  });
+
+  it("still says the decision was recorded once the re-read has landed", async () => {
+    const user = userEvent.setup();
+    fetchMeeting.mockResolvedValue({ ok: true, value: HELD });
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+
+    const decision = {
+      outcome: "CARRIED" as const,
+      votesFor: 4,
+      votesAgainst: 1,
+      votesAbstaining: 0,
+      closedBallot: false,
+      recordedAt: "2027-05-21T09:00:00.000Z",
+      recordedByPersonId: "person-board",
+    };
+    const item = HELD.agenda[0];
+    if (item === undefined) {
+      throw new Error("the fixture has an agenda item");
+    }
+    recordDecision.mockResolvedValue({ ok: true, value: decision });
+    fetchMeeting.mockResolvedValue({
+      ok: true,
+      value: { ...HELD, agenda: [{ ...item, decision }] },
+    });
+
+    await user.type(screen.getByLabelText("För"), "4");
+    await user.type(screen.getByLabelText("Mot"), "1");
+    await user.type(screen.getByLabelText("Avstår"), "0");
+    await user.click(
+      screen.getByRole("button", {
+        name: "Anteckna beslutet om Val av styrelse",
+      }),
+    );
+
+    await screen.findByText(/För 4, mot 1/u);
+    expect(screen.getByText("Beslutet är antecknat.")).toBeTruthy();
   });
 
   it("drops a read the newer one overtook", async () => {

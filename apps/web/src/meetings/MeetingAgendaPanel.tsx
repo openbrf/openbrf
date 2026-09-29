@@ -22,6 +22,9 @@ import { meetingFailureKey } from "./meeting-failures";
 
 export interface MeetingAgendaPanelProps {
   meeting: Meeting;
+  /** Whether the last save of this meeting's agenda landed, held by the screen. */
+  saved: boolean;
+  onSaved: (landed: boolean) => void;
   onChanged: () => void;
 }
 
@@ -102,6 +105,8 @@ function draftFrom(values: readonly string[]): DraftItem[] {
  */
 export function MeetingAgendaPanel({
   meeting,
+  saved,
+  onSaved,
   onChanged,
 }: MeetingAgendaPanelProps): ReactElement {
   const { t } = useTranslation();
@@ -139,7 +144,8 @@ export function MeetingAgendaPanel({
         id: meeting.id,
         values: { items: stated.map((title) => ({ title })) },
       })
-      .then(() => {
+      .then((landed) => {
+        onSaved(landed);
         onChanged();
       });
   };
@@ -189,7 +195,8 @@ export function MeetingAgendaPanel({
             <Notice tone="danger" live>
               {t(meetingFailureKey(save.state.failure))}
             </Notice>
-          ) : save.state.kind === "saved" ? (
+          ) : save.state.kind === "saved" ||
+            (saved && save.state.kind === "idle") ? (
             <Notice tone="ok" live>
               {t("meetings.agenda.saved")}
             </Notice>
