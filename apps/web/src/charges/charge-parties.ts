@@ -129,7 +129,11 @@ async function loadPersons(signal: AbortSignal): Promise<ChargeablePerson[]> {
       });
     }
 
-    if (persons.length >= answer.total || answer.rows.length === 0) {
+    // The total counts rows, one per residency, and not people.
+    if (
+      page * REGISTER_MAX_PAGE_SIZE >= answer.total ||
+      answer.rows.length === 0
+    ) {
       return markAmbiguous(persons).sort((first, second) =>
         first.name.localeCompare(second.name),
       );
