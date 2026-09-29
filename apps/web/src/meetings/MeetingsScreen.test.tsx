@@ -620,4 +620,22 @@ describe("the general meeting screen", () => {
     expect(screen.getByText(/Adressboken kunde inte l.sas/u)).toBeTruthy();
     expect(screen.getAllByText("person-astrid").length).toBeGreaterThan(0);
   });
+
+  it("reads the address book again from its notice", async () => {
+    const user = userEvent.setup();
+    fetchBoardRegister.mockRejectedValueOnce(new Error("no"));
+
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    await screen.findByText(/Adressboken kunde inte l.sas/u);
+
+    // The screen's own retry reads the meetings; this one reads the names,
+    // without which nobody can be checked in.
+    await user.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Adressboken kunde inte l.sas/u)).toBeNull();
+    });
+    expect(screen.getAllByText("Astrid Lindqvist").length).toBeGreaterThan(0);
+  });
 });

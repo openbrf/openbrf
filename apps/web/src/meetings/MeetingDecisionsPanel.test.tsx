@@ -52,6 +52,7 @@ const people: MeetingPeople = {
   failed: false,
   everyone: PEOPLE,
   find: (personId) => PEOPLE.find((p) => p.personId === personId) ?? null,
+  retry: () => undefined,
 };
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
