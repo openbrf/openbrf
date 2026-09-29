@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { DataProtectionModule } from "../data-protection/data-protection.module";
 import { PagesModule } from "../site/pages.module";
+import { SetupClaimService } from "./setup-claim.service";
 import { SetupCompletionController, SetupController } from "./setup.controller";
 import { SetupService } from "./setup.service";
 
@@ -18,7 +19,7 @@ import { SetupService } from "./setup.service";
   // restart.
   imports: [PagesModule, DataProtectionModule],
   controllers: [SetupController, SetupCompletionController],
-  providers: [SetupService],
+  providers: [SetupService, SetupClaimService],
   exports: [SetupService],
 })
 export class SetupModule {}

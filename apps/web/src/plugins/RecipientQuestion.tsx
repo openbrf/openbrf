@@ -69,8 +69,10 @@ function identityNumberIn(draft: RecipientDraft): {
  * for an independent controller, and no personal identity number in what was
  * typed. The API would record an unstated kind as a processor, which is the
  * board's call rather than the screen's, and it refuses a missing reason or an
- * identity number only after it has written the consent row - so an answer it
- * would refuse there is one the screen must not send.
+ * identity number. The API checks the answer before it writes the consent row,
+ * so a refusal costs nothing there; the screen holds the button back all the
+ * same, so that the board sees which field to correct next to it and not a
+ * failed install.
  *
  * Only what the answer on screen says is sent. A recipient typed under "yes"
  * and then answered "no" stays in the fields in case the board changes its mind

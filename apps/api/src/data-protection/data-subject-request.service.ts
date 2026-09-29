@@ -10,7 +10,10 @@ import type {
   ErasureGround,
 } from "../generated/prisma/enums";
 import { lockResidencyTransitions } from "../registers/residency-lock";
-import { lockLegalHold } from "../retention/legal-hold-lock";
+import {
+  lockLegalHold,
+  lockLegalHoldRegistry,
+} from "../retention/legal-hold-lock";
 import { lockDataSubjectRequests } from "./data-subject-request-lock";
 import { DataSubjectRequestError } from "./data-subject-request.error";
 import {
@@ -307,6 +310,14 @@ export class DataSubjectRequestService {
     return this.prisma.$transaction(async (tx) => {
       await lockDataSubjectRequests(tx, existing.personId);
       await lockLegalHold(tx, existing.personId);
+      /*
+       * And the registry, for the reader that cannot name this person: a
+       * granted restriction stops the board mailbox purge and the public-form
+       * issue purge as a hold does, and both discover the person from an
+       * address and so take only this key. In the order
+       * `LegalHoldService.place` takes the two. See `legal-hold-lock.ts`.
+       */
+      await lockLegalHoldRegistry(tx);
       await lockResidencyTransitions(tx, existing.personId);
 
       const row = await tx.dataSubjectRequest.findUniqueOrThrow({

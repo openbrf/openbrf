@@ -7,6 +7,10 @@ import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockLegalHold } from "../retention/legal-hold-lock";
+import {
+  isPersonWithheld,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
 import { SUBLET_RETENTION_DAYS, subletPurgeCutoffs } from "./sublet-retention";
 
 /** Queue the nightly sublet purge runs on. */
@@ -82,6 +86,12 @@ export interface SubletPurgeRunSummary {
  * is about - whether the board ever consented to a letting is exactly the record
  * a hold exists to preserve, and letting without consent is a forfeiture ground
  * under BRL 7 kap. 18 § 2.
+ *
+ * A restriction of processing stops it the same way, read through the same
+ * route. Art. 18(2) lets the association keep storing the data and little
+ * else, so erasing it is the one act the person asked it not to perform;
+ * `retention/withheld-persons.ts` is where every purge asks both questions as
+ * one.
  *
  * The hold is checked twice: once in the scan, and again inside the transaction
  * that deletes. The second one is the one that counts, because a hold placed
@@ -205,19 +215,20 @@ export class SubletPurgeService implements OnModuleInit {
    * of work is a person: one transaction, one audit entry, one answer to "what
    * of mine was erased and when".
    *
-   * A person under an open legal hold is excluded by the query itself rather than
-   * filtered out of its answer, and that ordering is the whole reason for the
-   * extra round trip. The per-run bound is applied by the database, so held
-   * people removed afterwards would still have spent it: five hundred held people
-   * sorting ahead of everybody else would fill every run for as long as their
-   * holds stood, and the applications behind them would outlive their retention
-   * window with nothing reporting a fault.
+   * A person under an open legal hold or a restriction of processing is
+   * excluded by the query itself rather than filtered out of its answer, and
+   * that ordering is the whole reason for the extra round trip. The per-run
+   * bound is applied by the database, so held people removed afterwards would
+   * still have spent it: five hundred held people sorting ahead of everybody
+   * else would fill every run for as long as their holds stood, and the
+   * applications behind them would outlive their retention window with nothing
+   * reporting a fault.
    *
-   * The hold is checked again inside the transaction that deletes. That is the
+   * Both are checked again inside the transaction that deletes. That is the
    * check that counts.
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
-    const held = await this.heldPersonIds();
+    const held = await withheldPersonIds(this.prisma);
 
     const groups = await this.prisma.subletApplication.groupBy({
       by: ["appliedByPersonId"],
@@ -258,16 +269,15 @@ export class SubletPurgeService implements OnModuleInit {
        */
       await lockLegalHold(tx, personId);
 
-      const held = await tx.legalHold.findFirst({
-        where: { personId, releasedAt: null },
-        select: { id: true },
-      });
-      if (held !== null) {
+      if (await isPersonWithheld(tx, personId)) {
         /*
-         * Re-checked here rather than trusted from the scan. A hold placed
-         * between the scan and this transaction has to win: the board member who
-         * placed it is entitled to assume it took effect, and this is the moment
-         * where that is either true or a promise nobody kept.
+         * Re-checked here rather than trusted from the scan. A hold placed, or
+         * a restriction recorded, between the scan and this transaction has to
+         * win: whoever asked for it is entitled to assume it took effect, and
+         * this is the moment where that is either true or a promise nobody
+         * kept. A restriction refuses for the reason art. 18(2) gives - the
+         * association may store the data, which makes erasing it the one act
+         * the person asked it not to perform.
          */
         return 0;
       }
@@ -309,23 +319,6 @@ export class SubletPurgeService implements OnModuleInit {
 
       return count;
     });
-  }
-
-  /**
-   * Everybody a legal hold currently stands against.
-   *
-   * Read whole rather than asked about a shortlist, because the scan needs them
-   * before it chooses its shortlist rather than after. One row per held person at
-   * most, and a hold is a dispute the board entered deliberately, so this is a
-   * handful of ids in a cooperative that has any at all.
-   */
-  private async heldPersonIds(): Promise<string[]> {
-    const holds = await this.prisma.legalHold.findMany({
-      where: { releasedAt: null },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    return holds.map((hold) => hold.personId);
   }
 }
 

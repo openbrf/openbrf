@@ -92,12 +92,38 @@ export interface UploadedFile {
   readonly text: string;
 }
 
+/**
+ * A personal data breach, written up over the API.
+ *
+ * There is no screen that records one, deliberately: a breach is discovered in
+ * a hurry and the board writes it up afterwards (see `recordPersonalDataBreach`
+ * in src/api.ts). What the screen is for is the decisions that follow, so a
+ * walk that photographs those needs a breach placed before it.
+ *
+ * Like everything a capture can photograph, it is published: no names, no
+ * numbers, nothing that could be about anybody.
+ */
+export interface RecordedBreach {
+  readonly title: string;
+  readonly description: string;
+  /** How long ago it was discovered, which is what the 72 hours run from. */
+  readonly discoveredHoursAgo: number;
+  readonly dataDescription: string;
+  readonly effects: string;
+  readonly measures: string;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
   | { readonly fill: Target; readonly value: string }
   | { readonly select: Target; readonly option: string }
   | { readonly upload: Target; readonly file: UploadedFile }
+  /**
+   * Record a breach as whoever is signed in, then reopen the screen, which
+   * reads the register when it opens.
+   */
+  | { readonly recordBreach: RecordedBreach }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -135,6 +161,13 @@ export type Screen = {
 };
 
 const [STORGATAN_12, STORGATAN_14] = ADDRESSES;
+
+/**
+ * Stands for the setup link the instance printed to its log, which no manifest
+ * can know: the token is minted when the stack starts. The capture resolves it
+ * from the log just before it navigates (ADR 0023).
+ */
+export const SETUP_CLAIM_LINK = "setup-claim-link-from-the-log";
 
 /** Every settings card, by the heading a reader sees on it. */
 const SETTINGS_PANELS = [
@@ -374,19 +407,30 @@ const BINDER = {
 
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
-  // Seven screens on one URL: the wizard keeps its step in React state, so each
-  // entry below drives the one above it forward rather than navigating.
+  // Eight screens on one URL: the wizard keeps its step in React state, so each
+  // entry below the setup link drives the one above it forward rather than
+  // navigating.
+  //
+  // The first is the wizard reached without the link, asking for the setup
+  // code; the second opens the link the instance printed, as an operator does.
+  {
+    name: "setup-claim",
+    as: "nobody",
+    goto: appPath("/setup"),
+    waitFor: { label: "Installationskod" },
+  },
   {
     name: "setup-administrator",
     as: "nobody",
-    goto: appPath("/setup"),
+    goto: SETUP_CLAIM_LINK,
     prepare: [
       { fill: { label: "Förnamn" }, value: ADMINISTRATOR.firstName },
       { fill: { label: "Efternamn" }, value: ADMINISTRATOR.lastName },
       { fill: { label: "E-postadress" }, value: ADMINISTRATOR.email },
       { fill: { label: "Lösenord" }, value: ADMINISTRATOR.password },
     ],
-    waitFor: { heading: "Kom i gång med Open BRF" },
+    // The line that replaces the code field once the link has been read.
+    waitFor: { text: "Du använder installationslänken." },
   },
   {
     name: "setup-housing-cooperative",
@@ -1508,9 +1552,9 @@ export const SCREENS: readonly Screen[] = [
      * top of it would show the strip and none of what the strip is about.
      *
      * The breach register is empty here, which is the honest picture of a
-     * cooperative that has not had one. Nothing on this walk records a breach,
-     * because nothing on the screens does: a breach is discovered in a hurry
-     * and written up over the API afterwards.
+     * cooperative that has not had one. Nothing on the screens records a
+     * breach: one is discovered in a hurry and written up over the API
+     * afterwards, which is what the entry below does.
      */
     name: "data-protection",
     as: "administrator",
@@ -1533,6 +1577,50 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: /^Klassificera Drift/ } }],
     waitFor: { text: "Klassificering" },
     capture: { panel: "Mottagare av personuppgifter" },
+  },
+  {
+    /*
+     * A breach the board has decided IMY is to be notified about, with the
+     * form that records the notification open. Deciding is not notifying, so
+     * the row keeps its hours and the strip above still counts it: this is the
+     * state a board is in between the decision and IMY's e-service.
+     *
+     * Discovered thirty hours ago, so the row shows a running clock rather than
+     * an overdue one, and the form asks for no reasons for a delay.
+     */
+    name: "data-protection-breach-notification",
+    prepare: [
+      {
+        recordBreach: {
+          title: "Utskick till fel mottagare",
+          description: "Ett utskick gick till en adresslista som inte var vår.",
+          discoveredHoursAgo: 30,
+          dataDescription: "Namn och adresser ur medlemsförteckningen.",
+          effects: "Mottagaren kunde läsa namn och adresser.",
+          measures: "Utskicket återkallades och mottagaren ombads radera det.",
+        },
+      },
+      { click: { button: "Fatta beslut om Utskick till fel mottagare" } },
+      {
+        select: { combobox: "Risk för de registrerade" },
+        option: "Risk",
+      },
+      // "IMY ska underrättas" is ticked when the form opens, which is the
+      // decision this screen is about; clicking it would untick it.
+      {
+        fill: { label: "Skäl för beslutet om IMY" },
+        value: "Incidenten medför en risk för de registrerade.",
+      },
+      { click: { button: "Spara beslutet" } },
+      {
+        click: {
+          button:
+            "Anteckna underrättelsen till IMY om Utskick till fel mottagare",
+        },
+      },
+    ],
+    waitFor: { button: "Spara underrättelsen" },
+    capture: { panel: "Personuppgiftsincidenter" },
   },
   {
     /*

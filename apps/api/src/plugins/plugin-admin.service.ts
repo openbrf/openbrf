@@ -26,6 +26,7 @@ import { ProcessorFactsService } from "../data-protection/processor-facts.servic
 import { pluginProcessorKey } from "../data-protection/processor-key";
 import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
+import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
@@ -72,8 +73,17 @@ export interface PluginSummary {
 export interface PluginsOverview {
   /** OPENBRF_PLUGINS_ENABLED. When false nothing is loaded or installable. */
   pluginsEnabled: boolean;
-  /** True once an install has asked for the process to be replaced. */
+  /**
+   * True from the moment an operation that ends in a restart is accepted until
+   * this process is replaced.
+   */
   restartPending: boolean;
+  /**
+   * Which process answered: opaque, and different after every restart. The
+   * one part of an answer that tells the replacement from the process it
+   * replaces.
+   */
+  processId: string;
   plugins: PluginSummary[];
   /** Every reason a plugin on the volume is not running. */
   findings: PluginFinding[];
@@ -257,29 +267,40 @@ export class PluginAdminService {
       const t = await this.translator();
       input = {
         classification: "NOT_A_PROCESSOR",
-        note: answer.note ?? t("dataProtection.processors.seed.pluginLocal"),
+        // An emptied note is no note, so the instance's own reason stands in
+        // for it rather than an empty one `assertConsistent` refuses.
+        note:
+          blankToNull(answer.note) ??
+          t("dataProtection.processors.seed.pluginLocal"),
       };
     } else {
       const recipient = requiredRecipient(answer);
-      // One default, read four times below. Two spellings that drifted apart
-      // would send `record` a classification and processor-only fields that
-      // disagree, and `assertConsistent` would refuse it for a reason the board
-      // cannot act on.
+      // One default, read on every processor-only field below. Two spellings
+      // that drifted apart would send `record` a classification and
+      // processor-only fields that disagree, and `assertConsistent` would
+      // refuse it for a reason the board cannot act on.
       const classification = answer.classification ?? "PROCESSOR";
       const asProcessor = classification === "PROCESSOR";
+      // The agreement's own details - its date, its reference, what it says
+      // about sub-processors - describe an art. 28(3) contract. An independent
+      // controller has none, so an answer that carries them is not recorded
+      // against a recipient they cannot describe.
+      const signedOn = asProcessor ? blankToNull(answer.signedOn) : null;
 
       input = {
         classification,
         status: asProcessor ? (answer.status ?? "PENDING") : null,
-        counterparty: answer.counterparty ?? recipient,
-        reference: answer.reference ?? null,
-        signedOn: answer.signedOn == null ? null : new Date(answer.signedOn),
+        counterparty: blankToNull(answer.counterparty) ?? recipient,
+        reference: asProcessor ? blankToNull(answer.reference) : null,
+        signedOn: signedOn === null ? null : new Date(signedOn),
         termsConfirmed: asProcessor ? (answer.termsConfirmed ?? null) : null,
         subProcessorsAuthorised: asProcessor
           ? (answer.subProcessorsAuthorised ?? null)
           : null,
-        subProcessorNote: answer.subProcessorNote ?? null,
-        note: answer.note ?? null,
+        subProcessorNote: asProcessor
+          ? blankToNull(answer.subProcessorNote)
+          : null,
+        note: blankToNull(answer.note),
       };
     }
 
@@ -301,7 +322,8 @@ export class PluginAdminService {
 
     return {
       pluginsEnabled: this.env.OPENBRF_PLUGINS_ENABLED,
-      restartPending: this.restart.restartRequested,
+      restartPending: this.restart.restartPending,
+      processId: this.restart.processId,
       findings: this.loader.report(),
       plugins: records.map((record) => {
         const loaded = this.loader.get(record.id);
@@ -619,7 +641,10 @@ export class PluginAdminService {
     await this.processing.endPlugin(id);
 
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
-    return { restarting: true };
+    // What the overview now says, rather than a constant: with plugins
+    // switched off nothing runs the reconcile and nothing is replaced, and a
+    // screen told otherwise would wait for a process that never comes.
+    return { restarting: this.restart.restartPending };
   }
 
   /**
@@ -789,8 +814,11 @@ function sameDeclaration(
 function requiredRecipient(
   answer: NonNullable<InstallRequest["processorAgreement"]>,
 ): string {
-  const recipient = answer.recipient ?? answer.counterparty;
-  if (recipient === undefined || recipient.trim() === "") {
+  // An emptied field is no answer, so it does not hide the one given in the
+  // other.
+  const recipient =
+    blankToNull(answer.recipient) ?? blankToNull(answer.counterparty);
+  if (recipient === null) {
     throw new PluginRecipientRequiredError();
   }
   return recipient;

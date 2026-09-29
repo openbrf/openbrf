@@ -19,6 +19,7 @@ import type {
   KeyOrderIntakeView,
   KeyOrderQueueView,
 } from "./key-order.service";
+import { holdLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * Key orders against a real database.
@@ -206,43 +207,6 @@ async function queue(cookie: string): Promise<KeyOrderQueueView> {
   });
   expect(response.statusCode).toBe(200);
   return response.json<KeyOrderQueueView>();
-}
-
-/**
- * How many transactions hold, or are queued behind, this person's hold key.
- *
- * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
- * halves of a bigint, which is what the shifting reassembles.
- */
-async function holdLockCount(
-  personId: string,
-  granted: boolean,
-): Promise<bigint> {
-  const key = `legal-hold:${personId}`;
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND granted = ${granted}
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return row?.locks ?? 0n;
-}
-
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the purge to block or finish.");
 }
 
 /** Writes an order straight to the database, with a closing date of its own. */
@@ -928,12 +892,12 @@ describe("the purge", () => {
 
     try {
       await waitFor(
-        async () => (await holdLockCount(lodger.personId, true)) > 0n,
+        async () => (await holdLockCount(prisma, lodger.personId, true)) > 0n,
       );
 
       const running = purge.purgePerson(lodger.personId, NOW, RETENTION_DAYS);
       await waitFor(
-        async () => (await holdLockCount(lodger.personId, false)) > 0n,
+        async () => (await holdLockCount(prisma, lodger.personId, false)) > 0n,
       );
 
       releaseHolder?.();
@@ -949,6 +913,102 @@ describe("the purge", () => {
       await holder.catch(() => undefined);
       await prisma.legalHold.deleteMany({
         where: { personId: lodger.personId },
+      });
+    }
+  }, 60_000);
+
+  it("keeps a restricted person's orders past their window until the restriction is lifted", async () => {
+    /*
+     * Art. 18(2): under a restriction the association may store the data and
+     * little else, so erasing it is the one act the person asked it not to
+     * perform. Lifting the restriction hands the rows back to the window, and
+     * the next run erases them.
+     */
+    const id = `ko-restricted-${suffix}`;
+    await seedOrder({
+      id,
+      personId: lodger.personId,
+      closedAt: daysBefore(RETENTION_DAYS + 5),
+      status: "HANDED_OVER",
+    });
+    await prisma.person.update({
+      where: { id: lodger.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+      expect(
+        await prisma.keyOrder.findUnique({ where: { id } }),
+      ).not.toBeNull();
+
+      await prisma.person.update({
+        where: { id: lodger.personId },
+        data: { processingRestrictedAt: null },
+      });
+      await purge.run(NOW, RETENTION_DAYS);
+      expect(await prisma.keyOrder.findUnique({ where: { id } })).toBeNull();
+    } finally {
+      await prisma.person.update({
+        where: { id: lodger.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("is stopped by a restriction granted while the run is already in flight", async () => {
+    // The hold race above, for the other half of what withholds a person: the
+    // grant takes the same key before it writes the flag.
+    const contested = `ko-restriction-race-${suffix}`;
+    await seedOrder({
+      id: contested,
+      personId: lodger.personId,
+      closedAt: daysBefore(RETENTION_DAYS + 5),
+      status: "HANDED_OVER",
+    });
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${lodger.personId}`}))`;
+        await tx.person.update({
+          where: { id: lodger.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await holdLockCount(prisma, lodger.personId, true)) > 0n,
+      );
+
+      const running = purge.purgePerson(lodger.personId, NOW, RETENTION_DAYS);
+      await waitFor(
+        async () => (await holdLockCount(prisma, lodger.personId, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      // It erased nothing, because by the time it got the key the restriction
+      // stood.
+      await expect(running).resolves.toBe(0);
+      expect(
+        await prisma.keyOrder.findUnique({ where: { id: contested } }),
+      ).not.toBeNull();
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await prisma.person.update({
+        where: { id: lodger.personId },
+        data: { processingRestrictedAt: null },
       });
     }
   }, 60_000);

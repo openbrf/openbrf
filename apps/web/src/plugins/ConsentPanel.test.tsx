@@ -364,7 +364,8 @@ describe("the acknowledgement", () => {
  * in the art. 28 record, and the install request is what writes that record.
  * So the screen asks it on every install, offers no answer of its own, and
  * lets nothing through until the answer is one the API records rather than
- * refuses - a refusal there comes after the consent row is written.
+ * refuses, so that the board sees which field to correct next to it and not a
+ * failed install.
  */
 describe("where the plugin sends personal data", () => {
   it("is asked with neither answer chosen, even of a plugin declaring no personal data", async () => {
@@ -440,7 +441,8 @@ describe("where the plugin sends personal data", () => {
 
   it("asks an independent controller why no agreement is needed", async () => {
     // The record keeps the reason for every recipient without an agreement,
-    // and the API refuses one without it only after writing the consent row.
+    // and the API refuses one without it. The screen asks for it first, so the
+    // board sees the missing field and not a failed install.
     const onConfirm = vi.fn();
     const session = userEvent.setup();
     renderPanel({ onConfirm });
@@ -484,7 +486,8 @@ describe("where the plugin sends personal data", () => {
   });
 
   it("keeps a personal identity number out of the record", async () => {
-    // The API refuses one in what the board wrote, after the consent row.
+    // The API refuses one in what the board wrote. The screen says so next to
+    // the field, so the board sees what to correct and not a failed install.
     const session = userEvent.setup();
     renderPanel();
 

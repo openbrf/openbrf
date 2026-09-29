@@ -18,6 +18,7 @@ import {
 import type { DebitingList, DebitingListRow } from "./debiting-list";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import type { DebitingListExport } from "./member-charge.service";
+import { holdLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * Charges to members, against a real database.
@@ -50,8 +51,9 @@ import type { DebitingListExport } from "./member-charge.service";
  * one failure it cannot have, so it is asserted here rather than left to the
  * report's own suite.
  *
- * **The purge erases on the charge's own calendar clock and a legal hold stops
- * it**, for a person and for an apartment, for real rows.
+ * **The purge erases on the charge's own calendar clock and a legal hold or a
+ * restriction of processing stops it**, for a person and for an apartment, for
+ * real rows - including one granted while the purge is in flight.
  *
  * **An apartment carrying a charge cannot be removed from the register**, and
  * the refusal names the record in the way rather than surfacing as a foreign key
@@ -1024,6 +1026,17 @@ describe("the purge", () => {
     return charge.id;
   }
 
+  /** Grants or lifts a restriction of processing, as the flag the purge reads. */
+  async function setRestricted(
+    personId: string,
+    restricted: boolean,
+  ): Promise<void> {
+    await prisma.person.update({
+      where: { id: personId },
+      data: { processingRestrictedAt: restricted ? new Date() : null },
+    });
+  }
+
   it("erases a charge whose seven calendar years have run out", async () => {
     const stale = await agedCharge({
       personId: gammal.personId,
@@ -1121,6 +1134,124 @@ describe("the purge", () => {
       await prisma.memberCharge.findUnique({ where: { id: held } }),
     ).toBeNull();
   });
+
+  it("keeps a restricted person's charges past their window until the restriction is lifted", async () => {
+    /*
+     * Art. 18(2): under a restriction the association may store the data and
+     * little else, so erasing it is the one act the person asked it not to
+     * perform. Lifting the restriction hands the rows back to the window, and
+     * the next run erases them.
+     */
+    const kept = await agedCharge({
+      personId: member.personId,
+      chargedOn: "2026-04-06",
+    });
+    await setRestricted(member.personId, true);
+
+    try {
+      const purge = app.get(MemberChargePurgeService);
+      await purge.run(new Date("2034-01-01T03:17:00.000+01:00"));
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: kept } }),
+      ).not.toBeNull();
+
+      await setRestricted(member.personId, false);
+      await purge.run(new Date("2034-01-01T03:17:00.000+01:00"));
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: kept } }),
+      ).toBeNull();
+    } finally {
+      await setRestricted(member.personId, false);
+      await prisma.memberCharge.deleteMany({ where: { id: kept } });
+    }
+  });
+
+  it("is stopped for an apartment by a restriction on anyone who lived there", async () => {
+    const kept = await agedCharge({ apartmentId, chargedOn: "2026-05-06" });
+    await setRestricted(member.personId, true);
+
+    try {
+      const purge = app.get(MemberChargePurgeService);
+      await purge.run(new Date("2034-01-01T03:17:00.000+01:00"));
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: kept } }),
+      ).not.toBeNull();
+
+      await setRestricted(member.personId, false);
+      await purge.run(new Date("2034-01-01T03:17:00.000+01:00"));
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: kept } }),
+      ).toBeNull();
+    } finally {
+      await setRestricted(member.personId, false);
+      await prisma.memberCharge.deleteMany({ where: { id: kept } });
+    }
+  });
+
+  it("is stopped by a restriction granted while the run is already in flight", async () => {
+    /*
+     * Everything runs at READ COMMITTED. A purge that read "not restricted" and
+     * then deleted would erase exactly the rows a restriction granted a moment
+     * later was meant to keep. The grant takes the person's hold key before it
+     * writes the flag, so it either lands before the purge's read and stops it,
+     * or waits for the purge. The wait is read out of `pg_locks` rather than
+     * inferred from a delay.
+     */
+    const contested = await agedCharge({
+      personId: member.personId,
+      chargedOn: "2026-06-06",
+    });
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+
+    // Longer than the waits below, so the transaction held open on purpose is
+    // not aborted by the five-second default and its lock released early.
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`legal-hold:${member.personId}`}))`;
+        await tx.person.update({
+          where: { id: member.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await holdLockCount(prisma, member.personId, true)) > 0n,
+      );
+
+      const running = app
+        .get(MemberChargePurgeService)
+        .purgeParty(
+          { kind: "person", id: member.personId },
+          new Date("2034-01-01T03:17:00.000+01:00"),
+        );
+      await waitFor(
+        async () => (await holdLockCount(prisma, member.personId, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      // It erased nothing, because by the time it got the key the restriction
+      // stood.
+      await expect(running).resolves.toBe(0);
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: contested } }),
+      ).not.toBeNull();
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await setRestricted(member.personId, false);
+      await prisma.memberCharge.deleteMany({ where: { id: contested } });
+    }
+  }, 60_000);
 
   it("counts from the financial year the charge was recorded under", async () => {
     /*

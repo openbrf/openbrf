@@ -2,12 +2,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
+import { hashOpaqueToken } from "../auth/opaque-token";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
 import type { PagesService } from "../site/pages.service";
+import { SetupClaimService } from "./setup-claim.service";
 import { SetupError, SetupService } from "./setup.service";
 
 /**
@@ -20,6 +22,9 @@ import { SetupError, SetupService } from "./setup.service";
  * below is about the conditions under which the public path is open.
  */
 
+/** The setup link's token; its digest is what the environment below holds. */
+const CLAIM_TOKEN = "the-token-on-the-setup-link-0001";
+
 const TEST_ENV = {
   NODE_ENV: "test",
   PORT: 3000,
@@ -30,6 +35,7 @@ const TEST_ENV = {
   BETTER_AUTH_SECRET: "test-secret-at-least-16-chars",
   OPENBRF_PLUGINS_ENABLED: false,
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
+  OPENBRF_SETUP_TOKEN_DIGEST: hashOpaqueToken(CLAIM_TOKEN),
 } as Env;
 
 /**
@@ -47,6 +53,7 @@ const ADMINISTRATOR = {
   lastName: "Jensen",
   email: "holger@exempel.se",
   password: "correct horse battery",
+  claimToken: CLAIM_TOKEN,
 };
 
 interface Fakes {
@@ -76,6 +83,8 @@ interface Fakes {
     seedPrivacyNotice: ReturnType<typeof vi.fn>;
   };
   dataProtection: { seedIfConfigured: ReturnType<typeof vi.fn> };
+  encryption: FieldEncryptionService;
+  claims: SetupClaimService;
 }
 
 /**
@@ -136,18 +145,36 @@ function build(
     seedIfConfigured: vi.fn().mockResolvedValue(undefined),
   };
 
+  const encryption = new FieldEncryptionService(TEST_ENV);
+  // The real claim service over the same fake database, so the unclaimed rule
+  // it holds is the one these tests turn the knobs of.
+  const claims = new SetupClaimService(
+    client as unknown as PrismaService,
+    TEST_ENV,
+  );
+
   const service = new SetupService(
     client as unknown as PrismaService,
     auth as unknown as AuthService,
-    new FieldEncryptionService(TEST_ENV),
+    encryption,
     audit as unknown as AuditLogService,
     pages as unknown as PagesService,
     i18n,
     dataProtection as unknown as DataProtectionSeedService,
+    claims,
     TEST_ENV,
   );
 
-  return { service, prisma, auth, audit, pages, dataProtection };
+  return {
+    service,
+    prisma,
+    auth,
+    audit,
+    pages,
+    dataProtection,
+    encryption,
+    claims,
+  };
 }
 
 describe("setup state", () => {
@@ -215,7 +242,7 @@ describe("creating the first administrator", () => {
     expect(written.data.emailIndex).toBeTypeOf("string");
   });
 
-  it("logs the ADMIN grant", async () => {
+  it("logs the ADMIN grant, and where the claiming token came from", async () => {
     await fakes.service.createFirstAdministrator(ADMINISTRATOR);
 
     expect(fakes.audit.record).toHaveBeenCalledWith(
@@ -223,9 +250,81 @@ describe("creating the first administrator", () => {
         action: "SYSTEM_ROLE_GRANTED",
         actorPersonId: "person-1",
         targetPersonId: "person-1",
+        // A fact about the claim, never the token or its digest.
+        context: {
+          role: "ADMIN",
+          grantedBy: "setup-wizard",
+          claimedWith: "environment",
+        },
       }),
       expect.anything(),
     );
+  });
+
+  it.each([
+    ["without a token", undefined],
+    ["with an empty token", ""],
+    ["with a wrong token", `${CLAIM_TOKEN}-not`],
+    ["with the digest instead of the token", hashOpaqueToken(CLAIM_TOKEN)],
+  ])(
+    "refuses %s, before anything is encrypted or written",
+    async (_what, claimToken) => {
+      const encrypt = vi.spyOn(fakes.encryption, "encrypt");
+
+      await expect(
+        fakes.service.createFirstAdministrator({
+          ...ADMINISTRATOR,
+          claimToken,
+        }),
+      ).rejects.toMatchObject({ reason: "claim-token-invalid", status: 403 });
+
+      expect(encrypt).not.toHaveBeenCalled();
+      expect(fakes.prisma.person.create).not.toHaveBeenCalled();
+      expect(fakes.auth.createAccountForPerson).not.toHaveBeenCalled();
+      // Nobody and no association exists to write a refusal against.
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["the right token", CLAIM_TOKEN],
+    ["a wrong token", "wrong"],
+    ["no token", undefined],
+  ])(
+    "answers already-claimed on a claimed instance, with %s",
+    async (_what, claimToken) => {
+      // The public state endpoint already says an instance is claimed, so the
+      // order of the two checks tells a caller nothing about the token.
+      const claimed = build({ accounts: 1 });
+
+      await expect(
+        claimed.service.createFirstAdministrator({
+          ...ADMINISTRATOR,
+          claimToken,
+        }),
+      ).rejects.toMatchObject({ reason: "already-claimed", status: 409 });
+    },
+  );
+
+  it("spends a printed token once the claim succeeded", async () => {
+    const spend = vi.spyOn(fakes.claims, "spend");
+
+    await fakes.service.createFirstAdministrator(ADMINISTRATOR);
+
+    expect(spend).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the token when the account could not be created", async () => {
+    // Person and grant are removed so a retry starts clean, and a retry needs
+    // the same link.
+    const spend = vi.spyOn(fakes.claims, "spend");
+    fakes.auth.createAccountForPerson.mockRejectedValue(new Error("nope"));
+
+    await expect(
+      fakes.service.createFirstAdministrator(ADMINISTRATOR),
+    ).rejects.toThrow("nope");
+
+    expect(spend).not.toHaveBeenCalled();
   });
 
   it("refuses once an account exists", async () => {

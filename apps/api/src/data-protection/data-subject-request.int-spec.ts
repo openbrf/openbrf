@@ -15,6 +15,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { DataSubjectRequestView } from "./data-subject-request";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
  * What a person asked about their own data, over HTTP and against a real
@@ -155,6 +156,15 @@ async function recorded(
   const response = await record(personId, payload);
   expect(response.statusCode).toBe(201);
   return response.json<DataSubjectRequestView>();
+}
+
+/**
+ * How many transactions hold, or are queued behind, the legal hold registry
+ * key, in this worker's database only: the key is the same string in every
+ * worker's, and `pg_locks` shows the whole cluster.
+ */
+async function registryLockCount(granted: boolean): Promise<bigint> {
+  return advisoryLockCount(prisma, "legal-hold:registry", granted);
 }
 
 function decide(requestId: string, payload: Record<string, unknown>) {
@@ -642,6 +652,45 @@ describe("an objection and a restriction", () => {
       }),
     ).resolves.toMatchObject({ processingRestrictedAt: null });
   });
+
+  it("takes the legal hold registry key when it grants a restriction", async () => {
+    /*
+     * The board mailbox purge cannot name the person a thread is with, so it
+     * orders itself against holds and restrictions on the registry key alone.
+     * A grant that did not take that key could commit between the purge's
+     * check and its delete, and the correspondence the restriction was granted
+     * to keep would be gone. So the grant has to wait while somebody else holds
+     * the key - read out of `pg_locks`, not inferred from a delay.
+     */
+    const view = await recorded(subjects.restricter, { kind: "RESTRICTION" });
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"legal-hold:registry"}))`;
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(async () => (await registryLockCount(true)) > 0n);
+
+      const granting = decide(view.requestId, { decision: "GRANTED" });
+      await waitFor(async () => (await registryLockCount(false)) > 0n);
+
+      releaseHolder?.();
+      await holder;
+      expect((await granting).statusCode).toBe(200);
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await close(view.requestId, { reason: "Uppphavd" });
+    }
+  }, 60_000);
 
   it("refuses a second open request of the same kind", async () => {
     const view = await recorded(subjects.objector, { kind: "OBJECTION" });

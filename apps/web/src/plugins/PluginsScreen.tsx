@@ -115,6 +115,13 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
   /** The code the last install was refused with, held so it can be read out. */
   const [installFailure, setInstallFailure] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  /**
+   * The process that was serving when the restart was asked for.
+   *
+   * Null when the screen never heard from one, which leaves the restart poll
+   * with the pending flag alone to go on.
+   */
+  const replacedProcess = useRef<string | null>(null);
   const [catalogToken, setCatalogToken] = useState(0);
 
   /**
@@ -172,10 +179,16 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
    *
    * Installing replaces the server process, so the screen would otherwise be
    * left telling a board to reload the page and hoping. The poll runs only
-   * while a restart is outstanding and stops as soon as a response arrives
-   * from a process that is not itself waiting to restart - which is the
+   * while a restart is outstanding and stops at the first response from a
+   * different process that is not itself waiting to restart - which is the
    * signal that the new one is serving. What it then found is on the row: the
    * plugin is running, or it is not and the findings below say why.
+   *
+   * A different process, and not merely one reporting nothing pending: the
+   * process being replaced keeps answering while its install job runs and
+   * while it drains, and an answer it gives is about the old code whatever it
+   * says. Leaving on one of those would put the screen back on the state from
+   * before the operation while the replacement serves the change.
    */
   useEffect(() => {
     if (!restarting || !canRead) {
@@ -198,7 +211,12 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
         return;
       }
       void fetchPlugins().then((result) => {
-        if (!active || !result.ok || result.value.restartPending) {
+        if (
+          !active ||
+          !result.ok ||
+          result.value.restartPending ||
+          result.value.processId === replacedProcess.current
+        ) {
           return;
         }
         clearInterval(timer);
@@ -214,6 +232,17 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
   }, [restarting, canRead]);
 
   const { ready, overview, loadFailed, restartTimedOut } = loaded;
+
+  /**
+   * Waits for the process the screen last heard from to be replaced.
+   *
+   * Held as it was when the operation was sent, so an answer the poll gets
+   * from that process is never taken for one from its replacement.
+   */
+  const awaitRestart = (): void => {
+    replacedProcess.current = overview?.processId ?? null;
+    setRestarting(true);
+  };
 
   const reload = (): void => {
     readInto();
@@ -251,7 +280,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       // that is going away - and its failure would raise the "could not be
       // read" notice beside the restart notice on an install that worked. The
       // restart poll performs the read once the replacement answers.
-      setRestarting(true);
+      awaitRestart();
       setCatalogToken((token) => token + 1);
       return;
     }
@@ -301,9 +330,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
             plugins={overview.plugins}
             editable={canManage}
             onChanged={reload}
-            onRestarting={() => {
-              setRestarting(true);
-            }}
+            onRestarting={awaitRestart}
           />
 
           <ActionsPanel
