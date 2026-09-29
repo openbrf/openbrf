@@ -312,6 +312,49 @@ export function appLogs(): string {
   );
 }
 
+/**
+ * The setup link an unclaimed instance printed to its log (ADR 0023).
+ *
+ * The stack sets no digest, so the instance mints the link itself and the
+ * suite reads it where an operator would. The last link in the log, because
+ * the log spans the container's restarts, and every start before the claim
+ * prints a new link and ends the one before it.
+ *
+ * Polled for a while: the line is written once the server listens and has
+ * read that the instance is unclaimed, which can land a moment after the
+ * health check that let the stack come up.
+ */
+export async function claimLinkFromLog(timeoutMs = 30_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const links = [
+      ...appLogs().matchAll(
+        /(https?:\/\/\S+\/app\/setup#claim=[A-Za-z0-9_-]+)/g,
+      ),
+    ];
+    const last = links.at(-1)?.[1];
+    if (last !== undefined) {
+      return last;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        "the application's log holds no setup link: the instance is claimed " +
+          "already, or it was started with OPENBRF_SETUP_TOKEN_DIGEST",
+      );
+    }
+    await new Promise((settle) => setTimeout(settle, 500));
+  }
+}
+
+/** The token out of a setup link: what follows `#claim=`. */
+export function claimTokenOf(link: string): string {
+  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("claim");
+  if (token === null || token === "") {
+    throw new Error(`no token on the setup link ${link}`);
+  }
+  return token;
+}
+
 /** Prints the application's logs. Called when the suite fails, not otherwise. */
 export function printAppLogs(): void {
   try {

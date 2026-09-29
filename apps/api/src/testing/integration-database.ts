@@ -32,6 +32,19 @@ export const INTEGRATION_WORKER_COUNT = Math.max(
   Math.min(8, cpus().length - 1),
 );
 
+/**
+ * Where the original connection string is kept.
+ *
+ * Vitest runs the setup files once per test file and reuses the worker process
+ * between them, so the worker's setup file is evaluated many times against a
+ * process.env it has already rewritten. Deriving the worker's database from
+ * DATABASE_URL a second time would name it after the first rewrite -
+ * openbrf_test_1_test_1 - so the untouched string is kept aside under this
+ * name and every derivation starts there, including a suite's that clones the
+ * template for a database of its own.
+ */
+export const BASE_URL_VARIABLE = "OPENBRF_TEST_BASE_DATABASE_URL";
+
 /** The database a connection string names, e.g. `openbrf`. */
 export function databaseName(url: string): string {
   const name = new URL(url).pathname.slice(1);

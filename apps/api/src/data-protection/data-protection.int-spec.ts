@@ -457,6 +457,47 @@ describe("breaches", () => {
     );
   });
 
+  it("refuses a notification before the discovery or in the future, on both routes", async () => {
+    /*
+     * Either is a record that cannot be true, and the future one is worse than
+     * wrong: a notified-at takes the breach off the 72-hour clock, so a date
+     * still to come would stop the clock on a breach IMY knows nothing about.
+     */
+    const discoveredAt = discoveredHoursAgo(2);
+    const view = await recorded({ discoveredAt });
+    const beforeDiscovery = new Date(
+      new Date(discoveredAt).getTime() - 60 * 60 * 1000,
+    ).toISOString();
+    const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    for (const imyNotifiedAt of [beforeDiscovery, inAnHour]) {
+      const decided = await decide(view.breachId, { imyNotifiedAt });
+      expect(decided.statusCode).toBe(400);
+      expect(reasonOf(decided)).toBe("notified-out-of-range");
+    }
+
+    const decided = await decide(view.breachId, {});
+    expect(decided.statusCode).toBe(200);
+
+    for (const imyNotifiedAt of [beforeDiscovery, inAnHour]) {
+      const updated = await inject({
+        method: "PUT",
+        url: `/api/data-protection/breaches/${view.breachId}`,
+        payload: { imyNotifiedAt },
+        headers: { cookie: boardCookie },
+      });
+      expect(updated.statusCode).toBe(400);
+      expect(reasonOf(updated)).toBe("notified-out-of-range");
+    }
+
+    // The clock is still running: nothing refused was written.
+    const row = await prisma.personalDataBreach.findUniqueOrThrow({
+      where: { id: view.breachId },
+      select: { imyNotifiedAt: true },
+    });
+    expect(row.imyNotifiedAt).toBeNull();
+  });
+
   it("holds the delay-reasons rule across two corrections arriving together", async () => {
     /*
      * The rule spans three columns - the discovery instant the bound is counted
@@ -607,6 +648,63 @@ describe("breaches", () => {
     expect(reasonOf(again)).toBe("already-decided");
   });
 
+  it("keeps the clock running after a decision to notify IMY, until the notification is recorded", async () => {
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(2) });
+
+    const decided = await decide(view.breachId, {
+      imyNotificationRequired: true,
+    });
+    expect(decided.statusCode).toBe(200);
+    expect(decided.json<BreachView>().state).toBe("notificationOwed");
+
+    const notified = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: { imyNotifiedAt: new Date().toISOString() },
+      headers: { cookie: boardCookie },
+    });
+    expect(notified.statusCode).toBe(200);
+    expect(notified.json<BreachView>().state).toBe("decided");
+  });
+
+  it("is overdue once the bound passes with the notification still owed", async () => {
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(80) });
+
+    const decided = await decide(view.breachId, {
+      imyNotificationRequired: true,
+    });
+    expect(decided.statusCode).toBe(200);
+    expect(decided.json<BreachView>().state).toBe("overdue");
+
+    // Late, so the notification carries the reasons for the delay.
+    const notified = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: {
+        imyNotifiedAt: new Date().toISOString(),
+        delayReasons: "Styrelsen kunde inte sammantrada forran nu.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(notified.statusCode).toBe(200);
+    expect(notified.json<BreachView>().state).toBe("decided");
+  });
+
+  it("refuses closing a breach while the notification to IMY is owed", async () => {
+    // Closing would stop the clock by another route: the register, the
+    // reminder and the overview all stop watching a closed breach.
+    const view = await recorded();
+    await decide(view.breachId, { imyNotificationRequired: true });
+
+    const closing = await inject({
+      method: "POST",
+      url: `/api/data-protection/breaches/${view.breachId}/close`,
+      headers: { cookie: boardCookie },
+    });
+    expect(closing.statusCode).toBe(409);
+    expect(reasonOf(closing)).toBe("imy-notification-owed");
+  });
+
   it("records the people it reached, and refuses the same person twice", async () => {
     const view = await recorded();
 
@@ -700,9 +798,48 @@ describe("breaches", () => {
       expect(sent).toBeGreaterThanOrEqual(1);
     });
 
-    it("sends nothing once the breach has been decided", async () => {
+    it("still mails the board once it has decided to notify IMY and has not", async () => {
+      /*
+       * Deciding that IMY is to be notified is not the notification art. 33(1)
+       * asks for, and the 72 hours keep running until it is made. A board that
+       * decided on day one and then forgot is the board this reminder is for.
+       */
       const view = await recorded();
-      await decide(view.breachId, {});
+      const decided = await decide(view.breachId, {
+        imyNotificationRequired: true,
+      });
+      expect(decided.statusCode).toBe(200);
+      expect(decided.json<BreachView>().imyNotifiedAt).toBeNull();
+
+      const sent = await app.get(BreachReminderService).sendBreachReminder({
+        breachId: view.breachId,
+        discoveredAt: view.discoveredAt,
+      });
+
+      expect(sent).toBeGreaterThanOrEqual(1);
+    });
+
+    it("sends nothing once IMY has been notified", async () => {
+      const view = await recorded();
+      await decide(view.breachId, {
+        imyNotificationRequired: true,
+        imyNotifiedAt: new Date().toISOString(),
+      });
+
+      await expect(
+        app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: view.discoveredAt,
+        }),
+      ).resolves.toBe(0);
+    });
+
+    it("sends nothing once the board has found no notification owed", async () => {
+      const view = await recorded();
+      await decide(view.breachId, {
+        risk: "UNLIKELY",
+        imyNotificationRequired: false,
+      });
 
       await expect(
         app.get(BreachReminderService).sendBreachReminder({
@@ -1689,7 +1826,16 @@ describe("overview", () => {
     const undecided = await prisma.personalDataBreach.count({
       where: { decidedAt: null, closedAt: null },
     });
+    const owed = await prisma.personalDataBreach.count({
+      where: {
+        decidedAt: { not: null },
+        closedAt: null,
+        imyNotificationRequired: true,
+        imyNotifiedAt: null,
+      },
+    });
     expect(overview.breaches.awaitingDecision).toBe(undecided);
+    expect(overview.breaches.notificationOwed).toBe(owed);
     expect(overview.processors.notRecorded).toBeGreaterThanOrEqual(0);
     expect(typeof overview.notice.published).toBe("boolean");
   });
@@ -1705,12 +1851,78 @@ describe("overview", () => {
     const overview = response.json<DataProtectionOverview>();
 
     expect(overview.breaches.awaitingDecision).toBeGreaterThan(0);
-    expect(overview.breaches.nearestDeadline).not.toBeNull();
+    expect(overview.breaches.nearestDecisionDeadline).not.toBeNull();
     // No later than this breach's own bound: it is the nearest or something
     // else is nearer.
     expect(
-      new Date(overview.breaches.nearestDeadline ?? "").getTime(),
+      new Date(overview.breaches.nearestDecisionDeadline ?? "").getTime(),
     ).toBeLessThanOrEqual(new Date(view.imyNotifyBy).getTime());
+  });
+
+  it("keeps the bound of an owed notification apart from the bounds awaiting a decision", async () => {
+    /*
+     * The strip puts hours beside each count. Taken from one bound shared by
+     * both sets, an owed notification an hour old would be shown as the
+     * nearest bound on the breaches awaiting a decision.
+     */
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(71) });
+    const decided = await decide(view.breachId, {});
+    expect(decided.statusCode).toBe(200);
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/data-protection/overview",
+      headers: { cookie: boardCookie },
+    });
+    const overview = response.json<DataProtectionOverview>();
+    const bound = new Date(view.imyNotifyBy).getTime();
+
+    // Discovered 71 hours ago: nothing else in this file is nearer.
+    expect(overview.breaches.nearestNotificationDeadline).toBe(
+      new Date(bound).toISOString(),
+    );
+    const decision = overview.breaches.nearestDecisionDeadline;
+    expect(decision === null || new Date(decision).getTime() > bound).toBe(
+      true,
+    );
+  });
+
+  it("counts a breach decided with IMY still owed, and as overdue past the bound", async () => {
+    async function read(): Promise<DataProtectionOverview> {
+      const response = await inject({
+        method: "GET",
+        url: "/api/data-protection/overview",
+        headers: { cookie: boardCookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json<DataProtectionOverview>();
+    }
+
+    const view = await recorded({ discoveredAt: discoveredHoursAgo(80) });
+    await decide(view.breachId, { imyNotificationRequired: true });
+    const before = await read();
+
+    const notified = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: {
+        imyNotifiedAt: new Date().toISOString(),
+        delayReasons: "Styrelsen kunde inte sammantrada forran nu.",
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(notified.statusCode).toBe(200);
+    const after = await read();
+
+    /*
+     * Differences rather than absolute counts: other cases in this file leave
+     * breaches of their own behind. Recording the notification is what takes
+     * this one off both counts - the decision alone did not.
+     */
+    expect(
+      before.breaches.notificationOwed - after.breaches.notificationOwed,
+    ).toBe(1);
+    expect(before.breaches.overdue - after.breaches.overdue).toBe(1);
   });
 
   it("is refused to a resident", async () => {

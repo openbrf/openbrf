@@ -148,6 +148,23 @@ function breachTitle(label: string): string {
   return `${label} ${String(Date.now())}`;
 }
 
+/**
+ * An instant as a datetime-local control holds it: the browser's own wall
+ * clock, to the minute.
+ *
+ * Not `toISOString().slice(0, 16)`, which is the UTC wall clock: read as local
+ * by a browser west of Greenwich it is a moment still to come, and the field
+ * offers nothing later than now.
+ */
+function wallClock(instant: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${String(instant.getFullYear())}-${pad(instant.getMonth() + 1)}-` +
+    `${pad(instant.getDate())}T${pad(instant.getHours())}:` +
+    `${pad(instant.getMinutes())}`
+  );
+}
+
 /** The row a panel renders for one named thing. */
 function rowFor(page: Page, name: string) {
   return page.getByRole("listitem").filter({ hasText: name }).first();
@@ -228,12 +245,37 @@ test.describe("the board's own data protection records", () => {
     await page.getByLabel("De registrerade ska underrättas").check();
     await page.getByRole("button", { name: "Spara beslutet" }).click();
 
-    // Decided, and the strip is quiet again. The second half matters as much as
-    // the first: a board with nothing waiting has to be told so, because an
+    // Decided that IMY is to be notified, which is not the notification: the
+    // clock keeps running on the row and in the strip until it is recorded.
+    await expect(rowFor(page, title)).toContainText(
+      "Väntar på underrättelse till IMY",
+    );
+    await expect(
+      page.getByText(
+        /personuppgiftsincident(er)? (är beslutad|är beslutade) och IMY är ännu inte underrättad/,
+      ),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", {
+        name: `Anteckna underrättelsen till IMY om ${title}`,
+      })
+      .click();
+    await page
+      .getByLabel("Underrättad till IMY")
+      // An hour ago, as a datetime-local control holds it: after the
+      // discovery and well inside the bound, so no reasons are asked for.
+      .fill(wallClock(new Date(Date.now() - 60 * 60 * 1000)));
+    await page.getByRole("button", { name: "Spara underrättelsen" }).click();
+
+    // Notified, and the strip is quiet again. The second half matters as much
+    // as the first: a board with nothing waiting has to be told so, because an
     // empty strip reads as a screen that has not finished loading.
     await expect(rowFor(page, title)).toContainText("Beslutad");
     await expect(
-      page.getByText("Ingen personuppgiftsincident väntar på beslut."),
+      page.getByText(
+        "Ingen personuppgiftsincident väntar på beslut eller underrättelse till IMY.",
+      ),
     ).toBeVisible();
   });
 
@@ -275,7 +317,7 @@ test.describe("the board's own data protection records", () => {
 
     await expect(
       page.getByText(
-        /personuppgiftsincident(er)? har passerat 72-timmarsgränsen utan beslut/,
+        /personuppgiftsincident(er)? har passerat 72-timmarsgränsen utan att IMY underrättats/,
       ),
     ).toBeVisible();
     await expect(rowFor(page, title)).toContainText("Över tiden");
@@ -295,7 +337,7 @@ test.describe("the board's own data protection records", () => {
       .getByLabel("Underrättad till IMY")
       // What a datetime-local control holds: the reader's own wall clock, to
       // the minute. The screen turns it into an instant before it is sent.
-      .fill(new Date().toISOString().slice(0, 16));
+      .fill(wallClock(new Date()));
     await page.getByLabel("De registrerade ska underrättas").check();
     await page.getByRole("button", { name: "Spara beslutet" }).click();
 
