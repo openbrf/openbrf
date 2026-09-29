@@ -395,6 +395,17 @@ describe("breaches", () => {
     expect(reasonOf(response)).toBe("personal-identity-number");
   });
 
+  it("refuses a personal identity number in the reasons a decision gives for a delay", async () => {
+    const view = await recorded();
+
+    const response = await decide(view.breachId, {
+      delayReasons: `Vi vantade pa ${runIdentityNumber(suffix)}.`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("personal-identity-number");
+  });
+
   it("refuses saying there is a risk and that IMY need not be told", async () => {
     // art. 33(1) excuses notification only where the breach is unlikely to
     // result in a risk, so the two answers cannot both stand.
