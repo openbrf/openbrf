@@ -73,6 +73,18 @@ const ASTRID: PersonFixture = {
   apartment: "1001",
 };
 
+/** Somebody else in the building, standing in for a room's worth of them. */
+function neighbour(member: { personId: string }): PersonFixture {
+  return {
+    id: member.personId,
+    firstName: "Granne",
+    lastName: member.personId,
+    protectedPersonalData: false,
+    movedOutOn: null,
+    apartment: "1201",
+  };
+}
+
 /** Holds a seat, lives nowhere: an external board member. */
 const EXTERNAL: PersonFixture = {
   id: "person-bo",
@@ -391,6 +403,12 @@ function build(options: {
     },
   };
 
+  const countPersons = vi.fn(
+    async (args: Parameters<typeof client.person.findMany>[0]) =>
+      (await client.person.findMany(args)).length,
+  );
+  Object.assign(client.person, { count: countPersons });
+
   const prisma = {
     ...client,
     $transaction: vi.fn(async (work: (tx: typeof client) => Promise<unknown>) =>
@@ -586,7 +604,11 @@ describe("who may put somebody into a group", () => {
     }));
     const { service, members, locks } = build({
       chats: [GARDEN],
-      persons: [NILS, ASTRID],
+      persons: [
+        NILS,
+        ASTRID,
+        ...[...full, { personId: "person-arrived-first" }].map(neighbour),
+      ],
       members: [{ chatId: GROUP_ID, personId: NILS.id }, ...full.slice(1)],
       // The last free place, taken by somebody else while this press waited.
       whileWaiting: (held) => {
@@ -608,6 +630,40 @@ describe("who may put somebody into a group", () => {
     expect(locks).toEqual([`chat:${GROUP_ID}`]);
     expect(members).toHaveLength(MEMBERS_PER_GROUP);
     expect(members.map((member) => member.personId)).not.toContain(ASTRID.id);
+  });
+
+  it("gives the place of somebody who has moved out to somebody who lives here", async () => {
+    /*
+     * A former resident's row stays until the night's purge takes it, and
+     * until then it neither counts against the room nor is listed in it: being
+     * in a group rests on living here, and they no longer do.
+     */
+    const full = Array.from({ length: MEMBERS_PER_GROUP - 1 }, (_, index) => ({
+      chatId: GROUP_ID,
+      personId: `person-${String(index)}`,
+    }));
+    const left: PersonFixture = {
+      ...neighbour({ personId: "person-0" }),
+      movedOutOn: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    const { service } = build({
+      chats: [GARDEN],
+      persons: [NILS, ASTRID, left, ...full.slice(1).map(neighbour)],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...full],
+    });
+
+    const after = await service.addMember(
+      principal(NILS.id),
+      GROUP_ID,
+      ASTRID.id,
+    );
+
+    expect(after).toHaveLength(MEMBERS_PER_GROUP);
+    expect(
+      after.map((member) =>
+        "personId" in member.person ? member.person.personId : null,
+      ),
+    ).not.toContain(left.id);
   });
 
   it("answers the second of two presses on one name as the first did", async () => {
