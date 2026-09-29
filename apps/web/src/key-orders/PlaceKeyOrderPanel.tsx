@@ -6,7 +6,14 @@ import {
   type KeyOrderKind,
   placeKeyOrder,
 } from "../api/key-orders";
-import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import {
+  FIELD,
+  FIELD_DATA,
+  FIELD_MULTILINE,
+  HINT,
+  LABEL,
+  PRIMARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -198,7 +205,7 @@ export function PlaceKeyOrderPanel({
         <label className={LABEL}>
           {t("keyOrders.place.noteField")}
           <textarea
-            className={`${FIELD} min-h-24 py-2`}
+            className={`${FIELD_MULTILINE} min-h-24`}
             value={draft.note}
             maxLength={1000}
             onChange={(event) => {
