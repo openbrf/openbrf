@@ -2684,6 +2684,7 @@
       "summary_one": "Från {{correspondent}}. Ett meddelande.",
       "summary_other": "Från {{correspondent}}. {{count}} meddelanden.",
       "more": "Visa äldre trådar",
+      "moreFailed": "De äldre trådarna kunde inte läsas just nu. Försök igen.",
       "reading": "Läser..."
     },
     "thread": {
@@ -2705,7 +2706,8 @@
       "replyRemaining_other": "{{count}} tecken kvar.",
       "olderNotShown": "Visar de {{shown}} senaste av {{total}} meddelanden i den här tråden.",
       "readEarlier": "Visa tidigare meddelanden",
-      "readingEarlier": "Läser..."
+      "readingEarlier": "Läser...",
+      "earlierFailed": "De tidigare meddelandena kunde inte läsas just nu. Försök igen."
     },
     "message": {
       "received": "Inkommet",

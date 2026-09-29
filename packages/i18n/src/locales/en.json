@@ -2684,6 +2684,7 @@
       "summary_one": "From {{correspondent}}. One message.",
       "summary_other": "From {{correspondent}}. {{count}} messages.",
       "more": "Show older threads",
+      "moreFailed": "The older threads could not be read just now. Try again.",
       "reading": "Reading..."
     },
     "thread": {
@@ -2705,7 +2706,8 @@
       "replyRemaining_other": "{{count}} characters left.",
       "olderNotShown": "Showing the last {{shown}} of {{total}} messages on this thread.",
       "readEarlier": "Show earlier messages",
-      "readingEarlier": "Reading..."
+      "readingEarlier": "Reading...",
+      "earlierFailed": "The earlier messages could not be read just now. Try again."
     },
     "message": {
       "received": "Received",
