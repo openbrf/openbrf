@@ -444,6 +444,102 @@ describe("noting a lien", () => {
       amount: null,
     });
   });
+
+  it("notes the lien once however often the form is submitted", async () => {
+    // lien_note is append-only with no uniqueness rule, so a second click on a
+    // slow request writes a second lien into the statutory register.
+    let settle = (): void => {};
+    noteLien.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve({ ok: true, value: {} });
+          };
+        }),
+    );
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Notera pant/ }),
+    );
+    await session.type(screen.getByLabelText(/Panthavare/), "Handelsbanken");
+    await session.type(screen.getByLabelText(/Anteckningsdag/), "2026-03-14");
+    const submit = screen.getByRole("button", { name: /Notera panten/ });
+    await session.click(submit);
+    await session.click(submit);
+
+    expect(noteLien).toHaveBeenCalledTimes(1);
+
+    settle();
+    await screen.findByRole("button", { name: /Notera pant/ });
+  });
+});
+
+describe("releasing a lien", () => {
+  it("asks for the day of the release before recording it", async () => {
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Avnotera panten från Sparbanken",
+      }),
+    );
+    expect(releaseLien).not.toHaveBeenCalled();
+
+    const day = screen.getByLabelText(/Avnoterad den/) as HTMLInputElement;
+    // Bounded by the association's calendar and by the day it was noted, the
+    // two limits the server holds a release to.
+    expect(day.max).toBe("2026-09-01");
+    expect(day.min).toBe("2019-06-15");
+    await session.clear(day);
+    await session.type(day, "2026-08-25");
+    await session.click(
+      screen.getByRole("button", {
+        name: "Registrera avnoteringen av panten från Sparbanken",
+      }),
+    );
+
+    expect(releaseLien).toHaveBeenCalledWith({
+      lienId: "lien-1",
+      releasedOn: "2026-08-25",
+    });
+  });
+
+  it("releases the lien once however often it is confirmed", async () => {
+    // The route refuses a second release, so a double click would report a
+    // failure after the release has succeeded.
+    let settle = (): void => {};
+    releaseLien.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve({ ok: true, value: {} });
+          };
+        }),
+    );
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Avnotera panten från Sparbanken",
+      }),
+    );
+    const confirm = screen.getByRole("button", {
+      name: "Registrera avnoteringen av panten från Sparbanken",
+    });
+    await session.click(confirm);
+    await session.click(confirm);
+
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+
+    settle();
+    await screen.findByRole("button", {
+      name: "Avnotera panten från Sparbanken",
+    });
+  });
 });
 
 /**
