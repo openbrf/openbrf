@@ -88,12 +88,10 @@ beforeEach(() => {
     ok: true,
     value: [REQUEST],
   });
-  approveSignupRequest
-    .mockReset()
-    .mockResolvedValue({
-      ok: true,
-      value: { personId: "person-1", invitationSent: true },
-    });
+  approveSignupRequest.mockReset().mockResolvedValue({
+    ok: true,
+    value: { personId: "person-1", invitationSent: true },
+  });
   rejectSignupRequest.mockReset().mockResolvedValue({ ok: true });
   fetchApartments.mockReset().mockResolvedValue({
     ok: true,

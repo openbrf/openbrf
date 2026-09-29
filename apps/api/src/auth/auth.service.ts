@@ -65,7 +65,7 @@ export class AuthService {
    * test that asserts on what was sent.
    */
   async magicLinksSettled(): Promise<void> {
-    await Promise.allSettled([...this.deliveries]);
+    await Promise.allSettled(this.deliveries);
   }
 
   /** The Web Fetch handler Better Auth exposes, mounted by the controller. */

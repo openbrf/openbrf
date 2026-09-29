@@ -194,25 +194,37 @@ describe("an election against the terms already recorded", () => {
 
   it("overlaps a term that runs past its date", () => {
     expect(
-      overlapsRecordedTerm([seat("2022-04-14", "2023-04-14")], on("2022-06-01")),
+      overlapsRecordedTerm(
+        [seat("2022-04-14", "2023-04-14")],
+        on("2022-06-01"),
+      ),
     ).toBe(true);
   });
 
   it("overlaps a later term, because the new one is open", () => {
     expect(
-      overlapsRecordedTerm([seat("2023-04-14", "2024-04-14")], on("2022-06-01")),
+      overlapsRecordedTerm(
+        [seat("2023-04-14", "2024-04-14")],
+        on("2022-06-01"),
+      ),
     ).toBe(true);
   });
 
   it("follows a term that ended on or before its date", () => {
     expect(
-      overlapsRecordedTerm([seat("2022-04-14", "2023-04-14")], on("2023-04-14")),
+      overlapsRecordedTerm(
+        [seat("2022-04-14", "2023-04-14")],
+        on("2023-04-14"),
+      ),
     ).toBe(false);
   });
 
   it("ignores an election withdrawn before it began", () => {
     expect(
-      overlapsRecordedTerm([seat("2062-04-14", "2026-06-01")], on("2026-04-14")),
+      overlapsRecordedTerm(
+        [seat("2062-04-14", "2026-06-01")],
+        on("2026-04-14"),
+      ),
     ).toBe(false);
   });
 });

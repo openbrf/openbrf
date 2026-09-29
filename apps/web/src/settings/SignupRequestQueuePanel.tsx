@@ -146,15 +146,13 @@ export function SignupRequestQueuePanel({
     reject.reset();
     setOutcome(null);
     setPending({ id: request.id, kind: "approve" });
-    void approve
-      .submit(request.id, { apartmentId })
-      .then((decided) =>
-        settle(decided, {
-          kind: "approved",
-          email: request.email,
-          invitationSent: invitationSent.current,
-        }),
-      );
+    void approve.submit(request.id, { apartmentId }).then((decided) =>
+      settle(decided, {
+        kind: "approved",
+        email: request.email,
+        invitationSent: invitationSent.current,
+      }),
+    );
   };
 
   const onReject = (request: PendingSignupRequest, reason: string) => {
