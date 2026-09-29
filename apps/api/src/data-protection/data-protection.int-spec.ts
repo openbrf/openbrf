@@ -414,7 +414,7 @@ describe("breaches", () => {
     [
       "fullwidth digits",
       (n: string) =>
-        [...n].map((d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
+        Array.from(n, (d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
     ],
   ])(
     "refuses an identity number hidden by %s in the reasons for a delay",

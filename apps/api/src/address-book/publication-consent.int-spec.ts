@@ -369,7 +369,7 @@ describe("recording and withdrawing", () => {
     [
       "fullwidth digits",
       (n: string) =>
-        [...n].map((d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
+        Array.from(n, (d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
     ],
   ])(
     "refuses a note whose identity number is hidden by %s",
