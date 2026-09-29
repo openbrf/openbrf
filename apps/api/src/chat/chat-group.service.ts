@@ -268,8 +268,17 @@ export class ChatGroupService {
        */
       await lockChat(tx, group.id);
 
-      const members = await tx.chatGroupMember.count({
+      // Only people who live here take up a place: one who has moved out is
+      // no longer in the room, and the purge takes their row that night.
+      const rows = await tx.chatGroupMember.findMany({
         where: { chatId: group.id },
+        select: { personId: true },
+      });
+      const members = await tx.person.count({
+        where: {
+          id: { in: rows.map((row) => row.personId) },
+          residencies: { some: residencyHeldOn(localDayOf(now)) },
+        },
       });
       if (members >= MEMBERS_PER_GROUP) {
         throw new ChatError(
@@ -446,7 +455,13 @@ export class ChatGroupService {
     return chat;
   }
 
-  /** Who is in a room, once the caller has been shown to be in it. */
+  /**
+   * Who is in a room, once the caller has been shown to be in it.
+   *
+   * Only people who live here today, which is the other half of being in a
+   * group (`chat-membership.ts`): somebody who has moved out can no longer read
+   * the room, and listing them in it would say otherwise.
+   */
   private async members(chatId: string): Promise<ChatGroupMemberView[]> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
@@ -463,7 +478,10 @@ export class ChatGroupService {
     }
 
     const persons = await this.prisma.person.findMany({
-      where: { id: { in: chat.members.map((member) => member.personId) } },
+      where: {
+        id: { in: chat.members.map((member) => member.personId) },
+        residencies: { some: residencyHeldOn(localDayOf(new Date())) },
+      },
       select: {
         id: true,
         firstName: true,
@@ -473,11 +491,13 @@ export class ChatGroupService {
     });
     const byId = new Map(persons.map((person) => [person.id, person]));
 
-    return chat.members.map((member) => ({
-      person: authorViewOf(member.personId, byId.get(member.personId)),
-      joinedAt: member.joinedAt.toISOString(),
-      createdTheGroup: member.personId === chat.createdByPersonId,
-    }));
+    return chat.members
+      .filter((member) => byId.has(member.personId))
+      .map((member) => ({
+        person: authorViewOf(member.personId, byId.get(member.personId)),
+        joinedAt: member.joinedAt.toISOString(),
+        createdTheGroup: member.personId === chat.createdByPersonId,
+      }));
   }
 
   /** Refuses somebody who does not live here. */
