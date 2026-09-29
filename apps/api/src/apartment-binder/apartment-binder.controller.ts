@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, Param, Post, Req } from "@nestjs/common";
-import { parseLocalDay } from "@openbrf/shared";
+import { normalizeFreeText, parseLocalDay } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -43,7 +43,15 @@ const entrySchema = z.object({
     "OTHER",
   ]),
   audience: z.enum(["TENANT_OWNERS", "HOUSEHOLD"]),
-  title: z.string().trim().min(1).max(BINDER_TITLE_MAX_LENGTH),
+  /*
+   * Normalised before the length is judged: a title made only of invisible
+   * characters is not a title, and would otherwise pass `min(1)` and be stored
+   * empty. The same rule the service stores and scans the title by.
+   */
+  title: z
+    .string()
+    .transform((value) => normalizeFreeText(value).trim())
+    .pipe(z.string().min(1).max(BINDER_TITLE_MAX_LENGTH)),
   /**
    * A calendar date as YYYY-MM-DD, or absent.
    *
