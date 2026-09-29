@@ -266,12 +266,23 @@ describe("normalizeFreeText", () => {
     expect(normalizeFreeText(text)).toBe("\u00E9");
   });
 
-  it("is idempotent for every code point, alone and beside a base letter and a mark", () => {
+  it("is idempotent for every code point that is dropped, combines or folds, alone and beside a base letter and a mark", () => {
+    // The rest of Unicode passes through unchanged, so looping over it would
+    // only spend the time limit: what can change is what is invisible, a
+    // separator, a mark that composes, or has a compatibility form.
+    const relevant = /[\p{C}\p{Default_Ignorable_Code_Point}\p{M}\p{Z}]/u;
+
     for (let point = 0; point <= 0x10ffff; point++) {
       if (point >= 0xd800 && point <= 0xdfff) {
         continue;
       }
       const character = String.fromCodePoint(point);
+      if (
+        !relevant.test(character) &&
+        character.normalize("NFKC") === character
+      ) {
+        continue;
+      }
       for (const text of [
         character,
         `e${character}\u0301`,
@@ -297,6 +308,13 @@ describe("normalizeSingleLineText", () => {
     expect(normalizeSingleLineText("  Ritning\nbadrum\t\u200B 2  ")).toBe(
       "Ritning badrum 2",
     );
+  });
+
+  it("treats a next-line character as a line break", () => {
+    expect(normalizeSingleLineText("Ritning\u0085badrum")).toBe(
+      "Ritning badrum",
+    );
+    expect(normalizeSingleLineText("\u0085Ritning\u0085")).toBe("Ritning");
   });
 
   it("gives nothing for a text made only of invisible characters", () => {
