@@ -813,7 +813,8 @@ export class ChatService {
     const moderates =
       reader.capabilities.has("chat:moderate") &&
       rows.some(
-        (row) => row.struckAt !== null && row.authorPersonId !== reader.personId,
+        (row) =>
+          row.struckAt !== null && row.authorPersonId !== reader.personId,
       ) &&
       (await holdsBoardSeat(this.prisma, reader.personId, new Date()));
 

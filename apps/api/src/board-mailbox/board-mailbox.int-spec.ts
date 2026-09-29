@@ -819,7 +819,11 @@ describe("collecting the mailbox", () => {
       // A letter to the board is read by whoever handles its mail: a
       // resident or the property manager holding the address reads nothing.
       const read = (cookie: string) =>
-        inject({ method: "GET", url: attachment?.url ?? "", headers: { cookie } });
+        inject({
+          method: "GET",
+          url: attachment?.url ?? "",
+          headers: { cookie },
+        });
       expect((await read(residentCookie)).statusCode).toBe(404);
       expect((await read(managerCookie)).statusCode).toBe(404);
       expect((await read(boardCookie)).statusCode).toBe(200);

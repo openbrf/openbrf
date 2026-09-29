@@ -309,7 +309,9 @@ export class MoveService implements OnModuleInit {
     // what the person held without it, and the row about to be created would
     // answer its own question.
     const memberResidencies =
-      input.role === "MEMBER" ? await readMemberResidencies(tx, personId) : null;
+      input.role === "MEMBER"
+        ? await readMemberResidencies(tx, personId)
+        : null;
 
     const residency = await tx.residency.create({
       data: { personId, apartmentId, role: input.role, movedInOn },
