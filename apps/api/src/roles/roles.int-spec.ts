@@ -767,6 +767,26 @@ describe("ending a term", () => {
   });
 });
 
+describe("a change from a page on another origin", () => {
+  it("is refused, and grants nothing", async () => {
+    // The session cookie is SameSite=Lax, which a sibling subdomain's page is
+    // not stopped by.
+    const response = await inject({
+      method: "PATCH",
+      url: `/api/system-roles/persons/${contractor.personId}`,
+      payload: { role: "ADMIN", granted: true },
+      headers: { cookie: adminCookie, origin: "https://annan.example.se" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    await expect(
+      prisma.systemRole.count({
+        where: { personId: contractor.personId, role: "ADMIN" },
+      }),
+    ).resolves.toBe(0);
+  });
+});
+
 describe("an administrator who holds no seat", () => {
   /*
    * A seat confers what no grant of capabilities carries (ADR 0017), so the
