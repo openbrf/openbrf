@@ -14,6 +14,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { decimalFromInput } from "../ui/decimal-input";
 import { Notice } from "../ui/Notice";
 import { ApartmentSharesPanel } from "./ApartmentSharesPanel";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -299,12 +300,13 @@ export function ApartmentRegisterScreen(): ReactElement {
     async (input: LienDraft): Promise<void> => {
       setLienFailed(false);
       setRecordingLien(true);
+      const amount = decimalFromInput(input.amount);
       try {
         const result = await noteLien({
           apartmentId: input.apartmentId,
           creditor: input.creditor.trim(),
           notedOn: input.notedOn,
-          amount: input.amount.trim() === "" ? null : input.amount.trim(),
+          amount: amount === "" ? null : amount,
         });
         if (!result.ok) {
           setLienFailed(true);
