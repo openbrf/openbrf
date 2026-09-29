@@ -138,3 +138,37 @@ describe("registering a client by hand", () => {
     expect(JSON.stringify(recorded[0])).not.toContain("secret-1");
   });
 });
+
+describe("the redirect URIs a client may name", () => {
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<p>x</p>",
+    "http://app.exempel.se/cb",
+    "ftp://app.exempel.se/cb",
+    "https://user:pass@app.exempel.se/cb",
+    "https://app.exempel.se/cb#fragment",
+  ])("refuses %s, and registers nothing", async (redirectUri) => {
+    const { controller, created } = build();
+
+    await expect(
+      controller.register(request(), { ...BODY, redirectUris: [redirectUri] }),
+    ).rejects.toThrow();
+    expect(created).toHaveLength(0);
+  });
+
+  it.each([
+    "https://app.exempel.se/cb",
+    "http://127.0.0.1:8123/callback",
+    "http://localhost:8123/callback",
+    "http://[::1]:8123/callback",
+  ])("takes %s", async (redirectUri) => {
+    const { controller, created } = build();
+
+    await controller.register(request(), {
+      ...BODY,
+      redirectUris: [redirectUri],
+    });
+
+    expect(created).toHaveLength(1);
+  });
+});
