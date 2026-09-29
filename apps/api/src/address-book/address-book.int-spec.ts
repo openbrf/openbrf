@@ -1310,6 +1310,57 @@ describe("revealing a masked field", () => {
 });
 
 describe("the person view", () => {
+  it("promises a granted erasure only where the nightly jobs will carry it out", async () => {
+    /*
+     * A granted erasure of a sitting board member, or of somebody who still
+     * lives here, is refused by every job that erases on a request. The panel
+     * says the next run erases only the person nothing refuses.
+     */
+    const subjects = [
+      actors.movedOut.personId,
+      actors.external.personId,
+      actors.resident.personId,
+    ];
+    await prisma.dataSubjectRequest.createMany({
+      data: subjects.map((personId) => ({
+        personId,
+        kind: "ERASURE" as const,
+        requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+        ground: "Jag vill inte finnas kvar hos foreningen.",
+        erasureGround: "NO_LONGER_NECESSARY" as const,
+        decision: "GRANTED" as const,
+        erasureException: "NONE" as const,
+        decisionGround: "Inget lagligt krav hindrar radering.",
+        decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+      })),
+    });
+
+    try {
+      const cookie = await signIn(actors.board.email);
+      const erasureOf = async (personId: string) => {
+        const response = await inject({
+          method: "GET",
+          url: `/api/address-book/persons/${personId}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        return (JSON.parse(response.body) as { erasureRequest: unknown })
+          .erasureRequest;
+      };
+
+      // Moved out, no seat, no system role: the run will erase them.
+      expect(await erasureOf(actors.movedOut.personId)).not.toBeNull();
+      // A seat held today.
+      expect(await erasureOf(actors.external.personId)).toBeNull();
+      // A residency held today.
+      expect(await erasureOf(actors.resident.personId)).toBeNull();
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: { in: subjects } },
+      });
+    }
+  });
+
   it("masks a protected person's postal address and offers the alternative", async () => {
     const cookie = await signIn(actors.board.email);
     const response = await inject({
