@@ -142,29 +142,3 @@ export function groupByKind<Entry extends BinderEntry | BoardBinderEntry>(
     entries: entries.filter((entry) => entry.kind === kind),
   })).filter((group) => group.entries.length > 0);
 }
-
-/** One kibibyte, and the point at which the next unit reads better. */
-const KIB = 1024;
-
-export interface FileSize {
-  unit: "bytes" | "kilobytes" | "megabytes";
-  /** Already rounded for display: whole kilobytes, one decimal megabyte. */
-  size: string;
-}
-
-/**
- * A file size, in the unit that says the most about it.
- *
- * The archive's own rounding, on the archive's reasoning: kilobytes are whole,
- * and megabytes keep one decimal, which is the difference between a file that
- * opens and one an old phone struggles with.
- */
-export function fileSizeOf(byteSize: number): FileSize {
-  if (byteSize < KIB) {
-    return { unit: "bytes", size: String(byteSize) };
-  }
-  if (byteSize < KIB * KIB) {
-    return { unit: "kilobytes", size: String(Math.round(byteSize / KIB)) };
-  }
-  return { unit: "megabytes", size: (byteSize / (KIB * KIB)).toFixed(1) };
-}

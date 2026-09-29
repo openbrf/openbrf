@@ -21,6 +21,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -88,11 +89,6 @@ function today(): string {
 function defaultPeriod(): { from: string; to: string } {
   const year = localDayNow().slice(0, 4);
   return { from: `${year}-01-01`, to: `${year}-12-31` };
-}
-
-/** The file as something a browser will save, per the module comment. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
 }
 
 export function ChargesScreen(): ReactElement {
