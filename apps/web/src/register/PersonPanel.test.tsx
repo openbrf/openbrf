@@ -357,18 +357,66 @@ describe("a person who is not protected", () => {
     ]);
   });
 
+  it("reads a residency with a move-out still to come as current", async () => {
+    // The residency runs until the day it ends (ADR 0014), so a move-out
+    // recorded ahead of time does not end it on the day it is written down.
+    const ahead = `${String(new Date().getUTCFullYear() + 2)}-04-14`;
+    renderPanel({
+      ...PLAIN_PERSON,
+      residencies: [
+        {
+          residencyId: "residency-1",
+          apartmentId: "apartment-1",
+          apartmentNumber: "1201",
+          addressId: "address-1",
+          addressLabel: "Storgatan 12",
+          role: "MEMBER",
+          movedInOn: "2020-03-01",
+          movedOutOn: ahead,
+          purgeOn: null,
+        },
+        {
+          residencyId: "residency-2",
+          apartmentId: "apartment-2",
+          apartmentNumber: "1001",
+          addressId: "address-1",
+          addressLabel: "Storgatan 12",
+          role: "MEMBER",
+          movedInOn: "2010-03-01",
+          movedOutOn: "2020-02-29",
+          purgeOn: null,
+        },
+      ],
+    });
+    await screen.findByText("Johan Berg");
+
+    expect(screen.getAllByText("Pågående")).toHaveLength(1);
+    expect(screen.getAllByText("Avslutat")).toHaveLength(1);
+  });
+
   it("offers to start masking the person, and says what that does", async () => {
     setProtectedPersonalData.mockResolvedValue({
       protectedPersonalData: true,
     });
     renderPanel(PLAIN_PERSON);
     await screen.findByText("Johan Berg");
+    expect(screen.getByText("Maskeras inte")).not.toBeNull();
 
+    fetchPerson.mockResolvedValue({
+      ...PLAIN_PERSON,
+      protectedPersonalData: true,
+    });
     await userEvent.click(
       screen.getByRole("button", { name: /Maskera den här personen/ }),
     );
 
     expect(setProtectedPersonalData).toHaveBeenCalledWith("person-johan", true);
+    // Read back from the register rather than assumed, and said in words.
+    expect(
+      await screen.findByText(
+        "Maskeras överallt; varje visning loggas i granskningsloggen",
+      ),
+    ).not.toBeNull();
   });
 });
 
