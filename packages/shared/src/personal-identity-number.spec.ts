@@ -32,8 +32,35 @@ describe("normalizePersonalIdentityNumber", () => {
     // A coordination number keeps the +60 day offset, so the form round-trips.
     ["121272-1219", "201212721219"],
     ["000229-0120", "200002290120"],
+    // The whole date decides, not the year alone: born this year but on a day
+    // still to come is a person who turns 100 this year.
+    ["261215-1239", "192612151239"],
+    ["260827-1231", "202608271231"],
+    // A century of 18 is written for a person past 100.
+    ["188112289874", "188112289874"],
   ])("writes %s as %s, byte for byte", (written, canonical) => {
     expect(normalizePersonalIdentityNumber(written, REFERENCE)).toBe(canonical);
+  });
+
+  it("judges the century by the day in Stockholm, not the process time zone", () => {
+    // 23:30 UTC on New Year's Eve is already 1 January in Stockholm.
+    const newYear = new Date("2026-12-31T23:30:00Z");
+
+    expect(normalizePersonalIdentityNumber("270101-1237", newYear)).toBe(
+      "202701011237",
+    );
+  });
+
+  it.each([
+    // No person alive was born in these centuries, and 00 would shorten the
+    // canonical form to ten digits.
+    "008112289874",
+    "258112289874",
+    "998112289874",
+    // Written with the century, but born after the reference date.
+    "20261215-1239",
+  ])("refuses the twelve-digit %s", (written) => {
+    expect(normalizePersonalIdentityNumber(written, REFERENCE)).toBeNull();
   });
 
   it("returns null rather than an unmatchable index for bad input", () => {
@@ -128,6 +155,8 @@ describe("scanForPersonalIdentityNumbers", () => {
     // A longer run of digits must not yield a ten-digit window out of its
     // middle: no candidate may touch a digit on either side.
     "Referens 1198112289874 gäller fakturan.",
+    // A twelve-digit reference whose last ten digits happen to be valid.
+    "OCR 998112289874 anges vid betalning.",
     "Kortnummer 4111111111111111 hör inte hemma här.",
     // Separated by spaces, so the parts are separate numbers.
     "Ring 070-123 45 67 om du undrar.",
