@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { MemberChargeReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -20,25 +21,6 @@ export interface MemberChargeTextLocation {
   /** Where in that field's text the refused value starts. */
   offset: number;
 }
-
-export type MemberChargeReason =
-  | "not-found"
-  | "person-not-found"
-  | "apartment-not-found"
-  | "party-required"
-  | "party-ambiguous"
-  | "personal-identity-number"
-  | "date-not-a-calendar-date"
-  | "date-in-the-future"
-  | "amount-not-a-sum"
-  | "amount-not-positive"
-  | "reason-required"
-  | "vat-rate-required"
-  | "vat-rate-not-applicable"
-  | "vat-rate-out-of-range"
-  | "handed-over-before-charge"
-  | "handed-over-in-the-future"
-  | "range-invalid";
 
 /**
  * A refusal from the charges module.
