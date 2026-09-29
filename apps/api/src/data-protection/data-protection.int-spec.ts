@@ -406,6 +406,31 @@ describe("breaches", () => {
     expect(reasonOf(response)).toBe("personal-identity-number");
   });
 
+  it.each([
+    ["a soft hyphen", (n: string) => `${n.slice(0, 8)}\u00AD${n.slice(8)}`],
+    [
+      "a zero-width space",
+      (n: string) => `${n.slice(0, 6)}\u200B${n.slice(6)}`,
+    ],
+    [
+      "fullwidth digits",
+      (n: string) =>
+        [...n].map((d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
+    ],
+  ])(
+    "refuses an identity number hidden by %s in the reasons for a delay",
+    async (_name, hide) => {
+      const view = await recorded();
+
+      const response = await decide(view.breachId, {
+        delayReasons: `Vi vantade pa ${hide(runIdentityNumber(suffix))}.`,
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(reasonOf(response)).toBe("personal-identity-number");
+    },
+  );
+
   it("refuses saying there is a risk and that IMY need not be told", async () => {
     // art. 33(1) excuses notification only where the breach is unlikely to
     // result in a risk, so the two answers cannot both stand.

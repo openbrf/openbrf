@@ -4,6 +4,7 @@ import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  normalizeFreeText,
   scanForPersonalIdentityNumbers,
 } from "./personal-identity-number.ts";
 
@@ -137,6 +138,31 @@ describe("scanForPersonalIdentityNumbers", () => {
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toEqual([]);
   });
 
+  it.each([
+    ["a soft hyphen", "Ring Anna på 811228\u00AD-9874 om du undrar."],
+    ["a zero-width space", "Ring Anna på 811228-\u200B9874 om du undrar."],
+    ["a zero-width joiner", "Ring Anna på 81\u200D1228-9874 om du undrar."],
+    ["fullwidth digits", "Ring Anna på ８１１２２８-９８７４ om du undrar."],
+    ["a fullwidth hyphen", "Ring Anna på 811228\uFF0D9874 om du undrar."],
+  ])("finds a number hidden behind %s", (_name, text) => {
+    expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
+  });
+
+  it("reports a hidden number where it sits in the text it was given", () => {
+    const text = "Nr \u200B811228\u00AD-9874 nu";
+    const [hit] = scanForPersonalIdentityNumbers(text, REFERENCE);
+
+    // From the first digit to the last, invisible characters inside included.
+    expect(hit?.index).toBe(text.indexOf("8"));
+    expect(hit?.value).toBe("811228\u00AD-9874");
+  });
+
+  it("keeps a line break a boundary: the end of one line is not the start of the next", () => {
+    expect(
+      scanForPersonalIdentityNumbers("Ring 811228\n9874", REFERENCE),
+    ).toEqual([]);
+  });
+
   it("finds nothing in an empty text", () => {
     expect(scanForPersonalIdentityNumbers("", REFERENCE)).toEqual([]);
   });
@@ -146,5 +172,18 @@ describe("scanForPersonalIdentityNumbers", () => {
 
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
+  });
+});
+
+describe("normalizeFreeText", () => {
+  it("removes what cannot be seen and folds what looks like something else", () => {
+    expect(normalizeFreeText("a\u00ADb\u200Bc\u0000d\ne")).toBe("abcde");
+    expect(normalizeFreeText("８１１２２８－９８７４")).toBe("811228-9874");
+  });
+
+  it("leaves ordinary text, Swedish letters included, as it is", () => {
+    expect(normalizeFreeText("Årsstämma i föreningslokalen")).toBe(
+      "Årsstämma i föreningslokalen",
+    );
   });
 });

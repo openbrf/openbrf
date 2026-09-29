@@ -168,6 +168,62 @@ export interface PersonalIdentityNumberMatch {
 }
 
 /**
+ * Free text as it is stored and scanned: compatibility forms folded, and the
+ * Unicode "other" category removed.
+ *
+ * A soft hyphen or a zero-width space is invisible on screen and splits a
+ * number the scanner would otherwise see; a fullwidth digit reads as a digit
+ * and is not one to a pattern written for ASCII. NFKC turns the second into
+ * the first's ASCII form, and the strip drops the first: control, format,
+ * surrogate, private-use and unassigned characters, line breaks included. Use
+ * it for a value that is written to the database, so that what is stored is
+ * what was checked. The scanner applies the same rule to what it is given,
+ * without the line breaks, and reports where the number sits in the original.
+ */
+export function normalizeFreeText(text: string): string {
+  return text.normalize("NFKC").replace(/\p{C}/gu, "");
+}
+
+/** Text folded for scanning, with where each folded character came from. */
+interface FoldedText {
+  text: string;
+  /** For every character of `text`: the span of the original it stands for. */
+  starts: number[];
+  ends: number[];
+}
+
+/**
+ * {@link normalizeFreeText} for a scan, keeping a way back to the original.
+ *
+ * A line break stays: whitespace is a boundary in free text, and dropping it
+ * would let the end of one line join the start of the next into a number.
+ * Folded one code point at a time so every character of the result has a known
+ * origin; a compatibility form that expands to several characters (a ligature,
+ * a circled digit) has them share one.
+ */
+function foldForScan(text: string): FoldedText {
+  const folded: FoldedText = { text: "", starts: [], ends: [] };
+  let offset = 0;
+
+  for (const character of text) {
+    const start = offset;
+    offset += character.length;
+
+    if (/\p{C}/u.test(character) && !/\s/u.test(character)) {
+      continue;
+    }
+    const form = character.normalize("NFKC");
+    folded.text += form;
+    for (let position = 0; position < form.length; position++) {
+      folded.starts.push(start);
+      folded.ends.push(offset);
+    }
+  }
+
+  return folded;
+}
+
+/**
  * Every candidate shape a personal identity number is written in, unanchored.
  *
  * Ten or twelve digits with an optional separator before the last four. The
@@ -202,6 +258,10 @@ const CANDIDATE_PATTERN = /(?<!\d)(?:\d{2})?\d{6}[-+]?\d{4}(?!\d)/g;
  * the third digit pair of an organisation number is always 20 or more, which
  * is never a month.
  *
+ * The text is folded first ({@link normalizeFreeText}), so a number cannot be
+ * hidden behind an invisible character or written in fullwidth digits. `index`
+ * and `value` still describe the text that was passed in.
+ *
  * @param referenceDate Date the century inference is judged against, injected
  *   for the same reason as in the parser.
  */
@@ -214,13 +274,16 @@ export function scanForPersonalIdentityNumbers(
   // instance would make one scan depend on the one before it.
   const pattern = new RegExp(CANDIDATE_PATTERN.source, "g");
 
-  let match = pattern.exec(text);
+  const folded = foldForScan(text);
+  let match = pattern.exec(folded.text);
   while (match !== null) {
-    const [value] = match;
-    if (isValidPersonalIdentityNumber(value, referenceDate)) {
-      found.push({ value, index: match.index });
+    const [candidate] = match;
+    if (isValidPersonalIdentityNumber(candidate, referenceDate)) {
+      const start = folded.starts[match.index] ?? 0;
+      const end = folded.ends[match.index + candidate.length - 1] ?? start;
+      found.push({ value: text.slice(start, end), index: start });
     }
-    match = pattern.exec(text);
+    match = pattern.exec(folded.text);
   }
 
   return found;
