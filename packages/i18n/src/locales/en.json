@@ -704,7 +704,9 @@
           "CHAT_GROUP_CREATED": "Group chat created",
           "CHAT_GROUP_MEMBER_ADDED": "Put into a group chat",
           "CHAT_GROUP_MEMBER_REMOVED": "Left a group chat",
-          "CHAT_MESSAGE_STRUCK": "Chat message struck through"
+          "CHAT_MESSAGE_STRUCK": "Chat message struck through",
+          "DOCUMENT_UPDATED": "A document in the archive was renamed, re-filed or given to another audience",
+          "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed"
         },
         "channel": {
           "WEB": "The web interface",

@@ -423,9 +423,13 @@ export class SettingsWriteController {
 
   @Put("retention")
   async updateRetention(
+    @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
   ): Promise<{ daysAfterMoveOut: number }> {
-    return this.settings.updateRetention(retentionSchema.parse(body));
+    return this.settings.updateRetention({
+      ...retentionSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
   }
 
   /**
