@@ -244,6 +244,54 @@ describe("a member", () => {
       expect(withdrawMotion).toHaveBeenCalledWith({ motionId: "motion-1" });
     });
   });
+
+  it("reads the list again after a refused withdrawal", async () => {
+    // The refusal that matters most is the board having acknowledged the motion
+    // meanwhile: the row on screen is wrong, and without a re-read every retry
+    // is refused again.
+    withdrawMotion.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "already-closed" },
+    });
+
+    render(<MotionsScreen viewer={viewer(["motions:submit"])} />);
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Återkalla motionen Laddstolpar i garaget",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMotionIntake).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("holds every row's withdrawal while one is being sent", async () => {
+    fetchMotionIntake.mockResolvedValue({
+      ok: true,
+      value: {
+        deadline: DEADLINE,
+        motions: [
+          OWN_MOTION,
+          { ...OWN_MOTION, id: "motion-2", title: "Cykelställ på gaveln" },
+        ],
+      },
+    });
+    withdrawMotion.mockReturnValue(new Promise(() => undefined));
+
+    render(<MotionsScreen viewer={viewer(["motions:submit"])} />);
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Återkalla motionen Laddstolpar i garaget",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Återkalla motionen Cykelställ på gaveln",
+      }),
+    ).toHaveProperty("disabled", true);
+  });
 });
 
 describe("two acts whose answers cross", () => {
@@ -357,6 +405,59 @@ describe("the board", () => {
     await waitFor(() => {
       expect(acknowledgeMotion).toHaveBeenCalledWith({ motionId: "motion-1" });
     });
+  });
+
+  it("reads the queue again after a refused acknowledgement", async () => {
+    // Refused because a colleague closed it first: the row still says SUBMITTED,
+    // and only a fresh read takes away a button that can only be refused again.
+    acknowledgeMotion.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "already-closed" },
+    });
+
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Anteckna motionen Laddstolpar i garaget som mottagen",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMotionQueue).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("holds every row's acknowledgement while one is being sent", async () => {
+    const queued = {
+      ...OWN_MOTION,
+      submitter: { kind: "member", personId: "person-maja", name: "Maja" },
+      closedByPersonId: null,
+    };
+    fetchMotionQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        deadline: DEADLINE,
+        motions: [
+          queued,
+          { ...queued, id: "motion-2", title: "Cykelställ på gaveln" },
+        ],
+        nextCursor: null,
+      },
+    });
+    acknowledgeMotion.mockReturnValue(new Promise(() => undefined));
+
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Anteckna motionen Laddstolpar i garaget som mottagen",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Anteckna motionen Cykelställ på gaveln som mottagen",
+      }),
+    ).toHaveProperty("disabled", true);
   });
 
   it("is offered no way to reject a motion", async () => {
