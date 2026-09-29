@@ -34,13 +34,16 @@ ARG PNPM_VERSION=12.6.0
 # adapter - but neither a build log nor a start-up log should open with a
 # warning that means nothing.
 #
-# ca-certificates is what makes the image build the same on every host. With
+# ca-certificates gives the build its own public CA bundle. With
 # --no-install-recommends the slim image gets an empty /etc/ssl/certs and no
 # public CA bundle, and pnpm reads the system store: an install then works only
 # where the Docker host happens to put a trusted CA into the build, and fails
-# with UnknownIssuer where the host injects only its own root. The runtime stage
-# is built from this one and needs the same bundle for its outbound TLS: the npm
-# registry for plugin installs, mail and SMS gateways, and metadata fetches.
+# with UnknownIssuer where the host injects only its own root. A build behind a
+# TLS-inspecting proxy whose root is not public still fails; that root has to be
+# added to the image. The runtime stage inherits the bundle through FROM base but
+# does not depend on it: Node uses its bundled roots for the outbound TLS (catalog
+# and tarball fetches, mail, SMS, S3, client metadata) unless NODE_USE_SYSTEM_CA
+# or --use-system-ca is set, and neither is.
 FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
