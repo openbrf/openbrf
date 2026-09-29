@@ -146,13 +146,40 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    * failed earlier page, applied to the queue.
    */
   const [moreFailed, setMoreFailed] = useState(false);
+  /**
+   * How many pages of the queue the board has read down to.
+   *
+   * A re-read after an act reads as many again, so an item handled on the third
+   * page is still in view afterwards rather than the queue collapsing to its
+   * first page and taking the item with it.
+   */
+  const queuePages = useRef(1);
 
   const read = useCallback(async (): Promise<Loaded> => {
-    const [intake, queue, meetings] = await Promise.all([
+    const [intake, firstPage, meetings] = await Promise.all([
       canSubmit ? fetchMotionIntake() : null,
       canHandle ? fetchMotionQueue() : null,
       canHandle && canReadMeetings ? fetchMeetings() : null,
     ]);
+    let queue = firstPage;
+    for (
+      let page = 1;
+      page < queuePages.current &&
+      queue?.ok === true &&
+      queue.value.nextCursor !== null;
+      page += 1
+    ) {
+      const next = await fetchMotionQueue({ after: queue.value.nextCursor });
+      queue = next.ok
+        ? {
+            ok: true,
+            value: {
+              ...next.value,
+              motions: mergeQueuePage(queue.value.motions, next.value.motions),
+            },
+          }
+        : next;
+    }
 
     return {
       ready: true,
@@ -228,6 +255,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           setMoreFailed(true);
           return;
         }
+        queuePages.current += 1;
         setLoaded((held) => {
           /*
            * Merged by id rather than appended, because the queue is written
@@ -249,14 +277,9 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
            * own ordering. Deleting first puts it where this page puts it, which
            * is where the server's ordering now has it.
            */
-          const byId = new Map(held.queue.map((motion) => [motion.id, motion]));
-          for (const motion of answer.value.motions) {
-            byId.delete(motion.id);
-            byId.set(motion.id, motion);
-          }
           return {
             ...held,
-            queue: [...byId.values()],
+            queue: mergeQueuePage(held.queue, answer.value.motions),
             queueCursor: answer.value.nextCursor,
           };
         });
@@ -329,4 +352,20 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       ) : null}
     </div>
   );
+}
+
+/**
+ * The queue with the page below added to it, by id, the newer copy in its newer
+ * place - see where "more" calls it for why.
+ */
+function mergeQueuePage(
+  held: readonly QueuedMotion[],
+  page: readonly QueuedMotion[],
+): QueuedMotion[] {
+  const byId = new Map(held.map((motion) => [motion.id, motion]));
+  for (const motion of page) {
+    byId.delete(motion.id);
+    byId.set(motion.id, motion);
+  }
+  return [...byId.values()];
 }

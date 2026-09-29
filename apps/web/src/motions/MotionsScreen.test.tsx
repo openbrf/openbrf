@@ -911,4 +911,45 @@ describe("a queue longer than one page", () => {
       ).toBeNull();
     });
   });
+
+  it("keeps the pages below in view after acting on an item on one of them", async () => {
+    const submitter = {
+      kind: "member",
+      personId: "person-maja",
+      name: "Maja Medlem",
+    };
+    const first = { ...OWN_MOTION, submitter, closedByPersonId: null };
+    const below = {
+      ...first,
+      id: "motion-2",
+      title: "Cykelrum i källaren",
+    };
+    const cursor = "SUBMITTED|2027-01-20T09:00:00.000Z|motion-1";
+    const page = (motions: readonly unknown[], nextCursor: string | null) => ({
+      ok: true,
+      value: { deadline: DEADLINE, motions, nextCursor },
+    });
+    fetchMotionQueue.mockImplementation((input?: { after?: string }) =>
+      Promise.resolve(
+        input?.after === cursor ? page([below], null) : page([first], cursor),
+      ),
+    );
+
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await userEvent.click(await screen.findByText("Visa fler motioner"));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Anteckna motionen Cykelrum i källaren som mottagen",
+      }),
+    );
+
+    // The re-read reaches as far down as the board had read, so the item just
+    // handled is still on the screen rather than the queue collapsing to its top.
+    await waitFor(() => {
+      expect(fetchMotionQueue).toHaveBeenCalledTimes(4);
+    });
+    expect(fetchMotionQueue.mock.calls[3]?.[0]).toEqual({ after: cursor });
+    expect(await screen.findByText("Cykelrum i källaren")).not.toBeNull();
+    expect(screen.queryByText("Visa fler motioner")).toBeNull();
+  });
 });
