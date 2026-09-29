@@ -33,12 +33,20 @@ ARG PNPM_VERSION=12.6.0
 # warning is harmless here - Prisma 7 reaches PostgreSQL through a driver
 # adapter - but neither a build log nor a start-up log should open with a
 # warning that means nothing.
+#
+# ca-certificates is what makes the image build the same on every host. With
+# --no-install-recommends the slim image gets an empty /etc/ssl/certs and no
+# public CA bundle, and pnpm reads the system store: an install then works only
+# where the Docker host happens to put a trusted CA into the build, and fails
+# with UnknownIssuer where the host injects only its own root. The runtime stage
+# is built from this one and needs the same bundle for its outbound TLS: the npm
+# registry for plugin installs, mail and SMS gateways, and metadata fetches.
 FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends openssl \
+    && apt-get install --yes --no-install-recommends ca-certificates openssl \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global pnpm@${PNPM_VERSION}
 WORKDIR /app
