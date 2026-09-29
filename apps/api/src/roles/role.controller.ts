@@ -40,8 +40,8 @@ const systemRoleSchema = z.object({
  * (foreningsstamma), so recording who sits on it is the board's own minute
  * rather than an administrator's appointment. A seat confers what no grant of
  * capabilities carries (ADR 0017), so an administrator with no seat may record
- * only the first board, on an instance where nobody holds one, and never their
- * own seat; the service decides that.
+ * and correct only the first board, while no seat that has not ended belongs to
+ * somebody who can sign in, and never their own seat; the service decides that.
  *
  * The seats a person holds also travel on the address book's person payload,
  * which is what the panel renders; this controller is what changes them.
