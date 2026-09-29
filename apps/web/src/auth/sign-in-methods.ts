@@ -1,3 +1,4 @@
+import { APP_BASE_PATH } from "../routes/authorization-request";
 import { authClient } from "./auth-client";
 
 /**
@@ -165,9 +166,13 @@ export async function signInWithPasskey(): Promise<SignInOutcome> {
  * that account has a second factor. The refusal is explained in an email to the
  * mailbox owner, so the copy shown here says a link has been sent *if* the
  * address is known rather than promising one unconditionally.
+ *
+ * `destination` is where the link lands once opened, as an address under this
+ * application; the start of the application unless the caller says otherwise.
  */
 export async function requestMagicLink(input: {
   email: string;
+  destination?: string;
 }): Promise<SignInOutcome> {
   const { error } = await answered(() =>
     authClient.signIn.magicLink({
@@ -175,7 +180,7 @@ export async function requestMagicLink(input: {
       // Where the verification lands. Better Auth's magic-link plugin has no
       // instance-wide default for this, and its own is the origin's root - which
       // is the association's public website, not the application.
-      callbackURL: "/app",
+      callbackURL: input.destination ?? APP_BASE_PATH,
     }),
   );
 
