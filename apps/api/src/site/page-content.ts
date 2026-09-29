@@ -747,10 +747,17 @@ function normalize(block: PageBlock): PageBlock | null {
           question: item.question.trim(),
           answer: item.answer.filter((run) => run.text !== ""),
         }))
-        .filter((item) => item.question !== "" && item.answer.length > 0);
+        .filter(
+          (item) =>
+            item.question !== "" &&
+            item.answer.some((run) => run.text.trim() !== ""),
+        );
       // A question with no answer is a question the page asks the reader, so
       // an entry needs both halves to survive - and a block left with no
-      // entries is the empty paragraph case: a gap in the page.
+      // entries is the empty paragraph case: a gap in the page. An answer of
+      // nothing but spaces is no answer, exactly as the read path decides: kept
+      // here, it would be saved and echoed back and then vanish on the next
+      // read.
       return items.length === 0 ? null : { type: "faq", items };
     }
     // A form with nothing above it is still a form, unlike a paragraph with no

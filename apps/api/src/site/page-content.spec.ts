@@ -802,6 +802,38 @@ describe("the FAQ block", () => {
     });
   });
 
+  it("drops on the way in an answer the way out would drop", () => {
+    // Otherwise the entry is saved, echoed back to the editor as accepted, and
+    // gone the next time anybody reads the page.
+    expect(
+      submittedContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              { question: "Var står stadgarna?", answer: [{ text: "   " }] },
+              { question: "Vem sköter trädgården?", answer: [{ text: "Vi." }] },
+            ],
+          },
+          {
+            type: "faq",
+            items: [{ question: "Ensam?", answer: [{ text: " " }] }],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        {
+          type: "faq",
+          items: [
+            { question: "Vem sköter trädgården?", answer: [{ text: "Vi." }] },
+          ],
+        },
+      ],
+    });
+  });
+
   it("drops a question whose answer is nothing but spaces", () => {
     // A blank question is already dropped above; an answer holding only spaces
     // is the same absence and has to go the same way, or the page renders a
