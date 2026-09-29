@@ -1318,15 +1318,17 @@
       "approve": "Approve",
       "approving": "Approving...",
       "approved": "The request is approved. An invitation is on its way to {{email}}.",
+      "approvedNotInvited": "The request is approved and the person is in the register, but the invitation to {{email}} could not be sent. Check the email settings and send the invitation from the person's own view.",
       "reject": "Reject",
       "rejecting": "Rejecting...",
       "rejected": "The request is rejected. Nothing was created.",
       "rejectReason": "Reason (optional)",
       "errors": {
         "alreadyDecided": "Somebody has already decided that request. The list has been read again.",
-        "notFound": "That request is gone - a newer one from the same email address replaces it. The list has been read again.",
+        "notFound": "That request is gone. The list has been read again.",
+        "alreadyResident": "That person already lives in that apartment according to the register. Reject the request, or choose another apartment.",
+        "emailShared": "More than one person in the register has that email address, so the request cannot be matched to one of them. Give each person their own address in the address book, then decide again.",
         "apartmentNotFound": "That apartment is no longer in the register. Reload the page and choose again.",
-        "mailNotConfigured": "The request is approved and the person is in the register, but the invitation could not be sent: this instance has no email server. Set one up under Email and send the invitation from the person's own view.",
         "unknown": "The request could not be decided just now. Please try again."
       }
     },
