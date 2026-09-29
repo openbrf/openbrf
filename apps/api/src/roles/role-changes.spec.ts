@@ -259,6 +259,18 @@ describe("register dates", () => {
     );
   });
 
+  it.each(["2026-02-30", "2026-04-31", "2026-13-01"])(
+    "refuses %s rather than reading it as another day",
+    (text) => {
+      expect(() => parseCalendarDate(text)).toThrow(
+        expect.objectContaining({
+          reason: "date-not-a-calendar-date",
+          status: 400,
+        }),
+      );
+    },
+  );
+
   it("writes a date back as the day and not the instant", () => {
     expect(formatDateColumn(new Date("2026-04-14T23:59:00.000Z"))).toBe(
       "2026-04-14",

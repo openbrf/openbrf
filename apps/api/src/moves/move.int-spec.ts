@@ -82,6 +82,18 @@ const apartments = {
   refusedGrant: `mv-apartment-k-${suffix}`,
   /** A transfer whose seller the register does not hold. */
   unknownSeller: `mv-apartment-l-${suffix}`,
+  /** Moved into on a date the calendar does not have, and refused. */
+  misdated: `mv-apartment-m-${suffix}`,
+  /** Entered after a later purchase, with a move-in dated before it. */
+  backDated: `mv-apartment-n-${suffix}`,
+  /** The later purchase the back-dated move-in is entered after. */
+  laterPurchase: `mv-apartment-o-${suffix}`,
+  /** Two apartments whose move-outs are entered against their date order. */
+  leftLast: `mv-apartment-p-${suffix}`,
+  leftFirst: `mv-apartment-q-${suffix}`,
+  /** Left while an apartment bought for later waits. */
+  leftBeforeGap: `mv-apartment-r-${suffix}`,
+  boughtAfterGap: `mv-apartment-s-${suffix}`,
 };
 
 const actors = {
@@ -147,6 +159,26 @@ const actors = {
   stale: {
     personId: `mv-stale-${suffix}`,
     email: `mv-stale-${suffix}@exempel.se`,
+  },
+  /** Refused a move-in dated on a day the calendar does not have. */
+  misdated: {
+    personId: `mv-misdated-${suffix}`,
+    email: `mv-misdated-${suffix}@exempel.se`,
+  },
+  /** Has a move-in entered after a later one. */
+  backDater: {
+    personId: `mv-back-${suffix}`,
+    email: `mv-back-${suffix}@exempel.se`,
+  },
+  /** Has two move-outs entered against their date order. */
+  lateRecorder: {
+    personId: `mv-late-${suffix}`,
+    email: `mv-late-${suffix}@exempel.se`,
+  },
+  /** Holds no tenant-ownership for two months between two apartments. */
+  gapHolder: {
+    personId: `mv-gap-${suffix}`,
+    email: `mv-gap-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -331,6 +363,26 @@ beforeAll(async () => {
     personId: actors.stale.personId,
     firstName: "Stina",
     email: actors.stale.email,
+  });
+  await createPerson({
+    personId: actors.misdated.personId,
+    firstName: "Maja",
+    email: actors.misdated.email,
+  });
+  await createPerson({
+    personId: actors.backDater.personId,
+    firstName: "Bodil",
+    email: actors.backDater.email,
+  });
+  await createPerson({
+    personId: actors.lateRecorder.personId,
+    firstName: "Lars",
+    email: actors.lateRecorder.email,
+  });
+  await createPerson({
+    personId: actors.gapHolder.personId,
+    firstName: "Gustav",
+    email: actors.gapHolder.email,
   });
 
   await prisma.residency.create({
@@ -517,6 +569,74 @@ describe("an upplatelse and an overgang are different events", () => {
         where: { apartmentId: apartments.refusedGrant },
       }),
     ).toBe(0);
+  });
+
+  /*
+   * `Date` reads "2026-02-30" as the 2nd of March, and the entry, the transfer
+   * and the obligation a move-in writes are rows the database will not let
+   * anyone correct. A month of 13 is an Invalid Date, which reached the
+   * database as a server error rather than a refusal.
+   */
+  it.each([
+    { movedInOn: "2026-02-30", transferredOn: "2026-02-14" },
+    { movedInOn: "2026-03-01", transferredOn: "2026-02-29" },
+    { movedInOn: "2026-13-01", transferredOn: "2026-02-14" },
+  ])(
+    "refuses a move-in on $movedInOn transferred on $transferredOn and writes nothing",
+    async ({ movedInOn, transferredOn }) => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/moves/move-in",
+        payload: {
+          personId: actors.misdated.personId,
+          apartmentId: apartments.misdated,
+          role: "MEMBER",
+          movedInOn,
+          transfer: {
+            kind: "GRANT",
+            transferredOn,
+            agreementReference: `Upplatelse ${suffix}`,
+          },
+        },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      // The request schema answers, not the service: the move forms map this
+      // reason to a sentence, so the two must not drift apart unnoticed.
+      expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+        "invalid-body",
+      );
+      expect(
+        await prisma.residency.count({
+          where: { personId: actors.misdated.personId },
+        }),
+      ).toBe(0);
+      expect(await registerEntries(actors.misdated.personId)).toEqual([]);
+      expect(
+        await prisma.transfer.count({
+          where: { apartmentId: apartments.misdated },
+        }),
+      ).toBe(0);
+    },
+  );
+
+  it("refuses a date the calendar does not have in the service too", async () => {
+    // The controller refuses first; this is the service's own guard, for a
+    // caller that reaches it without going through the request schema.
+    await expect(
+      moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.misdated.personId,
+        apartmentId: apartments.misdated,
+        role: "MEMBER",
+        movedInOn: "2026-02-30",
+      }),
+    ).rejects.toMatchObject({
+      reason: "date-not-a-calendar-date",
+      status: 400,
+    });
+    expect(await registerEntries(actors.misdated.personId)).toEqual([]);
   });
 
   it("leaves a transfer with an unrecorded seller without a deadline", async () => {
@@ -1127,6 +1247,175 @@ describe("moving out", () => {
     await expect(
       prisma.memberRegisterEntry.delete({ where: { id: exit.id } }),
     ).rejects.toThrow();
+  });
+});
+
+describe("moves entered out of date order", () => {
+  /*
+   * A buyer is entered before they take over, a move-in is back-dated, two
+   * move-outs arrive in the order the paperwork did. The register has to read
+   * the same as if each had been entered on its day: whether a move begins or
+   * ends a membership depends on what else the person held on that day, not on
+   * what had merely not ended by it. Each case here wrote the wrong rows before
+   * that was the rule, into a register that cannot have a row removed.
+   */
+
+  async function residencyOf(personId: string, apartmentId: string) {
+    return prisma.residency.findFirstOrThrow({
+      where: { personId, apartmentId },
+      select: { id: true },
+    });
+  }
+
+  function rows(entries: Awaited<ReturnType<typeof registerEntries>>) {
+    return entries.map((entry) => ({
+      eventType: entry.eventType,
+      eventOn: entry.eventOn.toISOString().slice(0, 10),
+      apartmentId: entry.apartmentId,
+    }));
+  }
+
+  it("enters a back-dated move-in recorded after a later one", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+
+    try {
+      await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.backDater.personId,
+        apartmentId: apartments.laterPurchase,
+        role: "MEMBER",
+        movedInOn: "2027-01-01",
+      });
+      const backDated = await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.backDater.personId,
+        apartmentId: apartments.backDated,
+        role: "MEMBER",
+        movedInOn: "2026-10-01",
+      });
+
+      // The purchase entered first had not begun on 2026-10-01, so it held
+      // nothing that day and the membership begins with the back-dated one.
+      expect(backDated.memberRegisterEntryRecorded).toBe(true);
+      expect(rows(await registerEntries(actors.backDater.personId))).toEqual([
+        {
+          eventType: "ENTRY",
+          eventOn: "2026-10-01",
+          apartmentId: apartments.backDated,
+        },
+        {
+          eventType: "ENTRY",
+          eventOn: "2027-01-01",
+          apartmentId: apartments.laterPurchase,
+        },
+      ]);
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("writes the EXIT when a move-out is recorded before an earlier one", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+
+    try {
+      for (const [apartmentId, movedInOn] of [
+        [apartments.leftLast, "2020-01-01"],
+        [apartments.leftFirst, "2021-01-01"],
+      ] as const) {
+        await moves.moveIn({
+          actorPersonId: actors.board.personId,
+          personId: actors.lateRecorder.personId,
+          apartmentId,
+          role: "MEMBER",
+          movedInOn,
+        });
+      }
+
+      const later = await moves.moveOut({
+        residencyId: (
+          await residencyOf(actors.lateRecorder.personId, apartments.leftLast)
+        ).id,
+        movedOutOn: "2026-12-01",
+      });
+      const earlier = await moves.moveOut({
+        residencyId: (
+          await residencyOf(actors.lateRecorder.personId, apartments.leftFirst)
+        ).id,
+        movedOutOn: "2026-11-01",
+      });
+
+      // The other apartment was still held when the first move-out was
+      // entered, so that one ends nothing. The second closes the last one, and
+      // the membership ends on the later of the two dates.
+      expect(later.memberRegisterExitRecorded).toBe(false);
+      expect(earlier.memberRegisterExitRecorded).toBe(true);
+      expect(rows(await registerEntries(actors.lateRecorder.personId))).toEqual(
+        [
+          {
+            eventType: "ENTRY",
+            eventOn: "2020-01-01",
+            apartmentId: apartments.leftLast,
+          },
+          {
+            eventType: "EXIT",
+            eventOn: "2026-12-01",
+            apartmentId: apartments.leftLast,
+          },
+        ],
+      );
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("records the gap before an apartment bought for later", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+
+    try {
+      await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.gapHolder.personId,
+        apartmentId: apartments.leftBeforeGap,
+        role: "MEMBER",
+        movedInOn: "2020-01-01",
+      });
+      await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.gapHolder.personId,
+        apartmentId: apartments.boughtAfterGap,
+        role: "MEMBER",
+        movedInOn: "2026-12-01",
+      });
+      const left = await moves.moveOut({
+        residencyId: (
+          await residencyOf(actors.gapHolder.personId, apartments.leftBeforeGap)
+        ).id,
+        movedOutOn: "2026-09-30",
+      });
+
+      // Two months in which the person held no tenant-ownership, which the
+      // register has to show rather than bridge.
+      expect(left.memberRegisterExitRecorded).toBe(true);
+      expect(rows(await registerEntries(actors.gapHolder.personId))).toEqual([
+        {
+          eventType: "ENTRY",
+          eventOn: "2020-01-01",
+          apartmentId: apartments.leftBeforeGap,
+        },
+        {
+          eventType: "EXIT",
+          eventOn: "2026-09-30",
+          apartmentId: apartments.leftBeforeGap,
+        },
+        {
+          eventType: "ENTRY",
+          eventOn: "2026-12-01",
+          apartmentId: apartments.boughtAfterGap,
+        },
+      ]);
+    } finally {
+      send.mockRestore();
+    }
   });
 });
 

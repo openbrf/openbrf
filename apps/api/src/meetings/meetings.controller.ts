@@ -8,6 +8,7 @@ import {
   Put,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -69,12 +70,9 @@ const OUTCOMES = [
   "REJECTED",
 ] as const satisfies readonly MeetingDecisionOutcome[];
 
-/** "YYYY-MM-DD", which the service parses strictly. */
-const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
-
 const arrangeSchema = z.object({
   kind: z.enum(KINDS),
-  heldOn: daySchema,
+  heldOn: calendarDateSchema,
 });
 
 const agendaSchema = z.object({
@@ -134,7 +132,7 @@ const proxySchema = z.object({
   memberPersonId: z.string().min(1),
   proxyHolderPersonId: z.string().min(1),
   ground: z.enum(GROUNDS),
-  authorisedOn: daySchema,
+  authorisedOn: calendarDateSchema,
 });
 
 /**

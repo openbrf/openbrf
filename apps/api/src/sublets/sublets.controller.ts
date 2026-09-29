@@ -9,6 +9,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -39,9 +40,6 @@ const STATUSES = [
   "WITHDRAWN",
 ] as const satisfies readonly SubletApplicationStatus[];
 
-/** "YYYY-MM-DD". The service checks that the date is one the calendar has. */
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-
 /**
  * What the applicant may still change while the board has not answered.
  *
@@ -49,8 +47,8 @@ const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
  * about a different flat is a different request, and the service says why.
  */
 const revisionSchema = z.object({
-  periodFrom: day,
-  periodTo: day,
+  periodFrom: calendarDateSchema,
+  periodTo: calendarDateSchema,
   /**
    * Bounded but generous. The reason is what BRL 7 kap. 11 § weighs if the board
    * refuses - "om bostadsrattshavaren har skal for upplatelsen" - so a cap short
@@ -84,7 +82,10 @@ const decisionSchema = z.object({
  */
 const tribunalSchema = z.object({
   permission: z
-    .object({ permittedOn: day, permittedUntil: day.nullable() })
+    .object({
+      permittedOn: calendarDateSchema,
+      permittedUntil: calendarDateSchema.nullable(),
+    })
     .nullable(),
 });
 

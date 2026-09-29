@@ -9,6 +9,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
 import { PrismaService } from "../database/prisma.service";
+import { blankToNull } from "../http/blank-to-null";
 import { DomainError } from "../http/domain-error";
 import { MailSettingsResolver } from "../mail/mail-settings";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -1427,9 +1428,4 @@ function readGiro(value: string | null): string | null {
     throw new SettingsError("That is not a giro number.", "giro-not-a-number");
   }
   return trimmed;
-}
-
-function blankToNull(value: string | null | undefined): string | null {
-  const trimmed = (value ?? "").trim();
-  return trimmed === "" ? null : trimmed;
 }
