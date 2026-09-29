@@ -246,10 +246,6 @@ describe("writing a page", () => {
 
   it("answers a rename to an address taken since it was checked the same way", async () => {
     const { service, page } = build();
-    page.findUnique.mockImplementation(
-      async (args: { where: { id?: string } }) =>
-        args.where.id === undefined ? null : DRAFT,
-    );
     page.updateMany.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
         code: "P2002",
@@ -258,6 +254,8 @@ describe("writing a page", () => {
     );
 
     for (const expectedRevision of [undefined, DRAFT.revision]) {
+      // The page by its id, then nothing at the new address when it is checked.
+      page.findUnique.mockResolvedValueOnce(DRAFT).mockResolvedValueOnce(null);
       const refusal = await refusalOf(
         service.update(
           "page-1",
@@ -299,13 +297,6 @@ describe("writing a page", () => {
     // placed after it would leave the notice first once the pages before it
     // are gone, and the root would serve it.
     const { service, page } = build();
-    page.aggregate.mockImplementation(
-      async (args: { where?: { slug?: { not?: string } } }) => ({
-        _max: {
-          sortOrder: args.where?.slug?.not === PRIVACY_NOTICE_SLUG ? 3 : 1000,
-        },
-      }),
-    );
 
     await service.create(
       {
@@ -317,6 +308,10 @@ describe("writing a page", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
+    expect(page.aggregate).toHaveBeenCalledWith({
+      where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+      _max: { sortOrder: true },
+    });
     const written = page.create.mock.calls[0]?.[0] as {
       data: { sortOrder: number };
     };
