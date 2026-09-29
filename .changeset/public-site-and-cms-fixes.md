@@ -16,9 +16,11 @@ Fix a set of defects in the public website and the page and menu editors.
   read.
 - Two pages created or renamed to the same address at once answer the loser
   with "address taken" rather than a server error.
-- A new page is placed before the privacy notice, so the notice never becomes
-  the front page.
-- `page_list` keeps paging past a page deleted since the last call.
+- The privacy notice is never served at `/` as the front page, whatever order
+  the pages are in, and a new page is placed before it in the board's list.
+- `page_list` keeps paging past a page deleted since the last call. Its cursor
+  has a new form: a cursor issued before this release answers `not-found`, so
+  start the list again without a cursor.
 - A FAQ answer of nothing but spaces is dropped when the page is saved, not
   accepted and then lost on the next read.
 - The news index at `/nyheter` lists 20 items per page, with links to older and

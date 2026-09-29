@@ -431,7 +431,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           cursor: idSchema
             .optional()
             .describe(
-              "The nextCursor from the previous call. Absent starts at the first page of the list.",
+              "The nextCursor from the previous call. Absent starts at the first page of the list. A cursor from an earlier release of OpenBRF answers not-found; start the list again without one.",
             ),
           publishedOnly: z
             .boolean()
