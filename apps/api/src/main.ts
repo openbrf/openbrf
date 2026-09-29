@@ -57,7 +57,9 @@ async function bootstrap(): Promise<void> {
     },
   );
 
-  await app.listen(Number(process.env.PORT ?? 3000), "0.0.0.0");
+  // The validated value: an empty PORT reads as unset there, where Number("")
+  // would be 0 and a random port.
+  await app.listen(app.get<Env>(ENV).PORT, "0.0.0.0");
 
   // After listen, so the link is printed only once it opens something, and
   // here rather than in a module hook, so only the process that serves the
