@@ -819,7 +819,7 @@ describe("the resident-facing directory", () => {
     const boardPage = JSON.parse(board.body) as {
       total: number;
       counts: { all: number };
-      rows: { protectedPersonalData: boolean }[];
+      rows: { protectedPersonalData: boolean; signs: string[] }[];
     };
     const residentPage = JSON.parse(directory.body) as {
       total: number;
@@ -834,10 +834,14 @@ describe("the resident-facing directory", () => {
     const protectedRows = boardPage.rows.filter(
       (row) => row.protectedPersonalData,
     ).length;
+    // And a former household, which the resident directory leaves out too.
+    const hiddenRows = boardPage.rows.filter(
+      (row) => row.protectedPersonalData || row.signs.includes("MOVED_OUT"),
+    ).length;
 
     expect(protectedRows).toBeGreaterThan(0);
-    expect(residentPage.total).toBe(boardPage.total - protectedRows);
-    expect(residentPage.counts.all).toBe(boardPage.counts.all - protectedRows);
+    expect(residentPage.total).toBe(boardPage.total - hiddenRows);
+    expect(residentPage.counts.all).toBe(boardPage.counts.all - hiddenRows);
     expect(residentPage.rows).toHaveLength(residentPage.total);
   });
 
@@ -955,6 +959,48 @@ describe("the resident-facing directory", () => {
     expect(rows.map((row) => row.personId)).toContain(
       actors.protectedPerson.personId,
     );
+  });
+
+  it("lists who lives here today and the board, and nobody else", async () => {
+    /*
+     * A former household stays in the register for the board until the purge,
+     * and a buyer's move-in date is not the other households' business before
+     * the day. Neither is who administers the instance.
+     */
+    const future = await prisma.residency.create({
+      data: {
+        personId: actors.movedOut.personId,
+        apartmentId: apartments.first,
+        role: "MEMBER",
+        movedInOn: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const cookie = await signIn(actors.resident.email);
+      const listed = async (filter: string): Promise<string[]> => {
+        const response = await inject({
+          method: "GET",
+          url: `/api/resident-directory?filter=${filter}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        return (
+          JSON.parse(response.body) as { rows: { personId: string }[] }
+        ).rows.map((row) => row.personId);
+      };
+
+      const all = await listed("all");
+      expect(all).toContain(actors.resident.personId);
+      // A board member who lives nowhere here is somebody to find.
+      expect(all).toContain(actors.external.personId);
+      expect(all).not.toContain(actors.movedOut.personId);
+
+      expect(await listed("movedOut")).toEqual([]);
+    } finally {
+      await prisma.residency.delete({ where: { id: future.id } });
+    }
   });
 });
 

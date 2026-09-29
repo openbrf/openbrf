@@ -82,6 +82,13 @@ export const REGISTER_FILTERS: readonly RegisterFilter[] = [
   "movedOut",
 ];
 
+/**
+ * The tabs a resident is offered. The resident directory lists who lives here
+ * today, so it has no former households to filter to.
+ */
+export const RESIDENT_FILTERS: readonly RegisterFilter[] =
+  REGISTER_FILTERS.filter((filter) => filter !== "movedOut");
+
 export interface RegisterApartment {
   id: string;
   addressId: string;

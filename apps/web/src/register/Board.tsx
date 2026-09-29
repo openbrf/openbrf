@@ -41,6 +41,8 @@ const FILTER_LABEL: Record<RegisterFilter, TranslationKey> = {
 export interface BoardProps<TRow extends DirectoryRow> {
   page: RegisterPage<TRow>;
   filter: RegisterFilter;
+  /** The filter tabs offered. Every one of them unless given. */
+  filters?: readonly RegisterFilter[];
   onFilterChange: (filter: RegisterFilter) => void;
   /** Undefined means every address, which is the default view. */
   addressId: string | undefined;
@@ -167,6 +169,7 @@ function RegisterStamp({
 export function Board<TRow extends DirectoryRow>({
   page,
   filter,
+  filters = REGISTER_FILTERS,
   onFilterChange,
   addressId,
   onAddressChange,
@@ -234,7 +237,7 @@ export function Board<TRow extends DirectoryRow>({
           aria-label={t("register.filter.label")}
           className="flex flex-wrap items-center gap-5"
         >
-          {REGISTER_FILTERS.map((candidate) => (
+          {filters.map((candidate) => (
             <Tab
               key={candidate}
               active={filter === candidate}
