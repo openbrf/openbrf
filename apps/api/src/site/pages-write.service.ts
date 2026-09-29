@@ -363,11 +363,10 @@ export class PagesWriteService {
 
     const row = await this.prisma.$transaction(async (tx) => {
       /*
-       * After the last page, not counting the privacy notice. The notice is
-       * seeded far down on purpose so it is never the lowest - never the page
-       * the root falls back to - and a page placed after it would put it back
-       * in front: a board that deleted its front page and wrote a new one
-       * would find the privacy notice served at /.
+       * After the last page, not counting the privacy notice, so the notice
+       * stays at the end of the board's list where it was seeded. The root's
+       * fallback leaves the notice out by its slug, so this placement is about
+       * the list and not about which page is the front page.
        */
       const highest = await tx.page.aggregate({
         where: { slug: { not: PRIVACY_NOTICE_SLUG } },
