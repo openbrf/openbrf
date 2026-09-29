@@ -13,7 +13,7 @@ import { mediaUrl } from "../media/media.service";
 import { ThemeService } from "../themes/theme.service";
 import { AssociationFactsService } from "./association-facts.service";
 import { MenuService } from "./menu.service";
-import { hasBlock } from "./page-content";
+import { hasBlock, type PageContent } from "./page-content";
 import { renderBrokerPage } from "./site-broker";
 import { renderCalendarPage, renderEventPage } from "./site-calendar";
 import { buildSiteStylesheet } from "./site-css";
@@ -326,7 +326,7 @@ export class SiteRenderer {
       this.teasersFor(page, visit.hasSession),
       this.eventDatesFor(page, visit.hasSession),
       hasBlock(page.content, "documentList")
-        ? this.documentsFor(visit.personId)
+        ? this.documentsFor(visit.personId, page.content)
         : [],
       hasBlock(page.content, "boardRoster") ? this.roster.published() : [],
       hasBlock(page.content, "associationFacts")
@@ -456,20 +456,35 @@ export class SiteRenderer {
    * Written as the two audiences that may be listed rather than as the one that
    * may not, so a fourth audience added to the schema later is left off the
    * website until somebody decides it belongs there.
+   *
+   * Both narrowings are the query's, not this method's: the board's shelf, and
+   * the binders the page's blocks name. A "Stadgar" block on the front page
+   * reads the bylaws, not the whole archive on every visit. Only a block that
+   * names no binder reads every one.
    */
   private async documentsFor(
     personId: string | null,
+    content: PageContent,
   ): Promise<readonly SiteDocument[]> {
     const viewer =
       personId === null ? null : await this.principals.forPerson(personId);
-    const documents = await this.documents.list(viewer);
+    const binders: string[] = [];
+    let everyBinder = false;
+    for (const block of content.blocks) {
+      if (block.type === "documentList") {
+        if (block.category === undefined) {
+          everyBinder = true;
+        } else {
+          binders.push(block.category);
+        }
+      }
+    }
+    const documents = await this.documents.list(viewer, {
+      within: ["PUBLIC", "MEMBER"],
+      ...(everyBinder ? {} : { categories: binders }),
+    });
 
-    return documents
-      .filter(
-        (document) =>
-          document.audience === "PUBLIC" || document.audience === "MEMBER",
-      )
-      .map((document) => toSiteDocument(document));
+    return documents.map((document) => toSiteDocument(document));
   }
 
   /**
