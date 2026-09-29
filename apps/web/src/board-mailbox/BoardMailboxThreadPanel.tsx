@@ -105,6 +105,9 @@ export function BoardMailboxThreadPanel({
    */
   const [read, setRead] = useState<EarlierPages>(NO_EARLIER);
   const [readingEarlier, setReadingEarlier] = useState(false);
+  /** The thread an earlier-page read failed for, held like the pages. */
+  const [earlierFailedFor, setEarlierFailedFor] =
+    useState<BoardMailboxThread | null>(null);
   const earlier = read.of === thread ? read : NO_EARLIER;
 
   const cursor = earlier.of === null ? thread.olderCursor : earlier.cursor;
@@ -115,9 +118,11 @@ export function BoardMailboxThreadPanel({
       return;
     }
     setReadingEarlier(true);
+    setEarlierFailedFor(null);
     void fetchBoardMailboxThread(thread.id, cursor).then((page) => {
       setReadingEarlier(false);
       if (!page.ok) {
+        setEarlierFailedFor(thread);
         return;
       }
       setRead((held) => ({
@@ -275,6 +280,11 @@ export function BoardMailboxThreadPanel({
           </span>
         </span>
       )}
+      {earlierFailedFor === thread ? (
+        <Notice tone="danger" live>
+          {t("boardMailbox.thread.earlierFailed")}
+        </Notice>
+      ) : null}
 
       <ul className="flex flex-col gap-3">
         {shown.map((message) => (
