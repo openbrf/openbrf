@@ -437,6 +437,34 @@ describe("resolving a token", () => {
     });
   });
 
+  it("keeps refusing a token minted while the connection was cut, after the member reconnects", async () => {
+    // The token was written after the consent went, so it names no grant. The
+    // member then connects the same app again: the new consent is newer than
+    // the token, and is not the grant the token was issued under.
+    const token = `token-reconnect-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    const userId = await accountIdFor(member.personId);
+    await prisma.oauthConsent.deleteMany({ where: { userId, clientId } });
+    expect(await bearer.resolve(token)).toBeNull();
+
+    const later = new Date(Date.now() + 60_000);
+    await prisma.oauthConsent.create({
+      data: {
+        clientId,
+        userId,
+        resources: [resource.url],
+        requestedUserInfoClaims: [],
+        scopes: ["mcp:read"],
+        createdAt: later,
+        updatedAt: later,
+      },
+    });
+
+    expect(await bearer.resolve(token)).toBeNull();
+
+    await disconnectAll(member.personId);
+  });
+
   it("stops resolving the moment the connection is cut", async () => {
     const token = `token-cutoff-${suffix}`;
     await grant({ personId: member.personId, client: clientId, token });
@@ -573,6 +601,35 @@ describe("cutting a connection", () => {
     expect(entry?.actorPersonId).toBe(board.personId);
     expect(entry?.targetId).toBe(otherClientId);
     expect(entry?.channel).toBe("WEB");
+
+    await disconnectAll(member.personId);
+  });
+
+  it("still revokes the tokens a racing exchange left behind, when no consent is there to remove", async () => {
+    const token = `token-orphan-cut-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    const userId = await accountIdFor(member.personId);
+    await prisma.oauthConsent.deleteMany({ where: { userId, clientId } });
+    const before = await disconnectionsRecordedFor(member.personId);
+
+    const response = await inject({
+      method: "DELETE",
+      url: `/api/connected-apps/mine/${encodeURIComponent(clientId)}`,
+      headers: { cookie: memberCookie },
+    });
+
+    // Nothing was connected, so the answer is 404 and nothing is recorded; the
+    // tokens are gone all the same, because the cut is not rolled back.
+    expect(response.statusCode).toBe(404);
+    expect(await disconnectionsRecordedFor(member.personId)).toBe(before);
+    expect(
+      await prisma.oauthAccessToken.count({ where: { userId, clientId } }),
+    ).toBe(0);
+    const refresh = await prisma.oauthRefreshToken.findFirst({
+      where: { userId, clientId },
+      select: { revoked: true },
+    });
+    expect(refresh?.revoked).toBeInstanceOf(Date);
 
     await disconnectAll(member.personId);
   });
