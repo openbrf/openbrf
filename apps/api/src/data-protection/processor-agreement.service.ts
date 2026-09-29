@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type {
   AuditChannel,
   ProcessorAgreementStatus,
@@ -156,6 +157,13 @@ export class ProcessorAgreementService {
    * from the command line. {@link recordExternal} and {@link end} name WEB at
    * the write instead: a recipient the instance cannot see is one only a board
    * member can describe, and only that screen closes a row.
+   *
+   * `onlyIfUnrecorded` is for the plugin install. Its permission is to install
+   * plugins, not to change what the record says, so it classifies a recipient
+   * the record has nothing for and leaves one it has as it stands: an agreement
+   * the board recorded as in place on the data protection screen is not turned
+   * back into one being made by the next update of the plugin. What is returned
+   * is then the row that was kept.
    */
   async record(
     processorKey: string,
@@ -164,6 +172,7 @@ export class ProcessorAgreementService {
       channel: AuditChannel;
     },
     facts: ProcessorFacts,
+    options: { onlyIfUnrecorded?: boolean } = {},
   ): Promise<ProcessorView> {
     const parsed = parseProcessorKey(processorKey);
     if (parsed === null) {
@@ -186,7 +195,13 @@ export class ProcessorAgreementService {
 
     assertConsistent(input);
 
-    return this.write(processorKey, parsed.kind, input, facts);
+    return this.write(
+      processorKey,
+      parsed.kind,
+      input,
+      facts,
+      options.onlyIfUnrecorded ?? false,
+    );
   }
 
   /** Records a recipient the board knows about and the instance cannot see. */
@@ -387,17 +402,32 @@ export class ProcessorAgreementService {
       channel: AuditChannel;
     },
     facts: ProcessorFacts,
+    onlyIfUnrecorded: boolean,
   ): Promise<ProcessorView> {
     let replaced = false;
 
     await this.prisma.$transaction(async (tx) => {
       /*
-       * Closed by the query rather than by an id read beforehand. One open row
-       * per recipient is what `list` and `forPlugins` read the record through,
-       * and two requests passing the same pre-read guard would leave two - a
-       * dated record that says the association agreed two different things with
-       * one recipient over the same period.
+       * One writer per recipient at a time. One open row per recipient is what
+       * `list` and `forPlugins` read the record through, and at READ COMMITTED
+       * two writers can both close the same row and both insert, leaving a
+       * dated record that says the association agreed two different things
+       * with one recipient over the same period. It is also what makes
+       * `onlyIfUnrecorded` a decision rather than a race: the row it finds
+       * absent cannot be written by the data protection screen before this
+       * insert commits.
        */
+      await lockProcessorAgreement(tx, processorKey);
+
+      if (onlyIfUnrecorded) {
+        const open = await tx.processorAgreement.count({
+          where: { processorKey, endedAt: null },
+        });
+        if (open > 0) {
+          return;
+        }
+      }
+
       const closed = await tx.processorAgreement.updateMany({
         where: { processorKey, endedAt: null },
         data: { endedAt: new Date(), endReason: "replaced" },
@@ -464,6 +494,23 @@ export class ProcessorAgreementService {
     }
     return view;
   }
+}
+
+/**
+ * The lock a transaction takes before it writes a recipient's row.
+ *
+ * An advisory lock rather than a constraint: "one open row per recipient" is a
+ * partial uniqueness Prisma's schema cannot state, and the rows are few and
+ * written by hand, so a writer waiting a moment for another is never felt. Held
+ * in this one place because every writer has to use the same key for it to
+ * serialise anything. Taken for the transaction, so the commit or the rollback
+ * releases it.
+ */
+async function lockProcessorAgreement(
+  tx: Prisma.TransactionClient,
+  processorKey: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`processor-agreement:${processorKey}`}))`;
 }
 
 /**

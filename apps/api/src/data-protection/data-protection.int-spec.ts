@@ -1562,6 +1562,64 @@ describe("processors", () => {
     expect(context).toContain("PROCESSOR");
   });
 
+  it("keeps an agreement in place when an install answers over it", async () => {
+    /*
+     * A plugin install writes through `record` with `onlyIfUnrecorded`: its
+     * permission is to install plugins, not to change this record, so a stale
+     * consent screen or a direct caller answering "being made" must leave an
+     * agreement the board recorded as in place exactly as it was. Asked of the
+     * write itself, against the real database, because that is where the check
+     * and a concurrent classification meet.
+     */
+    const inPlace = await classify("hosting", {
+      classification: "PROCESSOR",
+      status: "IN_PLACE",
+      counterparty: "Driftleverantoren AB",
+      signedOn: "2026-02-01",
+      termsConfirmed: true,
+    });
+    expect(inPlace.statusCode).toBe(200);
+    const agreementId =
+      inPlace.json<ProcessorView>().agreement?.agreementId ?? "";
+    const auditBefore = await prisma.auditLogEntry.count({
+      where: { action: "PROCESSOR_AGREEMENT_RECORDED" },
+    });
+
+    const kept = await app.get(ProcessorAgreementService).record(
+      "hosting",
+      {
+        classification: "PROCESSOR",
+        status: "PENDING",
+        counterparty: "Nagon annan AB",
+        actorPersonId: null,
+        channel: "WEB",
+      },
+      await app.get(ProcessorFactsService).read(),
+      { onlyIfUnrecorded: true },
+    );
+
+    expect(kept.state).toBe("inPlace");
+    expect(kept.agreement?.agreementId).toBe(agreementId);
+
+    const open = await prisma.processorAgreement.findMany({
+      where: { processorKey: "hosting", endedAt: null },
+      select: { id: true, status: true, counterparty: true },
+    });
+    expect(open).toEqual([
+      {
+        id: agreementId,
+        status: "IN_PLACE",
+        counterparty: "Driftleverantoren AB",
+      },
+    ]);
+    // Nothing was recorded, so nothing is logged as recorded.
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "PROCESSOR_AGREEMENT_RECORDED" },
+      }),
+    ).toBe(auditBefore);
+  });
+
   it("answers the plugin views from the same rows", async () => {
     const states = await app.get(ProcessorAgreementService).forPlugins();
 

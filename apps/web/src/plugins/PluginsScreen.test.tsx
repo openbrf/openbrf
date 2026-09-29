@@ -468,6 +468,19 @@ describe("an install the API refuses", () => {
     });
   });
 
+  it("says the record was classified since the screen was opened", async () => {
+    /*
+     * The step asked because the plugin was unclassified when it was drawn,
+     * and the install refuses to replace what the board has recorded since.
+     * "Read the catalog again" would send the board to the wrong screen.
+     */
+    await refuse("recipient-already-recorded");
+
+    await waitFor(() => {
+      expect(screen.getByText(/ändra svaret på sidan Dataskydd/)).toBeTruthy();
+    });
+  });
+
   it("falls back to the general sentence for a refusal it has no words for", async () => {
     // Every other refusal, and the ones a later version of the API will add.
     await refuse("plugin-consent-mismatch");

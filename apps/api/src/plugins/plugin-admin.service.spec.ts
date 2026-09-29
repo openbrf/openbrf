@@ -12,6 +12,7 @@ import { PluginInstallerService } from "./plugin-installer.service";
 import {
   PluginConsentMismatchError,
   PluginNotFoundError,
+  PluginRecipientAlreadyRecordedError,
   PluginRecipientRequiredError,
   PluginReservedIdError,
   PluginResourceConflictError,
@@ -696,6 +697,118 @@ describe("what the consent step records about the recipient", () => {
     );
 
     expect(Object.keys(recorded())).not.toContain("processorAgreement");
+  });
+
+  it("asks the record to keep a classification written since the check", async () => {
+    /*
+     * The refusal below is a read taken before the consent row. A board
+     * classifying the plugin on the data protection screen in between is kept
+     * by the write itself, which is the only place the two can meet.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(recordProcessor.mock.calls[0]?.[3]).toEqual({
+      onlyIfUnrecorded: true,
+    });
+  });
+});
+
+describe("an install for a plugin the record already classifies", () => {
+  /*
+   * The consent step asks only where the record has nothing, so an answer
+   * arriving for a classified plugin comes from a tab opened before somebody
+   * classified it, or from a caller of the API with no screen at all. Either
+   * holds the permission to install plugins and not the one to change the
+   * art. 28 record; recording the answer would let an update turn an agreement
+   * the board recorded as in place back into one being made.
+   */
+  function classifiedAs(state: string) {
+    return build({ recipients: new Map([["occupancy", state]]) });
+  }
+
+  it("refuses an update's answer over an agreement in place, and writes nothing", async () => {
+    const built = classifiedAs("inPlace");
+
+    const refusal: unknown = await built.service
+      .install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: {
+            sendsPersonalDataOutside: true,
+            recipient: "Belaggningstjansten AB",
+            classification: "PROCESSOR",
+            status: "PENDING",
+          },
+        },
+        "admin-1",
+        "WEB",
+      )
+      .catch((error: unknown) => error);
+
+    // A reason of its own, so the screen can say what happened rather than
+    // falling back to "the catalog may have changed".
+    expect(refusal).toBeInstanceOf(PluginRecipientAlreadyRecordedError);
+    expect(refusal).toMatchObject({
+      status: 409,
+      reason: "recipient-already-recorded",
+    });
+
+    // Refused before the first write, like every other answer the install
+    // refuses: no consent row claiming an update that never happened.
+    expect(built.recordProcessor).not.toHaveBeenCalled();
+    expect(built.consent).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "notAProcessor", "independentController"])(
+    "refuses an answer over a %s classification too",
+    async (state) => {
+      const built = classifiedAs(state);
+
+      await expect(
+        built.service.install(
+          {
+            id: "occupancy",
+            permissions: ["mail:send", "addressBook:read"],
+            personalData: ["apartment", "name"],
+            processorAgreement: { sendsPersonalDataOutside: false },
+          },
+          "admin-1",
+          "WEB",
+        ),
+      ).rejects.toThrow(PluginRecipientAlreadyRecordedError);
+
+      expect(built.recordProcessor).not.toHaveBeenCalled();
+    },
+  );
+
+  it("installs with no answer and leaves the record as it is", async () => {
+    // What the consent step sends here: it shows what the record says and
+    // asks nothing.
+    const built = classifiedAs("inPlace");
+
+    await built.service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+      },
+      "admin-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledTimes(1);
+    expect(built.recordProcessor).not.toHaveBeenCalled();
   });
 });
 

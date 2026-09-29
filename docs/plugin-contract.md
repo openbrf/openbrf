@@ -220,6 +220,15 @@ completed - its date, its reference, the terms it confirmed - with one being
 made. A classification that no longer holds is changed on the data protection
 screen.
 
+The API holds to that on its own rather than trusting the screen. An install
+that carries an answer for a plugin the record already classifies is refused
+with `recipient-already-recorded` before anything is written: the permission to
+install plugins is not the permission to manage the data protection record, and
+a consent screen opened before somebody classified the plugin, or a script
+calling the API, must not be able to turn an agreement in place back into one
+being made. A classification recorded between that check and the install's own
+write is kept, and the install goes on without its answer.
+
 The step asks with no answer chosen, for every plugin, including one that
 declares no personal data. The catalog entry says which personal data a plugin
 handles, not where it sends it, and a plugin runs at full process privilege
