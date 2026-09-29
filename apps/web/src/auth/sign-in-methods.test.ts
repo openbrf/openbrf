@@ -200,6 +200,33 @@ describe("verifySecondFactor", () => {
 });
 
 describe("requestMagicLink", () => {
+  it("lands the link where it is told to", async () => {
+    signInMagicLink.mockResolvedValue({ data: {}, error: null });
+
+    await requestMagicLink({
+      email: "a@b.se",
+      destination: "/app/documents",
+    });
+
+    expect(signInMagicLink).toHaveBeenCalledWith({
+      email: "a@b.se",
+      callbackURL: "/app/documents",
+    });
+  });
+
+  it("lands the link at the application's start by default", async () => {
+    // The plugin's own default is the origin's root, which is the
+    // association's public website rather than the application.
+    signInMagicLink.mockResolvedValue({ data: {}, error: null });
+
+    await requestMagicLink({ email: "a@b.se" });
+
+    expect(signInMagicLink).toHaveBeenCalledWith({
+      email: "a@b.se",
+      callbackURL: "/app",
+    });
+  });
+
   it("reports a sent link", async () => {
     signInMagicLink.mockResolvedValue({ data: {}, error: null });
 
