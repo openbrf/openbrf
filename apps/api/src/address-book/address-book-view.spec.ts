@@ -185,6 +185,20 @@ describe("resident-facing rows", () => {
     expect(row).not.toHaveProperty("purgeOn");
   });
 
+  it("does not say when a household moves out, nor that it has", () => {
+    // A residency held today carries a future date; the past one is the guard
+    // behind it, should a moved-out row ever reach this mapper.
+    for (const movedOutOn of ["2026-09-30", "2026-08-01"]) {
+      const row = toResidentDirectoryRow(
+        record({ movedOutOn: new Date(`${movedOutOn}T00:00:00.000Z`) }),
+        { today: TODAY },
+      );
+
+      expect(row.movedOutOn).toBeNull();
+      expect(row.signs).not.toContain("MOVED_OUT");
+    }
+  });
+
   it("still shows names, apartments, roles and dates", () => {
     const row = toResidentDirectoryRow(record(), { today: TODAY });
 

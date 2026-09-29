@@ -672,8 +672,20 @@ export class AddressBookService {
       return null;
     }
 
+    const today = localDayOf(now);
+    // The board sees a person with no residency at all; a household that has
+    // moved out is a row of its own, under "moved out". A resident is shown
+    // only residencies held today, so for them "lives nowhere here" also takes
+    // in a person whose residency has ended or has not begun. A board member
+    // who has moved out still holds the seat until the annual meeting and is
+    // still somebody to find.
     const conditions: Prisma.PersonWhereInput[] = [
-      { residencies: { none: {} } },
+      {
+        residencies:
+          options.audience === "resident"
+            ? { none: residencyHeldOn(today) }
+            : { none: {} },
+      },
     ];
 
     // Residents are shown only the board among the people who live nowhere
@@ -682,7 +694,7 @@ export class AddressBookService {
     // not.
     if (query.filter === "board" || options.audience === "resident") {
       conditions.push({
-        boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
+        boardPositions: { some: boardSeatHeldOn(today) },
       });
     }
     if (terms !== null) {
