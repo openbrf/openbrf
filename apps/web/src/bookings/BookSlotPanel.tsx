@@ -202,13 +202,36 @@ export function BookSlotPanel({
     };
   }, [read, refreshes, cancellations]);
 
-  const claim = useSaveAction(bookSlot, () => {
+  const claim = useSaveAction(
+    bookSlot,
+    () => {
+      setStay(null);
+      // Asks the effect for a fresh read rather than taking one, so the answer
+      // belongs to whatever is on screen when it lands.
+      setRefreshes((count) => count + 1);
+      onBooked();
+    },
+    (failure) => {
+      // The slot is not what the grid says it is, so the grid is read again.
+      if (
+        failure.reason === "slot-taken" ||
+        failure.reason === "slot-not-bookable"
+      ) {
+        setRefreshes((count) => count + 1);
+      }
+    },
+  );
+
+  /*
+   * A refusal is about the resource and window it was sent for, and a stay is
+   * checked only against the nights on screen, so neither outlives a move.
+   * Clearing the stay also keeps it within one window, which is shorter than
+   * the longest stay the server takes.
+   */
+  const leaveWindow = (): void => {
     setStay(null);
-    // Asks the effect for a fresh read rather than taking one, so the answer
-    // belongs to whatever is on screen when it lands.
-    setRefreshes((count) => count + 1);
-    onBooked();
-  });
+    claim.reset();
+  };
 
   const busy = claim.state.kind === "saving";
   const noApartment = apartments.length === 0;
@@ -307,7 +330,7 @@ export function BookSlotPanel({
             value={resourceId}
             onChange={(event) => {
               setResourceId(event.target.value);
-              setStay(null);
+              leaveWindow();
               setFrom(localDayNow());
             }}
             className={FIELD}
@@ -365,6 +388,7 @@ export function BookSlotPanel({
           // a page of slots nobody can act on.
           disabled={compareLocalDays(from, localDayNow()) <= 0}
           onClick={() => {
+            leaveWindow();
             setFrom((current) => shiftLocalDay(current, -windowDays));
           }}
         >
@@ -381,6 +405,7 @@ export function BookSlotPanel({
           type="button"
           className={`${QUIET_BUTTON} ml-auto`}
           onClick={() => {
+            leaveWindow();
             setFrom((current) => shiftLocalDay(current, windowDays));
           }}
         >
