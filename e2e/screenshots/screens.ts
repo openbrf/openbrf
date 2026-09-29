@@ -570,9 +570,9 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { heading: /^Lägenhet\s+1001$/ },
   },
   {
-    // Everybody the register fixture seeds is invited when the board approves
-    // their request, so the account field on a person view is in this state
-    // until somebody chooses a password.
+    // The capture invites the resident after the register fixture is seeded,
+    // so the account field on a person view is in this state until somebody
+    // chooses a password.
     name: "person-invitation",
     prepare: [
       { click: { button: "Stäng" } },
