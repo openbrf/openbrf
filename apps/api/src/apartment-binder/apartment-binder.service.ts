@@ -5,6 +5,7 @@ import {
   type LocalDay,
   localDayOf,
   localDayOfColumn,
+  normalizeFreeText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
@@ -531,11 +532,12 @@ export class ApartmentBinderService {
     }
 
     /*
-     * The title without the Unicode "other" category, which is invisible on
-     * screen and would otherwise split a number the scanner then does not see.
-     * Scanned and stored as it is here.
+     * The title as the shared rule folds it: the Unicode "other" category,
+     * invisible on screen, gone, and fullwidth forms in their ordinary shape.
+     * Scanned and stored as it is here. The route has already refused a title
+     * that nothing is left of.
      */
-    const title = input.title.replace(/\p{C}/gu, "").trim();
+    const title = normalizeFreeText(input.title).trim();
 
     /*
      * The name as it will be stored, not as it arrived. `safeFileName` strips

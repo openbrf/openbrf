@@ -593,6 +593,50 @@ describe("filing", () => {
     );
   });
 
+  it.each([
+    ["a soft hyphen", "19811218\u00AD-9876"],
+    ["fullwidth digits", "１９８１１２１８-９８７６"],
+  ])("refuses a title whose number is hidden by %s", async (_name, number) => {
+    const refused = await fileEntry(
+      holderCookie,
+      `/api/apartment-binder/${apartmentId}/documents`,
+      {
+        kind: "INSPECTION",
+        audience: "HOUSEHOLD",
+        title: `Ritning ${number} ${suffix}`,
+      },
+      "ritning.pdf",
+    );
+
+    expect(refused.statusCode).toBe(422);
+    expect((refused.json() as { reason: string }).reason).toBe(
+      "personal-identity-number",
+    );
+  });
+
+  it("refuses a title of nothing but invisible characters, rather than storing it empty", async () => {
+    const before = await prisma.apartmentDocument.count({
+      where: { apartmentId },
+    });
+
+    const refused = await fileEntry(
+      holderCookie,
+      `/api/apartment-binder/${apartmentId}/documents`,
+      {
+        kind: "INSPECTION",
+        audience: "HOUSEHOLD",
+        title: "\u200B\u200B \u00AD",
+      },
+      "ritning.pdf",
+    );
+
+    expect(refused.statusCode).toBe(400);
+    expect((refused.json() as { reason: string }).reason).toBe("invalid-body");
+    expect(
+      await prisma.apartmentDocument.count({ where: { apartmentId } }),
+    ).toBe(before);
+  });
+
   it("offers a board member no take-out of what they filed for the board into their own home", async () => {
     // Taking an entry out is the tenant-owner's route, which refuses an entry
     // filed as the board, so offering it would answer 404.
