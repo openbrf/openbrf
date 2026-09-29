@@ -38,9 +38,10 @@ const systemRoleSchema = z.object({
  * Gated on `boardPosition:manage`, which the board holds and an administrator
  * holds with everything else. A board is elected by the general meeting
  * (foreningsstamma), so recording who sits on it is the board's own minute
- * rather than an administrator's appointment - and the seat it writes carries
- * no capability the person writing it does not already hold, so it cannot be
- * used to climb.
+ * rather than an administrator's appointment. A seat confers what no grant of
+ * capabilities carries (ADR 0017), so an administrator with no seat may record
+ * only the first board, on an instance where nobody holds one, and never their
+ * own seat; the service decides that.
  *
  * The seats a person holds also travel on the address book's person payload,
  * which is what the panel renders; this controller is what changes them.
