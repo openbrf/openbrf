@@ -89,6 +89,18 @@ describe("failureFrames", () => {
     expect(frames).toContain("failure.spec.ts");
   });
 
+  it("keeps no line of a message whose stack head no longer matches the error", () => {
+    // Renamed after the stack was captured, so the stack begins with a name
+    // the error no longer has and cannot be cut off by it.
+    const error = new Error("Recipient refused\nat anna@example.se");
+    error.name = "DeliveryError";
+
+    const frames = failureFrames(error) ?? "";
+
+    expect(frames).not.toContain("anna");
+    expect(frames).toContain("failure.spec.ts");
+  });
+
   it("keeps only the call frames", () => {
     const frames = failureFrames(new Error(REVEALING)) ?? "";
 
