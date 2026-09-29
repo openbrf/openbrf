@@ -283,16 +283,26 @@ function build(options: {
     person: {
       findMany: vi.fn(
         async (args: {
-          where: { OR?: unknown[]; dataSubjectRequests?: unknown };
+          where: {
+            OR?: unknown[];
+            dataSubjectRequests?: unknown;
+            residencies?: unknown;
+          };
         }) =>
-          // The two questions withheld-persons.ts asks, told apart by their
-          // shape: one asks for a hold or a restriction, the other for a
-          // granted erasure request.
-          (args.where.dataSubjectRequests === undefined
-            ? withheld
-            : requested
+          // The questions the run asks of the register, told apart by their
+          // shape: a hold or a restriction, a granted erasure request, and
+          // who lives here - nobody in this fake holds a place in a group, so
+          // the last is answered with nobody.
+          (args.where.dataSubjectRequests !== undefined
+            ? requested
+            : args.where.residencies !== undefined
+              ? []
+              : withheld
           ).map((id) => ({ id })),
       ),
+    },
+    chatGroupMember: {
+      findMany: vi.fn(async () => []),
     },
     legalHold: {
       findMany: vi.fn(async () => held.map((personId) => ({ personId }))),
@@ -586,6 +596,7 @@ describe("a whole run", () => {
       messagesDeleted: 4,
       failed: 0,
       groupsDeleted: 0,
+      formerResidentsRemoved: 0,
     });
   });
 
@@ -620,6 +631,7 @@ describe("a whole run", () => {
       messagesDeleted: 2,
       failed: 1,
       groupsDeleted: 0,
+      formerResidentsRemoved: 0,
     });
 
     expect(logged).toHaveBeenCalledOnce();

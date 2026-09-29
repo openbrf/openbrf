@@ -1402,11 +1402,14 @@ describe("closing a granted erasure request on evidence", () => {
      * the erasure did not reach - ADR 0007.
      */
     expect(context.verifiedEmptyOf).toEqual([
+      "board mailbox threads",
       "bookings",
-      "chat messages",
+      "chat",
       "event sign-ups",
+      "key orders",
       "motions",
       "news comments",
+      "sublet applications",
     ]);
   });
 
