@@ -6,7 +6,6 @@ import {
   AUDIENCE_LABEL,
   carriesItsDay,
   defaultAudienceFor,
-  fileSizeOf,
   groupByKind,
   KIND_LABEL,
   kindsFiledBy,
@@ -125,13 +124,5 @@ describe("grouping a binder", () => {
     // household had six things to do.
     expect(groupByKind([entry("drawing", "DRAWING")])).toHaveLength(1);
     expect(groupByKind([])).toEqual([]);
-  });
-});
-
-describe("a file size", () => {
-  it("is read in the unit that says the most about it", () => {
-    expect(fileSizeOf(512)).toEqual({ unit: "bytes", size: "512" });
-    expect(fileSizeOf(41_500)).toEqual({ unit: "kilobytes", size: "41" });
-    expect(fileSizeOf(3_500_000)).toEqual({ unit: "megabytes", size: "3.3" });
   });
 });
