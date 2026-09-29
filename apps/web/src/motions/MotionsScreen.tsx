@@ -61,6 +61,14 @@ interface Loaded {
    */
   meetingsFailed: boolean;
   loadFailed: boolean;
+  /**
+   * True where a re-read reached the first page and failed on a later one.
+   *
+   * The queue then holds the pages read before the failure and the cursor
+   * points at the page that failed, so the control below the queue can offer
+   * that page again. It is not `loadFailed`: the rows on the screen are good.
+   */
+  laterPageFailed: boolean;
 }
 
 const EMPTY: Loaded = {
@@ -72,6 +80,7 @@ const EMPTY: Loaded = {
   meetings: null,
   meetingsFailed: false,
   loadFailed: false,
+  laterPageFailed: false,
 };
 
 /**
@@ -162,23 +171,39 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       canHandle && canReadMeetings ? fetchMeetings() : null,
     ]);
     let queue = firstPage;
+    let laterPageFailed = false;
+    let pagesHeld = 1;
     for (
-      let page = 1;
-      page < queuePages.current &&
+      ;
+      pagesHeld < queuePages.current &&
       queue?.ok === true &&
       queue.value.nextCursor !== null;
-      page += 1
+      pagesHeld += 1
     ) {
       const next = await fetchMotionQueue({ after: queue.value.nextCursor });
-      queue = next.ok
-        ? {
-            ok: true,
-            value: {
-              ...next.value,
-              motions: mergeQueuePage(queue.value.motions, next.value.motions),
-            },
-          }
-        : next;
+      if (!next.ok) {
+        /*
+         * Stop, and keep what the earlier pages gave. The first page is good
+         * and so are the ones merged so far; throwing them away for one failed
+         * request would empty a queue the board is working down. The cursor
+         * stays where it is, on the page that failed, so the control offers
+         * that page again.
+         */
+        laterPageFailed = true;
+        break;
+      }
+      queue = {
+        ok: true,
+        value: {
+          ...next.value,
+          motions: mergeQueuePage(queue.value.motions, next.value.motions),
+        },
+      };
+    }
+    if (laterPageFailed) {
+      // The board has read as far as the pages in hand, so a retry appends the
+      // next one rather than skipping past it.
+      queuePages.current = pagesHeld;
     }
 
     return {
@@ -206,6 +231,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
        */
       meetingsFailed: meetings?.ok === false,
       loadFailed: intake?.ok === false || queue?.ok === false,
+      laterPageFailed,
     };
   }, [canSubmit, canHandle, canReadMeetings]);
 
@@ -224,7 +250,8 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
         // page below the old one is no longer about anything on the screen.
         // Cleared as the new queue lands rather than as the read starts, so the
         // sentence never disappears while the rows it was about are still up.
-        setMoreFailed(false);
+        // Raised instead where the re-read itself stopped short of a page.
+        setMoreFailed(next.laterPageFailed);
       }
     });
   }, [read]);
