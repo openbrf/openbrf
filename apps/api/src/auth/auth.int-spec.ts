@@ -11,9 +11,10 @@ import {
   SESSION_READ_MAX,
   SESSION_READ_PATH,
 } from "./auth-options";
-import { AuthService } from "./auth.service";
+import { AuthService, SHUTDOWN_GRACE_MS } from "./auth.service";
 import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../database/prisma.service";
+import { DRAIN_TIMEOUT_MS } from "../plugins/restart-coordinator.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 
 /**
@@ -303,29 +304,47 @@ describe("magic link and the second-factor policy", () => {
   });
 
   it("lets a delivery still running finish before the application closes", async () => {
-    const mail = app.get(MailService);
-    const original = mail.send.bind(mail) as MailService["send"];
+    // An application of its own, because the point is what close() does: Nest
+    // runs every onModuleDestroy before any other shutdown hook, and the
+    // database disconnects in one of them.
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.getHttpAdapter().getInstance().ready();
+
+    const database = closing.get(PrismaService);
+    const mail = closing.get(MailService);
     let sent = false;
+    // Reads the database after the close has begun, as the real send does
+    // when it loads the association and the mail settings.
     mail.send = (async () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
+      await database.$queryRaw`SELECT 1`;
       sent = true;
       return { messageId: null };
     }) as MailService["send"];
-    try {
-      await inject({
+
+    await closing
+      .getHttpAdapter()
+      .getInstance()
+      .inject({
         method: "POST",
         url: "/api/auth/sign-in/magic-link",
         payload: { email: plain.email },
       });
-      expect(sent).toBe(false);
+    expect(sent).toBe(false);
 
-      await auth.beforeApplicationShutdown();
+    await closing.close();
 
-      expect(sent).toBe(true);
-    } finally {
-      await auth.magicLinksSettled();
-      mail.send = original;
-    }
+    expect(sent).toBe(true);
+  }, 60_000);
+
+  it("waits for deliveries for less time than a restart allows the close", () => {
+    expect(SHUTDOWN_GRACE_MS).toBeLessThan(DRAIN_TIMEOUT_MS);
   });
 
   it("stores the sign-in token hashed, so a leaked database yields no links", async () => {
