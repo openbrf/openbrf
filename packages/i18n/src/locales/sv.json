@@ -2533,7 +2533,7 @@
     "submit": "Skicka ansökan",
     "working": "Skickar...",
     "receivedTitle": "Ansökan är mottagen",
-    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. En ny ansökan från samma e-postadress ersätter den här.",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan den här ansökan väntar sparas ingen annan från samma e-postadress. Är något fel i den, be styrelsen avslå den och skicka sedan en ny.",
     "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
     "errors": {
       "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",
@@ -4913,7 +4913,7 @@
       "secretOnce": "Hemligheten visas den här enda gången och går inte att visa igen. Spara den där appen läser den; en app som har tappat bort sin hemlighet måste registreras på nytt.",
       "noSecret": "Den här appen fick ingen hemlighet.",
       "errors": {
-        "invalidRedirectUri": "Någon av adresserna att skicka tillbaka till är inte en fullständig adress. Skriv en adress per rad, högst åtta.",
+        "invalidRedirectUri": "Någon av adresserna att skicka tillbaka till är ofullständig eller inte tillåten. En adress måste vara https, eller http för en app på den här datorn. Skriv en adress per rad, högst åtta.",
         "nameTaken": "Det finns redan en app med det namnet. Välj ett annat.",
         "resourceMissing": "Instansen har ingen adress för anslutna appar att logga in mot, så appen kunde inte knytas till någon. Installera först ett tillägg som betjänar den adressen.",
         "failed": "Appen kunde inte registreras just nu. Försök igen."

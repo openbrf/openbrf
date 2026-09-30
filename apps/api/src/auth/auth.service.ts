@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+} from "@nestjs/common";
 import { betterAuth } from "better-auth";
 
 import { principalCan } from "../authorization/capabilities";
@@ -28,6 +34,15 @@ type AuthOptions = ReturnType<typeof buildAuthOptions>;
 export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
 
 /**
+ * How long a shutdown waits for sign-in links still being sent.
+ *
+ * Well inside RestartCoordinator's DRAIN_TIMEOUT_MS, which bounds the whole
+ * close on a plugin-install restart: the job queue, the database connection
+ * and the HTTP server close after this wait, and need time of their own.
+ */
+export const SHUTDOWN_GRACE_MS = 5_000;
+
+/**
  * Owns the Better Auth instance and the small amount of glue between it and
  * the register.
  *
@@ -36,7 +51,7 @@ export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
  * register, and exactly one account per person.
  */
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
   readonly instance: AuthInstance;
   /** Magic-link deliveries still running after their response. */
@@ -61,11 +76,50 @@ export class AuthService {
   }
 
   /**
-   * Settles once every magic-link delivery started so far has finished, for a
-   * test that asserts on what was sent.
+   * Settles once no magic-link delivery is running, including one started
+   * while it waited: the HTTP server still answers until the application has
+   * closed.
    */
   async magicLinksSettled(): Promise<void> {
-    await Promise.allSettled(this.deliveries);
+    while (this.deliveries.size > 0) {
+      await Promise.allSettled(this.deliveries);
+    }
+  }
+
+  /**
+   * Lets the magic-link deliveries still running finish before the application
+   * closes, so a restart or a stopped container does not drop a sign-in link
+   * whose request was already answered.
+   *
+   * A module-destroy hook rather than beforeApplicationShutdown, because Nest
+   * runs every onModuleDestroy first and a delivery reads the database:
+   * PrismaService disconnects in its own. Both modules are global, and Nest
+   * destroys global modules in the reverse of the order AppModule imports
+   * them, so this runs first as long as AuthModule is imported after
+   * DatabaseModule and JobsModule. The integration suite closes an application
+   * to hold that.
+   *
+   * Bounded, because a mail server that never answers must not hold the
+   * shutdown past the grace period the container is given.
+   */
+  async onModuleDestroy(): Promise<void> {
+    if (this.deliveries.size === 0) {
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), SHUTDOWN_GRACE_MS);
+    });
+    try {
+      const outcome = await Promise.race([this.magicLinksSettled(), expired]);
+      if (outcome === "expired") {
+        this.logger.warn(
+          `${this.deliveries.size} sign-in link deliveries were still running at shutdown and were abandoned`,
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The Web Fetch handler Better Auth exposes, mounted by the controller. */

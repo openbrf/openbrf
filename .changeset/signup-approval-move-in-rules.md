@@ -20,6 +20,12 @@ The first pending request from an email address now stands: a later submission
 from the same address is answered as before and stored nowhere, and a partial
 unique index keeps one pending request per address.
 
-An approval whose invitation cannot be sent is no longer reported as a failure.
-It answers `invitationSent: false`, and the board's queue says the person is in
+**Upgrade note:** the migration that adds that index first deletes every older
+pending request from an address that has a newer pending one, keeping only the
+newest. Those rows were never decided and are the same person asking twice, but
+the deletion is not reversible; take a backup first if you want to look at them.
+
+An approval whose invitation cannot be delivered (no mail set up, the mail
+server or API refusing it, or a person with no address) is no longer reported as
+a failure. It answers `invitationSent: false`, and the board's queue says the person is in
 the register and needs an invitation from the person's own view.
