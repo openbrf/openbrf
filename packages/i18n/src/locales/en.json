@@ -4913,7 +4913,7 @@
       "secretOnce": "The secret is shown this once and cannot be shown again. Save it where the app reads it; an app that has lost its secret has to be registered afresh.",
       "noSecret": "This app was given no secret.",
       "errors": {
-        "invalidRedirectUri": "One of the addresses to send the answer back to is not a complete address. Write one address per line, at most eight.",
+        "invalidRedirectUri": "One of the addresses to send the answer back to is incomplete or not allowed. An address has to be https, or http for an app on this machine. Write one address per line, at most eight.",
         "nameTaken": "An app by that name already exists. Choose another.",
         "resourceMissing": "This instance advertises no address for connected apps to sign in to, so the app could not be tied to one. Install a plugin that serves that address first.",
         "failed": "The app could not be registered just now. Try again."
