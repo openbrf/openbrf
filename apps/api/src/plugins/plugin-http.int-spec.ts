@@ -398,6 +398,16 @@ afterAll(async () => {
   }
 });
 
+describe("the application built by createApplication", () => {
+  it("answers with the security headers every response carries", async () => {
+    const response = await inject({ method: "GET", url: "/api/plugins" });
+
+    expect(response.headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["referrer-policy"]).toBe("same-origin");
+  });
+});
+
 describe("the plugin administration endpoints", () => {
   it("lists the installed plugin as loaded", async () => {
     const response = await inject({
