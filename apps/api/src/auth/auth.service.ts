@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  type BeforeApplicationShutdown,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+} from "@nestjs/common";
 import { betterAuth } from "better-auth";
 
 import { principalCan } from "../authorization/capabilities";
@@ -29,6 +35,13 @@ type AuthOptions = ReturnType<typeof buildAuthOptions>;
 export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
 
 /**
+ * How long a shutdown waits for sign-in links still being sent. The production
+ * stack allows the container thirty seconds to stop, and the job queue and the
+ * database connection close after this.
+ */
+const SHUTDOWN_GRACE_MS = 10_000;
+
+/**
  * Owns the Better Auth instance and the small amount of glue between it and
  * the register.
  *
@@ -37,7 +50,7 @@ export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
  * register, and exactly one account per person.
  */
 @Injectable()
-export class AuthService {
+export class AuthService implements BeforeApplicationShutdown {
   private readonly logger = new Logger(AuthService.name);
   readonly instance: AuthInstance;
   /** Magic-link deliveries still running after their response. */
@@ -67,6 +80,34 @@ export class AuthService {
    */
   async magicLinksSettled(): Promise<void> {
     await Promise.allSettled(this.deliveries);
+  }
+
+  /**
+   * Lets the magic-link deliveries still running finish before the application
+   * closes, so a restart or a stopped container does not drop a sign-in link
+   * whose request was already answered.
+   *
+   * Bounded, because a mail server that never answers must not hold the
+   * shutdown past the grace period the container is given.
+   */
+  async beforeApplicationShutdown(): Promise<void> {
+    if (this.deliveries.size === 0) {
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), SHUTDOWN_GRACE_MS);
+    });
+    try {
+      const outcome = await Promise.race([this.magicLinksSettled(), expired]);
+      if (outcome === "expired") {
+        this.logger.warn(
+          `${this.deliveries.size} sign-in link deliveries were still running at shutdown and were abandoned`,
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The Web Fetch handler Better Auth exposes, mounted by the controller. */

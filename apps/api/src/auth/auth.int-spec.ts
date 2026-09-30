@@ -302,6 +302,32 @@ describe("magic link and the second-factor policy", () => {
     expect(delivered).toEqual([]);
   });
 
+  it("lets a delivery still running finish before the application closes", async () => {
+    const mail = app.get(MailService);
+    const original = mail.send.bind(mail) as MailService["send"];
+    let sent = false;
+    mail.send = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      sent = true;
+      return { messageId: null };
+    }) as MailService["send"];
+    try {
+      await inject({
+        method: "POST",
+        url: "/api/auth/sign-in/magic-link",
+        payload: { email: plain.email },
+      });
+      expect(sent).toBe(false);
+
+      await auth.beforeApplicationShutdown();
+
+      expect(sent).toBe(true);
+    } finally {
+      await auth.magicLinksSettled();
+      mail.send = original;
+    }
+  });
+
   it("stores the sign-in token hashed, so a leaked database yields no links", async () => {
     const { delivered, restore } = captureMail();
     try {
