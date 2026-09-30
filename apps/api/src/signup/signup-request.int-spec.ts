@@ -58,6 +58,7 @@ const extraEmails = [
   `returning-${suffix}@exempel.se`,
   `midnight-${suffix}@exempel.se`,
   `unsent-${suffix}@exempel.se`,
+  `broken-${suffix}@exempel.se`,
   `member-${suffix}@exempel.se`,
   `audited-${suffix}@exempel.se`,
 ];
@@ -517,7 +518,11 @@ describe("approval", () => {
     const requestId = await submitFor(`unsent-${suffix}@exempel.se`);
     const invite = vi
       .spyOn(app.get(InvitationService), "invite")
-      .mockRejectedValueOnce(new Error("550 recipient refused"));
+      .mockRejectedValueOnce(
+        Object.assign(new Error("550 recipient refused"), {
+          code: "EENVELOPE",
+        }),
+      );
 
     try {
       const result = await requests.approve({
@@ -535,6 +540,30 @@ describe("approval", () => {
       expect(
         await prisma.residency.count({ where: { personId: result.personId } }),
       ).toBe(1);
+    } finally {
+      invite.mockRestore();
+    }
+  }, 60_000);
+
+  it("keeps the approval but raises a failure that is not a delivery one", async () => {
+    const requestId = await submitFor(`broken-${suffix}@exempel.se`);
+    const invite = vi
+      .spyOn(app.get(InvitationService), "invite")
+      .mockRejectedValueOnce(new TypeError("undefined is not a function"));
+
+    try {
+      await expect(
+        requests.approve({
+          requestId,
+          apartmentId,
+          decidedByPersonId: board.personId,
+        }),
+      ).rejects.toThrow(TypeError);
+      const request = await prisma.signupRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        select: { status: true },
+      });
+      expect(request.status).toBe("APPROVED");
     } finally {
       invite.mockRestore();
     }
