@@ -5,10 +5,11 @@ import { lockPersonEmail } from "../address-book/person-email-lock";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { Prisma } from "../generated/prisma/client";
+import { isUniqueViolation } from "../database/unique-violation";
 import { droppedSubmissionId } from "../http/honeypot";
 import { InvitationService } from "../invitations/invitation.service";
 import { failureName } from "../logging/failure";
+import { isDeliveryFailure } from "../mail/delivery-failure";
 import { MoveService } from "../moves/move.service";
 import { lockApartmentResidencies } from "../registers/residency-lock";
 
@@ -153,10 +154,7 @@ export class SignupRequestService {
       this.logger.log(`Received signup request ${request.id}`);
       return request;
     } catch (cause) {
-      if (
-        cause instanceof Prisma.PrismaClientKnownRequestError &&
-        cause.code === "P2002"
-      ) {
+      if (isUniqueViolation(cause)) {
         return { id: droppedSubmissionId() };
       }
       throw cause;
@@ -394,6 +392,16 @@ export class SignupRequestService {
     } catch (cause) {
       // Named by its class only: a mail server's refusal quotes the envelope,
       // and the envelope holds the address decrypted above.
+      if (!isDeliveryFailure(cause)) {
+        // Not the mail failing to leave: a fault in our own code or the
+        // database, which "not sent" would pass off as an ordinary refusal.
+        // The approval stands, and the board sees the error rather than a
+        // resend prompt that will fail the same way.
+        this.logger.error(
+          `Approved signup request ${request.id}, but sending the invitation failed unexpectedly: ${failureName(cause)}`,
+        );
+        throw cause;
+      }
       this.logger.warn(
         `Approved signup request ${request.id}, but the invitation was not sent: ${failureName(cause)}`,
       );
