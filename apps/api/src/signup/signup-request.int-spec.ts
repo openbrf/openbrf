@@ -2,6 +2,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +12,10 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import { InvitationService } from "../invitations/invitation.service";
+import {
+  InvitationError,
+  InvitationService,
+} from "../invitations/invitation.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { SignupRequestService } from "./signup-request.service";
@@ -62,6 +66,7 @@ const extraEmails = [
   `midnight-${suffix}@exempel.se`,
   `unsent-${suffix}@exempel.se`,
   `broken-${suffix}@exempel.se`,
+  `lost-${suffix}@exempel.se`,
   `member-${suffix}@exempel.se`,
   `audited-${suffix}@exempel.se`,
   `racing-${suffix}@exempel.se`,
@@ -562,60 +567,73 @@ describe("approval", () => {
     expect(residency.movedInOn.toISOString().slice(0, 10)).toBe("2026-06-22");
   }, 60_000);
 
-  it("keeps the approval when the invitation cannot be sent, and says so", async () => {
-    const requestId = await submitFor(`unsent-${suffix}@exempel.se`);
-    const invite = vi
-      .spyOn(app.get(InvitationService), "invite")
-      .mockRejectedValueOnce(
-        Object.assign(new Error("550 recipient refused"), {
-          code: "EENVELOPE",
-        }),
-      );
+  it.each([
+    {
+      name: "the mail server refusing",
+      applicant: "unsent",
+      cause: Object.assign(new Error("550 recipient refused"), {
+        code: "EENVELOPE",
+      }),
+      level: "warn",
+    },
+    {
+      name: "a fault in the code",
+      applicant: "broken",
+      cause: new TypeError("undefined is not a function"),
+      level: "error",
+    },
+    {
+      name: "the person it just created going missing",
+      applicant: "lost",
+      cause: new InvitationError("Person not found.", "person-not-found"),
+      level: "error",
+    },
+  ] as const)(
+    "keeps the approval and says the invitation was not sent after $name",
+    async ({ applicant, cause, level }) => {
+      const requestId = await submitFor(`${applicant}-${suffix}@exempel.se`);
+      const invite = vi
+        .spyOn(app.get(InvitationService), "invite")
+        .mockRejectedValueOnce(cause);
+      const warn = vi.spyOn(Logger.prototype, "warn");
+      const error = vi.spyOn(Logger.prototype, "error");
 
-    try {
-      const result = await requests.approve({
-        requestId,
-        apartmentId,
-        decidedByPersonId: board.personId,
-      });
-
-      expect(result.invitationSent).toBe(false);
-      const request = await prisma.signupRequest.findUniqueOrThrow({
-        where: { id: requestId },
-        select: { status: true },
-      });
-      expect(request.status).toBe("APPROVED");
-      expect(
-        await prisma.residency.count({ where: { personId: result.personId } }),
-      ).toBe(1);
-    } finally {
-      invite.mockRestore();
-    }
-  }, 60_000);
-
-  it("keeps the approval but raises a failure that is not a delivery one", async () => {
-    const requestId = await submitFor(`broken-${suffix}@exempel.se`);
-    const invite = vi
-      .spyOn(app.get(InvitationService), "invite")
-      .mockRejectedValueOnce(new TypeError("undefined is not a function"));
-
-    try {
-      await expect(
-        requests.approve({
+      try {
+        const result = await requests.approve({
           requestId,
           apartmentId,
           decidedByPersonId: board.personId,
-        }),
-      ).rejects.toThrow(TypeError);
-      const request = await prisma.signupRequest.findUniqueOrThrow({
-        where: { id: requestId },
-        select: { status: true },
-      });
-      expect(request.status).toBe("APPROVED");
-    } finally {
-      invite.mockRestore();
-    }
-  }, 60_000);
+        });
+
+        expect(result.invitationSent).toBe(false);
+        const request = await prisma.signupRequest.findUniqueOrThrow({
+          where: { id: requestId },
+          select: { status: true },
+        });
+        expect(request.status).toBe("APPROVED");
+        expect(
+          await prisma.residency.count({
+            where: { personId: result.personId },
+          }),
+        ).toBe(1);
+        // A fault is logged as one, so it is not passed off as an ordinary
+        // refusal the board can resend past.
+        const [logged, notLogged] = (
+          level === "error" ? [error, warn] : [warn, error]
+        ).map((spy) => spy.mock.calls.map(([message]) => String(message)));
+        const line = expect.stringContaining(
+          `Approved account request ${requestId}`,
+        );
+        expect(logged).toContainEqual(line);
+        expect(notLogged).not.toContainEqual(line);
+      } finally {
+        invite.mockRestore();
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    },
+    60_000,
+  );
 
   it("refuses to link a request to an address two persons share", async () => {
     const email = `shared-${suffix}@exempel.se`;
