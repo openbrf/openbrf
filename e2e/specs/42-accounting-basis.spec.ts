@@ -309,8 +309,14 @@ async function recordFee(
     .getByRole("combobox", { name: "Lägenhet", exact: true })
     .selectOption(fee.apartmentId);
   await page.getByLabel("Gäller från").fill(APPLIES_FROM);
-  await page.getByLabel("Belopp per månad i kronor").fill(fee.monthlyAmount);
+  const amount = page.getByLabel("Belopp per månad i kronor");
+  await amount.fill(fee.monthlyAmount);
   await page.getByRole("button", { name: "Registrera avgiften" }).click();
+
+  // The screen empties the amount once the server has taken the rate. A caller
+  // that fills the form again before then writes into a form that is about to
+  // be reset, and the submit stays disabled on the empty amount.
+  await expect(amount).toHaveValue("");
 }
 
 /** The file's cells, header included, as the reader of the contract sees them. */
