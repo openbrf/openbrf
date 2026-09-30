@@ -9,6 +9,7 @@ import {
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { activeBoardSeatWhere } from "../mail/board-recipients";
 import {
   boardSeatHeldOn,
   hasMovedOut,
@@ -614,11 +615,7 @@ export class AddressBookService {
         conditions.push({ role: "RESIDENT" }, residencyHeldOn(localDayOf(now)));
         break;
       case "board":
-        conditions.push({
-          person: {
-            boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
-          },
-        });
+        conditions.push({ person: activeBoardSeatWhere(now) });
         break;
       case "movedOut":
         conditions.push(movedOutResidency(now));
@@ -673,9 +670,7 @@ export class AddressBookService {
     ];
 
     if (query.filter === "board") {
-      conditions.push({
-        boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
-      });
+      conditions.push(activeBoardSeatWhere(now));
     }
     if (terms !== null) {
       conditions.push(this.personSearchWhere(terms));
