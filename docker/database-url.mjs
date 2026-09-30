@@ -258,15 +258,24 @@ function checkedRuntimeUrl() {
     return;
   }
   try {
-    const user = decodeURIComponent(
-      parseUrl(supplied, "DATABASE_URL_RUNTIME").username,
-    );
+    const parsed = parseUrl(supplied, "DATABASE_URL_RUNTIME");
+    // pg-connection-string lets a user query parameter override the URL's
+    // username, so the role checked below would not be the one that signs in.
+    if (parsed.searchParams.has("user")) {
+      fail(
+        "DATABASE_URL_RUNTIME carries a user query parameter, which " +
+          "overrides the user in the URL, so the role checked here would not " +
+          "be the one the application signs in as. Remove it and put the " +
+          "role in the URL's user instead.",
+      );
+    }
+    const user = decodeURIComponent(parsed.username);
     if (user !== runtimeRole()) {
       fail(
         "DATABASE_URL_RUNTIME signs in as a role other than the one " +
           "RUNTIME_DB_PASSWORD has this entrypoint constrain, RUNTIME_DB_ROLE " +
-          "or openbrf_app, so the application would run as a role that was " +
-          "never hardened. Make the two the same, or unset RUNTIME_DB_PASSWORD " +
+          `or ${DEFAULT_RUNTIME_ROLE}, so the application would run as a role ` +
+          "that was never hardened. Make the two the same, or unset RUNTIME_DB_PASSWORD " +
           "to manage the role yourself.",
       );
     }

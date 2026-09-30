@@ -1808,6 +1808,31 @@ describe("two instances sharing one database server", () => {
     ).toEqual({ user: first.role });
   }, 120_000);
 
+  it("refuses a connection limit below 1, -1 being no limit at all", async () => {
+    // -1 is how PostgreSQL spells "no limit" and 0 would lock the role out;
+    // either would reach ALTER ROLE as a whole number if the script did not
+    // stop on it. The owner and database exist so that the script gets as far
+    // as the limit; it stops before the role is created.
+    const fifth = instance("e");
+    await createOwner(fifth, "CREATEROLE");
+    await prisma.$executeRawUnsafe(
+      `CREATE DATABASE ${fifth.database} OWNER ${fifth.owner}`,
+    );
+
+    for (const limit of ["-1", "0"]) {
+      expect(
+        hardeningRefusal({ ...fifth, connectionLimit: limit }),
+        `limit ${limit}`,
+      ).toContain("has to be a whole number of 1 or more");
+    }
+    expect(
+      await prisma.$queryRawUnsafe<{ rolname: string }[]>(
+        "SELECT rolname FROM pg_roles WHERE rolname = $1",
+        fifth.role,
+      ),
+    ).toEqual([]);
+  }, 120_000);
+
   it("refuses a database its owner does not own", async () => {
     // A hosting service that creates the database as its own administrator
     // and hands the instance's owner CREATE on it. The owner could not revoke

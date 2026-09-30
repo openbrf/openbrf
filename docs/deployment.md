@@ -377,7 +377,7 @@ migration adds one. Once the instance runs as the new role, the owner removes
 the old one, in the instance's database:
 
 ```sql
-REASSIGN OWNED BY openbrf_app TO openbrf;  -- the owner
+GRANT openbrf_app TO openbrf;  -- the owner; PostgreSQL 16 asks for it first
 DROP OWNED BY openbrf_app;
 DROP ROLE openbrf_app;
 ```

@@ -477,6 +477,33 @@ test("the entrypoint refuses a runtime URL that signs in as a role it was not as
   expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
 });
 
+test("the entrypoint refuses a runtime URL whose user query parameter overrides the role it names", () => {
+  test.setTimeout(120_000);
+
+  // pg-connection-string lets a user query parameter win over the URL's own
+  // username, so a URL that passes for the constrained role could still sign
+  // the application in as the owner.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_ROLE: "brf_example_app",
+      RUNTIME_DB_PASSWORD: DECOY_PASSWORD,
+      DATABASE_URL_RUNTIME: `postgresql://brf_example_app:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL_RUNTIME carries a user query parameter",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
 test("an unknown API path answers JSON, and a client route answers the client", async ({
   request,
 }) => {
