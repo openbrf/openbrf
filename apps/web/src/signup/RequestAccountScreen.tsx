@@ -191,8 +191,8 @@ export function RequestAccountScreen(): ReactElement {
         <section className="flex flex-col gap-3">
           <h2 className="text-title">{t("signup.receivedTitle")}</h2>
           {/* The whole point of the screen, in the one place a visitor will
-              read it: a request creates nothing, and a second one from the
-              same address replaces this one rather than queueing twice. */}
+              read it: a request creates nothing, and while it waits a second
+              one from the same address is not recorded. */}
           <Notice tone="ok" live>
             {t("signup.receivedBody")}
           </Notice>

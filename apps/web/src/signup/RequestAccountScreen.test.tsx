@@ -138,12 +138,14 @@ describe("an open instance", () => {
         screen.getByRole("heading", { name: "Ansökan är mottagen" }),
       ).toBeTruthy();
     });
-    // Nothing exists yet, and a second request replaces this one rather than
-    // queueing twice. Both are facts the applicant can only learn here.
+    // Nothing exists yet, and a second request is not recorded while this one
+    // waits. Both are facts the applicant can only learn here.
     expect(
       screen.getByText(/varken konto eller post i registret/i),
     ).toBeTruthy();
-    expect(screen.getByText(/ersätter den här/i)).toBeTruthy();
+    expect(
+      screen.getByText(/sparas ingen annan från samma e-postadress/i),
+    ).toBeTruthy();
     // The form is gone, so nobody sends the same request twice.
     expect(screen.queryByLabelText("Förnamn")).toBeNull();
   });
