@@ -4,6 +4,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
@@ -901,15 +902,6 @@ function trustedDate(claimed: Date | null, now: Date): Date {
  * defaults to.
  */
 const EARLIEST_PLAUSIBLE = Date.UTC(1990, 0, 1);
-
-/** Whether a database failure is the unique constraint on the source identifier. */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { code?: unknown }).code === "P2002"
-  );
-}
 
 /**
  * Prisma's codes for a failure of the database rather than of the data: the

@@ -4,10 +4,10 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { ChatKind } from "../generated/prisma/enums";
+import { holdsBoardSeat } from "../mail/board-recipients";
 import { lockChat } from "./chat-lock";
 import {
   groupsFor,
-  holdsBoardSeat,
   livesHere,
   roomFor,
   ROOM_COLUMNS,
