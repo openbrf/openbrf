@@ -182,6 +182,8 @@ function rowFor(page: Page, name: string) {
 const PROCESSOR_KIND_LABEL: Record<api.ProcessorRow["processorKind"], string> =
   {
     SMTP: "E-postserver",
+    HOST_SMTP: "Driftens e-postserver",
+    MAIL_API: "Driftens e-post-API",
     SMS: "SMS-gateway",
     STORAGE: "Fillagring",
     HOSTING: "Drift",

@@ -3575,7 +3575,12 @@ enum ProcessingActivitySource {
 
 /// What kind of recipient a processor agreement row is about.
 enum ProcessorKind {
+  /// The SMTP server the board entered in the settings.
   SMTP
+  /// The SMTP relay whoever runs the instance sets in the environment.
+  HOST_SMTP
+  /// The HTTP mail API whoever runs the instance sets in the environment.
+  MAIL_API
   SMS
   STORAGE
   /// Whoever runs the instance.
@@ -3894,8 +3899,9 @@ model ProcessorAgreement {
 
   processorKind ProcessorKind
 
-  /// Stable identity of the recipient: "smtp", "sms", "storage", "hosting",
-  /// "plugin:<id>" or "external:<id>".
+  /// Stable identity of the recipient: "smtp", "hostSmtp", "mailApi", "sms",
+  /// "storage", "hosting", "mailbox", "plugin:<id>", "connectedApp:<id>" or
+  /// "external:<id>".
   processorKey String
 
   classification ProcessorClassification

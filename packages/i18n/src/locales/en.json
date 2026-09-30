@@ -4581,6 +4581,8 @@
       "saving": "Saving...",
       "kind": {
         "SMTP": "Mail server",
+        "HOST_SMTP": "Host's mail server",
+        "MAIL_API": "Host's mail API",
         "SMS": "SMS gateway",
         "STORAGE": "File storage",
         "HOSTING": "Hosting",
