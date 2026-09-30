@@ -218,6 +218,20 @@ describe("settings saved before TLS was required", () => {
     expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
   });
 
+  it("keep saying so after a test message went through", async () => {
+    const session = userEvent.setup();
+    render(<SmtpPanel value={LEGACY} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/holger@exempel\.se/)).toBeTruthy();
+    });
+    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
+  });
+
   it("stop saying so once a save has required TLS", async () => {
     saveSmtp.mockResolvedValue({
       ok: true,

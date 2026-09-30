@@ -246,9 +246,16 @@ function StoredSmtpPanel({
             )}
           </Notice>
         ) : test.state.kind === "saved" && testedAddress !== null ? (
-          <Notice tone="ok" live>
-            {t("settings.smtp.testSent", { email: testedAddress })}
-          </Notice>
+          <>
+            <Notice tone="ok" live>
+              {t("settings.smtp.testSent", { email: testedAddress })}
+            </Notice>
+            {/* A working test says nothing about the encryption: the settings
+                still allow an unencrypted sign-in until a save requires TLS. */}
+            {tlsOptional ? (
+              <Notice tone="warn">{t("settings.smtp.tlsOptional")}</Notice>
+            ) : null}
+          </>
         ) : save.state.kind === "saved" ? (
           /* Confirmed here rather than left to the standing "configured"
              notice. The settings screen keys this panel on the host and on
