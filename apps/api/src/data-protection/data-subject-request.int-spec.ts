@@ -3,6 +3,12 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import {
+  addLocalDays,
+  formatLocalDay,
+  type LocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
@@ -85,6 +91,27 @@ const personIds = [
   ...Object.values(subjects),
 ];
 
+/**
+ * The day the requests here were made: a few days before the suite runs, so
+ * each one is still inside its art. 12(3) month and reads `open`, whatever the
+ * date. Two days back is never in the future on the association's calendar.
+ * Never later than the 28th, so one calendar month on is the same day of the
+ * next month and the due date can be written out below; what a 31 January
+ * request is due on is `data-subject-request.spec.ts`.
+ */
+const twoDaysAgo = addLocalDays(localDayOf(new Date()), -2);
+const requestedDay: LocalDay = {
+  ...twoDaysAgo,
+  day: Math.min(twoDaysAgo.day, 28),
+};
+const dueDay: LocalDay =
+  requestedDay.month === 12
+    ? { year: requestedDay.year + 1, month: 1, day: requestedDay.day }
+    : { ...requestedDay, month: requestedDay.month + 1 };
+
+const requestedOn = formatLocalDay(requestedDay);
+const monthLater = formatLocalDay(dueDay);
+
 let ipCounter = 0;
 function nextForwardedFor(): string {
   ipCounter += 1;
@@ -140,7 +167,7 @@ function record(
     method: "POST",
     url: `/api/data-subject-requests/persons/${personId}`,
     payload: {
-      requestedOn: "2026-09-01",
+      requestedOn,
       ground: "Jag ber om det.",
       ...payload,
     },
@@ -379,7 +406,7 @@ describe("who may record a request", () => {
     const response = await inject({
       method: "POST",
       url: `/api/data-subject-requests/persons/${subjects.gone}`,
-      payload: { kind: "OBJECTION", requestedOn: "2026-09-01", ground: "Nej." },
+      payload: { kind: "OBJECTION", requestedOn, ground: "Nej." },
     });
 
     expect(response.statusCode).toBe(401);
@@ -415,35 +442,43 @@ describe("the ground a request rests on", () => {
   });
 
   it("records the ground the person invoked", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "CONSENT_WITHDRAWN",
-    });
+    try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "CONSENT_WITHDRAWN",
+      });
 
-    expect(view.erasureGround).toBe("CONSENT_WITHDRAWN");
-    // Derived and not stored: one calendar month from the request (art. 12(3)).
-    expect(view.dueOn).toBe("2026-10-01");
-    expect(view.state).toBe("open");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(view.erasureGround).toBe("CONSENT_WITHDRAWN");
+      expect(view.requestedOn).toBe(requestedOn);
+      // Derived and not stored: one calendar month from the request (art. 12(3)).
+      expect(view.dueOn).toBe(monthLater);
+      expect(view.state).toBe("open");
+    } finally {
+      // An open erasure left behind would turn every later one into a 409. The
+      // cleanup goes by person, not by the request's id, so it also runs when
+      // the request was stored but its response did not read as expected.
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.gone },
+      });
+    }
   });
 });
 
 describe("a request about a name in an issue's description", () => {
   it("takes the issue it is about", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-      issueId,
-    });
+    try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+        issueId,
+      });
 
-    expect(view.issueId).toBe(issueId);
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(view.issueId).toBe(issueId);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.gone },
+      });
+    }
   });
 
   it("refuses an issue on an objection", async () => {
@@ -470,106 +505,111 @@ describe("a request about a name in an issue's description", () => {
 
 describe("deciding an erasure", () => {
   it("requires the art. 17(3) assessment", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
+    try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
+      const response = await decide(view.requestId, { decision: "GRANTED" });
 
-    const response = await decide(view.requestId, { decision: "GRANTED" });
-
-    expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("erasure-exception-required");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(400);
+      expect(reasonOf(response)).toBe("erasure-exception-required");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.gone },
+      });
+    }
   });
 
   it("refuses a grant that also names an exception", async () => {
     // An art. 17(3) exception is what disapplies the right. A grant naming one
     // would be the record of a decision that contradicts itself.
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
+    try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
+      const response = await decide(view.requestId, {
+        decision: "GRANTED",
+        erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+      });
 
-    const response = await decide(view.requestId, {
-      decision: "GRANTED",
-      erasureException: "LEGAL_OBLIGATION_TO_KEEP",
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("exception-inconsistent");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(400);
+      expect(reasonOf(response)).toBe("exception-inconsistent");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.gone },
+      });
+    }
   });
 
   it("records a refusal with the exception and the board's reasons", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
+    try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
+      const response = await decide(view.requestId, {
+        decision: "REFUSED",
+        erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+        ground: "Medlemsforteckningen far inte gallras.",
+      });
 
-    const response = await decide(view.requestId, {
-      decision: "REFUSED",
-      erasureException: "LEGAL_OBLIGATION_TO_KEEP",
-      ground: "Medlemsforteckningen far inte gallras.",
-    });
-
-    expect(response.statusCode).toBe(200);
-    const decided = response.json<DataSubjectRequestView>();
-    expect(decided.erasureException).toBe("LEGAL_OBLIGATION_TO_KEEP");
-    // art. 12(4): a refusal carries its reasons, on the row where they can be
-    // read and corrected rather than in the append-only log.
-    expect(decided.decisionGround).toBe(
-      "Medlemsforteckningen far inte gallras.",
-    );
-    expect(decided.state).toBe("refused");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(200);
+      const decided = response.json<DataSubjectRequestView>();
+      expect(decided.erasureException).toBe("LEGAL_OBLIGATION_TO_KEEP");
+      // art. 12(4): a refusal carries its reasons, on the row where they can be
+      // read and corrected rather than in the append-only log.
+      expect(decided.decisionGround).toBe(
+        "Medlemsforteckningen far inte gallras.",
+      );
+      expect(decided.state).toBe("refused");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.gone },
+      });
+    }
   });
 
   it("grants an erasure for somebody with nothing keeping them", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
+    try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
+      const response = await decide(view.requestId, {
+        decision: "GRANTED",
+        erasureException: "NONE",
+      });
 
-    const response = await decide(view.requestId, {
-      decision: "GRANTED",
-      erasureException: "NONE",
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json<DataSubjectRequestView>().state).toBe("granted");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<DataSubjectRequestView>().state).toBe("granted");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.gone },
+      });
+    }
   });
 
   it("grants an erasure for somebody who never held a residency", async () => {
     // The scheduled purge leaves them alone for ever - no move-out to anchor a
     // date on - but their contact details are service data like anybody's.
-    const view = await recorded(subjects.external, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
+    try {
+      const view = await recorded(subjects.external, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
+      const response = await decide(view.requestId, {
+        decision: "GRANTED",
+        erasureException: "NONE",
+      });
 
-    const response = await decide(view.requestId, {
-      decision: "GRANTED",
-      erasureException: "NONE",
-    });
-
-    expect(response.statusCode).toBe(200);
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(200);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: subjects.external },
+      });
+    }
   });
 
   describe("the grants the platform declines to record", () => {
@@ -591,22 +631,21 @@ describe("deciding an erasure", () => {
        * own refusal is a REFUSED decision with its ground.
        */
       const personId = subjects[key as keyof typeof subjects];
-      const view = await recorded(personId, {
-        kind: "ERASURE",
-        erasureGround: "NO_LONGER_NECESSARY",
-      });
+      try {
+        const view = await recorded(personId, {
+          kind: "ERASURE",
+          erasureGround: "NO_LONGER_NECESSARY",
+        });
+        const response = await decide(view.requestId, {
+          decision: "GRANTED",
+          erasureException: "NONE",
+        });
 
-      const response = await decide(view.requestId, {
-        decision: "GRANTED",
-        erasureException: "NONE",
-      });
-
-      expect(response.statusCode).toBe(409);
-      expect(reasonOf(response)).toBe(reason);
-
-      await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
-      });
+        expect(response.statusCode).toBe(409);
+        expect(reasonOf(response)).toBe(reason);
+      } finally {
+        await prisma.dataSubjectRequest.deleteMany({ where: { personId } });
+      }
     });
   });
 });
@@ -734,7 +773,8 @@ describe("a person who moves back in", () => {
       personId: subjects.returning,
       apartmentId,
       role: "RESIDENT",
-      movedInOn: "2026-09-01",
+      // The day of the request, so the move-in does not come before it.
+      movedInOn: requestedOn,
     });
 
     const row = await prisma.dataSubjectRequest.findUniqueOrThrow({
