@@ -442,21 +442,23 @@ describe("the ground a request rests on", () => {
   });
 
   it("records the ground the person invoked", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "CONSENT_WITHDRAWN",
-    });
-
     try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "CONSENT_WITHDRAWN",
+      });
+
       expect(view.erasureGround).toBe("CONSENT_WITHDRAWN");
       expect(view.requestedOn).toBe(requestedOn);
       // Derived and not stored: one calendar month from the request (art. 12(3)).
       expect(view.dueOn).toBe(monthLater);
       expect(view.state).toBe("open");
     } finally {
-      // An open erasure left behind would turn every later one into a 409.
+      // An open erasure left behind would turn every later one into a 409. The
+      // cleanup goes by person, not by the request's id, so it also runs when
+      // the request was stored but its response did not read as expected.
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.gone },
       });
     }
   });
@@ -464,17 +466,17 @@ describe("the ground a request rests on", () => {
 
 describe("a request about a name in an issue's description", () => {
   it("takes the issue it is about", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-      issueId,
-    });
-
     try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+        issueId,
+      });
+
       expect(view.issueId).toBe(issueId);
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.gone },
       });
     }
   });
@@ -503,19 +505,18 @@ describe("a request about a name in an issue's description", () => {
 
 describe("deciding an erasure", () => {
   it("requires the art. 17(3) assessment", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
-
     try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
       const response = await decide(view.requestId, { decision: "GRANTED" });
 
       expect(response.statusCode).toBe(400);
       expect(reasonOf(response)).toBe("erasure-exception-required");
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.gone },
       });
     }
   });
@@ -523,12 +524,11 @@ describe("deciding an erasure", () => {
   it("refuses a grant that also names an exception", async () => {
     // An art. 17(3) exception is what disapplies the right. A grant naming one
     // would be the record of a decision that contradicts itself.
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
-
     try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
       const response = await decide(view.requestId, {
         decision: "GRANTED",
         erasureException: "LEGAL_OBLIGATION_TO_KEEP",
@@ -538,18 +538,17 @@ describe("deciding an erasure", () => {
       expect(reasonOf(response)).toBe("exception-inconsistent");
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.gone },
       });
     }
   });
 
   it("records a refusal with the exception and the board's reasons", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
-
     try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
       const response = await decide(view.requestId, {
         decision: "REFUSED",
         erasureException: "LEGAL_OBLIGATION_TO_KEEP",
@@ -567,18 +566,17 @@ describe("deciding an erasure", () => {
       expect(decided.state).toBe("refused");
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.gone },
       });
     }
   });
 
   it("grants an erasure for somebody with nothing keeping them", async () => {
-    const view = await recorded(subjects.gone, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
-
     try {
+      const view = await recorded(subjects.gone, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
       const response = await decide(view.requestId, {
         decision: "GRANTED",
         erasureException: "NONE",
@@ -588,7 +586,7 @@ describe("deciding an erasure", () => {
       expect(response.json<DataSubjectRequestView>().state).toBe("granted");
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.gone },
       });
     }
   });
@@ -596,12 +594,11 @@ describe("deciding an erasure", () => {
   it("grants an erasure for somebody who never held a residency", async () => {
     // The scheduled purge leaves them alone for ever - no move-out to anchor a
     // date on - but their contact details are service data like anybody's.
-    const view = await recorded(subjects.external, {
-      kind: "ERASURE",
-      erasureGround: "NO_LONGER_NECESSARY",
-    });
-
     try {
+      const view = await recorded(subjects.external, {
+        kind: "ERASURE",
+        erasureGround: "NO_LONGER_NECESSARY",
+      });
       const response = await decide(view.requestId, {
         decision: "GRANTED",
         erasureException: "NONE",
@@ -610,7 +607,7 @@ describe("deciding an erasure", () => {
       expect(response.statusCode).toBe(200);
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
+        where: { personId: subjects.external },
       });
     }
   });
@@ -634,12 +631,11 @@ describe("deciding an erasure", () => {
        * own refusal is a REFUSED decision with its ground.
        */
       const personId = subjects[key as keyof typeof subjects];
-      const view = await recorded(personId, {
-        kind: "ERASURE",
-        erasureGround: "NO_LONGER_NECESSARY",
-      });
-
       try {
+        const view = await recorded(personId, {
+          kind: "ERASURE",
+          erasureGround: "NO_LONGER_NECESSARY",
+        });
         const response = await decide(view.requestId, {
           decision: "GRANTED",
           erasureException: "NONE",
@@ -648,9 +644,7 @@ describe("deciding an erasure", () => {
         expect(response.statusCode).toBe(409);
         expect(reasonOf(response)).toBe(reason);
       } finally {
-        await prisma.dataSubjectRequest.deleteMany({
-          where: { id: view.requestId },
-        });
+        await prisma.dataSubjectRequest.deleteMany({ where: { personId } });
       }
     });
   });
