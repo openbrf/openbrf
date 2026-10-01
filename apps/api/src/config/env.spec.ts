@@ -420,7 +420,10 @@ describe("the mail driver's variables", () => {
         OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "getpost.se",
       }),
     ).toEqual([]);
+  });
+});
 
+/**
  * The size of the application's connection pool.
  *
  * Several instances can share one database server, and every connection an
