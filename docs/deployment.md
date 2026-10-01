@@ -288,6 +288,14 @@ not offer it is a failed send rather than a password sent in the clear. Only a
 relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
 with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
 
+A server the board enters in the settings is held to the same rule once the
+settings are saved, and `OPENBRF_SMTP_REQUIRE_TLS` does not apply to it: it is
+the host's decision about the host's relay. Settings saved by an earlier version
+keep sending as they did, STARTTLS or not, and the SMTP card says so until they
+are saved again; save them and send a test message after upgrading. A test that
+fails because the server offers no TLS says that, and nothing, the password
+included, was sent.
+
 A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
 Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
 `OPENBRF_SMTP_REQUIRE_TLS=false`. The instance still upgrades when the relay
