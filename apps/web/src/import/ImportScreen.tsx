@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -100,6 +100,7 @@ export function ImportScreen(): ReactElement {
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
+  const uploadStarted = useRef(false);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -112,13 +113,22 @@ export function ImportScreen(): ReactElement {
    * nothing that identifies the import they started. The API answers that
    * question instead, so what they see is the import rather than an empty form
    * suggesting nothing ever happened.
+   *
+   * The answer only counts while the form is still untouched. A board member
+   * who has already sent a file is past the question: their mapping step, or
+   * the upload on its way to it, is replaced by nothing that arrives later.
    */
   useEffect(() => {
     let abandoned = false;
 
     void (async () => {
       const response = await fetchActiveImport();
-      if (abandoned || !response.ok || response.value === null) {
+      if (
+        abandoned ||
+        uploadStarted.current ||
+        !response.ok ||
+        response.value === null
+      ) {
         return;
       }
       setRun(response.value);
@@ -155,6 +165,7 @@ export function ImportScreen(): ReactElement {
   }, [watchedSessionId]);
 
   const upload = useCallback(async (file: File): Promise<void> => {
+    uploadStarted.current = true;
     setBusy(true);
     setFailure(null);
     try {

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -504,6 +510,34 @@ describe("coming back to the screen", () => {
     render(<ImportScreen />);
 
     expect(await screen.findByLabelText(/Välj en fil/)).toBeTruthy();
+  });
+
+  it("keeps the mapping step when the answer arrives after an upload", async () => {
+    // The question is asked on load, and a quick board member can send a file
+    // before it is answered. The file they sent is what they are working on;
+    // the last import, finished long ago, must not take its place.
+    let answer: (value: unknown) => void = () => undefined;
+    fetchActiveImport.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+    await screen.findByText(/Kolumnerna/);
+
+    answer({ ok: true, value: FINISHED });
+    // Let the answer land before looking, so a screen that still switched
+    // would have done so by now.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Kolumnerna/)).toBeTruthy();
+    expect(screen.queryByText(/Importen är klar/)).toBeNull();
   });
 });
 
