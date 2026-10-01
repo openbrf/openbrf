@@ -589,13 +589,17 @@ The curated catalog lists a package when:
 - the tarball is a gzip archive that holds files and directories only, within
   the limits an instance applies when it reads a theme package: at most 200
   files, no file over 4 MiB and no more than 8 MiB unpacked in all; every
-  file's path relative, at most 200 characters, with no `..` or empty segment
+  file's path as stored in the archive, relative, at most 200 characters
+  (counting the `package/` directory `npm pack` adds, because the length is
+  checked before the common root is stripped), with no `..` or empty segment
   and no backslash; and no symbolic or hard links, devices, FIFOs, or GNU
-  long-name or pax extension records. The catalog reads a plugin's tarball with
-  the same reader, so a plugin outside these limits is not listed, although an instance
-  never reads a plugin with it. The limits are `MAX_ARCHIVE_ENTRIES`,
-  `MAX_ENTRY_BYTES` and `MAX_TOTAL_BYTES` in `@openbrf/theme-tools`, whose
-  `readThemeArchive` an author can run on the packed tarball;
+  long-name or pax extension records. The catalog reads a plugin's tarball
+  with the same reader, so a plugin outside these limits is not listed,
+  although an instance never reads a plugin with it. The three size limits are
+  `MAX_ARCHIVE_ENTRIES`, `MAX_ENTRY_BYTES` and `MAX_TOTAL_BYTES` in
+  `@openbrf/theme-tools`; the 200 characters is a literal in its
+  `assertSafePath`, not one of those constants. An author can run
+  `readThemeArchive` on the packed tarball to check all of it;
 - a plugin declares no runtime dependencies and passes the package check below;
   a theme passes the install lint.
 
@@ -641,7 +645,7 @@ from a run on `main`, on any other branch, or on a self-hosted runner is
 refused, however correct the tarball is.
 
 A plugin's or theme's release workflow is therefore started by the push of the
-`v<version>` tag (`on: push: tags: ["v*"]`). A run started by hand is accepted
+`v<version>` tag (`on.push.tags: ["v*"]`). A run started by hand is accepted
 only if it is dispatched on that tag's ref, and one on `main` never is, so the
 tag push is the one start that cannot go wrong. The workflow packs the tarball
 once, attests that file, and attaches that same file to the release before the
@@ -651,6 +655,17 @@ permissions to attest and `contents: write` to create the release and upload
 the tarball; once a job has a `permissions:` block, every permission it leaves
 out is `none`. The `sha512` and `bytes` the entry states are those of that
 file.
+
+The workflow creates and publishes the release itself. Do not publish a
+release from the GitHub UI first: publishing a release with a new tag creates
+that tag, the tag push then starts the workflow after the release is already
+immutable, and the upload of the tarball fails. The repository also needs
+GitHub's immutable releases setting turned on before it publishes its first
+release, because the catalog refuses a release that is not immutable.
+
+The catalog passes `--repo` to `gh attestation verify` without `--signer-repo`,
+so the signing workflow must live in the package's own repository. A reusable
+workflow from another repository is refused.
 
 The core's own `.github/workflows/release.yml` is not a pattern for this. It
 publishes the npm packages a plugin or theme is built against, runs by hand on
