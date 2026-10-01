@@ -367,7 +367,10 @@ export class ImportApplyService implements OnModuleInit {
         // historical residency this chunk adds has to be either seen by them
         // or written after they finish. Ahead of the transition locks, in the
         // order lockApartmentResidencies gives.
-        await lockApartmentResidenciesInOrder(tx, residencyApartments(plan));
+        await lockApartmentResidenciesInOrder(
+          tx,
+          residencyApartments(plan, decisions),
+        );
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -807,32 +810,31 @@ function willWrite(row: PlannedRow, decisions: ImportDecisions): boolean {
   return decisions[String(row.rowNumber)]?.action !== "skip";
 }
 
+/**
+ * The apartments a chunk may write a residency on.
+ *
+ * Every row that will write and names one, whether or not it turns out to add
+ * anything: a row already present costs a lock nobody else was waiting for, and
+ * one missed would be a residency written past a purge that never saw it. A row
+ * the board decided to skip is left out, so the chunk does not hold up move-ins
+ * and purges on an apartment it never writes to.
+ */
+function residencyApartments(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): string[] {
+  return plan.rows.flatMap((row) =>
+    willWrite(row, decisions) && row.apartment !== null
+      ? [row.apartment.id]
+      : [],
+  );
+}
+
 /** Where a row's writes go, once the board's decisions are taken into account. */
 type RowTarget =
   | { action: "skip" }
   | { action: "create" }
   | { action: "update"; personId: string };
-
-/**
- * The person a row writes to.
- *
- * An ambiguous row is decided by the board and by nothing else - the apply
- * refuses to run at all while one is unanswered. A row that shares a new person
- * with an earlier row follows that row, and is skipped when the earlier one was.
- */
-/**
- * The apartments a chunk may write a residency on.
- *
- * Every row that names one and is not an error, whether or not it turns out to
- * write: a row skipped or already present costs a lock nobody else was waiting
- * for, and one missed would be a residency written past a purge that never saw
- * it.
- */
-function residencyApartments(plan: ImportPlan): string[] {
-  return plan.rows.flatMap((row) =>
-    row.outcome !== "error" && row.apartment !== null ? [row.apartment.id] : [],
-  );
-}
 
 /**
  * The persons a chunk will write to that the register already holds.
@@ -868,6 +870,13 @@ function existingTargets(
   return ids;
 }
 
+/**
+ * The person a row writes to.
+ *
+ * An ambiguous row is decided by the board and by nothing else - the apply
+ * refuses to run at all while one is unanswered. A row that shares a new person
+ * with an earlier row follows that row, and is skipped when the earlier one was.
+ */
 function resolveTarget(
   row: PlannedRow,
   decisions: ImportDecisions,

@@ -53,6 +53,23 @@ export function holdLockCount(
   return advisoryLockCount(prisma, `legal-hold:${personId}`, granted);
 }
 
+/**
+ * How many transactions hold, or are queued behind, this apartment's residency
+ * key: the key a purge and a writer of the apartment's residencies are ordered
+ * by.
+ */
+export function residencyApartmentLockCount(
+  prisma: PrismaService,
+  apartmentId: string,
+  granted: boolean,
+): Promise<bigint> {
+  return advisoryLockCount(
+    prisma,
+    `residency-apartment:${apartmentId}`,
+    granted,
+  );
+}
+
 /** Polls until the condition holds, or gives up so a failure is a failure. */
 export async function waitFor(
   condition: () => Promise<boolean>,

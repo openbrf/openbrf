@@ -346,9 +346,9 @@ export class MemberChargePurgeService implements OnModuleInit {
        * An apartment's charges are held through everybody who has ever lived
        * there, so who that is has to be read here, under the apartment's lock,
        * and not before the transaction. A residency written in between - an
-       * import bringing in a held household that left years ago - would
+       * import bringing in a held former resident - would
        * otherwise add a person nobody checked, and the delete below is keyed
-       * on the apartment and would take that household's charges with it.
+       * on the apartment and would take that resident's charges with it.
        * Every writer that adds a residency takes the same key, so it has
        * either committed and is read here or waits for this to commit.
        */

@@ -79,9 +79,9 @@ export async function lockResidencyTransitionsInOrder(
  * rows when no legal hold stands against anybody who has ever held a residency
  * there, so they read the apartment's residents and then check each of them.
  * A residency committing between that read and the delete - an import bringing
- * in the history of a household that left years ago, whose member is under a
- * hold - adds a person the purge never checked, and the rows the hold was
- * placed to preserve go. The per-person key cannot close that gap, because the
+ * in the history of former residents, one of whom is under a hold - adds a
+ * person the purge never checked, and the rows the hold was placed to preserve
+ * go. The per-person key cannot close that gap, because the
  * purge does not know which person to take it for until the residency exists.
  *
  * So the key is the apartment. Every writer that creates a residency takes it
@@ -90,8 +90,8 @@ export async function lockResidencyTransitionsInOrder(
  * or waits for the reader to commit.
  *
  * Only adding a residency takes it. A move-out changes a date and not who has
- * lived in the flat, and a residency is removed only by the residency purge,
- * which a hold stops for the held person - so neither can leave a reader
+ * lived in the apartment, and a residency is removed only by the residency
+ * purge, which a hold stops for the held person - so neither can leave a reader
  * missing somebody it should have checked.
  *
  * Taken first, before any other key a transaction holds. The purges take this

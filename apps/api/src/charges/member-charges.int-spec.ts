@@ -18,7 +18,11 @@ import {
 import type { DebitingList, DebitingListRow } from "./debiting-list";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import type { DebitingListExport } from "./member-charge.service";
-import { holdLockCount, waitFor } from "../testing/advisory-locks";
+import {
+  holdLockCount,
+  residencyApartmentLockCount,
+  waitFor,
+} from "../testing/advisory-locks";
 
 /**
  * Charges to members, against a real database.
@@ -193,36 +197,6 @@ function settle(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 150);
   });
-}
-
-/**
- * Resolves once something is queued behind this apartment's residency key,
- * which in the tests that call it can only be the purge they started.
- *
- * Read out of `pg_locks` rather than inferred from a delay, so a purge that
- * reads the residents without taking the key fails the wait instead of
- * finishing inside it and passing on timing. `hashtext` gives a signed int4 and
- * the advisory lock space addresses it as two halves of a bigint, which is what
- * the shifting reassembles.
- */
-async function waitForApartmentLockWaiter(apartmentId: string): Promise<void> {
-  const key = `residency-apartment:${apartmentId}`;
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-      SELECT count(*) AS locks
-      FROM pg_locks
-      WHERE locktype = 'advisory'
-        AND granted = false
-        AND objsubid = 1
-        AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-        AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-    if ((row?.locks ?? 0n) > 0n) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the purge to block on the apartment.");
 }
 
 /** This suite's own rows out of a list every other test also writes into. */
@@ -1167,8 +1141,8 @@ describe("the purge", () => {
 
   it("sees a held resident whose residency lands while it runs", async () => {
     /*
-     * The flat has nobody on record when the purge starts. An import is
-     * bringing in a household that left years ago, and one of them is under a
+     * The apartment has nobody on record when the purge starts. An import is
+     * bringing in former residents, and one of them is under a
      * hold; their residency is written but not yet committed. Read before the
      * transaction, the purge found no residents, checked nobody and erased the
      * charge the hold was placed to keep.
@@ -1190,8 +1164,11 @@ describe("the purge", () => {
       select: { id: true },
     });
 
+    let commitImport = (): void => undefined;
+    let residencyImport: Promise<void> = Promise.resolve();
+    let purge: Promise<number> = Promise.resolve(0);
+
     try {
-      let commitImport = (): void => undefined;
       const importHeld = new Promise<void>((resolve) => {
         commitImport = (): void => {
           resolve();
@@ -1202,7 +1179,7 @@ describe("the purge", () => {
         importReady = resolve;
       });
 
-      const residencyImport = prisma.$transaction(
+      residencyImport = prisma.$transaction(
         async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency-apartment:${secondApartmentId}`}))`;
           await tx.residency.create({
@@ -1221,14 +1198,21 @@ describe("the purge", () => {
       );
 
       await importStarted;
-      const purge = app
+      purge = app
         .get(MemberChargePurgeService)
         .purgeParty(
           { kind: "apartment", id: secondApartmentId },
           new Date("2034-01-01T03:17:00.000+01:00"),
         );
 
-      await waitForApartmentLockWaiter(secondApartmentId);
+      await waitFor(
+        async () =>
+          (await residencyApartmentLockCount(
+            prisma,
+            secondApartmentId,
+            false,
+          )) > 0n,
+      );
       commitImport();
       await residencyImport;
 
@@ -1237,6 +1221,11 @@ describe("the purge", () => {
         await prisma.memberCharge.findUnique({ where: { id: held } }),
       ).not.toBeNull();
     } finally {
+      // Settled first, so a purge that never blocked fails on the wait above
+      // and does not leave the import to time out in the middle of another test.
+      commitImport();
+      await residencyImport.catch(() => undefined);
+      await purge.catch(() => undefined);
       await prisma.legalHold.delete({ where: { id: hold.id } });
       await prisma.residency.deleteMany({
         where: { personId: gammal.personId, apartmentId: secondApartmentId },

@@ -343,9 +343,9 @@ export class FeePurgeService implements OnModuleInit {
       /*
        * Who has ever lived here is read under the apartment's lock, and not
        * before the transaction. A residency written in between - an import
-       * bringing in a held household that left years ago - would otherwise
+       * bringing in a held former resident - would otherwise
        * add a person nobody checked, and the deletes below are keyed on the
-       * apartment and would take that household's rows with them. Every
+       * apartment and would take that resident's rows with them. Every
        * writer that adds a residency takes the same key, so it has either
        * committed and is read here or waits for this to commit.
        */
