@@ -7,7 +7,7 @@ import {
   type QueuedKeyOrder,
 } from "../api/key-orders";
 import {
-  FIELD,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   QUIET_BUTTON,
@@ -133,7 +133,7 @@ export function KeyOrderQueuePanel({
                   <label className={LABEL}>
                     {t("keyOrders.queue.noteField")}
                     <textarea
-                      className={`${FIELD} min-h-20 py-2`}
+                      className={`${FIELD_MULTILINE} min-h-20`}
                       value={notes[order.id] ?? ""}
                       maxLength={1000}
                       onChange={(event) => {

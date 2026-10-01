@@ -82,9 +82,18 @@ encrypted at rest, as before.
 the instance uses: `current()` for sending, with the stored password decrypted
 when the settings decide, and `describe()` - source, driver, host and sender,
 decrypting nothing - for the settings screen and for `ProcessorFactsService`.
-The processor register's `smtp` row and the mail rows of the record of processing
+The processor register's mail row and the mail rows of the record of processing
 activities therefore name the host mail actually goes through: the environment's
 SMTP host, or the mail API's host.
+
+The register keys the mail row by driver, because the three are different
+parties: `smtp` (kind `SMTP`) for the server the board entered, `hostSmtp`
+(`HOST_SMTP`) for the environment's SMTP relay and `mailApi` (`MAIL_API`) for the
+mail API. An agreement the board recorded with its own provider stays under
+`smtp`, is not listed while the environment chooses the mail, and applies again
+once the settings do. Rows under `smtp` are not migrated: no release let the
+environment choose the mail before the keys were split, so every one describes
+the board's own server.
 
 ### Two drivers behind one interface
 
@@ -173,7 +182,9 @@ threading may fail.
 - DMARC holds: the sender is on the domain the service has verified, and a
   Reply-To needs no alignment.
 - The processor register and the record of processing activities name the mail
-  API's host, and the board classifies it as it classifies an SMTP provider.
+  API's host, and the board classifies it as it classifies an SMTP provider -
+  as a recipient of its own, with no agreement carried over from the board's
+  server.
 - The instance sees no delivery events from the service; what it knows is that
   the service accepted the message.
 - The board mailbox is still collected over POP3. Collecting it through a

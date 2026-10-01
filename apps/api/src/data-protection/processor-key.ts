@@ -12,16 +12,26 @@ import type { ProcessorKind } from "../generated/prisma/enums";
  * by a key built from what it *is* rather than by a database id, and the key is
  * what a dated agreement row points at.
  *
- * Five of them are fixed, because an instance has at most one of each: the mail
- * server it sends through, the SMS gateway, its file storage, whoever runs it,
- * and the mailbox the board mailbox collects from. The other three are open: one
- * key per installed plugin, one per connected app, and one per recipient the
- * board recorded itself.
+ * Seven of them are fixed. An instance has at most one of each of the SMS
+ * gateway, its file storage, whoever runs it and the mailbox the board mailbox
+ * collects from, and at most one of the three mail recipients at a time: the
+ * SMTP server the board entered, the SMTP relay the host sets in the
+ * environment, or the host's HTTP mail API (ADR 0024). The other three are
+ * open: one key per installed plugin, one per connected app, and one per
+ * recipient the board recorded itself.
+ *
+ * The mail has three keys rather than one because they are three parties. An
+ * agreement a board signed with its own mail provider says nothing about the
+ * service a host sends through, so a key shared between them would show that
+ * agreement against a provider it does not cover. "smtp" keeps meaning the
+ * board's own server, which is what every row recorded under it describes.
  */
 
-/** The recipients every instance has exactly one of. */
+/** The recipients an instance has at most one of each of. */
 export const PROCESSOR_KEYS = [
   "smtp",
+  "hostSmtp",
+  "mailApi",
   "sms",
   "storage",
   "hosting",
@@ -74,7 +84,7 @@ export const processorKeySchema = z
   .string()
   .regex(
     new RegExp(
-      `^(?:smtp|sms|storage|hosting|mailbox|plugin:${PLUGIN_ID}|connectedApp:${CLIENT_ROW_ID}|external:[a-z0-9]+)$`,
+      `^(?:smtp|hostSmtp|mailApi|sms|storage|hosting|mailbox|plugin:${PLUGIN_ID}|connectedApp:${CLIENT_ROW_ID}|external:[a-z0-9]+)$`,
     ),
   );
 
@@ -85,6 +95,8 @@ export type ParsedProcessorKey =
 
 const FIXED_KINDS: Record<FixedProcessorKey, ProcessorKind> = {
   smtp: "SMTP",
+  hostSmtp: "HOST_SMTP",
+  mailApi: "MAIL_API",
   sms: "SMS",
   storage: "STORAGE",
   hosting: "HOSTING",

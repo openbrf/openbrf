@@ -82,6 +82,7 @@ let mail: MailService;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const administrator = {
   personId: `mailbox-admin-${suffix}`,
@@ -232,13 +233,15 @@ function letter(options: {
   messageId: string;
   inReplyTo?: string;
   attachment?: boolean;
+  /** The Date header, where a test needs a particular one. */
+  date?: string;
 }): string {
   const headers = [
     `From: Granne <${options.from}>`,
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
     `Message-ID: <${options.messageId}>`,
-    "Date: Tue, 01 Sep 2026 09:15:00 +0200",
+    `Date: ${options.date ?? "Tue, 01 Sep 2026 09:15:00 +0200"}`,
     ...(options.inReplyTo === undefined
       ? []
       : [`In-Reply-To: <${options.inReplyTo}>`]),
@@ -1122,6 +1125,73 @@ describe("threading a follow-up", () => {
       expect(thread.messageCount).toBe(2);
       const full = await readThread(boardCookie, thread.id);
       expect(full.messages?.[1]?.body).toContain("Och en pafyllning.");
+    } finally {
+      await second.close();
+    }
+  });
+
+  it("keeps the thread's clock at its newest message when a reply is dated earlier", async () => {
+    const subject = `Sent svar ${suffix}`;
+    const opening = `late-open-${suffix}@utanfor.example`;
+    // Relative to the clock the collector reads, so the letters stay inside
+    // the retention window whatever day the suite runs on.
+    const now = Date.now();
+    const recent = new Date(now - DAY_MS);
+    const longAgo = new Date(now - 700 * DAY_MS);
+
+    const first = await serveMailbox([
+      {
+        uid: `uid-late-open-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Forsta brevet.",
+          messageId: opening,
+          date: recent.toUTCString(),
+        }),
+      },
+    ]);
+    await collector.collect();
+    await first.close();
+
+    const second = await serveMailbox([
+      {
+        uid: `uid-late-reply-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: `Re: ${subject}`,
+          body: "Ett svar som blev liggande.",
+          messageId: `late-reply-${suffix}@utanfor.example`,
+          inReplyTo: opening,
+          // A reply whose Date header says it was written almost two years ago:
+          // a client with a wrong clock, or a letter held up somewhere.
+          date: longAgo.toUTCString(),
+        }),
+      },
+    ]);
+
+    try {
+      await collector.collect();
+
+      const thread = await threadBySubject(subject);
+      expect(thread.messageCount).toBe(2);
+      const stored = await prisma.boardMailboxThread.findUniqueOrThrow({
+        where: { id: thread.id },
+        select: { lastMessageAt: true },
+      });
+      // Header dates carry whole seconds.
+      expect(stored.lastMessageAt.getTime()).toBe(
+        Math.floor(recent.getTime() / 1000) * 1000,
+      );
+
+      // The first run after the older reply's own window has closed. Had its
+      // date become the thread's, this run would erase the conversation.
+      await purge.run(new Date(now + 31 * DAY_MS));
+      expect(
+        await prisma.boardMailboxThread.findUnique({
+          where: { id: thread.id },
+        }),
+      ).not.toBeNull();
     } finally {
       await second.close();
     }

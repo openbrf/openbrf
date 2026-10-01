@@ -135,9 +135,10 @@ export class LegalHoldService {
       /*
        * And the registry, for the reader that cannot name this person.
        * Everything erased on a person's own key is ordered against this
-       * placement by the line above; the board mailbox is erased on an address
-       * an envelope asserted, discovers the person by scanning, and so has no
-       * key of this person's to take. See `legal-hold-lock.ts`.
+       * placement by the line above; the board mailbox purge and the
+       * public-form issue purge erase on an address (one an envelope asserted,
+       * one typed into the form), discover the person by scanning, and so have
+       * no key of this person's to take. See `legal-hold-lock.ts`.
        */
       await lockLegalHoldRegistry(tx);
 

@@ -270,3 +270,28 @@ describe("a refused mailing request", () => {
     expect(screen.getByText(NOTICE)).toBeTruthy();
   });
 });
+
+describe("a refused removal", () => {
+  it("reads as a sentence when residents have commented on the item", async () => {
+    /*
+     * The comments are erased by their own purge and never with the item, so
+     * the server refuses the removal. The board is told why, and what it can
+     * do instead, rather than shown the code.
+     */
+    removeNews.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "has-comments" },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const session = userEvent.setup();
+    const { container } = renderPanel({ published: true });
+
+    await session.click(screen.getByRole("button", { name: "Ta bort" }));
+
+    expect(
+      await screen.findByText(/Boende har kommenterat nyheten/),
+    ).toBeTruthy();
+    expect(container.textContent).not.toContain("has-comments");
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});
