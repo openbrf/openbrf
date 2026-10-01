@@ -123,6 +123,31 @@ describe("AuditLogService", () => {
     ).resolves.toBe(before);
   });
 
+  it("holds the read to the budget it is given, and logs nothing past it", async () => {
+    const before = await prisma.auditLogEntry.count({
+      where: { actorPersonId: ACTOR_ID, action: "DATA_EXPORTED" },
+    });
+
+    // A budget shorter than the read, so the test proves the budget reaches
+    // the transaction without waiting out Prisma's five-second default.
+    await expect(
+      service.withAuditedRead(
+        { action: "DATA_EXPORTED", channel: "WEB", actorPersonId: ACTOR_ID },
+        async (tx) => {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          return tx.person.findUniqueOrThrow({ where: { id: TARGET_ID } });
+        },
+        { timeout: 200 },
+      ),
+    ).rejects.toMatchObject({ code: "P2028" });
+
+    await expect(
+      prisma.auditLogEntry.count({
+        where: { actorPersonId: ACTOR_ID, action: "DATA_EXPORTED" },
+      }),
+    ).resolves.toBe(before);
+  });
+
   it("exposes no way to amend history, and the database refuses it anyway", async () => {
     const entry = await prisma.auditLogEntry.findFirstOrThrow({
       where: { actorPersonId: ACTOR_ID },
