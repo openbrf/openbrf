@@ -177,6 +177,30 @@ describe("a token bucket", () => {
     expect(buckets.take("form 203.0.113.9", 3, now).allowed).toBe(true);
   });
 
+  it("gives back a spent token, and never more than the budget", () => {
+    const buckets = new TokenBuckets();
+    const now = 1_000_000;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      buckets.take("form some-address", 3, now);
+    }
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(false);
+
+    buckets.refund("form some-address", 3);
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(true);
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(false);
+
+    // A refund past full changes nothing, and an unknown key is left alone.
+    buckets.refund("form other-address", 3);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      buckets.refund("form some-address", 3);
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(buckets.take("form some-address", 3, now).allowed).toBe(true);
+    }
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(false);
+    expect(buckets.size).toBe(1);
+  });
+
   it("forgets an address that has stopped spending", () => {
     const buckets = new TokenBuckets();
     const start = 1_000_000;

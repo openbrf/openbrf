@@ -141,6 +141,21 @@ export class TokenBuckets {
     return { allowed: true };
   }
 
+  /**
+   * Gives back a token `take` spent for `key`, for a request that was let
+   * through one budget and then refused by another.
+   *
+   * Capped at `perMinute` like a refill, and a no-op for a key no longer
+   * tracked: a bucket the sweep has dropped is full, which is what a refund
+   * would have restored it to.
+   */
+  refund(key: string, perMinute: number): void {
+    const bucket = this.buckets.get(key);
+    if (bucket !== undefined) {
+      bucket.tokens = Math.min(perMinute, bucket.tokens + 1);
+    }
+  }
+
   /** How many buckets are being tracked. Exists for the tests of the sweep. */
   get size(): number {
     return this.buckets.size;

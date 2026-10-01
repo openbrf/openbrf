@@ -16,7 +16,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { SCOPE_NOTE_KEY, type DataPortabilityExport } from "./data-portability";
-import { EXPORTS_PER_MEMBER_PER_MINUTE } from "./data-portability-rate-limit";
+import { EXPORTS_PER_PERSON_PER_MINUTE } from "./data-portability-rate-limit";
 import { PORTABLE_SECTIONS } from "./section-processing";
 
 /**
@@ -106,7 +106,7 @@ let hammererCookie: string;
 /**
  * The resident's export, asked for once however many tests read it.
  *
- * Every ask spends from a per-member budget, so a suite that asked once per
+ * Every ask spends from a per-person budget, so a suite that asked once per
  * assertion would meet the limit it is not testing. The file is the same each
  * time, and what each test checks about it is separate.
  */
@@ -378,8 +378,8 @@ describe("asking for an export too often", () => {
       headers: { cookie: hammererCookie },
     });
 
-  it("refuses with a 429 once the member's budget is spent, and says when to retry", async () => {
-    for (let ask = 0; ask < EXPORTS_PER_MEMBER_PER_MINUTE; ask += 1) {
+  it("refuses with a 429 once the person's budget is spent, and says when to retry", async () => {
+    for (let ask = 0; ask < EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
       expect((await exportAsHammerer()).statusCode).toBe(200);
     }
 
@@ -394,9 +394,9 @@ describe("asking for an export too often", () => {
     expect(refused.body).not.toContain("preferredLocale");
   });
 
-  it("leaves every other member's budget alone", async () => {
+  it("leaves every other person's budget alone", async () => {
     // The hammerer has spent theirs by now, whichever order the file runs in.
-    for (let ask = 0; ask <= EXPORTS_PER_MEMBER_PER_MINUTE; ask += 1) {
+    for (let ask = 0; ask <= EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
       await exportAsHammerer();
     }
 
@@ -410,6 +410,10 @@ describe("asking for an export too often", () => {
   });
 
   it("writes no audit entry for a refused request", async () => {
+    // Spends the budget itself, so it holds when run alone with `-t`.
+    for (let ask = 0; ask <= EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
+      await exportAsHammerer();
+    }
     const entriesBefore = await prisma.auditLogEntry.count({
       where: {
         action: "DATA_PORTABILITY_EXPORTED",
