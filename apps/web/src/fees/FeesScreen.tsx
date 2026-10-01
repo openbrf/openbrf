@@ -186,6 +186,17 @@ export function FeesScreen(): ReactElement {
     if (target === null) {
       return;
     }
+    // Only while focus is still the form's or nobody's. A board member who
+    // moved on to the aid's yearly total or the register date meanwhile keeps
+    // it there, or what they type next would land in the amount field.
+    const active = document.activeElement;
+    if (
+      active !== null &&
+      active !== document.body &&
+      !formRef.current?.contains(active)
+    ) {
+      return;
+    }
     // The submit button stays disabled after a success, with the amount
     // cleared; the amount field is where the board types next.
     const stillUsable = !target.matches(":disabled");
@@ -207,41 +218,49 @@ export function FeesScreen(): ReactElement {
     [suggestions],
   );
 
-  const onRecord = useCallback(async (): Promise<void> => {
-    setRefusal(null);
-    const focused = document.activeElement;
-    focusedBeforeLock.current =
-      focused instanceof HTMLElement && formRef.current?.contains(focused)
+  const onRecord = useCallback(
+    async (submitter: HTMLElement | null): Promise<void> => {
+      setRefusal(null);
+      // Safari and macOS Firefox do not focus a button that was clicked, so the
+      // submitter stands in for the focused control when focus is elsewhere.
+      const focused = document.activeElement;
+      const inForm = (element: Element | null): element is HTMLElement =>
+        element instanceof HTMLElement && !!formRef.current?.contains(element);
+      focusedBeforeLock.current = inForm(focused)
         ? focused
-        : null;
-    setRecording(true);
-    const result = await recordFee({
+        : inForm(submitter)
+          ? submitter
+          : null;
+      setRecording(true);
+      const result = await recordFee({
+        apartmentId,
+        kind,
+        appliesFrom,
+        monthlyAmount,
+        vatTreatment,
+        vatRatePercent:
+          vatTreatment === "RATE" && vatRatePercent !== ""
+            ? Number(vatRatePercent)
+            : null,
+      });
+      setRecording(false);
+      if (!result.ok) {
+        setRefusal(feeFailureKey(result.failure));
+        return;
+      }
+      setMonthlyAmount("");
+      load();
+    },
+    [
       apartmentId,
-      kind,
       appliesFrom,
+      kind,
+      load,
       monthlyAmount,
+      vatRatePercent,
       vatTreatment,
-      vatRatePercent:
-        vatTreatment === "RATE" && vatRatePercent !== ""
-          ? Number(vatRatePercent)
-          : null,
-    });
-    setRecording(false);
-    if (!result.ok) {
-      setRefusal(feeFailureKey(result.failure));
-      return;
-    }
-    setMonthlyAmount("");
-    load();
-  }, [
-    apartmentId,
-    appliesFrom,
-    kind,
-    load,
-    monthlyAmount,
-    vatRatePercent,
-    vatTreatment,
-  ]);
+    ],
+  );
 
   const onRemove = useCallback(
     async (feeId: string): Promise<void> => {
@@ -305,7 +324,8 @@ export function FeesScreen(): ReactElement {
             className="flex flex-wrap items-end gap-3"
             onSubmit={(event) => {
               event.preventDefault();
-              void onRecord();
+              const { submitter } = event.nativeEvent as SubmitEvent;
+              void onRecord(submitter);
             }}
           >
             {/*
