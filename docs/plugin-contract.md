@@ -573,18 +573,55 @@ The curated catalog lists a package when:
   `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>`, the
   tag being `v` followed by the entry's version, not a pre-release;
 - the tarball carries a build attestation from that repository's release
-  workflow;
+  workflow, made by a run on a GitHub-hosted runner for the release's own tag,
+  `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal data categories, actions and protected
   resource; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
+- a theme that is not itself deprecated has no deprecated parent: neither its
+  parent nor any theme further up its `extends` chain is marked `deprecated`,
+  because `deprecated` is how the catalog stops offering an entry to new
+  installs while keeping the ones already made, and a theme should not be newly
+  offered on top of a parent that no longer is;
+- the tarball is a gzip archive that holds files and directories only, within
+  the limits an instance applies when it reads a theme package: at most 200
+  files, no file over 4 MiB and no more than 8 MiB unpacked in all; every path
+  relative, at most 200 characters, with no `..` or empty segment and no
+  backslash; and no symbolic or hard links, devices, FIFOs, or GNU long-name or
+  pax extension records. The catalog reads a plugin's tarball with the same
+  reader, so a plugin outside these limits is not listed, although an instance
+  never reads a plugin with it. The limits are `MAX_ARCHIVE_ENTRIES`,
+  `MAX_ENTRY_BYTES` and `MAX_TOTAL_BYTES` in `@openbrf/theme-tools`, whose
+  `readThemeArchive` an author can run on the packed tarball;
 - a plugin declares no runtime dependencies and passes the package check below;
   a theme passes the install lint.
 
 The catalog repository's README states the same rules, how a listing is
 proposed and how one is delisted, and its check runs them on every pull request
 and every night.
+
+### The release workflow runs on the tag
+
+The catalog verifies the attestation against the repository and against the tag
+the run was made for (`gh attestation verify <file> --repo <owner>/<repo>
+--source-ref refs/tags/v<version> --deny-self-hosted-runners`). An attestation
+from a run on `main`, on any other branch, or on a self-hosted runner is
+refused, however correct the tarball is.
+
+A plugin's or theme's release workflow is therefore started by the push of the
+`v<version>` tag (`on: push: tags: ["v*"]`), not by hand and not from `main`.
+It packs the tarball once, attests that file (the job needs the
+`id-token: write` and `attestations: write` permissions), and attaches that same
+file to the release before the release is published, since the assets of an
+immutable release cannot change afterwards. The `sha512` and `bytes` the entry
+states are those of that file.
+
+The core's own `.github/workflows/release.yml` is not a pattern for this. It
+publishes the npm packages a plugin or theme is built against, runs by hand on
+`main` and creates no tag, so an attestation made that way would be refused by
+the catalog.
 
 `pluginPackageProblems` in `@openbrf/plugin-sdk` is the check a plugin's own CI
 runs on the packed tarball. It reports, one sentence each, the manifest's own
