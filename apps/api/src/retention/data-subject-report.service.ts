@@ -92,17 +92,18 @@ const SECTIONS = REPORTED_SECTIONS;
 /**
  * How long the report's transaction may run, in milliseconds.
  *
- * The report is some forty queries in a row on one connection, unpaginated,
- * with the decryption between them, and it grows with the person's history:
- * every audit entry naming them and every letter to the board mailbox in full.
- * Prisma's default of five seconds is reachable on a slow database for a person
- * who has lived here long, and past it the report fails with a 500 - an access
- * request the board cannot answer, under a one-month deadline (GDPR art. 12.3).
+ * The report is a query or more per section, in a row on one connection,
+ * unpaginated, with the decryption between them, and it grows with the person's
+ * history: every audit entry naming them and every letter to the board mailbox
+ * in full. Prisma's default of five seconds is reachable on a slow database for
+ * a person who has lived here long, and past it the report fails with a 500 -
+ * an access request the board cannot answer, under a one-month deadline (GDPR
+ * art. 12.3).
  *
  * The transaction only reads until the audit entry at its end, so a longer
  * budget holds a connection and no row locks. Thirty seconds rather than more,
- * so that a report that still does not finish fails here, with an error the API
- * returns, before a reverse proxy in front of it gives up first.
+ * so that a report that still does not finish fails here with a server error,
+ * before a reverse proxy in front of it (nginx waits sixty) gives up first.
  */
 const REPORT_TRANSACTION_TIMEOUT_MS = 30_000;
 

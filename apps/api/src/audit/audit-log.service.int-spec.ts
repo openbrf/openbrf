@@ -129,7 +129,9 @@ describe("AuditLogService", () => {
     });
 
     // A budget shorter than the read, so the test proves the budget reaches
-    // the transaction without waiting out Prisma's five-second default.
+    // the transaction without waiting out Prisma's five-second default. The
+    // message pins the failure to that budget: a transaction that never got a
+    // connection fails with P2028 as well.
     await expect(
       service.withAuditedRead(
         { action: "DATA_EXPORTED", channel: "WEB", actorPersonId: ACTOR_ID },
@@ -139,7 +141,12 @@ describe("AuditLogService", () => {
         },
         { timeout: 200 },
       ),
-    ).rejects.toMatchObject({ code: "P2028" });
+    ).rejects.toMatchObject({
+      code: "P2028",
+      message: expect.stringContaining(
+        "The timeout for this transaction was 200 ms",
+      ),
+    });
 
     await expect(
       prisma.auditLogEntry.count({
