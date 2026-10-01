@@ -51,7 +51,7 @@ const port = process.env.POSTGRES_PORT ?? "5432";
 const database = process.env.POSTGRES_DB ?? "openbrf";
 
 const OWNER = {
-  user: process.env.POSTGRES_USER ?? "openbrf",
+  user: process.env.POSTGRES_USER || "openbrf",
   secret: "POSTGRES_PASSWORD",
 };
 
@@ -139,13 +139,42 @@ function fail(message) {
 }
 
 /**
+ * The user a connection URL signs in as, decoded, or an error saying why the
+ * URL does not settle it. Nothing from the URL is repeated back.
+ *
+ * pg and libpq both let a user query parameter override the URL's username, and
+ * both take a missing one from PGUSER, so a URL carrying either would sign in
+ * as a user other than the one read here. Both are refused.
+ */
+function signInUser(url, variable) {
+  const parsed = parseUrl(url, variable);
+  if (parsed.searchParams.has("user")) {
+    throw new Error(
+      `${variable} carries a user query parameter, which overrides the user ` +
+        "in the URL, so the role checked here would not be the one the " +
+        "application signs in as. Remove it and put the role in the URL's " +
+        "user instead.",
+    );
+  }
+  const user = decodeURIComponent(parsed.username);
+  if (user === "") {
+    throw new Error(
+      `${variable} has to name its user: a missing one is taken from PGUSER, ` +
+        "so the role checked here would not be the one that signs in. Write " +
+        "it as postgresql://user:password@host:port/database.",
+    );
+  }
+  return user;
+}
+
+/**
  * The user the owner's connection signs in as: the one in DATABASE_URL when an
  * operator supplied it, POSTGRES_USER otherwise.
  */
 function ownerUser() {
   const supplied = process.env.DATABASE_URL;
   if (supplied !== undefined && supplied !== "") {
-    return decodeURIComponent(parseUrl(supplied, "DATABASE_URL").username);
+    return signInUser(supplied, "DATABASE_URL");
   }
   return OWNER.user;
 }
@@ -243,9 +272,8 @@ function checkedRuntimeRole() {
  * Refuses a supplied DATABASE_URL_RUNTIME that would sign the application in as
  * a role it should not run as. Nothing from the URL is repeated back.
  *
- * In every mode a user query parameter is refused: pg-connection-string lets it
- * override the URL's username, so the user checked here would not be the one
- * that signs in.
+ * In every mode a user query parameter and a missing user are refused, see
+ * signInUser, because the user checked here would not be the one that signs in.
  *
  * With RUNTIME_DB_PASSWORD set, the user has to be the role the entrypoint
  * constrains. Without it the operator manages the role and the URL is theirs
@@ -259,16 +287,7 @@ function checkedRuntimeUrl() {
   const password = process.env.RUNTIME_DB_PASSWORD;
   const constrained = password !== undefined && password !== "";
   try {
-    const parsed = parseUrl(supplied, "DATABASE_URL_RUNTIME");
-    if (parsed.searchParams.has("user")) {
-      fail(
-        "DATABASE_URL_RUNTIME carries a user query parameter, which " +
-          "overrides the user in the URL, so the role checked here would not " +
-          "be the one the application signs in as. Remove it and put the " +
-          "role in the URL's user instead.",
-      );
-    }
-    const user = decodeURIComponent(parsed.username);
+    const user = signInUser(supplied, "DATABASE_URL_RUNTIME");
     if (!constrained) {
       if (user === ownerUser()) {
         fail(

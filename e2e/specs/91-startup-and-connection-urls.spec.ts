@@ -555,6 +555,78 @@ test("the entrypoint refuses a user query parameter on a runtime URL the operato
   expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
 });
 
+test("the entrypoint refuses a runtime URL that names no user, which PGUSER would fill in", () => {
+  test.setTimeout(120_000);
+
+  // A URL without a user signs in as PGUSER, which can be the owner. The password
+  // is cleared to take the managed path, where the owner check would otherwise
+  // see an empty name and pass it.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      PGUSER: "openbrf",
+      DATABASE_URL_RUNTIME: `postgresql://:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL_RUNTIME has to name its user");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses an owner URL whose user query parameter hides the owner's name", () => {
+  test.setTimeout(120_000);
+
+  // ownerUser() reads the owner's name from DATABASE_URL, and a user query
+  // parameter there would make it read a name the owner does not sign in as, so
+  // the owner check on the runtime URL would compare against the wrong one.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://decoy_user:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL carries a user query parameter");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses an owner URL that names no user, which PGUSER would fill in", () => {
+  test.setTimeout(120_000);
+
+  // The same for an owner URL with no user: ownerUser() would read an empty name.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      PGUSER: "openbrf",
+      DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL has to name its user");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
 test("an unknown API path answers JSON, and a client route answers the client", async ({
   request,
 }) => {
