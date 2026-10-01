@@ -16,8 +16,8 @@ const DRAWS = [
   480,
   13_439,
   13_440,
-  13_439_999,
-  13_440_000,
+  13_426_559,
+  13_426_560,
   99_999_999,
   0xff_ff_ff_ff,
   Number.MAX_SAFE_INTEGER,
@@ -65,6 +65,12 @@ describe("testPersonalIdentityNumber", () => {
     expect(testPersonalIdentityNumber(40).slice(0, 11)).toBe("19400201001");
     expect(testPersonalIdentityNumber(480).slice(0, 11)).toBe("19400102001");
     expect(testPersonalIdentityNumber(13_440).slice(0, 11)).toBe("19400101002");
+    expect(testPersonalIdentityNumber(13_426_559).slice(0, 11)).toBe(
+      "19791228999",
+    );
+    expect(testPersonalIdentityNumber(13_426_560).slice(0, 11)).toBe(
+      "19400101001",
+    );
   });
 
   it("refuses a draw it cannot spend", () => {

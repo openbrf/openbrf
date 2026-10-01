@@ -19,8 +19,9 @@ import { isValidPersonalIdentityNumber } from "../personal-identity-number.ts";
  *
  * The draw is spent from the lowest digits up: the year, then the month, the
  * day and the birth number. Any non-negative safe integer is accepted, so a
- * caller can hand over whatever its hash produces; it takes 13 440 000
- * different draws to reach every number in the range.
+ * caller can hand over whatever its hash produces; it takes 13 426 560
+ * different draws (40 years, 12 months, 28 days and 999 birth numbers) to
+ * reach every number in the range, and the next draw starts over.
  *
  * Twelve digits rather than the six-plus-four form. The short form has no
  * century, so the parser infers one from today's date, and a fixture that
