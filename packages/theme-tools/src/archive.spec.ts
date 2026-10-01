@@ -196,7 +196,7 @@ describe("readThemeArchive refusals", () => {
     );
     expect(bomb.length).toBeLessThan(MAX_TARBALL_BYTES / 100);
     expect(() => readThemeArchive(bomb)).toThrow(ThemeArchiveError);
-    expect(() => readThemeArchive(bomb)).toThrow(/unpacks to more than/);
+    expect(() => readThemeArchive(bomb)).toThrow(/It was not unpacked/);
   });
 
   it("refuses something that is not a gzip archive", () => {
