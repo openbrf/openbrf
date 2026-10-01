@@ -16,8 +16,12 @@ import type {
 import { mediaUrl } from "../media/media.service";
 import { BoardMailboxError } from "./board-mailbox.error";
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
+import type { CollectionRefusal } from "./board-mailbox-delivery";
 import { computeBoardMailboxPurgeDate } from "./board-mailbox-retention";
-import { loadBoardMailboxSettings } from "./board-mailbox-settings";
+import {
+  loadBoardMailboxSettings,
+  mailboxFingerprint,
+} from "./board-mailbox-settings";
 
 /**
  * The board's shared mailbox, as the board works it.
@@ -176,7 +180,44 @@ export interface BoardMailboxStatusView {
   configured: boolean;
   /** The address the board publishes, when one is set. */
   address: string | null;
+  /**
+   * Letters the collector read and set aside, newest first and at most
+   * MAX_SET_ASIDE_LISTED of them. Every one is still in the mailbox, and none of
+   * them is anywhere else on this screen.
+   */
+  setAside: BoardMailboxSetAsideView[];
+  /** How many letters are set aside in all, which can be more than are listed. */
+  setAsideCount: number;
 }
+
+/**
+ * A letter the collector will not store.
+ *
+ * Nothing the sender wrote: the reason is a code and the dates are moments, so
+ * a board is told there is a letter to open in a mail client and when it was
+ * dated, and nothing a stranger could put on the screen.
+ */
+export interface BoardMailboxSetAsideView {
+  reason: CollectionRefusal;
+  /** The letter's own date, where the collector believed it. */
+  letterDate: string | null;
+  /** When the collector set it aside. */
+  setAsideAt: string;
+  /**
+   * When the collector tries it again, for a letter set aside because it kept
+   * failing. Null for one it will not try again.
+   */
+  retryAt: string | null;
+}
+
+/**
+ * The most set-aside letters the status lists.
+ *
+ * A board needs to know there are letters to look for and roughly when they
+ * came; a mailbox a mailing list was pointed at can set aside hundreds, and the
+ * count says how many without listing them.
+ */
+const MAX_SET_ASIDE_LISTED = 20;
 
 @Injectable()
 export class BoardMailboxService {
@@ -196,9 +237,46 @@ export class BoardMailboxService {
       this.prisma,
       this.encryption,
     );
+    if (settings === null) {
+      return {
+        configured: false,
+        address: null,
+        setAside: [],
+        setAsideCount: 0,
+      };
+    }
+
+    // The mailbox collected from now, and no other. A letter set aside from a
+    // mailbox the settings no longer name is not in the one the board would
+    // open to look for it.
+    const where = {
+      sourceUid: { startsWith: `${mailboxFingerprint(settings.credentials)}:` },
+    };
+    const [rows, count] = await Promise.all([
+      this.prisma.boardMailboxIgnoredMessage.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: MAX_SET_ASIDE_LISTED,
+        select: {
+          reason: true,
+          letterDate: true,
+          retryAfter: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.boardMailboxIgnoredMessage.count({ where }),
+    ]);
+
     return {
-      configured: settings !== null,
-      address: settings?.address ?? null,
+      configured: true,
+      address: settings.address,
+      setAside: rows.map((row) => ({
+        reason: row.reason as CollectionRefusal,
+        letterDate: row.letterDate?.toISOString() ?? null,
+        setAsideAt: row.createdAt.toISOString(),
+        retryAt: row.retryAfter?.toISOString() ?? null,
+      })),
+      setAsideCount: count,
     };
   }
 

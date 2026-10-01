@@ -2675,6 +2675,21 @@
       "collected_one": "One new letter was collected.",
       "collected_other": "{{count}} new letters were collected."
     },
+    "setAside": {
+      "intro_one": "One letter could not be collected. It is still in the mailbox: open it there with a mail client.",
+      "intro_other": "{{count}} letters could not be collected. They are still in the mailbox: open them there with a mail client.",
+      "dated": "Dated {{date}}",
+      "undated": "Date unknown",
+      "setAsideAt": "set aside {{date}}",
+      "retryFrom": "tried again from {{date}}",
+      "more_one": "And one more.",
+      "more_other": "And {{count}} more.",
+      "reasons": {
+        "noSenderAddress": "No sender address to answer",
+        "unstorable": "Could not be stored",
+        "unknown": "Could not be collected"
+      }
+    },
     "inbox": {
       "title": "The inbox",
       "description": "What is waiting first, and the longest wait first within that.",
