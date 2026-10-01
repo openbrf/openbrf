@@ -291,7 +291,9 @@ entrypoint then skips step 6 and constrains nothing, so the role has to be
 granted no more than
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) grants
 it. A `DATABASE_URL_RUNTIME` supplied that way is used as written, so its
-password has to be percent-encoded already.
+password has to be percent-encoded already. The entrypoint still refuses one
+that signs in as the owner or carries a `user` query parameter, which would
+override the user in the URL.
 
 Neither variable is required by the Compose file, because requiring either one
 would make the other impossible to use. The entrypoint is what refuses a

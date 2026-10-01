@@ -504,6 +504,52 @@ test("the entrypoint refuses a runtime URL whose user query parameter overrides 
   expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
 });
 
+test("the entrypoint refuses a runtime URL that signs in as the owner when the operator manages the role", () => {
+  test.setTimeout(120_000);
+
+  // Without RUNTIME_DB_PASSWORD the role is the operator's, but the application
+  // still must not connect as the schema owner. Nothing listens on port 1.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL_RUNTIME signs in as the schema owner");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses a user query parameter on a runtime URL the operator manages", () => {
+  test.setTimeout(120_000);
+
+  // The parameter overrides the URL's username in every mode, so a managed
+  // role's URL could sign in as the owner through it just the same.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      DATABASE_URL_RUNTIME: `postgresql://role_a:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL_RUNTIME carries a user query parameter",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
 test("an unknown API path answers JSON, and a client route answers the client", async ({
   request,
 }) => {

@@ -240,27 +240,26 @@ function checkedRuntimeRole() {
 }
 
 /**
- * Refuses a supplied DATABASE_URL_RUNTIME whose user is not the role that
- * RUNTIME_DB_PASSWORD has the entrypoint constrain.
+ * Refuses a supplied DATABASE_URL_RUNTIME that would sign the application in as
+ * a role it should not run as. Nothing from the URL is repeated back.
  *
- * Without the password the operator manages the role themselves and the URL is
- * theirs to write, so nothing is checked. Nothing from the URL is repeated back.
+ * In every mode a user query parameter is refused: pg-connection-string lets it
+ * override the URL's username, so the user checked here would not be the one
+ * that signs in.
+ *
+ * With RUNTIME_DB_PASSWORD set, the user has to be the role the entrypoint
+ * constrains. Without it the operator manages the role and the URL is theirs
+ * to write, except that it may not sign in as the owner.
  */
 function checkedRuntimeUrl() {
   const supplied = process.env.DATABASE_URL_RUNTIME;
-  const password = process.env.RUNTIME_DB_PASSWORD;
-  if (
-    supplied === undefined ||
-    supplied === "" ||
-    password === undefined ||
-    password === ""
-  ) {
+  if (supplied === undefined || supplied === "") {
     return;
   }
+  const password = process.env.RUNTIME_DB_PASSWORD;
+  const constrained = password !== undefined && password !== "";
   try {
     const parsed = parseUrl(supplied, "DATABASE_URL_RUNTIME");
-    // pg-connection-string lets a user query parameter override the URL's
-    // username, so the role checked below would not be the one that signs in.
     if (parsed.searchParams.has("user")) {
       fail(
         "DATABASE_URL_RUNTIME carries a user query parameter, which " +
@@ -270,6 +269,16 @@ function checkedRuntimeUrl() {
       );
     }
     const user = decodeURIComponent(parsed.username);
+    if (!constrained) {
+      if (user === ownerUser()) {
+        fail(
+          "DATABASE_URL_RUNTIME signs in as the schema owner. The application " +
+            "needs a role of its own: the owner can disable the triggers that " +
+            "keep the member register and the audit log append-only.",
+        );
+      }
+      return;
+    }
     if (user !== runtimeRole()) {
       fail(
         "DATABASE_URL_RUNTIME signs in as a role other than the one " +
