@@ -4,6 +4,7 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { I18nService } from "../i18n/i18n.service";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
+import { DataPortabilityRateLimiter } from "./data-portability-rate-limit";
 import {
   toDataPortabilityExport,
   type DataPortabilityExport,
@@ -24,6 +25,9 @@ import {
  * missing check hands one resident another's file, and the safest version of
  * that check is not having the parameter.
  *
+ * Rate-limited per person and over the whole instance, because gathering the
+ * report holds a connection for the length of its transaction.
+ *
  * A POST although it reads. It writes an audit entry, and the response carries
  * the person's own contact details - the same two reasons the board's access
  * report gives for not being a GET.
@@ -34,6 +38,7 @@ export class DataPortabilityController {
   constructor(
     private readonly reports: DataSubjectReportService,
     private readonly i18n: I18nService,
+    private readonly limiter: DataPortabilityRateLimiter,
   ) {}
 
   @Post("mine")
@@ -45,6 +50,13 @@ export class DataPortabilityController {
     if (principal === undefined) {
       throw new Error("The authorization guard did not attach a principal.");
     }
+
+    /*
+     * Before the report is gathered, which holds a database connection for as
+     * long as the transaction runs. A refused request costs nothing but this
+     * check.
+     */
+    this.limiter.take(principal.personId);
 
     const report = await this.reports.portable(principal.personId);
     /*

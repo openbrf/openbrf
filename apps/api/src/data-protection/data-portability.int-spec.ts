@@ -16,6 +16,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { SCOPE_NOTE_KEY, type DataPortabilityExport } from "./data-portability";
+import { EXPORTS_PER_MEMBER_PER_MINUTE } from "./data-portability-rate-limit";
 import { PORTABLE_SECTIONS } from "./section-processing";
 
 /**
@@ -48,7 +49,13 @@ const neighbour = {
   email: `dpo-neighbour-${suffix}@exempel.se`,
 };
 
-const personIds = [resident.personId, neighbour.personId];
+/** Spends a whole budget in the test of the limit, and is used for nothing else. */
+const hammerer = {
+  personId: `dpo-hammerer-${suffix}`,
+  email: `dpo-hammerer-${suffix}@exempel.se`,
+};
+
+const personIds = [resident.personId, neighbour.personId, hammerer.personId];
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -94,6 +101,24 @@ async function signIn(email: string): Promise<string> {
 
 let residentCookie: string;
 let neighbourCookie: string;
+let hammererCookie: string;
+
+/**
+ * The resident's export, asked for once however many tests read it.
+ *
+ * Every ask spends from a per-member budget, so a suite that asked once per
+ * assertion would meet the limit it is not testing. The file is the same each
+ * time, and what each test checks about it is separate.
+ */
+let residentExport: ReturnType<typeof inject> | undefined;
+function exportAsResident() {
+  residentExport ??= inject({
+    method: "POST",
+    url: "/api/data-portability/mine",
+    headers: { cookie: residentCookie },
+  });
+  return residentExport;
+}
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -153,6 +178,14 @@ beforeAll(async () => {
     },
   });
 
+  await prisma.person.create({
+    data: {
+      id: hammerer.personId,
+      firstName: "Hampus",
+      lastName: `Portabel${suffix}`,
+    },
+  });
+
   await prisma.residency.createMany({
     data: personIds.map((personId) => ({
       personId,
@@ -163,7 +196,7 @@ beforeAll(async () => {
   });
 
   const auth = app.get(AuthService);
-  for (const actor of [resident, neighbour]) {
+  for (const actor of [resident, neighbour, hammerer]) {
     await auth.createAccountForPerson({
       personId: actor.personId,
       email: actor.email,
@@ -174,6 +207,7 @@ beforeAll(async () => {
 
   residentCookie = await signIn(resident.email);
   neighbourCookie = await signIn(neighbour.email);
+  hammererCookie = await signIn(hammerer.email);
 }, 180_000);
 
 async function cleanUp(
@@ -235,11 +269,7 @@ describe("exporting your own data", () => {
      * route where a missing check hands one resident another's file, and the
      * safest version of that check is not having the parameter.
      */
-    const own = await inject({
-      method: "POST",
-      url: "/api/data-portability/mine",
-      headers: { cookie: residentCookie },
-    });
+    const own = await exportAsResident();
     const theirs = await inject({
       method: "POST",
       url: "/api/data-portability/mine",
@@ -259,22 +289,14 @@ describe("exporting your own data", () => {
     // Confidential apartment register content under BRL 9 kap., held on a legal
     // obligation rather than on consent or contract. It leaves the register
     // only through the audited reveal, never into a file a browser downloads.
-    const response = await inject({
-      method: "POST",
-      url: "/api/data-portability/mine",
-      headers: { cookie: residentCookie },
-    });
+    const response = await exportAsResident();
 
     expect(response.body).not.toContain(runIdentityNumber(suffix));
     expect(response.body).not.toContain("personalIdentityNumber");
   });
 
   it("says in the file itself why it is a file rather than a transfer", async () => {
-    const response = await inject({
-      method: "POST",
-      url: "/api/data-portability/mine",
-      headers: { cookie: residentCookie },
-    });
+    const response = await exportAsResident();
 
     const exported = response.json<DataPortabilityExport>();
     // The article citation is a legal identifier and reads the same in both
@@ -302,11 +324,7 @@ describe("exporting your own data", () => {
      * access report. Asserted on what the route sends, so a section added to
      * the projection past its type fails here too.
      */
-    const response = await inject({
-      method: "POST",
-      url: "/api/data-portability/mine",
-      headers: { cookie: residentCookie },
-    });
+    const response = await exportAsResident();
 
     expect(
       Object.keys(response.json<Record<string, unknown>>()).filter(
@@ -318,11 +336,7 @@ describe("exporting your own data", () => {
   it("says in the file where everything else is", async () => {
     // In the person's own language, like the sentence about transmission: the
     // file outlives the screen, and names the access report as the rest.
-    const response = await inject({
-      method: "POST",
-      url: "/api/data-portability/mine",
-      headers: { cookie: residentCookie },
-    });
+    const response = await exportAsResident();
 
     const exported = response.json<DataPortabilityExport>();
     expect(exported.about.scope).toBe(
@@ -353,5 +367,64 @@ describe("exporting your own data", () => {
     expect(
       (entry?.context as { sections?: string[] } | null)?.sections,
     ).toEqual([...PORTABLE_SECTIONS]);
+  });
+});
+
+describe("asking for an export too often", () => {
+  const exportAsHammerer = () =>
+    inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie: hammererCookie },
+    });
+
+  it("refuses with a 429 once the member's budget is spent, and says when to retry", async () => {
+    for (let ask = 0; ask < EXPORTS_PER_MEMBER_PER_MINUTE; ask += 1) {
+      expect((await exportAsHammerer()).statusCode).toBe(200);
+    }
+
+    const refused = await exportAsHammerer();
+
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json<{ reason: string }>().reason).toBe(
+      "export-rate-limited",
+    );
+    expect(Number(refused.headers["retry-after"])).toBeGreaterThanOrEqual(1);
+    // Nothing of the file went out with the refusal.
+    expect(refused.body).not.toContain("preferredLocale");
+  });
+
+  it("leaves every other member's budget alone", async () => {
+    // The hammerer has spent theirs by now, whichever order the file runs in.
+    for (let ask = 0; ask <= EXPORTS_PER_MEMBER_PER_MINUTE; ask += 1) {
+      await exportAsHammerer();
+    }
+
+    const neighbours = await inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie: neighbourCookie },
+    });
+
+    expect(neighbours.statusCode).toBe(200);
+  });
+
+  it("writes no audit entry for a refused request", async () => {
+    const entriesBefore = await prisma.auditLogEntry.count({
+      where: {
+        action: "DATA_PORTABILITY_EXPORTED",
+        targetPersonId: hammerer.personId,
+      },
+    });
+    expect((await exportAsHammerer()).statusCode).toBe(429);
+
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          action: "DATA_PORTABILITY_EXPORTED",
+          targetPersonId: hammerer.personId,
+        },
+      }),
+    ).toBe(entriesBefore);
   });
 });
