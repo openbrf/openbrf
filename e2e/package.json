@@ -11,6 +11,7 @@
     "browsers": "playwright install --with-deps chromium"
   },
   "devDependencies": {
+    "@openbrf/shared": "workspace:*",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
