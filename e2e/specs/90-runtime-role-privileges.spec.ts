@@ -147,12 +147,15 @@ const STATUTORY_TABLES = [
 test("the application's role creates a queue and enqueues a job", async () => {
   test.setTimeout(60_000);
 
-  // The application's own configuration: its connection, its schema, and
-  // migration off, because the schema is the owner's to install.
+  // The application's own configuration: its connection, its schema,
+  // migration off, because the schema is the owner's to install, and its pool
+  // of two. The role may hold only the application's connections and three
+  // more, and the application is running beside this test.
   const boss = new PgBoss({
     connectionString: stack.runtimeDatabaseUrl,
     schema: "pgboss",
     migrate: false,
+    max: 2,
     application_name: "openbrf-e2e-privileges",
   });
 

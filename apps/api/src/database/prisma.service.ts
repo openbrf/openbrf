@@ -29,7 +29,12 @@ export class PrismaService
 {
   constructor(@Inject(ENV) env: Env) {
     const connectionString = applicationDatabaseUrl(env);
-    super({ adapter: new PrismaPg({ connectionString }) });
+    super({
+      adapter: new PrismaPg({
+        connectionString,
+        max: env.OPENBRF_DATABASE_POOL_SIZE,
+      }),
+    });
 
     if (
       env.NODE_ENV === "production" &&

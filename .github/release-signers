@@ -1,0 +1,4 @@
+# Who may sign a release tag. .github/workflows/image.yml refuses a tag
+# unless GitHub verifies its signature and the tagger's address is one of
+# these, read from main. One address per line.
+holger@apteo.se
