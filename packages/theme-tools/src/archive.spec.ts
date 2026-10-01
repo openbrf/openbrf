@@ -173,6 +173,22 @@ describe("readThemeArchive refusals", () => {
     );
   });
 
+  it("counts every file record toward the cap, repeated paths included", () => {
+    const records = (count: number): Uint8Array =>
+      rawArchive(
+        Array.from({ length: count }, () =>
+          rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+        ),
+      );
+
+    expect(() => readThemeArchive(records(MAX_ARCHIVE_ENTRIES + 1))).toThrow(
+      `The archive contains more than ${String(MAX_ARCHIVE_ENTRIES)} files.`,
+    );
+    expect([...readThemeArchive(records(MAX_ARCHIVE_ENTRIES)).keys()]).toEqual([
+      "theme.json",
+    ]);
+  });
+
   it("refuses something that is not a gzip archive", () => {
     expect(() => readThemeArchive(encoder.encode("not an archive"))).toThrow(
       /not a gzip archive/,
