@@ -25,8 +25,9 @@ import {
  * missing check hands one resident another's file, and the safest version of
  * that check is not having the parameter.
  *
- * Rate-limited per person and over the whole instance, because gathering the
- * report holds a connection for the length of its transaction.
+ * Rate-limited per person and over the whole instance, and only a few prepared
+ * at once, because gathering the report holds a connection for the length of
+ * its transaction.
  *
  * A POST although it reads. It writes an audit entry, and the response carries
  * the person's own contact details - the same two reasons the board's access
@@ -52,13 +53,13 @@ export class DataPortabilityController {
     }
 
     /*
-     * Before the report is gathered, which holds a database connection for as
-     * long as the transaction runs. A refused request costs nothing but this
-     * check.
+     * Around the gathering only, which holds a database connection for as long
+     * as the transaction runs; the projection below needs none. A refused
+     * request costs nothing but the check.
      */
-    this.limiter.take(principal.personId);
-
-    const report = await this.reports.portable(principal.personId);
+    const report = await this.limiter.run(principal.personId, () =>
+      this.reports.portable(principal.personId),
+    );
     /*
      * The recipient's own language and not the request's. The file is theirs
      * and outlives the screen that produced it, and the locale the register
