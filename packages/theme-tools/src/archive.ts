@@ -30,6 +30,22 @@ export const MAX_ARCHIVE_ENTRIES = 200;
 export const MAX_ENTRY_BYTES = 4 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 
+/**
+ * Ceiling on the size of the unzipped tarball, handed to the decompressor so a
+ * small gzip cannot inflate past it before any entry is looked at.
+ *
+ * It is the most a package within the limits above can occupy: the content, a
+ * header block and up to a block's worth of padding for each of the allowed
+ * entries, the two zero blocks that end the archive, and one record of the
+ * zero padding `tar` writes after them.
+ */
+const TAR_RECORD_SIZE = 20 * BLOCK_SIZE;
+export const MAX_TARBALL_BYTES =
+  MAX_TOTAL_BYTES +
+  MAX_ARCHIVE_ENTRIES * (2 * BLOCK_SIZE - 1) +
+  2 * BLOCK_SIZE +
+  TAR_RECORD_SIZE;
+
 export class ThemeArchiveError extends Error {
   constructor(message: string) {
     super(message);
@@ -135,8 +151,14 @@ function stripCommonRoot(paths: readonly string[]): string | null {
 export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
   let tarball: Buffer;
   try {
-    tarball = gunzipSync(archive);
+    tarball = gunzipSync(archive, { maxOutputLength: MAX_TARBALL_BYTES });
   } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
+      throw new ThemeArchiveError(
+        `The package unpacks to more than ${String(MAX_TARBALL_BYTES)} bytes, ` +
+          "more than a theme package may hold. It was not unpacked.",
+      );
+    }
     throw new ThemeArchiveError(
       `The package is not a gzip archive: ${(cause as Error).message}`,
     );

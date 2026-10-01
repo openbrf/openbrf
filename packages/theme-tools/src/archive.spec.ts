@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_ARCHIVE_ENTRIES,
+  MAX_TARBALL_BYTES,
   readThemeArchive,
   ThemeArchiveError,
   writeThemeArchive,
@@ -187,6 +188,15 @@ describe("readThemeArchive refusals", () => {
     expect([...readThemeArchive(records(MAX_ARCHIVE_ENTRIES)).keys()]).toEqual([
       "theme.json",
     ]);
+  });
+
+  it("refuses a small gzip that inflates past the cap", () => {
+    const bomb = new Uint8Array(
+      gzipSync(new Uint8Array(MAX_TARBALL_BYTES + 1)),
+    );
+    expect(bomb.length).toBeLessThan(MAX_TARBALL_BYTES / 100);
+    expect(() => readThemeArchive(bomb)).toThrow(ThemeArchiveError);
+    expect(() => readThemeArchive(bomb)).toThrow(/unpacks to more than/);
   });
 
   it("refuses something that is not a gzip archive", () => {
