@@ -3,6 +3,12 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import {
+  addLocalDays,
+  formatLocalDay,
+  type LocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
@@ -93,29 +99,18 @@ const personIds = [
  * next month and the due date can be written out below; what a 31 January
  * request is due on is `data-subject-request.spec.ts`.
  */
-const requestedDay = (() => {
-  const day = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-  return {
-    year: day.getUTCFullYear(),
-    month: day.getUTCMonth() + 1,
-    date: Math.min(day.getUTCDate(), 28),
-  };
-})();
+const twoDaysAgo = addLocalDays(localDayOf(new Date()), -2);
+const requestedDay: LocalDay = {
+  ...twoDaysAgo,
+  day: Math.min(twoDaysAgo.day, 28),
+};
+const dueDay: LocalDay =
+  requestedDay.month === 12
+    ? { year: requestedDay.year + 1, month: 1, day: requestedDay.day }
+    : { ...requestedDay, month: requestedDay.month + 1 };
 
-function calendarDate(year: number, month: number, date: number): string {
-  return `${String(year)}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
-}
-
-const requestedOn = calendarDate(
-  requestedDay.year,
-  requestedDay.month,
-  requestedDay.date,
-);
-const monthLater = calendarDate(
-  requestedDay.month === 12 ? requestedDay.year + 1 : requestedDay.year,
-  requestedDay.month === 12 ? 1 : requestedDay.month + 1,
-  requestedDay.date,
-);
+const requestedOn = formatLocalDay(requestedDay);
+const monthLater = formatLocalDay(dueDay);
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -475,11 +470,13 @@ describe("a request about a name in an issue's description", () => {
       issueId,
     });
 
-    expect(view.issueId).toBe(issueId);
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+    try {
+      expect(view.issueId).toBe(issueId);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 
   it("refuses an issue on an objection", async () => {
@@ -511,14 +508,16 @@ describe("deciding an erasure", () => {
       erasureGround: "NO_LONGER_NECESSARY",
     });
 
-    const response = await decide(view.requestId, { decision: "GRANTED" });
+    try {
+      const response = await decide(view.requestId, { decision: "GRANTED" });
 
-    expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("erasure-exception-required");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(400);
+      expect(reasonOf(response)).toBe("erasure-exception-required");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 
   it("refuses a grant that also names an exception", async () => {
@@ -529,17 +528,19 @@ describe("deciding an erasure", () => {
       erasureGround: "NO_LONGER_NECESSARY",
     });
 
-    const response = await decide(view.requestId, {
-      decision: "GRANTED",
-      erasureException: "LEGAL_OBLIGATION_TO_KEEP",
-    });
+    try {
+      const response = await decide(view.requestId, {
+        decision: "GRANTED",
+        erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+      });
 
-    expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("exception-inconsistent");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(400);
+      expect(reasonOf(response)).toBe("exception-inconsistent");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 
   it("records a refusal with the exception and the board's reasons", async () => {
@@ -548,25 +549,27 @@ describe("deciding an erasure", () => {
       erasureGround: "NO_LONGER_NECESSARY",
     });
 
-    const response = await decide(view.requestId, {
-      decision: "REFUSED",
-      erasureException: "LEGAL_OBLIGATION_TO_KEEP",
-      ground: "Medlemsforteckningen far inte gallras.",
-    });
+    try {
+      const response = await decide(view.requestId, {
+        decision: "REFUSED",
+        erasureException: "LEGAL_OBLIGATION_TO_KEEP",
+        ground: "Medlemsforteckningen far inte gallras.",
+      });
 
-    expect(response.statusCode).toBe(200);
-    const decided = response.json<DataSubjectRequestView>();
-    expect(decided.erasureException).toBe("LEGAL_OBLIGATION_TO_KEEP");
-    // art. 12(4): a refusal carries its reasons, on the row where they can be
-    // read and corrected rather than in the append-only log.
-    expect(decided.decisionGround).toBe(
-      "Medlemsforteckningen far inte gallras.",
-    );
-    expect(decided.state).toBe("refused");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(200);
+      const decided = response.json<DataSubjectRequestView>();
+      expect(decided.erasureException).toBe("LEGAL_OBLIGATION_TO_KEEP");
+      // art. 12(4): a refusal carries its reasons, on the row where they can be
+      // read and corrected rather than in the append-only log.
+      expect(decided.decisionGround).toBe(
+        "Medlemsforteckningen far inte gallras.",
+      );
+      expect(decided.state).toBe("refused");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 
   it("grants an erasure for somebody with nothing keeping them", async () => {
@@ -575,17 +578,19 @@ describe("deciding an erasure", () => {
       erasureGround: "NO_LONGER_NECESSARY",
     });
 
-    const response = await decide(view.requestId, {
-      decision: "GRANTED",
-      erasureException: "NONE",
-    });
+    try {
+      const response = await decide(view.requestId, {
+        decision: "GRANTED",
+        erasureException: "NONE",
+      });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json<DataSubjectRequestView>().state).toBe("granted");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<DataSubjectRequestView>().state).toBe("granted");
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 
   it("grants an erasure for somebody who never held a residency", async () => {
@@ -596,16 +601,18 @@ describe("deciding an erasure", () => {
       erasureGround: "NO_LONGER_NECESSARY",
     });
 
-    const response = await decide(view.requestId, {
-      decision: "GRANTED",
-      erasureException: "NONE",
-    });
+    try {
+      const response = await decide(view.requestId, {
+        decision: "GRANTED",
+        erasureException: "NONE",
+      });
 
-    expect(response.statusCode).toBe(200);
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+      expect(response.statusCode).toBe(200);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 
   describe("the grants the platform declines to record", () => {
@@ -632,17 +639,19 @@ describe("deciding an erasure", () => {
         erasureGround: "NO_LONGER_NECESSARY",
       });
 
-      const response = await decide(view.requestId, {
-        decision: "GRANTED",
-        erasureException: "NONE",
-      });
+      try {
+        const response = await decide(view.requestId, {
+          decision: "GRANTED",
+          erasureException: "NONE",
+        });
 
-      expect(response.statusCode).toBe(409);
-      expect(reasonOf(response)).toBe(reason);
-
-      await prisma.dataSubjectRequest.deleteMany({
-        where: { id: view.requestId },
-      });
+        expect(response.statusCode).toBe(409);
+        expect(reasonOf(response)).toBe(reason);
+      } finally {
+        await prisma.dataSubjectRequest.deleteMany({
+          where: { id: view.requestId },
+        });
+      }
     });
   });
 });
@@ -770,7 +779,8 @@ describe("a person who moves back in", () => {
       personId: subjects.returning,
       apartmentId,
       role: "RESIDENT",
-      movedInOn: "2026-09-01",
+      // The day of the request, so the move-in does not come before it.
+      movedInOn: requestedOn,
     });
 
     const row = await prisma.dataSubjectRequest.findUniqueOrThrow({
