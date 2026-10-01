@@ -282,108 +282,118 @@ export function FeesScreen(): ReactElement {
               void onRecord();
             }}
           >
-            <label className={LABEL}>
-              {t("fees.record.apartment")}
-              <select
-                value={apartmentId}
-                onChange={(event) => {
-                  setApartmentId(event.target.value);
-                }}
-                className={FIELD}
-              >
-                <option value="">{t("fees.record.chooseApartment")}</option>
-                {(register?.apartments ?? []).map((apartment) => (
-                  <option
-                    key={apartment.apartmentId}
-                    value={apartment.apartmentId}
-                  >
-                    {apartment.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className={LABEL}>
-              {t("fees.record.kind")}
-              <select
-                value={kind}
-                onChange={(event) => {
-                  setKind(event.target.value as FeeKind);
-                }}
-                className={FIELD}
-              >
-                {KINDS.map((value) => (
-                  <option key={value} value={value}>
-                    {t(KIND_LABEL[value])}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className={LABEL}>
-              {t("fees.record.appliesFrom")}
-              <input
-                type="date"
-                value={appliesFrom}
-                onChange={(event) => {
-                  setAppliesFrom(event.target.value);
-                }}
-                className={FIELD_DATA}
-              />
-            </label>
-
-            <label className={LABEL}>
-              {t("fees.record.monthlyAmount")}
-              <input
-                type="text"
-                inputMode="decimal"
-                value={monthlyAmount}
-                onChange={(event) => {
-                  setMonthlyAmount(event.target.value);
-                }}
-                className={FIELD_DATA}
-              />
-            </label>
-
-            <label className={LABEL}>
-              {t("fees.record.vatTreatment")}
-              <select
-                value={vatTreatment}
-                onChange={(event) => {
-                  setVatTreatment(event.target.value as FeeVatTreatment);
-                }}
-                className={FIELD}
-              >
-                {(["EXEMPT", "RATE"] as const).map((value) => (
-                  <option key={value} value={value}>
-                    {t(VAT_LABEL[value])}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {vatTreatment === "RATE" ? (
+            {/*
+              Locked while the request runs. The amount is cleared once the
+              rate is stored, so what is typed in the meantime would be lost
+              without a word. `contents` keeps the fields in the form's own
+              flex row.
+            */}
+            <fieldset className="contents" disabled={recording}>
               <label className={LABEL}>
-                {t("fees.record.vatRatePercent")}
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={vatRatePercent}
+                {t("fees.record.apartment")}
+                <select
+                  value={apartmentId}
                   onChange={(event) => {
-                    setVatRatePercent(event.target.value);
+                    setApartmentId(event.target.value);
+                  }}
+                  className={FIELD}
+                >
+                  <option value="">{t("fees.record.chooseApartment")}</option>
+                  {(register?.apartments ?? []).map((apartment) => (
+                    <option
+                      key={apartment.apartmentId}
+                      value={apartment.apartmentId}
+                    >
+                      {apartment.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={LABEL}>
+                {t("fees.record.kind")}
+                <select
+                  value={kind}
+                  onChange={(event) => {
+                    setKind(event.target.value as FeeKind);
+                  }}
+                  className={FIELD}
+                >
+                  {KINDS.map((value) => (
+                    <option key={value} value={value}>
+                      {t(KIND_LABEL[value])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={LABEL}>
+                {t("fees.record.appliesFrom")}
+                <input
+                  type="date"
+                  value={appliesFrom}
+                  onChange={(event) => {
+                    setAppliesFrom(event.target.value);
                   }}
                   className={FIELD_DATA}
                 />
               </label>
-            ) : null}
 
-            <button
-              type="submit"
-              className={PRIMARY_BUTTON}
-              disabled={recording || apartmentId === "" || monthlyAmount === ""}
-            >
-              {t("fees.record.submit")}
-            </button>
+              <label className={LABEL}>
+                {t("fees.record.monthlyAmount")}
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={monthlyAmount}
+                  onChange={(event) => {
+                    setMonthlyAmount(event.target.value);
+                  }}
+                  className={FIELD_DATA}
+                />
+              </label>
+
+              <label className={LABEL}>
+                {t("fees.record.vatTreatment")}
+                <select
+                  value={vatTreatment}
+                  onChange={(event) => {
+                    setVatTreatment(event.target.value as FeeVatTreatment);
+                  }}
+                  className={FIELD}
+                >
+                  {(["EXEMPT", "RATE"] as const).map((value) => (
+                    <option key={value} value={value}>
+                      {t(VAT_LABEL[value])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {vatTreatment === "RATE" ? (
+                <label className={LABEL}>
+                  {t("fees.record.vatRatePercent")}
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={vatRatePercent}
+                    onChange={(event) => {
+                      setVatRatePercent(event.target.value);
+                    }}
+                    className={FIELD_DATA}
+                  />
+                </label>
+              ) : null}
+
+              <button
+                type="submit"
+                className={PRIMARY_BUTTON}
+                disabled={
+                  recording || apartmentId === "" || monthlyAmount === ""
+                }
+              >
+                {t("fees.record.submit")}
+              </button>
+            </fieldset>
           </form>
           <p className={HINT}>{t("fees.record.forwardDated")}</p>
         </section>

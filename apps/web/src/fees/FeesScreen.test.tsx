@@ -346,6 +346,50 @@ describe("recording a fee", () => {
     });
   });
 
+  it("locks the form while the rate is recorded, so nothing typed is lost", async () => {
+    const user = userEvent.setup();
+    let settle: (value: unknown) => void = () => undefined;
+    recordFee.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    const amount = screen.getByRole("textbox", {
+      name: "Belopp per månad i kronor",
+    });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Lägenhet" }),
+      "apartment-1",
+    );
+    await user.type(amount, "3600.00");
+    expect(amount.matches(":disabled")).toBe(false);
+
+    await user.click(
+      screen.getByRole("button", { name: "Registrera avgiften" }),
+    );
+
+    // The request is in flight: the field refuses input rather than taking it
+    // and dropping it once the rate is stored.
+    await waitFor(() => {
+      expect(amount.matches(":disabled")).toBe(true);
+    });
+    expect(
+      screen.getByRole("combobox", { name: "Lägenhet" }).matches(":disabled"),
+    ).toBe(true);
+    await user.type(amount, "9");
+    expect((amount as HTMLInputElement).value).toBe("3600.00");
+
+    settle({ ok: true, value: REGISTER.apartments[0]?.fees[0] });
+
+    await waitFor(() => {
+      expect(amount.matches(":disabled")).toBe(false);
+    });
+    expect((amount as HTMLInputElement).value).toBe("");
+  });
+
   it("puts the refusal on the screen rather than swallowing it", async () => {
     const user = userEvent.setup();
     recordFee.mockResolvedValue({
