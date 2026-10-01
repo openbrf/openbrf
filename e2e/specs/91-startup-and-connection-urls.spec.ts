@@ -508,10 +508,13 @@ test("the entrypoint refuses a runtime URL that signs in as the owner when the o
   test.setTimeout(120_000);
 
   // Without RUNTIME_DB_PASSWORD the role is the operator's, but the application
-  // still must not connect as the schema owner. Nothing listens on port 1.
+  // still must not connect as the schema owner. The app container already has
+  // RUNTIME_DB_PASSWORD from the stack's env file, so it is cleared here to
+  // take the managed path. Nothing listens on port 1.
   const { status, output } = runInAppContainer(
     ["/usr/local/bin/openbrf-entrypoint", "true"],
     {
+      RUNTIME_DB_PASSWORD: "",
       DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
       DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
     },
@@ -530,10 +533,12 @@ test("the entrypoint refuses a user query parameter on a runtime URL the operato
   test.setTimeout(120_000);
 
   // The parameter overrides the URL's username in every mode, so a managed
-  // role's URL could sign in as the owner through it just the same.
+  // role's URL could sign in as the owner through it just the same. The
+  // password is cleared so this runs in managed mode, as its title says.
   const { status, output } = runInAppContainer(
     ["/usr/local/bin/openbrf-entrypoint", "true"],
     {
+      RUNTIME_DB_PASSWORD: "",
       DATABASE_URL_RUNTIME: `postgresql://role_a:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
       DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
     },
