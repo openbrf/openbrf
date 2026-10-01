@@ -85,6 +85,38 @@ const personIds = [
   ...Object.values(subjects),
 ];
 
+/**
+ * The day the requests here were made: a few days before the suite runs, so
+ * each one is still inside its art. 12(3) month and reads `open`, whatever the
+ * date. Two days back is never in the future on the association's calendar.
+ * Never later than the 28th, so one calendar month on is the same day of the
+ * next month and the due date can be written out below; what a 31 January
+ * request is due on is `data-subject-request.spec.ts`.
+ */
+const requestedDay = (() => {
+  const day = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  return {
+    year: day.getUTCFullYear(),
+    month: day.getUTCMonth() + 1,
+    date: Math.min(day.getUTCDate(), 28),
+  };
+})();
+
+function calendarDate(year: number, month: number, date: number): string {
+  return `${String(year)}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+}
+
+const requestedOn = calendarDate(
+  requestedDay.year,
+  requestedDay.month,
+  requestedDay.date,
+);
+const monthLater = calendarDate(
+  requestedDay.month === 12 ? requestedDay.year + 1 : requestedDay.year,
+  requestedDay.month === 12 ? 1 : requestedDay.month + 1,
+  requestedDay.date,
+);
+
 let ipCounter = 0;
 function nextForwardedFor(): string {
   ipCounter += 1;
@@ -140,7 +172,7 @@ function record(
     method: "POST",
     url: `/api/data-subject-requests/persons/${personId}`,
     payload: {
-      requestedOn: "2026-09-01",
+      requestedOn,
       ground: "Jag ber om det.",
       ...payload,
     },
@@ -379,7 +411,7 @@ describe("who may record a request", () => {
     const response = await inject({
       method: "POST",
       url: `/api/data-subject-requests/persons/${subjects.gone}`,
-      payload: { kind: "OBJECTION", requestedOn: "2026-09-01", ground: "Nej." },
+      payload: { kind: "OBJECTION", requestedOn, ground: "Nej." },
     });
 
     expect(response.statusCode).toBe(401);
@@ -420,14 +452,18 @@ describe("the ground a request rests on", () => {
       erasureGround: "CONSENT_WITHDRAWN",
     });
 
-    expect(view.erasureGround).toBe("CONSENT_WITHDRAWN");
-    // Derived and not stored: one calendar month from the request (art. 12(3)).
-    expect(view.dueOn).toBe("2026-10-01");
-    expect(view.state).toBe("open");
-
-    await prisma.dataSubjectRequest.deleteMany({
-      where: { id: view.requestId },
-    });
+    try {
+      expect(view.erasureGround).toBe("CONSENT_WITHDRAWN");
+      expect(view.requestedOn).toBe(requestedOn);
+      // Derived and not stored: one calendar month from the request (art. 12(3)).
+      expect(view.dueOn).toBe(monthLater);
+      expect(view.state).toBe("open");
+    } finally {
+      // An open erasure left behind would turn every later one into a 409.
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: view.requestId },
+      });
+    }
   });
 });
 
