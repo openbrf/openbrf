@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -135,6 +135,11 @@ export function FeesScreen(): ReactElement {
   const [vatTreatment, setVatTreatment] = useState<FeeVatTreatment>("EXEMPT");
   const [vatRatePercent, setVatRatePercent] = useState("");
   const [recording, setRecording] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
+  // The control that had focus when the form was locked. A disabled control
+  // drops focus to the page, so it is given back once the form is open again.
+  const focusedBeforeLock = useRef<HTMLElement | null>(null);
 
   const [yearlyTotal, setYearlyTotal] = useState("");
   const [aidOpen, setAidOpen] = useState(false);
@@ -172,6 +177,21 @@ export function FeesScreen(): ReactElement {
     };
   }, [on, reload]);
 
+  useEffect(() => {
+    if (recording) {
+      return;
+    }
+    const target = focusedBeforeLock.current;
+    focusedBeforeLock.current = null;
+    if (target === null) {
+      return;
+    }
+    // The submit button stays disabled after a success, with the amount
+    // cleared; the amount field is where the board types next.
+    const stillUsable = !target.matches(":disabled");
+    (stillUsable ? target : amountRef.current)?.focus();
+  }, [recording]);
+
   const suggestions = useMemo(() => {
     if (!aidOpen || register === null) {
       return null;
@@ -189,6 +209,11 @@ export function FeesScreen(): ReactElement {
 
   const onRecord = useCallback(async (): Promise<void> => {
     setRefusal(null);
+    const focused = document.activeElement;
+    focusedBeforeLock.current =
+      focused instanceof HTMLElement && formRef.current?.contains(focused)
+        ? focused
+        : null;
     setRecording(true);
     const result = await recordFee({
       apartmentId,
@@ -276,6 +301,7 @@ export function FeesScreen(): ReactElement {
           <h2 className="text-title">{t("fees.record.title")}</h2>
           <p className={HINT}>{t("fees.record.description")}</p>
           <form
+            ref={formRef}
             className="flex flex-wrap items-end gap-3"
             onSubmit={(event) => {
               event.preventDefault();
@@ -342,6 +368,7 @@ export function FeesScreen(): ReactElement {
               <label className={LABEL}>
                 {t("fees.record.monthlyAmount")}
                 <input
+                  ref={amountRef}
                   type="text"
                   inputMode="decimal"
                   value={monthlyAmount}
@@ -387,9 +414,7 @@ export function FeesScreen(): ReactElement {
               <button
                 type="submit"
                 className={PRIMARY_BUTTON}
-                disabled={
-                  recording || apartmentId === "" || monthlyAmount === ""
-                }
+                disabled={apartmentId === "" || monthlyAmount === ""}
               >
                 {t("fees.record.submit")}
               </button>

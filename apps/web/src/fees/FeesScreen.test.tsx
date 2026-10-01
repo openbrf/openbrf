@@ -390,6 +390,85 @@ describe("recording a fee", () => {
     expect((amount as HTMLInputElement).value).toBe("");
   });
 
+  it.each([
+    [
+      "once the rate is stored",
+      { ok: true, value: REGISTER.apartments[0]?.fees[0] },
+    ],
+    [
+      "when the rate is refused",
+      {
+        ok: false,
+        failure: { status: 409, reason: "fee-already-recorded-later" },
+      },
+    ],
+  ])(
+    "keeps focus in the amount field after Enter, %s",
+    async (_case, outcome) => {
+      const user = userEvent.setup();
+      let settle: (value: unknown) => void = () => undefined;
+      recordFee.mockReturnValue(
+        new Promise((resolve) => {
+          settle = resolve;
+        }),
+      );
+      render(<FeesScreen />);
+      await screen.findByText(/Avgiftsregister - gäller/u);
+
+      const amount = screen.getByRole("textbox", {
+        name: "Belopp per månad i kronor",
+      });
+      await user.selectOptions(
+        screen.getByRole("combobox", { name: "Lägenhet" }),
+        "apartment-1",
+      );
+      await user.type(amount, "3600.00{Enter}");
+
+      await waitFor(() => {
+        expect(amount.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(amount, "focus");
+
+      settle(outcome);
+
+      await waitFor(() => {
+        expect(amount.matches(":disabled")).toBe(false);
+      });
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(amount);
+    },
+  );
+
+  it("moves focus to the amount field when the submit button was the one pressed", async () => {
+    const user = userEvent.setup();
+    recordFee.mockResolvedValue({
+      ok: true,
+      value: REGISTER.apartments[0]?.fees[0],
+    });
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    const amount = screen.getByRole("textbox", {
+      name: "Belopp per månad i kronor",
+    });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Lägenhet" }),
+      "apartment-1",
+    );
+    await user.type(amount, "3600.00");
+    await user.click(
+      screen.getByRole("button", { name: "Registrera avgiften" }),
+    );
+
+    await waitFor(() => {
+      expect((amount as HTMLInputElement).value).toBe("");
+    });
+    expect(document.activeElement).toBe(amount);
+  });
+
   it("puts the refusal on the screen rather than swallowing it", async () => {
     const user = userEvent.setup();
     recordFee.mockResolvedValue({
