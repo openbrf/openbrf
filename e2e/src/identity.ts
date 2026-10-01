@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { isValidPersonalIdentityNumber } from "@openbrf/shared";
+import { testPersonalIdentityNumber } from "@openbrf/shared/testing";
 
 /**
  * The one convention for a person a spec makes for itself.
@@ -59,35 +59,17 @@ export function uniqueSurname(name: string): string {
  * else, so a file carrying a number an earlier run wrote previews that row as
  * an update of the person the earlier run created rather than as a new one.
  *
- * The seed tells two people of one run apart; the run is mixed in here. The
- * birth date falls in 1940 to 1979 on days 1 to 28, which is a real date in
- * every month and leaves the fixed numbers other specs write (1985, 1990) out
- * of reach. The birth number runs from 001 to 999. The check digit is found by
- * asking the validator the register itself uses rather than by computing Luhn
- * a second time, so the number is exactly as valid as the import requires.
+ * The seed tells two people of one run apart; the run is mixed in here, and
+ * the hash turns both into a draw. What the number looks like - the years it is
+ * drawn from, which keep it clear of every fixed number in the repository - is
+ * decided by `testPersonalIdentityNumber` in `@openbrf/shared/testing`, the
+ * same generator the API's integration suites use.
  *
- * Written with the century, so the import never has to infer one.
+ * Written with the century, so the import never has to infer one, and with the
+ * hyphen a person typing it into a spreadsheet would use.
  */
 export function uniquePersonalIdentityNumber(seed: string): string {
   const hash = createHash("sha256").update(`${seed}-${RUN_ID}`).digest();
-  const draw = hash.readUInt32BE(0);
-
-  const year = 1940 + (draw % 40);
-  const month = 1 + (Math.floor(draw / 40) % 12);
-  const day = 1 + (Math.floor(draw / 480) % 28);
-  const birthNumber = 1 + (Math.floor(draw / 13_440) % 999);
-
-  const birthDate =
-    `${String(year)}` +
-    `${String(month).padStart(2, "0")}` +
-    `${String(day).padStart(2, "0")}`;
-  const serial = String(birthNumber).padStart(3, "0");
-
-  for (let checkDigit = 0; checkDigit < 10; checkDigit += 1) {
-    const candidate = `${birthDate}-${serial}${String(checkDigit)}`;
-    if (isValidPersonalIdentityNumber(candidate)) {
-      return candidate;
-    }
-  }
-  throw new Error(`No check digit completes ${birthDate}-${serial}.`);
+  const number = testPersonalIdentityNumber(hash.readUInt32BE(0));
+  return `${number.slice(0, 8)}-${number.slice(8)}`;
 }

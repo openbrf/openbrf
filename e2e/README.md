@@ -35,10 +35,13 @@ While writing a spec:
   `03-invitations` fails on a reused instance too, and has to: an invitation
   activates an account for a person who has none, and the two it invites got
   theirs on the run before. The rest re-runs without colliding, because a
-  person a spec makes for itself takes their name, email address and personal
-  identity number from the run that made them (`src/identity.ts`), and an
-  apartment a spec moves somebody into is claimed for the run that claimed it
-  (`src/apartments.ts`).
+  person a spec makes for itself takes their name and email address from the
+  run that made them (`src/identity.ts`), and an apartment a spec moves
+  somebody into is claimed for the run that claimed it (`src/apartments.ts`).
+  A personal identity number comes from the run only where the spec asks
+  `uniquePersonalIdentityNumber` for it: `06-protected-personal-data` and
+  `09-statutory-registers` still write a fixed one, so each reused run stores
+  another person holding the same number.
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
