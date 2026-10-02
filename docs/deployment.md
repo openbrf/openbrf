@@ -416,10 +416,12 @@ whatever a client sends: the header identifies the client for rate limiting on
 the authentication endpoints and on the forms an anonymous visitor can submit,
 and a client that can set it can spoof its way around both.
 
-The limits on a member exporting their own data - three a minute each, twelve a
-minute and three at once for the whole instance - are counted in the memory of
-the application process, so running more than one application container for an
-instance multiplies every one of them by the number of containers.
+The limits on a member exporting their own data - three a minute each and
+twelve a minute for the whole instance - and the three reports the instance
+gathers at once, shared between those exports and the board's data subject
+access reports, are counted in the memory of the application process, so
+running more than one application container for an instance multiplies every
+one of them by the number of containers.
 
 ## The data volume
 
