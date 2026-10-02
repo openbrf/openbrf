@@ -22,7 +22,10 @@ limits.
   apart in a long file.
 - An uploaded file is refused while it is being read once it passes 5000 rows,
   200 columns or 1000 characters in a cell, and a workbook once it unpacks to
-  more than an import reads. A quotation mark that is never closed is refused
-  instead of turning the rest of the file into one cell.
-- The blind indexes of stored personal identity numbers that the new dating rule
-  reads differently are rewritten in the background after the upgrade.
+  more than an import reads or names a cell it cannot place. Cells that are
+  only formatted, below or beside the list, do not count. A quotation mark that
+  is never closed is refused instead of turning the rest of the file into one
+  cell.
+- The blind indexes of stored personal identity numbers are rewritten in the
+  background after the upgrade, each number dated by the day its person was
+  entered rather than by the day of the upgrade.
