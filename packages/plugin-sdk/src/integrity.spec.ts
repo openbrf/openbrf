@@ -61,6 +61,25 @@ describe("parseSha512", () => {
     expect(parseSha512(`  ${SRI_FORM}\n`)).toEqual(DIGEST);
   });
 
+  it("accepts a digest whose base64 padding is left off", () => {
+    // Buffer reads it, and a publisher who trims the "==" has not made the
+    // digest any less theirs.
+    expect(SRI_FORM.endsWith("==")).toBe(true);
+    expect(parseSha512(SRI_FORM.slice(0, -2))).toEqual(DIGEST);
+  });
+
+  it("ignores non-zero bits after the last whole byte", () => {
+    // 64 bytes leave four spare bits in the final base64 character. Buffer
+    // discards them, so a spelling that sets them still names the same digest.
+    const body = SRI_FORM.slice("sha512-".length, -2);
+    const last = body.slice(-1);
+    const alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const sloppy = `${body.slice(0, -1)}${alphabet.charAt(alphabet.indexOf(last) + 1)}==`;
+    expect(Buffer.from(sloppy, "base64")).toEqual(Buffer.from(DIGEST));
+    expect(parseSha512(`sha512-${sloppy}`)).toEqual(DIGEST);
+  });
+
   it("rejects a base64 digest that is not 64 bytes", () => {
     // A truncated digest still matches the shape of the SRI form, so the byte
     // length is the only thing that catches it.

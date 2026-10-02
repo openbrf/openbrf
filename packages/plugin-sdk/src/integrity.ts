@@ -12,7 +12,7 @@
  * itself stays with the caller.
  */
 
-const SRI_PATTERN = /^sha512-([A-Za-z0-9+/]+={0,2})$/;
+const SRI_PATTERN = /^sha512-([A-Za-z0-9+/]+)={0,2}$/;
 const HEX_PATTERN = /^[0-9a-f]{128}$/i;
 
 const SHA512_BYTES = 64;
@@ -83,9 +83,11 @@ function fromHex(hex: string): Uint8Array {
   return bytes;
 }
 
-/** Standard base64; padding is optional, as `Buffer.from(_, "base64")` reads it. */
-function fromBase64(encoded: string): Uint8Array {
-  const characters = encoded.replace(/=+$/, "");
+/**
+ * Standard base64 without its padding, which the caller has already split off.
+ * Stray trailing bits are dropped, as `Buffer.from(_, "base64")` drops them.
+ */
+function fromBase64(characters: string): Uint8Array {
   const bytes = new Uint8Array(Math.floor((characters.length * 6) / 8));
   let accumulator = 0;
   let bits = 0;
