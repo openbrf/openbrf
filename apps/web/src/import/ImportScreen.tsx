@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -100,7 +100,7 @@ export function ImportScreen(): ReactElement {
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
-  const uploadStarted = useRef(false);
+  const [activeImportKnown, setActiveImportKnown] = useState(false);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -114,25 +114,28 @@ export function ImportScreen(): ReactElement {
    * question instead, so what they see is the import rather than an empty form
    * suggesting nothing ever happened.
    *
-   * The answer only counts while the form is still untouched. A board member
-   * who has already sent a file is past the question: their mapping step, or
-   * the upload on its way to it, is replaced by nothing that arrives later.
+   * Until the answer is in, no file can be sent. The answer decides whether
+   * there is a form to fill in at all: while an import is writing the
+   * register, the screen shows that import instead of the upload form, and a
+   * file sent before the answer arrived could become a second write into the
+   * register. Waiting for the answer also means it never lands on top of a
+   * mapping step the board member has already reached. An answer that does
+   * not come through releases the form as well, since a failed request says
+   * nothing about an import.
    */
   useEffect(() => {
     let abandoned = false;
 
     void (async () => {
       const response = await fetchActiveImport();
-      if (
-        abandoned ||
-        uploadStarted.current ||
-        !response.ok ||
-        response.value === null
-      ) {
+      if (abandoned) {
         return;
       }
-      setRun(response.value);
-      setStep("apply");
+      if (response.ok && response.value !== null) {
+        setRun(response.value);
+        setStep("apply");
+      }
+      setActiveImportKnown(true);
     })();
 
     return () => {
@@ -165,7 +168,6 @@ export function ImportScreen(): ReactElement {
   }, [watchedSessionId]);
 
   const upload = useCallback(async (file: File): Promise<void> => {
-    uploadStarted.current = true;
     setBusy(true);
     setFailure(null);
     try {
@@ -288,7 +290,9 @@ export function ImportScreen(): ReactElement {
         </Notice>
       )}
 
-      {step === "upload" ? <UploadStep busy={busy} onUpload={upload} /> : null}
+      {step === "upload" ? (
+        <UploadStep busy={busy} ready={activeImportKnown} onUpload={upload} />
+      ) : null}
 
       {step === "mapping" && session !== null ? (
         <MappingStep
@@ -341,9 +345,12 @@ export function ImportScreen(): ReactElement {
 
 function UploadStep({
   busy,
+  ready,
   onUpload,
 }: {
   busy: boolean;
+  /** False until the screen knows whether an import is already running. */
+  ready: boolean;
   onUpload: (file: File) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
@@ -375,7 +382,7 @@ function UploadStep({
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={busy || file === null}
+          disabled={busy || !ready || file === null}
           onClick={() => {
             if (file !== null) {
               void onUpload(file);

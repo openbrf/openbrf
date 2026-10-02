@@ -512,32 +512,74 @@ describe("coming back to the screen", () => {
     expect(await screen.findByLabelText(/Välj en fil/)).toBeTruthy();
   });
 
-  it("keeps the mapping step when the answer arrives after an upload", async () => {
-    // The question is asked on load, and a quick board member can send a file
-    // before it is answered. The file they sent is what they are working on;
-    // the last import, finished long ago, must not take its place.
-    let answer: (value: unknown) => void = () => undefined;
-    fetchActiveImport.mockReturnValue(
-      new Promise((resolve) => {
-        answer = resolve;
-      }),
-    );
+  /** An answer to "is an import running?" that the test hands over itself. */
+  function lateAnswer(): (value: unknown) => Promise<void> {
+    let resolve: (value: unknown) => void = () => undefined;
+    const pending = new Promise((settle) => {
+      resolve = settle;
+    });
+    fetchActiveImport.mockReturnValue(pending);
+    return async (value) => {
+      await act(async () => {
+        resolve(value);
+        await pending;
+      });
+    };
+  }
+
+  it("takes no file before it knows whether an import is running", async () => {
+    // A reload while an import is writing the register, and a quick board
+    // member who picks a file before the screen has asked. Sending it could
+    // start a second write into the register, so the file waits, and the
+    // import that is running is what the screen shows once it knows.
+    const answer = lateAnswer();
     const session = userEvent.setup();
     render(<ImportScreen />);
 
     await session.upload(screen.getByLabelText(/Välj en fil/), file());
-    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
-    await screen.findByText(/Kolumnerna/);
+    const send = screen.getByRole("button", { name: /Läs filen/ });
+    expect(send).toHaveProperty("disabled", true);
+    await session.click(send);
 
-    answer({ ok: true, value: FINISHED });
-    // Let the answer land before looking, so a screen that still switched
-    // would have done so by now.
-    await act(async () => {
-      await Promise.resolve();
+    await answer({
+      ok: true,
+      value: runView({ status: "APPLYING", rowsDone: 40, rowsTotal: 120 }),
     });
 
-    expect(screen.getByText(/Kolumnerna/)).toBeTruthy();
-    expect(screen.queryByText(/Importen är klar/)).toBeNull();
+    expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
+    expect(uploadImport).not.toHaveBeenCalled();
+  });
+
+  it("takes the file once it knows nothing is running", async () => {
+    // The same wait with nothing at the end of it: the answer is late, and
+    // once it is in, the file goes up as usual.
+    const answer = lateAnswer();
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await answer({ ok: true, value: null });
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByText(/Kolumnerna/)).toBeTruthy();
+    expect(uploadImport).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a file when the question goes unanswered", async () => {
+    // A failed request says nothing about an import. The form is not held
+    // back for good because of it.
+    const answer = lateAnswer();
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await answer({ ok: false, failure: { status: 0, reason: "offline" } });
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+
+    expect(screen.getByRole("button", { name: /Läs filen/ })).toHaveProperty(
+      "disabled",
+      false,
+    );
   });
 });
 
