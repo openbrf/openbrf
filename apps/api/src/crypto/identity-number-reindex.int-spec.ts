@@ -1,5 +1,13 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
@@ -29,6 +37,7 @@ const ids = {
   outdated: `reindex-outdated-${suffix}`,
   unreadable: `reindex-unreadable-${suffix}`,
   current: `reindex-current-${suffix}`,
+  centenarian: `reindex-centenarian-${suffix}`,
 };
 
 /** Twelve digits with a century no living person was born in. */
@@ -39,6 +48,7 @@ async function createPerson(
   number: string,
   index: string,
   version: number,
+  createdAt = new Date("2026-03-01T12:00:00Z"),
 ): Promise<string> {
   const { cipher } = await encryption.encrypt(
     "person.personalIdentityNumber",
@@ -52,6 +62,7 @@ async function createPerson(
       personalIdentityNumberCipher: cipher,
       personalIdentityNumberIndex: index,
       personalIdentityNumberIndexVersion: version,
+      createdAt,
     },
   });
   return cipher;
@@ -70,6 +81,10 @@ beforeAll(() => {
   );
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 afterAll(async () => {
   await prisma.person.deleteMany({ where: { id: { in: Object.values(ids) } } });
   await prisma.$disconnect();
@@ -79,6 +94,10 @@ describe("rewriting outdated identity number indexes", () => {
   it("gives one number one index, however its century was written", async () => {
     // Under the old rule, between 1 January and 15 December 2026 the short
     // form was read as a person born in December 2026.
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: new Date("2026-09-29T12:00:00Z"),
+    });
     expect(
       await encryption.computeIndex(
         "person.personalIdentityNumber",
@@ -150,6 +169,31 @@ describe("rewriting outdated identity number indexes", () => {
       select: { personalIdentityNumberIndex: true },
     });
     expect(current.personalIdentityNumberIndex).toBe("left-alone");
+  }, 60_000);
+
+  it("dates a number by the day the person was entered, not by today", async () => {
+    // Entered in 2000 for a person born in 1925, under the old rule, which
+    // read it correctly then. Read as of today it would be a person born in
+    // 2025.
+    const writtenIn2000 = await encryption.computeIndex(
+      "person.personalIdentityNumber",
+      "19250101-1231",
+    );
+    await createPerson(
+      ids.centenarian,
+      "250101-1231",
+      writtenIn2000 ?? "",
+      1,
+      new Date("2000-06-01T12:00:00Z"),
+    );
+
+    await reindexer.reindex();
+
+    const found = await prisma.person.findMany({
+      where: { personalIdentityNumberIndex: writtenIn2000, lastName: suffix },
+      select: { id: true },
+    });
+    expect(found).toEqual([{ id: ids.centenarian }]);
   }, 60_000);
 
   it("finds nothing left to do the second time", async () => {

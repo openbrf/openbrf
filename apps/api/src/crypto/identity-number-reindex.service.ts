@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { normalizePersonalIdentityNumber } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -28,7 +29,20 @@ import { NORMALIZATION_VERSION } from "./personal-data";
  *
  * It ends by itself: every person it reaches is written at the current
  * version, so the walk runs out, and the next start finds nothing to do.
+ *
+ * A number written without its century is dated by the day it was written,
+ * not by today: `250101-1231` entered in 2000 is a person born in 1925, and
+ * read today it would be one born in 2025. That day is not stored, but the
+ * day the person was entered is no later than it, and nobody is entered
+ * before they were born, so the most recent birth date on or before that day
+ * is the one meant. That is what the number was given when it was written,
+ * unless the old rule then put the birth date in the future, which is what
+ * this corrects. A number written with `+` or with its century reads the same
+ * now as then, and is read as of today.
  */
+
+/** A number written without its century and without a plus. */
+const DATED_BY_ITS_WRITING = /^\d{6}-?\d{4}$/;
 
 /** Queue the walk runs on. */
 export const IDENTITY_NUMBER_REINDEX_QUEUE = "identity-number-reindex";
@@ -82,7 +96,11 @@ export class IdentityNumberReindexService implements OnModuleInit {
           personalIdentityNumberIndexVersion: { lt: NORMALIZATION_VERSION },
           id: { notIn: failed },
         },
-        select: { id: true, personalIdentityNumberCipher: true },
+        select: {
+          id: true,
+          personalIdentityNumberCipher: true,
+          createdAt: true,
+        },
         orderBy: { id: "asc" },
         take: BATCH,
       });
@@ -100,10 +118,17 @@ export class IdentityNumberReindexService implements OnModuleInit {
             "person.personalIdentityNumber",
             cipher,
           );
-          const index = await this.encryption.computeIndex(
-            "person.personalIdentityNumber",
-            number,
-          );
+          const written = DATED_BY_ITS_WRITING.test(number.replace(/\s/g, ""))
+            ? person.createdAt
+            : new Date();
+          const normalized = normalizePersonalIdentityNumber(number, written);
+          const index =
+            normalized === null
+              ? null
+              : await this.encryption.computeIndex(
+                  "person.personalIdentityNumber",
+                  normalized,
+                );
           // Conditional on the ciphertext, so a number replaced while this one
           // was being hashed keeps the index its own writer gave it.
           await this.prisma.person.updateMany({
