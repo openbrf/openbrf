@@ -109,5 +109,32 @@ EXPOSE 3000
 USER node
 WORKDIR /app/apps/api
 
+# What the image says about itself. Declared after everything above, so a new
+# version or revision changes these last layers and reuses every build layer.
+#
+# The revision can only arrive as an argument: .dockerignore keeps .git out of
+# the build context. The workflow that publishes the image
+# (.github/workflows/image.yml) passes both; a local build that passes neither
+# gets empty labels and an instance that names no revision on start.
+ARG OPENBRF_VERSION=""
+ARG OPENBRF_REVISION=""
+ENV OPENBRF_REVISION=${OPENBRF_REVISION}
+LABEL org.opencontainers.image.title="Open BRF" \
+      org.opencontainers.image.source="https://github.com/openbrf/openbrf" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${OPENBRF_VERSION}" \
+      org.opencontainers.image.revision="${OPENBRF_REVISION}"
+
+# The same check docker-compose.prod.yml runs, here as well because an
+# orchestrator that starts the image rather than that file reads the image's.
+# No curl in the image, so the check runs in the runtime already there.
+#
+# The start period is long on purpose. The entrypoint applies migrations, and
+# the application encrypts any file stored before encryption existed (ADR
+# 0015), before the server listens; a check failing meanwhile is not an
+# unhealthy instance.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=6 \
+    CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/openbrf-entrypoint"]
 CMD ["node", "dist/main.js"]

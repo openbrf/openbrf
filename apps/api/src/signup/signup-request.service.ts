@@ -4,6 +4,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { InvitationService } from "../invitations/invitation.service";
+import { lockApartmentResidencies } from "../registers/residency-lock";
 
 export class SignupRequestError extends Error {
   constructor(
@@ -230,6 +231,11 @@ export class SignupRequestService {
     }
 
     const personId = await this.prisma.$transaction(async (tx) => {
+      // Before anything else, for the residency this writes: a purge deciding
+      // from who has ever lived in the apartment must either see it or finish
+      // before it exists. See lockApartmentResidencies.
+      await lockApartmentResidencies(tx, apartment.id);
+
       // The PENDING check above is only a fast path: two boards clicking
       // approve at the same moment both pass it. This conditional update is
       // what actually decides the race. Postgres re-evaluates the WHERE clause

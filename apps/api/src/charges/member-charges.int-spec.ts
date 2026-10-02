@@ -18,7 +18,11 @@ import {
 import type { DebitingList, DebitingListRow } from "./debiting-list";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import type { DebitingListExport } from "./member-charge.service";
-import { holdLockCount, waitFor } from "../testing/advisory-locks";
+import {
+  holdLockCount,
+  residencyApartmentLockCount,
+  waitFor,
+} from "../testing/advisory-locks";
 
 /**
  * Charges to members, against a real database.
@@ -1133,6 +1137,101 @@ describe("the purge", () => {
     expect(
       await prisma.memberCharge.findUnique({ where: { id: held } }),
     ).toBeNull();
+  });
+
+  it("sees a held resident whose residency lands while it runs", async () => {
+    /*
+     * The apartment has nobody on record when the purge starts. An import is
+     * bringing in former residents, and one of them is under a
+     * hold; their residency is written but not yet committed. Read before the
+     * transaction, the purge found no residents, checked nobody and erased the
+     * charge the hold was placed to keep.
+     *
+     * The import is held open here rather than raced, as the correction test
+     * above does it: it takes the apartment's key, writes the residency and
+     * waits, so the purge meets exactly the window the key exists for.
+     */
+    const held = await agedCharge({
+      apartmentId: secondApartmentId,
+      chargedOn: "2026-06-05",
+    });
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: gammal.personId,
+        reason: "Tvist om en debitering fran tiden i lagenheten",
+        placedByPersonId: board.personId,
+      },
+      select: { id: true },
+    });
+
+    let commitImport = (): void => undefined;
+    let residencyImport: Promise<void> = Promise.resolve();
+    let purge: Promise<number> = Promise.resolve(0);
+
+    try {
+      const importHeld = new Promise<void>((resolve) => {
+        commitImport = (): void => {
+          resolve();
+        };
+      });
+      let importReady = (): void => undefined;
+      const importStarted = new Promise<void>((resolve) => {
+        importReady = resolve;
+      });
+
+      residencyImport = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency-apartment:${secondApartmentId}`}))`;
+          await tx.residency.create({
+            data: {
+              personId: gammal.personId,
+              apartmentId: secondApartmentId,
+              role: "MEMBER",
+              movedInOn: new Date("2020-01-01"),
+              movedOutOn: new Date("2026-08-31"),
+            },
+          });
+          importReady();
+          await importHeld;
+        },
+        { timeout: 20_000 },
+      );
+
+      await importStarted;
+      purge = app
+        .get(MemberChargePurgeService)
+        .purgeParty(
+          { kind: "apartment", id: secondApartmentId },
+          new Date("2034-01-01T03:17:00.000+01:00"),
+        );
+
+      await waitFor(
+        async () =>
+          (await residencyApartmentLockCount(
+            prisma,
+            secondApartmentId,
+            false,
+          )) > 0n,
+      );
+      commitImport();
+      await residencyImport;
+
+      expect(await purge).toBe(0);
+      expect(
+        await prisma.memberCharge.findUnique({ where: { id: held } }),
+      ).not.toBeNull();
+    } finally {
+      // Settled first, so a purge that never blocked fails on the wait above
+      // and does not leave the import to time out in the middle of another test.
+      commitImport();
+      await residencyImport.catch(() => undefined);
+      await purge.catch(() => undefined);
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.residency.deleteMany({
+        where: { personId: gammal.personId, apartmentId: secondApartmentId },
+      });
+      await prisma.memberCharge.deleteMany({ where: { id: held } });
+    }
   });
 
   it("keeps a restricted person's charges past their window until the restriction is lifted", async () => {

@@ -30,7 +30,10 @@ import {
   appendOwedMembershipEvents,
   readMemberResidencies,
 } from "../registers/membership-transitions";
-import { lockResidencyTransitionsInOrder } from "../registers/residency-lock";
+import {
+  lockApartmentResidencies,
+  lockResidencyTransitionsInOrder,
+} from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 
@@ -281,6 +284,9 @@ export class MoveService implements OnModuleInit {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // The apartment first: a purge deciding from who has ever lived here
+      // must either see this residency or finish before it exists.
+      await lockApartmentResidencies(tx, apartment.id);
       // The seller's lock as well as the buyer's, because the transfer below
       // reads the seller's residencies to decide whether they held what they
       // are recorded as selling, and a move-out for the seller running beside
