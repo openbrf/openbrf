@@ -451,6 +451,12 @@ describe("asking for an export too often", () => {
   });
 });
 
+/*
+ * Shares the instance's budget of EXPORTS_PER_MINUTE_OVERALL exports a minute
+ * with the rest of this file, which has spent nine of the twelve by the time
+ * it ends: a test added here, or above, may tip the instance into a 429 that
+ * has nothing to do with what it checks.
+ */
 describe("asking for a second export while the first is being prepared", () => {
   const exportWith = (cookie: string) =>
     inject({
@@ -487,7 +493,14 @@ describe("asking for a second export while the first is being prepared", () => {
     try {
       // A request is sent once something waits on it.
       const first = Promise.resolve(exportWith(impatientCookie));
-      await started;
+      // A first request that is refused never reaches the gathering, so
+      // `started` would never settle; the refusal is what to report then.
+      const early = await Promise.race([started.then(() => null), first]);
+      if (early) {
+        throw new Error(
+          `the first export was answered ${early.statusCode} before it was held open`,
+        );
+      }
 
       const second = await exportWith(impatientCookie);
       expect(second.statusCode).toBe(429);

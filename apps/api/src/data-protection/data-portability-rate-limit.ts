@@ -10,7 +10,8 @@ import {
  * Exports one person may ask for in a minute.
  *
  * An export is something a person does once in a while, so three is generous
- * for an honest caller - a second click, a retry after the connection dropped.
+ * for an honest caller - a second click, a retry after the first export
+ * finished or failed.
  */
 export const EXPORTS_PER_PERSON_PER_MINUTE = 3;
 
@@ -203,9 +204,10 @@ export class DataPortabilityRateLimiter {
     );
     return {
       allowed: false,
-      retryAfterSeconds: budget.allowed
-        ? BUSY_RETRY_AFTER_SECONDS
-        : Math.max(BUSY_RETRY_AFTER_SECONDS, budget.retryAfterSeconds),
+      retryAfterSeconds: Math.max(
+        BUSY_RETRY_AFTER_SECONDS,
+        budget.allowed ? 0 : budget.retryAfterSeconds,
+      ),
     };
   }
 
