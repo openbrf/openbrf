@@ -1235,7 +1235,9 @@
         "description": "Hämta det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke, i ett maskinläsbart format (GDPR art. 20). Det föreningen har om dig på annan grund finns inte i filen; styrelsen tar fram ett registerutdrag på begäran. Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
         "action": "Hämta mina uppgifter",
         "working": "Hämtar...",
-        "failed": "Uppgifterna kunde inte hämtas just nu."
+        "failed": "Uppgifterna kunde inte hämtas just nu.",
+        "rateLimited": "Du har hämtat dina uppgifter flera gånger den senaste minuten. Vänta en stund och försök igen.",
+        "busy": "Många hämtningar förbereds just nu. Vänta en stund och försök igen."
       },
       "exportFileName": "mina-uppgifter"
     },
