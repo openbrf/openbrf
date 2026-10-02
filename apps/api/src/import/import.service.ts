@@ -4,7 +4,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { parseCsv, writeCsv } from "./csv";
@@ -303,6 +303,13 @@ export class ImportService implements OnModuleInit {
    * UPDATE and DELETE, so a member listed twice could only be answered with a
    * further correction entry. The conditional update takes the row lock, so the
    * second request finds nothing to claim and nothing is queued for it.
+   *
+   * Two sessions overlap just as easily: the same file uploaded twice, by two
+   * board members or in a second tab. Each chunk plans against the register as
+   * it stands, which does not yet hold what the other import's chunk is about
+   * to write, so both would create the same people. Only one import is queued
+   * or applying at a time, which a partial unique index enforces; the read
+   * first is for the answer, and the index is for the race.
    */
   async apply(
     sessionId: string,
@@ -337,27 +344,45 @@ export class ImportService implements OnModuleInit {
       }
     }
 
+    const running = await this.prisma.importSession.count({
+      where: { status: { in: ["QUEUED", "APPLYING"] } },
+    });
+    if (running > 0) {
+      throw importAlreadyRunning();
+    }
+
     // Before the transaction: creating a queue is the queue backend's own work
     // on its own connection and has no business inside this one.
     await this.applies.ensureQueues();
 
-    const claimed = await this.prisma.$transaction(async (tx) => {
-      const claim = await tx.importSession.updateMany({
-        where: { id: sessionId, status: "MAPPING" },
-        data: {
-          status: "QUEUED",
-          decisions: input.decisions as Prisma.InputJsonValue,
-        },
+    let claimed: boolean;
+    try {
+      claimed = await this.prisma.$transaction(async (tx) => {
+        const claim = await tx.importSession.updateMany({
+          where: { id: sessionId, status: "MAPPING" },
+          data: {
+            status: "QUEUED",
+            decisions: input.decisions as Prisma.InputJsonValue,
+          },
+        });
+        if (claim.count === 0) {
+          return false;
+        }
+        // The job is written by this transaction too, so the claim and the
+        // work it claims commit together. A session left claimed with no job
+        // behind it is an import that never runs and never says so.
+        await this.applies.enqueueInTransaction(tx, sessionId);
+        return true;
       });
-      if (claim.count === 0) {
-        return false;
+    } catch (cause) {
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2002"
+      ) {
+        throw importAlreadyRunning();
       }
-      // The job is written by this transaction too, so the claim and the work
-      // it claims commit together. A session left claimed with no job behind it
-      // is an import that never runs and never says so.
-      await this.applies.enqueueInTransaction(tx, sessionId);
-      return true;
-    });
+      throw cause;
+    }
     if (!claimed) {
       throw new ImportError(
         "That import has already been started.",
@@ -494,6 +519,13 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
     throw new ImportError("That upload has expired.", "session-expired");
   }
   return session;
+}
+
+function importAlreadyRunning(): ImportError {
+  return new ImportError(
+    "Another import is being applied. Wait for it to finish.",
+    "import-already-running",
+  );
 }
 
 /** The rows the preview could not resolve, read back from the session. */

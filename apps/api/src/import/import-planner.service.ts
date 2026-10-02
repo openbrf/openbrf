@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
@@ -69,6 +70,12 @@ export interface ImportPlanRequest {
    */
   indexEveryIdentityNumber: boolean;
   indexes: IdentityIndexCache;
+  /**
+   * The transaction to read the register through. The apply plans a chunk a
+   * second time inside the transaction that writes it, under the import lock,
+   * so the register it plans against is the one it writes into.
+   */
+  db?: Prisma.TransactionClient;
 }
 
 @Injectable()
@@ -107,7 +114,7 @@ export class ImportPlannerService {
 
     // Loaded before the rows are prepared, because whether an identity number
     // is worth indexing depends on whether the register holds one to match.
-    const snapshot = await this.snapshot();
+    const snapshot = await this.snapshot(request.db ?? this.prisma);
     const indexIdentityNumbers =
       request.indexEveryIdentityNumber ||
       snapshot.personsByIdentityNumber.size > 0;
@@ -179,32 +186,34 @@ export class ImportPlannerService {
    * listed twice in one file is matched the second time rather than created
    * twice.
    */
-  private async snapshot(): Promise<RegisterSnapshot> {
+  private async snapshot(
+    db: Prisma.TransactionClient,
+  ): Promise<RegisterSnapshot> {
     const now = new Date();
 
-    const [apartments, persons] = await Promise.all([
-      this.prisma.apartment.findMany({
-        select: {
-          id: true,
-          number: true,
-          addressId: true,
-          address: { select: { street: true, number: true } },
+    // One after the other: a transaction is one connection, and runs one query
+    // at a time however the calls are awaited.
+    const apartments = await db.apartment.findMany({
+      select: {
+        id: true,
+        number: true,
+        addressId: true,
+        address: { select: { street: true, number: true } },
+      },
+    });
+    const persons = await db.person.findMany({
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        emailIndex: true,
+        personalIdentityNumberIndex: true,
+        residencies: {
+          where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
+          select: { apartmentId: true },
         },
-      }),
-      this.prisma.person.findMany({
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          emailIndex: true,
-          personalIdentityNumberIndex: true,
-          residencies: {
-            where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
-            select: { apartmentId: true },
-          },
-        },
-      }),
-    ]);
+      },
+    });
 
     const personsByIdentityNumber = new Map<string, string[]>();
     const personsByEmail = new Map<string, string[]>();

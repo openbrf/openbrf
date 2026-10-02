@@ -415,6 +415,38 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
   });
 
+  it("shows the other file's import when one is already being written", async () => {
+    // Only one import writes the register at a time. Two at once would each
+    // create the people the other was about to create.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "import-already-running" },
+    });
+    fetchActiveImport.mockResolvedValue({
+      ok: true,
+      value: runView({
+        sessionId: "session-2",
+        fileName: "andra.csv",
+        status: "APPLYING",
+        rowsDone: 1,
+      }),
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByText(/En annan import skrivs/)).toBeTruthy();
+    expect(await screen.findByText(/andra\.csv/)).toBeTruthy();
+  });
+
   it("follows the import to the end", async () => {
     await apply();
     await screen.findByText(/Importen pågår/);
@@ -508,6 +540,22 @@ describe("coming back to the screen", () => {
 });
 
 describe("when the file cannot be read", () => {
+  it("says when a quotation mark is never closed", async () => {
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "unterminated-quote" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(
+      await screen.findByText(/citattecken i filen avslutas aldrig/),
+    ).toBeTruthy();
+  });
+
   it("says which problem it was", async () => {
     uploadImport.mockResolvedValue({
       ok: false,

@@ -1082,6 +1082,130 @@ describe("two applies of one session", () => {
   }, 60_000);
 });
 
+describe("two imports of one file", () => {
+  it("applies one of them and refuses the other while it runs", async () => {
+    // The same file uploaded twice - by two board members, or in a second tab
+    // because the first looked stuck. Each import's chunks plan against a
+    // register that lacks what the other is about to commit, so both would
+    // create the person, each with a statutory ENTRY row.
+    const cookie = await signIn(actors.board.email);
+    const rows = [
+      HEADERS,
+      [
+        addressLabel,
+        "2104",
+        "Tvilling",
+        surname,
+        "Medlem",
+        "",
+        "",
+        "2022-11-01",
+      ],
+    ];
+    const first = await uploadAndPreview(cookie, "forsta.csv", rows);
+    const second = await uploadAndPreview(cookie, "andra.csv", rows);
+
+    const responses = await Promise.all([
+      applyImport(cookie, first.sessionId),
+      applyImport(cookie, second.sessionId),
+    ]);
+    const codes = responses.map((response) => response.statusCode);
+    expect([...codes].sort((a, b) => a - b)).toEqual([202, 409]);
+    const refused = responses.find((response) => response.statusCode === 409);
+    expect(
+      (JSON.parse(refused?.body ?? "{}") as { reason?: string }).reason,
+    ).toBe("import-already-running");
+
+    const started = codes[0] === 202 ? first : second;
+    await waitForRun(
+      cookie,
+      started.sessionId,
+      (run) => run.status === "APPLIED",
+    );
+
+    const created = await prisma.person.findMany({
+      where: { firstName: "Tvilling", lastName: surname },
+      select: { memberRegisterEntries: { select: { id: true } } },
+    });
+    expect(created).toHaveLength(1);
+    expect(created[0]?.memberRegisterEntries).toHaveLength(1);
+  }, 60_000);
+
+  it("lets the database refuse a second import queued past the check", async () => {
+    // The check in the request answers the common case; the index is what
+    // holds when two claims commit together.
+    const cookie = await signIn(actors.board.email);
+    const rows = [
+      HEADERS,
+      [addressLabel, "2104", "Index", surname, "Medlem", "", "", "2022-11-01"],
+    ];
+    const first = await uploadAndPreview(cookie, "index-1.csv", rows);
+    const second = await uploadAndPreview(cookie, "index-2.csv", rows);
+
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { status: "QUEUED" },
+    });
+    await expect(
+      prisma.importSession.update({
+        where: { id: second.sessionId },
+        data: { status: "QUEUED" },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { status: "MAPPING" },
+    });
+  });
+
+  it("writes a chunk only once it holds the import lock", async () => {
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "las.csv", [
+      HEADERS,
+      [addressLabel, "2104", "Las", surname, "Medlem", "", "", "2022-12-01"],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
+        await held;
+      },
+      { timeout: 30_000 },
+    );
+    await waitFor(
+      async () => (await advisoryLockCount(prisma, "import-apply", true)) > 0n,
+    );
+
+    const chunk = applies.applyNextChunk(session.sessionId);
+    await waitFor(
+      async () => (await advisoryLockCount(prisma, "import-apply", false)) > 0n,
+    );
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Las", lastName: surname },
+      }),
+    ).toBe(0);
+
+    release();
+    await holder;
+    await chunk;
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Las", lastName: surname },
+      }),
+    ).toBe(1);
+  });
+});
+
 describe("a file listing a person's rows out of date order", () => {
   /*
    * The same cases the move flows are held to in move.int-spec.ts, entered
@@ -1481,6 +1605,13 @@ describe("an apply that fails", () => {
     expect(run.status).toBe("QUEUED");
     expect(run.failureReason).toBeNull();
     expect(run.finishedAt).toBeNull();
+
+    // Closed by hand, as the dead letter would: only one import is applied at
+    // a time, and the cases after this one start imports of their own.
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "FAILED", failureReason: "apply-interrupted" },
+    });
   }, 60_000);
 });
 

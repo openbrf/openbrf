@@ -12,6 +12,7 @@ export type ImportErrorReason =
   | "session-not-found"
   | "session-expired"
   | "session-already-applied"
+  | "import-already-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
@@ -36,7 +37,9 @@ export class ImportError extends DomainError {
     this.status =
       reason === "session-not-found"
         ? 404
-        : reason === "session-expired" || reason === "session-already-applied"
+        : reason === "session-expired" ||
+            reason === "session-already-applied" ||
+            reason === "import-already-running"
           ? 409
           : 400;
   }

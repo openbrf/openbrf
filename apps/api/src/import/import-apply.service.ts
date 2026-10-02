@@ -53,6 +53,11 @@ import type { ImportApplyResult } from "./import-run";
  *   it wrote is in the snapshot, so a person listed twice in one file is matched
  *   the second time rather than created twice - by the same match-key precedence
  *   the preview used.
+ * - **One chunk writes at a time.** A chunk takes the import lock before it
+ *   writes and plans again under it, so no other chunk's persons can be about
+ *   to commit while it decides who is new. Only one import is applied at a
+ *   time as well (ImportService.apply); the lock is what holds when a worker
+ *   outlives the import it was running.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -312,7 +317,7 @@ export class ImportApplyService implements OnModuleInit {
     // wider: it is created here and dropped when the chunk ends, so nothing
     // derived from an identity number outlives the unit of work that needed it.
     const indexes: IdentityIndexCache = new Map();
-    const plan = await this.planner.plan({
+    const request = {
       rows,
       columnCount: session.columns.length,
       mapping: readMapping(session.mapping),
@@ -322,8 +327,8 @@ export class ImportApplyService implements OnModuleInit {
       // A person this chunk writes carries the index, so it is owed whatever
       // the register looks like.
       indexEveryIdentityNumber: true,
-      indexes,
-    });
+    };
+    const plan = await this.planner.plan({ ...request, indexes });
 
     if (plan.rows.length === 0) {
       // The file holds fewer rows than the session counted, which nothing in
@@ -362,6 +367,26 @@ export class ImportApplyService implements OnModuleInit {
           return null;
         }
 
+        // Then the plan again, under the lock and through this transaction.
+        // The one above decided what to encrypt; this one decides what to
+        // write, against a register no other chunk can be adding to. Every
+        // identity number index is already in the cache, so planning again
+        // costs the register read and nothing of Argon2id.
+        await lockImportApply(tx);
+        const locked = await this.planner.plan({
+          ...request,
+          indexes,
+          db: tx,
+        });
+        const undecidedNow = findUndecided(locked, decisions);
+        if (undecidedNow !== null) {
+          // Thrown so the transaction writes nothing; runApply records it.
+          throw new ImportError(
+            "A row of this chunk needs a decision it does not have.",
+            undecidedNow,
+          );
+        }
+
         // The apartments first, before the persons: the charge and fee purges
         // decide from everybody who has ever lived in an apartment, and a
         // historical residency this chunk adds has to be either seen by them
@@ -369,7 +394,7 @@ export class ImportApplyService implements OnModuleInit {
         // order lockApartmentResidencies gives.
         await lockApartmentResidenciesInOrder(
           tx,
-          residencyApartments(plan, decisions),
+          residencyApartments(locked, decisions),
         );
 
         // Taken before the chunk reads anything about these persons. Whether a
@@ -381,10 +406,10 @@ export class ImportApplyService implements OnModuleInit {
         // fixed order, because a chunk holds many of these locks at once.
         await lockResidencyTransitionsInOrder(
           tx,
-          existingTargets(plan, decisions),
+          existingTargets(locked, decisions),
         );
 
-        const written = await this.write(tx, plan, decisions, encrypted);
+        const written = await this.write(tx, locked, decisions, encrypted);
         await tx.importSession.update({
           where: { id: sessionId },
           data: {
@@ -724,6 +749,17 @@ interface EncryptedRowValues {
   email: { cipher: string; index: string | null } | null;
   phone: { cipher: string; index: string | null } | null;
   personalIdentityNumber: { cipher: string; index: string | null } | null;
+}
+
+/**
+ * The lock every chunk of every import takes before it writes.
+ *
+ * One key for the instance: what it serialises is the decision "this person is
+ * new", which any two chunks can disagree on whichever imports they belong to.
+ * Taken for the transaction, so the commit or the rollback releases it.
+ */
+async function lockImportApply(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
 }
 
 /** The first row of the chunk the board has not answered for, if there is one. */

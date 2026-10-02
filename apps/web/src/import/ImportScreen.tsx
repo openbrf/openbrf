@@ -214,10 +214,13 @@ export function ImportScreen(): ReactElement {
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
-      if (response.failure.reason === "session-already-applied") {
-        // Somebody was quicker - the other tab, or the other board member. What
-        // this screen should show now is that import rather than a preview step
-        // that is over.
+      if (
+        response.failure.reason === "session-already-applied" ||
+        response.failure.reason === "import-already-running"
+      ) {
+        // Somebody was quicker - the other tab, or the other board member - with
+        // this upload or another one. What this screen should show now is that
+        // import rather than a preview step it cannot finish.
         const started = await fetchActiveImport();
         if (started.ok && started.value !== null) {
           setRun(started.value);

@@ -2758,6 +2758,9 @@ model ImportSession {
   /// After this the session is stale and is refused rather than applied.
   expiresAt   DateTime
 
+  /// At most one session is QUEUED or APPLYING at a time, by the partial unique
+  /// index "import_session_one_apply" (migration 20261003100000_import_one_apply).
+  /// Prisma cannot express an index on an expression, so it is not declared here.
   @@index([status, expiresAt])
   @@map("import_session")
 }
