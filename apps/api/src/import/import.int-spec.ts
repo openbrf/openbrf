@@ -1034,6 +1034,154 @@ describe("two applies of one session", () => {
   }, 60_000);
 });
 
+describe("two imports of two files", () => {
+  /**
+   * A file whose only row has a date nobody can read: it previews, applies and
+   * finishes like any other, and writes nothing into a register that cannot
+   * have rows removed.
+   */
+  function harmlessRows(firstName: string): string[][] {
+    return [
+      HEADERS,
+      [addressLabel, "2101", firstName, surname, "Medlem", "", "", "1/2/23"],
+    ];
+  }
+
+  function reasonOf(response: { body: string }): string {
+    return (JSON.parse(response.body) as { reason: string }).reason;
+  }
+
+  it("refuses the second while the first is queued or applying, and runs it after", async () => {
+    // Two files applied side by side would each plan against a register the
+    // other is writing, and a person in both would be created twice, with an
+    // ENTRY row each. The second has to wait, and has to still be there to
+    // apply once the first is done.
+    const cookie = await signIn(actors.board.email);
+    const first = await uploadAndPreview(
+      cookie,
+      "forsta.csv",
+      harmlessRows("Forsta"),
+    );
+    const second = await uploadAndPreview(
+      cookie,
+      "andra.csv",
+      harmlessRows("Andra"),
+    );
+
+    // Claimed here rather than through the endpoint, so the worker does not
+    // finish the first import before the second asks: the case is about what
+    // the second finds while the first is still running.
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    const whileQueued = await applyImport(cookie, second.sessionId);
+    expect(whileQueued.statusCode).toBe(409);
+    expect(reasonOf(whileQueued)).toBe("another-import-running");
+    // Refused before anything is queued: still an upload, still applicable.
+    expect(await readRun(cookie, second.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { status: "APPLYING", startedAt: new Date() },
+    });
+
+    const whileApplying = await applyImport(cookie, second.sessionId);
+    expect(whileApplying.statusCode).toBe(409);
+    expect(reasonOf(whileApplying)).toBe("another-import-running");
+    expect((await readRun(cookie, second.sessionId)).status).toBe("MAPPING");
+
+    await applies.runApply(first.sessionId);
+    expect((await readRun(cookie, first.sessionId)).status).toBe("APPLIED");
+
+    const afterwards = await applyImport(cookie, second.sessionId);
+    expect(afterwards.statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      second.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result.errors).toBe(1);
+  }, 60_000);
+
+  it("starts exactly one when two are applied at once", async () => {
+    // The claim's row lock cannot settle this: the two requests claim
+    // different rows. Without the lock in front of the read, both would find
+    // nothing running and both would queue.
+    //
+    // The lock is held here until both requests are waiting for it, so they
+    // reach the read together on every run rather than whenever the scheduler
+    // happens to interleave them. A request that took no lock settles on its
+    // own instead, and the codes below catch it.
+    const cookie = await signIn(actors.board.email);
+    const sessions = await Promise.all([
+      uploadAndPreview(cookie, "samtidig-1.csv", harmlessRows("SamtidigEtt")),
+      uploadAndPreview(cookie, "samtidig-2.csv", harmlessRows("SamtidigTva")),
+    ]);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding!: () => void;
+    const taken = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
+        holding();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await taken;
+
+    let settled = 0;
+    const requests = sessions.map((session) =>
+      applyImport(cookie, session.sessionId).finally(() => (settled += 1)),
+    );
+    await waitFor(
+      async () =>
+        settled === 2 ||
+        (await advisoryLockCount(prisma, "import-apply", false)) === 2n,
+    );
+    release();
+    const [responses] = await Promise.all([Promise.all(requests), holder]);
+    const codes = responses.map((response) => response.statusCode);
+    expect([...codes].sort((a, b) => a - b)).toEqual([202, 409]);
+
+    const winner = codes.indexOf(202);
+    const loser = 1 - winner;
+    expect(reasonOf(responses[loser] as { body: string })).toBe(
+      "another-import-running",
+    );
+    const loserSession = sessions[loser] as ImportSessionView;
+    const winnerSession = sessions[winner] as ImportSessionView;
+    expect((await readRun(cookie, loserSession.sessionId)).status).toBe(
+      "MAPPING",
+    );
+
+    await waitForRun(
+      cookie,
+      winnerSession.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect((await applyImport(cookie, loserSession.sessionId)).statusCode).toBe(
+      202,
+    );
+    await waitForRun(
+      cookie,
+      loserSession.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+});
+
 describe("a file listing a person's rows out of date order", () => {
   /*
    * The same cases the move flows are held to in move.int-spec.ts, entered
@@ -1433,6 +1581,18 @@ describe("an apply that fails", () => {
     expect(run.status).toBe("QUEUED");
     expect(run.failureReason).toBeNull();
     expect(run.finishedAt).toBeNull();
+
+    // Closed the way the dead letter closes it once the retries are spent.
+    // Nothing was queued for it, so left QUEUED it would be a running import
+    // that never ends, and every apply after this case would be refused for it.
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        status: "FAILED",
+        failureReason: "apply-interrupted",
+        finishedAt: new Date(),
+      },
+    });
   }, 60_000);
 });
 

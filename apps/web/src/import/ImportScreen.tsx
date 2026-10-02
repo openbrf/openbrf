@@ -224,6 +224,9 @@ export function ImportScreen(): ReactElement {
           setStep("apply");
         }
       }
+      // "another-import-running" stays on the preview: it is a different
+      // file that is running, and this one is still waiting to be applied
+      // once that has finished.
       return;
     }
     setRun(response.value);

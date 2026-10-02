@@ -415,6 +415,37 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
   });
 
+  it("keeps the preview when another import is running", async () => {
+    // A different file is being imported - by another board member, or from a
+    // tab opened before it started. This upload was not started, so the
+    // preview the board member checked stays on the screen to run afterwards.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "another-import-running" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/En annan import pågår/)).toBeTruthy();
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    expect(fetchActiveImport).toHaveBeenCalledTimes(1);
+  });
+
   it("follows the import to the end", async () => {
     await apply();
     await screen.findByText(/Importen pågår/);

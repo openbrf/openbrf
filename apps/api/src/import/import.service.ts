@@ -57,6 +57,12 @@ const PURGE_CRON = "23 3 * * *";
 /** Queue the scheduled purge of expired uploads runs on. */
 export const IMPORT_PURGE_QUEUE = "import-session-purge";
 
+/**
+ * The advisory lock an apply takes while it decides whether it may start.
+ * Hashed to the int4 the lock space is addressed in, as every lock here is.
+ */
+const IMPORT_APPLY_LOCK = "import-apply";
+
 /** Rows shown on the mapping screen so a column can be recognised by content. */
 const SAMPLE_ROWS = 5;
 
@@ -297,6 +303,16 @@ export class ImportService implements OnModuleInit {
    * UPDATE and DELETE, so a member listed twice could only be answered with a
    * further correction entry. The conditional update takes the row lock, so the
    * second request finds nothing to claim and nothing is queued for it.
+   *
+   * One import runs at a time across the whole instance, not just one per
+   * session. Two files applied side by side would each plan against a register
+   * the other is in the middle of writing, so a person listed in both is created
+   * twice with an ENTRY row each - the same uncorrectable duplicate, reached
+   * from two sessions instead of one. The screen hides the upload while an
+   * import runs, but a tab opened earlier, a second board member or a direct
+   * call does not see that, so the refusal is made here. It does not wedge the
+   * importer: a running session always ends, as APPLIED, as FAILED on a
+   * refusal, or as FAILED through the dead letter once its retries run out.
    */
   async apply(
     sessionId: string,
@@ -335,7 +351,30 @@ export class ImportService implements OnModuleInit {
     // on its own connection and has no business inside this one.
     await this.applies.ensureQueues();
 
-    const claimed = await this.prisma.$transaction(async (tx) => {
+    const refusal = await this.prisma.$transaction(async (tx) => {
+      // Whether another import is running is a question about the whole table,
+      // and no single row carries the answer for the claim's row lock to
+      // serialise. At READ COMMITTED two applies of two different sessions both
+      // read "nothing running" and both claim. This lock makes the second wait
+      // until the first commits, and its read then sees the first one queued.
+      //
+      // A lock rather than a partial unique index over the running statuses:
+      // an instance that already has two imports running, which is the state
+      // this guards against, would fail that migration, and the refusal would
+      // arrive as a constraint violation in place of the read below.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${IMPORT_APPLY_LOCK}))`;
+
+      const running = await tx.importSession.findFirst({
+        where: {
+          id: { not: sessionId },
+          status: { in: ["QUEUED", "APPLYING"] },
+        },
+        select: { id: true },
+      });
+      if (running !== null) {
+        return "another-import-running" as const;
+      }
+
       const claim = await tx.importSession.updateMany({
         where: { id: sessionId, status: "MAPPING" },
         data: {
@@ -344,18 +383,24 @@ export class ImportService implements OnModuleInit {
         },
       });
       if (claim.count === 0) {
-        return false;
+        return "session-already-applied" as const;
       }
       // The job is written by this transaction too, so the claim and the work
       // it claims commit together. A session left claimed with no job behind it
       // is an import that never runs and never says so.
       await this.applies.enqueueInTransaction(tx, sessionId);
-      return true;
+      return null;
     });
-    if (!claimed) {
+    if (refusal === "session-already-applied") {
       throw new ImportError(
         "That import has already been started.",
         "session-already-applied",
+      );
+    }
+    if (refusal === "another-import-running") {
+      throw new ImportError(
+        "Another import is running. Start this one once it has finished.",
+        "another-import-running",
       );
     }
 
