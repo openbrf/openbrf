@@ -28,7 +28,11 @@ import {
   ImportService,
   type ImportSessionView,
 } from "./import.service";
-import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+import {
+  advisoryLockCount,
+  waitFor,
+  waitingLockCount,
+} from "../testing/advisory-locks";
 
 /**
  * The import from upload to applied register, against a real database and a
@@ -318,16 +322,6 @@ function applyImport(
     payload: { decisions },
     headers: { cookie },
   });
-}
-
-/** How many lock requests in this database are waiting rather than granted. */
-async function waitingLockCount(): Promise<bigint> {
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE NOT granted
-      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
-  return row?.locks ?? 0n;
 }
 
 /** The reason a refused request answered with. */
@@ -1186,11 +1180,21 @@ describe("two imports of two files", () => {
     );
     await taken;
 
+    // A request that returns before it reaches a lock (a 4xx or a 500) counts
+    // as settled, so it fails at the status-code assertion below rather than as
+    // a timeout here.
+    let settled = 0;
     const requests = sessions.map((session) =>
-      applyImport(cookie, session.sessionId),
+      applyImport(cookie, session.sessionId).finally(() => (settled += 1)),
     );
-    await waitFor(async () => (await waitingLockCount()) === 2n);
-    release();
+    try {
+      await waitFor(
+        async () => settled === 2 || (await waitingLockCount(prisma)) === 2n,
+      );
+    } finally {
+      // The table lock blocks every write, so it must not outlive a failure.
+      release();
+    }
     const [responses] = await Promise.all([Promise.all(requests), holder]);
     const codes = responses.map((response) => response.statusCode);
     expect([...codes].sort((a, b) => a - b)).toEqual([202, 409]);
