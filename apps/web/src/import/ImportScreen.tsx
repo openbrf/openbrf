@@ -114,14 +114,13 @@ export function ImportScreen(): ReactElement {
    * question instead, so what they see is the import rather than an empty form
    * suggesting nothing ever happened.
    *
-   * Until the answer is in, no file can be sent. The answer decides whether
-   * there is a form to fill in at all: while an import is writing the
-   * register, the screen shows that import instead of the upload form, and a
-   * file sent before the answer arrived could become a second write into the
-   * register. Waiting for the answer also means it never lands on top of a
-   * mapping step the board member has already reached. An answer that does
-   * not come through releases the form as well, since a failed request says
-   * nothing about an import.
+   * The upload form is not shown until the answer is in. The answer decides
+   * whether there is a form to fill in at all: while an import is writing the
+   * register, the screen shows that import instead, and a file sent before the
+   * answer arrived could become a second write into the register. Waiting for
+   * the answer also means it never lands on top of a mapping step the board
+   * member has already reached. An answer that does not come through shows
+   * the form as well, since a failed request says nothing about an import.
    */
   useEffect(() => {
     let abandoned = false;
@@ -290,8 +289,8 @@ export function ImportScreen(): ReactElement {
         </Notice>
       )}
 
-      {step === "upload" ? (
-        <UploadStep busy={busy} ready={activeImportKnown} onUpload={upload} />
+      {step === "upload" && activeImportKnown ? (
+        <UploadStep busy={busy} onUpload={upload} />
       ) : null}
 
       {step === "mapping" && session !== null ? (
@@ -345,12 +344,9 @@ export function ImportScreen(): ReactElement {
 
 function UploadStep({
   busy,
-  ready,
   onUpload,
 }: {
   busy: boolean;
-  /** False until the screen knows whether an import is already running. */
-  ready: boolean;
   onUpload: (file: File) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
@@ -382,7 +378,7 @@ function UploadStep({
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={busy || !ready || file === null}
+          disabled={busy || file === null}
           onClick={() => {
             if (file !== null) {
               void onUpload(file);

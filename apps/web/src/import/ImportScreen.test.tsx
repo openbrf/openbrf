@@ -218,7 +218,7 @@ function file(): File {
 async function reachPreview(session: ReturnType<typeof userEvent.setup>) {
   render(<ImportScreen />);
 
-  await session.upload(screen.getByLabelText(/Välj en fil/), file());
+  await session.upload(await screen.findByLabelText(/Välj en fil/), file());
   await session.click(screen.getByRole("button", { name: /Läs filen/ }));
   await screen.findByText(/Kolumnerna/);
 
@@ -262,7 +262,7 @@ describe("the mapping step", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     await screen.findByText(/Kolumnerna/);
@@ -279,7 +279,7 @@ describe("the mapping step", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
     await screen.findByText(/Kolumnerna/);
 
@@ -298,7 +298,7 @@ describe("the mapping step", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByLabelText(/^Roll/)).toBeTruthy();
@@ -527,19 +527,15 @@ describe("coming back to the screen", () => {
     };
   }
 
-  it("takes no file before it knows whether an import is running", async () => {
+  it("offers no upload before it knows whether an import is running", async () => {
     // A reload while an import is writing the register, and a quick board
-    // member who picks a file before the screen has asked. Sending it could
-    // start a second write into the register, so the file waits, and the
-    // import that is running is what the screen shows once it knows.
+    // member. A file sent before the screen knows could start a second write
+    // into the register, so there is no form to send one with until it does,
+    // and then what it shows is the import that is running.
     const answer = lateAnswer();
-    const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
-    const send = screen.getByRole("button", { name: /Läs filen/ });
-    expect(send).toHaveProperty("disabled", true);
-    await session.click(send);
+    expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
 
     await answer({
       ok: true,
@@ -551,35 +547,33 @@ describe("coming back to the screen", () => {
     expect(uploadImport).not.toHaveBeenCalled();
   });
 
-  it("takes the file once it knows nothing is running", async () => {
-    // The same wait with nothing at the end of it: the answer is late, and
-    // once it is in, the file goes up as usual.
+  it("offers the upload once a late answer says nothing is running", async () => {
     const answer = lateAnswer();
     const session = userEvent.setup();
     render(<ImportScreen />);
 
+    expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
     await answer({ ok: true, value: null });
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByText(/Kolumnerna/)).toBeTruthy();
-    expect(uploadImport).toHaveBeenCalledTimes(1);
   });
 
-  it("takes a file when the question goes unanswered", async () => {
-    // A failed request says nothing about an import. The form is not held
-    // back for good because of it.
+  it("offers the upload when the question goes unanswered", async () => {
+    // A failed request says nothing about an import, so it does not keep the
+    // form away for good.
     const answer = lateAnswer();
     const session = userEvent.setup();
     render(<ImportScreen />);
 
     await answer({ ok: false, failure: { status: 0, reason: "offline" } });
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
 
-    expect(screen.getByRole("button", { name: /Läs filen/ })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByText(/Kolumnerna/)).toBeTruthy();
   });
 });
 
@@ -592,7 +586,7 @@ describe("when the file cannot be read", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
