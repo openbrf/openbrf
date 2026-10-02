@@ -1659,6 +1659,101 @@ describe("a file without move-in dates", () => {
   }, 60_000);
 });
 
+describe("a register that changes while a chunk waits for its lock", () => {
+  it("plans the chunk again rather than skip a row it can now write", async () => {
+    // Bert's row for 2113 overlaps the residency he holds there, until that
+    // residency is ended while the chunk waits. The chunk's other rows already
+    // lock 2113 and Bert, so only the row's missing ciphertext says the chunk
+    // has to be planned again.
+    const cookie = await signIn(actors.board.email);
+    const personId = `imp-bert-${suffix}`;
+    const email = `imp-bert-${suffix}@exempel.se`;
+    await createPerson({ personId, firstName: "Bert", email });
+    const held = await prisma.residency.create({
+      data: {
+        personId,
+        apartmentId: apartments.m,
+        role: "RESIDENT",
+        movedInOn: new Date("2010-01-01T00:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+
+    const session = await uploadAndPreview(cookie, "bert.csv", [
+      HEADERS,
+      [addressLabel, "2113", "Anneli", surname, "Boende", "", "", "2024-01-01"],
+      [
+        addressLabel,
+        "2113",
+        "Bert",
+        surname,
+        "Boende",
+        email,
+        "",
+        "2024-01-01",
+      ],
+      [
+        addressLabel,
+        "2114",
+        "Bert",
+        surname,
+        "Boende",
+        email,
+        "",
+        "2024-01-01",
+      ],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    let release = (): void => undefined;
+    const lockHeld = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
+        await lockHeld;
+      },
+      { timeout: 30_000 },
+    );
+    await waitFor(
+      async () => (await advisoryLockCount(prisma, "import-apply", true)) > 0n,
+    );
+    const chunk = applies.applyNextChunk(session.sessionId);
+    await waitFor(
+      async () => (await advisoryLockCount(prisma, "import-apply", false)) > 0n,
+    );
+    await prisma.residency.update({
+      where: { id: held.id },
+      data: { movedOutOn: new Date("2023-01-01T00:00:00.000Z") },
+    });
+    release();
+    await holder;
+
+    await expect(chunk).rejects.toThrow(/planned again/);
+    await applies.applyNextChunk(session.sessionId);
+
+    const residencies = await prisma.residency.findMany({
+      where: { personId },
+      orderBy: [{ apartmentId: "asc" }, { movedInOn: "asc" }],
+      select: { apartmentId: true, movedInOn: true },
+    });
+    expect(
+      residencies.map((residency) => [
+        residency.apartmentId,
+        residency.movedInOn.toISOString().slice(0, 10),
+      ]),
+    ).toEqual([
+      [apartments.m, "2010-01-01"],
+      [apartments.m, "2024-01-01"],
+      [apartments.n, "2024-01-01"],
+    ]);
+  }, 60_000);
+});
+
 describe("one person listed in two chunks", () => {
   it("is written once, as the preview showed", async () => {
     // Known only by name in an apartment they have since left, and the second

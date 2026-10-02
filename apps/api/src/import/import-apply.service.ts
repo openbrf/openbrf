@@ -421,11 +421,14 @@ export class ImportApplyService implements OnModuleInit {
         }
         if (
           !within(residencyApartments(locked, decisions), apartmentsLocked) ||
-          !within(existingTargets(locked, decisions), personsLocked)
+          !within(existingTargets(locked, decisions), personsLocked) ||
+          !within(writtenRows(locked, decisions), [...encrypted.keys()])
         ) {
           // The register changed between the two plans so that this chunk now
-          // writes somewhere it holds no lock. Not a refusal: the next attempt
-          // plans from the register as it is then, and locks what that needs.
+          // writes somewhere it holds no lock, or writes a row the first plan
+          // did not and so has no ciphertext for. Not a refusal: the next
+          // attempt plans from the register as it is then, and encrypts and
+          // locks what that needs.
           throw new Error(
             "The register changed under the chunk; it is planned again.",
           );
@@ -857,8 +860,18 @@ async function heldOnApartment(
   return held.map(registerResidency);
 }
 
+/** The rows of a plan that will be written. */
+function writtenRows(plan: ImportPlan, decisions: ImportDecisions): number[] {
+  return plan.rows
+    .filter((row) => willWrite(row, decisions))
+    .map((row) => row.rowNumber);
+}
+
 /** Whether every entry of one list is in the other. */
-function within(needed: readonly string[], held: readonly string[]): boolean {
+function within<Value>(
+  needed: readonly Value[],
+  held: readonly Value[],
+): boolean {
   const set = new Set(held);
   return needed.every((value) => set.has(value));
 }
