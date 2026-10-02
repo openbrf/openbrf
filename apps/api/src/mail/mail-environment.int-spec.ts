@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { BoardMailboxCollectorService } from "../board-mailbox/board-mailbox-collector.service";
 import { BoardMailboxMailerService } from "../board-mailbox/board-mailbox-mailer.service";
+import { yesterdayDateHeader } from "../board-mailbox/testing/letter-date";
 import {
   startPop3TestServer,
   type Pop3TestServer,
@@ -188,7 +189,7 @@ function letter(options: {
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
     `Message-ID: <${options.messageId}>`,
-    "Date: Tue, 01 Sep 2026 09:15:00 +0200",
+    `Date: ${yesterdayDateHeader()}`,
     ...(options.inReplyTo === undefined
       ? []
       : [`In-Reply-To: <${options.inReplyTo}>`]),
