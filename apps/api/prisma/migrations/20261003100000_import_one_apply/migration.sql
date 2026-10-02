@@ -24,7 +24,7 @@ WHERE "status" IN ('QUEUED', 'APPLYING')
   AND "id" <> (
     SELECT "id" FROM "import_session"
     WHERE "status" IN ('QUEUED', 'APPLYING')
-    ORDER BY ("status" = 'APPLYING') DESC, "createdAt", "id"
+    ORDER BY ("status" = 'APPLYING') DESC, "rowsDone" DESC, "createdAt", "id"
     LIMIT 1
   );
 

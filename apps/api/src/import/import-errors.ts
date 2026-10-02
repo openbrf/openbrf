@@ -1,4 +1,5 @@
 import { DomainError } from "../http/domain-error";
+import type { ImportShapeReason } from "./import-limits";
 
 /**
  * What can go wrong with an import, as a code rather than as a sentence.
@@ -16,11 +17,8 @@ export type ImportErrorReason =
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
-  | "too-many-rows"
-  | "too-many-columns"
-  | "cell-too-long"
-  | "unterminated-quote"
-  | "workbook-too-large"
+  // A file refused for its shape while it was read.
+  | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
   | "preview-changed"

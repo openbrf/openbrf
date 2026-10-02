@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
@@ -232,7 +232,9 @@ export class ImportPlannerService {
   private async snapshot(
     db: Prisma.TransactionClient,
   ): Promise<RegisterSnapshot> {
-    const now = new Date();
+    // Today as the date column holds it (ADR 0013): a move-out date is a day,
+    // and compared with a moment it would end a residency hours early.
+    const today = dateColumnOf(localDayOf(new Date()));
 
     // One after the other: a transaction is one connection, and runs one query
     // at a time however the calls are awaited.
@@ -293,7 +295,7 @@ export class ImportPlannerService {
         );
         if (
           residency.movedOutOn === null ||
-          residency.movedOutOn.getTime() > now.getTime()
+          residency.movedOutOn.getTime() > today.getTime()
         ) {
           push(personsByApartmentAndName, key, person.id);
         }

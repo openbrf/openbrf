@@ -304,10 +304,10 @@ function planRow(
 
   const matchedPersonId = match.candidates[0] ?? null;
 
-  // A file may list one person twice - two apartments, or a member and their
-  // own resident row. The second occurrence has to reach the same person, not a
-  // duplicate of them, whether that person already existed or was created by
-  // the earlier row. A person the register matched outright is not overruled
+  // A file may list one person twice - two apartments, or one apartment for
+  // two periods of time. The second occurrence has to reach the same person,
+  // not a duplicate of them, whether that person already existed or was
+  // created by the earlier row. A person the register matched outright is not overruled
   // by a weaker key shared with a row that the register said was someone else.
   const identity = fileIdentity(row, name, apartment);
   const found = seen.find(identity);
