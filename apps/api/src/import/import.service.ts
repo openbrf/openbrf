@@ -18,7 +18,7 @@ import {
   suggestMapping,
 } from "./import-columns";
 import { ImportError } from "./import-errors";
-import { lockRunningImports } from "./import-lock";
+import { lockImportApply } from "./import-lock";
 import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
@@ -351,7 +351,7 @@ export class ImportService implements OnModuleInit {
     // A refusal is thrown from inside the transaction, which rolls back and
     // rethrows it. Neither refusal has written anything by then.
     await this.prisma.$transaction(async (tx) => {
-      await lockRunningImports(tx);
+      await lockImportApply(tx);
 
       const running = await tx.importSession.findFirst({
         where: {
@@ -362,7 +362,7 @@ export class ImportService implements OnModuleInit {
       });
       if (running !== null) {
         throw new ImportError(
-          "Another import is running. Apply this one once it has finished.",
+          "Another import is running. Apply this one when it has finished.",
           "another-import-running",
         );
       }

@@ -28,7 +28,7 @@ import type { Prisma } from "../generated/prisma/client";
  * int4 the lock space is addressed in; one key for the whole instance, because
  * one instance serves one association.
  */
-export async function lockRunningImports(
+export async function lockImportApply(
   tx: Prisma.TransactionClient,
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-sessions:running"}))`;
