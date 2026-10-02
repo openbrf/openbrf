@@ -15,6 +15,7 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
+import { MAX_IMPORT_COLUMNS } from "./import-limits";
 import type { ImportRunView } from "./import-run";
 import {
   type ImportPreview,
@@ -37,7 +38,7 @@ const uploadSchema = z.object({
 });
 
 const mappingSchema = z.object({
-  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
+  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(MAX_IMPORT_COLUMNS),
   /** Used for rows with no role column. Never guessed. */
   defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
   defaultMovedInOn: calendarDateSchema.nullish(),

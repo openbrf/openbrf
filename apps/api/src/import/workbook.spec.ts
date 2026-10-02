@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { cellText } from "./workbook";
+import { buildWorkbook } from "../testing/xlsx-fixture";
+import {
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_WORKBOOK_ENTRY_BYTES,
+} from "./import-limits";
+import { cellText, inspectWorkbook, parseWorkbook } from "./workbook";
 
 /**
  * The one date conversion in the import path, pinned.
@@ -55,3 +60,96 @@ describe("reading every other kind of cell", () => {
     expect(cellText(undefined)).toBe("");
   });
 });
+
+describe("a workbook past the import's limits", () => {
+  it("refuses a row address a billion rows down before the parser fills the gap", () => {
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetData:
+        '<row r="1000000000"><c r="A1000000000" t="inlineStr"><is><t>x</t></is></c></row>',
+    });
+
+    const started = performance.now();
+    expect(() => {
+      inspectWorkbook(workbook);
+    }).toThrow(expect.objectContaining({ reason: "too-many-rows" }));
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("refuses a cell past the last column the import maps", () => {
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetData:
+        '<row r="1"><c r="XFE1" t="inlineStr"><is><t>x</t></is></c></row>',
+    });
+
+    expect(() => {
+      inspectWorkbook(workbook);
+    }).toThrow(expect.objectContaining({ reason: "too-many-columns" }));
+  });
+
+  it("refuses a part that inflates past its limit", () => {
+    // A few kilobytes compressed, megabytes inflated.
+    const workbook = buildWorkbook([["Namn"]], "Blad1", {
+      sharedStrings: `<si><t>${"a".repeat(MAX_WORKBOOK_ENTRY_BYTES)}</t></si>`,
+    });
+    expect(workbook.byteLength).toBeLessThan(64 * 1024);
+
+    expect(() => {
+      inspectWorkbook(workbook);
+    }).toThrow(expect.objectContaining({ reason: "workbook-too-large" }));
+  });
+
+  it("counts what a part inflates to rather than the size it declares", () => {
+    const workbook = buildWorkbook([["Namn"]], "Blad1", {
+      sharedStrings: `<si><t>${"a".repeat(MAX_WORKBOOK_ENTRY_BYTES)}</t></si>`,
+    });
+    declareSize(workbook, "xl/sharedStrings.xml", 100);
+
+    expect(() => {
+      inspectWorkbook(workbook);
+    }).toThrow(expect.objectContaining({ reason: "workbook-too-large" }));
+  });
+
+  it("refuses a cell longer than the import takes", () => {
+    expect(() => cellText("x".repeat(MAX_IMPORT_CELL_LENGTH + 1))).toThrow(
+      expect.objectContaining({ reason: "cell-too-long" }),
+    );
+  });
+
+  it("reads a workbook inside every limit", async () => {
+    const workbook = buildWorkbook([
+      ["Namn", "Lgh"],
+      ["Anna", "1101"],
+    ]);
+
+    await expect(parseWorkbook(workbook)).resolves.toEqual([
+      ["Namn", "Lgh"],
+      ["Anna", "1101"],
+    ]);
+  });
+});
+
+/**
+ * Rewrites the uncompressed size an archive states for one part, in its local
+ * header and in the central directory, leaving the data as it was.
+ */
+function declareSize(archive: Buffer, name: string, size: number): void {
+  const encoded = Buffer.from(name, "utf8");
+  for (let offset = 0; offset < archive.length - 4; offset++) {
+    const signature = archive.readUInt32LE(offset);
+    if (signature === 0x04034b50) {
+      const nameLength = archive.readUInt16LE(offset + 26);
+      if (
+        archive.subarray(offset + 30, offset + 30 + nameLength).equals(encoded)
+      ) {
+        archive.writeUInt32LE(size, offset + 22);
+      }
+    } else if (signature === 0x02014b50) {
+      const nameLength = archive.readUInt16LE(offset + 28);
+      if (
+        archive.subarray(offset + 46, offset + 46 + nameLength).equals(encoded)
+      ) {
+        archive.writeUInt32LE(size, offset + 24);
+      }
+    }
+  }
+}

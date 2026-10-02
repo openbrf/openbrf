@@ -41,9 +41,17 @@ function columnName(index: number): string {
   return name;
 }
 
+export interface WorkbookOverrides {
+  /** Written as the sheet's `<sheetData>` in place of the rows. */
+  sheetData?: string;
+  /** Written as the shared strings table in place of the rows' own. */
+  sharedStrings?: string;
+}
+
 export function buildWorkbook(
   rows: readonly (readonly string[])[],
   sheetName = "Blad1",
+  overrides: WorkbookOverrides = {},
 ): Buffer {
   const strings: string[] = [];
   const indexOf = new Map<string, number>();
@@ -73,9 +81,13 @@ export function buildWorkbook(
     })
     .join("");
 
-  const sharedStrings = strings
-    .map((value) => `<si><t xml:space="preserve">${escapeXml(value)}</t></si>`)
-    .join("");
+  const sharedStrings =
+    overrides.sharedStrings ??
+    strings
+      .map(
+        (value) => `<si><t xml:space="preserve">${escapeXml(value)}</t></si>`,
+      )
+      .join("");
 
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
@@ -118,7 +130,7 @@ export function buildWorkbook(
         "</styleSheet>",
     ),
     "xl/worksheets/sheet1.xml": strToU8(
-      `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${sheetRows}</sheetData></worksheet>`,
+      `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${overrides.sheetData ?? sheetRows}</sheetData></worksheet>`,
     ),
   };
 

@@ -14,6 +14,7 @@ import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
 import { IMPORT_CHUNK_ROWS, ImportApplyService } from "./import-apply.service";
 import type { ImportField } from "./import-columns";
+import { MAX_WORKBOOK_ENTRY_BYTES } from "./import-limits";
 import type { ImportRunView } from "./import-run";
 import {
   type ImportPreview,
@@ -644,6 +645,36 @@ describe("uploading a CSV", () => {
       "file-empty",
     );
   });
+
+  it.each([
+    [
+      "a quoted cell that is never closed",
+      'Adress;Lgh\n"1;2\n3;4\n',
+      "unterminated-quote",
+    ],
+    [
+      "a row wider than the mapping takes",
+      `${";".repeat(250)}\na\n`,
+      "too-many-columns",
+    ],
+    [
+      "more rows than an import takes",
+      `Lgh\n${"1\n".repeat(5001)}`,
+      "too-many-rows",
+    ],
+  ])("refuses %s, and says which", async (_case, text, reason) => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: { fileName: "fel.csv", content: encode(text) },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      reason,
+    );
+  });
 });
 
 describe("uploading an Excel workbook", () => {
@@ -674,6 +705,23 @@ describe("uploading an Excel workbook", () => {
     );
 
     expect(session.format).toBe("XLSX");
+  });
+
+  it("refuses a workbook that inflates past what an import reads", async () => {
+    const workbook = buildWorkbook([["Lgh"], ["1101"]], "Blad1", {
+      sharedStrings: `<si><t>${"a".repeat(MAX_WORKBOOK_ENTRY_BYTES)}</t></si>`,
+    });
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: { fileName: "stor.xlsx", content: workbook.toString("base64") },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "workbook-too-large",
+    );
   });
 });
 

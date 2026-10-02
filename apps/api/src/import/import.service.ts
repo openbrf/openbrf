@@ -21,7 +21,13 @@ import { ImportError } from "./import-errors";
 import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
-import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
+import {
+  ImportShapeError,
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "./import-limits";
+import { parseWorkbook } from "./workbook";
 
 /**
  * Importing a member list.
@@ -417,10 +423,18 @@ export class ImportService implements OnModuleInit {
   ): Promise<string[][]> {
     try {
       if (format === "CSV") {
-        return parseCsv(bytes.toString("utf8")).rows;
+        return parseCsv(bytes.toString("utf8"), undefined, {
+          // The header is a row too.
+          maxRows: MAX_IMPORT_ROWS + 1,
+          maxColumns: MAX_IMPORT_COLUMNS,
+          maxCellLength: MAX_IMPORT_CELL_LENGTH,
+        }).rows;
       }
       return await parseWorkbook(bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof ImportShapeError) {
+        throw new ImportError(error.message, error.reason);
+      }
       throw new ImportError(
         "That file could not be read as a spreadsheet.",
         "file-unreadable",
