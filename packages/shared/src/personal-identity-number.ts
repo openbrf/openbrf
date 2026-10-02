@@ -93,14 +93,20 @@ export function parsePersonalIdentityNumber(
     if (isFuture(fullYear)) {
       return null;
     }
-  } else {
-    // Without a century, the most recent birth date that is not in the future
-    // wins, and a plus separator means the person has turned 100.
-    fullYear = Math.floor(today.year / 100) * 100 + twoDigitYear;
-    if (isFuture(fullYear)) {
+  } else if (separator === "+") {
+    // A plus is written from 1 January of the year the person turns 100, so
+    // it names the most recent year at least a hundred years back. The year
+    // alone decides: the birthday that year may not have come yet.
+    const latest = today.year - 100;
+    fullYear = Math.floor(latest / 100) * 100 + twoDigitYear;
+    if (fullYear > latest) {
       fullYear -= 100;
     }
-    if (separator === "+") {
+  } else {
+    // Without a century, the most recent birth date that is not in the future
+    // wins.
+    fullYear = Math.floor(today.year / 100) * 100 + twoDigitYear;
+    if (isFuture(fullYear)) {
       fullYear -= 100;
     }
   }

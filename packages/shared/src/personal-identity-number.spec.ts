@@ -29,6 +29,10 @@ describe("normalizePersonalIdentityNumber", () => {
     ["121212-1212", "201212121212"],
     // A plus separator means the person has turned 100.
     ["121212+1212", "191212121212"],
+    // A plus is written from 1 January of the year the person turns 100, so
+    // the year alone decides it, birthday or not.
+    ["261215+1239", "192612151239"],
+    ["260827+1231", "192608271231"],
     // A coordination number keeps the +60 day offset, so the form round-trips.
     ["121272-1219", "201212721219"],
     ["000229-0120", "200002290120"],
