@@ -2377,6 +2377,7 @@
       "workbookTooLarge": "That workbook unpacks to more than one import can read. Keep only the member list in it, or save it as CSV.",
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",
+      "previewChanged": "Someone has previewed this upload again since, perhaps with other columns. Check the columns and preview it once more.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",

@@ -300,15 +300,29 @@ async function uploadAndPreview(
   return session;
 }
 
-function applyImport(
+/**
+ * Starts an import, as the screen that took its preview does.
+ *
+ * That screen holds the token its preview answered with, so unless a case says
+ * otherwise this sends the one the session recorded last.
+ */
+async function applyImport(
   cookie: string,
   sessionId: string,
   decisions: Record<string, unknown> = {},
+  previewToken?: string,
 ) {
+  const recorded = await prisma.importSession.findUnique({
+    where: { id: sessionId },
+    select: { previewToken: true },
+  });
   return inject({
     method: "POST",
     url: `/api/import/sessions/${sessionId}/apply`,
-    payload: { decisions },
+    payload: {
+      decisions,
+      previewToken: previewToken ?? recorded?.previewToken ?? "never-previewed",
+    },
     headers: { cookie },
   });
 }
@@ -995,6 +1009,50 @@ describe("applying", () => {
     const active = JSON.parse(response.body) as ImportRunView | null;
     expect(active?.status).toBe("APPLIED");
     expect(active?.fileName).toBe("medlemmar.csv");
+  });
+});
+
+describe("an apply after the upload was previewed again", () => {
+  it("is refused rather than run under the mapping it never showed", async () => {
+    // Tab A previews and decides; tab B, or another board member, previews the
+    // same upload with another mapping; tab A applies. Its decisions were made
+    // against rows B's mapping may not even produce.
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "tva-flikar.csv",
+      encode(writeCsv(fixtureRows())),
+    );
+    const preview = async (mapping: (ImportField | null)[]) => {
+      const response = await inject({
+        method: "POST",
+        url: `/api/import/sessions/${session.sessionId}/preview`,
+        payload: { mapping, defaultRole: "RESIDENT" },
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return JSON.parse(response.body) as ImportPreview;
+    };
+
+    const first = await preview(session.suggestedMapping);
+    const second = await preview(
+      session.suggestedMapping.map((field) =>
+        field === "role" ? null : field,
+      ),
+    );
+    expect(second.previewToken).not.toBe(first.previewToken);
+
+    const response = await applyImport(
+      cookie,
+      session.sessionId,
+      { "3": { action: "skip" } },
+      first.previewToken,
+    );
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "preview-changed",
+    );
+    expect((await readRun(cookie, session.sessionId)).status).toBe("MAPPING");
   });
 });
 

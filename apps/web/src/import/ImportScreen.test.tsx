@@ -92,6 +92,7 @@ const SESSION: ImportSessionView = {
 
 const PREVIEW: ImportPreview = {
   sessionId: "session-1",
+  previewToken: "preview-1",
   summary: { create: 1, update: 0, ambiguous: 1, error: 1 },
   rows: [
     {
@@ -352,6 +353,7 @@ describe("the preview", () => {
       expect(applyImport).toHaveBeenCalledWith(
         "session-1",
         expect.objectContaining({
+          previewToken: "preview-1",
           decisions: {
             "2": { action: "use-person", personId: "person-bo-senior" },
           },
@@ -445,6 +447,32 @@ describe("after pressing apply", () => {
 
     expect(await screen.findByText(/En annan import skrivs/)).toBeTruthy();
     expect(await screen.findByText(/andra\.csv/)).toBeTruthy();
+  });
+
+  it("sends the board back to the mapping when the upload was previewed again", async () => {
+    // Another tab, or another board member, previewed the same upload. The
+    // decisions on this screen belong to a preview that no longer stands.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "preview-changed" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskat uppladdningen igen/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Kolumnerna/)).toBeTruthy();
+    expect(screen.queryByText(/Vad detta skulle göra/)).toBeNull();
   });
 
   it("follows the import to the end", async () => {

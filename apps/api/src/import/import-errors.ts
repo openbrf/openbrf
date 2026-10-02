@@ -23,6 +23,7 @@ export type ImportErrorReason =
   | "workbook-too-large"
   | "mapping-invalid"
   | "preview-required"
+  | "preview-changed"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";
@@ -39,7 +40,8 @@ export class ImportError extends DomainError {
         ? 404
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
-            reason === "import-already-running"
+            reason === "import-already-running" ||
+            reason === "preview-changed"
           ? 409
           : 400;
   }

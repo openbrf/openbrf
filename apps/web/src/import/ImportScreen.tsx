@@ -205,15 +205,27 @@ export function ImportScreen(): ReactElement {
   ]);
 
   const apply = useCallback(async (): Promise<void> => {
-    if (session === null) {
+    if (session === null || preview === null) {
       return;
     }
     setBusy(true);
     setFailure(null);
-    const response = await applyImport(session.sessionId, { decisions });
+    const response = await applyImport(session.sessionId, {
+      previewToken: preview.previewToken,
+      decisions,
+    });
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
+      if (response.failure.reason === "preview-changed") {
+        // Somebody previewed this upload again, perhaps with another mapping.
+        // The decisions on this screen were made against rows that preview
+        // may not have, so they go, and the board previews again.
+        setPreview(null);
+        setDecisions({});
+        setStep("mapping");
+        return;
+      }
       if (
         response.failure.reason === "session-already-applied" ||
         response.failure.reason === "import-already-running"
@@ -231,7 +243,7 @@ export function ImportScreen(): ReactElement {
     }
     setRun(response.value);
     setStep("apply");
-  }, [session, decisions]);
+  }, [session, preview, decisions]);
 
   const restart = useCallback((): void => {
     setRun(null);

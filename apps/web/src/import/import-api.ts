@@ -71,6 +71,8 @@ export interface ImportPreviewRow {
 
 export interface ImportPreview {
   sessionId: string;
+  /** Names this preview. The apply carries it, and runs only this preview. */
+  previewToken: string;
   summary: Record<ImportOutcome, number>;
   rows: ImportPreviewRow[];
 }
@@ -160,13 +162,16 @@ export function previewImport(
 /**
  * Starts the import.
  *
- * Only the decisions go up: the mapping the apply runs is the one the preview
- * was taken with, so what is written is what the board looked at. The answer is
- * the run to watch rather than a result, because nothing has been written yet.
+ * Only the decisions go up, with the token of the preview they were made on: the
+ * mapping the apply runs is the one that preview was taken with, so what is
+ * written is what the board looked at, and an apply after somebody else has
+ * previewed the upload again is refused rather than run under their mapping.
+ * The answer is the run to watch rather than a result, because nothing has been
+ * written yet.
  */
 export function applyImport(
   sessionId: string,
-  input: { decisions: Record<string, ImportDecision> },
+  input: { previewToken: string; decisions: Record<string, ImportDecision> },
 ): Promise<ApiResult<ImportRunView>> {
   return apiRequest(
     "POST",

@@ -2719,6 +2719,13 @@ model ImportSession {
   defaultRole      ResidencyRole?
   defaultMovedInOn String?
 
+  /// Names the preview last recorded on this session. The preview hands it to
+  /// the screen it answered, and the apply is refused unless it carries the
+  /// same one: a second preview - another tab, another board member - replaces
+  /// the mapping and the rows needing a decision, and decisions made against the
+  /// first must not be applied under the second.
+  previewToken String?
+
   /// Rows the preview could not resolve to one person, as row number to the
   /// persons it could equally well have been. Written by the preview and read
   /// by the apply, which refuses to start while one of them has no decision.

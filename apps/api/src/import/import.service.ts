@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
@@ -104,6 +106,8 @@ export interface ImportPreviewRow extends Omit<
 
 export interface ImportPreview {
   sessionId: string;
+  /** Sent back with the apply, which runs only the preview it names. */
+  previewToken: string;
   summary: Record<ImportOutcome, number>;
   rows: ImportPreviewRow[];
 }
@@ -271,9 +275,11 @@ export class ImportService implements OnModuleInit {
       }
     }
 
+    const previewToken = randomUUID();
     await this.prisma.importSession.updateMany({
       where: { id: sessionId, status: "MAPPING" },
       data: {
+        previewToken,
         mapping: input.mapping.map((field) => field ?? ""),
         defaultRole: input.defaultRole,
         defaultMovedInOn: input.defaultMovedInOn,
@@ -284,6 +290,7 @@ export class ImportService implements OnModuleInit {
 
     return {
       sessionId,
+      previewToken,
       summary: plan.summary,
       rows: plan.rows.map(toPreviewRow),
     };
@@ -313,7 +320,7 @@ export class ImportService implements OnModuleInit {
    */
   async apply(
     sessionId: string,
-    input: { decisions: ImportDecisions },
+    input: { decisions: ImportDecisions; previewToken: string },
   ): Promise<ImportRunView> {
     const session = await this.loadForApply(sessionId);
     if (session.previewedAt === null) {
@@ -321,6 +328,13 @@ export class ImportService implements OnModuleInit {
         "That import has not been previewed.",
         "preview-required",
       );
+    }
+    // The decisions below are checked against the rows this preview found, so
+    // they have to be the decisions made on this preview. A screen holding an
+    // older one is told, rather than having its answers applied to a mapping
+    // somebody else chose since.
+    if (session.previewToken !== input.previewToken) {
+      throw previewChanged();
     }
 
     for (const [rowNumber, candidates] of Object.entries(
@@ -358,8 +372,14 @@ export class ImportService implements OnModuleInit {
     let claimed: boolean;
     try {
       claimed = await this.prisma.$transaction(async (tx) => {
+        // On the token as well, so a preview recorded between the read above
+        // and this claim cannot have its mapping run with these decisions.
         const claim = await tx.importSession.updateMany({
-          where: { id: sessionId, status: "MAPPING" },
+          where: {
+            id: sessionId,
+            status: "MAPPING",
+            previewToken: input.previewToken,
+          },
           data: {
             status: "QUEUED",
             decisions: input.decisions as Prisma.InputJsonValue,
@@ -384,10 +404,16 @@ export class ImportService implements OnModuleInit {
       throw cause;
     }
     if (!claimed) {
-      throw new ImportError(
-        "That import has already been started.",
-        "session-already-applied",
-      );
+      const now = await this.prisma.importSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true },
+      });
+      throw now?.status === "MAPPING"
+        ? previewChanged()
+        : new ImportError(
+            "That import has already been started.",
+            "session-already-applied",
+          );
     }
 
     this.logger.log(`Import session ${sessionId}: apply queued`);
@@ -485,6 +511,7 @@ export class ImportService implements OnModuleInit {
 
   private async loadForApply(sessionId: string): Promise<{
     previewedAt: Date | null;
+    previewToken: string | null;
     ambiguousRows: Prisma.JsonValue;
   }> {
     // The uploaded rows are deliberately not read here. Starting an import
@@ -493,6 +520,7 @@ export class ImportService implements OnModuleInit {
       where: { id: sessionId },
       select: {
         previewedAt: true,
+        previewToken: true,
         ambiguousRows: true,
         status: true,
         expiresAt: true,
@@ -519,6 +547,13 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
     throw new ImportError("That upload has expired.", "session-expired");
   }
   return session;
+}
+
+function previewChanged(): ImportError {
+  return new ImportError(
+    "The upload was previewed again since. Preview it once more and decide again.",
+    "preview-changed",
+  );
 }
 
 function importAlreadyRunning(): ImportError {

@@ -54,9 +54,11 @@ const decisionSchema = z.discriminatedUnion("action", [
  * What the board answered for the rows the preview could not resolve.
  *
  * The mapping is deliberately not part of this: the apply runs the mapping the
- * preview was taken with, which is the one the board looked at.
+ * preview was taken with, which is the one the board looked at. The token names
+ * that preview, so a later one cannot take its place.
  */
 const applySchema = z.object({
+  previewToken: z.string().min(1).max(100),
   decisions: z.record(z.string(), decisionSchema).default({}),
 });
 
@@ -154,7 +156,10 @@ export class ImportController {
     @Body() body: unknown,
   ): Promise<ImportRunView> {
     const input = applySchema.parse(body);
-    return this.imports.apply(id, { decisions: input.decisions });
+    return this.imports.apply(id, {
+      decisions: input.decisions,
+      previewToken: input.previewToken,
+    });
   }
 
   /** How far the import has got. Polled by the screen while it runs. */

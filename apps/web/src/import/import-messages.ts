@@ -24,6 +24,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "workbook-too-large": "import.errors.workbookTooLarge",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
+  "preview-changed": "import.errors.previewChanged",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",
