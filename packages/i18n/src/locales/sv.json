@@ -2381,7 +2381,7 @@
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
-      "importAlreadyRunning": "En annan import skrivs just nu till registret. Vänta tills den är klar och importera sedan filen.",
+      "anotherImportRunning": "En annan import skrivs just nu till registret. Vänta tills den är klar och importera sedan filen.",
       "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",

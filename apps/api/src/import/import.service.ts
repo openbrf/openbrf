@@ -362,7 +362,7 @@ export class ImportService implements OnModuleInit {
       where: { status: { in: ["QUEUED", "APPLYING"] } },
     });
     if (running > 0) {
-      throw importAlreadyRunning();
+      throw anotherImportRunning();
     }
 
     // Before the transaction: creating a queue is the queue backend's own work
@@ -399,7 +399,7 @@ export class ImportService implements OnModuleInit {
         cause instanceof Prisma.PrismaClientKnownRequestError &&
         cause.code === "P2002"
       ) {
-        throw importAlreadyRunning();
+        throw anotherImportRunning();
       }
       throw cause;
     }
@@ -556,10 +556,10 @@ function previewChanged(): ImportError {
   );
 }
 
-function importAlreadyRunning(): ImportError {
+function anotherImportRunning(): ImportError {
   return new ImportError(
     "Another import is being applied. Wait for it to finish.",
-    "import-already-running",
+    "another-import-running",
   );
 }
 

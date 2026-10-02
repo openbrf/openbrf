@@ -1173,7 +1173,7 @@ describe("two imports of one file", () => {
     const refused = responses.find((response) => response.statusCode === 409);
     expect(
       (JSON.parse(refused?.body ?? "{}") as { reason?: string }).reason,
-    ).toBe("import-already-running");
+    ).toBe("another-import-running");
 
     const started = codes[0] === 202 ? first : second;
     await waitForRun(

@@ -228,7 +228,7 @@ export function ImportScreen(): ReactElement {
       }
       if (
         response.failure.reason === "session-already-applied" ||
-        response.failure.reason === "import-already-running"
+        response.failure.reason === "another-import-running"
       ) {
         // Somebody was quicker - the other tab, or the other board member - with
         // this upload or another one. What this screen should show now is that

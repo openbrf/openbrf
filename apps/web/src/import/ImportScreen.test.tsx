@@ -425,7 +425,7 @@ describe("after pressing apply", () => {
 
     applyImport.mockResolvedValue({
       ok: false,
-      failure: { status: 409, reason: "import-already-running" },
+      failure: { status: 409, reason: "another-import-running" },
     });
     fetchActiveImport.mockResolvedValue({
       ok: true,

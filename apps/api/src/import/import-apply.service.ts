@@ -27,6 +27,7 @@ import {
   type ImportMapping,
 } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
+import { lockImportChunkWrite } from "./import-lock";
 import { conflictsWith, type ImportPlan, type PlannedRow } from "./import-plan";
 import {
   type IdentityIndexCache,
@@ -372,7 +373,7 @@ export class ImportApplyService implements OnModuleInit {
         }
 
         // One chunk writes at a time, whichever import it belongs to.
-        await lockImportApply(tx);
+        await lockImportChunkWrite(tx);
 
         // The apartments first, before the persons: the charge and fee purges
         // decide from everybody who has ever lived in an apartment, and a
@@ -798,17 +799,6 @@ interface EncryptedRowValues {
   email: { cipher: string; index: string | null } | null;
   phone: { cipher: string; index: string | null } | null;
   personalIdentityNumber: { cipher: string; index: string | null } | null;
-}
-
-/**
- * The lock every chunk of every import takes before it writes.
- *
- * One key for the instance: what it serialises is the decision "this person is
- * new", which any two chunks can disagree on whichever imports they belong to.
- * Taken for the transaction, so the commit or the rollback releases it.
- */
-async function lockImportApply(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
 }
 
 /** The first row of the chunk the board has not answered for, if there is one. */
