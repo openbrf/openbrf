@@ -3,7 +3,15 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -312,6 +320,21 @@ function applyImport(
   });
 }
 
+/** How many lock requests in this database are waiting rather than granted. */
+async function waitingLockCount(): Promise<bigint> {
+  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+    SELECT count(*) AS locks
+    FROM pg_locks
+    WHERE NOT granted
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
+  return row?.locks ?? 0n;
+}
+
+/** The reason a refused request answered with. */
+function reasonOf(response: { body: string }): string {
+  return (JSON.parse(response.body) as { reason: string }).reason;
+}
+
 async function readRun(
   cookie: string,
   sessionId: string,
@@ -573,6 +596,25 @@ afterAll(async () => {
     where: { id: { in: [apartments.b, apartments.c] } },
   });
   await app.close();
+});
+
+// One import runs at a time, so a session a case leaves QUEUED or APPLYING -
+// claimed by hand with no job behind it, or stopped by a failed assertion -
+// would have every later apply in the file refused as another-import-running,
+// hiding the failure that left it there. Closed the way the dead letter closes
+// it once the retries are spent.
+afterEach(async () => {
+  await prisma.importSession.updateMany({
+    where: {
+      createdById: actors.board.personId,
+      status: { in: ["QUEUED", "APPLYING"] },
+    },
+    data: {
+      status: "FAILED",
+      failureReason: "apply-interrupted",
+      finishedAt: new Date(),
+    },
+  });
 });
 
 describe("who may import", () => {
@@ -978,6 +1020,10 @@ describe("two applies of one session", () => {
     ]);
     const codes = [first.statusCode, second.statusCode].sort((a, b) => a - b);
     expect(codes).toEqual([202, 409]);
+    // The other click's own session, not another import: the screen answers
+    // this reason by showing the import that did start.
+    const refused = first.statusCode === 409 ? first : second;
+    expect(reasonOf(refused)).toBe("session-already-applied");
 
     const run = await waitForRun(
       cookie,
@@ -1047,10 +1093,6 @@ describe("two imports of two files", () => {
     ];
   }
 
-  function reasonOf(response: { body: string }): string {
-    return (JSON.parse(response.body) as { reason: string }).reason;
-  }
-
   it("refuses the second while the first is queued or applying, and runs it after", async () => {
     // Two files applied side by side would each plan against a register the
     // other is writing, and a person in both would be created twice, with an
@@ -1113,10 +1155,12 @@ describe("two imports of two files", () => {
     // different rows. Without the lock in front of the read, both would find
     // nothing running and both would queue.
     //
-    // The lock is held here until both requests are waiting for it, so they
-    // reach the read together on every run rather than whenever the scheduler
-    // happens to interleave them. A request that took no lock settles on its
-    // own instead, and the codes below catch it.
+    // The table is held here so that no claim can be written until both
+    // requests are waiting. With the lock, the first waits at its claim while
+    // holding the lock, and the second waits for the lock without having read.
+    // Without it, both have read "nothing running" and wait at their claims.
+    // Either way the race is decided the same way on every run, rather than
+    // whenever the scheduler happens to interleave the two.
     const cookie = await signIn(actors.board.email);
     const sessions = await Promise.all([
       uploadAndPreview(cookie, "samtidig-1.csv", harmlessRows("SamtidigEtt")),
@@ -1133,7 +1177,8 @@ describe("two imports of two files", () => {
     });
     const holder = prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
+        // EXCLUSIVE lets the reads through and stops every write.
+        await tx.$executeRaw`LOCK TABLE import_session IN EXCLUSIVE MODE`;
         holding();
         await held;
       },
@@ -1141,15 +1186,10 @@ describe("two imports of two files", () => {
     );
     await taken;
 
-    let settled = 0;
     const requests = sessions.map((session) =>
-      applyImport(cookie, session.sessionId).finally(() => (settled += 1)),
+      applyImport(cookie, session.sessionId),
     );
-    await waitFor(
-      async () =>
-        settled === 2 ||
-        (await advisoryLockCount(prisma, "import-apply", false)) === 2n,
-    );
+    await waitFor(async () => (await waitingLockCount()) === 2n);
     release();
     const [responses] = await Promise.all([Promise.all(requests), holder]);
     const codes = responses.map((response) => response.statusCode);
@@ -1581,18 +1621,6 @@ describe("an apply that fails", () => {
     expect(run.status).toBe("QUEUED");
     expect(run.failureReason).toBeNull();
     expect(run.finishedAt).toBeNull();
-
-    // Closed the way the dead letter closes it once the retries are spent.
-    // Nothing was queued for it, so left QUEUED it would be a running import
-    // that never ends, and every apply after this case would be refused for it.
-    await prisma.importSession.update({
-      where: { id: session.sessionId },
-      data: {
-        status: "FAILED",
-        failureReason: "apply-interrupted",
-        finishedAt: new Date(),
-      },
-    });
   }, 60_000);
 });
 
