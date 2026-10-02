@@ -20,6 +20,10 @@ import { gunzipSync, gzipSync } from "node:zlib";
  *   Entry count, per-entry size and total size are capped, so a small download
  *   cannot expand into an unbounded write.
  *
+ *   Where tar implementations read the same bytes differently, the archive is
+ *   refused rather than read one way. Otherwise `tar -tzf` or Python's tarfile
+ *   would list one set of files for a reviewer while this reader kept another.
+ *
  * The whole archive is held in memory. A theme is colours, a manifest and a
  * few font files; the cap below is the ceiling on that, not a streaming limit.
  */
@@ -85,6 +89,38 @@ function isZeroBlock(block: Uint8Array): boolean {
   return block.every((byte) => byte === 0);
 }
 
+/** The POSIX ustar magic and version, which make the `prefix` field a path. */
+function isUstar(header: Uint8Array): boolean {
+  return (
+    decodeString(header, 257, 6) === "ustar" &&
+    header[262] === 0 &&
+    header[263] === 0x30 &&
+    header[264] === 0x30
+  );
+}
+
+/**
+ * The path a header names.
+ *
+ * Only a POSIX ustar header has a `prefix` field. GNU tar and bsdtar ignore
+ * those bytes in any other header (the GNU format keeps timestamps there),
+ * while Python's tarfile joins them to the name regardless, so a header
+ * without the magic that has anything in them is refused.
+ */
+function headerPath(header: Uint8Array): string {
+  const name = decodeString(header, 0, 100);
+  const prefix = decodeString(header, 345, 155);
+  if (prefix === "") {
+    return name;
+  }
+  if (!isUstar(header)) {
+    throw new ThemeArchiveError(
+      "The archive has a path prefix in a header that is not ustar.",
+    );
+  }
+  return `${prefix}/${name}`;
+}
+
 function assertSafePath(path: string): void {
   if (path.length === 0 || path.length > 200) {
     throw new ThemeArchiveError(
@@ -148,22 +184,23 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
   // repeats one path would otherwise never reach the cap.
   let fileRecords = 0;
   let offset = 0;
-  let trailingZeroBlocks = 0;
 
   while (offset + BLOCK_SIZE <= tarball.length) {
     const header = tarball.subarray(offset, offset + BLOCK_SIZE);
     offset += BLOCK_SIZE;
 
     if (isZeroBlock(header)) {
-      trailingZeroBlocks += 1;
-      // Two consecutive zero blocks end the archive; anything after them is
-      // padding the format says nothing about, so reading stops here.
-      if (trailingZeroBlocks >= 2) {
-        break;
+      // Two zero blocks end the archive, and anything after them is padding
+      // the format says nothing about. tar and Python's tarfile both stop at
+      // the first one, so a header after a lone zero block would be a file
+      // only this reader sees.
+      if (!isZeroBlock(tarball.subarray(offset, offset + BLOCK_SIZE))) {
+        throw new ThemeArchiveError(
+          "The archive has a lone zero block before its last entry.",
+        );
       }
-      continue;
+      break;
     }
-    trailingZeroBlocks = 0;
 
     if (!checksumMatches(header)) {
       throw new ThemeArchiveError("The archive has a corrupt header.");
@@ -175,8 +212,14 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
 
     if (typeFlag === "5") {
       // A directory entry carries no content and creates nothing: extraction
-      // makes the directories the files it keeps actually need.
-      offset += dataBlocks;
+      // makes the directories the files it keeps actually need. One that
+      // states a size is refused: tar and Python's tarfile do not skip a
+      // directory's data, so they would read headers hidden in it.
+      if (size > 0) {
+        throw new ThemeArchiveError(
+          "The archive has a directory entry that states a size.",
+        );
+      }
       continue;
     }
 
@@ -206,9 +249,7 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
 
     fileRecords += 1;
 
-    const prefix = decodeString(header, 345, 155);
-    const name = decodeString(header, 0, 100);
-    const path = prefix === "" ? name : `${prefix}/${name}`;
+    const path = headerPath(header);
     assertSafePath(path);
 
     if (offset + size > tarball.length) {

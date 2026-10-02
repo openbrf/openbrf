@@ -43,6 +43,8 @@ function rawHeader(options: {
   name: string;
   size: number;
   typeFlag: string;
+  prefix?: string;
+  ustar?: boolean;
 }): Uint8Array {
   const header = new Uint8Array(512);
   const write = (value: string, start: number): void => {
@@ -56,8 +58,11 @@ function rawHeader(options: {
   write("00000000000\0", 136);
   write("        ", 148);
   write(options.typeFlag, 156);
-  write("ustar\0", 257);
-  write("00", 263);
+  if (options.ustar ?? true) {
+    write("ustar\0", 257);
+    write("00", 263);
+  }
+  write(options.prefix ?? "", 345);
 
   let checksum = 0;
   for (const byte of header) {
@@ -65,6 +70,12 @@ function rawHeader(options: {
   }
   write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148);
   return header;
+}
+
+function dataBlock(content: string): Uint8Array {
+  const block = new Uint8Array(512);
+  block.set(encoder.encode(content), 0);
+  return block;
 }
 
 function rawArchive(blocks: readonly Uint8Array[]): Uint8Array {
@@ -153,14 +164,84 @@ describe("readThemeArchive refusals", () => {
     const archive = rawArchive([
       rawHeader({ name: "fonts", size: 0, typeFlag: "5" }),
       rawHeader({ name: "theme.json", size: 2, typeFlag: "0" }),
-      (() => {
-        const block = new Uint8Array(512);
-        block.set(encoder.encode("{}"), 0);
-        return block;
-      })(),
+      dataBlock("{}"),
     ]);
 
     expect(unpack(archive)).toEqual({ "theme.json": "{}" });
+  });
+
+  it("refuses a directory entry that states a size", () => {
+    // tar and Python's tarfile read the "data" as the next header, so they
+    // would list hidden.json where this reader used to skip over it.
+    const archive = rawArchive([
+      rawHeader({ name: "fonts", size: 512, typeFlag: "5" }),
+      rawHeader({ name: "hidden.json", size: 0, typeFlag: "0" }),
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(
+      "The archive has a directory entry that states a size.",
+    );
+  });
+
+  it("refuses a header after a lone zero block", () => {
+    // tar and Python's tarfile stop at the first zero block and would never
+    // show hidden.json.
+    const archive = rawArchive([
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+      new Uint8Array(512),
+      rawHeader({ name: "hidden.json", size: 0, typeFlag: "0" }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(
+      "The archive has a lone zero block before its last entry.",
+    );
+  });
+
+  it("accepts an archive that ends with a single zero block", () => {
+    const tarball = new Uint8Array(1024);
+    tarball.set(rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }), 0);
+    expect(unpack(new Uint8Array(gzipSync(tarball)))).toEqual({
+      "theme.json": "",
+    });
+  });
+
+  it("joins the prefix to the name in a ustar header", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        prefix: "example-theme",
+        size: 0,
+        typeFlag: "0",
+      }),
+      rawHeader({ name: "readme.md", size: 0, typeFlag: "0" }),
+    ]);
+    expect(Object.keys(unpack(archive)).sort()).toEqual([
+      "example-theme/theme.json",
+      "readme.md",
+    ]);
+  });
+
+  it("refuses a prefix in a header without the ustar magic", () => {
+    // bsdtar and GNU tar list this as theme.json, Python's tarfile as
+    // example-theme/theme.json.
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        prefix: "example-theme",
+        size: 0,
+        typeFlag: "0",
+        ustar: false,
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(
+      "The archive has a path prefix in a header that is not ustar.",
+    );
+  });
+
+  it("reads a header without the ustar magic by its name", () => {
+    const archive = rawArchive([
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0", ustar: false }),
+    ]);
+    expect(unpack(archive)).toEqual({ "theme.json": "" });
   });
 
   it("refuses more entries than the cap allows", () => {
