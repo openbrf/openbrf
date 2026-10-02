@@ -33,6 +33,19 @@ export const MAX_WORKBOOK_ENTRY_BYTES = 8 * 1024 * 1024;
 /** Bytes the whole xlsx archive may inflate to. */
 export const MAX_WORKBOOK_BYTES = 16 * 1024 * 1024;
 
+/**
+ * The last row an empty row or cell of a workbook may name.
+ *
+ * Excel writes a cell for every formatted cell, value or not, so a short list
+ * formatted far down its sheet names rows well past the data. The parser still
+ * fills every row up to the last one named, at a few megabytes for this many.
+ * A cell holding a value is held to {@link MAX_IMPORT_ROWS} instead.
+ */
+export const MAX_WORKBOOK_EMPTY_ROW = 65_536;
+
+/** The last column an empty cell may name: XFD, Excel's own last column. */
+export const MAX_WORKBOOK_EMPTY_COLUMN = 16_384;
+
 /** Why a file was refused for its shape rather than for its content. */
 export type ImportShapeReason =
   | "too-many-rows"

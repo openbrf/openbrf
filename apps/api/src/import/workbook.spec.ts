@@ -1,11 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { crc32, deflateRawSync } from "node:zlib";
+
+import { unzipSync } from "fflate";
+import { readSheet } from "read-excel-file/node";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import {
   MAX_IMPORT_CELL_LENGTH,
+  MAX_WORKBOOK_EMPTY_ROW,
   MAX_WORKBOOK_ENTRY_BYTES,
 } from "./import-limits";
 import { cellText, inspectWorkbook, parseWorkbook } from "./workbook";
+
+vi.mock("read-excel-file/node", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("read-excel-file/node")>();
+  return { ...original, readSheet: vi.fn(original.readSheet) };
+});
+
+beforeEach(() => {
+  vi.mocked(readSheet).mockClear();
+});
 
 /**
  * The one date conversion in the import path, pinned.
@@ -109,6 +124,131 @@ describe("a workbook past the import's limits", () => {
     }).toThrow(expect.objectContaining({ reason: "workbook-too-large" }));
   });
 
+  /*
+   * Every one of these is valid XML that the library reads as an address far
+   * down or far right. Each is refused before the library is called.
+   */
+  it.each([
+    [
+      "a row number written as a power of ten",
+      '<row r="1e9"><c r="A1"><v>1</v></c></row>',
+    ],
+    [
+      "a cell row written as a power of ten",
+      '<row><c r="A1e9"><v>1</v></c></row>',
+    ],
+    ["a column in lower case", '<row r="1"><c r="zzzzz1"><v>1</v></c></row>'],
+    [
+      "an address in single quotes",
+      "<row r='20000'><c r='GR20000'><v>1</v></c></row>",
+    ],
+    [
+      "a prefixed element",
+      '<x:row r="20000"><x:c r="A20000"><x:v>1</x:v></x:c></x:row>',
+    ],
+    [
+      "a prefixed attribute",
+      '<row x:r="20000"><c x:r="A20000"><v>1</v></c></row>',
+    ],
+    [
+      "a character reference",
+      '<row r="&#50;0000"><c r="A&#50;0000"><v>1</v></c></row>',
+    ],
+    [
+      "an address with a space in it",
+      '<row r=" 20000"><c r="A1"><v>1</v></c></row>',
+    ],
+    [
+      "a row number in hexadecimal",
+      '<row r="0x3B9ACA00"><c r="A1"><v>1</v></c></row>',
+    ],
+  ])("refuses %s before the parser reads it", async (_, sheetData) => {
+    const workbook = buildWorkbook([], "Blad1", { sheetData });
+
+    expect(() => inspectWorkbook(workbook)).toThrow();
+    await expect(parseWorkbook(workbook)).rejects.toThrow();
+    expect(readSheet).not.toHaveBeenCalled();
+  });
+
+  it("checks a sheet the workbook stores outside xl/worksheets", () => {
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetTarget: "sheet1.xml",
+      sheetData: '<row r="1000000"><c r="A1000000"><v>1</v></c></row>',
+    });
+
+    expect(() => inspectWorkbook(workbook)).toThrow(
+      expect.objectContaining({ reason: "too-many-rows" }),
+    );
+  });
+
+  it.each([
+    ["an unclosed tag", "<row ".repeat(1_600_000)],
+    ["one tag with every attribute", `<c ${'a="1" '.repeat(1_100_000)}>`],
+    ["unmatched quotes", `<row ${"'\"".repeat(3_000_000)}`],
+  ])("reads %s in time proportional to its size", (_, sheetData) => {
+    const workbook = buildWorkbook([], "Blad1", { sheetData });
+
+    const started = performance.now();
+    try {
+      inspectWorkbook(workbook);
+    } catch {
+      // Refused or accepted, it has to be quick about it.
+    }
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
+  it("reads a list formatted far below its last row", async () => {
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetData:
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>Namn</t></is></c></row>' +
+        '<row r="2"><c r="A2" t="inlineStr"><is><t>Anna</t></is></c></row>' +
+        '<row r="8000" s="1" customFormat="1"><c r="A8000" s="0"/><c r="XFD8000" s="0"/></row>',
+    });
+
+    await expect(parseWorkbook(workbook)).resolves.toEqual([
+      ["Namn"],
+      ["Anna"],
+    ]);
+  });
+
+  it("refuses an empty row further down than any formatted list reaches", () => {
+    const row = String(MAX_WORKBOOK_EMPTY_ROW + 1);
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetData: `<row r="${row}" s="1" customFormat="1"><c r="A${row}" s="0"/></row>`,
+    });
+
+    expect(() => inspectWorkbook(workbook)).toThrow(
+      expect.objectContaining({ reason: "too-many-rows" }),
+    );
+  });
+
+  it("hands the parser an archive whose parts are the sizes they say", async () => {
+    // The sheet says its sizes follow its data, and states one it has not.
+    const workbook = withTrailingSize(
+      buildWorkbook([
+        ["Namn", "Lgh"],
+        ["Anna", "1101"],
+      ]),
+      "xl/worksheets/sheet1.xml",
+      0x20000000,
+    );
+
+    await expect(parseWorkbook(workbook)).resolves.toEqual([
+      ["Namn", "Lgh"],
+      ["Anna", "1101"],
+    ]);
+    const [read] = vi.mocked(readSheet).mock.calls[0] ?? [];
+    expect(Buffer.isBuffer(read)).toBe(true);
+    const archive = read as Buffer;
+    for (const header of localHeaders(archive)) {
+      expect(header.flags & 0x0008).toBe(0);
+    }
+    const parts = unzipSync(archive);
+    for (const header of localHeaders(archive)) {
+      expect(header.size).toBe(parts[header.name]?.length);
+    }
+  });
+
   it("refuses a cell longer than the import takes", () => {
     expect(() => cellText("x".repeat(MAX_IMPORT_CELL_LENGTH + 1))).toThrow(
       expect.objectContaining({ reason: "cell-too-long" }),
@@ -127,6 +267,81 @@ describe("a workbook past the import's limits", () => {
     ]);
   });
 });
+
+/**
+ * Writes the archive again with one part marked as followed by a data
+ * descriptor, which states its real sizes, while its local header states
+ * `declared` as its uncompressed size.
+ */
+function withTrailingSize(
+  archive: Buffer,
+  name: string,
+  declared: number,
+): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [entry, data] of Object.entries(unzipSync(archive))) {
+    const trailing = entry === name;
+    const encoded = Buffer.from(entry, "utf8");
+    const compressed = deflateRawSync(data);
+    const checksum = crc32(data);
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(trailing ? 0x0008 : 0, 6);
+    header.writeUInt16LE(8, 8);
+    header.writeUInt32LE(checksum, 14);
+    header.writeUInt32LE(compressed.length, 18);
+    header.writeUInt32LE(trailing ? declared : data.length, 22);
+    header.writeUInt16LE(encoded.length, 26);
+    const descriptor = Buffer.alloc(trailing ? 16 : 0);
+    if (trailing) {
+      descriptor.writeUInt32LE(0x08074b50, 0);
+      descriptor.writeUInt32LE(checksum, 4);
+      descriptor.writeUInt32LE(compressed.length, 8);
+      descriptor.writeUInt32LE(data.length, 12);
+    }
+    const record = Buffer.alloc(46);
+    record.writeUInt32LE(0x02014b50, 0);
+    record.writeUInt16LE(20, 4);
+    record.writeUInt16LE(20, 6);
+    header.copy(record, 8, 6, 26);
+    record.writeUInt32LE(data.length, 24);
+    record.writeUInt16LE(encoded.length, 28);
+    record.writeUInt32LE(offset, 42);
+    locals.push(header, encoded, compressed, descriptor);
+    central.push(record, encoded);
+    offset +=
+      header.length + encoded.length + compressed.length + descriptor.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(central.length / 2, 8);
+  end.writeUInt16LE(central.length / 2, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+function localHeaders(
+  archive: Buffer,
+): { offset: number; name: string; flags: number; size: number }[] {
+  const headers = [];
+  for (let offset = 0; offset < archive.length - 30; offset++) {
+    if (archive.readUInt32LE(offset) === 0x04034b50) {
+      const nameLength = archive.readUInt16LE(offset + 26);
+      headers.push({
+        offset,
+        name: archive.toString("utf8", offset + 30, offset + 30 + nameLength),
+        flags: archive.readUInt16LE(offset + 6),
+        size: archive.readUInt32LE(offset + 22),
+      });
+    }
+  }
+  return headers;
+}
 
 /**
  * Rewrites the uncompressed size an archive states for one part, in its local

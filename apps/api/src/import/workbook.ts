@@ -1,14 +1,13 @@
-import { Unzip, UnzipInflate, UnzipPassThrough } from "fflate";
+import { Unzip, UnzipInflate, UnzipPassThrough, zipSync } from "fflate";
 import { readSheet } from "read-excel-file/node";
 
 import {
   ImportShapeError,
   MAX_IMPORT_CELL_LENGTH,
-  MAX_IMPORT_COLUMNS,
-  MAX_IMPORT_ROWS,
   MAX_WORKBOOK_BYTES,
   MAX_WORKBOOK_ENTRY_BYTES,
 } from "./import-limits";
+import { checkAddresses, UnreadableSheetError } from "./sheet-addresses";
 
 /**
  * Reading the first sheet of an Excel workbook.
@@ -26,8 +25,7 @@ import {
  * The library sets no limits of its own: it inflates every part of the archive
  * whatever size it turns out to be, and fills the gap up to whatever row and
  * column a cell address names. So the archive is inspected first, by
- * {@link inspectWorkbook}, and handed to the library only once it is known to
- * fit.
+ * {@link inspectWorkbook}, and the library reads only what was inspected.
  */
 
 /**
@@ -39,10 +37,6 @@ import {
  * number the file states, and nothing obliges the data to agree with it.
  */
 const INSPECT_SLICE_BYTES = 4096;
-
-/** A row's or a cell's address, e.g. `<row r="12"` or `<c r="AB12"`. */
-const ROW_ADDRESS = /<row\b[^>]*?\sr="(\d+)"/g;
-const CELL_ADDRESS = /<c\b[^>]*?\sr="([A-Z]+)(\d+)"/g;
 
 /**
  * Turns a cell into the text the mapping works with.
@@ -84,30 +78,41 @@ export function cellText(value: unknown): string {
 }
 
 /**
- * Refuses a workbook the parser could not read within the import's limits.
+ * Refuses a workbook the parser could not read within the import's limits, and
+ * returns the archive the parser is to read instead.
  *
  * Every XML part is inflated here with its size counted as it grows, and
  * refused once it passes the limit, so a part that inflates without bound is
  * stopped after a few megabytes rather than after the library has allocated
- * all of it. The worksheets are then searched for row and cell addresses past
- * the import's rows and columns: the library fills every row and cell up to the
- * address it reads, so an address a billion rows down is an allocation however
- * few bytes it takes to write. The library reads a cell only by its address,
- * so the addresses bound the rows and columns it can produce.
+ * all of it. Every XML part is then searched for row and cell addresses past
+ * the import's limits by {@link checkAddresses}. All of them, rather than only
+ * the sheets: which part is a sheet is for the workbook's own relationships to
+ * say, and reading those the way the library does is one more place to
+ * disagree with it.
+ *
+ * The archive returned is rebuilt from the parts inspected, and only from
+ * them. The library has its own unzipper, which reads an archive differently
+ * from the one here (it trusts the size a part declares, and the two need not
+ * agree on which parts there are), so handing it the original would leave it
+ * reading a file nobody inspected.
  */
-export function inspectWorkbook(buffer: Uint8Array): void {
+export function inspectWorkbook(buffer: Uint8Array): Uint8Array {
   let total = 0;
   const tooLarge = (): ImportShapeError =>
     new ImportShapeError(
       "The workbook inflates past its limit.",
       "workbook-too-large",
     );
+  const parts: Record<string, Uint8Array> = {};
 
   const unzip = new Unzip((file) => {
     if ((file.originalSize ?? 0) > MAX_WORKBOOK_ENTRY_BYTES) {
       throw tooLarge();
     }
-    const worksheet = /^xl\/worksheets\/[^/]+\.xml$/.test(file.name);
+    const kept = /\.(?:xml|rels)$/i.test(file.name);
+    if (kept && Object.hasOwn(parts, file.name)) {
+      throw new UnreadableSheetError("The workbook holds a part twice.");
+    }
     const chunks: Uint8Array[] = [];
     let size = 0;
 
@@ -120,10 +125,13 @@ export function inspectWorkbook(buffer: Uint8Array): void {
       if (size > MAX_WORKBOOK_ENTRY_BYTES || total > MAX_WORKBOOK_BYTES) {
         throw tooLarge();
       }
-      if (worksheet) {
+      if (kept) {
         chunks.push(chunk);
         if (final) {
-          checkAddresses(Buffer.concat(chunks).toString("utf8"));
+          const part = Buffer.concat(chunks);
+          // Decoded as the library decodes it.
+          checkAddresses(new TextDecoder().decode(part));
+          parts[file.name] = part;
         }
       }
     };
@@ -136,51 +144,14 @@ export function inspectWorkbook(buffer: Uint8Array): void {
     const end = offset + INSPECT_SLICE_BYTES;
     unzip.push(buffer.subarray(offset, end), end >= buffer.length);
   }
-}
-
-function checkAddresses(xml: string): void {
-  for (const [, row] of xml.matchAll(ROW_ADDRESS)) {
-    checkRow(Number(row));
-  }
-  for (const [, column = "", row] of xml.matchAll(CELL_ADDRESS)) {
-    checkRow(Number(row));
-    if (columnNumber(column) > MAX_IMPORT_COLUMNS) {
-      throw new ImportShapeError(
-        `A cell lies past column ${String(MAX_IMPORT_COLUMNS)}.`,
-        "too-many-columns",
-      );
-    }
-  }
-}
-
-function checkRow(row: number): void {
-  // The header is the row above the data, so it is one more.
-  if (row > MAX_IMPORT_ROWS + 1) {
-    throw new ImportShapeError(
-      `A cell lies past row ${String(MAX_IMPORT_ROWS + 1)}.`,
-      "too-many-rows",
-    );
-  }
-}
-
-/** A column's letters as a number: A is 1, Z is 26, AA is 27. */
-function columnNumber(letters: string): number {
-  let number = 0;
-  for (const letter of letters) {
-    number = number * 26 + (letter.charCodeAt(0) - 64);
-    if (number > MAX_IMPORT_COLUMNS) {
-      // Stop counting: XFD is the last column Excel has, but an address is
-      // whatever text the file holds.
-      return number;
-    }
-  }
-  return number;
+  // Stored rather than compressed: the archive is read once, straight away.
+  return zipSync(parts, { level: 0 });
 }
 
 /** Parses a workbook into rows of text, header row included. */
 export async function parseWorkbook(buffer: Buffer): Promise<string[][]> {
-  inspectWorkbook(buffer);
-  const sheet = (await readSheet(buffer)) as unknown[][];
+  const inspected = inspectWorkbook(buffer);
+  const sheet = (await readSheet(Buffer.from(inspected))) as unknown[][];
 
   const rows = sheet
     .map((row) => row.map(cellText))
