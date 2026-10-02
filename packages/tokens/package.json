@@ -18,10 +18,10 @@
     "prepack": "node ../../scripts/copy-licence-files.mjs"
   },
   "devDependencies": {
-    "oxlint": "^1.85.0",
+    "oxlint": "^1.86.0",
     "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
