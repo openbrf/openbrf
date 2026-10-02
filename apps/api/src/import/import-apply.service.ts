@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -26,7 +27,7 @@ import {
   type ImportMapping,
 } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
-import type { ImportPlan, PlannedRow } from "./import-plan";
+import { conflictsWith, type ImportPlan, type PlannedRow } from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
@@ -287,6 +288,7 @@ export class ImportApplyService implements OnModuleInit {
         defaultRole: true,
         defaultMovedInOn: true,
         decisions: true,
+        rowPersons: true,
       },
     });
     if (session === null) {
@@ -311,6 +313,7 @@ export class ImportApplyService implements OnModuleInit {
     }
 
     const decisions = readDecisions(session.decisions);
+    const rowPersons = readRowPersons(session.rowPersons);
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -327,6 +330,7 @@ export class ImportApplyService implements OnModuleInit {
       // A person this chunk writes carries the index, so it is owed whatever
       // the register looks like.
       indexEveryIdentityNumber: true,
+      earlier: rowPersons,
     };
     const plan = await this.planner.plan({ ...request, indexes });
 
@@ -367,12 +371,33 @@ export class ImportApplyService implements OnModuleInit {
           return null;
         }
 
-        // Then the plan again, under the lock and through this transaction.
-        // The one above decided what to encrypt; this one decides what to
-        // write, against a register no other chunk can be adding to. Every
-        // identity number index is already in the cache, so planning again
-        // costs the register read and nothing of Argon2id.
+        // One chunk writes at a time, whichever import it belongs to.
         await lockImportApply(tx);
+
+        // The apartments first, before the persons: the charge and fee purges
+        // decide from everybody who has ever lived in an apartment, and a
+        // historical residency this chunk adds has to be either seen by them
+        // or written after they finish. Ahead of the transition locks, in the
+        // order lockApartmentResidencies gives.
+        const apartmentsLocked = residencyApartments(plan, decisions);
+        await lockApartmentResidenciesInOrder(tx, apartmentsLocked);
+
+        // Taken before the chunk reads anything about these persons. Whether a
+        // member row begins a membership is decided from the person's other
+        // tenant-ownerships as the chunk reads them, and a move-in or move-out
+        // for the same person can commit between that read and the register
+        // write - which would append
+        // a second ENTRY to a register that refuses to have rows removed. In a
+        // fixed order, because a chunk holds many of these locks at once.
+        const personsLocked = existingTargets(plan, decisions);
+        await lockResidencyTransitionsInOrder(tx, personsLocked);
+
+        // Then the plan again, through this transaction and under every lock.
+        // The one above decided what to encrypt and what to lock; this one
+        // decides what to write, against a register nobody else can be adding
+        // these persons or residencies to. Every identity number index is
+        // already in the cache, so it costs the register read and nothing of
+        // Argon2id.
         const locked = await this.planner.plan({
           ...request,
           indexes,
@@ -386,33 +411,26 @@ export class ImportApplyService implements OnModuleInit {
             undecidedNow,
           );
         }
-
-        // The apartments first, before the persons: the charge and fee purges
-        // decide from everybody who has ever lived in an apartment, and a
-        // historical residency this chunk adds has to be either seen by them
-        // or written after they finish. Ahead of the transition locks, in the
-        // order lockApartmentResidencies gives.
-        await lockApartmentResidenciesInOrder(
-          tx,
-          residencyApartments(locked, decisions),
-        );
-
-        // Taken before the chunk reads anything about these persons. Whether a
-        // member row begins a membership is decided from the person's other
-        // tenant-ownerships as the chunk reads them, and a move-in or move-out
-        // for the same person can commit between that read and the register
-        // write - which would append
-        // a second ENTRY to a register that refuses to have rows removed. In a
-        // fixed order, because a chunk holds many of these locks at once.
-        await lockResidencyTransitionsInOrder(
-          tx,
-          existingTargets(locked, decisions),
-        );
+        if (
+          !within(residencyApartments(locked, decisions), apartmentsLocked) ||
+          !within(existingTargets(locked, decisions), personsLocked)
+        ) {
+          // The register changed between the two plans so that this chunk now
+          // writes somewhere it holds no lock. Not a refusal: the next attempt
+          // plans from the register as it is then, and locks what that needs.
+          throw new Error(
+            "The register changed under the chunk; it is planned again.",
+          );
+        }
 
         const written = await this.write(tx, locked, decisions, encrypted);
         await tx.importSession.update({
           where: { id: sessionId },
           data: {
+            rowPersons: Object.fromEntries([
+              ...rowPersons,
+              ...written.rowPersons,
+            ]) as Prisma.InputJsonValue,
             personsCreated: { increment: written.personsCreated },
             personsUpdated: { increment: written.personsUpdated },
             residenciesCreated: { increment: written.residenciesCreated },
@@ -534,14 +552,15 @@ export class ImportApplyService implements OnModuleInit {
     plan: ImportPlan,
     decisions: ImportDecisions,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
-  ): Promise<ImportApplyResult> {
-    const result: ImportApplyResult = {
+  ): Promise<ChunkWritten> {
+    const result: ChunkWritten = {
       personsCreated: 0,
       personsUpdated: 0,
       residenciesCreated: 0,
       memberRegisterEntriesCreated: 0,
       skipped: 0,
       errors: 0,
+      rowPersons: new Map(),
     };
 
     /** Persons this chunk created, so a second row reaches the same one. */
@@ -564,6 +583,18 @@ export class ImportApplyService implements OnModuleInit {
         result.skipped++;
         continue;
       }
+      // The plan refuses a row that would give a person a second residency on
+      // the same days, but it cannot for a row the board resolved: until the
+      // decision it did not know whose residencies to compare. Checked again
+      // here for every existing person, so the decision is held to the same
+      // rule.
+      if (
+        target.action === "update" &&
+        (await residencyConflicts(tx, row, target.personId))
+      ) {
+        result.errors++;
+        continue;
+      }
 
       const personId = await this.upsertPerson(
         tx,
@@ -576,6 +607,11 @@ export class ImportApplyService implements OnModuleInit {
       if (personId === null) {
         result.skipped++;
         continue;
+      }
+      // Only rows the preview resolved itself: an ambiguous row was matched to
+      // nobody by the plan, so a later row cannot have been shown as its twin.
+      if (row.outcome !== "ambiguous") {
+        result.rowPersons.set(row.rowNumber, personId);
       }
 
       await this.writeResidency(tx, row, personId, membersBefore, result);
@@ -700,7 +736,10 @@ export class ImportApplyService implements OnModuleInit {
    * The residency this row would create is looked up first, which is also what
    * makes a chunk safe to attempt twice: a row whose residency is already there
    * writes nothing further, and no second entry reaches a register that refuses
-   * to have rows removed.
+   * to have rows removed. Already there means the same role from the same day.
+   * Any other residency of this person on this apartment that it would overlap
+   * was refused by the plan as a problem with the row, and one it does not
+   * overlap - a person who moved out and back in - is a residency of its own.
    */
   private async writeResidency(
     tx: Prisma.TransactionClient,
@@ -720,7 +759,12 @@ export class ImportApplyService implements OnModuleInit {
         : new Date(`${row.movedOutOn}T00:00:00.000Z`);
 
     const existing = await tx.residency.count({
-      where: { personId, apartmentId: row.apartment.id },
+      where: {
+        personId,
+        apartmentId: row.apartment.id,
+        role: row.role,
+        movedInOn,
+      },
     });
     if (existing > 0) {
       return;
@@ -743,6 +787,11 @@ export class ImportApplyService implements OnModuleInit {
     });
     result.residenciesCreated++;
   }
+}
+
+/** What one chunk wrote, and which person each of its rows was written to. */
+interface ChunkWritten extends ImportApplyResult {
+  rowPersons: Map<number, string>;
 }
 
 interface EncryptedRowValues {
@@ -785,6 +834,59 @@ function findUndecided(
     }
   }
   return null;
+}
+
+/** Whether the row's residency would overlap one the person holds differently. */
+async function residencyConflicts(
+  tx: Prisma.TransactionClient,
+  row: PlannedRow,
+  personId: string,
+): Promise<boolean> {
+  if (row.apartment === null || row.role === null || row.movedInOn === null) {
+    return false;
+  }
+  const held = await tx.residency.findMany({
+    where: { personId, apartmentId: row.apartment.id },
+    select: { role: true, movedInOn: true, movedOutOn: true },
+  });
+  return conflictsWith(
+    {
+      apartmentId: row.apartment.id,
+      role: row.role,
+      movedInOn: row.movedInOn,
+      movedOutOn: row.movedOutOn,
+    },
+    held.map((residency) => ({
+      apartmentId: row.apartment?.id ?? "",
+      role: residency.role,
+      movedInOn: formatDateColumn(residency.movedInOn),
+      movedOutOn: formatDateColumn(residency.movedOutOn),
+    })),
+  );
+}
+
+/** Whether every entry of one list is in the other. */
+function within(needed: readonly string[], held: readonly string[]): boolean {
+  const set = new Set(held);
+  return needed.every((value) => set.has(value));
+}
+
+/**
+ * The rows earlier chunks wrote, read back. Narrowed rather than cast, like the
+ * decisions: an entry that is not a row number and a person id is dropped.
+ */
+function readRowPersons(value: unknown): Map<number, string> {
+  const rows = new Map<number, string>();
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return rows;
+  }
+  for (const [rowNumber, personId] of Object.entries(value)) {
+    const number = Number(rowNumber);
+    if (Number.isInteger(number) && typeof personId === "string") {
+      rows.set(number, personId);
+    }
+  }
+  return rows;
 }
 
 /** The stored mapping, read back. An empty entry is a column not imported. */

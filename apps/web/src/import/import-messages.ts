@@ -48,6 +48,7 @@ const PROBLEMS: Record<string, TranslationKey> = {
   "moved-in-missing": "import.problem.moved-in-missing",
   "date-not-iso": "import.problem.date-not-iso",
   "moved-out-before-moved-in": "import.problem.moved-out-before-moved-in",
+  "residency-conflict": "import.problem.residency-conflict",
   "invalid-personal-identity-number":
     "import.problem.invalid-personal-identity-number",
   "invalid-email": "import.problem.invalid-email",

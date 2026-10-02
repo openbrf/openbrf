@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { formatDateColumn } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
@@ -8,12 +9,14 @@ import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
   apartmentNameKey,
+  type EarlierRow,
   hasIndexableIdentityNumber,
   type ImportPlan,
   type ImportRole,
   planImport,
   type PreparedRow,
   readRow,
+  type RegisterResidency,
   type RegisterSnapshot,
 } from "./import-plan";
 
@@ -70,6 +73,13 @@ export interface ImportPlanRequest {
    */
   indexEveryIdentityNumber: boolean;
   indexes: IdentityIndexCache;
+  /**
+   * Rows before the window that an earlier chunk wrote, by row number, to the
+   * person each was written to. Read back from the session, so a row the
+   * preview showed as the same person as one in an earlier chunk reaches that
+   * person.
+   */
+  earlier?: ReadonlyMap<number, string>;
   /**
    * The transaction to read the register through. The apply plans a chunk a
    * second time inside the transaction that writes it, under the import lock,
@@ -139,10 +149,43 @@ export class ImportPlannerService {
       });
     }
 
-    return planImport(prepared, snapshot, {
-      defaultRole: request.defaultRole,
-      defaultMovedInOn: request.defaultMovedInOn,
-    });
+    // No identity number is indexed for these: the file's own keys are its
+    // normalized numbers, and the register match has already been made.
+    const earlier: EarlierRow[] = [];
+    for (const [rowNumber, personId] of request.earlier ?? []) {
+      if (rowNumber > from) {
+        continue;
+      }
+      const values = readRow(
+        request.rows[rowNumber - 1] ?? [],
+        request.mapping,
+      );
+      earlier.push({
+        row: {
+          rowNumber,
+          values,
+          identityNumberIndex: null,
+          emailIndex:
+            values.email === undefined
+              ? null
+              : await this.encryption.computeIndex(
+                  "person.email",
+                  values.email,
+                ),
+        },
+        personId,
+      });
+    }
+
+    return planImport(
+      prepared,
+      snapshot,
+      {
+        defaultRole: request.defaultRole,
+        defaultMovedInOn: request.defaultMovedInOn,
+      },
+      earlier,
+    );
   }
 
   /**
@@ -209,8 +252,12 @@ export class ImportPlannerService {
         emailIndex: true,
         personalIdentityNumberIndex: true,
         residencies: {
-          where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
-          select: { apartmentId: true },
+          select: {
+            apartmentId: true,
+            role: true,
+            movedInOn: true,
+            movedOutOn: true,
+          },
         },
       },
     });
@@ -218,6 +265,8 @@ export class ImportPlannerService {
     const personsByIdentityNumber = new Map<string, string[]>();
     const personsByEmail = new Map<string, string[]>();
     const personsByApartmentAndName = new Map<string, string[]>();
+    const personsByApartmentAndNameEver = new Map<string, string[]>();
+    const residenciesByPerson = new Map<string, RegisterResidency[]>();
     const personNames = new Map<string, string>();
 
     for (const person of persons) {
@@ -235,17 +284,34 @@ export class ImportPlannerService {
       if (person.emailIndex !== null) {
         push(personsByEmail, person.emailIndex, person.id);
       }
+      const held: RegisterResidency[] = [];
       for (const residency of person.residencies) {
-        push(
-          personsByApartmentAndName,
-          apartmentNameKey(
-            residency.apartmentId,
-            person.firstName,
-            person.lastName,
-          ),
-          person.id,
+        const key = apartmentNameKey(
+          residency.apartmentId,
+          person.firstName,
+          person.lastName,
         );
+        if (
+          residency.movedOutOn === null ||
+          residency.movedOutOn.getTime() > now.getTime()
+        ) {
+          push(personsByApartmentAndName, key, person.id);
+        }
+        // Once per person and key: a person who moved out and back in is
+        // still one candidate, not two.
+        if (
+          !(personsByApartmentAndNameEver.get(key) ?? []).includes(person.id)
+        ) {
+          push(personsByApartmentAndNameEver, key, person.id);
+        }
+        held.push({
+          apartmentId: residency.apartmentId,
+          role: residency.role,
+          movedInOn: formatDateColumn(residency.movedInOn),
+          movedOutOn: formatDateColumn(residency.movedOutOn),
+        });
       }
+      residenciesByPerson.set(person.id, held);
     }
 
     return {
@@ -258,6 +324,8 @@ export class ImportPlannerService {
       personsByIdentityNumber,
       personsByEmail,
       personsByApartmentAndName,
+      personsByApartmentAndNameEver,
+      residenciesByPerson,
       personNames,
     };
   }

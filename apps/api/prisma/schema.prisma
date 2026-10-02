@@ -2728,6 +2728,12 @@ model ImportSession {
   /// a new one, or that it is not imported.
   decisions Json?
 
+  /// Which person each row was written to, as row number to person id, for the
+  /// rows the apply has committed that the preview resolved to one person. A
+  /// chunk reads it so a row the preview showed as the same person as a row of
+  /// an earlier chunk reaches that person rather than a second copy of them.
+  rowPersons Json?
+
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
   /// so a chunk is either wholly applied and counted or not applied at all.

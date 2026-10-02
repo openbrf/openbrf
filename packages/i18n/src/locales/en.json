@@ -2328,6 +2328,7 @@
       "moved-in-missing": "The row has no move-in date and none was chosen for the file.",
       "date-not-iso": "Dates have to be written as YYYY-MM-DD.",
       "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
+      "residency-conflict": "This person already lives in this apartment in another role or from another date. Correct the register or the row; the import does not write both.",
       "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
       "invalid-email": "That is not an email address the register can store.",
       "unknown": "The row could not be read."

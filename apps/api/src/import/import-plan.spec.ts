@@ -42,11 +42,15 @@ const APARTMENTS = [
 ];
 
 function snapshot(overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot {
+  const current = overrides.personsByApartmentAndName ?? new Map();
   return {
     apartments: APARTMENTS,
     personsByIdentityNumber: new Map(),
     personsByEmail: new Map(),
-    personsByApartmentAndName: new Map(),
+    personsByApartmentAndName: current,
+    // Every current residency is also a residency ever held.
+    personsByApartmentAndNameEver: current,
+    residenciesByPerson: new Map(),
     personNames: new Map(),
     ...overrides,
   };
@@ -452,5 +456,217 @@ describe("one person appearing twice in the file", () => {
       plan.rows.every((row) => row.matchedPersonId === "person-anna"),
     ).toBe(true);
     expect(plan.summary.update).toBe(2);
+  });
+});
+
+describe("one person under different keys", () => {
+  it("attaches a row carrying only the email address of an earlier row", () => {
+    // Keyed on its first identifier alone, the first row would be found only
+    // by its identity number, and the second row would become a second Anna.
+    const plan = planImport(
+      [
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: "811228-9874" },
+          { rowNumber: 1, emailIndex: "anna-index" },
+        ),
+        prepared(
+          { ...COMPLETE, apartmentNumber: "1102" },
+          { rowNumber: 2, emailIndex: "anna-index" },
+        ),
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[1]?.outcome).toBe("update");
+    expect(plan.rows[1]?.sameAsRowNumber).toBe(1);
+  });
+
+  it("keeps two people of one name apart when their identity numbers differ", () => {
+    // A parent and a child of the same name in the same apartment.
+    const plan = planImport(
+      [
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: "811228-9874" },
+          { rowNumber: 1 },
+        ),
+        prepared(
+          {
+            ...COMPLETE,
+            role: "Boende",
+            personalIdentityNumber: "19121212-1212",
+          },
+          { rowNumber: 2 },
+        ),
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows.map((row) => row.outcome)).toEqual(["create", "create"]);
+  });
+
+  it("matches a row stating its own dates against a residency that has ended", () => {
+    const key = apartmentNameKey("apartment-1101", "Anna", "Lindqvist");
+    const plan = planImport(
+      [prepared({ ...COMPLETE, movedInOn: "2018-03-01" })],
+      snapshot({
+        personsByApartmentAndNameEver: new Map([[key, ["person-anna"]]]),
+        personNames: new Map([["person-anna", "Anna Lindqvist"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.matchedPersonId).toBe("person-anna");
+  });
+
+  it("does not match the file's default date against a residency that has ended", () => {
+    // The default says nothing about when this person lived here, so a
+    // namesake who left years ago is not assumed to be them.
+    const key = apartmentNameKey("apartment-1101", "Anna", "Lindqvist");
+    const { movedInOn: _movedInOn, ...undated } = COMPLETE;
+    const plan = planImport(
+      [prepared(undated)],
+      snapshot({
+        personsByApartmentAndNameEver: new Map([[key, ["person-anna"]]]),
+      }),
+      { ...DEFAULTS, defaultMovedInOn: "2024-01-01" },
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("create");
+  });
+
+  it("reaches the person an earlier chunk wrote for the same row key", () => {
+    // Row 1 and row 150 fall in different chunks. The preview showed row 150
+    // as row 1's person, so the apply has to write it there too.
+    const { movedInOn: _movedInOn, ...undated } = COMPLETE;
+    const plan = planImport(
+      [prepared({ ...undated, role: "Boende" }, { rowNumber: 150 })],
+      snapshot(),
+      { ...DEFAULTS, defaultMovedInOn: "2024-01-01" },
+      [
+        {
+          row: prepared(
+            { ...COMPLETE, movedInOn: "2010-01-01", movedOutOn: "2015-01-01" },
+            { rowNumber: 1 },
+          ),
+          personId: "person-anna",
+        },
+      ],
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.matchedPersonId).toBe("person-anna");
+  });
+});
+
+describe("a residency the person already holds", () => {
+  const anna = {
+    personsByEmail: new Map([["anna-index", ["person-anna"]]]),
+    personNames: new Map([["person-anna", "Anna Lindqvist"]]),
+  };
+
+  it("refuses a row giving them a second residency on the same days", () => {
+    // Anna lives in 1101 as a resident, and the file says member. Writing
+    // nothing while the preview said "update" is what this replaces.
+    const plan = planImport(
+      [prepared(COMPLETE, { emailIndex: "anna-index" })],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          [
+            "person-anna",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "RESIDENT",
+                movedInOn: "2015-01-01",
+                movedOutOn: null,
+              },
+            ],
+          ],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("error");
+    expect(plan.rows[0]?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "residency-conflict",
+    });
+  });
+
+  it("takes a residency held exactly as the row states it as already written", () => {
+    const plan = planImport(
+      [prepared(COMPLETE, { emailIndex: "anna-index" })],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          [
+            "person-anna",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "MEMBER",
+                movedInOn: "2019-06-01",
+                movedOutOn: null,
+              },
+            ],
+          ],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.problems).toEqual([]);
+  });
+
+  it("lets them move back in after an earlier residency ended", () => {
+    const plan = planImport(
+      [prepared(COMPLETE, { emailIndex: "anna-index" })],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          [
+            "person-anna",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "MEMBER",
+                movedInOn: "2010-01-01",
+                movedOutOn: "2015-01-01",
+              },
+            ],
+          ],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+  });
+
+  it("refuses a second row of the file giving one person overlapping residencies", () => {
+    const plan = planImport(
+      [
+        prepared(COMPLETE, { rowNumber: 1, emailIndex: "anna-index" }),
+        prepared(
+          { ...COMPLETE, role: "Boende", movedInOn: "2020-01-01" },
+          { rowNumber: 2, emailIndex: "anna-index" },
+        ),
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("create");
+    expect(plan.rows[1]?.outcome).toBe("error");
+    expect(plan.rows[1]?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "residency-conflict",
+    });
   });
 });

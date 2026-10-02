@@ -914,13 +914,14 @@ describe("applying", () => {
     expect(run.rowsDone).toBe(5);
     expect(run.result).toEqual({
       personsCreated: 1,
-      personsUpdated: 2,
-      // The decided row's person already lives in 2103, so no second residency
-      // is created for them.
+      personsUpdated: 1,
       residenciesCreated: 2,
       memberRegisterEntriesCreated: 1,
       skipped: 0,
-      errors: 2,
+      // The decided row's person has lived in 2103 since 2018, and the row
+      // says 2019: a second residency on the same days, which is a problem with
+      // the row rather than something to write or to drop without a word.
+      errors: 3,
     });
 
     const created = await prisma.person.findFirstOrThrow({
@@ -1431,6 +1432,157 @@ describe("an apply overlapping a move", () => {
     ).toBe(2);
     expect(entries.map((entry) => entry.eventType)).toEqual(["ENTRY"]);
   }, 60_000);
+});
+
+describe("a row for someone already living in the apartment", () => {
+  it("is reported as a problem rather than dropped without a word", async () => {
+    // Rita is a resident of 2101. A file listing her as a member there gave a
+    // preview saying "update" and an apply that wrote nothing at all.
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "rita.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2101",
+            "Rita",
+            surname,
+            "Medlem",
+            actors.resident.email,
+            "",
+            "2023-01-01",
+          ],
+        ]),
+      ),
+    );
+    const preview = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    const row = (JSON.parse(preview.body) as ImportPreview).rows[0];
+    expect(row?.outcome).toBe("error");
+    expect(row?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "residency-conflict",
+    });
+
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result.errors).toBe(1);
+    expect(run.result.residenciesCreated).toBe(0);
+  }, 60_000);
+
+  it("writes the second period of someone who moved out and back in", async () => {
+    const cookie = await signIn(actors.board.email);
+    const personId = `imp-returner-${suffix}`;
+    const email = `imp-returner-${suffix}@exempel.se`;
+    await createPerson({ personId, firstName: "Ragnar", email });
+    await prisma.residency.create({
+      data: {
+        personId,
+        apartmentId: apartments.b,
+        role: "RESIDENT",
+        movedInOn: new Date("2010-01-01T00:00:00.000Z"),
+        movedOutOn: new Date("2015-01-01T00:00:00.000Z"),
+      },
+    });
+
+    const session = await uploadAndPreview(cookie, "ragnar.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        "Ragnar",
+        surname,
+        "Boende",
+        email,
+        "",
+        "2018-01-01",
+      ],
+    ]);
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (run) => run.status === "APPLIED",
+    );
+
+    const periods = await prisma.residency.findMany({
+      where: { personId, apartmentId: apartments.b },
+      orderBy: { movedInOn: "asc" },
+      select: { movedInOn: true, movedOutOn: true },
+    });
+    expect(periods.map((period) => period.movedInOn.toISOString())).toEqual([
+      "2010-01-01T00:00:00.000Z",
+      "2018-01-01T00:00:00.000Z",
+    ]);
+  }, 60_000);
+});
+
+describe("one person listed in two chunks", () => {
+  it("is written once, as the preview showed", async () => {
+    // Known only by name in an apartment they have since left, and the second
+    // row carries no date of its own: nothing in the register can match it to
+    // the first. The preview matched it within the file, and the apply has to
+    // as well, across the chunk boundary.
+    const cookie = await signIn(actors.board.email);
+    const headers = HEADERS.filter((title) => title !== "Inflyttningsdatum");
+    const rows: string[][] = [[...headers, "Utflyttningsdatum"]];
+    const total = IMPORT_CHUNK_ROWS + 1;
+    for (let rowNumber = 1; rowNumber <= total; rowNumber++) {
+      const first = rowNumber === 1;
+      const last = rowNumber === total;
+      rows.push([
+        addressLabel,
+        first || last ? "2107" : "9999",
+        first || last ? "Tvachunk" : `Fel${String(rowNumber)}`,
+        surname,
+        "Boende",
+        "",
+        "",
+        first ? "2015-01-01" : "",
+      ]);
+    }
+
+    const session = await upload(
+      cookie,
+      "tva-delar.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: {
+        mapping: session.suggestedMapping,
+        defaultMovedInOn: "2010-01-01",
+      },
+      headers: { cookie },
+    });
+    const preview = JSON.parse(response.body) as ImportPreview;
+    expect(preview.rows[total - 1]?.sameAsRowNumber).toBe(1);
+
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (run) => run.status === "APPLIED",
+    );
+
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Tvachunk", lastName: surname },
+      }),
+    ).toBe(1);
+  }, 120_000);
 });
 
 describe("an apply longer than one chunk", () => {
