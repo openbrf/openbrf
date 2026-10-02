@@ -55,7 +55,8 @@ export type DataPortabilityLimit = "person" | "overall";
  * Two reasons rather than one because the person can act on only one of them:
  * their own budget is waited out by them, and the instance's is waited out by
  * the instance being less busy. The screen says which in its own words, so the
- * message here is for the log and for a developer reading the response.
+ * message here is for the log and for a developer reading the response. It
+ * is a diagnostic and does not address the person.
  */
 export class DataPortabilityRateLimitedError extends DomainError {
   readonly status = HttpStatus.TOO_MANY_REQUESTS;
@@ -67,8 +68,8 @@ export class DataPortabilityRateLimitedError extends DomainError {
   ) {
     super(
       limit === "person"
-        ? "Your data has been exported several times in the last minute. Try again shortly."
-        : "Many exports are being prepared right now. Try again shortly.",
+        ? "Per-person export limit reached; retry after the retry-after delay."
+        : "Instance export capacity reached; retry after the retry-after delay.",
     );
     this.reason = limit === "person" ? "export-rate-limited" : "export-busy";
   }
