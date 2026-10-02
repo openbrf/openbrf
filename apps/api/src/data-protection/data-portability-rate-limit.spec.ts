@@ -2,16 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   BUSY_RETRY_AFTER_SECONDS,
+  ExportsBusyError,
+} from "../retention/export-slots";
+import {
   DataPortabilityRateLimitedError,
   DataPortabilityRateLimiter,
   EXPORTS_PER_PERSON_PER_MINUTE,
   EXPORTS_PER_MINUTE_OVERALL,
-  MAX_CONCURRENT_EXPORTS,
 } from "./data-portability-rate-limit";
 
 /**
- * The two budgets on the export, the order they are spent in, and the cap on
- * exports prepared at once.
+ * The two budgets on the export, the order they are spent in, and what an
+ * export the report service turns away as busy is charged.
  *
  * The order is the part that can go quietly wrong. If the overall budget were
  * spent first, one person pressing the button in a loop would use up what
@@ -36,37 +38,6 @@ async function refusalOf(
     throw cause;
   }
   return undefined;
-}
-
-/** An export still being prepared, until it is told to finish or to fail. */
-function preparing(
-  limiter: DataPortabilityRateLimiter,
-  personId: string,
-  now: number,
-) {
-  let finish!: () => void;
-  let fail!: (cause: Error) => void;
-  const gathering = new Promise<void>((resolve, reject) => {
-    finish = resolve;
-    fail = reject;
-  });
-  return { done: limiter.run(personId, () => gathering, now), finish, fail };
-}
-
-/** Every slot taken, by people other than the ones a test asks for. */
-function everySlotTaken(limiter: DataPortabilityRateLimiter, now: number) {
-  return Array.from({ length: MAX_CONCURRENT_EXPORTS }, (_, slot) =>
-    preparing(limiter, `holder-${String(slot)}`, now),
-  );
-}
-
-async function finishAll(
-  exports: readonly ReturnType<typeof preparing>[],
-): Promise<void> {
-  for (const running of exports) {
-    running.finish();
-  }
-  await Promise.all(exports.map((running) => running.done));
 }
 
 describe("the export budget", () => {
@@ -139,7 +110,7 @@ describe("the export budget", () => {
     );
   });
 
-  it("does not charge a person for a request refused as busy", async () => {
+  it("does not charge a person for a request refused because the instance's budget is spent", async () => {
     const limiter = new DataPortabilityRateLimiter();
     for (let person = 0; person < EXPORTS_PER_MINUTE_OVERALL; person += 1) {
       await limiter.run(
@@ -168,58 +139,46 @@ describe("the export budget", () => {
 });
 
 /**
- * The cap on exports prepared at once.
+ * An export the report service turns away because every slot it gathers in is
+ * taken - by other members' exports or by the board's access reports.
  *
- * The budgets above bound how often; a budget starts full, so on their own they
- * let a whole minute's exports begin in the same instant and hold that many
- * connections. The cap is what bounds the connections.
+ * The slots themselves are the service's and are tested beside it. What is
+ * tested here is that a person is not charged for the instance being busy.
  */
-describe("exports prepared at once", () => {
-  it("refuses an export as busy while every slot is taken, and admits it once one is free", async () => {
+describe("an export turned away as busy by the report service", () => {
+  const busy = () => Promise.reject(new ExportsBusyError());
+
+  async function refusedAsBusy(
+    limiter: DataPortabilityRateLimiter,
+    personId: string,
+    now: number,
+  ): Promise<void> {
+    await expect(limiter.run(personId, busy, now)).rejects.toBeInstanceOf(
+      ExportsBusyError,
+    );
+  }
+
+  it("reaches the caller as itself, with its reason and its delay", async () => {
     const limiter = new DataPortabilityRateLimiter();
-    const running = everySlotTaken(limiter, T0);
 
-    const refusal = await refusalOf(limiter, "anna", T0);
+    const refusal = await limiter
+      .run("anna", busy, T0)
+      .catch((cause: unknown) => cause);
 
-    expect(refusal?.reason).toBe("export-busy");
-    expect(refusal?.status).toBe(429);
-    expect(refusal?.headers()["retry-after"]).toBe(
+    expect(refusal).toBeInstanceOf(ExportsBusyError);
+    expect((refusal as ExportsBusyError).reason).toBe("export-busy");
+    expect((refusal as ExportsBusyError).headers()["retry-after"]).toBe(
       String(BUSY_RETRY_AFTER_SECONDS),
     );
-
-    await finishAll(running);
-    expect(await refusalOf(limiter, "anna", T0)).toBeUndefined();
   });
 
-  it("gives the slot back when an export fails", async () => {
+  it("does not charge the person", async () => {
     const limiter = new DataPortabilityRateLimiter();
-    const [failing, ...others] = everySlotTaken(limiter, T0);
-    if (failing === undefined) {
-      throw new Error("There is no slot to fail.");
-    }
-
-    failing.fail(new Error("Transaction already closed"));
-
-    // The failure reaches the caller as itself, not as a refusal.
-    await expect(failing.done).rejects.toThrow("Transaction already closed");
-    const anna = preparing(limiter, "anna", T0);
-    // One slot came back, not more: anna's took it.
-    expect((await refusalOf(limiter, "bo", T0))?.reason).toBe("export-busy");
-
-    await finishAll([...others, anna]);
-  });
-
-  it("does not charge a person for a request refused because every slot is taken", async () => {
-    const limiter = new DataPortabilityRateLimiter();
-    const running = everySlotTaken(limiter, T0);
 
     // Asked more often than the person's own budget while every slot is taken.
     for (let ask = 0; ask < EXPORTS_PER_PERSON_PER_MINUTE * 2; ask += 1) {
-      expect((await refusalOf(limiter, "anna", T0))?.reason).toBe(
-        "export-busy",
-      );
+      await refusedAsBusy(limiter, "anna", T0);
     }
-    await finishAll(running);
 
     // In the same minute, anna still has the whole of her own.
     for (let ask = 0; ask < EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
@@ -230,17 +189,12 @@ describe("exports prepared at once", () => {
     );
   });
 
-  it("does not spend the overall budget on a request refused because every slot is taken", async () => {
+  it("does not spend the overall budget", async () => {
     const limiter = new DataPortabilityRateLimiter();
-    const running = everySlotTaken(limiter, T0);
     for (let person = 0; person < EXPORTS_PER_MINUTE_OVERALL * 3; person += 1) {
-      expect(
-        (await refusalOf(limiter, `refused-${String(person)}`, T0))?.reason,
-      ).toBe("export-busy");
+      await refusedAsBusy(limiter, `refused-${String(person)}`, T0);
     }
-    await finishAll(running);
 
-    // What is left is the overall budget less the exports that held the slots.
     let admitted = 0;
     for (let person = 0; person < EXPORTS_PER_MINUTE_OVERALL; person += 1) {
       if (
@@ -250,6 +204,24 @@ describe("exports prepared at once", () => {
       }
     }
 
-    expect(admitted).toBe(EXPORTS_PER_MINUTE_OVERALL - MAX_CONCURRENT_EXPORTS);
+    expect(admitted).toBe(EXPORTS_PER_MINUTE_OVERALL);
+  });
+
+  it("keeps the charge for an export that failed for any other reason", async () => {
+    // It was gathered, or begun: the transaction ran and held a connection.
+    const limiter = new DataPortabilityRateLimiter();
+    for (let ask = 0; ask < EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
+      await expect(
+        limiter.run(
+          "anna",
+          () => Promise.reject(new Error("Transaction already closed")),
+          T0,
+        ),
+      ).rejects.toThrow("Transaction already closed");
+    }
+
+    expect((await refusalOf(limiter, "anna", T0))?.reason).toBe(
+      "export-rate-limited",
+    );
   });
 });
