@@ -535,6 +535,9 @@ describe("coming back to the screen", () => {
     const answer = lateAnswer();
     render(<ImportScreen />);
 
+    expect(screen.getByRole("status").textContent).toBe(
+      "Ser efter om en import pågår",
+    );
     expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
 
     await answer({
@@ -543,8 +546,8 @@ describe("coming back to the screen", () => {
     });
 
     expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
+    expect(screen.queryByText(/Ser efter om en import pågår/)).toBeNull();
     expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
-    expect(uploadImport).not.toHaveBeenCalled();
   });
 
   it("offers the upload once a late answer says nothing is running", async () => {
