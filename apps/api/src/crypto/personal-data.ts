@@ -34,8 +34,15 @@ export type {
  * Bumped whenever the normalization rules change. Stored alongside the data so
  * a future migration can tell which rows still hold indexes from an older
  * rule set.
+ *
+ * Recorded for the personal identity number, in
+ * `person.personalIdentityNumberIndexVersion`, whose column default has to be
+ * raised with it; IdentityNumberReindexService rewrites every index below it.
+ *
+ * 2: a number is dated by its whole birth date on the association's calendar,
+ * and a twelve-digit number is read only with the century 18, 19 or 20.
  */
-export const NORMALIZATION_VERSION = 1;
+export const NORMALIZATION_VERSION = 2;
 
 /**
  * Canonical form for email: trimmed and lowercased.
