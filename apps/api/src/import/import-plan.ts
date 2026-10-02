@@ -122,6 +122,8 @@ export interface PlannedRow {
   apartment: { id: string; number: string; addressLabel: string } | null;
   role: ImportRole | null;
   movedInOn: string | null;
+  /** False when `movedInOn` is the file's default rather than the row's own. */
+  movedInStated: boolean;
   movedOutOn: string | null;
   /** The existing person this row will be written against. */
   matchedPersonId: string | null;
@@ -268,6 +270,7 @@ function planRow(
           },
     role,
     movedInOn,
+    movedInStated: values.movedInOn !== undefined,
     movedOutOn,
     matchedPersonId: null,
     matchedBy: null,
@@ -333,9 +336,9 @@ function planRow(
           sameAsRowNumber: earlier.personId === null ? earlier.rowNumber : null,
         };
 
-  // A residency already held exactly as the row states it is not written again,
-  // which is also what lets a chunk be attempted twice. Any other residency of
-  // this person on this apartment that shares a day with the row's would be a
+  // A residency already held as the row states it is not written again, which
+  // is also what lets a chunk be attempted twice. Any other residency of this
+  // person on this apartment that shares a day with the row's would be a
   // second one held at the same time, which a move-in refuses: the board
   // decides which is right rather than the import writing both, or dropping
   // the row without a word.
@@ -344,10 +347,7 @@ function planRow(
     personId: matchedPersonId,
     residencies: [],
   };
-  const residency =
-    apartment === null || role === null || movedInOn === null
-      ? null
-      : { apartmentId: apartment.id, role, movedInOn, movedOutOn };
+  const residency = rowResidency(base);
   if (residency !== null) {
     const held = [
       ...(entry.personId === null
@@ -359,42 +359,81 @@ function planRow(
       problems.push({ field: "movedInOn", reason: "residency-conflict" });
       return { ...base, problems };
     }
-    entry.residencies.push(residency);
+    if (heldAlready(residency, held) === undefined) {
+      entry.residencies.push(residency);
+    }
   }
   seen.record(identity, entry);
 
   return resolved;
 }
 
+/** A residency as a row states it. */
+export interface RowResidency extends RegisterResidency {
+  /** False when the move-in date is the file's default rather than the row's. */
+  movedInStated: boolean;
+}
+
+/** The residency a planned row would write, if it names one. */
+export function rowResidency(row: PlannedRow): RowResidency | null {
+  return row.apartment === null || row.role === null || row.movedInOn === null
+    ? null
+    : {
+        apartmentId: row.apartment.id,
+        role: row.role,
+        movedInOn: row.movedInOn,
+        movedInStated: row.movedInStated,
+        movedOutOn: row.movedOutOn,
+      };
+}
+
 /**
- * Whether a residency would be held twice.
+ * The residency already held that the row's residency is, if there is one.
  *
- * One identical in role and move-in date is the same residency, and is not a
- * conflict: it is what a row already written, or a row listed twice, looks
- * like. Any other on the same apartment that shares a day with it is. A
+ * The same role on the same apartment from the same day is the same residency:
+ * it is what a row already written, or a row listed twice, looks like. A row
+ * that does not state its own move-in date says only that the person lives
+ * here in that role, so a residency in that role that it shares a day with is
+ * the same one too. Read as a residency of its own from the default date, a
+ * register imported again without its move-in column would refuse every
+ * resident it already holds.
+ */
+export function heldAlready(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): RegisterResidency | undefined {
+  return held.find(
+    (other) =>
+      other.apartmentId === residency.apartmentId &&
+      other.role === residency.role &&
+      (other.movedInOn === residency.movedInOn ||
+        (!residency.movedInStated && overlaps(residency, other))),
+  );
+}
+
+/**
+ * Whether a residency would be held twice: whether, not being one the person
+ * already holds, it shares a day with another on the same apartment. A
  * residency is held up to, and not including, the day it ends - the same rule
  * a move-in follows.
  */
 export function conflictsWith(
-  residency: RegisterResidency,
+  residency: RowResidency,
   held: readonly RegisterResidency[],
 ): boolean {
-  const same = held.filter(
-    (other) => other.apartmentId === residency.apartmentId,
-  );
-  if (
-    same.some(
-      (other) =>
-        other.role === residency.role &&
-        other.movedInOn === residency.movedInOn,
-    )
-  ) {
+  if (heldAlready(residency, held) !== undefined) {
     return false;
   }
-  return same.some(
+  return held.some(
     (other) =>
-      (other.movedOutOn === null || residency.movedInOn < other.movedOutOn) &&
-      (residency.movedOutOn === null || other.movedInOn < residency.movedOutOn),
+      other.apartmentId === residency.apartmentId && overlaps(residency, other),
+  );
+}
+
+function overlaps(one: RegisterResidency, other: RegisterResidency): boolean {
+  return (
+    (other.movedOutOn === null || one.movedInOn < other.movedOutOn) &&
+    (one.movedOutOn === null || other.movedInOn < one.movedOutOn)
   );
 }
 

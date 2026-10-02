@@ -71,6 +71,9 @@ const apartments = {
   j: `imp-apartment-j-${suffix}`,
   k: `imp-apartment-k-${suffix}`,
   l: `imp-apartment-l-${suffix}`,
+  /** The register-changed-under-the-chunk and no-move-in-column cases. */
+  m: `imp-apartment-m-${suffix}`,
+  n: `imp-apartment-n-${suffix}`,
 };
 
 const actors = {
@@ -465,6 +468,8 @@ beforeAll(async () => {
       { id: apartments.j, addressId, number: "2110", floor: 1 },
       { id: apartments.k, addressId, number: "2111", floor: 1 },
       { id: apartments.l, addressId, number: "2112", floor: 1 },
+      { id: apartments.m, addressId, number: "2113", floor: 1 },
+      { id: apartments.n, addressId, number: "2114", floor: 1 },
     ],
   });
 
@@ -585,7 +590,9 @@ afterAll(async () => {
     where: { lastName: surname, memberRegisterEntries: { none: {} } },
   });
   await prisma.apartment.deleteMany({
-    where: { id: { in: [apartments.b, apartments.c] } },
+    where: {
+      id: { in: [apartments.b, apartments.c, apartments.m, apartments.n] },
+    },
   });
   await app.close();
 });
@@ -1583,6 +1590,72 @@ describe("a row for someone already living in the apartment", () => {
       "2010-01-01T00:00:00.000Z",
       "2018-01-01T00:00:00.000Z",
     ]);
+  }, 60_000);
+});
+
+describe("a file without move-in dates", () => {
+  it("fills in a current resident rather than refusing them", async () => {
+    // Ylva has lived in 2113 since 2015. A file with no move-in column says
+    // she lives there; the date the board gave for the file is not a claim
+    // that she moved in on it.
+    const cookie = await signIn(actors.board.email);
+    const personId = `imp-ylva-${suffix}`;
+    const email = `imp-ylva-${suffix}@exempel.se`;
+    await createPerson({ personId, firstName: "Ylva", email });
+    await prisma.residency.create({
+      data: {
+        personId,
+        apartmentId: apartments.m,
+        role: "RESIDENT",
+        movedInOn: new Date("2015-01-01T00:00:00.000Z"),
+      },
+    });
+
+    const headers = HEADERS.filter((title) => title !== "Inflyttningsdatum");
+    const session = await upload(
+      cookie,
+      "utan-datum.csv",
+      encode(
+        writeCsv([
+          headers,
+          [
+            addressLabel,
+            "2113",
+            "Ylva",
+            surname,
+            "Boende",
+            email,
+            "070-123 45 67",
+          ],
+        ]),
+      ),
+    );
+    const preview = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: {
+        mapping: session.suggestedMapping,
+        defaultMovedInOn: "2026-10-01",
+      },
+      headers: { cookie },
+    });
+    const row = (JSON.parse(preview.body) as ImportPreview).rows[0];
+    expect(row?.problems).toEqual([]);
+    expect(row?.outcome).toBe("update");
+
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result.residenciesCreated).toBe(0);
+    expect(await prisma.residency.count({ where: { personId } })).toBe(1);
+    const ylva = await prisma.person.findUniqueOrThrow({
+      where: { id: personId },
+      select: { phoneCipher: true },
+    });
+    expect(ylva.phoneCipher).not.toBeNull();
   }, 60_000);
 });
 

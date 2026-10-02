@@ -624,6 +624,66 @@ describe("a residency the person already holds", () => {
     expect(plan.rows[0]?.problems).toEqual([]);
   });
 
+  it("takes the residency they hold as the one a row without its own date means", () => {
+    // Anna has been a member of 1101 since 2015, and the file has no move-in
+    // column. The date chosen for the file is not a claim that she moved in on
+    // it: the row fills in her details and writes no residency.
+    const { movedInOn: _movedInOn, ...undated } = COMPLETE;
+    const plan = planImport(
+      [prepared(undated, { emailIndex: "anna-index" })],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          [
+            "person-anna",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "MEMBER",
+                movedInOn: "2015-01-01",
+                movedOutOn: null,
+              },
+            ],
+          ],
+        ]),
+      }),
+      { ...DEFAULTS, defaultMovedInOn: "2026-10-01" },
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.rows[0]?.problems).toEqual([]);
+    expect(plan.rows[0]?.movedInStated).toBe(false);
+  });
+
+  it("still refuses a row without its own date that gives them another role there", () => {
+    const { movedInOn: _movedInOn, ...undated } = COMPLETE;
+    const plan = planImport(
+      [prepared(undated, { emailIndex: "anna-index" })],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          [
+            "person-anna",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "RESIDENT",
+                movedInOn: "2015-01-01",
+                movedOutOn: null,
+              },
+            ],
+          ],
+        ]),
+      }),
+      { ...DEFAULTS, defaultMovedInOn: "2026-10-01" },
+    );
+
+    expect(plan.rows[0]?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "residency-conflict",
+    });
+  });
+
   it("lets them move back in after an earlier residency ended", () => {
     const plan = planImport(
       [prepared(COMPLETE, { emailIndex: "anna-index" })],

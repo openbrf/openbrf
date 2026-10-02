@@ -304,12 +304,7 @@ export class ImportPlannerService {
         ) {
           push(personsByApartmentAndNameEver, key, person.id);
         }
-        held.push({
-          apartmentId: residency.apartmentId,
-          role: residency.role,
-          movedInOn: formatDateColumn(residency.movedInOn),
-          movedOutOn: formatDateColumn(residency.movedOutOn),
-        });
+        held.push(registerResidency(residency));
       }
       residenciesByPerson.set(person.id, held);
     }
@@ -338,4 +333,19 @@ function push(map: Map<string, string[]>, key: string, value: string): void {
   } else {
     existing.push(value);
   }
+}
+
+/** A stored residency with its dates as the calendar dates a plan compares. */
+export function registerResidency(residency: {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: Date;
+  movedOutOn: Date | null;
+}): RegisterResidency {
+  return {
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: formatDateColumn(residency.movedInOn),
+    movedOutOn: formatDateColumn(residency.movedOutOn),
+  };
 }

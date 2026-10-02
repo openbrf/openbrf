@@ -89,7 +89,7 @@ export interface ImportSessionView {
  */
 export interface ImportPreviewRow extends Omit<
   PlannedRow,
-  "person" | "problems"
+  "person" | "problems" | "movedInStated"
 > {
   person: {
     firstName: string;
@@ -642,7 +642,7 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
 }
 
 function toPreviewRow(row: PlannedRow): ImportPreviewRow {
-  const { person, ...rest } = row;
+  const { person, movedInStated: _movedInStated, ...rest } = row;
   return {
     ...rest,
     person: {

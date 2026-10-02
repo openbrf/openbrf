@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -28,10 +27,18 @@ import {
 } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import { lockImportChunkWrite } from "./import-lock";
-import { conflictsWith, type ImportPlan, type PlannedRow } from "./import-plan";
+import {
+  conflictsWith,
+  heldAlready,
+  type ImportPlan,
+  type PlannedRow,
+  type RegisterResidency,
+  rowResidency,
+} from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
+  registerResidency,
 } from "./import-planner.service";
 import type { ImportApplyResult } from "./import-run";
 
@@ -737,7 +744,7 @@ export class ImportApplyService implements OnModuleInit {
    * The residency this row would create is looked up first, which is also what
    * makes a chunk safe to attempt twice: a row whose residency is already there
    * writes nothing further, and no second entry reaches a register that refuses
-   * to have rows removed. Already there means the same role from the same day.
+   * to have rows removed. Already there is what heldAlready says it is.
    * Any other residency of this person on this apartment that it would overlap
    * was refused by the plan as a problem with the row, and one it does not
    * overlap - a person who moved out and back in - is a residency of its own.
@@ -749,25 +756,12 @@ export class ImportApplyService implements OnModuleInit {
     membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
   ): Promise<void> {
-    if (row.apartment === null || row.role === null || row.movedInOn === null) {
+    const residency = rowResidency(row);
+    if (residency === null) {
       return;
     }
-
-    const movedInOn = new Date(`${row.movedInOn}T00:00:00.000Z`);
-    const movedOutOn =
-      row.movedOutOn === null
-        ? null
-        : new Date(`${row.movedOutOn}T00:00:00.000Z`);
-
-    const existing = await tx.residency.count({
-      where: {
-        personId,
-        apartmentId: row.apartment.id,
-        role: row.role,
-        movedInOn,
-      },
-    });
-    if (existing > 0) {
+    const held = await heldOnApartment(tx, personId, residency.apartmentId);
+    if (heldAlready(residency, held) !== undefined) {
       return;
     }
 
@@ -780,10 +774,13 @@ export class ImportApplyService implements OnModuleInit {
     await tx.residency.create({
       data: {
         personId,
-        apartmentId: row.apartment.id,
-        role: row.role,
-        movedInOn,
-        movedOutOn,
+        apartmentId: residency.apartmentId,
+        role: residency.role,
+        movedInOn: new Date(`${residency.movedInOn}T00:00:00.000Z`),
+        movedOutOn:
+          residency.movedOutOn === null
+            ? null
+            : new Date(`${residency.movedOutOn}T00:00:00.000Z`),
       },
     });
     result.residenciesCreated++;
@@ -832,27 +829,32 @@ async function residencyConflicts(
   row: PlannedRow,
   personId: string,
 ): Promise<boolean> {
-  if (row.apartment === null || row.role === null || row.movedInOn === null) {
-    return false;
-  }
-  const held = await tx.residency.findMany({
-    where: { personId, apartmentId: row.apartment.id },
-    select: { role: true, movedInOn: true, movedOutOn: true },
-  });
-  return conflictsWith(
-    {
-      apartmentId: row.apartment.id,
-      role: row.role,
-      movedInOn: row.movedInOn,
-      movedOutOn: row.movedOutOn,
-    },
-    held.map((residency) => ({
-      apartmentId: row.apartment?.id ?? "",
-      role: residency.role,
-      movedInOn: formatDateColumn(residency.movedInOn),
-      movedOutOn: formatDateColumn(residency.movedOutOn),
-    })),
+  const residency = rowResidency(row);
+  return (
+    residency !== null &&
+    conflictsWith(
+      residency,
+      await heldOnApartment(tx, personId, residency.apartmentId),
+    )
   );
+}
+
+/** Every residency, ended or not, the person has held on one apartment. */
+async function heldOnApartment(
+  tx: Prisma.TransactionClient,
+  personId: string,
+  apartmentId: string,
+): Promise<RegisterResidency[]> {
+  const held = await tx.residency.findMany({
+    where: { personId, apartmentId },
+    select: {
+      apartmentId: true,
+      role: true,
+      movedInOn: true,
+      movedOutOn: true,
+    },
+  });
+  return held.map(registerResidency);
 }
 
 /** Whether every entry of one list is in the other. */
