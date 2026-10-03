@@ -4072,7 +4072,7 @@
       "proxyAuthorisationNotFound": "That authority is no longer registered for this meeting. Read the meeting again.",
       "invalidBody": "The form sent something the server could not read. Check the fields and try again.",
       "unknown": "That could not be done. Try again.",
-      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after the day of the meeting. A member cannot have signed on a day that has not arrived.",
+      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after today or after the day of the meeting. A member cannot have signed on a day that has not arrived.",
       "proxyAuthorisationExpired": "The proxy authorisation is more than a year older than the meeting. One is good for at most a year from the day the member signed it (EFL 6 kap. 4 §)."
     },
     "kind": {

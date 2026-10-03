@@ -131,8 +131,12 @@ const SECOND_ABSENT_MEMBER = {
 /** The day the three were moved in on, comfortably before any meeting here. */
 const HELD_FROM = "2026-01-15";
 
-/** The day every proxy authorisation in this spec is signed. */
-const SIGNED_ON = "2028-04-01";
+/**
+ * The day every proxy authorisation in this spec is signed. A day that has
+ * passed: the server refuses one dated after today, because a member cannot
+ * have signed on a day that has not arrived.
+ */
+const SIGNED_ON = "2026-04-01";
 
 const [STORGATAN_12] = ADDRESSES;
 
@@ -335,10 +339,10 @@ async function ensureMeetingFixture(
  * and every control that names a meeting carries it, so two meetings on one day
  * would leave a test opening whichever of them the list happened to put first.
  * Every one of them is inside the year after {@link SIGNED_ON}, which is the
- * window EFL 6 kap. 4 § allows an authorisation.
+ * window EFL 6 kap. 4 § allows an authorisation, and so has passed as well.
  */
 function meetingDay(offset: number): string {
-  return `2028-05-${String(10 + offset).padStart(2, "0")}`;
+  return `2026-05-${String(10 + offset).padStart(2, "0")}`;
 }
 
 /** The panel whose level-2 heading reads exactly this. */

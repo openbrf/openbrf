@@ -800,6 +800,19 @@ export class MeetingService {
           problem,
         );
       }
+      // Nor dated after today, which a meeting still to come would otherwise
+      // accept: a member cannot have signed on a day that has not arrived.
+      if (
+        compareLocalDays(
+          localDayOfColumn(authorisedOn),
+          localDayOf(new Date()),
+        ) > 0
+      ) {
+        throw new MeetingError(
+          "The authority is dated after today.",
+          "proxy-authority-not-yet-issued",
+        );
+      }
 
       await this.requireEligibleProxyHolder(tx, {
         proxyHolderPersonId: input.proxyHolderPersonId,
@@ -1377,10 +1390,10 @@ export class MeetingService {
    * here: it refuses a date in the future because a tenant-ownership that has
    * not ceased cannot be reported as having ceased. A general meeting is
    * arranged before it is held and a proxy authorisation is dated for a meeting
-   * still to come, so both of the days this method reads are ordinarily ahead
-   * of today. The one future date that is refused is a proxy authorisation
-   * dated after the meeting it is for, which `proxy-authority.ts` decides on
-   * its own grounds.
+   * still to come, so the meeting day is ordinarily ahead of today. The future
+   * dates that are refused are a proxy authorisation dated after today, which
+   * `registerProxy` refuses, and one dated after the meeting it is for, which
+   * `proxy-authority.ts` decides on its own grounds.
    */
   private readMeetingDay(text: string): Date {
     const day = parseLocalDay(text);

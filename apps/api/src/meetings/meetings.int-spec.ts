@@ -1559,6 +1559,24 @@ describe("a member's proxy authorisation", () => {
     );
   });
 
+  it("refuses an authority dated after today for a meeting still to come", async () => {
+    // A member cannot have signed on a day that has not arrived, and a date
+    // before the meeting day is no proof that the day has.
+    const meetingId = await arrangeMeeting(
+      formatLocalDay(addLocalDays(today, 7)),
+    );
+    const response = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+      authorisedOn: formatLocalDay(addLocalDays(today, 1)),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "proxy-authority-not-yet-issued",
+    );
+  });
+
   it("refuses an authority older than the year the statute allows", async () => {
     // EFL 6 kap. 4 § andra stycket: a proxy authorisation holds for at most one
     // year from the day it was issued.
