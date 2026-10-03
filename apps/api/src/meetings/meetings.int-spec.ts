@@ -971,6 +971,29 @@ describe("checking people in", () => {
     ).toBe(2);
   });
 
+  it("refuses somebody recorded as their own assistant", async () => {
+    // The table's check constraint refuses it as well, and answered with a 500.
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: twoHoldings.personId,
+          capacity: "MEMBER",
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    const response = await checkIn(meetingId, {
+      personId: twoHoldings.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "assistant-is-their-own-principal",
+    );
+  });
+
   it("refuses a member's line that names somebody who brought them", async () => {
     /*
      * A member is nobody's stand-in and a proxy holder's principals are the
@@ -1461,6 +1484,22 @@ describe("a member's proxy authorisation", () => {
         (row) => row.memberPersonId === soloMember.personId,
       ),
     ).toHaveLength(1);
+  });
+
+  it("refuses a member named as their own proxy holder", async () => {
+    // A proxy holder acts for a member who is not there themselves (EFL 6 kap.
+    // 4 §). The table's check constraint refuses it as well, and answered with a
+    // 500.
+    const meetingId = await arrangeMeeting();
+    const response = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: soloMember.personId,
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "proxy-holder-is-the-member",
+    );
   });
 
   it("refuses an authority older than the year the statute allows", async () => {

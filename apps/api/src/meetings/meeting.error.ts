@@ -50,6 +50,8 @@ export class MeetingError extends DomainError {
       | "attendance-principal-not-applicable"
       | "assistant-principal-not-present"
       | "assistant-already-present"
+      | "assistant-is-their-own-principal"
+      | "proxy-holder-is-the-member"
       | "proxy-holder-holds-no-authority"
       | "notice-already-issued"
       | "meeting-has-no-agenda"
@@ -145,6 +147,16 @@ function statusFor(reason: MeetingError["reason"]): number {
        * naming somebody on a member's or an proxy holder's line is refused
        * rather than dropped - a field a request set and the server silently
        * ignored is a defect nobody can see.
+       */
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "assistant-is-their-own-principal":
+    case "proxy-holder-is-the-member":
+      /*
+       * Somebody named as standing in for themselves, which the tables refuse
+       * as well. An assistant is brought by somebody else (EFL 6 kap. 7 §) and
+       * a proxy holder acts for a member who is not there (6 kap. 4 §), so the
+       * request contradicts itself rather than breaking a rule of the meeting.
        */
       return HttpStatus.UNPROCESSABLE_ENTITY;
 

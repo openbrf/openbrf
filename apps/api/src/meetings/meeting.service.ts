@@ -517,6 +517,13 @@ export class MeetingService {
           "attendance-principal-not-applicable",
         );
       }
+      // The table refuses it too, and would answer with a 500.
+      if (onBehalfOfPersonId === input.personId) {
+        throw new MeetingError(
+          "Nobody is their own assistant.",
+          "assistant-is-their-own-principal",
+        );
+      }
 
       if (input.capacity === "MEMBER") {
         await this.requireMemberOn(tx, input.personId, meeting.heldOn, {
@@ -716,6 +723,15 @@ export class MeetingService {
 
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
+
+      // A proxy holder acts for a member who is not there themselves (EFL 6
+      // kap. 4 §). The table refuses this too, and would answer with a 500.
+      if (input.memberPersonId === input.proxyHolderPersonId) {
+        throw new MeetingError(
+          "A member is not their own proxy holder.",
+          "proxy-holder-is-the-member",
+        );
+      }
 
       const bylaws = await this.readBylaws(tx);
       const authorisedOn = this.readMeetingDay(input.authorisedOn);
