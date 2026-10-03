@@ -105,8 +105,8 @@ export function ownerConnection() {
    * underneath it should not turn into a failed deploy.
    *
    * A login the server turned away is not waited out: it will be turned away
-   * thirty times over, and the reason is almost always an instance installed
-   * before the schema owner existed, which has one fix.
+   * thirty times over, and waiting changes nothing about a missing role or a
+   * wrong password.
    */
   function waitForDatabase() {
     for (let attempt = 1; attempt <= CONNECT_ATTEMPTS; attempt += 1) {
@@ -116,11 +116,12 @@ export function ownerConnection() {
       } catch (error) {
         if (error instanceof LoginRefusedError) {
           fail(
-            "the database refused the schema owner's login. An instance " +
-              "installed before openbrf_owner existed creates that role once, " +
-              'as docs/deployment.md describes under "Upgrading to a separate ' +
-              'schema owner". Otherwise, check that OWNER_DB_PASSWORD is the ' +
-              "password the database was given, or that DATABASE_URL names " +
+            "the database refused the schema owner's login. The schema-owner " +
+              "service creates that role and sets its password from " +
+              "OWNER_DB_PASSWORD on every `up`, before this runs: check that it " +
+              "ran and succeeded. On a database server you do not administer, " +
+              "check that OWNER_DB_USER and OWNER_DB_PASSWORD are the role and " +
+              "password its administrator created, or that DATABASE_URL names " +
               "the right role.",
           );
         }

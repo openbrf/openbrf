@@ -1,6 +1,9 @@
 #!/bin/sh
-# Container entrypoint. One image, two jobs, and never both in one container:
+# Container entrypoint. One image, three jobs, and never two in one container:
 #
+#   openbrf-entrypoint schema-owner  the schema owner created, as the
+#                                    superuser, and then exit (the
+#                                    schema-owner service)
 #   openbrf-entrypoint migrate       the deploy steps, as the schema owner,
 #                                    and then exit (the migrate service)
 #   openbrf-entrypoint <command...>  the application, as the runtime role
@@ -21,17 +24,18 @@
 # password therefore never becomes a shell variable, never reaches an argument
 # and is never written to a stream that could end up in the container log.
 #
-# The two jobs are two containers because what a container is given, it keeps:
-# the environment a container starts with belongs to every process in it for as
-# long as it runs, whatever an entrypoint unsets on the way to its command. So
-# the owner's credentials go to the migrate service, which runs these steps and
-# exits, and the application's container is never given them at all - and
-# refuses to start if it is.
+# The jobs are separate containers because what a container is given, it
+# keeps: the environment a container starts with belongs to every process in
+# it for as long as it runs, whatever an entrypoint unsets on the way to its
+# command. So the superuser's password goes to the schema-owner service and the
+# owner's to the migrate service, each of which does its job and exits, and the
+# application's container is never given either - and refuses to start if it
+# is.
 #
-# Every step is idempotent and the migrate service runs on every `up`, so an
-# upgrade is a newer image - `docker compose -f docker-compose.prod.yml
-# --env-file .env.production build` while none is published, `pull` once one
-# is - followed by the same `up -d` that started the instance.
+# Every step is idempotent and both services run on every `up`, so an upgrade
+# is a newer image - `docker compose -f docker-compose.prod.yml --env-file
+# .env.production pull` - followed by the same `up -d` that started the
+# instance.
 
 set -eu
 
@@ -48,16 +52,6 @@ fail() {
   exit 1
 }
 
-# --- the runtime connection -------------------------------------------------
-# Checked first in both jobs, because it decides whether either can do anything
-# useful: the application must not connect as the schema owner, which can
-# disable the triggers that keep the member register and the audit log
-# append-only, and in production there is no other connection to fall back on.
-if [ "${NODE_ENV:-production}" = "production" ] \
-  && [ -z "${RUNTIME_DB_PASSWORD:-}" ] && [ -z "${DATABASE_URL_RUNTIME:-}" ]; then
-  fail "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set. In production the application must not connect as the schema owner: the owner can disable the triggers that keep the member register and the audit log append-only. Set RUNTIME_DB_PASSWORD and let the migrate service create the role, or create the role yourself and set DATABASE_URL_RUNTIME."
-fi
-
 # --- the data volume --------------------------------------------------------
 # uploads, plugins and themes are created ahead of the features that use them,
 # so a later release needs no volume migration to get its directories.
@@ -71,6 +65,33 @@ prepare_data_dir() {
 
   chmod 700 "${KEY_DIR}"
 }
+
+# --- the schema owner -------------------------------------------------------
+# Before the runtime connection check below, which is the migrate service's
+# and the application's: this job neither creates nor uses that connection.
+if [ "${1:-}" = "schema-owner" ]; then
+  log "creating the schema owner"
+  node /app/docker/schema-owner.mjs
+  log "the schema owner is in place"
+  exit 0
+fi
+
+# --- the runtime connection -------------------------------------------------
+# Checked first in both jobs, because it decides whether either can do anything
+# useful: the application must not connect as the schema owner, which can
+# disable the triggers that keep the member register and the audit log
+# append-only, and in production there is no other connection to fall back on.
+if [ "${NODE_ENV:-production}" = "production" ] \
+  && [ -z "${RUNTIME_DB_PASSWORD:-}" ] && [ -z "${DATABASE_URL_RUNTIME:-}" ]; then
+  fail "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set. In production the application must not connect as the schema owner: the owner can disable the triggers that keep the member register and the audit log append-only. Set RUNTIME_DB_PASSWORD and let the migrate service create the role, or create the role yourself and set DATABASE_URL_RUNTIME."
+fi
+
+# The runtime role's name, RUNTIME_DB_ROLE or openbrf_app. Roles belong to the
+# whole PostgreSQL server, so on a server several instances share each names
+# its own, and a name that cannot be one - not a plain lower-case identifier,
+# one PostgreSQL reserves, or the owner's - stops either job here, before
+# anything connects, rather than in step 6 after the migrations have run.
+node /app/docker/database-url.mjs check-runtime-role
 
 # --- the deploy steps -------------------------------------------------------
 if [ "${1:-}" = "migrate" ]; then
@@ -128,7 +149,7 @@ fi
 
 # --- the application --------------------------------------------------------
 # The schema owner's credentials belong to the migrate service alone, and the
-# superuser's to the database container. Given to this container, either would
+# superuser's to the database container and the schema-owner service. Given to this container, either would
 # stay with it for as long as it runs, and anything that reaches the database
 # as the owner or the superuser can disable the triggers that keep the member
 # register and the audit log append-only. So a configuration that hands one
@@ -139,7 +160,7 @@ for owner_variable in OWNER_DB_PASSWORD POSTGRES_PASSWORD; do
   if [ -n "${owner_value}" ]; then
     case "${owner_variable}" in
       POSTGRES_PASSWORD)
-        fail "POSTGRES_PASSWORD is set in the application's container. It is the database superuser's password and belongs to the db service only (docker-compose.prod.yml): remove it from this service's environment."
+        fail "POSTGRES_PASSWORD is set in the application's container. It is the database superuser's password and belongs to the db and schema-owner services only (docker-compose.prod.yml): remove it from this service's environment."
         ;;
       *)
         fail "${owner_variable} is set in the application's container. The schema owner's credentials belong to the migrate service only (docker-compose.prod.yml): remove it from this service's environment."

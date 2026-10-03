@@ -8,6 +8,7 @@ import type {
 } from "@openbrf/plugin-sdk";
 
 import { apiRequest, type ApiResult } from "../api/client";
+import type { ProcessorAgreementState } from "../api/data-protection";
 
 /**
  * The plugin endpoints.
@@ -108,6 +109,12 @@ export interface CatalogPlugin {
   oauthProtectedResource: string | null;
   supported: boolean;
   installedVersion: string | null;
+  /**
+   * What the record of recipients already says about this plugin. The consent
+   * step asks where the plugin sends personal data only while it is
+   * `notRecorded`, so a reinstall or an update keeps what the board recorded.
+   */
+  recipientState: ProcessorAgreementState;
 }
 
 export interface CatalogListing {
@@ -127,6 +134,34 @@ export interface PluginViewDescriptor {
   module: string;
   remoteEntry: string;
 }
+
+/**
+ * What the board answered on the consent step about where the plugin sends
+ * personal data, as the install request carries it (`processorAgreement`).
+ *
+ * The API reads it as a recipient's classification in the art. 28 record:
+ * "nothing leaves" is no processor, and "yes" names the recipient and says
+ * whether it acts on the association's instructions or decides its own
+ * purposes. Narrower than the API's shape, and deliberately: each member of
+ * the union carries what the API requires of that answer - a recipient for
+ * "yes", and a reason for an independent controller - so a request it would
+ * refuse for either cannot be typed at all. The agreement's own details are
+ * not asked here; a processor's agreement is recorded as being made, and the
+ * board completes it on the data protection screen.
+ */
+export type ProcessorAgreementAnswer =
+  | { sendsPersonalDataOutside: false }
+  | {
+      sendsPersonalDataOutside: true;
+      recipient: string;
+      classification: "PROCESSOR";
+    }
+  | {
+      sendsPersonalDataOutside: true;
+      recipient: string;
+      classification: "INDEPENDENT_CONTROLLER";
+      note: string;
+    };
 
 export function fetchPlugins(): Promise<ApiResult<PluginsOverview>> {
   return apiRequest("GET", "/api/plugins");
@@ -156,6 +191,11 @@ export function fetchPluginViews(): Promise<
  * that is a statement about what the board read: an entry that has come to
  * declare one since is then refused rather than installed on a screen that
  * never mentioned the address connected apps sign in to.
+ *
+ * The board's answer about where the plugin sends personal data travels with
+ * it, so a screen install classifies the recipient the way the API records it
+ * rather than leaving it unclassified until somebody opens the data protection
+ * screen. Without one the API leaves the record as it is.
  */
 export function installPlugin(input: {
   id: string;
@@ -163,6 +203,8 @@ export function installPlugin(input: {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   oauthProtectedResource: string | null;
+  /** Left out where the record already classifies the plugin. */
+  processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {
   return apiRequest("POST", "/api/plugins", input);
 }

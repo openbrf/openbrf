@@ -8,8 +8,8 @@ import {
   type SubletApplicant,
 } from "../api/sublets";
 import {
-  FIELD,
   FIELD_DATA,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   QUIET_BUTTON,
@@ -155,7 +155,7 @@ export function SubletQueuePanel({
                   <label className={LABEL}>
                     {t("sublets.queue.noteField")}
                     <textarea
-                      className={`${FIELD} min-h-20 py-2`}
+                      className={`${FIELD_MULTILINE} min-h-20`}
                       value={notes[application.id] ?? ""}
                       maxLength={2000}
                       onChange={(event) => {

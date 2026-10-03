@@ -20,8 +20,9 @@ import { PROTECTED_RESOURCE } from "./protected-resource.module";
  * The instance type, pinned to our concrete options.
  *
  * Without the explicit instantiation this widens to Auth<BetterAuthOptions>
- * and the typed API surface loses the declared additional fields, so
- * signUpEmail would reject the personId we require on every account.
+ * and the typed API surface loses the declared additional fields, so what it
+ * returns no longer carries them: `session.user.personId`, for one, would be
+ * unknown to the compiler.
  */
 type AuthOptions = ReturnType<typeof buildAuthOptions>;
 export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;

@@ -8,8 +8,8 @@ import {
 } from "../api/sublets";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import {
-  FIELD,
   FIELD_DATA,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   QUIET_BUTTON,
@@ -194,7 +194,7 @@ export function OwnSubletsPanel({
                     <label className={LABEL}>
                       {t("sublets.apply.reasonField")}
                       <textarea
-                        className={`${FIELD} min-h-24 py-2`}
+                        className={`${FIELD_MULTILINE} min-h-24`}
                         value={editing.reason}
                         maxLength={4000}
                         required

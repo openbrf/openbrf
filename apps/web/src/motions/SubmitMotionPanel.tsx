@@ -2,7 +2,7 @@ import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { type MotionDeadline, submitMotion } from "../api/motions";
-import { FIELD, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import { FIELD, FIELD_MULTILINE, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -127,7 +127,7 @@ export function SubmitMotionPanel({
         <label className={LABEL}>
           {t("motions.submit.bodyField")}
           <textarea
-            className={`${FIELD} min-h-40 py-2`}
+            className={`${FIELD_MULTILINE} min-h-40`}
             value={draft.body}
             maxLength={8000}
             required

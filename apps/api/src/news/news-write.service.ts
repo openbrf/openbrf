@@ -5,7 +5,7 @@ import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { residencyHeldOn } from "../registers/held-on";
@@ -40,7 +40,12 @@ export type NewsWriteReason =
   /** The email mailing this item was asked for has already gone out. */
   | "already-mailed"
   | "personal-identity-number"
-  | "unsupported-block";
+  | "unsupported-block"
+  /**
+   * Comments stand under the item. They are erased by their own purge, never
+   * with the item, so it can be taken down but not removed until they are gone.
+   */
+  | "has-comments";
 
 export class NewsWriteError extends DomainError {
   readonly status: number;
@@ -832,31 +837,65 @@ export class NewsWriteService {
    * ledger goes with the row - it records a mailing of an item that no longer
    * exists - while the audit entries stay, because the log is evidence and is
    * append-only.
+   *
+   * Refused while a comment stands under it. A comment is its author's personal
+   * data on a clock of its own, and the news comment purge is the one path that
+   * erases it: the path that honours a legal hold, a restriction and an erasure
+   * request, and that writes an audit entry for whoever it erased. Erasing the
+   * thread here would be a second such path, and it would also be the deletion
+   * moderation deliberately does not give the board, reached through the item
+   * instead of the comment. Taking the item down is what the board can do
+   * instead: that shuts the thread to its readers, and once the purge has
+   * erased the last comment the item can be removed.
    */
   async remove(id: string, actor: ActorContext): Promise<void> {
     const news = await this.require(id);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.news.delete({ where: { id } });
+    const hasComments = (): NewsWriteError =>
+      new NewsWriteError(
+        "The news item has comments under it and cannot be removed.",
+        "has-comments",
+      );
 
-      if (news.published) {
-        await this.audit.record(
-          {
-            action: "NEWS_PUBLISHED",
-            ...auditActor(actor),
-            targetKind: "news",
-            targetId: id,
-            context: {
-              slug: news.slug,
-              published: false,
-              deleted: true,
-              visibility: news.visibility,
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        if ((await tx.newsComment.count({ where: { newsId: id } })) > 0) {
+          throw hasComments();
+        }
+        await tx.news.delete({ where: { id } });
+
+        if (news.published) {
+          await this.audit.record(
+            {
+              action: "NEWS_PUBLISHED",
+              ...auditActor(actor),
+              targetKind: "news",
+              targetId: id,
+              context: {
+                slug: news.slug,
+                published: false,
+                deleted: true,
+                visibility: news.visibility,
+              },
             },
-          },
-          tx,
-        );
+            tx,
+          );
+        }
+      });
+    } catch (cause) {
+      /*
+       * The count above narrows the window; the foreign key closes it. A
+       * comment written between the count and the delete makes the delete
+       * raise P2003 against the restrictive key, and that is the same refusal.
+       */
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2003"
+      ) {
+        throw hasComments();
       }
-    });
+      throw cause;
+    }
 
     this.logger.log(`Removed the news item at /nyheter/${news.slug}`);
   }

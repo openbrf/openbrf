@@ -2,10 +2,9 @@
 //
 // Migrations need to own the tables they change and nothing more. A superuser
 // can also run programs on the database host and read its files, so the role
-// that applies migrations on every deploy is openbrf_owner, which is not one
-// (docker/db/initdb/10-schema-owner.sql). This is where a deploy that still
-// connects as the superuser - an instance installed before openbrf_owner
-// existed, or a DATABASE_URL pointed at one - is stopped and told what to do,
+// that applies migrations on every deploy is the schema owner, which is not one
+// (docker/schema-owner.sql). This is where a deploy that connects as a
+// superuser - a DATABASE_URL pointed at one - is stopped and told what to do,
 // rather than carrying on with more privilege than it needs.
 //
 // Run under docker/with-owner-url.mjs, which puts the owner's connection in
@@ -38,10 +37,9 @@ try {
 if (superuser === "t") {
   fail(
     "the deploy steps are connecting to the database as a superuser. They " +
-      "need to own the schema and nothing more, so they run as openbrf_owner. " +
-      "An instance installed before that role existed creates it once, as " +
-      'docs/deployment.md describes under "Upgrading to a separate schema ' +
-      'owner"; an operator supplying DATABASE_URL points it at a role that ' +
-      "owns the database and is not a superuser.",
+      "need to own the schema and nothing more, so they run as the schema " +
+      "owner, which the schema-owner service creates. An operator supplying " +
+      "DATABASE_URL points it at a role that owns the database and is not a " +
+      "superuser.",
   );
 }

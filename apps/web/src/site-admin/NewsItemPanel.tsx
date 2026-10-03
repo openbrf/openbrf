@@ -52,6 +52,7 @@ const PUBLISH_FAILURES: Readonly<Record<string, TranslationKey>> = {
 
 const REMOVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-found": "news.errors.notFound",
+  "has-comments": "news.errors.hasComments",
 };
 
 /**

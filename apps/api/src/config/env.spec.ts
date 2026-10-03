@@ -422,3 +422,48 @@ describe("the mail driver's variables", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * The size of the application's connection pool.
+ *
+ * Several instances can share one database server, and every connection an
+ * instance may open comes out of that server's one max_connections. A value
+ * that is not a whole number of connections, or that no single instance
+ * should need, is a boot error naming the variable rather than a server that
+ * runs out of connections for somebody else's instance.
+ */
+describe("the connection pool's size", () => {
+  function withPoolSize(value: string | undefined): number {
+    return loadEnv({ ...REQUIRED, OPENBRF_DATABASE_POOL_SIZE: value })
+      .OPENBRF_DATABASE_POOL_SIZE;
+  }
+
+  function poolSizeRejection(value: string): Error {
+    try {
+      loadEnv({ ...REQUIRED, OPENBRF_DATABASE_POOL_SIZE: value });
+    } catch (cause) {
+      return cause as Error;
+    }
+    throw new Error(`OPENBRF_DATABASE_POOL_SIZE=${value} was accepted.`);
+  }
+
+  it("is node-postgres's ten when nothing is set", () => {
+    expect(withPoolSize(undefined)).toBe(10);
+    // Compose passes an unset optional variable as an empty string.
+    expect(withPoolSize("")).toBe(10);
+  });
+
+  it("takes any whole number from one to fifty", () => {
+    expect(withPoolSize("1")).toBe(1);
+    expect(withPoolSize("4")).toBe(4);
+    expect(withPoolSize("50")).toBe(50);
+  });
+
+  it("refuses none at all, more than fifty, a fraction and a word", () => {
+    for (const value of ["0", "51", "2.5", "twelve", "-3"]) {
+      const error = poolSizeRejection(value);
+      expect(error, value).toBeInstanceOf(EnvValidationError);
+      expect(error.message, value).toContain("OPENBRF_DATABASE_POOL_SIZE");
+    }
+  });
+});

@@ -2,7 +2,12 @@ import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 
-import { runAsSuperuser, runInAppContainer, stack } from "../src/stack";
+import {
+  runAsSuperuser,
+  runInAppContainer,
+  runSchemaOwner,
+  stack,
+} from "../src/stack";
 
 /**
  * What the application's own database role can and cannot do, and that it is
@@ -154,12 +159,15 @@ const STATUTORY_TABLES = [
 test("the application's role creates a queue and enqueues a job", async () => {
   test.setTimeout(60_000);
 
-  // The application's own configuration: its connection, its schema, and
-  // migration off, because the schema is the owner's to install.
+  // The application's own configuration: its connection, its schema,
+  // migration off, because the schema is the owner's to install, and its pool
+  // of two. The role may hold only the application's connections and three
+  // more, and the application is running beside this test.
   const boss = new PgBoss({
     connectionString: stack.runtimeDatabaseUrl,
     schema: "pgboss",
     migrate: false,
+    max: 2,
     application_name: "openbrf-e2e-privileges",
   });
 
@@ -251,14 +259,14 @@ test("nor write the record of which migrations have run", async () => {
   ).toBeUndefined();
 });
 
-test("a membership the superuser granted is refused by the hardening and revoked by the upgrade script", async () => {
+test("a membership the superuser granted is refused by the hardening and revoked by the schema-owner service", async () => {
   test.setTimeout(180_000);
 
   // What an instance that migrated as the superuser can carry: a role granted
   // to openbrf_app, whose privileges no revoke on openbrf_app reaches. The
   // owner may not revoke a grant the superuser made, so the hardening must
-  // name the script that can rather than stop on a permission error, and that
-  // script must leave the hardening able to run.
+  // name the service that can rather than stop on a permission error, and that
+  // service's next run must leave the hardening able to run.
   const probeRole = `runtime_role_probe_${suffix}`;
   const harden = () =>
     runInAppContainer(
@@ -286,15 +294,12 @@ test("a membership the superuser granted is refused by the hardening and revoked
     const refused = harden();
     expect(refused.status, "the hardening refuses").toBe(1);
     expect(refused.output).toContain(
-      `openbrf_app is a member of role ${probeRole}`,
+      `Role openbrf_app is a member of role ${probeRole}`,
     );
-    expect(refused.output).toContain("10-schema-owner.sql");
+    expect(refused.output).toContain("The schema-owner service revokes");
     expect(refused.output.includes("permission denied")).toBe(false);
 
-    const upgraded = runAsSuperuser([
-      "--file",
-      "/docker-entrypoint-initdb.d/10-schema-owner.sql",
-    ]);
+    const upgraded = runSchemaOwner();
     expect(upgraded.status, upgraded.output).toBe(0);
     expect(memberships().output.trim(), "no membership is left").toBe("0");
 

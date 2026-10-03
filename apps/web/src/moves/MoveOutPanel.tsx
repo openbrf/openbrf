@@ -12,6 +12,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import type { PersonResidency } from "../register/register-api";
 import { Notice } from "../ui/Notice";
 import { failureMessage } from "./move-errors";
 import { moveOut, type MoveOutResult } from "./moves-api";
@@ -35,6 +36,11 @@ export interface MoveOutTarget {
   residencyId: string;
   personName: string;
   apartmentNumber: string;
+  /**
+   * Only a `MEMBER` residency holds the tenant-ownership, so only it can be
+   * transferred. The server refuses a transfer from anyone else.
+   */
+  role: PersonResidency["role"];
 }
 
 export function MoveOutPanel({
@@ -48,6 +54,7 @@ export function MoveOutPanel({
 }): ReactElement {
   const { t } = useTranslation();
   const heading = usePanelHeadingFocus();
+  const canTransfer = target.role === "MEMBER";
 
   const [movedOutOn, setMovedOutOn] = useState("");
   const [recordTransfer, setRecordTransfer] = useState(false);
@@ -158,20 +165,27 @@ export function MoveOutPanel({
               />
             </label>
 
-            <div className="flex flex-col gap-2 border-t border-line pt-4">
-              <label className="flex min-h-11 items-center gap-3 text-body text-ink">
-                <input
-                  type="checkbox"
-                  checked={recordTransfer}
-                  onChange={(event) => {
-                    setRecordTransfer(event.target.checked);
-                  }}
-                  className="size-5 accent-trust"
-                />
-                {t("moves.transfer.record")}
-              </label>
-              <p className={HINT}>{t("moves.transfer.hint")}</p>
-            </div>
+            {/*
+             * Offered for a tenant-owner only. A resident who does not hold
+             * the tenant-ownership has nothing to transfer, and the server
+             * would refuse the form only after the board had filled it in.
+             */}
+            {canTransfer ? (
+              <div className="flex flex-col gap-2 border-t border-line pt-4">
+                <label className="flex min-h-11 items-center gap-3 text-body text-ink">
+                  <input
+                    type="checkbox"
+                    checked={recordTransfer}
+                    onChange={(event) => {
+                      setRecordTransfer(event.target.checked);
+                    }}
+                    className="size-5 accent-trust"
+                  />
+                  {t("moves.transfer.record")}
+                </label>
+                <p className={HINT}>{t("moves.transfer.hint")}</p>
+              </div>
+            ) : null}
 
             {recordTransfer ? (
               <>

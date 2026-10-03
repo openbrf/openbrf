@@ -212,8 +212,9 @@ export function runInAppContainer(
  * as docs/deployment.md has an operator do it.
  *
  * For the states only the superuser can produce or put right - a membership it
- * granted to openbrf_app, and 10-schema-owner.sql run by hand on an upgrade.
- * The suite's own connections are the owner's and the application's.
+ * granted to openbrf_app, or the ownership an instance installed before the
+ * schema owner existed left with it. The suite's own connections are the
+ * owner's and the application's.
  */
 export function runAsSuperuser(
   psqlArguments: readonly string[],
@@ -236,6 +237,40 @@ export function runAsSuperuser(
     {},
     timeoutMs,
   );
+}
+
+/**
+ * Runs the schema-owner service once more, as `up` runs it before every deploy:
+ * a container of its own, from the stack's env file, that applies
+ * docker/schema-owner.sql as the superuser and exits.
+ */
+export function runSchemaOwner(timeoutMs = 120_000): {
+  status: number;
+  output: string;
+} {
+  try {
+    const stdout = execFileSync(
+      "docker",
+      [...COMPOSE_ARGS, "run", "--rm", "--no-deps", "-T", "schema-owner"],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        timeout: timeoutMs,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    return { status: 0, output: stdout };
+  } catch (failure) {
+    const result = failure as {
+      status?: number | null;
+      stdout?: string | null;
+      stderr?: string | null;
+    };
+    return {
+      status: result.status ?? -1,
+      output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    };
+  }
 }
 
 function runInService(
@@ -341,8 +376,9 @@ export function productionComposeConfig(
 }
 
 /**
- * One container's whole log, as it would be shipped off the host: `migrate`
- * for the deploy steps, `app` for the application.
+ * One container's whole log, as it would be shipped off the host:
+ * `schema-owner` for the owner's creation, `migrate` for the deploy steps, `app`
+ * for the application.
  *
  * Read rather than printed: a spec asserts on what is and is not in it. This is
  * the boot that actually ran - the key provisioning, the migrations and the
@@ -350,7 +386,9 @@ export function productionComposeConfig(
  * start in the other - so it is the only place the question "did any of that
  * print a credential" has a real answer.
  */
-export function serviceLogs(service: "migrate" | "app"): string {
+export function serviceLogs(
+  service: "schema-owner" | "migrate" | "app",
+): string {
   return execFileSync(
     "docker",
     [...COMPOSE_ARGS, "logs", "--no-color", service],
@@ -412,7 +450,10 @@ export function claimTokenOf(link: string): string {
 /** Prints the instance's logs. Called when the suite fails, not otherwise. */
 export function printAppLogs(): void {
   try {
-    compose(["logs", "--no-color", "--tail", "200", "migrate", "app"], 60_000);
+    compose(
+      ["logs", "--no-color", "--tail", "200", "schema-owner", "migrate", "app"],
+      60_000,
+    );
   } catch {
     // Best effort: a missing container must not mask the real failure.
   }

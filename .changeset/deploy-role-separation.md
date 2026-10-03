@@ -8,24 +8,30 @@ The deploy steps - the field encryption key on a first boot, migrations, the
 job queue schema and the application's own database role - now run in a
 `migrate` service of their own, which exits once they have run; the
 application starts only after it succeeded. The application's container is no
-longer given the schema owner's credentials at all, and refuses to start if it
-is. It runs with a read-only root filesystem, no capabilities and
-`no-new-privileges`, and the code in the image is owned by root, so the user
-the application runs as can write to `/data` and a scratch `/tmp`, and nowhere
-else.
+longer given the schema owner's or the superuser's credentials at all, and
+refuses to start if it is. All of the instance's containers run with a
+read-only root filesystem, no capabilities and `no-new-privileges`, and the
+code in the image is owned by root, so the user they run as can write to
+`/data` and a scratch `/tmp`, and nowhere else.
 
-Migrations now run as `openbrf_owner`, a schema owner that is not a superuser;
-the superuser's password stays in the database container. A new
-`OWNER_DB_PASSWORD` setting is required. An existing instance creates the new
-role once with the steps in `docs/deployment.md`, "Upgrading to a separate
-schema owner", and deploys as before from then on. An operator who manages
-the runtime role themselves (`DATABASE_URL_RUNTIME`) constrains it once in the
-same section, since the start check below refuses a role that an earlier
-release let write the migration history.
+Migrations now run as `openbrf_owner` (or the name `OWNER_DB_USER` gives), a
+schema owner that is not a superuser. A `schema-owner` service creates it as
+the superuser on every `up`, before the migrate service, and on an instance
+installed before it existed moves the superuser's tables to it. A new
+`OWNER_DB_PASSWORD` setting is required; with it, an existing instance upgrades
+with the usual `pull` and `up -d`. An instance on a database server of its own
+has its owner created by that server's administrator, and runs the migrate
+service and then the application (`docs/deployment.md`). An operator who
+manages the runtime role themselves (`DATABASE_URL_RUNTIME`) constrains it
+once, as `docs/deployment.md`, "Upgrading to a separate schema owner",
+describes, since the start check below refuses a role that an earlier release
+let write the migration history.
 
 The application's role can no longer write the migration history or the job
 schema's version, and no longer holds `CREATE` on the job schema, which no
 queue needed. And in production the application now asks the database, before
 it starts anything, whether the role it connected as is a constrained one, and
-refuses to serve as a superuser, an owner, or a role that can rewrite the
-member register, the audit log or the migration history.
+refuses to serve as a superuser, an owner, a role that can create objects in
+the application's schemas, or one holding any privilege the hardening takes
+away on the statutory archive, the migration history or the job schema's
+version.

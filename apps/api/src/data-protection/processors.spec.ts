@@ -15,6 +15,7 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
   return {
     mailHost: "smtp.example.test",
     mailFromAddress: "styrelsen@granngarden.test",
+    mailDriver: "settings",
     smsDriver: null,
     smsGatewayUrl: null,
     storageDriver: "local",
@@ -64,6 +65,9 @@ describe("currentProcessors", () => {
     ).not.toContain("smtp");
     expect(
       keys(currentProcessors(facts({ mailHost: null }), [])),
+    ).not.toContain("smtp");
+    expect(
+      keys(currentProcessors(facts({ mailDriver: null }), [])),
     ).not.toContain("smtp");
   });
 
@@ -434,11 +438,14 @@ describe("the mail server, when whoever runs the instance sets the mail", () => 
       [],
     );
 
-    expect(descriptors.find((d) => d.processorKey === "smtp")).toMatchObject({
-      processorKind: "SMTP",
-      identity: "api.mail.example",
-      detail: "utskick@delad.example",
-    });
+    expect(descriptors.find((d) => d.processorKey === "mailApi")).toMatchObject(
+      {
+        processorKind: "MAIL_API",
+        identity: "api.mail.example",
+        detail: "utskick@delad.example",
+      },
+    );
+    expect(keys(descriptors)).not.toContain("smtp");
   });
 
   it("names the environment's SMTP host", async () => {
@@ -452,9 +459,13 @@ describe("the mail server, when whoever runs the instance sets the mail", () => 
       [],
     );
 
-    expect(descriptors.find((d) => d.processorKey === "smtp")).toMatchObject({
+    expect(
+      descriptors.find((d) => d.processorKey === "hostSmtp"),
+    ).toMatchObject({
+      processorKind: "HOST_SMTP",
       identity: "smtp.host.example",
     });
+    expect(keys(descriptors)).not.toContain("smtp");
   });
 
   it("names the stored server while the environment sets nothing", async () => {
@@ -467,7 +478,42 @@ describe("the mail server, when whoever runs the instance sets the mail", () => 
     );
 
     expect(descriptors.find((d) => d.processorKey === "smtp")).toMatchObject({
+      processorKind: "SMTP",
       identity: "smtp.stored.example",
     });
+  });
+
+  /*
+   * The migration path: rows under "smtp" stay where they are, because that
+   * key has always meant the board's own server. What changes is that the
+   * host's mail is a recipient of its own, so the board's agreement is never
+   * read as covering it.
+   */
+  it.each([
+    ["smtp", "hostSmtp"],
+    ["http-api", "mailApi"],
+  ] as const)(
+    "does not show the board's own agreement against the host's %s",
+    (mailDriver, key) => {
+      const descriptors = currentProcessors(
+        facts({ mailDriver, mailHost: "relay.host.example" }),
+        [row({ processorKey: "smtp" })],
+      );
+
+      expect(descriptors.find((d) => d.processorKey === key)?.state).toBe(
+        "notRecorded",
+      );
+      expect(keys(descriptors)).not.toContain("smtp");
+    },
+  );
+
+  it("shows the board's own agreement again once its settings send the mail", () => {
+    const descriptors = currentProcessors(facts({ mailDriver: "settings" }), [
+      row({ processorKey: "smtp" }),
+    ]);
+
+    expect(descriptors.find((d) => d.processorKey === "smtp")?.state).toBe(
+      "inPlace",
+    );
   });
 });

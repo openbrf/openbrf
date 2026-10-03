@@ -1235,7 +1235,9 @@
         "description": "Download what you have given the association under the membership or a consent, in a machine-readable format (GDPR art. 20). What it holds about you on another basis is not in this file; the board produces a data subject access report on request. The file is yours to take with you; there is no direct transfer to another platform, because no receiving standard exists.",
         "action": "Download my data",
         "working": "Preparing...",
-        "failed": "Your data could not be prepared just now."
+        "failed": "Your data could not be prepared just now.",
+        "rateLimited": "You have asked for your data several times in the last minute. Wait a moment and try again.",
+        "busy": "Many downloads are being prepared right now. Wait a moment and try again."
       },
       "exportFileName": "my-data"
     },
@@ -1536,6 +1538,18 @@
         "serves": "This plugin will serve the address that connected apps sign in to.",
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
+      },
+      "recipient": {
+        "title": "Personal data outside the instance",
+        "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
+        "question": "Does this plugin send personal data outside the instance?",
+        "no": "No, it sends no personal data outside the instance",
+        "yes": "Yes, it sends personal data to a recipient outside the instance",
+        "recipient": "Recipient",
+        "recipientHint": "The company or service that receives the data.",
+        "processorHint": "Processes the data on the association's behalf and on its instructions. A processor agreement is needed, and it is recorded as being made until the board records it on the data protection screen.",
+        "independentControllerHint": "Decides for itself why and how the data is processed, so no processor agreement is needed.",
+        "recorded": "What the data protection screen records for this plugin: {{state}}. Installing keeps that answer; change it there if it no longer holds."
       },
       "privacyNote": "Whatever a plugin asks for, two limits always hold: a person with protected personal data is never shown to a plugin, and no plugin is ever given a personal identity number.",
       "acknowledge": "I have read what this plugin may do and which personal data it will handle.",
@@ -2209,6 +2223,8 @@
       "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
       "dateNotACalendarDate": "That date is not on the calendar. Check the day and the month.",
       "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
+      "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
+      "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },
@@ -2359,6 +2375,7 @@
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",
+      "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
       "ambiguousRowsUndecided": "Some rows still match more than one person.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
@@ -3331,6 +3348,7 @@
       "addressMailed": "The address was mailed to the members, so it cannot be changed.",
       "notPlainText": "That news item holds formatting this editor cannot show. Editing it here would remove it.",
       "notFound": "That news item is gone. The list has been read again.",
+      "hasComments": "Residents have commented on this news item, so it cannot be removed yet. Taking it down hides it from readers; the comments are erased on their own schedule, and the item can be removed once they are gone.",
       "unknown": "That could not be saved just now. Please try again."
     },
     "site": {
@@ -4568,6 +4586,8 @@
       "saving": "Saving...",
       "kind": {
         "SMTP": "Mail server",
+        "HOST_SMTP": "Host's mail server",
+        "MAIL_API": "Host's mail API",
         "SMS": "SMS gateway",
         "STORAGE": "File storage",
         "HOSTING": "Hosting",
@@ -4757,7 +4777,7 @@
     },
     "news_delete": {
       "title": "Delete a news item",
-      "description": "Removes the news item for good. It cannot be undone. The item must exist, and a published one is taken off the website by the same call."
+      "description": "Removes the news item for good. It cannot be undone. The item must exist and have no comments under it; one with comments is refused, and can be taken down with news_unpublish instead. A published item is taken off the website by the same call."
     },
     "news_request_mailing": {
       "title": "Request a mailing",

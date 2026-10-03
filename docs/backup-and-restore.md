@@ -205,15 +205,11 @@ docker compose -f docker-compose.prod.yml exec -T db \
   pg_restore -U openbrf -d openbrf --clean --if-exists \
   < backups/<stamp>/openbrf.dump
 
-# 5. Give the restored schema to openbrf_owner. A backup taken before that role
-#    existed restores tables the superuser owns, which the migrate service then
-#    cannot migrate; on any other backup this changes nothing.
-docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db \
-  psql -U openbrf -d openbrf -f /docker-entrypoint-initdb.d/10-schema-owner.sql
-
-# 6. Start the application. The migrate service applies any migrations the
-#    restored database is missing, reinstalls the job schema and reapplies the
-#    runtime role's privileges before the application starts.
+# 5. Start the application. The schema-owner service gives the restored schema
+#    to the schema owner - a backup taken before that role existed restores
+#    tables the superuser owns - and the migrate service then applies any
+#    migrations the restored database is missing, reinstalls the job schema and
+#    reapplies the runtime role's privileges before the application starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
@@ -225,6 +221,31 @@ than like a mismatch.
 
 `BETTER_AUTH_SECRET` is not needed to read the data, but changing it signs
 everyone out, so restore the environment file too unless you mean to.
+
+## Before an upgrade
+
+Take the ordinary backup above immediately before every upgrade. It already
+stops the application for its length, which an upgrade needs anyway: the
+migrations of the new release must not run while the old one is still
+writing. That backup is the rollback.
+
+An upgrade that fails leaves the database between two releases, and a start
+of the new release can already have rewritten stored files on the data volume.
+Rolling back is therefore the restore above, both halves from that one backup,
+with `OPENBRF_VERSION` set to the exact version that was running before - not
+its release line, which by then names the newer release.
+Restoring the database alone, or starting the previous release against the
+newer database, is not a rollback ([deployment.md](deployment.md), "What
+happens on every start").
+
+**From 0.1.0 on, each start closes the instance's database to every role but
+its own two.** A database grants `CONNECT` to every role on the server when it
+is made, and the start that constrains the runtime role revokes that grant. A
+separate role that backs the database up or monitors it - anything but the
+owner and the runtime role - can no longer connect after the first start of
+such a release, until the owner grants it:
+`GRANT CONNECT ON DATABASE <database> TO <role>`. The backup above runs as the
+owner and is not affected.
 
 ## Moving between PostgreSQL major versions
 

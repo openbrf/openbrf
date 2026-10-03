@@ -1,9 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { quoteIdentifier, withDatabase } from "../testing/integration-database";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { PrismaClient } from "../generated/prisma/client";
 
@@ -24,7 +27,8 @@ import { PrismaClient } from "../generated/prisma/client";
  * the application is deliberately not the owner. The last suite in this file
  * covers that half, by running the REVOKE lines out of that file against a role
  * of its own, so a statutory table added without its line is a failure here
- * rather than a discovery in production.
+ * rather than a discovery in production. The suite after it applies the whole
+ * script, as two instances sharing one database server would.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -298,6 +302,40 @@ beforeAll(async () => {
   }
 });
 
+/** prisma/sql/harden-runtime-role.sql, as the entrypoint applies it. */
+function hardeningScript(): string {
+  return readFileSync(
+    join(process.cwd(), "prisma", "sql", "harden-runtime-role.sql"),
+    "utf8",
+  );
+}
+
+/**
+ * The per-table REVOKE lines of the hardening script: what each takes away,
+ * and from which table.
+ *
+ * The script names the runtime role through a psql variable, :"app_role",
+ * because the role's name is RUNTIME_DB_ROLE's. A line still naming the role
+ * literally is not one the script applies to the role it was given, so it is
+ * not lifted, and a script left with none fails here.
+ */
+function scriptRevokes(): { privileges: string; table: string }[] {
+  const revokes = [
+    ...hardeningScript().matchAll(
+      /^REVOKE (UPDATE, DELETE|DELETE|UPDATE) ON public\."(\w+)" FROM :"app_role";$/gm,
+    ),
+  ].map((match) => ({ privileges: String(match[1]), table: String(match[2]) }));
+
+  if (revokes.length === 0) {
+    throw new Error(
+      "No per-table REVOKE statements were found in harden-runtime-role.sql. " +
+        "Either the script changed shape or the statutory tables lost their " +
+        "privilege guard; both need looking at rather than a green test.",
+    );
+  }
+  return revokes;
+}
+
 /**
  * The REVOKE statements out of prisma/sql/harden-runtime-role.sql, retargeted
  * at this suite's own role.
@@ -313,26 +351,10 @@ beforeAll(async () => {
  * deployment really creates.
  */
 function statutoryRevokes(): string[] {
-  const script = readFileSync(
-    join(process.cwd(), "prisma", "sql", "harden-runtime-role.sql"),
-    "utf8",
+  return scriptRevokes().map(
+    ({ privileges, table }) =>
+      `REVOKE ${privileges} ON public."${table}" FROM ${PROBE_ROLE}`,
   );
-  const statements = [
-    ...script.matchAll(
-      /^REVOKE (UPDATE, DELETE|DELETE|UPDATE) ON public\."(\w+)" FROM openbrf_app;$/gm,
-    ),
-  ].map(
-    (match) => `REVOKE ${match[1]} ON public."${match[2]}" FROM ${PROBE_ROLE}`,
-  );
-
-  if (statements.length === 0) {
-    throw new Error(
-      "No per-table REVOKE statements were found in harden-runtime-role.sql. " +
-        "Either the script changed shape or the statutory tables lost their " +
-        "privilege guard; both need looking at rather than a green test.",
-    );
-  }
-  return statements;
 }
 
 afterAll(async () => {
@@ -1466,5 +1488,443 @@ describe("association", () => {
         data: { id: 2, name: "Brf Nummer Tva" },
       }),
     ).rejects.toThrow(/association_is_singleton/i);
+  });
+});
+
+/**
+ * One PostgreSQL server holding several instances, each with a database, an
+ * owner and a runtime role of its own (Beslutslogg 67).
+ *
+ * The whole hardening script runs as each instance's owner, which on such a
+ * server is no superuser but holds CREATEROLE, and names that instance's own
+ * runtime role through RUNTIME_DB_ROLE, as the entrypoint passes it. What has
+ * to hold is what keeps the instances apart: each runtime role reaches its own
+ * database and is refused the other's, the second instance's start leaves the
+ * first's role as it was, and one owner cannot reach the other's role at all.
+ *
+ * psql applies the script, because it is written in psql's own dialect
+ * (\getenv, \gexec, \if). psql is taken from the PostgreSQL image
+ * docker-compose.prod.yml pins rather than from the machine running the suite,
+ * which need not have it; the container shares the host's network, so it
+ * reaches the server at the address DATABASE_URL gives.
+ *
+ * Each database holds only what the script has to find: the statutory tables
+ * its REVOKE lines name, the migration history, and the job queue's schema
+ * with its version table. Who may connect where is under test here, not the
+ * tables, which the suites above cover.
+ */
+describe("two instances sharing one database server", () => {
+  /** PostgreSQL's insufficient_privilege, which a refused CONNECT raises. */
+  const PERMISSION_DENIED = "42501";
+
+  interface Instance {
+    readonly database: string;
+    readonly owner: string;
+    readonly ownerPassword: string;
+    readonly role: string;
+    readonly rolePassword: string;
+    /** RUNTIME_DB_CONNECTION_LIMIT, empty for the script's own default. */
+    readonly connectionLimit: string;
+  }
+
+  /** Roles and databases are the whole server's, so each carries the run. */
+  function instance(label: string, connectionLimit = ""): Instance {
+    return {
+      database: `openbrf_share_${label}_${suffix}`,
+      owner: `openbrf_share_owner_${label}_${suffix}`,
+      ownerPassword: `share-owner-${label}-${suffix}`,
+      role: `openbrf_share_app_${label}_${suffix}`,
+      rolePassword: `share-runtime-${label}-${suffix}`,
+      connectionLimit,
+    };
+  }
+
+  const first = instance("a");
+  const second = instance("b", "7");
+  /** Instances a test sets up for itself, dropped with the two above. */
+  const others: Instance[] = [];
+
+  /** The suite's server, as one user, on one database. */
+  function connectionUrl(
+    user: string,
+    password: string,
+    database: string,
+  ): string {
+    const url = new URL(withDatabase(env.DATABASE_URL, database));
+    url.username = user;
+    url.password = password;
+    return url.toString();
+  }
+
+  /** The PostgreSQL image docker-compose.prod.yml pins, psql's source. */
+  function postgresImage(): string {
+    const compose = readFileSync(
+      join(process.cwd(), "..", "..", "docker-compose.prod.yml"),
+      "utf8",
+    );
+    const pinned = /^\s+image:\s+(postgres:\S+@sha256:[0-9a-f]{64})\s*$/m.exec(
+      compose,
+    )?.[1];
+    if (pinned === undefined) {
+      throw new Error(
+        "docker-compose.prod.yml names no PostgreSQL image pinned by digest, " +
+          "which is where this suite takes psql from.",
+      );
+    }
+    return pinned;
+  }
+
+  /**
+   * Applies the hardening script as one instance's owner, the way the
+   * entrypoint does: the owner's password in PGPASSWORD, the runtime role's
+   * name, password and connection limit in RUNTIME_DB_ROLE,
+   * RUNTIME_DB_PASSWORD and RUNTIME_DB_CONNECTION_LIMIT, and none of them in an
+   * argument.
+   */
+  function applyHardening(instance: Instance): void {
+    const refusal = hardeningRefusal(instance);
+    if (refusal !== undefined) {
+      throw new Error(
+        `psql could not apply harden-runtime-role.sql as ${instance.owner}:\n${refusal}`,
+      );
+    }
+  }
+
+  /** What psql said when the script stopped, or undefined when it ran. */
+  function hardeningRefusal(instance: Instance): string | undefined {
+    try {
+      execFileSync(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "--interactive",
+          "--network",
+          "host",
+          "--env",
+          "PGPASSWORD",
+          "--env",
+          "RUNTIME_DB_ROLE",
+          "--env",
+          "RUNTIME_DB_PASSWORD",
+          "--env",
+          "RUNTIME_DB_CONNECTION_LIMIT",
+          postgresImage(),
+          "psql",
+          "--quiet",
+          "--no-psqlrc",
+          "--set",
+          "ON_ERROR_STOP=on",
+          connectionUrl(instance.owner, "", instance.database),
+          "--file",
+          "-",
+        ],
+        {
+          input: hardeningScript(),
+          env: {
+            ...process.env,
+            PGPASSWORD: instance.ownerPassword,
+            RUNTIME_DB_ROLE: instance.role,
+            RUNTIME_DB_PASSWORD: instance.rolePassword,
+            RUNTIME_DB_CONNECTION_LIMIT: instance.connectionLimit,
+          },
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 120_000,
+        },
+      );
+      return undefined;
+    } catch (cause) {
+      const output = cause as { stdout?: Buffer; stderr?: Buffer };
+      return `${output.stdout?.toString() ?? ""}${output.stderr?.toString() ?? ""}`;
+    }
+  }
+
+  /** An owner role, and the database a test makes it owner of or not. */
+  async function createOwner(
+    instance: Instance,
+    attributes: string,
+  ): Promise<void> {
+    others.push(instance);
+    await prisma.$executeRawUnsafe(
+      `CREATE ROLE ${instance.owner} LOGIN ${attributes} PASSWORD '${instance.ownerPassword}'`,
+    );
+  }
+
+  /** Who a session opened as, or the SQLSTATE the server refused it with. */
+  async function connectAs(
+    user: string,
+    password: string,
+    database: string,
+  ): Promise<{ user: string } | { refused: string }> {
+    const client = new Client({
+      connectionString: connectionUrl(user, password, database),
+    });
+    try {
+      await client.connect();
+    } catch (error) {
+      return { refused: (error as { code?: string }).code ?? String(error) };
+    }
+    try {
+      const result = await client.query<{ user: string }>(
+        "SELECT current_user AS user",
+      );
+      return { user: String(result.rows[0]?.user) };
+    } finally {
+      await client.end();
+    }
+  }
+
+  beforeAll(async () => {
+    for (const instance of [first, second]) {
+      // CREATEROLE and nothing more: the owner a shared server gives each
+      // instance, which is not a superuser.
+      await prisma.$executeRawUnsafe(
+        `CREATE ROLE ${instance.owner} LOGIN CREATEROLE PASSWORD '${instance.ownerPassword}'`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE DATABASE ${instance.database} OWNER ${instance.owner}`,
+      );
+
+      const owner = new Client({
+        connectionString: connectionUrl(
+          instance.owner,
+          instance.ownerPassword,
+          instance.database,
+        ),
+      });
+      await owner.connect();
+      try {
+        await owner.query("CREATE SCHEMA pgboss");
+        await owner.query(
+          "CREATE TABLE pgboss.version (version integer, cron_on timestamptz)",
+        );
+        await owner.query(
+          "CREATE TABLE public._prisma_migrations (id text, migration_name text)",
+        );
+        for (const { table } of scriptRevokes()) {
+          await owner.query(
+            `CREATE TABLE public.${quoteIdentifier(table)} (id integer)`,
+          );
+        }
+      } finally {
+        await owner.end();
+      }
+    }
+
+    // In this order, so the second start is the one that would take the first
+    // role over if the two shared a name.
+    applyHardening(first);
+    applyHardening(second);
+  }, 180_000);
+
+  afterAll(async () => {
+    // Each drop on its own: roles and databases outlive the suite on a shared
+    // server, so one that fails - after a beforeAll that stopped halfway, say -
+    // must not leave the rest behind. The first failure is reported once all
+    // have been tried.
+    const failures: unknown[] = [];
+    const attempt = async (sql: string): Promise<void> => {
+      try {
+        await prisma.$executeRawUnsafe(sql);
+      } catch (error) {
+        failures.push(error);
+      }
+    };
+    const instances = [first, second, ...others];
+    // The databases first: the runtime roles' grants live in them, and a role
+    // holding a grant cannot be dropped.
+    for (const instance of instances) {
+      await attempt(
+        `DROP DATABASE IF EXISTS ${instance.database} WITH (FORCE)`,
+      );
+    }
+    for (const instance of instances) {
+      await attempt(`DROP ROLE IF EXISTS ${instance.role}`);
+      await attempt(`DROP ROLE IF EXISTS ${instance.owner}`);
+    }
+    if (failures.length > 0) {
+      throw failures[0];
+    }
+  });
+
+  it("gives each instance's runtime role its own database", async () => {
+    for (const instance of [first, second]) {
+      expect(
+        await connectAs(
+          instance.role,
+          instance.rolePassword,
+          instance.database,
+        ),
+      ).toEqual({ user: instance.role });
+    }
+  });
+
+  it("refuses each runtime role the other instance's database", async () => {
+    // A new database grants CONNECT to PUBLIC. Were that grant still there,
+    // either role could open a session on the other's database and read its
+    // catalogue, if not its tables.
+    expect(
+      await connectAs(first.role, first.rolePassword, second.database),
+    ).toEqual({ refused: PERMISSION_DENIED });
+    expect(
+      await connectAs(second.role, second.rolePassword, first.database),
+    ).toEqual({ refused: PERMISSION_DENIED });
+  });
+
+  it("leaves the first instance's role as it was when the second starts again", async () => {
+    // Every start applies the script. With one name for both roles, this is the
+    // moment the first instance's password would be replaced.
+    applyHardening(second);
+
+    expect(
+      await connectAs(first.role, first.rolePassword, first.database),
+    ).toEqual({ user: first.role });
+  }, 120_000);
+
+  it("caps each runtime role's connections", async () => {
+    // One instance, or a plugin running inside it, must not be able to take
+    // every connection the server has. Fifteen unless the entrypoint says
+    // otherwise: the default pool, the job queue's two and three to spare.
+    const limits = await prisma.$queryRawUnsafe<
+      { rolname: string; rolconnlimit: number }[]
+    >(
+      "SELECT rolname, rolconnlimit FROM pg_roles WHERE rolname IN ($1, $2)",
+      first.role,
+      second.role,
+    );
+    expect(
+      Object.fromEntries(limits.map((row) => [row.rolname, row.rolconnlimit])),
+    ).toEqual({ [first.role]: 15, [second.role]: 7 });
+  });
+
+  it("refuses a runtime role another instance's database already grants", async () => {
+    // PostgreSQL lets a superuser alter any role. The deploy steps refuse to
+    // run as one, but the script can still be applied by hand from a
+    // checkout, and then only the script stands between that superuser and
+    // the first instance's runtime role when the two names collide.
+    const third: Instance = { ...instance("c"), role: first.role };
+    await createOwner(third, "SUPERUSER");
+    await prisma.$executeRawUnsafe(
+      `CREATE DATABASE ${third.database} OWNER ${third.owner}`,
+    );
+
+    expect(hardeningRefusal(third)).toContain(
+      "so it belongs to another instance on this server",
+    );
+    expect(
+      await connectAs(first.role, first.rolePassword, first.database),
+    ).toEqual({ user: first.role });
+  }, 120_000);
+
+  it("refuses a connection limit below 1, -1 being no limit at all", async () => {
+    // -1 is how PostgreSQL spells "no limit" and 0 would lock the role out;
+    // either would reach ALTER ROLE as a whole number if the script did not
+    // stop on it. The owner and database exist so that the script gets as far
+    // as the limit; it stops before the role is created.
+    const fifth = instance("e");
+    await createOwner(fifth, "CREATEROLE");
+    await prisma.$executeRawUnsafe(
+      `CREATE DATABASE ${fifth.database} OWNER ${fifth.owner}`,
+    );
+
+    for (const limit of ["-1", "0"]) {
+      expect(
+        hardeningRefusal({ ...fifth, connectionLimit: limit }),
+        `limit ${limit}`,
+      ).toContain("has to be a whole number of 1 or more");
+    }
+    expect(
+      await prisma.$queryRawUnsafe<{ rolname: string }[]>(
+        "SELECT rolname FROM pg_roles WHERE rolname = $1",
+        fifth.role,
+      ),
+    ).toEqual([]);
+  }, 120_000);
+
+  it("refuses a database its owner does not own", async () => {
+    // A hosting service that creates the database as its own administrator
+    // and hands the instance's owner CREATE on it. The owner could not revoke
+    // PUBLIC's CONNECT there, PostgreSQL would say so only in a warning, and
+    // the database would stay open to every role on the server.
+    const fourth = instance("d");
+    await createOwner(fourth, "CREATEROLE");
+    await prisma.$executeRawUnsafe(`CREATE DATABASE ${fourth.database}`);
+    await prisma.$executeRawUnsafe(
+      `GRANT CREATE ON DATABASE ${fourth.database} TO ${fourth.owner}`,
+    );
+
+    expect(hardeningRefusal(fourth)).toContain(
+      `Only its owner can close it to the other roles on the server`,
+    );
+    expect(
+      await prisma.$queryRawUnsafe<{ rolname: string }[]>(
+        "SELECT rolname FROM pg_roles WHERE rolname = $1",
+        fourth.role,
+      ),
+    ).toEqual([]);
+  }, 120_000);
+
+  it("takes back a column grant on the job schema's version and the migration history", async () => {
+    // A table-level REVOKE also revokes the matching privilege on every
+    // column, so a role an earlier tool granted UPDATE (version) - which would
+    // decide what the owner's next pg-boss install believes is installed -
+    // loses it on the next start, and so does one granted a column of the
+    // migration history. What pg-boss's maintenance stamps stays writable.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT UPDATE (version) ON pgboss.version TO ${first.role}`,
+      );
+      await owner.query(
+        `GRANT UPDATE (migration_name), INSERT (id) ON public._prisma_migrations TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{
+        version: boolean;
+        stamp: boolean;
+        history: boolean;
+      }>(
+        `SELECT
+           has_column_privilege($1, 'pgboss.version', 'version', 'UPDATE') AS version,
+           has_column_privilege($1, 'pgboss.version', 'cron_on', 'UPDATE') AS stamp,
+           has_any_column_privilege($1, 'public._prisma_migrations', 'INSERT, UPDATE') AS history`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({
+        version: false,
+        stamp: true,
+        history: false,
+      });
+    } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("keeps each instance's owner away from the other's runtime role", async () => {
+    // From PostgreSQL 16 a CREATEROLE role manages only the roles it created,
+    // which is why a shared server has to be 16 or later.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        second.owner,
+        second.ownerPassword,
+        second.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await expect(
+        owner.query(`ALTER ROLE ${first.role} PASSWORD 'taken-over'`),
+      ).rejects.toMatchObject({ code: PERMISSION_DENIED });
+    } finally {
+      await owner.end();
+    }
   });
 });
