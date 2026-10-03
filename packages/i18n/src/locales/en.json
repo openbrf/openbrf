@@ -252,6 +252,7 @@
       },
       "current": "Current",
       "ended": "Ended",
+      "upcoming": "Upcoming",
       "electedOn": "Elected",
       "endedOn": "Ended",
       "protectionFailed": "The masking could not be changed. Try again.",
