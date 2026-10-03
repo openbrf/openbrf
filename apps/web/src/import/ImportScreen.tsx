@@ -92,6 +92,14 @@ const RUN_POLL_MS = 1500;
  */
 const PREVIEW_POLL_MS = 1500;
 
+/**
+ * How long a poll may go unanswered before the screen gives it up and asks
+ * again. A poll is only skipped while the last one is unanswered, so one that
+ * never settles - a stalled connection, a proxy that holds the request - would
+ * otherwise end the asking, and with it the progress, for good.
+ */
+const PREVIEW_POLL_TIMEOUT_MS = 4 * PREVIEW_POLL_MS;
+
 const CELL = "px-3 py-2 text-left align-top";
 const HEAD_CELL = `${CELL} text-label uppercase text-ink-muted`;
 const DATA_CELL = `${CELL} font-data text-data text-ink`;
@@ -213,16 +221,23 @@ export function ImportScreen(): ReactElement {
 
     // A tick is skipped while the last poll is unanswered, or once the preview
     // has ended: the interval is only cleared when the screen has taken in the
-    // answer, and a slow request would otherwise overlap the next one.
+    // answer, and a slow request would otherwise overlap the next one. A poll
+    // that stays unanswered is given up after a timeout, which reads as a
+    // request that never reached the server, so the next tick asks again.
     const poll = async (): Promise<void> => {
       if (asking || settled) {
         return;
       }
       asking = true;
+      const giveUp = new AbortController();
+      const giveUpTimer = setTimeout(() => {
+        giveUp.abort();
+      }, PREVIEW_POLL_TIMEOUT_MS);
       try {
         const response = await fetchImportPreview(
           plannedSessionId,
           plannedPreviewId,
+          giveUp.signal,
         );
         if (abandoned) {
           return;
@@ -241,6 +256,7 @@ export function ImportScreen(): ReactElement {
           setFailure(failureMessage(response.failure.reason));
         }
       } finally {
+        clearTimeout(giveUpTimer);
         asking = false;
       }
     };

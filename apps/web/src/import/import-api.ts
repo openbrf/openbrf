@@ -184,14 +184,21 @@ export function previewImport(
   );
 }
 
-/** How far the preview has got, and the preview once it is ready. */
+/**
+ * How far the preview has got, and the preview once it is ready.
+ *
+ * The signal gives the request up, which comes back as an "offline" failure.
+ */
 export function fetchImportPreview(
   sessionId: string,
   previewId: string,
+  signal?: AbortSignal,
 ): Promise<ApiResult<ImportPreviewRun>> {
   return apiRequest(
     "GET",
     `/api/import/sessions/${encodeURIComponent(sessionId)}/preview/${encodeURIComponent(previewId)}`,
+    undefined,
+    { signal },
   );
 }
 

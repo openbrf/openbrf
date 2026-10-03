@@ -76,16 +76,23 @@ export async function apiRequest<T>(
      * sends as it is left.
      */
     keepalive?: boolean;
+    /**
+     * Gives the request up when it fires. The call then comes back as the same
+     * "offline" failure as any other request that got no answer, so a caller
+     * that waits on a request that may never settle can ask again.
+     */
+    signal?: AbortSignal;
   } = {},
 ): Promise<ApiResult<T>> {
   const keepalive = options.keepalive === true ? { keepalive: true } : {};
+  const signal = options.signal === undefined ? {} : { signal: options.signal };
   // The body and its header are added only when there is one. A GET carrying a
   // body key at all - even an undefined one - is invalid, and passing the
   // content type without content is a lie about the request.
   return send<T>(
     path,
     body === undefined
-      ? { method, credentials: "same-origin", ...keepalive }
+      ? { method, credentials: "same-origin", ...keepalive, ...signal }
       : {
           method,
           headers: { "content-type": "application/json" },
@@ -94,6 +101,7 @@ export async function apiRequest<T>(
           // session is an http-only cookie that has to travel with every call.
           credentials: "same-origin",
           ...keepalive,
+          ...signal,
         },
   );
 }

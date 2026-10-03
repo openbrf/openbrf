@@ -69,8 +69,11 @@ vi.mock("./import-api", async (importOriginal) => ({
   uploadImport: (input: unknown) => uploadImport(input),
   previewImport: (sessionId: string, input: unknown) =>
     previewImport(sessionId, input),
-  fetchImportPreview: (sessionId: string, previewId: string) =>
-    fetchImportPreview(sessionId, previewId),
+  fetchImportPreview: (
+    sessionId: string,
+    previewId: string,
+    signal?: AbortSignal,
+  ) => fetchImportPreview(sessionId, previewId, signal),
   cancelImportPreview: (sessionId: string, previewId: string) =>
     cancelImportPreview(sessionId, previewId),
   applyImport: (sessionId: string, input: unknown) =>
@@ -212,6 +215,9 @@ const PLANNING = previewRun({ status: "PLANNING", rowsDone: 0, preview: null });
 
 /** How often the screen asks after a preview being planned. */
 const PREVIEW_POLL_MS = 1500;
+
+/** How long the screen waits for a poll before it gives it up. */
+const PREVIEW_POLL_TIMEOUT_MS = 4 * PREVIEW_POLL_MS;
 
 /** The import as the API reports it back while, and after, it runs. */
 function runView(overrides: Partial<ImportRunView> = {}): ImportRunView {
@@ -419,7 +425,11 @@ describe("while the preview is planned", () => {
     await nextPoll();
     expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
     expect(fetchImportPreview).toHaveBeenCalledTimes(2);
-    expect(fetchImportPreview).toHaveBeenCalledWith("session-1", "planning-1");
+    expect(fetchImportPreview).toHaveBeenCalledWith(
+      "session-1",
+      "planning-1",
+      expect.any(AbortSignal),
+    );
     // A preview that finished has nothing to cancel.
     expect(cancelImportPreview).not.toHaveBeenCalled();
   });
@@ -560,6 +570,53 @@ describe("while the preview is planned", () => {
     });
     await nextPoll();
     expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up a poll that is never answered and asks again", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    // The first poll hangs until it is given up, as a request does that is
+    // aborted: it then comes back the way one that never got an answer does.
+    fetchImportPreview
+      .mockImplementationOnce(
+        (_sessionId: string, _previewId: string, signal?: AbortSignal) =>
+          new Promise((resolve) => {
+            signal?.addEventListener("abort", () => {
+              resolve({ ok: false, failure: { status: 0, reason: "offline" } });
+            });
+          }),
+      )
+      .mockResolvedValue({ ok: true, value: previewRun() });
+
+    await reachMapping(session);
+
+    // The timeout is a timer too, and the user events and waits of the steps
+    // above need the real one, so it is faked only from here: the click is sent
+    // without them and the clock is moved by hand.
+    vi.useRealTimers();
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"],
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+
+    // Held unanswered for less than the timeout, nothing more is sent.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREVIEW_POLL_TIMEOUT_MS - 1);
+    });
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+
+    // Past it, the poll is given up and the next tick sends a new one.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREVIEW_POLL_MS + 1);
+    });
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
     expect(fetchImportPreview).toHaveBeenCalledTimes(2);
   });
 
