@@ -305,6 +305,66 @@ describe("the notices", () => {
 
     expect(await screen.findByText(/inte en faktura/u)).toBeTruthy();
   });
+
+  it("produces one document at a time, and says which run it is", async () => {
+    /*
+     * Each production is an audited disclosure. With a second one allowed in
+     * flight, a double click wrote two audit entries, and whichever answer
+     * landed last was shown - Q1's rows under a board that had asked for Q2.
+     */
+    fetchFeeNotifications.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          notificationId: "run-1",
+          from: "2026-01-01",
+          to: "2026-03-31",
+          dueOn: "2026-01-31",
+          issuedOn: "2026-01-02",
+          notices: 2,
+          total: "19351.50",
+        },
+        {
+          notificationId: "run-2",
+          from: "2026-04-01",
+          to: "2026-06-30",
+          dueOn: "2026-04-30",
+          issuedOn: "2026-04-01",
+          notices: 2,
+          total: "19351.50",
+        },
+      ],
+    });
+    let answer = (): void => undefined;
+    produceFeeNotices.mockReturnValue(
+      new Promise((resolve) => {
+        answer = (): void => {
+          resolve({ ok: true, value: PRODUCED });
+        };
+      }),
+    );
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+    const second = screen.getByRole("button", {
+      name: "Ta fram dokumentet för 2026-04-01 till 2026-06-30",
+    });
+    expect((second as HTMLButtonElement).disabled).toBe(true);
+
+    answer();
+
+    expect(
+      await screen.findByText(
+        "Avier för 2026-01-01 till 2026-03-31, framställda 2026-01-02. Förfallodag 2026-01-31.",
+      ),
+    ).toBeTruthy();
+    expect((second as HTMLButtonElement).disabled).toBe(false);
+  });
 });
 
 describe("removing a fee", () => {

@@ -4303,6 +4303,7 @@
       "download": "Download the file",
       "notAnInvoice": "A notice is not an invoice. An annual fee is exempt from value added tax (ML 10 kap. 35 §); a taxable line needs a real invoice, which Open BRF does not produce.",
       "documentTitle": "Fee notices",
+      "documentPeriod": "Notices for {{from}} to {{to}}, produced {{issuedOn}}. Due date {{dueOn}}.",
       "column": {
         "period": "Period",
         "dueOn": "Due date",

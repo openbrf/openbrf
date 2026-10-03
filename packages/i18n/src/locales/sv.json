@@ -4303,6 +4303,7 @@
       "download": "Hämta filen",
       "notAnInvoice": "Avin är inte en faktura. En årsavgift är undantagen från moms (ML 10 kap. 35 §); en momspliktig rad kräver en riktig faktura, som Open BRF inte framställer.",
       "documentTitle": "Avier",
+      "documentPeriod": "Avier för {{from}} till {{to}}, framställda {{issuedOn}}. Förfallodag {{dueOn}}.",
       "column": {
         "period": "Period",
         "dueOn": "Förfallodag",

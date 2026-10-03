@@ -91,6 +91,12 @@ export function FeeNotificationsPanel({
   const [dueOn, setDueOn] = useState("");
   const [issuing, setIssuing] = useState(false);
   const [produced, setProduced] = useState<FeeNoticeExport | null>(null);
+  /*
+   * One document at a time. Each production is an audited disclosure, so a
+   * double click wrote two audit entries, and with two in flight the one that
+   * answered last was shown, whichever run it was for.
+   */
+  const [producing, setProducing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +136,9 @@ export function FeeNotificationsPanel({
   const onProduce = useCallback(
     async (notificationId: string): Promise<void> => {
       onRefused(null);
+      setProducing(true);
       const result = await produceFeeNotices(notificationId);
+      setProducing(false);
       if (!result.ok) {
         onRefused(feeFailureKey(result.failure));
         return;
@@ -253,6 +261,7 @@ export function FeeNotificationsPanel({
                   <td className={CELL}>
                     <button
                       type="button"
+                      disabled={producing}
                       onClick={() => {
                         void onProduce(run.notificationId);
                       }}
@@ -282,6 +291,14 @@ export function FeeNotificationsPanel({
             {t("fees.notification.download")}
           </a>
           <p className={HINT}>{t("fees.notification.notAnInvoice")}</p>
+          <p className="font-data text-data text-ink">
+            {t("fees.notification.documentPeriod", {
+              from: produced.document.from,
+              to: produced.document.to,
+              issuedOn: produced.document.issuedOn,
+              dueOn: produced.document.dueOn,
+            })}
+          </p>
           <div className={TABLE_SCROLL}>
             <table className={TABLE}>
               <caption className="sr-only">
