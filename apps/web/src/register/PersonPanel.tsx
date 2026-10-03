@@ -190,6 +190,7 @@ export interface PersonPanelProps {
     residencyId: string;
     personName: string;
     apartmentNumber: string;
+    role: "MEMBER" | "RESIDENT";
   }) => void;
   /**
    * What the viewer may do, from `/api/me`.
@@ -852,6 +853,7 @@ export function PersonPanel({
                             personName:
                               `${person.firstName} ${person.lastName}`.trim(),
                             apartmentNumber: `${residency.addressLabel} ${residency.apartmentNumber}`,
+                            role: residency.role,
                           });
                         }}
                         aria-label={t("moves.out.actionLabel", {
