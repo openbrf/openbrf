@@ -78,6 +78,22 @@ describe("reading every other kind of cell", () => {
   });
 });
 
+/**
+ * The CPU time `work` takes in this process, in milliseconds.
+ *
+ * CPU time rather than the clock, because what these cases pin is how much work
+ * a check does, and a loaded machine stretches the clock without adding any of
+ * that work: measured by the clock, these cases failed on a machine busy with
+ * something else. The runner gives each worker a process of its own and runs
+ * one test file in it at a time, so nothing else running is counted.
+ */
+function cpuMillisecondsOf(work: () => void): number {
+  const before = process.cpuUsage();
+  work();
+  const used = process.cpuUsage(before);
+  return (used.user + used.system) / 1000;
+}
+
 describe("a workbook past the import's limits", () => {
   it("refuses a row address a billion rows down before the parser fills the gap", () => {
     const workbook = buildWorkbook([], "Blad1", {
@@ -85,11 +101,12 @@ describe("a workbook past the import's limits", () => {
         '<row r="1000000000"><c r="A1000000000" t="inlineStr"><is><t>x</t></is></c></row>',
     });
 
-    const started = performance.now();
-    expect(() => {
-      inspectWorkbook(workbook);
-    }).toThrow(expect.objectContaining({ reason: "too-many-rows" }));
-    expect(performance.now() - started).toBeLessThan(1000);
+    const spent = cpuMillisecondsOf(() => {
+      expect(() => {
+        inspectWorkbook(workbook);
+      }).toThrow(expect.objectContaining({ reason: "too-many-rows" }));
+    });
+    expect(spent).toBeLessThan(1000);
   });
 
   it("refuses a cell past the last column the import maps", () => {
@@ -271,13 +288,17 @@ describe("a workbook past the import's limits", () => {
   ])("reads %s in time proportional to its size", (_, sheetData) => {
     const workbook = buildWorkbook([], "Blad1", { sheetData });
 
-    const started = performance.now();
-    try {
-      inspectWorkbook(workbook);
-    } catch {
-      // Refused or accepted, it has to be quick about it.
-    }
-    expect(performance.now() - started).toBeLessThan(2000);
+    const spent = cpuMillisecondsOf(() => {
+      try {
+        inspectWorkbook(workbook);
+      } catch {
+        // Refused or accepted, it has to be quick about it.
+      }
+    });
+    // Tens of milliseconds in proportion to the size; a scan that revisits
+    // what it has read is hours at this size, so the budget only has to fall
+    // between the two.
+    expect(spent).toBeLessThan(2000);
   });
 
   it("reads a list formatted far below its last row", async () => {
