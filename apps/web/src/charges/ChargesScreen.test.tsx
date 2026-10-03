@@ -318,6 +318,49 @@ describe("when the read fails", () => {
     expect(await screen.findByText("Astrid Vallin")).toBeTruthy();
   });
 
+  it("says so when the parties cannot be read, even after the list arrives", async () => {
+    /*
+     * The list lands after the parties have failed. With one flag for both
+     * reads it cleared the failure, and the board was offered neither the form
+     * nor a retry and was not told why.
+     */
+    let answerList: (value: unknown) => void = () => undefined;
+    fetchDebitingList.mockReturnValue(
+      new Promise((resolve) => {
+        answerList = resolve;
+      }),
+    );
+    loadChargeParties.mockRejectedValue(new Error("offline"));
+    render(<ChargesScreen />);
+    await waitFor(() => {
+      expect(loadChargeParties).toHaveBeenCalled();
+    });
+    answerList({ ok: true, value: LIST });
+    await screen.findByText("Astrid Vallin");
+
+    loadChargeParties.mockResolvedValue(PARTIES);
+    fetchDebitingList.mockResolvedValue({ ok: true, value: LIST });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Registrera debiteringen" }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the form when the list cannot be read", async () => {
+    // A charge half typed is not lost to a read of the list failing.
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ChargesScreen />);
+
+    await screen.findByText(/kunde inte l.sas just nu/i);
+    expect(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    ).toBeTruthy();
+  });
+
   it("takes the document away when the read is refused after a permitted one", async () => {
     render(<ChargesScreen />);
     await screen.findByText("Nyckel till cykelrummet");
