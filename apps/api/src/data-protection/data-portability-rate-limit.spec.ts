@@ -252,4 +252,101 @@ describe("exports prepared at once", () => {
 
     expect(admitted).toBe(EXPORTS_PER_MINUTE_OVERALL - MAX_CONCURRENT_EXPORTS);
   });
+
+  it("tells a request the slots turn away to wait for the instance's budget too, when that is longer", async () => {
+    const limiter = new DataPortabilityRateLimiter();
+    // The budget spent down so that the exports holding the slots take its last
+    // tokens.
+    for (
+      let person = 0;
+      person < EXPORTS_PER_MINUTE_OVERALL - MAX_CONCURRENT_EXPORTS;
+      person += 1
+    ) {
+      await limiter.run(`early-${String(person)}`, () => Promise.resolve(), T0);
+    }
+    const running = everySlotTaken(limiter, T0);
+
+    const refusal = await refusalOf(limiter, "anna", T0);
+
+    // A token comes back every sixty seconds over the budget, not in a second.
+    const tokenSeconds = 60 / EXPORTS_PER_MINUTE_OVERALL;
+    expect(refusal?.reason).toBe("export-busy");
+    expect(refusal?.headers()["retry-after"]).toBe(String(tokenSeconds));
+
+    // And the wait it was told is enough, once the slots are free.
+    await finishAll(running);
+    expect(
+      await refusalOf(limiter, "anna", T0 + (tokenSeconds - 1) * 1000),
+    ).toBeDefined();
+    expect(
+      await refusalOf(limiter, "anna", T0 + tokenSeconds * 1000),
+    ).toBeUndefined();
+  });
+});
+
+/**
+ * One export at a time for each person.
+ *
+ * Without it one account could ask for its whole budget at once and hold every
+ * slot, and everybody else would be refused as busy until those exports were
+ * done.
+ */
+describe("a person's own export being prepared", () => {
+  it("refuses a second export by the same person as busy, and charges nothing for it", async () => {
+    const limiter = new DataPortabilityRateLimiter();
+    const first = preparing(limiter, "anna", T0);
+
+    const refusal = await refusalOf(limiter, "anna", T0);
+
+    expect(refusal?.reason).toBe("export-busy");
+    expect(refusal?.status).toBe(429);
+    expect(refusal?.message).toContain("already being prepared");
+    expect(refusal?.headers()["retry-after"]).toBe(
+      String(BUSY_RETRY_AFTER_SECONDS),
+    );
+
+    // Asked again and again while the first is under way, all refused.
+    for (let ask = 0; ask < EXPORTS_PER_PERSON_PER_MINUTE * 2; ask += 1) {
+      expect((await refusalOf(limiter, "anna", T0))?.reason).toBe(
+        "export-busy",
+      );
+    }
+    await finishAll([first]);
+
+    // In the same minute anna has her budget less the one export she got.
+    for (let ask = 1; ask < EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
+      expect(await refusalOf(limiter, "anna", T0)).toBeUndefined();
+    }
+    expect((await refusalOf(limiter, "anna", T0))?.reason).toBe(
+      "export-rate-limited",
+    );
+  });
+
+  it("leaves the other slots to everybody else", async () => {
+    const limiter = new DataPortabilityRateLimiter();
+    const annas = preparing(limiter, "anna", T0);
+    expect((await refusalOf(limiter, "anna", T0))?.reason).toBe("export-busy");
+
+    // Every slot but anna's goes to somebody else, and then the instance is full.
+    const others = Array.from(
+      { length: MAX_CONCURRENT_EXPORTS - 1 },
+      (_, slot) => preparing(limiter, `other-${String(slot)}`, T0),
+    );
+    expect((await refusalOf(limiter, "bo", T0))?.reason).toBe("export-busy");
+
+    await finishAll([annas, ...others]);
+  });
+
+  it("lets the person ask again once their export has finished or failed", async () => {
+    const limiter = new DataPortabilityRateLimiter();
+    const failing = preparing(limiter, "anna", T0);
+    failing.fail(new Error("Transaction already closed"));
+    await expect(failing.done).rejects.toThrow("Transaction already closed");
+
+    const finishing = preparing(limiter, "anna", T0);
+    expect((await refusalOf(limiter, "anna", T0))?.reason).toBe("export-busy");
+    await finishAll([finishing]);
+
+    expect(await refusalOf(limiter, "anna", T0)).toBeUndefined();
+  });
 });

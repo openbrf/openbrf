@@ -3,13 +3,14 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
@@ -55,7 +56,20 @@ const hammerer = {
   email: `dpo-hammerer-${suffix}@exempel.se`,
 };
 
-const personIds = [resident.personId, neighbour.personId, hammerer.personId];
+/** Asks for a second export while the first is still being prepared. */
+const impatient = {
+  personId: `dpo-impatient-${suffix}`,
+  email: `dpo-impatient-${suffix}@exempel.se`,
+};
+
+/** Exports while the impatient person's first export is being prepared. */
+const bystander = {
+  personId: `dpo-bystander-${suffix}`,
+  email: `dpo-bystander-${suffix}@exempel.se`,
+};
+
+const actors = [resident, neighbour, hammerer, impatient, bystander];
+const personIds = actors.map((actor) => actor.personId);
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -102,6 +116,8 @@ async function signIn(email: string): Promise<string> {
 let residentCookie: string;
 let neighbourCookie: string;
 let hammererCookie: string;
+let impatientCookie: string;
+let bystanderCookie: string;
 
 /**
  * The resident's export, asked for once however many tests read it.
@@ -178,12 +194,12 @@ beforeAll(async () => {
     },
   });
 
-  await prisma.person.create({
-    data: {
-      id: hammerer.personId,
-      firstName: "Hampus",
-      lastName: `Portabel${suffix}`,
-    },
+  await prisma.person.createMany({
+    data: [
+      { id: hammerer.personId, firstName: "Hampus" },
+      { id: impatient.personId, firstName: "Ingrid" },
+      { id: bystander.personId, firstName: "Bertil" },
+    ].map((person) => ({ ...person, lastName: `Portabel${suffix}` })),
   });
 
   await prisma.residency.createMany({
@@ -196,7 +212,7 @@ beforeAll(async () => {
   });
 
   const auth = app.get(AuthService);
-  for (const actor of [resident, neighbour, hammerer]) {
+  for (const actor of actors) {
     await auth.createAccountForPerson({
       personId: actor.personId,
       email: actor.email,
@@ -208,6 +224,8 @@ beforeAll(async () => {
   residentCookie = await signIn(resident.email);
   neighbourCookie = await signIn(neighbour.email);
   hammererCookie = await signIn(hammerer.email);
+  impatientCookie = await signIn(impatient.email);
+  bystanderCookie = await signIn(bystander.email);
 }, 180_000);
 
 async function cleanUp(
@@ -430,5 +448,84 @@ describe("asking for an export too often", () => {
         },
       }),
     ).toBe(entriesBefore);
+  });
+});
+
+/*
+ * Shares the instance's budget of EXPORTS_PER_MINUTE_OVERALL exports a minute
+ * with the rest of this file, which has spent nine of the twelve by the time
+ * it ends: a test added here, or above, may tip the instance into a 429 that
+ * has nothing to do with what it checks.
+ */
+describe("asking for a second export while the first is being prepared", () => {
+  const exportWith = (cookie: string) =>
+    inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie },
+    });
+
+  it("refuses the second as busy, and lets another person's export through meanwhile", async () => {
+    /*
+     * The first export is held open in the gathering, through the route and the
+     * limiter it goes through, until the test lets it finish. Otherwise a
+     * database quick enough to finish it before the second request arrived
+     * would let both through, and the test would depend on timing.
+     */
+    const reports = app.get(DataSubjectReportService);
+    const gather = reports.portable.bind(reports);
+    let gathering!: () => void;
+    const started = new Promise<void>((resolve) => {
+      gathering = resolve;
+    });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const held = vi
+      .spyOn(reports, "portable")
+      .mockImplementationOnce(async (personId) => {
+        gathering();
+        await finished;
+        return gather(personId);
+      });
+
+    try {
+      // A request is sent once something waits on it.
+      const first = Promise.resolve(exportWith(impatientCookie));
+      // A first request that is refused never reaches the gathering, so
+      // `started` would never settle; the refusal is what to report then.
+      const early = await Promise.race([started.then(() => null), first]);
+      if (early) {
+        throw new Error(
+          `the first export was answered ${early.statusCode} before it was held open`,
+        );
+      }
+
+      const second = await exportWith(impatientCookie);
+      expect(second.statusCode).toBe(429);
+      expect(second.json<{ reason: string }>().reason).toBe("export-busy");
+      expect(Number(second.headers["retry-after"])).toBeGreaterThanOrEqual(1);
+      expect(second.body).not.toContain("preferredLocale");
+
+      const bystanders = await exportWith(bystanderCookie);
+      expect(bystanders.statusCode).toBe(200);
+      expect(bystanders.json<DataPortabilityExport>().person.personId).toBe(
+        bystander.personId,
+      );
+
+      finish();
+      const firstResponse = await first;
+      expect(firstResponse.statusCode).toBe(200);
+      expect(firstResponse.json<DataPortabilityExport>().person.personId).toBe(
+        impatient.personId,
+      );
+    } finally {
+      finish();
+      held.mockRestore();
+    }
+
+    // Once the first is done the person may ask again.
+    expect((await exportWith(impatientCookie)).statusCode).toBe(200);
   });
 });
