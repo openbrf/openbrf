@@ -77,6 +77,27 @@ export interface ImportPreview {
   rows: ImportPreviewRow[];
 }
 
+export type ImportPreviewStatus = "PLANNING" | "READY" | "FAILED";
+
+/**
+ * A preview as it is planned.
+ *
+ * Matching a long file against a register that holds identity numbers takes
+ * minutes, so the preview is planned in a background job and the screen polls
+ * it by `previewId`. The preview, and the token the apply carries, arrive only
+ * once it is `READY`.
+ */
+export interface ImportPreviewRun {
+  sessionId: string;
+  previewId: string;
+  status: ImportPreviewStatus;
+  rowsDone: number;
+  rowsTotal: number;
+  /** The API's code for why the preview stopped, or null. */
+  failureReason: string | null;
+  preview: ImportPreview | null;
+}
+
 export interface ImportApplyResult {
   personsCreated: number;
   personsUpdated: number;
@@ -148,14 +169,29 @@ export function uploadImport(input: {
   return apiRequest("POST", "/api/import/sessions", input);
 }
 
+/**
+ * Asks for the preview of a mapping. The answer is the preview to poll, not the
+ * preview itself.
+ */
 export function previewImport(
   sessionId: string,
   input: ImportMappingInput,
-): Promise<ApiResult<ImportPreview>> {
+): Promise<ApiResult<ImportPreviewRun>> {
   return apiRequest(
     "POST",
     `/api/import/sessions/${encodeURIComponent(sessionId)}/preview`,
     input,
+  );
+}
+
+/** How far the preview has got, and the preview once it is ready. */
+export function fetchImportPreview(
+  sessionId: string,
+  previewId: string,
+): Promise<ApiResult<ImportPreviewRun>> {
+  return apiRequest(
+    "GET",
+    `/api/import/sessions/${encodeURIComponent(sessionId)}/preview/${encodeURIComponent(previewId)}`,
   );
 }
 

@@ -21,7 +21,7 @@ import {
 } from "./import-plan";
 
 /**
- * Working out what an import would do, for the preview and for the job alike.
+ * Working out what an import would do, for the preview and the apply alike.
  *
  * Both callers plan through this one service so the rows a board approved and
  * the rows a worker writes are decided by the same code. The difference between
@@ -39,7 +39,7 @@ import {
  * rows are decrypted in this same process while the work runs anyway. What keeps
  * the exposure bounded is the lifetime - the map is created by the caller for
  * one unit of work and is gone when that unit ends, so nothing derived from an
- * identity number outlives the preview request or the chunk that needed it.
+ * identity number outlives the preview job or the chunk that needed it.
  *
  * It exists because the apply needs each index twice: once to match the row
  * against the register, once to write the person. At 43.8 ms a value that is the
@@ -81,6 +81,13 @@ export interface ImportPlanRequest {
    */
   earlier?: ReadonlyMap<number, string>;
   /**
+   * Told how many rows of the window have been prepared, after each one. The
+   * preview job reports its progress through this, and stops through it as
+   * well: a report that throws ends the plan where it is, which is how a job
+   * planning a preview somebody has since replaced lets go of its worker.
+   */
+  onRowPrepared?: (rowsPrepared: number) => Promise<void>;
+  /**
    * The transaction to read the register through. The apply plans a chunk a
    * second time inside the transaction that writes it, under the import lock,
    * so the register it plans against is the one it writes into.
@@ -103,18 +110,7 @@ export class ImportPlannerService {
   }
 
   async plan(request: ImportPlanRequest): Promise<ImportPlan> {
-    const mappingProblems = validateMapping({
-      mapping: request.mapping,
-      columnCount: request.columnCount,
-      defaultRole: request.defaultRole,
-      defaultMovedInOn: request.defaultMovedInOn,
-    });
-    if (mappingProblems.length > 0) {
-      throw new ImportError(
-        `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
-        "mapping-invalid",
-      );
-    }
+    assertMappingApplies(request);
 
     const from = request.window?.from ?? 0;
     const to =
@@ -147,6 +143,7 @@ export class ImportPlannerService {
             ? null
             : await this.encryption.computeIndex("person.email", values.email),
       });
+      await request.onRowPrepared?.(prepared.length);
     }
 
     // No identity number is indexed for these: the file's own keys are its
@@ -325,6 +322,33 @@ export class ImportPlannerService {
       residenciesByPerson,
       personNames,
     };
+  }
+}
+
+/**
+ * Refuses a mapping that cannot be applied to the file.
+ *
+ * Exported for the preview request, which checks the mapping before it queues
+ * anything: a mapping problem is the board's to fix on the screen it is on, and
+ * finding one costs nothing.
+ */
+export function assertMappingApplies(
+  request: Pick<
+    ImportPlanRequest,
+    "mapping" | "columnCount" | "defaultRole" | "defaultMovedInOn"
+  >,
+): void {
+  const mappingProblems = validateMapping({
+    mapping: request.mapping,
+    columnCount: request.columnCount,
+    defaultRole: request.defaultRole,
+    defaultMovedInOn: request.defaultMovedInOn,
+  });
+  if (mappingProblems.length > 0) {
+    throw new ImportError(
+      `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
+      "mapping-invalid",
+    );
   }
 }
 

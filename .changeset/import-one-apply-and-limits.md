@@ -11,6 +11,11 @@ limits.
   one is queued or running is refused, and the screen shows the import that is
   running. An install that has more than one running when it is upgraded keeps
   the one furthest along and records the others as stopped.
+- The preview is worked out in the background, and the screen shows how far it
+  has got. A long file with personal identity numbers, checked against a
+  register that already holds some, no longer keeps a request open for
+  minutes. A preview the screen stops asking about is stopped, so it does not
+  hold up the next one.
 - The apply runs only the preview the screen was shown. If the upload has been
   previewed again since - in another tab, or by another board member - the apply
   is refused and the screen goes back to the column mapping.

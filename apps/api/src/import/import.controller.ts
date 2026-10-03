@@ -16,9 +16,9 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
 import { MAX_IMPORT_COLUMNS } from "./import-limits";
+import type { ImportPreviewRun } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
 import {
-  type ImportPreview,
   type ImportSessionView,
   ImportService,
   MAX_UPLOAD_BYTES,
@@ -121,25 +121,39 @@ export class ImportController {
   }
 
   /**
-   * What the mapping would do.
+   * Asks what the mapping would do.
    *
-   * A POST, and one that records what it showed: the mapping is a structure
-   * rather than a couple of parameters, putting a whole column mapping in a
-   * query string would put the file's column titles in every proxy log, and the
-   * apply runs what this step previewed.
+   * A POST, and one that records the mapping: it is a structure rather than a
+   * couple of parameters, putting a whole column mapping in a query string
+   * would put the file's column titles in every proxy log, and the apply runs
+   * what this step previewed. Accepted rather than done, like the apply: the
+   * preview is planned by a background job, and this answers with the id to
+   * poll it by.
    */
   @Post("sessions/:id/preview")
-  @HttpCode(200)
+  @HttpCode(202)
   async preview(
     @Param("id") id: string,
     @Body() body: unknown,
-  ): Promise<ImportPreview> {
+  ): Promise<ImportPreviewRun> {
     const input = mappingSchema.parse(body);
     return this.imports.preview(id, {
       mapping: input.mapping,
       defaultRole: input.defaultRole ?? null,
       defaultMovedInOn: input.defaultMovedInOn ?? null,
     });
+  }
+
+  /**
+   * How far the preview has got, and the preview once it is ready. Polled by
+   * the screen until it is.
+   */
+  @Get("sessions/:id/preview/:previewId")
+  async previewRun(
+    @Param("id") id: string,
+    @Param("previewId") previewId: string,
+  ): Promise<ImportPreviewRun> {
+    return this.imports.previewRun(id, previewId);
   }
 
   /**

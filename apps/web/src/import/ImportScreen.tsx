@@ -17,6 +17,7 @@ import { NotRecorded } from "../ui/NotRecorded";
 import {
   applyImport,
   fetchActiveImport,
+  fetchImportPreview,
   fetchImportRun,
   type ImportDecision,
   type ImportField,
@@ -24,6 +25,7 @@ import {
   IMPORT_TEMPLATE_URL,
   type ImportPreview,
   type ImportPreviewRow,
+  type ImportPreviewRun,
   type ImportRunView,
   type ImportSessionView,
   isImportRunning,
@@ -56,12 +58,14 @@ import {
  * candidates are usually a parent and a child of the same name in the same
  * apartment.
  *
- * The fourth step is not this screen's work. Writing the register is a
- * background job, and the screen only watches it: it asks the API how far the
- * import has got and shows that. Which is also why closing the tab costs
- * nothing - the progress lives on the import itself, so the screen finds it
- * again by asking for the import that is running rather than by remembering
- * anything.
+ * Neither the preview nor the import is this screen's work. Matching a long
+ * file against a register that holds identity numbers takes minutes, and
+ * writing the register takes longer, so both are background jobs and the screen
+ * only watches them: it asks the API how far each has got and shows that. The
+ * import's progress lives on the import itself, so closing the tab costs
+ * nothing - the screen finds it again by asking for the import that is running
+ * rather than by remembering anything. A preview is only worth having while
+ * somebody is looking at it, so a reload simply asks for a new one.
  */
 
 type Step = "upload" | "mapping" | "preview" | "apply";
@@ -79,6 +83,13 @@ const STEPS: readonly Step[] = ["upload", "mapping", "preview", "apply"];
  */
 const RUN_POLL_MS = 1500;
 
+/**
+ * How often the screen asks how far the preview has got. The same reasoning as
+ * {@link RUN_POLL_MS}, and the asking is also what tells the API that somebody
+ * is still waiting for the preview: one nobody asks about is stopped.
+ */
+const PREVIEW_POLL_MS = 1500;
+
 const CELL = "px-3 py-2 text-left align-top";
 const HEAD_CELL = `${CELL} text-label uppercase text-ink-muted`;
 const DATA_CELL = `${CELL} font-data text-data text-ink`;
@@ -94,6 +105,8 @@ export function ImportScreen(): ReactElement {
   );
   const [defaultMovedInOn, setDefaultMovedInOn] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  /** The preview being planned, while the screen waits for it. */
+  const [planning, setPlanning] = useState<ImportPreviewRun | null>(null);
   const [decisions, setDecisions] = useState<Record<string, ImportDecision>>(
     {},
   );
@@ -154,6 +167,64 @@ export function ImportScreen(): ReactElement {
     };
   }, [watchedSessionId]);
 
+  /** Takes in what the API says about the preview being planned. */
+  const receivePreview = useCallback((next: ImportPreviewRun): void => {
+    if (next.status === "READY" && next.preview !== null) {
+      setPlanning(null);
+      setPreview(next.preview);
+      setDecisions({});
+      setStep("preview");
+      return;
+    }
+    if (next.status === "FAILED") {
+      setPlanning(null);
+      setFailure(failureMessage(next.failureReason ?? ""));
+      return;
+    }
+    setPlanning(next);
+  }, []);
+
+  const plannedSessionId = planning?.sessionId ?? null;
+  const plannedPreviewId = planning?.previewId ?? null;
+
+  // A plain interval rather than usePoll, which pauses while the tab is hidden:
+  // here the asking is what tells the API somebody is still waiting, and a
+  // board member who looks at another tab during a long preview still wants it.
+  useEffect(() => {
+    if (plannedSessionId === null || plannedPreviewId === null) {
+      return;
+    }
+    let abandoned = false;
+
+    const timer = setInterval(() => {
+      void (async () => {
+        const response = await fetchImportPreview(
+          plannedSessionId,
+          plannedPreviewId,
+        );
+        if (abandoned) {
+          return;
+        }
+        if (response.ok) {
+          receivePreview(response.value);
+          return;
+        }
+        // A refusal ends the wait - the preview was replaced, the upload
+        // expired, or the import was started elsewhere. A request that never
+        // reached the server, or a server error, is asked again.
+        if (response.failure.status >= 400 && response.failure.status < 500) {
+          setPlanning(null);
+          setFailure(failureMessage(response.failure.reason));
+        }
+      })();
+    }, PREVIEW_POLL_MS);
+
+    return () => {
+      abandoned = true;
+      clearInterval(timer);
+    };
+  }, [plannedSessionId, plannedPreviewId, receivePreview]);
+
   const upload = useCallback(async (file: File): Promise<void> => {
     setBusy(true);
     setFailure(null);
@@ -167,6 +238,7 @@ export function ImportScreen(): ReactElement {
       setSession(response.value);
       setMapping(response.value.suggestedMapping);
       setPreview(null);
+      setPlanning(null);
       setDecisions({});
       setStep("mapping");
     } catch {
@@ -192,9 +264,7 @@ export function ImportScreen(): ReactElement {
       setFailure(failureMessage(response.failure.reason));
       return;
     }
-    setPreview(response.value);
-    setDecisions({});
-    setStep("preview");
+    receivePreview(response.value);
   }, [
     session,
     mapping,
@@ -202,6 +272,7 @@ export function ImportScreen(): ReactElement {
     defaultRole,
     needsDefaultMovedIn,
     defaultMovedInOn,
+    receivePreview,
   ]);
 
   const apply = useCallback(async (): Promise<void> => {
@@ -249,6 +320,7 @@ export function ImportScreen(): ReactElement {
     setRun(null);
     setSession(null);
     setPreview(null);
+    setPlanning(null);
     setDecisions({});
     setMapping([]);
     setFailure(null);
@@ -306,7 +378,11 @@ export function ImportScreen(): ReactElement {
           defaultMovedInOn={defaultMovedInOn}
           onChangeDefaultMovedIn={setDefaultMovedInOn}
           busy={busy}
+          planning={planning}
           onBack={() => {
+            // Not waited for any longer: the API stops a preview nobody asks
+            // about.
+            setPlanning(null);
             setStep("upload");
           }}
           onSubmit={() => {
@@ -410,6 +486,7 @@ function MappingStep({
   defaultMovedInOn,
   onChangeDefaultMovedIn,
   busy,
+  planning,
   onBack,
   onSubmit,
 }: {
@@ -423,10 +500,15 @@ function MappingStep({
   defaultMovedInOn: string;
   onChangeDefaultMovedIn: (value: string) => void;
   busy: boolean;
+  planning: ImportPreviewRun | null;
   onBack: () => void;
   onSubmit: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const working = busy || planning !== null;
+  // The preview being planned is of the mapping as it was asked for. Changing
+  // it meanwhile would show a plan for columns the screen no longer holds.
+  const locked = planning !== null;
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
@@ -481,6 +563,7 @@ function MappingStep({
                      */
                     aria-label={t("import.mapping.fieldFor", { column })}
                     value={mapping[index] ?? ""}
+                    disabled={locked}
                     onChange={(event) => {
                       const next = [...mapping];
                       next[index] =
@@ -506,7 +589,10 @@ function MappingStep({
       </div>
 
       {needsDefaultRole || needsDefaultMovedIn ? (
-        <fieldset className="flex flex-col gap-4 border-t border-line pt-4">
+        <fieldset
+          disabled={locked}
+          className="flex flex-col gap-4 border-t border-line pt-4"
+        >
           <legend className="text-label text-ink-muted uppercase">
             {t("import.mapping.defaults")}
           </legend>
@@ -557,17 +643,63 @@ function MappingStep({
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={busy || (needsDefaultMovedIn && defaultMovedInOn === "")}
+          disabled={working || (needsDefaultMovedIn && defaultMovedInOn === "")}
           onClick={onSubmit}
           className={PRIMARY_BUTTON}
         >
-          {busy ? t("import.mapping.working") : t("import.mapping.submit")}
+          {working ? t("import.mapping.working") : t("import.mapping.submit")}
         </button>
         <button type="button" onClick={onBack} className={SECONDARY_BUTTON}>
           {t("import.mapping.back")}
         </button>
       </div>
+
+      {planning === null ? null : <PlanningProgress planning={planning} />}
     </section>
+  );
+}
+
+/**
+ * How far the preview has got, while the board waits for it.
+ *
+ * The same bar as the import's own, for the same reason: a long file with
+ * identity numbers is minutes of work, and a button that only says it is
+ * working looks the same whether it is nearly done or stuck.
+ */
+function PlanningProgress({
+  planning,
+}: {
+  planning: ImportPreviewRun;
+}): ReactElement {
+  const { t } = useTranslation();
+  const percent =
+    planning.rowsTotal === 0
+      ? 0
+      : Math.round((planning.rowsDone / planning.rowsTotal) * 100);
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-4">
+      <div
+        role="progressbar"
+        aria-label={t("import.mapping.planningProgressLabel")}
+        aria-valuemin={0}
+        aria-valuemax={planning.rowsTotal}
+        aria-valuenow={planning.rowsDone}
+        className="h-2 w-full overflow-hidden rounded-control bg-sunken"
+      >
+        <div
+          className="h-full bg-ink transition-[width] duration-300 ease-out"
+          style={{ width: `${String(percent)}%` }}
+        />
+      </div>
+      <p className="font-data text-data text-ink-muted">
+        {t("import.run.progress", {
+          done: planning.rowsDone,
+          total: planning.rowsTotal,
+        })}
+      </p>
+      <p className={HINT}>{t("import.mapping.planningHint")}</p>
+    </div>
   );
 }
 

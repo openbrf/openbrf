@@ -25,6 +25,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
   "preview-changed": "import.errors.previewChanged",
+  "preview-interrupted": "import.errors.previewInterrupted",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",

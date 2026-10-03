@@ -22,6 +22,7 @@ export type ImportErrorReason =
   | "mapping-invalid"
   | "preview-required"
   | "preview-changed"
+  | "preview-interrupted"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";

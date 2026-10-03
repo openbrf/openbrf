@@ -2264,6 +2264,8 @@
       "defaultMovedInOnHint": "Needed because your file has no move-in column. It is also the membership date in the member register.",
       "submit": "Preview the import",
       "working": "Working out what would happen",
+      "planningProgressLabel": "How much of the file has been worked through",
+      "planningHint": "A long file with personal identity numbers can take a few minutes. Keep this page open: the preview appears here when it is ready.",
       "back": "Choose another file"
     },
     "field": {
@@ -2378,6 +2380,7 @@
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",
       "previewChanged": "Someone has previewed this upload again since, perhaps with other columns. Check the columns and preview it once more.",
+      "previewInterrupted": "The preview stopped before it was finished. Preview the import again.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",

@@ -15,12 +15,14 @@ import { writeCsv } from "./csv";
 import { IMPORT_CHUNK_ROWS, ImportApplyService } from "./import-apply.service";
 import type { ImportField } from "./import-columns";
 import { MAX_WORKBOOK_ENTRY_BYTES } from "./import-limits";
-import type { ImportRunView } from "./import-run";
 import {
   type ImportPreview,
-  ImportService,
-  type ImportSessionView,
-} from "./import.service";
+  type ImportPreviewRun,
+  ImportPreviewService,
+  PREVIEW_PROGRESS_ROWS,
+} from "./import-preview.service";
+import type { ImportRunView } from "./import-run";
+import { ImportService, type ImportSessionView } from "./import.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
@@ -48,6 +50,7 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let encryption: FieldEncryptionService;
 let applies: ImportApplyService;
+let previews: ImportPreviewService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -283,6 +286,78 @@ async function waitsForTransitionLock(personId: string): Promise<boolean> {
   return (await advisoryLockCount(prisma, `residency:${personId}`, false)) > 0n;
 }
 
+/** Asks for a preview, as the screen does, and answers what the API said. */
+async function askForPreview(
+  cookie: string,
+  sessionId: string,
+  payload: object,
+): Promise<ImportPreviewRun> {
+  const response = await inject({
+    method: "POST",
+    url: `/api/import/sessions/${sessionId}/preview`,
+    payload,
+    headers: { cookie },
+  });
+  // Accepted, not done: the preview is planned by a worker.
+  expect(response.statusCode).toBe(202);
+  return JSON.parse(response.body) as ImportPreviewRun;
+}
+
+async function readPreview(
+  cookie: string,
+  sessionId: string,
+  previewId: string,
+) {
+  return inject({
+    method: "GET",
+    url: `/api/import/sessions/${sessionId}/preview/${previewId}`,
+    headers: { cookie },
+  });
+}
+
+/**
+ * Polls a preview until its job has stopped planning it, as the screen does.
+ * The session row is the only place the job's progress exists.
+ */
+async function waitForPreview(
+  cookie: string,
+  sessionId: string,
+  previewId: string,
+  timeoutMs = 45_000,
+): Promise<ImportPreviewRun> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const response = await readPreview(cookie, sessionId, previewId);
+    expect(response.statusCode).toBe(200);
+    const run = JSON.parse(response.body) as ImportPreviewRun;
+    if (run.status !== "PLANNING") {
+      return run;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Preview ${previewId} stayed PLANNING at ` +
+          `${String(run.rowsDone)}/${String(run.rowsTotal)} rows`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/** Asks for a preview and waits until it is ready. */
+async function previewImport(
+  cookie: string,
+  sessionId: string,
+  payload: object,
+): Promise<ImportPreview> {
+  const asked = await askForPreview(cookie, sessionId, payload);
+  const run = await waitForPreview(cookie, sessionId, asked.previewId);
+  expect(run).toMatchObject({ status: "READY", failureReason: null });
+  if (run.preview === null) {
+    throw new Error(`Preview ${asked.previewId} is ready with no preview`);
+  }
+  return run.preview;
+}
+
 /**
  * Uploads a file and previews it, which is what the apply now requires: the
  * import that runs is the one the board looked at.
@@ -293,13 +368,9 @@ async function uploadAndPreview(
   rows: string[][],
 ): Promise<ImportSessionView> {
   const session = await upload(cookie, fileName, encode(writeCsv(rows)));
-  const response = await inject({
-    method: "POST",
-    url: `/api/import/sessions/${session.sessionId}/preview`,
-    payload: { mapping: session.suggestedMapping },
-    headers: { cookie },
+  await previewImport(cookie, session.sessionId, {
+    mapping: session.suggestedMapping,
   });
-  expect(response.statusCode).toBe(200);
   return session;
 }
 
@@ -437,11 +508,13 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   encryption = app.get(FieldEncryptionService);
   applies = app.get(ImportApplyService);
+  previews = app.get(ImportPreviewService);
 
-  // The apply is a background job, so the queue and its worker are what make
-  // these tests test anything: an import that is only enqueued writes no
-  // register. Started here rather than at boot, which the API deliberately does
-  // not do under test.
+  // The preview and the apply are background jobs, so the queue and its
+  // workers are what make these tests test anything: an import that is only
+  // enqueued writes no register. Started here rather than at boot, which the
+  // API deliberately does not do under test.
+  await previews.startPreviewWorker();
   await applies.startApplyWorker();
 
   await prisma.address.create({
@@ -758,19 +831,10 @@ describe("previewing", () => {
       "medlemmar.csv",
       encode(writeCsv(fixtureRows())),
     );
-    const response = await inject({
-      method: "POST",
-      url: `/api/import/sessions/${session.sessionId}/preview`,
-      payload: { mapping: session.suggestedMapping },
-      headers: { cookie },
+    const value = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
     });
-
-    expect(response.statusCode).toBe(200);
-    return {
-      session,
-      cookie,
-      value: JSON.parse(response.body) as ImportPreview,
-    };
+    return { session, cookie, value };
   }
 
   it("says what each row would do without doing any of it", async () => {
@@ -844,6 +908,288 @@ describe("previewing", () => {
     expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
       "mapping-invalid",
     );
+    // Refused before anything was recorded or queued.
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.sessionId },
+        select: { previewId: true, previewStatus: true },
+      }),
+    ).toEqual({ previewId: null, previewStatus: null });
+  });
+});
+
+describe("the preview job", () => {
+  /**
+   * Puts a session in the state a preview request leaves it in, without
+   * queueing a job for it. The case then runs the job itself, so no worker can
+   * race it to the session.
+   */
+  async function planningWithoutJob(
+    session: ImportSessionView,
+    previewId: string,
+    overrides: { mapping?: string[]; previewWatchedAt?: Date } = {},
+  ): Promise<void> {
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        mapping:
+          overrides.mapping ??
+          session.suggestedMapping.map((field) => field ?? ""),
+        defaultMovedInOn: "2010-01-01",
+        previewId,
+        previewStatus: "PLANNING",
+        previewWatchedAt: overrides.previewWatchedAt ?? new Date(),
+      },
+    });
+  }
+
+  it("answers at once, and issues the token only once the plan is ready", async () => {
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(fixtureRows())),
+    );
+
+    const asked = await askForPreview(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+    });
+    expect(asked).toMatchObject({
+      sessionId: session.sessionId,
+      status: "PLANNING",
+      rowsDone: 0,
+      rowsTotal: 5,
+      failureReason: null,
+      preview: null,
+    });
+
+    const run = await waitForPreview(
+      cookie,
+      session.sessionId,
+      asked.previewId,
+    );
+    expect(run).toMatchObject({ status: "READY", rowsDone: 5, rowsTotal: 5 });
+    const recorded = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.sessionId },
+      select: { previewToken: true, previewCipher: true },
+    });
+    expect(run.preview?.previewToken).toBe(recorded.previewToken);
+    expect(run.preview?.summary).toEqual({
+      create: 1,
+      update: 1,
+      ambiguous: 1,
+      error: 2,
+    });
+    // Stored encrypted: the preview names everybody in the file.
+    expect(recorded.previewCipher).not.toBeNull();
+    expect(recorded.previewCipher).not.toContain(newcomerEmail);
+  });
+
+  it("refuses to show a preview that has been replaced", async () => {
+    // The screen that asked first is told, rather than shown a plan for the
+    // mapping the second one chose.
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(fixtureRows())),
+    );
+
+    const first = await askForPreview(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+    });
+    const second = await askForPreview(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+    });
+
+    const stale = await readPreview(cookie, session.sessionId, first.previewId);
+    expect(stale.statusCode).toBe(409);
+    expect((JSON.parse(stale.body) as { reason: string }).reason).toBe(
+      "preview-changed",
+    );
+    expect(
+      (await waitForPreview(cookie, session.sessionId, second.previewId))
+        .status,
+    ).toBe("READY");
+  });
+
+  it("withdraws the token before as soon as another preview is asked for", async () => {
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(fixtureRows())),
+    );
+    const first = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+    });
+
+    // Not waited for: whether the second preview is still being planned or
+    // is ready already, the first token no longer names the session's preview.
+    await askForPreview(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+    });
+    const response = await applyImport(
+      cookie,
+      session.sessionId,
+      { "3": { action: "skip" } },
+      first.previewToken,
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "preview-changed",
+    );
+    expect((await readRun(cookie, session.sessionId)).status).toBe("MAPPING");
+  });
+
+  it("reports its progress as it plans", async () => {
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "lang.csv",
+      encode(writeCsv(longFixture("Progress"))),
+    );
+    const previewId = `progress-${suffix}`;
+    await planningWithoutJob(session, previewId);
+
+    const updates = vi.spyOn(prisma.importSession, "updateMany");
+    try {
+      await previews.runPreview(session.sessionId, previewId);
+      // This session's progress reports: the updates that move the count
+      // and nothing else.
+      const reported = updates.mock.calls.flatMap(([call]) =>
+        call?.where?.id === session.sessionId &&
+        typeof call.data.previewRowsDone === "number" &&
+        call.data.previewStatus === undefined
+          ? [call.data.previewRowsDone]
+          : [],
+      );
+      expect(reported).toEqual([
+        PREVIEW_PROGRESS_ROWS,
+        2 * PREVIEW_PROGRESS_ROWS,
+      ]);
+    } finally {
+      updates.mockRestore();
+    }
+
+    const run = await waitForPreview(cookie, session.sessionId, previewId);
+    expect(run).toMatchObject({
+      status: "READY",
+      rowsDone: IMPORT_CHUNK_ROWS + 20,
+      rowsTotal: IMPORT_CHUNK_ROWS + 20,
+    });
+  });
+
+  it("stops planning a preview nobody is watching", async () => {
+    // The screen holds the preview's id, and a reload loses it, so a preview
+    // nobody has asked about for minutes is one nobody will see. Planning it
+    // to the end would hold the one worker other previews wait for.
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "lang.csv",
+      encode(writeCsv(longFixture("Unwatched"))),
+    );
+    const previewId = `unwatched-${suffix}`;
+    await planningWithoutJob(session, previewId, {
+      previewWatchedAt: new Date(Date.now() - 60 * 60 * 1000),
+    });
+
+    await previews.runPreview(session.sessionId, previewId);
+
+    const stopped = await readPreview(cookie, session.sessionId, previewId);
+    expect(stopped.statusCode).toBe(200);
+    expect(JSON.parse(stopped.body) as ImportPreviewRun).toMatchObject({
+      status: "FAILED",
+      failureReason: "preview-interrupted",
+      preview: null,
+    });
+
+    // And the next preview of the same upload is planned as usual.
+    const preview = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      defaultMovedInOn: "2010-01-01",
+    });
+    expect(preview.rows).toHaveLength(IMPORT_CHUNK_ROWS + 20);
+  });
+
+  it("records a refusal, and holds up neither a later preview nor the apply", async () => {
+    const cookie = await signIn(actors.board.email);
+    // One row, with a date nobody can read: applied, it writes nothing.
+    const session = await upload(
+      cookie,
+      "stoppad.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2101",
+            "Stoppad",
+            surname,
+            "Medlem",
+            "",
+            "",
+            "01/03/2020",
+          ],
+        ]),
+      ),
+    );
+    const previewId = `refused-${suffix}`;
+    // A stored mapping that no longer fits the file: the job refuses it.
+    await planningWithoutJob(session, previewId, { mapping: [] });
+
+    await previews.runPreview(session.sessionId, previewId);
+
+    const refused = await readPreview(cookie, session.sessionId, previewId);
+    expect(JSON.parse(refused.body) as ImportPreviewRun).toMatchObject({
+      status: "FAILED",
+      failureReason: "mapping-invalid",
+    });
+    // A preview that stopped issued no token, so nothing can be applied on it.
+    const early = await applyImport(cookie, session.sessionId);
+    expect(early.statusCode).toBe(409);
+    expect((JSON.parse(early.body) as { reason: string }).reason).toBe(
+      "preview-changed",
+    );
+
+    await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+    });
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result).toMatchObject({ personsCreated: 0, errors: 1 });
+    // The stored preview has done its work once the import is claimed.
+    expect(
+      (
+        await prisma.importSession.findUniqueOrThrow({
+          where: { id: session.sessionId },
+          select: { previewCipher: true },
+        })
+      ).previewCipher,
+    ).toBeNull();
+  });
+
+  it("is planned again when the API comes back up", async () => {
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(fixtureRows())),
+    );
+    const previewId = `resumed-${suffix}`;
+    await planningWithoutJob(session, previewId);
+
+    expect(await previews.resumeInterruptedPreviews()).toBeGreaterThan(0);
+
+    expect(
+      (await waitForPreview(cookie, session.sessionId, previewId)).status,
+    ).toBe("READY");
   });
 });
 
@@ -1030,16 +1376,11 @@ describe("an apply after the upload was previewed again", () => {
       "tva-flikar.csv",
       encode(writeCsv(fixtureRows())),
     );
-    const preview = async (mapping: (ImportField | null)[]) => {
-      const response = await inject({
-        method: "POST",
-        url: `/api/import/sessions/${session.sessionId}/preview`,
-        payload: { mapping, defaultRole: "RESIDENT" },
-        headers: { cookie },
+    const preview = (mapping: (ImportField | null)[]) =>
+      previewImport(cookie, session.sessionId, {
+        mapping,
+        defaultRole: "RESIDENT",
       });
-      expect(response.statusCode).toBe(200);
-      return JSON.parse(response.body) as ImportPreview;
-    };
 
     const first = await preview(session.suggestedMapping);
     const second = await preview(
@@ -1523,13 +1864,10 @@ describe("a row for someone already living in the apartment", () => {
         ]),
       ),
     );
-    const preview = await inject({
-      method: "POST",
-      url: `/api/import/sessions/${session.sessionId}/preview`,
-      payload: { mapping: session.suggestedMapping },
-      headers: { cookie },
+    const preview = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
     });
-    const row = (JSON.parse(preview.body) as ImportPreview).rows[0];
+    const row = preview.rows[0];
     expect(row?.outcome).toBe("error");
     expect(row?.problems).toContainEqual({
       field: "movedInOn",
@@ -1630,16 +1968,11 @@ describe("a file without move-in dates", () => {
         ]),
       ),
     );
-    const preview = await inject({
-      method: "POST",
-      url: `/api/import/sessions/${session.sessionId}/preview`,
-      payload: {
-        mapping: session.suggestedMapping,
-        defaultMovedInOn: "2026-10-01",
-      },
-      headers: { cookie },
+    const preview = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      defaultMovedInOn: "2026-10-01",
     });
-    const row = (JSON.parse(preview.body) as ImportPreview).rows[0];
+    const row = preview.rows[0];
     expect(row?.problems).toEqual([]);
     expect(row?.outcome).toBe("update");
 
@@ -1784,16 +2117,10 @@ describe("one person listed in two chunks", () => {
       "tva-delar.csv",
       encode(writeCsv(rows)),
     );
-    const response = await inject({
-      method: "POST",
-      url: `/api/import/sessions/${session.sessionId}/preview`,
-      payload: {
-        mapping: session.suggestedMapping,
-        defaultMovedInOn: "2010-01-01",
-      },
-      headers: { cookie },
+    const preview = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      defaultMovedInOn: "2010-01-01",
     });
-    const preview = JSON.parse(response.body) as ImportPreview;
     expect(preview.rows[total - 1]?.sameAsRowNumber).toBe(1);
 
     expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);

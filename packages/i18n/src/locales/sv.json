@@ -2264,6 +2264,8 @@
       "defaultMovedInOnHint": "Behövs eftersom filen saknar inflyttningskolumn. Det är också medlemskapets datum i medlemsförteckningen.",
       "submit": "Förhandsgranska importen",
       "working": "Räknar ut vad som skulle hända",
+      "planningProgressLabel": "Hur stor del av filen som gåtts igenom",
+      "planningHint": "En lång fil med personnummer kan ta några minuter. Låt sidan vara öppen: förhandsgranskningen visas här när den är klar.",
       "back": "Välj en annan fil"
     },
     "field": {
@@ -2378,6 +2380,7 @@
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
       "previewRequired": "Förhandsgranska importen innan du genomför den.",
       "previewChanged": "Någon har förhandsgranskat uppladdningen igen sedan dess, kanske med andra kolumner. Kontrollera kolumnerna och förhandsgranska igen.",
+      "previewInterrupted": "Förhandsgranskningen stoppades innan den var klar. Förhandsgranska importen igen.",
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",

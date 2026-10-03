@@ -1,12 +1,19 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { ImportScreen } from "./ImportScreen";
 import type {
   ImportPreview,
+  ImportPreviewRun,
   ImportRunView,
   ImportSessionView,
 } from "./import-api";
@@ -50,6 +57,7 @@ const IDENTITY_NUMBER = "19811228-9874";
 
 const uploadImport = vi.fn();
 const previewImport = vi.fn();
+const fetchImportPreview = vi.fn();
 const applyImport = vi.fn();
 const fetchImportRun = vi.fn();
 const fetchActiveImport = vi.fn();
@@ -59,6 +67,8 @@ vi.mock("./import-api", async (importOriginal) => ({
   uploadImport: (input: unknown) => uploadImport(input),
   previewImport: (sessionId: string, input: unknown) =>
     previewImport(sessionId, input),
+  fetchImportPreview: (sessionId: string, previewId: string) =>
+    fetchImportPreview(sessionId, previewId),
   applyImport: (sessionId: string, input: unknown) =>
     applyImport(sessionId, input),
   fetchImportRun: (sessionId: string) => fetchImportRun(sessionId),
@@ -178,6 +188,27 @@ const PREVIEW: ImportPreview = {
   ],
 };
 
+/** The preview as the API reports it while it is planned, and once it is. */
+function previewRun(
+  overrides: Partial<ImportPreviewRun> = {},
+): ImportPreviewRun {
+  return {
+    sessionId: "session-1",
+    previewId: "planning-1",
+    status: "READY",
+    rowsDone: 3,
+    rowsTotal: 3,
+    failureReason: null,
+    preview: PREVIEW,
+    ...overrides,
+  };
+}
+
+const PLANNING = previewRun({ status: "PLANNING", rowsDone: 0, preview: null });
+
+/** How often the screen asks after a preview being planned. */
+const PREVIEW_POLL_MS = 1500;
+
 /** The import as the API reports it back while, and after, it runs. */
 function runView(overrides: Partial<ImportRunView> = {}): ImportRunView {
   return {
@@ -229,6 +260,18 @@ async function reachPreview(session: ReturnType<typeof userEvent.setup>) {
   await screen.findByText(/Vad detta skulle göra/);
 }
 
+/** Up to the mapping step, with the date the fixture file needs filled in. */
+async function reachMapping(session: ReturnType<typeof userEvent.setup>) {
+  render(<ImportScreen />);
+
+  await session.upload(screen.getByLabelText(/Välj en fil/), file());
+  await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+  await screen.findByText(/Kolumnerna/);
+  fireEvent.change(screen.getByLabelText(/^Inflyttningsdatum/), {
+    target: { value: "2019-06-01" },
+  });
+}
+
 const FINISHED = runView({
   status: "APPLIED",
   rowsDone: 3,
@@ -245,7 +288,17 @@ const FINISHED = runView({
 
 beforeEach(() => {
   uploadImport.mockReset().mockResolvedValue({ ok: true, value: SESSION });
-  previewImport.mockReset().mockResolvedValue({ ok: true, value: PREVIEW });
+  // Ready at once, so a case about the preview step does not wait out a poll
+  // to reach it. The API answers a request with a preview still planning,
+  // and the wait is pinned in its own cases below.
+  previewImport.mockReset().mockResolvedValue({
+    ok: true,
+    value: previewRun(),
+  });
+  fetchImportPreview.mockReset().mockResolvedValue({
+    ok: true,
+    value: previewRun(),
+  });
   // The apply is accepted, not done: what comes back is a queued import.
   applyImport.mockReset().mockResolvedValue({ ok: true, value: runView() });
   fetchImportRun.mockReset().mockResolvedValue({ ok: true, value: FINISHED });
@@ -297,6 +350,146 @@ describe("the mapping step", () => {
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByLabelText(/^Roll/)).toBeTruthy();
+  });
+});
+
+describe("while the preview is planned", () => {
+  // Only the screen's poll is faked, so each poll happens when a test moves the
+  // clock rather than when a loaded machine gets round to it. Everything else -
+  // the user events, the waits for the screen to settle - runs on real time.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lets the screen ask once, as it does every poll interval. */
+  async function nextPoll(): Promise<void> {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREVIEW_POLL_MS);
+    });
+  }
+
+  it("shows how far it has got, and the preview once it is ready", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview
+      .mockResolvedValueOnce({
+        ok: true,
+        value: previewRun({ status: "PLANNING", rowsDone: 2, preview: null }),
+      })
+      .mockResolvedValue({ ok: true, value: previewRun() });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+
+    // Accepted, not done: the screen stays on the mapping and says so.
+    expect(
+      await screen.findByRole("progressbar", {
+        name: /Hur stor del av filen som gåtts igenom/,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText(/0 av 3 rader/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Räknar ut vad som skulle hända/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    // The mapping being planned is the one on the screen until it is ready.
+    expect(
+      screen
+        .getByRole("combobox", { name: /Personnummer/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(fetchImportPreview).not.toHaveBeenCalled();
+
+    // The screen asks on its own, once every poll interval.
+    await nextPoll();
+    expect(await screen.findByText(/2 av 3 rader/)).toBeTruthy();
+    await nextPoll();
+    expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(2);
+    expect(fetchImportPreview).toHaveBeenCalledWith("session-1", "planning-1");
+  });
+
+  it("says the preview stopped, and lets the board ask again", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        status: "FAILED",
+        rowsDone: 1,
+        failureReason: "preview-interrupted",
+        preview: null,
+      }),
+    });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await nextPoll();
+
+    expect(
+      await screen.findByText(/Förhandsgranskningen stoppades/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /Förhandsgranska importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("stops waiting when somebody else has previewed the upload since", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "preview-changed" },
+    });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await nextPoll();
+
+    expect(
+      await screen.findByText(/förhandsgranskat uppladdningen igen/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText(/Vad detta skulle göra/)).toBeNull();
+
+    // And stops asking.
+    await nextPoll();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes on waiting through a request that never reached the server", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 0, reason: "offline" },
+      })
+      .mockResolvedValue({ ok: true, value: previewRun() });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await nextPoll();
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    await nextPoll();
+
+    expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
   });
 });
 
