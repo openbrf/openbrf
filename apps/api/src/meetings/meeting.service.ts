@@ -1216,6 +1216,7 @@ export class MeetingService {
           select: {
             memberPersonId: true,
             proxyHolderPersonId: true,
+            ground: true,
             authorisedOn: true,
             withdrawnAt: true,
           },
