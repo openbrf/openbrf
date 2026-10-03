@@ -294,6 +294,20 @@ export function ChargesScreen(): ReactElement {
    */
   const [corrected, setCorrected] = useState(false);
 
+  /*
+   * A correction is of a row on the document, so it closes when that row is no
+   * longer on it - removed, or a period that does not hold it. Left open, the
+   * form would save to a charge the board can no longer see, or one that is
+   * gone and answers not-found. Set during the render rather than in an effect,
+   * so the form is never drawn for a charge that has left the list.
+   */
+  if (
+    correcting !== null &&
+    !(shown?.rows.some((row) => row.chargeId === correcting.chargeId) ?? false)
+  ) {
+    setCorrecting(null);
+  }
+
   const onRecorded = useCallback(
     (_row: ChargeRow) => {
       setCorrected(false);

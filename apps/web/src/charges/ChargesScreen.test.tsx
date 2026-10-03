@@ -570,6 +570,35 @@ describe("correcting a charge", () => {
       screen.getByLabelText<HTMLInputElement>("Vad debiteringen avser").value,
     ).toBe("Halvskriven debitering");
   });
+
+  it("closes when the charge it corrects is removed", async () => {
+    // Left open, saving it would post a correction to a charge that is gone.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    removeCharge.mockResolvedValue({ ok: true, value: undefined });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    correctionForm();
+
+    fetchDebitingList.mockResolvedValue({
+      ok: true,
+      value: { ...LIST, rows: LIST.rows.slice(1) },
+    });
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { name: "Rätta en debitering" }),
+      ).toBeNull();
+    });
+    expect(correctCharge).not.toHaveBeenCalled();
+  });
 });
 
 describe("removing a charge", () => {
