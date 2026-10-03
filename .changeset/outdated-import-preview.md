@@ -20,5 +20,10 @@ The preview's timestamp is now taken before it reads the register rather than
 after, so an import that finishes while a preview is being worked out counts as
 finishing after it.
 
+A finished import is kept for a lifetime after it finished before the daily
+purge removes it, not a lifetime after it was uploaded. Without that, the purge
+could remove the import that made another session's preview out of date while
+that session was still valid, and the check would no longer see it.
+
 The import screen takes the preview again on its own, says why in Swedish and
 English, and asks again about every row that needs a decision.

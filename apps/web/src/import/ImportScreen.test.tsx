@@ -487,6 +487,31 @@ describe("after pressing apply", () => {
     ).toBe(true);
   });
 
+  it("says so when the preview taken again fails, and keeps the old one", async () => {
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "preview-outdated" },
+    });
+    previewImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByText(/och en ny kunde inte göras/)).toBeTruthy();
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
+  });
+
   it("follows the import to the end", async () => {
     await apply();
     await screen.findByText(/Importen pågår/);

@@ -232,9 +232,11 @@ export function ImportScreen(): ReactElement {
         // again rather than leaving the board to find the way back to it, and
         // the decisions go with the old preview: a row may match other people
         // now, or nobody.
-        if (await runPreview()) {
-          setFailure("import.errors.previewOutdated");
-        }
+        setFailure(
+          (await runPreview())
+            ? "import.errors.previewOutdated"
+            : "import.errors.previewOutdatedNotRefreshed",
+        );
       }
       // "another-import-running" stays on the preview: it is a different
       // file that is running, and this one is still waiting to be applied

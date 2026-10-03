@@ -151,12 +151,23 @@ export class ImportService implements OnModuleInit {
    * An apply that is still running is left alone however old its upload is.
    * Deleting the rows underneath a job would stop the import halfway through a
    * register that cannot be corrected by editing.
+   *
+   * An import that has finished is kept for a lifetime after it finished, not
+   * after it was uploaded. The apply of any other session previewed before it
+   * finished is refused as outdated by finding it (see `apply`), and a session
+   * that is still valid may have been previewed while this one was still
+   * waiting to be applied. Any session previewed before the finish was
+   * uploaded earlier still, so by then it has expired itself.
    */
   async purgeExpiredSessions(now: Date = new Date()): Promise<number> {
     const { count } = await this.prisma.importSession.deleteMany({
       where: {
         expiresAt: { lt: now },
         status: { notIn: ["QUEUED", "APPLYING"] },
+        OR: [
+          { finishedAt: null },
+          { finishedAt: { lt: new Date(now.getTime() - SESSION_LIFETIME_MS) } },
+        ],
       },
     });
     if (count > 0) {
@@ -386,9 +397,10 @@ export class ImportService implements OnModuleInit {
       // order it could be missed by both, still running for the first read
       // and no longer running for the second.
       //
-      // An import that stopped before its first chunk committed wrote nothing,
-      // and sending the board back to the preview over it would show them the
-      // same preview again.
+      // An import that stopped before its first chunk committed (no rows done)
+      // changed nothing in the register, and sending the board back to the
+      // preview over it would show them the same preview again. One that
+      // stopped later has still committed the chunks before it.
       const finishedSince = await tx.importSession.findFirst({
         where: {
           id: { not: sessionId },
