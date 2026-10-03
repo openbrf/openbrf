@@ -19,7 +19,10 @@ reads the same schema, so such a package is reported as `manifest-invalid` and
 not loaded.
 
 A plugin must match the package name and version the board consented to. The
-installer checks each installed package against its consent before it puts the
-new installation in place, and fails the install otherwise. At boot, a plugin
+installer reads each archive's own `package.json` before npm runs and refuses a
+package that does not match or declares a dependency, so npm never resolves a
+`file:` dependency from elsewhere on the volume. After npm, it checks that the
+staged tree holds exactly the consented packages before it puts the new
+installation in place, and fails the install otherwise. At boot, a plugin
 that does not match is refused as `not-consented`, and the volume is reported
 as needing a reconcile.

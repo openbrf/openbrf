@@ -27,6 +27,7 @@ import { processRole } from "../config/process-role";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
+import { readArchivePackageJson } from "../packaging/archive-package-json";
 import { npmInstall } from "../packaging/npm-install";
 import { ensureArchive } from "../packaging/package-archive";
 import {
@@ -538,6 +539,10 @@ export class PluginInstallerService
     archives: ReadonlyMap<string, string>,
     versions: ReadonlyMap<string, string>,
   ): Promise<void> {
+    // Before npm, which acts on what an archive's package.json declares - a
+    // `file:` dependency resolves even offline - before it can be checked.
+    await assertArchivedPackages(archives, versions);
+
     await mkdir(join(staging, "archives"), { recursive: true });
 
     // The archives are copied into the staging directory and referenced from
@@ -688,14 +693,73 @@ const stagedPackageSchema = pluginPackageSchema.pick({
 });
 
 /**
- * Refuses a staged tree whose packages are not the ones consented to.
+ * Refuses an archive whose package.json is not the one consented to.
  *
  * npm installs an archive under the name it is given, whatever the archive's
  * own package.json says, and the loader refuses a package whose name or
  * version differs from its consent row. Letting such a tree through would
  * mark the row installed for a plugin that never loads, and leave a tree the
- * next reconcile finds already in place. Checked here, before the swap, so the
- * build fails and the instance keeps what it was running.
+ * next reconcile finds already in place. A runtime dependency is refused for
+ * the reason the plugin contract gives: nothing an instance installs comes
+ * from anywhere but a verified archive.
+ */
+function assertConsentedPackage(
+  packageName: string,
+  version: string,
+  raw: unknown,
+): void {
+  const parsed = stagedPackageSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map(
+      (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+    );
+    throw new Error(
+      `The archive for ${packageName} is not an installable plugin package: ${issues.join("; ")}.`,
+    );
+  }
+  if (parsed.data.name !== packageName || parsed.data.version !== version) {
+    throw new Error(
+      `The archive for ${packageName}@${version} holds ` +
+        `${parsed.data.name}@${parsed.data.version}.`,
+    );
+  }
+}
+
+/**
+ * Refuses verified archives whose packages are not the ones consented to,
+ * before npm is given them.
+ *
+ * Read from the archive itself, because npm resolves what a package.json
+ * declares before it can be read from the staged tree: offline, a `file:`
+ * dependency is still linked or copied in from elsewhere on the volume.
+ *
+ * `archives` and `versions` map each consented package name to its verified
+ * archive and its version.
+ */
+export async function assertArchivedPackages(
+  archives: ReadonlyMap<string, string>,
+  versions: ReadonlyMap<string, string>,
+): Promise<void> {
+  for (const [packageName, archive] of archives) {
+    let raw: unknown;
+    try {
+      raw = await readArchivePackageJson(archive);
+    } catch (cause) {
+      throw new Error(
+        `The archive for ${packageName} could not be read: ${(cause as Error).message}`,
+      );
+    }
+    assertConsentedPackage(packageName, versions.get(packageName) ?? "", raw);
+  }
+}
+
+/**
+ * Refuses a staged tree that is not exactly the packages consented to.
+ *
+ * The archives were checked before npm ran; this checks what npm made of
+ * them, so a package npm brought in beside them is refused rather than moved
+ * into place. Checked here, before the swap, so the build fails and the
+ * instance keeps what it was running.
  *
  * `versions` maps each consented package name to its version.
  */
@@ -714,23 +778,44 @@ export async function assertStagedPackages(
         `The archive for ${packageName} was not installed as a package.`,
       );
     }
+    assertConsentedPackage(packageName, version, raw);
+  }
 
-    const parsed = stagedPackageSchema.safeParse(raw);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map(
-        (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-      );
-      throw new Error(
-        `The archive for ${packageName} is not an installable plugin package: ${issues.join("; ")}.`,
-      );
+  const extra = (await stagedPackageNames(modules)).filter(
+    (name) => !versions.has(name),
+  );
+  if (extra.length > 0) {
+    throw new Error(
+      `npm installed packages no archive was consented for: ${extra.join(", ")}.`,
+    );
+  }
+}
+
+/**
+ * The packages in a node_modules directory, scoped ones by their full name.
+ *
+ * npm's own bookkeeping - the hidden lockfile and the `.bin` links to a
+ * package's own executables - is not a package and is left out.
+ */
+async function stagedPackageNames(modules: string): Promise<string[]> {
+  const names: string[] = [];
+  for (const entry of await readdir(modules)) {
+    if (entry === ".package-lock.json" || entry === ".bin") {
+      continue;
     }
-    if (parsed.data.name !== packageName || parsed.data.version !== version) {
-      throw new Error(
-        `The archive for ${packageName}@${version} holds ` +
-          `${parsed.data.name}@${parsed.data.version}.`,
-      );
+    if (!entry.startsWith("@")) {
+      names.push(entry);
+      continue;
+    }
+    const scoped = await readdir(join(modules, entry)).catch(() => []);
+    if (scoped.length === 0) {
+      names.push(entry);
+    }
+    for (const name of scoped) {
+      names.push(`${entry}/${name}`);
     }
   }
+  return names;
 }
 
 /**
