@@ -2370,7 +2370,7 @@
       "fileEmpty": "Filen har inga rader under kolumnrubrikerna.",
       "fileTooLarge": "Filen är större än 512 kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
-      "tooManyRows": "Filen har fler rader än en import klarar.",
+      "tooManyRows": "Filen har fler än 5000 rader under kolumnrubrikerna.",
       "tooManyColumns": "Filen har fler än 200 kolumner.",
       "cellTooLong": "En cell i filen är längre än 1 000 tecken.",
       "unterminatedQuote": "Ett citattecken i filen avslutas aldrig, så raderna går inte att skilja åt. Öppna filen i ditt kalkylprogram och spara den igen.",
