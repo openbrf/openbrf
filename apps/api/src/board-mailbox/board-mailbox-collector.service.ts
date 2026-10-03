@@ -838,9 +838,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * photograph's argument in full: nobody knows whether a photograph somebody
    * mailed the board caught a neighbour in it, an attachment here is never
    * published, and the declaration is the input the publication guardrails need.
-   * It carries no required capability for the reason that file does not - what
-   * keeps it private is that nothing hands out its identifier except a thread
-   * payload, and those are behind `boardMailbox:handle`.
+   * It names `boardMailbox:handle` as its required capability, which
+   * `MediaService.open` checks on every read: whoever handles the board's mail
+   * reads it, and nobody else does, whether or not they have its identifier.
    */
   private async storeAttachments(
     attachments: readonly MimeAttachment[],
