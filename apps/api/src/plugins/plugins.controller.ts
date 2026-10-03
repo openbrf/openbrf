@@ -60,6 +60,8 @@ const installSchema = z.object({
    * Optional, because a board may install now and classify the recipient on the
    * data protection screen afterwards. Until it does, the recipient reads as
    * not recorded - a question the screen asks rather than a gap it hides.
+   * Refused for a plugin the record already classifies: this route's
+   * capability installs plugins, and changing the record is not part of it.
    */
   processorAgreement: z
     .object({

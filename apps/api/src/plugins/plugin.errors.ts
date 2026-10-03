@@ -115,6 +115,30 @@ export class PluginRecipientRequiredError extends DomainError {
   }
 }
 
+/**
+ * An install that answered where the plugin sends personal data, for a plugin
+ * the art. 28 record already classifies.
+ *
+ * Installing a plugin is not the permission to change that record, and the
+ * consent step asks only where the record has nothing: a screen opened before
+ * somebody classified the plugin, or a caller of the API, would otherwise
+ * replace an agreement the board recorded as in place with one being made.
+ * Refused rather than ignored, so the caller learns that the answer it sent is
+ * not what the record says. Changing it is the data protection screen's act.
+ */
+export class PluginRecipientAlreadyRecordedError extends DomainError {
+  readonly status = HttpStatus.CONFLICT;
+  readonly reason = "recipient-already-recorded";
+
+  constructor(id: string) {
+    super(
+      `The record already classifies where "${id}" sends personal data. ` +
+        "Install without an answer, and change the classification on the " +
+        "data protection screen.",
+    );
+  }
+}
+
 export class PluginsDisabledError extends DomainError {
   readonly status = HttpStatus.CONFLICT;
   readonly reason = "plugins-disabled";
