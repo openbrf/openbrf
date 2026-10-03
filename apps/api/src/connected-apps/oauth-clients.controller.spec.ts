@@ -247,8 +247,8 @@ describe("a redirect URI the provider refuses", () => {
     expect(failure).toMatchObject({
       status: 400,
       reason: "invalid-redirect-uri",
-      message: expect.stringContaining("https loopback"),
     });
+    expect((failure as Error).message).not.toContain("https loopback");
     expect(linked).toHaveLength(0);
     expect(recorded).toHaveLength(0);
   });

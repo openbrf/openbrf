@@ -200,10 +200,12 @@ export class OAuthClientsController {
         },
       });
     } catch (error) {
+      // The provider's own description is not passed on: its wording is the
+      // library's and changes with it, and the form says what the reason
+      // means in the administrator's language.
       if (isAPIError(error) && error.body?.error === "invalid_redirect_uri") {
         throw new InvalidRedirectUriError(
-          error.body.error_description ??
-            "The provider refused a redirect URI.",
+          "The provider refused a redirect URI.",
         );
       }
       throw error;
