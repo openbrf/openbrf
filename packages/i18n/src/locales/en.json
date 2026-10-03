@@ -2291,12 +2291,14 @@
       "apartment": "Apartment",
       "role": "Role",
       "matchedBy": "Matched on",
+      "matchedPerson": "Matched person",
       "problems": "Problem",
       "identityNumberOnFile": "The file has a personal identity number for this row.",
+      "identityNumberNotAdded": "The personal identity number will not be added to this person: the row was matched on something else.",
       "decision": "This row is",
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
-      "undecided": "Some rows match more than one person. Choose which one each is before applying.",
+      "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
       "apply": "Apply the import",
       "applying": "Importing",
       "back": "Change the mapping",
@@ -2316,6 +2318,10 @@
       "email": "Email address",
       "apartmentAndName": "Apartment and name",
       "earlierRow": "An earlier row of this file"
+    },
+    "mismatch": {
+      "personalIdentityNumber": "The file's personal identity number differs from this person's.",
+      "name": "The name in the file differs from this person's."
     },
     "problem": {
       "name-missing": "The row has no name.",

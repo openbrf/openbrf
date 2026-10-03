@@ -70,6 +70,10 @@ const apartments = {
   j: `imp-apartment-j-${suffix}`,
   k: `imp-apartment-k-${suffix}`,
   l: `imp-apartment-l-${suffix}`,
+  /** Where the rows that contradict the person they matched are imported. */
+  m: `imp-apartment-m-${suffix}`,
+  /** Where a row gives a register person an address a later row also has. */
+  n: `imp-apartment-n-${suffix}`,
 };
 
 const actors = {
@@ -165,11 +169,19 @@ async function createPerson(input: {
   firstName: string;
   lastName?: string;
   email?: string;
+  identityNumber?: string;
 }): Promise<void> {
   const email =
     input.email === undefined
       ? null
       : await encryption.encrypt("person.email", input.email);
+  const identityNumber =
+    input.identityNumber === undefined
+      ? null
+      : await encryption.encrypt(
+          "person.personalIdentityNumber",
+          input.identityNumber,
+        );
   await prisma.person.create({
     data: {
       id: input.personId,
@@ -177,6 +189,8 @@ async function createPerson(input: {
       lastName: input.lastName ?? surname,
       emailCipher: email?.cipher ?? null,
       emailIndex: email?.index ?? null,
+      personalIdentityNumberCipher: identityNumber?.cipher ?? null,
+      personalIdentityNumberIndex: identityNumber?.index ?? null,
       preferredLocale: "sv",
     },
   });
@@ -450,6 +464,8 @@ beforeAll(async () => {
       { id: apartments.j, addressId, number: "2110", floor: 1 },
       { id: apartments.k, addressId, number: "2111", floor: 1 },
       { id: apartments.l, addressId, number: "2112", floor: 1 },
+      { id: apartments.m, addressId, number: "2113", floor: 1 },
+      { id: apartments.n, addressId, number: "2114", floor: 1 },
     ],
   });
 
@@ -570,7 +586,9 @@ afterAll(async () => {
     where: { lastName: surname, memberRegisterEntries: { none: {} } },
   });
   await prisma.apartment.deleteMany({
-    where: { id: { in: [apartments.b, apartments.c] } },
+    where: {
+      id: { in: [apartments.b, apartments.c, apartments.m, apartments.n] },
+    },
   });
   await app.close();
 });
@@ -1441,10 +1459,10 @@ describe("an apply that fails", () => {
  * them as indexable. Built rather than listed: what matters is how many
  * distinct ones the file carries.
  */
-function identityNumbers(count: number): string[] {
+function identityNumbers(count: number, birthDate = "900101"): string[] {
   const numbers: string[] = [];
   for (let serial = 0; numbers.length < count; serial++) {
-    const nine = `900101${String(serial).padStart(3, "0")}`;
+    const nine = `${birthDate}${String(serial).padStart(3, "0")}`;
     let sum = 0;
     for (let position = 0; position < 9; position++) {
       const digit = Number(nine[position]);
@@ -1523,6 +1541,408 @@ describe("a file carrying personal identity numbers", () => {
         where: { lastName: surname, firstName: { startsWith: "Pin" } },
       }),
     ).toBe(3);
+  }, 120_000);
+});
+
+describe("a row that contradicts the person it matched", () => {
+  it("waits for the board instead of writing to that person", async () => {
+    // Four people already in the register, one row each. The first two rows
+    // reach their person through an email address or an apartment and a name
+    // but carry someone else's identity number; the third reaches its person
+    // through the identity number itself; the fourth reaches a person who has
+    // no identity number through an email address alone.
+    const cookie = await signIn(actors.board.email);
+    const [emailOwner, rowForEmail, neighbour, rowForName, customer, stranger] =
+      identityNumbers(6, "850615");
+    const people = {
+      byEmail: {
+        personId: `imp-contra-email-${suffix}`,
+        firstName: "Kontakt",
+        email: `imp-contra-email-${suffix}@exempel.se`,
+        identityNumber: emailOwner,
+      },
+      byName: {
+        personId: `imp-contra-name-${suffix}`,
+        firstName: "Grannen",
+        identityNumber: neighbour,
+      },
+      byNumber: {
+        personId: `imp-contra-number-${suffix}`,
+        firstName: "Kund",
+        identityNumber: customer,
+      },
+      withoutNumber: {
+        personId: `imp-contra-none-${suffix}`,
+        firstName: "Utan",
+        email: `imp-contra-none-${suffix}@exempel.se`,
+      },
+    };
+    for (const person of Object.values(people)) {
+      await createPerson(person);
+    }
+    await prisma.residency.create({
+      data: {
+        personId: people.byName.personId,
+        apartmentId: apartments.m,
+        role: "RESIDENT",
+        movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+      },
+    });
+
+    function row(
+      firstName: string,
+      email: string,
+      identityNumber: string | undefined,
+    ): string[] {
+      return [
+        addressLabel,
+        "2113",
+        firstName,
+        surname,
+        "Boende",
+        email,
+        "070-222 00 22",
+        "2021-04-01",
+        identityNumber ?? "",
+      ];
+    }
+    const rows = [
+      [...HEADERS, "Personnummer"],
+      row("Kontakt", people.byEmail.email, rowForEmail),
+      row("Grannen", "", rowForName),
+      row("Kund", `imp-contra-number-${suffix}@exempel.se`, customer),
+      row("Utan", people.withoutNumber.email, stranger),
+    ];
+
+    const session = await upload(
+      cookie,
+      "motsagelser.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const preview = JSON.parse(response.body) as ImportPreview;
+    const planned = (rowNumber: number) =>
+      preview.rows.find((candidate) => candidate.rowNumber === rowNumber);
+
+    expect(planned(1)).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      matchedPersonId: null,
+      mismatch: "personalIdentityNumber",
+      candidates: [
+        { personId: people.byEmail.personId, name: `Kontakt ${surname}` },
+      ],
+    });
+    expect(planned(2)).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "apartmentAndName",
+      matchedPersonId: null,
+      mismatch: "personalIdentityNumber",
+    });
+    expect(planned(3)).toMatchObject({
+      outcome: "update",
+      matchedBy: "personalIdentityNumber",
+      matchedPersonId: people.byNumber.personId,
+      matchedPersonName: `Kund ${surname}`,
+    });
+    expect(planned(4)).toMatchObject({
+      outcome: "update",
+      matchedBy: "email",
+      matchedPersonId: people.withoutNumber.personId,
+    });
+
+    // Undecided, the import does not start at all.
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(400);
+
+    expect(
+      (
+        await applyImport(cookie, session.sessionId, {
+          "1": { action: "skip" },
+          "2": { action: "skip" },
+        })
+      ).statusCode,
+    ).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result).toMatchObject({
+      personsCreated: 0,
+      personsUpdated: 2,
+      skipped: 2,
+    });
+
+    const stored = async (personId: string) =>
+      prisma.person.findUniqueOrThrow({
+        where: { id: personId },
+        select: {
+          phoneCipher: true,
+          personalIdentityNumberIndex: true,
+          residencies: { select: { apartmentId: true } },
+        },
+      });
+    const indexOf = (value: string | undefined) =>
+      encryption.computeIndex("person.personalIdentityNumber", value ?? "");
+
+    // The contradicted persons are exactly as they were.
+    const byEmail = await stored(people.byEmail.personId);
+    expect(byEmail.phoneCipher).toBeNull();
+    expect(byEmail.residencies).toEqual([]);
+    expect(byEmail.personalIdentityNumberIndex).toBe(await indexOf(emailOwner));
+    const byName = await stored(people.byName.personId);
+    expect(byName.phoneCipher).toBeNull();
+    expect(byName.personalIdentityNumberIndex).toBe(await indexOf(neighbour));
+
+    // An identity-number match still fills in what the register lacks.
+    const byNumber = await stored(people.byNumber.personId);
+    expect(byNumber.phoneCipher).not.toBeNull();
+    expect(byNumber.residencies).toEqual([{ apartmentId: apartments.m }]);
+
+    // An email match fills in contact details but never an identity number.
+    const withoutNumber = await stored(people.withoutNumber.personId);
+    expect(withoutNumber.phoneCipher).not.toBeNull();
+    expect(withoutNumber.personalIdentityNumberIndex).toBeNull();
+  }, 120_000);
+});
+
+describe("a row that contradicts a person an earlier row writes", () => {
+  async function preview(
+    cookie: string,
+    fileName: string,
+    rows: string[][],
+  ): Promise<{ sessionId: string; preview: ImportPreview }> {
+    const session = await upload(cookie, fileName, encode(writeCsv(rows)));
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return {
+      sessionId: session.sessionId,
+      preview: JSON.parse(response.body) as ImportPreview,
+    };
+  }
+
+  it("is found by the preview when the two rows fall in different chunks", async () => {
+    // The apply meets row 1's person in the register when it plans the second
+    // chunk, and stops at a row that contradicts them. The preview has to find
+    // that row too, or the import stops half written.
+    const cookie = await signIn(actors.board.email);
+    const [sharedNumber, otherNumber] = identityNumbers(2, "770312");
+    const householdEmail = `imp-household-${suffix}@exempel.se`;
+    const numberEmail = `imp-number-${suffix}@exempel.se`;
+    const total = IMPORT_CHUNK_ROWS + 60;
+    const row = (
+      firstName: string,
+      email: string,
+      identityNumber: string,
+      movedInOn = "2021-04-01",
+    ) => [
+      addressLabel,
+      "2102",
+      firstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      movedInOn,
+      identityNumber,
+    ];
+
+    const rows: string[][] = [[...HEADERS, "Personnummer"]];
+    for (let rowNumber = 1; rowNumber <= total; rowNumber++) {
+      if (rowNumber === 1) {
+        rows.push(row("Hushall", householdEmail, ""));
+      } else if (rowNumber === 2) {
+        rows.push(row("Nummer", numberEmail, sharedNumber ?? ""));
+      } else if (rowNumber === 150) {
+        // Row 1's address, somebody else's name.
+        rows.push(row("Granne", householdEmail, ""));
+      } else if (rowNumber === 151) {
+        // Row 2's address and name, somebody else's identity number.
+        rows.push(row("Nummer", numberEmail, otherNumber ?? ""));
+      } else {
+        rows.push(row(`Fyll${String(rowNumber)}`, "", "", "01/03/2020"));
+      }
+    }
+
+    const { sessionId, preview: planned } = await preview(
+      cookie,
+      "delad-adress.csv",
+      rows,
+    );
+    const at = (rowNumber: number) =>
+      planned.rows.find((candidate) => candidate.rowNumber === rowNumber);
+    expect(at(1)?.outcome).toBe("create");
+    expect(at(150)).toMatchObject({
+      outcome: "ambiguous",
+      mismatch: "name",
+      sameAsRowNumber: 1,
+      candidates: [],
+    });
+    expect(at(151)).toMatchObject({
+      outcome: "ambiguous",
+      mismatch: "personalIdentityNumber",
+      sameAsRowNumber: 2,
+      candidates: [],
+    });
+
+    // Decided as a new person and as left out. Both still hold when the second
+    // chunk meets the person row 1 or row 2 created as a candidate.
+    expect(
+      (
+        await applyImport(cookie, sessionId, {
+          "150": { action: "create" },
+          "151": { action: "skip" },
+        })
+      ).statusCode,
+    ).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      90_000,
+    );
+    expect(run.status).toBe("APPLIED");
+    expect(run.failureReason).toBeNull();
+    expect(run.result).toMatchObject({ personsCreated: 3, skipped: 1 });
+
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: { in: ["Hushall", "Granne"] } },
+      }),
+    ).toBe(2);
+    const numbered = await prisma.person.findMany({
+      where: { lastName: surname, firstName: "Nummer" },
+      select: { personalIdentityNumberIndex: true },
+    });
+    expect(numbered).toEqual([
+      {
+        personalIdentityNumberIndex: await encryption.computeIndex(
+          "person.personalIdentityNumber",
+          sharedNumber ?? "",
+        ),
+      },
+    ]);
+  }, 180_000);
+
+  it("does not write a row to the register person an earlier row gave its address", async () => {
+    // Row 1 reaches a person already in the register by apartment and name and
+    // gives them an email address they did not have. Row 2 is somebody else
+    // with that address. Folding it into row 1's person would give them row
+    // 2's phone number, postal address and apartment.
+    const cookie = await signIn(actors.board.email);
+    const person = {
+      personId: `imp-lone-${suffix}`,
+      firstName: "Ensam",
+    };
+    await createPerson(person);
+    await prisma.residency.create({
+      data: {
+        personId: person.personId,
+        apartmentId: apartments.n,
+        role: "RESIDENT",
+        movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+      },
+    });
+    const email = `imp-lone-${suffix}@exempel.se`;
+
+    const header = [...HEADERS, "Postadress", "Postnummer", "Postort"];
+    const rows = [
+      header,
+      [
+        addressLabel,
+        "2114",
+        "Ensam",
+        surname,
+        "Boende",
+        email,
+        "",
+        "2018-01-01",
+        "",
+        "",
+        "",
+      ],
+      [
+        addressLabel,
+        "2102",
+        "Framling",
+        surname,
+        "Boende",
+        email,
+        "070-333 00 33",
+        "2021-04-01",
+        "Box 1",
+        "11122",
+        "Stockholm",
+      ],
+    ];
+
+    const { sessionId, preview: planned } = await preview(
+      cookie,
+      "given-adress.csv",
+      rows,
+    );
+    expect(planned.rows[0]).toMatchObject({
+      outcome: "update",
+      matchedBy: "apartmentAndName",
+      matchedPersonId: person.personId,
+    });
+    expect(planned.rows[1]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      mismatch: "name",
+      matchedPersonId: null,
+      candidates: [{ personId: person.personId, name: `Ensam ${surname}` }],
+    });
+
+    expect(
+      (await applyImport(cookie, sessionId, { "2": { action: "create" } }))
+        .statusCode,
+    ).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+    );
+    expect(run.status).toBe("APPLIED");
+
+    const stored = await prisma.person.findUniqueOrThrow({
+      where: { id: person.personId },
+      select: {
+        emailIndex: true,
+        phoneCipher: true,
+        postalStreet: true,
+        postalCode: true,
+        postalCity: true,
+        residencies: { select: { apartmentId: true } },
+      },
+    });
+    // Row 1's address, and nothing of row 2's.
+    expect(stored).toEqual({
+      emailIndex: await encryption.computeIndex("person.email", email),
+      phoneCipher: null,
+      postalStreet: null,
+      postalCode: null,
+      postalCity: null,
+      residencies: [{ apartmentId: apartments.n }],
+    });
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: "Framling" },
+      }),
+    ).toBe(1);
   }, 120_000);
 });
 

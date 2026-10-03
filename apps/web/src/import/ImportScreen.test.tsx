@@ -92,7 +92,7 @@ const SESSION: ImportSessionView = {
 
 const PREVIEW: ImportPreview = {
   sessionId: "session-1",
-  summary: { create: 1, update: 0, ambiguous: 1, error: 1 },
+  summary: { create: 1, update: 1, ambiguous: 1, error: 1 },
   rows: [
     {
       rowNumber: 1,
@@ -116,7 +116,9 @@ const PREVIEW: ImportPreview = {
       movedInOn: "2019-06-01",
       movedOutOn: null,
       matchedPersonId: null,
+      matchedPersonName: null,
       matchedBy: null,
+      mismatch: null,
       sameAsRowNumber: null,
       candidates: [],
       problems: [],
@@ -143,7 +145,9 @@ const PREVIEW: ImportPreview = {
       movedInOn: "2020-01-01",
       movedOutOn: null,
       matchedPersonId: null,
+      matchedPersonName: null,
       matchedBy: "apartmentAndName",
+      mismatch: null,
       sameAsRowNumber: null,
       candidates: [
         { personId: "person-bo-senior", name: "Bo Berg" },
@@ -169,10 +173,41 @@ const PREVIEW: ImportPreview = {
       movedInOn: null,
       movedOutOn: null,
       matchedPersonId: null,
+      matchedPersonName: null,
       matchedBy: null,
+      mismatch: null,
       sameAsRowNumber: null,
       candidates: [],
       problems: [{ field: "movedInOn", reason: "date-not-iso" }],
+    },
+    {
+      rowNumber: 4,
+      outcome: "update",
+      person: {
+        firstName: "Dag",
+        lastName: "Dahl",
+        email: "dag@exempel.se",
+        phone: null,
+        hasPersonalIdentityNumber: false,
+        postalStreet: null,
+        postalCode: null,
+        postalCity: null,
+      },
+      apartment: {
+        id: "apartment-1202",
+        number: "1202",
+        addressLabel: "Storgatan 12",
+      },
+      role: "RESIDENT",
+      movedInOn: "2020-01-01",
+      movedOutOn: null,
+      matchedPersonId: "person-dag",
+      matchedPersonName: "Dag Dahlström",
+      matchedBy: "email",
+      mismatch: null,
+      sameAsRowNumber: null,
+      candidates: [],
+      problems: [],
     },
   ],
 };
@@ -318,6 +353,81 @@ describe("the preview", () => {
     // belongs on this screen. A preview is not a register view, and the file's
     // own numbers are in the session the screen is holding while it renders.
     expect(document.body.textContent).not.toMatch(/\d{6,8}[-+]\d{4}/);
+  });
+
+  it("names the person a row was matched to", async () => {
+    // The board approves what is written to whom, so the person has to be on
+    // the screen and not only an identifier the board cannot read.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(screen.getByText("Matchad person: Dag Dahlström")).toBeTruthy();
+  });
+
+  it("says a row's identity number is not added to a person it matched on something else", async () => {
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 1, ambiguous: 0, error: 0 },
+        rows: [
+          created,
+          {
+            ...updated,
+            person: { ...updated.person, hasPersonalIdentityNumber: true },
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByText(/Personnumret läggs inte till på den här personen/),
+    ).toBeTruthy();
+  });
+
+  it("says why a row that matched one person still waits for a decision", async () => {
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 0, ambiguous: 1, error: 0 },
+        rows: [
+          created,
+          {
+            ...updated,
+            outcome: "ambiguous",
+            matchedPersonId: null,
+            matchedPersonName: null,
+            mismatch: "personalIdentityNumber",
+            candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByText(
+        /Filens personnummer skiljer sig från den här personens/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Dag Dahlström" })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("names what is wrong with a row rather than dropping it", async () => {
