@@ -2375,6 +2375,7 @@
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",
+      "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
       "ambiguousRowsUndecided": "Some rows still match more than one person.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
