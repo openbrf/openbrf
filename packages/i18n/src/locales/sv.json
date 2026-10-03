@@ -3553,6 +3553,7 @@
       "withdrawNamed": "Återkalla ansökan för {{from}} till {{to}}",
       "withdrawing": "Återkallar ...",
       "closedOn": "Styrelsen svarade den {{date}}.",
+      "withdrawnOn": "Du återkallade den {{date}}.",
       "boardSaid": "Styrelsen skrev: {{note}}",
       "tribunalAvailable": "Styrelsen har vägrat. Du får ändå upplåta lägenheten om hyresnämnden lämnar tillstånd (bostadsrättslagen 7 kap. 11 §). Berätta för styrelsen om den gör det, så att föreningens egen anteckning stämmer.",
       "tribunalPermitted": "Hyresnämnden lämnade tillstånd den {{on}}, till och med {{until}}. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
@@ -3641,6 +3642,7 @@
       "withdrawing": "Återkallar ...",
       "handedOverOn": "Utlämnad den {{date}}.",
       "closedOn": "Styrelsen svarade den {{date}}.",
+      "withdrawnOn": "Du återkallade den {{date}}.",
       "boardSaid": "Styrelsen skrev: {{note}}"
     },
     "queue": {

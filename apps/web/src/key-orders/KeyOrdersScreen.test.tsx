@@ -180,6 +180,29 @@ describe("a resident", () => {
     expect(screen.getByText(/Ingenting debiteras här/)).not.toBeNull();
   });
 
+  it("is told they withdrew an order, not that the board answered it", async () => {
+    // The row is kept for years, so it must say who closed it.
+    fetchKeyOrderIntake.mockResolvedValue({
+      ok: true,
+      value: {
+        apartments: [APARTMENT],
+        orders: [
+          {
+            ...OPEN_ORDER,
+            status: "WITHDRAWN",
+            closedAt: "2028-11-05T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    render(<KeyOrdersScreen viewer={viewer(["keyOrders:place"])} />);
+
+    await screen.findByText("Dina beställningar");
+    expect(screen.getByText("Du återkallade den 2028-11-05.")).not.toBeNull();
+    expect(screen.queryByText(/Styrelsen svarade/u)).toBeNull();
+  });
+
   it("has no door to order to, and is told so rather than shown a form", async () => {
     fetchKeyOrderIntake.mockResolvedValue({
       ok: true,

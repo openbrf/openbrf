@@ -3553,6 +3553,7 @@
       "withdrawNamed": "Withdraw the application for {{from}} to {{to}}",
       "withdrawing": "Withdrawing...",
       "closedOn": "The board answered this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}.",
       "boardSaid": "The board wrote: {{note}}",
       "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
       "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
@@ -3641,6 +3642,7 @@
       "withdrawing": "Withdrawing...",
       "handedOverOn": "Handed over on {{date}}.",
       "closedOn": "The board answered this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}.",
       "boardSaid": "The board wrote: {{note}}"
     },
     "queue": {
