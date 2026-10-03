@@ -293,7 +293,8 @@ disagree about whether a 403 is worth retrying.
 
 `apps/api/src/actions/action-denylist.ts` is Beslutslogg 64 in code: four
 constants, read by the boot gate and by the contract test over the catalogue.
-They are constants rather than a rule derived from something else, because a
+`register` also refuses a core action that declares a denied capability or
+carries a denied name, so neither depends on the test being kept up. They are constants rather than a rule derived from something else, because a
 reviewer has to be able to check the list against the decision without running
 the program.
 

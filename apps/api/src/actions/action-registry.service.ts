@@ -29,6 +29,10 @@ import {
 } from "../auth/resource-challenge";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
+import {
+  DENIED_ACTION_CAPABILITIES,
+  DENIED_NAME_PATTERNS,
+} from "./action-denylist";
 import { ActionError, type ActionErrorReason } from "./action.error";
 
 /**
@@ -130,6 +134,29 @@ export class ActionRegistryService {
     this.assertNameFree(definition.name);
     for (const alias of definition.deprecatedAliases ?? []) {
       this.assertNameFree(alias);
+    }
+
+    if (owner.kind === "core") {
+      /*
+       * Beslutslogg 64, refused at registration rather than only by the
+       * contract test over the catalogue. A plugin's declaration is refused
+       * earlier, by the gate (plugin-action-gate.ts), where the board reads
+       * the finding; a core action passes through no gate but this one.
+       */
+      if (
+        (DENIED_ACTION_CAPABILITIES as readonly string[]).includes(
+          definition.capability,
+        )
+      ) {
+        throw new Error(
+          `${definition.name}: "${definition.capability}" is a capability no action may hold.`,
+        );
+      }
+      if (DENIED_NAME_PATTERNS.test(definition.name)) {
+        throw new Error(
+          `${definition.name}: the name describes an act no action may perform.`,
+        );
+      }
     }
 
     // Converted here, at registration, rather than when something asks for the
@@ -260,6 +287,17 @@ export class ActionRegistryService {
     return canonical === undefined
       ? null
       : (this.actions.get(canonical) ?? null);
+  }
+
+  /**
+   * Everything registered, aliases aside, with no caller in mind.
+   *
+   * For the contract test over the catalogue, which has to see an action that
+   * nobody added to its pinned list. Never served: list() is what a caller is
+   * offered.
+   */
+  all(): RegisteredAction[] {
+    return [...this.actions.values()];
   }
 
   inputJsonSchema(name: string): Record<string, unknown> {

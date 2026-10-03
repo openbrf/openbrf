@@ -117,6 +117,30 @@ describe("what may be registered", () => {
       ),
     ).toThrow(/news_publish/);
   });
+
+  it("refuses a core action declaring a capability by which authority moves", () => {
+    // Beslutslogg 64, core actions included. The plugin gate refuses this over
+    // a manifest; a core action passes through no gate but this one.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ capability: "boardPosition:manage" }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).toThrow(/news_publish.*boardPosition:manage/);
+  });
+
+  it("refuses a core action whose name describes an act no action may perform", () => {
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ name: "residency_end" }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).toThrow(/residency_end/);
+  });
 });
 
 /**
