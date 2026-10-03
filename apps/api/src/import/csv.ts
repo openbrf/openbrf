@@ -68,6 +68,15 @@ export function detectDelimiter(text: string): CsvDelimiter {
  * catches, starting with "ï»¿" in the first title. Such a file is read
  * leniently, so a stray invalid byte becomes one U+FFFD that the preview
  * refuses on its row. The decoder drops the mark itself.
+ *
+ * Without a mark the same danger remains, and nothing downstream sees it: a
+ * UTF-8 file with one stray byte fails the strict decode, and Windows-1252
+ * would read every correctly encoded letter in it as mojibake ("Ã…sa") that
+ * holds no U+FFFD. A file that fails the strict decode but still holds
+ * well-formed UTF-8 for a non-ASCII character is both encodings at once, and
+ * the board is asked to save it again instead of being guessed for. A real
+ * Windows-1252 file never matches: its letters sit next to letters, and a UTF-8
+ * sequence needs the symbol bytes 0x80-0xBF after its first.
  */
 export function decodeCsv(bytes: Uint8Array): string {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
@@ -76,8 +85,19 @@ export function decodeCsv(bytes: Uint8Array): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
+    if (holdsUtf8Sequence(bytes)) {
+      throw new Error("The file mixes UTF-8 and another encoding.");
+    }
     return new TextDecoder("windows-1252").decode(bytes);
   }
+}
+
+/** A two-, three- or four-byte UTF-8 sequence, read off the bytes as latin1. */
+const UTF_8_SEQUENCE =
+  /[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF4][\x80-\xBF]{3}/;
+
+function holdsUtf8Sequence(bytes: Uint8Array): boolean {
+  return UTF_8_SEQUENCE.test(Buffer.from(bytes).toString("latin1"));
 }
 
 /** Parses a CSV document into rows of cells. */

@@ -87,6 +87,29 @@ describe("decoding the bytes", () => {
       "F\u00F6rnamn;Efternamn\n\u00C5sa;\u00D6berg\nBj\uFFFDrk;Lind",
     );
   });
+
+  it("refuses a file without a byte order mark that is UTF-8 with one stray byte", () => {
+    // Read as Windows-1252 "Åsa Öberg" would become "Ã…sa Ã–berg", which holds
+    // no U+FFFD for the preview to catch, so the file is refused instead.
+    const bytes = Buffer.concat([
+      Buffer.from("Förnamn;Efternamn\nÅsa;Öberg\nBj", "utf8"),
+      Buffer.from([0xf6]),
+      Buffer.from("rk;Lind", "utf8"),
+    ]);
+
+    expect(() => decodeCsv(bytes)).toThrow();
+  });
+
+  it("still reads a Windows-1252 file with capitals and lowercase Swedish letters", () => {
+    // Å is C5 and ä is E4, each followed by a letter: none of it can be the
+    // start of a UTF-8 sequence, so the refusal above never reaches it.
+    const bytes = Buffer.from(
+      "Namn;Ort\nGunnar \u00C5kerlund;V\u00E4ster\u00E5s\n",
+      "latin1",
+    );
+
+    expect(decodeCsv(bytes)).toBe("Namn;Ort\nGunnar Åkerlund;Västerås\n");
+  });
 });
 
 describe("parsing", () => {

@@ -235,6 +235,16 @@ const CHECKSUM_TABLE = "media_file";
 const CHECKSUM_FIELD = "checksum";
 const CHECKSUM_BITS = 256;
 
+/**
+ * Associated data that marks a ciphertext as holding the value's UTF-8 bytes.
+ *
+ * Ciphertext written before the value was UTF-8 holds latin1 bytes, and the
+ * two overlap: the latin1 bytes of "Ã¶" are also the UTF-8 bytes of "ö". Looking at the bytes cannot tell them apart, so the format is
+ * recorded where it is authenticated. A ciphertext made with this associated
+ * data opens only with it, and an older one opens only without it.
+ */
+const UTF_8_FORMAT = "openbrf:utf-8";
+
 export interface EncryptedValue {
   /** Ciphertext of the value as entered, so the original spelling survives. */
   cipher: string;
@@ -283,10 +293,12 @@ export class FieldEncryptionService {
     // The library turns a string into bytes as latin1, one byte per UTF-16
     // code unit, which keeps "Å" as the single byte C5 and cuts anything above
     // U+00FF down to its low byte. Handing it the UTF-8 bytes is what lets
-    // decrypt give back the value as entered. The published types take a
-    // string; the library takes the Buffer as it is (Util.toBuffer).
+    // decrypt give back the value as entered, and UTF_8_FORMAT is what tells
+    // decrypt that it was done. The published types take a string; the library
+    // takes the Buffer as it is (Util.toBuffer).
     const cipher = await field.encryptValue(
       Buffer.from(plaintext, "utf8") as unknown as string,
+      UTF_8_FORMAT,
     );
     const index = spec.indexed ? await this.computeIndex(id, plaintext) : null;
 
@@ -298,17 +310,18 @@ export class FieldEncryptionService {
     // decryptValue resolves to a Buffer, not a string. Comparing its result
     // directly against a string silently fails, which is why this conversion
     // lives in one place.
-    const plaintext = await this.fieldFor(id).decryptValue(cipher);
+    const field = this.fieldFor(id);
     try {
+      const utf8 = await field.decryptValue(cipher, UTF_8_FORMAT);
       // ignoreBOM keeps a leading U+FEFF that was part of the value.
-      return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-        plaintext,
-      );
+      return new TextDecoder("utf-8", { ignoreBOM: true }).decode(utf8);
     } catch {
-      // A value encrypted before encrypt passed UTF-8 bytes holds latin1, and
-      // a latin1 "å" is never valid UTF-8. Read that way it comes back as
-      // entered, as long as it held nothing above U+00FF.
-      return plaintext.toString("latin1");
+      // Not made with UTF_8_FORMAT, so it is older: the library's own latin1
+      // conversion of the string. That reads back as entered as long as the
+      // value held nothing above U+00FF. A ciphertext that is damaged or
+      // belongs to another field fails here as well, and says so.
+      const legacy = await field.decryptValue(cipher);
+      return legacy.toString("latin1");
     }
   }
 

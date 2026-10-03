@@ -93,6 +93,43 @@ describe("FieldEncryptionService", () => {
     );
   });
 
+  it.each([
+    ["letters that spell a UTF-8 letter", "Ã¶", "Ã¶"],
+    ["a no-break space after a capital A circumflex", "Â Smith", "Â Smith"],
+    ["a pound sign after a capital A circumflex", "Â£", "Â£"],
+  ])(
+    "reads an older value of %s as entered, not as the UTF-8 it resembles",
+    async (_label, value, expected) => {
+      // The latin1 bytes of these values are also valid UTF-8 for other text
+      // ("Ã¶" is C3 B6, which is "ö"), so only the format marker can say which
+      // it is.
+      const legacy = new EncryptedField(
+        new CipherSweet(new StringProvider(TEST_ENV.OPENBRF_ENCRYPTION_KEY!)),
+        "person",
+        "email",
+      );
+      const cipher = await legacy.encryptValue(value);
+
+      await expect(service.decrypt("person.email", cipher)).resolves.toBe(
+        expected,
+      );
+    },
+  );
+
+  it("does not read a value written now as an older one", async () => {
+    // The mirror of the case above: "ö" is stored as C3 B6, which an older
+    // reading would turn into "Ã¶".
+    const { cipher } = await service.encrypt("person.email", "ö");
+
+    await expect(service.decrypt("person.email", cipher)).resolves.toBe("ö");
+  });
+
+  it("refuses a ciphertext that belongs to another field", async () => {
+    const { cipher } = await service.encrypt("person.email", "anna@exempel.se");
+
+    await expect(service.decrypt("person.phone", cipher)).rejects.toThrow();
+  });
+
   it("keeps the blind index a non-ASCII address already has", async () => {
     // Computed from the string, as it always was: a stored index moving would
     // hide the address from search.
