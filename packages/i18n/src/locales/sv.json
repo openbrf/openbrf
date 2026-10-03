@@ -1929,12 +1929,14 @@
         "cancel": "Avbryt",
         "submit": "Notera panten",
         "release": "Avnotera",
-        "releaseLabel": "Avnotera panten från {{creditor}}",
+        "releaseLabel": "Avnotera panten från {{lien}}",
         "releasedOnLabel": "Avnoterad den",
-        "releasedOnLabelFor": "Avnoterad den, för panten från {{creditor}}",
+        "releasedOnLabelFor": "Avnoterad den, för panten från {{lien}}",
         "releaseSubmit": "Registrera avnoteringen",
-        "releaseSubmitLabel": "Registrera avnoteringen av panten från {{creditor}}",
+        "releaseSubmitLabel": "Registrera avnoteringen av panten från {{lien}}",
         "releasing": "Avnoterar",
+        "releaseRecordedUnread": "Avnoteringen är registrerad, men registret kunde inte läsas om. Panten kan se öppen ut tills det har lästs om.",
+        "readAgain": "Läs om registret",
         "failed": "Panten kunde inte registreras. Kontrollera panthavare, datum och belopp."
       },
       "transfers": {

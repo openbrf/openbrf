@@ -96,6 +96,15 @@ async function loadExtract(): Promise<LoadedExtract> {
     : { state: "failed" };
 }
 
+/**
+ * What releasing a lien came to.
+ *
+ * "recorded-unread" is a release the register holds that the screen has not
+ * read back, so the lien still reads as open. It is not a refusal, and submitting
+ * the release again would be refused.
+ */
+type ReleaseOutcome = "refused" | "recorded" | "recorded-unread";
+
 interface LienDraft {
   apartmentId: string;
   creditor: string;
@@ -277,8 +286,11 @@ export function ApartmentRegisterScreen(): ReactElement {
     };
   }, [apply]);
 
-  const load = useCallback(async (): Promise<void> => {
-    apply(await loadExtract());
+  /** Reads the register again, and says whether the read answered. */
+  const load = useCallback(async (): Promise<boolean> => {
+    const loaded = await loadExtract();
+    apply(loaded);
+    return loaded.state === "ok";
   }, [apply]);
 
   const reveal = useCallback(async (): Promise<void> => {
@@ -322,15 +334,16 @@ export function ApartmentRegisterScreen(): ReactElement {
   );
 
   const release = useCallback(
-    async (lienId: string, releasedOn: string): Promise<boolean> => {
+    async (lienId: string, releasedOn: string): Promise<ReleaseOutcome> => {
       setLienFailed(false);
       const result = await releaseLien({ lienId, releasedOn });
       if (!result.ok) {
         setLienFailed(true);
-        return false;
+        return "refused";
       }
-      await load();
-      return true;
+      // The release is written whether or not the register reads back, and the
+      // two are told apart: a failed read leaves the lien on screen as open.
+      return (await load()) ? "recorded" : "recorded-unread";
     },
     [load],
   );
@@ -858,6 +871,7 @@ export function ApartmentRegisterScreen(): ReactElement {
                     void submitLien(input);
                   }}
                   onRelease={release}
+                  onReread={load}
                   termination={
                     termination?.apartmentId === row.apartmentId
                       ? termination
@@ -941,6 +955,7 @@ function ApartmentEntry({
   recordingLien,
   onSubmitLien,
   onRelease,
+  onReread,
   termination,
   onStartTermination,
   onCancelTermination,
@@ -963,7 +978,8 @@ function ApartmentEntry({
   onChangeLien: (draft: LienDraft) => void;
   recordingLien: boolean;
   onSubmitLien: (draft: LienDraft) => void;
-  onRelease: (lienId: string, releasedOn: string) => Promise<boolean>;
+  onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
+  onReread: () => Promise<boolean>;
   termination: TerminationDraft | null;
   onStartTermination: () => void;
   onCancelTermination: () => void;
@@ -1103,7 +1119,11 @@ function ApartmentEntry({
                 )}
                 {lien.releasedOn === null ? (
                   canWrite ? (
-                    <LienReleaseControl lien={lien} onRelease={onRelease} />
+                    <LienReleaseControl
+                      lien={lien}
+                      onRelease={onRelease}
+                      onReread={onReread}
+                    />
                   ) : null
                 ) : (
                   <span className="font-data text-data text-ink-muted">
@@ -1635,14 +1655,54 @@ function ReportBasisControl({
 function LienReleaseControl({
   lien,
   onRelease,
+  onReread,
 }: {
   lien: ApartmentRegisterLien;
-  onRelease: (lienId: string, releasedOn: string) => Promise<boolean>;
+  onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
+  onReread: () => Promise<boolean>;
 }): ReactElement {
   const { t } = useTranslation();
   const [releasedOn, setReleasedOn] = useState<string | null>(null);
   const [releasing, setReleasing] = useState(false);
-  const names = { creditor: lien.creditor };
+  const [recordedUnread, setRecordedUnread] = useState(false);
+  const [reading, setReading] = useState(false);
+  /*
+   * Named by the creditor, the day it was noted and the amount. A creditor can
+   * hold several open notes on one apartment, and a control that said only who
+   * they are owed to would be the same control twice, for acts that cannot be
+   * taken back.
+   */
+  const names = {
+    lien: [lien.creditor, lien.notedOn, lien.amount]
+      .filter((part): part is string => part !== null)
+      .join(", "),
+  };
+
+  if (recordedUnread) {
+    return (
+      <span className="flex flex-wrap items-center gap-2 print:hidden">
+        <span role="status" className="text-small text-ink-muted">
+          {t("registers.apartment.liens.releaseRecordedUnread")}
+        </span>
+        <button
+          type="button"
+          disabled={reading}
+          onClick={() => {
+            setReading(true);
+            void onReread().then((read) => {
+              setReading(false);
+              if (read) {
+                setRecordedUnread(false);
+              }
+            });
+          }}
+          className={QUIET_BUTTON}
+        >
+          {t("registers.apartment.liens.readAgain")}
+        </button>
+      </span>
+    );
+  }
 
   if (releasedOn === null) {
     return (
@@ -1668,10 +1728,13 @@ function LienReleaseControl({
           return;
         }
         setReleasing(true);
-        void onRelease(lien.id, releasedOn).then((released) => {
+        void onRelease(lien.id, releasedOn).then((outcome) => {
           setReleasing(false);
-          if (released) {
+          if (outcome === "recorded") {
             setReleasedOn(null);
+          } else if (outcome === "recorded-unread") {
+            setReleasedOn(null);
+            setRecordedUnread(true);
           }
         });
       }}

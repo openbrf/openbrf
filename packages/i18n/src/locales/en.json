@@ -1929,12 +1929,14 @@
         "cancel": "Cancel",
         "submit": "Note the lien",
         "release": "Release",
-        "releaseLabel": "Release the lien from {{creditor}}",
+        "releaseLabel": "Release the lien from {{lien}}",
         "releasedOnLabel": "Released on",
-        "releasedOnLabelFor": "Released on, for the lien from {{creditor}}",
+        "releasedOnLabelFor": "Released on, for the lien from {{lien}}",
         "releaseSubmit": "Record the release",
-        "releaseSubmitLabel": "Record the release of the lien from {{creditor}}",
+        "releaseSubmitLabel": "Record the release of the lien from {{lien}}",
         "releasing": "Releasing",
+        "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may look open until it has been.",
+        "readAgain": "Read the register again",
         "failed": "The lien could not be recorded. Check the creditor, the date and the amount."
       },
       "transfers": {
