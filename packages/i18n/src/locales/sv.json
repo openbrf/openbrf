@@ -4061,6 +4061,7 @@
       "notAMemberOnTheMeetingDay": "Medlemsförteckningen visar inte den här personen som medlem på stämmans dag, så hen har ingen rösträtt på den.",
       "proxyHolderHoldsNoAuthority": "Den här personen har ingen gällande fullmakt för den här stämman. Registrera fullmakten först.",
       "assistantPrincipalNotPresent": "Ett biträde tas med av en medlem eller ett ombud, och den angivna personen står inte på förteckningen. Pricka av hen först.",
+      "assistantAlreadyPresent": "Medlemmen eller ombudet har redan ett biträde på förteckningen, och var och en får ta med ett (EFL 6 kap. 7 §). Stryk det biträdet från förteckningen först.",
       "attendancePrincipalNotApplicable": "Bara ett biträde tas med av någon. Lämna det fältet ifred för en medlem eller ett ombud.",
       "attendanceNotFound": "Den raden står inte längre på förteckningen. Läs stämman igen.",
       "proxyHolderNotAMember": "Bara en annan medlem får vara ombud, och medlemsförteckningen visar inte den här personen som medlem på stämmans dag.",

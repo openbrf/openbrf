@@ -44,6 +44,7 @@ const REASONS: readonly MeetingReason[] = [
   "attendance-not-found",
   "attendance-principal-not-applicable",
   "assistant-principal-not-present",
+  "assistant-already-present",
   "proxy-holder-holds-no-authority",
   "notice-already-issued",
   "meeting-has-no-agenda",

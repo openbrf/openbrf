@@ -4061,6 +4061,7 @@
       "notAMemberOnTheMeetingDay": "The member register does not show this person as a member on the day of this meeting, so they have no vote at it.",
       "proxyHolderHoldsNoAuthority": "This person holds no current authority for this meeting. Register the proxy authorisation first.",
       "assistantPrincipalNotPresent": "An assistant is brought by a member or a proxy holder, and the person named is not on the list. Check them in first.",
+      "assistantAlreadyPresent": "The member or proxy holder named already has an assistant on the list, and each may bring one (EFL 6 kap. 7 §). Strike that assistant off the list first.",
       "attendancePrincipalNotApplicable": "Only an assistant is brought by somebody. Leave that field alone for a member or a proxy holder.",
       "attendanceNotFound": "That line is no longer on the list. Read the meeting again.",
       "proxyHolderNotAMember": "Only another member may be a proxy holder, and the member register does not show this person as one on the day of this meeting.",

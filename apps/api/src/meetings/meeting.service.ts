@@ -10,7 +10,9 @@ import {
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+// The namespace as a value, not only as a type: the check-in below reads a
+// Prisma error class.
+import { Prisma } from "../generated/prisma/client";
 
 import type {
   AttendanceCapacity,
@@ -483,7 +485,7 @@ export class MeetingService {
    * An ASSISTANT line requires the member or proxy holder they came with to be
    * on the list already. EFL 6 kap. 7 § has a member or a proxy holder bring
    * the assistant, so an assistant with nobody there to have brought them is
-   * not one. At most one per principal, which the database states.
+   * not one. At most one per principal, which the database also states.
    *
    * Nothing else may carry `onBehalfOfPersonId`, which the database also
    * states. A member is nobody's stand-in and a proxy holder's principals are
@@ -526,29 +528,61 @@ export class MeetingService {
       }
       if (input.capacity === "ASSISTANT") {
         await this.requirePrincipalPresent(tx, meetingId, onBehalfOfPersonId);
+        /*
+         * Asked before the partial index answers, so the refusal names the
+         * rule. This person's own line is left out, because recording them
+         * again with the same principal updates that line rather than adding
+         * a second assistant.
+         */
+        const assistants = await tx.meetingAttendance.count({
+          where: {
+            meetingId,
+            capacity: "ASSISTANT",
+            onBehalfOfPersonId,
+            withdrawnAt: null,
+            personId: { not: input.personId },
+          },
+        });
+        if (assistants > 0) {
+          throw secondAssistant();
+        }
       }
 
-      const attendance = await tx.meetingAttendance.upsert({
-        where: {
-          meetingId_personId_capacity: {
+      const attendance = await tx.meetingAttendance
+        .upsert({
+          where: {
+            meetingId_personId_capacity: {
+              meetingId,
+              personId: input.personId,
+              capacity: input.capacity,
+            },
+          },
+          create: {
             meetingId,
             personId: input.personId,
             capacity: input.capacity,
+            mode: input.mode,
+            onBehalfOfPersonId,
           },
-        },
-        create: {
-          meetingId,
-          personId: input.personId,
-          capacity: input.capacity,
-          mode: input.mode,
-          onBehalfOfPersonId,
-        },
-        // A line struck off and taken up again is the same line with its date
-        // cleared, so the board's list does not grow a second row for one
-        // person in one capacity.
-        update: { mode: input.mode, onBehalfOfPersonId, withdrawnAt: null },
-        select: ATTENDANCE_COLUMNS,
-      });
+          // A line struck off and taken up again is the same line with its date
+          // cleared, so the board's list does not grow a second row for one
+          // person in one capacity.
+          update: { mode: input.mode, onBehalfOfPersonId, withdrawnAt: null },
+          select: ATTENDANCE_COLUMNS,
+        })
+        .catch((cause: unknown) => {
+          // The count above narrows the window and the partial index closes
+          // it: two assistants for one principal checked in at once both pass
+          // the count, and the second write raises P2002.
+          if (
+            input.capacity === "ASSISTANT" &&
+            cause instanceof Prisma.PrismaClientKnownRequestError &&
+            cause.code === "P2002"
+          ) {
+            throw secondAssistant();
+          }
+          throw cause;
+        });
 
       await this.audit.record(
         {
@@ -1480,6 +1514,14 @@ export class MeetingService {
       );
     }
   }
+}
+
+/** The refusal of a second standing assistant for one principal. */
+function secondAssistant(): MeetingError {
+  return new MeetingError(
+    "The member or proxy holder who brought them already has an assistant on the list.",
+    "assistant-already-present",
+  );
 }
 
 const ATTENDANCE_COLUMNS = {

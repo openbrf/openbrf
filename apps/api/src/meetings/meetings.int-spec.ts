@@ -915,6 +915,62 @@ describe("checking people in", () => {
     expect(struck?.withdrawnAt).not.toBeNull();
   });
 
+  it("refuses a second assistant for one principal", async () => {
+    // EFL 6 kap. 7 § allows one assistant each. Both ways a second one can
+    // arrive are refused by name rather than by the partial index: a new line,
+    // and an assistant already on the list moved over to the same principal.
+    const meetingId = await arrangeMeeting();
+    for (const personId of [twoHoldings.personId, jointFirst.personId]) {
+      expect(
+        (await checkIn(meetingId, { personId, capacity: "MEMBER" })).statusCode,
+      ).toBe(201);
+    }
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: soloMember.personId,
+          capacity: "ASSISTANT",
+          onBehalfOfPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: otherMember.personId,
+          capacity: "ASSISTANT",
+          onBehalfOfPersonId: jointFirst.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    for (const personId of [otherMember.personId, lodger.personId]) {
+      const second = await checkIn(meetingId, {
+        personId,
+        capacity: "ASSISTANT",
+        onBehalfOfPersonId: twoHoldings.personId,
+      });
+      expect(second.statusCode).toBe(409);
+      expect(second.json<{ reason: string }>().reason).toBe(
+        "assistant-already-present",
+      );
+    }
+
+    // Recording the same assistant again is not a second one.
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: soloMember.personId,
+          capacity: "ASSISTANT",
+          onBehalfOfPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      (await readMeeting(meetingId)).votingRegister.assistantsPresent,
+    ).toBe(2);
+  });
+
   it("refuses a member's line that names somebody who brought them", async () => {
     /*
      * A member is nobody's stand-in and a proxy holder's principals are the

@@ -62,6 +62,7 @@ export type MeetingReason =
   | "attendance-not-found"
   | "attendance-principal-not-applicable"
   | "assistant-principal-not-present"
+  | "assistant-already-present"
   | "proxy-holder-holds-no-authority"
   | "notice-already-issued"
   | "meeting-has-no-agenda"
@@ -135,6 +136,7 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
     "meetings.errors.proxyHolderHoldsNoAuthority",
   "assistant-principal-not-present":
     "meetings.errors.assistantPrincipalNotPresent",
+  "assistant-already-present": "meetings.errors.assistantAlreadyPresent",
   "attendance-principal-not-applicable":
     "meetings.errors.attendancePrincipalNotApplicable",
   "attendance-not-found": "meetings.errors.attendanceNotFound",

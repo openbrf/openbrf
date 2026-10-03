@@ -49,6 +49,7 @@ export class MeetingError extends DomainError {
       | "attendance-not-found"
       | "attendance-principal-not-applicable"
       | "assistant-principal-not-present"
+      | "assistant-already-present"
       | "proxy-holder-holds-no-authority"
       | "notice-already-issued"
       | "meeting-has-no-agenda"
@@ -92,6 +93,14 @@ function statusFor(reason: MeetingError["reason"]): number {
        * EFL 6 kap. 25 § leaves the meeting unable to decide one the notice did
        * not take up - so once it has been issued the agenda is fixed and a second
        * notice is not the remedy that section gives.
+       */
+      return HttpStatus.CONFLICT;
+
+    case "assistant-already-present":
+      /*
+       * A conflict with the list as it stands. EFL 6 kap. 7 § lets a member or
+       * a proxy holder bring at most one assistant, and this one already has
+       * one; striking that line off is what makes room for another.
        */
       return HttpStatus.CONFLICT;
 
