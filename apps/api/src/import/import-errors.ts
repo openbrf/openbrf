@@ -12,6 +12,12 @@ export type ImportErrorReason =
   | "session-not-found"
   | "session-expired"
   | "session-already-applied"
+  /**
+   * Another session is queued or applying. Answered with 409 and the session
+   * asked about is left in MAPPING, so it can be applied once the other has
+   * finished.
+   */
+  | "another-import-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
@@ -32,7 +38,9 @@ export class ImportError extends DomainError {
     this.status =
       reason === "session-not-found"
         ? 404
-        : reason === "session-expired" || reason === "session-already-applied"
+        : reason === "session-expired" ||
+            reason === "session-already-applied" ||
+            reason === "another-import-running"
           ? 409
           : 400;
   }
