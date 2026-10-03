@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAmount, normalizeAmount } from "./money";
+import { formatAmount, normalizeAmount, vatRateOf } from "./money";
 
 /**
  * The money formatter.
@@ -97,5 +97,28 @@ describe("normalizeAmount", () => {
     expect(normalizeAmount("-450")).toBeNull();
     expect(normalizeAmount("4e2")).toBeNull();
     expect(normalizeAmount("1234567890123")).toBeNull();
+  });
+});
+
+describe("vatRateOf", () => {
+  it("reads a whole percentage", () => {
+    expect(vatRateOf("25")).toBe(25);
+    expect(vatRateOf(" 6 ")).toBe(6);
+    expect(vatRateOf("100")).toBe(100);
+  });
+
+  it("answers null where no rate was typed", () => {
+    expect(vatRateOf("")).toBeNull();
+    expect(vatRateOf("  ")).toBeNull();
+  });
+
+  it("refuses a rate that is not a whole percentage from 1 to 100", () => {
+    // Number("25,5") is NaN, which JSON would send as null: the board would be
+    // asked for a rate it had typed.
+    expect(vatRateOf("25,5")).toBeUndefined();
+    expect(vatRateOf("12.5")).toBeUndefined();
+    expect(vatRateOf("0")).toBeUndefined();
+    expect(vatRateOf("101")).toBeUndefined();
+    expect(vatRateOf("-6")).toBeUndefined();
   });
 });

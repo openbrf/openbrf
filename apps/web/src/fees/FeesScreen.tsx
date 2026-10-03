@@ -34,7 +34,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
-import { formatAmount, normalizeAmount } from "../ui/money";
+import { formatAmount, normalizeAmount, vatRateOf } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import { feeFailureKey } from "./fee-failures";
@@ -125,23 +125,6 @@ const VAT_LABEL: Readonly<Record<FeeVatTreatment, TranslationKey>> = {
   EXEMPT: "fees.vat.EXEMPT",
   RATE: "fees.vat.RATE",
 };
-
-/**
- * The rate as the server reads it: null where none was typed, which the server
- * answers with the sentence asking for one, and undefined where what was typed
- * is not a whole percentage. `Number("25,5")` is NaN, which JSON sends as null,
- * and the board would be asked for a rate it had typed.
- */
-function vatRateOf(typed: string): number | null | undefined {
-  const rate = typed.replaceAll(/\s/gu, "");
-  if (rate === "") {
-    return null;
-  }
-  const percent = Number(rate);
-  return /^\d{1,3}$/u.test(rate) && percent >= 1 && percent <= 100
-    ? percent
-    : undefined;
-}
 
 export function FeesScreen(): ReactElement {
   const { t, i18n } = useTranslation();
