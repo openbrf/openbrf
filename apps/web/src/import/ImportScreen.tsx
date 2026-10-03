@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -125,6 +125,14 @@ export function ImportScreen(): ReactElement {
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
+  /**
+   * Which preview request the screen is still waiting for.
+   *
+   * Stepping back, or leaving the page, ends the wait for a request that has
+   * not been answered yet. The answer comes anyway, and what it starts has to
+   * be cancelled rather than followed: see `runPreview`.
+   */
+  const previewRequest = useRef(0);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -276,6 +284,13 @@ export function ImportScreen(): ReactElement {
     };
   }, [plannedSessionId, plannedPreviewId, receivePreview]);
 
+  useEffect(() => {
+    const requests = previewRequest;
+    return () => {
+      requests.current += 1;
+    };
+  }, []);
+
   const upload = useCallback(async (file: File): Promise<void> => {
     setBusy(true);
     setFailure(null);
@@ -305,11 +320,25 @@ export function ImportScreen(): ReactElement {
     }
     setBusy(true);
     setFailure(null);
+    previewRequest.current += 1;
+    const request = previewRequest.current;
     const response = await previewImport(session.sessionId, {
       mapping,
       defaultRole: needsDefaultRole ? defaultRole : null,
       defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
     });
+    if (request !== previewRequest.current) {
+      // The board stepped back, or left, while this was asked. The preview it
+      // started is planned for nobody, and the poll that would have cancelled
+      // it when the wait ended never began.
+      if (response.ok && response.value.status === "PLANNING") {
+        void cancelImportPreview(
+          response.value.sessionId,
+          response.value.previewId,
+        );
+      }
+      return;
+    }
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
@@ -431,7 +460,10 @@ export function ImportScreen(): ReactElement {
           busy={busy}
           planning={planning}
           onBack={() => {
-            // Ending the wait cancels the preview: see the effect above.
+            // Ending the wait cancels the preview: see the effect above. One
+            // not yet answered is cancelled when it is: see `runPreview`.
+            previewRequest.current += 1;
+            setBusy(false);
             setPlanning(null);
             setStep("upload");
           }}

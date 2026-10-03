@@ -197,6 +197,31 @@ describe("rewriting outdated identity number indexes", () => {
   }, 60_000);
 
   it("finds nothing left to do the second time", async () => {
-    expect(await reindexer.reindex()).toEqual({ reindexed: 0, unreadable: 0 });
+    // Only this suite's rows: the table is shared, and another suite or run
+    // may be inserting rows of its own at an older version meanwhile.
+    const mine = { id: { in: Object.values(ids) } };
+    const before = await prisma.person.findMany({
+      where: mine,
+      select: { id: true, personalIdentityNumberIndex: true },
+      orderBy: { id: "asc" },
+    });
+
+    await reindexer.reindex();
+
+    expect(
+      await prisma.person.count({
+        where: {
+          ...mine,
+          personalIdentityNumberIndexVersion: { lt: NORMALIZATION_VERSION },
+        },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.person.findMany({
+        where: mine,
+        select: { id: true, personalIdentityNumberIndex: true },
+        orderBy: { id: "asc" },
+      }),
+    ).toEqual(before);
   });
 });

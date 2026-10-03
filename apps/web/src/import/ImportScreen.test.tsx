@@ -494,6 +494,41 @@ describe("while the preview is planned", () => {
     expect(signal.aborted).toBe(true);
   });
 
+  it("cancels a preview that is answered after the board stepped back", async () => {
+    // The request is still pending when Back is pressed; the answer starts a
+    // preview nobody waits for, and must neither poll on the upload step nor
+    // move the screen to the preview when it is ready.
+    const session = userEvent.setup();
+    let answer: (value: unknown) => void = () => undefined;
+    previewImport.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    fetchImportPreview.mockResolvedValue({ ok: true, value: previewRun() });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Välj en annan fil/ }),
+    );
+    expect(cancelImportPreview).not.toHaveBeenCalled();
+
+    await act(async () => {
+      answer({ ok: true, value: PLANNING });
+      await Promise.resolve();
+    });
+    await nextPoll();
+
+    expect(cancelImportPreview).toHaveBeenCalledTimes(1);
+    expect(cancelImportPreview).toHaveBeenCalledWith("session-1", "planning-1");
+    expect(fetchImportPreview).not.toHaveBeenCalled();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText(/Anna Lindqvist/)).toBeNull();
+  });
+
   it("cancels the preview when the page is left", async () => {
     const session = userEvent.setup();
     previewImport.mockResolvedValue({ ok: true, value: PLANNING });

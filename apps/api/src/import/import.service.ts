@@ -493,15 +493,28 @@ export class ImportService implements OnModuleInit {
    *
    * What a board member coming back to the screen needs is the import that was
    * started, whether it is still running or finished while the tab was closed.
-   * The most recent session that has left the mapping step is that import, and
-   * it stays answerable for as long as the upload does - after which the purge
-   * removes it and the screen offers a fresh upload again.
+   * An import that is still running comes first, however old: it is the one
+   * that locks out every other, and the screen that was just refused with
+   * `another-import-running` has to show it rather than a newer session that
+   * finished or failed. Otherwise the most recent session that has left the
+   * mapping step is that import, and it stays answerable for as long as the
+   * upload does - after which the purge removes it and the screen offers a
+   * fresh upload again.
    */
   async activeRun(): Promise<ImportRunView | null> {
+    const select = IMPORT_RUN_SELECT;
+    const running = await this.prisma.importSession.findFirst({
+      where: { status: { in: ["QUEUED", "APPLYING"] } },
+      orderBy: { createdAt: "desc" },
+      select,
+    });
+    if (running !== null) {
+      return toRunView(running);
+    }
     const session = await this.prisma.importSession.findFirst({
       where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
-      select: IMPORT_RUN_SELECT,
+      select,
     });
     return session === null ? null : toRunView(session);
   }

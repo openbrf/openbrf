@@ -1407,6 +1407,42 @@ describe("applying", () => {
     expect(active?.status).toBe("APPLIED");
     expect(active?.fileName).toBe("medlemmar.csv");
   });
+
+  it("is the import still running, not a newer one that has finished", async () => {
+    const cookie = await signIn(actors.board.email);
+    const rows = [
+      HEADERS,
+      [addressLabel, "2104", "Aktiv", surname, "Medlem", "", "", "2022-11-01"],
+    ];
+    const running = await uploadAndPreview(cookie, "pagar.csv", rows);
+    await prisma.importSession.update({
+      where: { id: running.sessionId },
+      data: { status: "APPLYING" },
+    });
+    const newer = await uploadAndPreview(cookie, "klar.csv", rows);
+    await prisma.importSession.update({
+      where: { id: newer.sessionId },
+      data: { status: "FAILED", failureReason: "stopped for the test" },
+    });
+
+    try {
+      const response = await inject({
+        method: "GET",
+        url: "/api/import/sessions/active",
+        headers: { cookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const active = JSON.parse(response.body) as ImportRunView | null;
+      expect(active?.sessionId).toBe(running.sessionId);
+      expect(active?.status).toBe("APPLYING");
+    } finally {
+      await prisma.importSession.updateMany({
+        where: { id: { in: [running.sessionId, newer.sessionId] } },
+        data: { status: "MAPPING" },
+      });
+    }
+  });
 });
 
 describe("an apply after the upload was previewed again", () => {
