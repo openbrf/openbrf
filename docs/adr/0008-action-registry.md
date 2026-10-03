@@ -37,11 +37,11 @@ else unless the design forbids it.
 ### One choke point, and the services stay ignorant
 
 `ActionRegistry.invoke()` is the only way an action is performed. It resolves
-the caller, checks the surface and the arming, refuses writes in read-only mode,
-checks the token's scope, re-derives the caller's capabilities through
-`PrincipalService.forPerson`, checks one capability, checks plugin liveness and
-the plugin's own capability floor, parses a strict input, calls the handler,
-validates the output, and writes no audit entry of its own.
+the caller, checks the surface, plugin liveness and the arming, refuses writes in
+read-only mode, checks the token's scope, re-derives the caller's capabilities
+through `PrincipalService.forPerson`, checks one capability, checks the plugin's
+own capability floor, parses a strict input, calls the handler, validates the
+output, and writes no audit entry of its own.
 
 The write services are not given a principal and check nothing. This is the part
 most likely to be undone by a later change that means well, so the reason is

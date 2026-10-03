@@ -486,6 +486,8 @@ describe("what a plugin's action depends on", () => {
   }
 
   it("is unreachable while the plugin is not serving", async () => {
+    // Answered as not-serving, a 404 like an unknown name, rather than as a
+    // 403 that would confirm the action exists.
     const { registry, callers } = withPlugin({
       serving: false,
       armedActions: ["occupancy_summary"],
@@ -496,7 +498,17 @@ describe("what a plugin's action depends on", () => {
       registry.invoke(callers.forRequest(request()), "occupancy_summary", {
         id: "a",
       }),
-    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    ).rejects.toMatchObject({ reason: "not-serving", status: 404 });
+  });
+
+  it("is unreachable while the plugin is not known to be serving at all", async () => {
+    const { registry, callers } = withPlugin(null);
+
+    await expect(
+      registry.invoke(callers.forRequest(request()), "occupancy_summary", {
+        id: "a",
+      }),
+    ).rejects.toMatchObject({ reason: "not-serving", status: 404 });
   });
 
   it("is unreachable through a connected app until an administrator arms it", async () => {

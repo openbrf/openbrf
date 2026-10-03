@@ -450,12 +450,26 @@ export class ActionRegistryService {
       );
     }
 
-    // 4. And whether an administrator has switched it on, for a plugin's.
-    // Read here once and used again at step 9, so one call costs one lookup.
+    // 4. And, for a plugin's, whether the plugin is serving and an
+    // administrator has switched the action on. Read here once and used again
+    // at step 9, so one call costs one lookup. A plugin that is not serving is
+    // answered with a 404 like an unknown name, so the refusal does not
+    // confirm that the action exists.
     const pluginState =
       held.owner.kind === "plugin"
         ? ((await this.liveness?.get(held.owner.pluginId)) ?? null)
         : null;
+    if (
+      held.owner.kind === "plugin" &&
+      (pluginState === null || !pluginState.serving)
+    ) {
+      throw this.refuse(
+        resolved,
+        definition.name,
+        "not-serving",
+        "No such action.",
+      );
+    }
     if (!permits(pluginState, held, surface)) {
       throw this.refuse(
         resolved,
@@ -527,23 +541,16 @@ export class ActionRegistryService {
 
     // 9. For a plugin's action, the floor its own routes demand, so an action
     // is never reachable by a caller the plugin's routes would refuse.
-    if (held.owner.kind === "plugin") {
-      if (pluginState === null || !pluginState.serving) {
-        throw this.refuse(
-          resolved,
-          definition.name,
-          "not-serving",
-          "No such action.",
-        );
-      }
-      if (!holdsCapability(principal, pluginState.capabilityFloor)) {
-        throw this.refuse(
-          resolved,
-          definition.name,
-          "forbidden-capability",
-          "This person may not do that.",
-        );
-      }
+    if (
+      pluginState !== null &&
+      !holdsCapability(principal, pluginState.capabilityFloor)
+    ) {
+      throw this.refuse(
+        resolved,
+        definition.name,
+        "forbidden-capability",
+        "This person may not do that.",
+      );
     }
 
     // 10. The input. The standard entry point RETURNS its issues rather than
