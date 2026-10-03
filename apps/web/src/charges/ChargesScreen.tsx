@@ -286,12 +286,26 @@ export function ChargesScreen(): ReactElement {
     [refresh],
   );
 
-  /** The charge the form is correcting, or null while it records a new one. */
+  /** The charge being corrected, or null while none is. */
   const [correcting, setCorrecting] = useState<ChargeRow | null>(null);
+  /*
+   * Said by the screen rather than by the form: the correction form closes on
+   * a successful save, and the confirmation would go with it.
+   */
+  const [corrected, setCorrected] = useState(false);
 
   const onRecorded = useCallback(
     (_row: ChargeRow) => {
+      setCorrected(false);
+      refresh();
+    },
+    [refresh],
+  );
+
+  const onCorrected = useCallback(
+    (_row: ChargeRow) => {
       setCorrecting(null);
+      setCorrected(true);
       refresh();
     },
     [refresh],
@@ -315,25 +329,38 @@ export function ChargesScreen(): ReactElement {
         <LoadFailure messageKey="charges.loadFailed" onRetry={retry} />
       ) : null}
 
-      {/*
-        Kept through a failed read of the list, so a charge half typed is not
-        lost to it; the parties it offers are the last ones read.
-      */}
-      {parties === null || forbidden ? null : (
+      {corrected && correcting === null && !forbidden ? (
+        <Notice tone="ok" live>
+          {t("charges.correct.saved")}
+        </Notice>
+      ) : null}
+
+      {parties === null || forbidden || correcting === null ? null : (
         <RecordChargePanel
-          key={correcting?.chargeId ?? "new"}
+          key={correcting.chargeId}
           parties={parties}
           today={today()}
-          onRecorded={onRecorded}
-          correcting={correcting ?? undefined}
-          onCancel={
-            correcting === null
-              ? undefined
-              : () => {
-                  setCorrecting(null);
-                }
-          }
+          onRecorded={onCorrected}
+          correcting={correcting}
+          onCancel={() => {
+            setCorrecting(null);
+          }}
         />
+      )}
+
+      {/*
+        Kept through a failed read of the list, so a charge half typed is not
+        lost to it; the parties it offers are the last ones read. Hidden rather
+        than unmounted while a charge is corrected, for the same reason.
+      */}
+      {parties === null || forbidden ? null : (
+        <div hidden={correcting !== null}>
+          <RecordChargePanel
+            parties={parties}
+            today={today()}
+            onRecorded={onRecorded}
+          />
+        </div>
       )}
 
       {forbidden ? null : (
@@ -528,6 +555,7 @@ export function ChargesScreen(): ReactElement {
                           type="button"
                           onClick={() => {
                             setCorrecting(row);
+                            setCorrected(false);
                           }}
                           className={`${QUIET_BUTTON} me-2`}
                         >

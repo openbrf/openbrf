@@ -4173,6 +4173,7 @@
       "description": "The charge is corrected where it stands, and the log shows what changed. Who is charged cannot be changed: if the wrong party was charged, remove the charge and record a new one.",
       "submit": "Save the correction",
       "saving": "Saving the correction",
+      "saved": "The charge is corrected.",
       "cancel": "Cancel"
     },
     "errors": {

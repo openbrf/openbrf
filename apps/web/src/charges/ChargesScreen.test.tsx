@@ -135,6 +135,15 @@ const LIST: DebitingList = {
   ],
 };
 
+/** The open correction form, by its heading. */
+function correctionForm(): HTMLElement {
+  const form = screen
+    .getByRole("heading", { name: "Rätta en debitering" })
+    .closest("section");
+  expect(form).not.toBeNull();
+  return form as HTMLElement;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   fetchDebitingList.mockResolvedValue({ ok: true, value: LIST });
@@ -499,15 +508,16 @@ describe("correcting a charge", () => {
     await userEvent.click(
       within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
     );
+    const form = correctionForm();
     expect(
-      (screen.getByLabelText("Vad debiteringen avser") as HTMLInputElement)
+      within(form).getByLabelText<HTMLInputElement>("Vad debiteringen avser")
         .value,
     ).toBe("Nyckel till cykelrummet");
     // The party is not on the form: the server does not move it.
-    expect(screen.queryByLabelText("Medlem")).toBeNull();
+    expect(within(form).queryByLabelText("Medlem")).toBeNull();
 
     fireEvent.change(
-      screen.getByLabelText(/^Skickat till ekonomisk förvaltare/u),
+      within(form).getByLabelText(/^Skickat till ekonomisk förvaltare/u),
       { target: { value: "2026-04-01" } },
     );
     await userEvent.click(
@@ -527,6 +537,38 @@ describe("correcting a charge", () => {
       await screen.findByRole("heading", { name: "Registrera en debitering" }),
     ).toBeTruthy();
     expect(fetchDebitingList.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("confirms a saved correction, and keeps a charge half typed meanwhile", async () => {
+    /*
+     * The form was one panel keyed by the charge it corrected, so a save
+     * remounted it as an empty "record a charge": the confirmation went with
+     * the correction form, and opening a correction threw away whatever was
+     * typed into the new charge.
+     */
+    correctCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    await userEvent.type(
+      screen.getByLabelText("Vad debiteringen avser"),
+      "Halvskriven debitering",
+    );
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    await userEvent.click(
+      within(correctionForm()).getByRole("button", { name: "Spara rättelsen" }),
+    );
+
+    expect(await screen.findByText("Debiteringen är rättad.")).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Rätta en debitering" }),
+    ).toBeNull();
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Vad debiteringen avser").value,
+    ).toBe("Halvskriven debitering");
   });
 });
 
