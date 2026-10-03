@@ -30,6 +30,10 @@ import {
  * is followed to where the library puts it, and one placed by counting alone
  * is held to the import's rows as well.
  *
+ * The library starts counting over at every `<sheetData>`, while the rows it
+ * has already read stay. A worksheet has one, so a part with a second is
+ * refused rather than followed through each count.
+ *
  * The scan follows saxen's own tokenizing: text runs to the next `<`, a comment,
  * a CDATA section and a processing instruction run to their closing marks, and
  * a tag runs to the first `>` outside a quoted value. Every element name and
@@ -62,11 +66,13 @@ interface Rows {
   row: number | undefined;
   /** How many rows the library holds once the rows closed so far are in. */
   read: number;
+  /** Whether the part has opened its `<sheetData>`. */
+  sheetData: boolean;
 }
 
 /** Throws when an address in this XML part lies past the import's limits. */
 export function checkAddresses(xml: string): void {
-  const rows: Rows = { row: undefined, read: 0 };
+  const rows: Rows = { row: undefined, read: 0, sheetData: false };
   let at = 0;
   for (;;) {
     const open = xml.indexOf("<", at);
@@ -129,6 +135,15 @@ function checkStartTag(body: string, rows: Rows): void {
   const tag = selfClosing ? body.slice(0, -1) : body;
   const nameEnd = nameLength(tag);
   const element = localName(tag.slice(0, nameEnd));
+  if (element === "sheetData") {
+    if (rows.sheetData) {
+      throw new UnreadableSheetError(
+        "A sheet part has two sheetData elements.",
+      );
+    }
+    rows.sheetData = true;
+    return;
+  }
   if (element !== "row" && element !== "c") {
     return;
   }

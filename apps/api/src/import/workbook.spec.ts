@@ -186,6 +186,20 @@ describe("a workbook past the import's limits", () => {
       "a cell outside the row its first cell names",
       '<row><c r="A2" s="0"/><c r="B3" t="inlineStr"><is><t>x</t></is></c></row>',
     ],
+    [
+      "a second list of rows, where the parser counts again",
+      '<row r="65536"/></sheetData><sheetData>' +
+        '<row r="1"><c r="GR1" t="inlineStr"><is><t>x</t></is></c></row>',
+    ],
+    [
+      "a second list of rows under a prefix",
+      '<row r="65536"/></sheetData><x:sheetData>' +
+        '<row r="1"><c r="GR1" t="inlineStr"><is><t>x</t></is></c></row>',
+    ],
+    [
+      "a second, empty list of rows",
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row><sheetData/>',
+    ],
   ])("refuses %s before the parser reads it", async (_, sheetData) => {
     const workbook = buildWorkbook([], "Blad1", { sheetData });
 
