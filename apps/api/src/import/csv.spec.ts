@@ -100,6 +100,14 @@ describe("decoding the bytes", () => {
     expect(() => decodeCsv(bytes)).toThrow();
   });
 
+  it("reads bytes that are valid UTF-8 as UTF-8 even when Windows-1252 would read them differently", () => {
+    // C5 A0 is "Å" and a no-break space in Windows-1252 and "Š" in UTF-8. The
+    // bytes cannot say which, and the same rule keeps "Michał" in a UTF-8 file
+    // readable. The preview shows the name before anything is applied.
+    expect(decodeCsv(Buffer.from([0xc5, 0xa0]))).toBe("Š");
+    expect(decodeCsv(Buffer.from("Michał", "utf8"))).toBe("Michał");
+  });
+
   it("still reads a Windows-1252 file with capitals and lowercase Swedish letters", () => {
     // Å is C5 and ä is E4, each followed by a letter: none of it can be the
     // start of a UTF-8 sequence, so the refusal above never reaches it.

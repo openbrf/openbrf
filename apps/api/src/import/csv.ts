@@ -80,6 +80,15 @@ export function detectDelimiter(text: string): CsvDelimiter {
  * Windows-1252 punctuation (’ ” – … or a no-break space) follows a capital in
  * C2-DF (Å Ä Ö É Ü), as in "RENÉ’S" or "BJÖRKÖ" plus a no-break space. Such a
  * file is refused, which is safe: saving it again as UTF-8 fixes it.
+ *
+ * What stays open is a file that passes the strict decode and is Windows-1252
+ * all the same: the bytes C5 A0 are "Å" and a no-break space there and "Š" in
+ * UTF-8, and nothing in the bytes tells them apart. It needs a Windows-1252
+ * file whose only non-ASCII bytes all happen to form UTF-8, so a capital Å, Ä
+ * or Ö next to a symbol and no other Swedish letter anywhere. Guessing the
+ * other way would refuse every Polish or Czech name in a genuine UTF-8 file,
+ * so the board's check is the preview, which shows each name as it would be
+ * written before anything is applied.
  */
 export function decodeCsv(bytes: Uint8Array): string {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
