@@ -654,6 +654,28 @@ describe("reads that fail", () => {
     expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
   });
 
+  it("does not read the register for an emptied date", async () => {
+    // An emptied date field is not a day. Sent, it came back as a failed read
+    // with a retry that asked for the same empty day again.
+    fetchFeeRegister.mockImplementation((on: string) =>
+      Promise.resolve(
+        on === ""
+          ? { ok: false, failure: { status: 400, reason: "invalid-body" } }
+          : { ok: true, value: REGISTER },
+      ),
+    );
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+    await user.clear(screen.getByLabelText("Gäller den"));
+
+    expect(fetchFeeRegister).not.toHaveBeenCalledWith("");
+    expect(
+      screen.queryByText("Avgifterna kunde inte läsas just nu."),
+    ).toBeNull();
+  });
+
   it("does not report a failed read of the runs as none issued", async () => {
     // "No notices have been produced yet" is a statement about the books, and a
     // board reading it after a dropped request would issue a period twice.

@@ -178,6 +178,13 @@ export function FeesScreen(): ReactElement {
 
   useEffect(() => {
     let cancelled = false;
+    /*
+     * An emptied date field is not a day yet. Asked for, it came back as a
+     * failed read, with a retry that asked for the same empty day again.
+     */
+    if (on === "") {
+      return;
+    }
 
     void (async () => {
       const result = await fetchFeeRegister(on);

@@ -347,6 +347,42 @@ describe("when the read fails", () => {
     ).toBeTruthy();
   });
 
+  it("does not read a period while one of its dates is empty", async () => {
+    /*
+     * Emptying a date field on the way to typing another is not a period. Sent,
+     * the server refused it as a malformed request, the screen called that a
+     * failed read, and the retry asked for the same empty period again.
+     */
+    fetchDebitingList.mockImplementation((from: string) =>
+      Promise.resolve(
+        from === ""
+          ? { ok: false, failure: { status: 400, reason: "invalid-body" } }
+          : { ok: true, value: LIST },
+      ),
+    );
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    fireEvent.change(screen.getByLabelText("Från"), { target: { value: "" } });
+    await waitFor(() => {
+      expect(screen.queryByText("Astrid Vallin")).toBeNull();
+    });
+
+    expect(fetchDebitingList).not.toHaveBeenCalledWith("", "2026-12-31");
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("treats a period the request schema refuses as something to correct", async () => {
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+    render(<ChargesScreen />);
+
+    expect(await screen.findByText(/Något i formuläret/u)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
   it("keeps the form when the list cannot be read", async () => {
     // A charge half typed is not lost to a read of the list failing.
     fetchDebitingList.mockResolvedValue({

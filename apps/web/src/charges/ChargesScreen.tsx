@@ -178,6 +178,14 @@ export function ChargesScreen(): ReactElement {
   useEffect(() => {
     let cancelled = false;
     generation.current += 1;
+    /*
+     * A date field emptied on the way to typing another is not a period yet.
+     * Asked for, it came back as a failed read, with a retry that asked for the
+     * same empty period again.
+     */
+    if (from === "" || to === "") {
+      return;
+    }
 
     void (async () => {
       const result = await fetchDebitingList(from, to);
@@ -207,10 +215,11 @@ export function ChargesScreen(): ReactElement {
       }
       /*
        * A period the server refuses is not a failed read: the board stated
-       * something it can correct on the controls above. Anything else is the
-       * read failing, which is the state the retry is for.
+       * something it can correct on the controls above, whether the refusal
+       * is the period's own (422) or the request schema's (400). Anything else
+       * is the read failing, which is the state the retry is for.
        */
-      if (result.failure.status === 422) {
+      if (result.failure.status === 422 || result.failure.status === 400) {
         setRefusal(chargeFailureKey(result.failure));
         return;
       }
