@@ -85,6 +85,7 @@ const guestApartmentId = `be-resource-guest-${suffix}`;
 const withdrawnId = `be-resource-withdrawn-${suffix}`;
 const regriddedId = `be-resource-regridded-${suffix}`;
 const withdrawingId = `be-resource-withdrawing-${suffix}`;
+const sharedRaceLaundryId = `be-resource-shared-race-${suffix}`;
 const resourceIds = [
   quotaLaundryId,
   moveLaundryId,
@@ -94,6 +95,7 @@ const resourceIds = [
   withdrawnId,
   regriddedId,
   withdrawingId,
+  sharedRaceLaundryId,
 ];
 
 /** One of the two holders of the jointly held apartment. */
@@ -406,6 +408,16 @@ beforeAll(async () => {
         name: `Bastu ${suffix}`,
         mode: "WHOLE_DAY",
         deactivatedAt: new Date("2026-06-01"),
+      },
+      {
+        id: sharedRaceLaundryId,
+        // One a week, so two claims by one household race for the last one.
+        name: `Tvattstuga delad kapp ${suffix}`,
+        mode: "TIME_SLOTS",
+        slotMinutes: 120,
+        opensAtMinute: 7 * 60,
+        closesAtMinute: 21 * 60,
+        maxBookingsPerWeek: 1,
       },
       {
         id: regriddedId,
@@ -849,6 +861,47 @@ describe("the quota", () => {
     // Codes and numbers, so the screen can say which rule and how many.
     expect(refusal.quota).toEqual(["maxBookingsPerWeek"]);
     expect(refusal.allowed).toEqual([2]);
+  });
+
+  it("lets one of two concurrent claims by one household take its last booking", async () => {
+    const monday = await slotOn(alfaCookie, sharedRaceLaundryId, WEEK, 0);
+    const tuesday = await slotOn(
+      betaCookie,
+      sharedRaceLaundryId,
+      addLocalDays(WEEK, 1),
+      0,
+    );
+
+    /*
+     * Different slots, so the index has nothing to say, and one apartment, so
+     * the count each claim reads is the only thing between the household and
+     * a second booking. The apartment lock is what makes the second claim
+     * count the first.
+     */
+    const [byAlfa, byBeta] = await Promise.all([
+      claim(alfaCookie, {
+        resourceId: sharedRaceLaundryId,
+        apartmentId: jointApartmentId,
+        startsAt: monday.startsAt,
+      }),
+      claim(betaCookie, {
+        resourceId: sharedRaceLaundryId,
+        apartmentId: jointApartmentId,
+        startsAt: tuesday.startsAt,
+      }),
+    ]);
+
+    const statuses = [byAlfa.statusCode, byBeta.statusCode].sort(
+      (left, right) => left - right,
+    );
+    expect(statuses).toEqual([201, 409]);
+    const loser = byAlfa.statusCode === 409 ? byAlfa : byBeta;
+    expect(loser.json<{ reason: string }>().reason).toBe("quota-reached");
+    expect(
+      await prisma.booking.count({
+        where: { resourceId: sharedRaceLaundryId, status: "BOOKED" },
+      }),
+    ).toBe(1);
   });
 
   it("counts the week the booking is for and not the week it is made in", async () => {
