@@ -719,6 +719,7 @@ export class EventService {
   async cancelOccurrence(
     occurrenceId: string,
     actorPersonId: string,
+    now: Date = new Date(),
   ): Promise<EventView> {
     const row = await this.prisma.$transaction(async (tx) => {
       const occurrence = await tx.eventOccurrence.findUnique({
@@ -737,10 +738,18 @@ export class EventService {
           "occurrence-already-cancelled",
         );
       }
+      // The reinstatement's refusal, so a call-off is never one that cannot
+      // be taken back. A date that has begun went ahead.
+      if (occurrence.startsAt.getTime() <= now.getTime()) {
+        throw new EventError(
+          "That date has already begun, so it cannot be called off.",
+          "occurrence-already-begun",
+        );
+      }
 
       await tx.eventOccurrence.update({
         where: { id: occurrenceId },
-        data: { cancelledAt: new Date() },
+        data: { cancelledAt: now },
       });
 
       await this.audit.record(

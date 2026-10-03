@@ -3817,7 +3817,7 @@
       "occurrenceInUse": "Någon har anmält sig till tillfällen som ändringen skulle flytta eller ta bort. Ställ in dem, eller avanmäl deltagarna, först:",
       "occurrenceAlreadyCancelled": "Tillfället är redan inställt, så det finns inget att ställa in.",
       "occurrenceNotCancelled": "Tillfället var inte inställt, så det finns inget att återuppta.",
-      "occurrenceAlreadyBegun": "Tillfället har redan börjat och kan inte återupptas. Det blev inte av, och kalendern kan inte i efterhand säga att det blev det.",
+      "occurrenceAlreadyBegun": "Tillfället har redan börjat och kan inte längre ställas in eller återupptas. Kalendern behåller det som hände som det var.",
       "rangeInvalid": "Kalendern läses två månader i taget, och slutet måste ligga på eller efter början. Använd tidigare och senare för att flytta perioden.",
       "signupNotOffered": "Det evenemanget har ingen anmälan.",
       "occurrenceCancelled": "Styrelsen har ställt in tillfället, så det går inte att anmäla sig.",

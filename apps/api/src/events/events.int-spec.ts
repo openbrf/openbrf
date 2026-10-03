@@ -1164,6 +1164,42 @@ describe("calling off one date", () => {
     );
   });
 
+  it("refuses a date the clock has passed", async () => {
+    // It went ahead, and a call-off now could not be taken back: reinstating
+    // refuses a date that has begun. Moved into the past directly, as the
+    // reinstatement's own test does.
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Redan borjat ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+    const now = new Date();
+    await prisma.eventOccurrence.update({
+      where: { id: only },
+      data: {
+        startsAt: new Date(now.getTime() - 60 * 60 * 1000),
+        endsAt: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "occurrence-already-begun",
+    );
+    const row = await prisma.eventOccurrence.findUniqueOrThrow({
+      where: { id: only },
+      select: { cancelledAt: true },
+    });
+    expect(row.cancelledAt).toBeNull();
+  });
+
   it("keeps a called-off date called off when the series is edited around it", async () => {
     const created = await createSeries({
       ...cleaningDay,
