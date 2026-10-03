@@ -3438,6 +3438,8 @@
       "apartmentNotFound": "Lägenheten är inte din under den period du bokar. Välj igen.",
       "bookingNotFound": "Bokningen finns inte längre. Listan har lästs om.",
       "alreadyCancelled": "Bokningen är redan avbokad, så det finns inget att avboka.",
+      "bookingStarted": "Bokningen har redan börjat, så den går inte längre att avboka.",
+      "bookingEnded": "Bokningen är redan slut, så det finns inget kvar att avboka.",
       "rangeInvalid": "De dagarna går inte att hämta en kalender för. Ladda om sidan.",
       "unknown": "Det gick inte just nu. Försök igen."
     }

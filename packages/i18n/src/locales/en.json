@@ -3438,6 +3438,8 @@
       "apartmentNotFound": "That apartment is not one you hold for the period you are booking. Choose again.",
       "bookingNotFound": "That booking is gone. The list has been read again.",
       "alreadyCancelled": "That booking is already cancelled, so there is nothing to cancel.",
+      "bookingStarted": "That booking has already begun, so it can no longer be cancelled.",
+      "bookingEnded": "That booking has already ended, so there is nothing left to cancel.",
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
     }

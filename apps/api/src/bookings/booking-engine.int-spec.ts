@@ -1274,6 +1274,91 @@ describe("cancelling", () => {
       }),
     ).toBe(1);
   });
+
+  describe("a booking whose time has come", () => {
+    /*
+     * Written straight into the table, because the API refuses to book a slot
+     * that has begun - which is the whole reason the rows have to be made this
+     * way. Two hours ago to an hour ago is a laundry hour that has been used;
+     * an hour ago to an hour from now is one somebody is standing in.
+     */
+    const endedId = `be-booking-ended-${suffix}`;
+    const runningId = `be-booking-running-${suffix}`;
+
+    beforeAll(async () => {
+      const hour = 60 * 60 * 1000;
+      const now = Date.now();
+      await prisma.booking.createMany({
+        data: [
+          {
+            id: endedId,
+            resourceId: raceLaundryId,
+            apartmentId: otherApartmentId,
+            bookedByPersonId: gamma.personId,
+            startsAt: new Date(now - 2 * hour),
+            endsAt: new Date(now - hour),
+          },
+          {
+            id: runningId,
+            resourceId: raceLaundryId,
+            apartmentId: otherApartmentId,
+            bookedByPersonId: gamma.personId,
+            startsAt: new Date(now - hour),
+            endsAt: new Date(now + hour),
+          },
+        ],
+      });
+    });
+
+    function cancelAs(cookie: string, route: string, bookingId: string) {
+      return inject({
+        method: "POST",
+        url: `/api/${route}/${bookingId}/cancel`,
+        headers: { cookie },
+      });
+    }
+
+    it("refuses the resident a booking that has already ended", async () => {
+      const response = await cancelAs(gammaCookie, "bookings", endedId);
+
+      // Cancelling it would give the week's allowance back for an hour that
+      // was used, and tell the access report it never happened.
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "booking-started",
+      );
+      expect(
+        (await prisma.booking.findUnique({ where: { id: endedId } }))?.status,
+      ).toBe("BOOKED");
+    });
+
+    it("refuses the resident a booking that has begun", async () => {
+      const response = await cancelAs(gammaCookie, "bookings", runningId);
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "booking-started",
+      );
+    });
+
+    it("refuses the board a booking that has already ended", async () => {
+      const response = await cancelAs(boardCookie, "booking-admin", endedId);
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe("booking-ended");
+      expect(
+        (await prisma.booking.findUnique({ where: { id: endedId } }))?.status,
+      ).toBe("BOOKED");
+    });
+
+    it("lets the board end one that is still running", async () => {
+      // A guest apartment left early, or a laundry room shut mid-slot.
+      const response = await cancelAs(boardCookie, "booking-admin", runningId);
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json<OwnBookingView>().status).toBe("CANCELLED");
+    });
+  });
 });
 
 describe("a resource booked by the night", () => {
