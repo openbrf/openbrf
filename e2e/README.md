@@ -136,26 +136,29 @@ Numbered against the phase 1 exit criteria.
 Some specs are not numbered against a criterion.
 
 `90-runtime-role-privileges.spec.ts` connects as `openbrf_app` - the role the
-entrypoint created and constrained with `prisma/sql/harden-runtime-role.sql` -
-and checks both halves of that hardening: the queue works (a queue is created, a
-job is sent and a worker receives it) and the statutory archive still refuses an
-`UPDATE`. It also exercises the `CREATE` on the `pgboss` schema directly, so the
-grant fails loudly if it is ever dropped rather than only when a background job
-does. It reads the database on the port `docker-compose.e2e.yml` publishes, so
-it needs no browser.
+migrate service created and constrained with
+`prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
+the queue works (a queue is created, a job is sent and a worker receives it)
+while the role creates nothing in either schema, the statutory archive still
+refuses an `UPDATE`, and neither the migration history nor the job schema's
+version can be written. It reads the database on the port
+`docker-compose.e2e.yml` publishes, so it needs no browser.
 
-Its last test reads the server process's own environment from inside the
-container, finds the process by its arguments rather than trusting a pid, and
-puts every connection URL it holds against the member register. Two roles are
-only a boundary while the owner's credentials are out of the application's
-reach, so the test fails if `DATABASE_URL` or either password survives into the
-process the entrypoint starts.
+Its last tests look at the application's container. One reads the environment
+of every process in it - the init process, the server and the probe itself -
+and fails if any of them holds the schema owner's or the superuser's password,
+which the probe is handed on standard input rather than through anything it
+would then find in its own environment; it also puts every connection URL the
+server holds against the member register. One checks that nothing under `/app`
+belongs to the user the application runs as, and that no file the deploy runs
+can be written. And one starts the server with the owner's URL as its runtime
+connection and expects it to refuse to serve.
 
 `91-startup-and-connection-urls.spec.ts` covers what the image does with the
 database password and with a request that belongs to nobody: the first-boot
 check reports an unreachable database without writing the connection URL into
 the startup log, a password carrying `:`, `/` and `@` survives the URLs the
-entrypoint builds from it - which is why `stack.env` gives both roles one - and
+entrypoint builds from it - which is why `stack.env` gives every role one - and
 an unknown `/api` path answers the API's JSON 404 while a client route answers
 with the client, query string or no query string. Since the client moved under
 `/app`, it also holds the other half of that split: a traversal shape aimed at

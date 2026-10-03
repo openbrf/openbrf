@@ -95,8 +95,12 @@ function connectionUrl(role: string, passwordVariable: string): string {
 export const stack = {
   baseUrl: required("APP_URL"),
   mailpitUrl: `http://127.0.0.1:${required("E2E_MAILPIT_PORT")}`,
-  /** The owner connection, used only to read the append-only audit log. */
-  databaseUrl: connectionUrl("openbrf", "POSTGRES_PASSWORD"),
+  /**
+   * The schema owner's connection, openbrf_owner: reads of the append-only
+   * audit log and the service-tier rows a spec cannot produce over HTTP. Not
+   * the superuser, which only the database container holds.
+   */
+  databaseUrl: connectionUrl("openbrf_owner", "OWNER_DB_PASSWORD"),
   /**
    * The connection the application itself uses: openbrf_app, as the entrypoint
    * created and constrained it. Nothing in the suite should reach for this to
@@ -105,13 +109,14 @@ export const stack = {
    */
   runtimeDatabaseUrl: connectionUrl("openbrf_app", "RUNTIME_DB_PASSWORD"),
   /**
-   * The two passwords exactly as stack.env spells them, unencoded.
+   * The three passwords exactly as stack.env spells them, unencoded.
    *
-   * Here so a spec can search the container's log for them. The URLs above
-   * carry them percent-encoded, which is not the form a leak would take if
-   * something printed the value rather than the URL it sits in.
+   * Here so a spec can search the containers' logs and environments for them.
+   * The URLs above carry them percent-encoded, which is not the form a leak
+   * would take if something printed the value rather than the URL it sits in.
    */
-  ownerPassword: required("POSTGRES_PASSWORD"),
+  superuserPassword: required("POSTGRES_PASSWORD"),
+  ownerPassword: required("OWNER_DB_PASSWORD"),
   runtimePassword: required("RUNTIME_DB_PASSWORD"),
   /** Reachable from the app container, not from the host. */
   smtpHost: "mailpit",
@@ -187,11 +192,93 @@ export function stopStack(): void {
  * Only the command's own streams are returned: an error object from the runner
  * would carry the docker command line, and this exists to check what a script
  * does and does not put in a log.
+ *
+ * `input` is written to the command's standard input. It is how a spec hands a
+ * value to the command without putting it in that command's environment or
+ * arguments - which matters when what the command looks for is a secret that
+ * must be in neither.
  */
 export function runInAppContainer(
   command: readonly string[],
   environment: Readonly<Record<string, string>>,
   timeoutMs: number,
+  input?: string,
+): { status: number; output: string } {
+  return runInService("app", command, environment, timeoutMs, input);
+}
+
+/**
+ * Runs SQL in the database container as the superuser, over its local socket,
+ * as docs/deployment.md has an operator do it.
+ *
+ * For the states only the superuser can produce or put right - a membership it
+ * granted to openbrf_app, or the ownership an instance installed before the
+ * schema owner existed left with it. The suite's own connections are the
+ * owner's and the application's.
+ */
+export function runAsSuperuser(
+  psqlArguments: readonly string[],
+  timeoutMs = 60_000,
+): { status: number; output: string } {
+  return runInService(
+    "db",
+    [
+      "psql",
+      "--quiet",
+      "--no-psqlrc",
+      "--set",
+      "ON_ERROR_STOP=on",
+      "-U",
+      "openbrf",
+      "-d",
+      "openbrf",
+      ...psqlArguments,
+    ],
+    {},
+    timeoutMs,
+  );
+}
+
+/**
+ * Runs the schema-owner service once more, as `up` runs it before every deploy:
+ * a container of its own, from the stack's env file, that applies
+ * docker/schema-owner.sql as the superuser and exits.
+ */
+export function runSchemaOwner(timeoutMs = 120_000): {
+  status: number;
+  output: string;
+} {
+  try {
+    const stdout = execFileSync(
+      "docker",
+      [...COMPOSE_ARGS, "run", "--rm", "--no-deps", "-T", "schema-owner"],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        timeout: timeoutMs,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    return { status: 0, output: stdout };
+  } catch (failure) {
+    const result = failure as {
+      status?: number | null;
+      stdout?: string | null;
+      stderr?: string | null;
+    };
+    return {
+      status: result.status ?? -1,
+      output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    };
+  }
+}
+
+function runInService(
+  service: "app" | "db",
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+  timeoutMs: number,
+  input?: string,
 ): { status: number; output: string } {
   const overrides = Object.entries(environment).flatMap(([name, value]) => [
     "--env",
@@ -202,12 +289,13 @@ export function runInAppContainer(
       "docker",
       // No pseudo-TTY: the two streams stay apart, and nothing here is
       // attached to a terminal in CI.
-      [...COMPOSE_ARGS, "exec", "-T", ...overrides, "app", ...command],
+      [...COMPOSE_ARGS, "exec", "-T", ...overrides, service, ...command],
       {
         cwd: repositoryRoot,
         encoding: "utf8",
         timeout: timeoutMs,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+        ...(input === undefined ? {} : { input }),
       },
     );
     return { status: 0, output: stdout };
@@ -288,18 +376,22 @@ export function productionComposeConfig(
 }
 
 /**
- * The application container's whole log, as it would be shipped off the host.
+ * One container's whole log, as it would be shipped off the host:
+ * `schema-owner` for the owner's creation, `migrate` for the deploy steps, `app`
+ * for the application.
  *
  * Read rather than printed: a spec asserts on what is and is not in it. This is
- * the boot that actually ran - the entrypoint's key provisioning, its
- * migrations and the step that reads the owner's password out of DATABASE_URL -
- * so it is the only place the question "did any of that print a credential" has
- * a real answer.
+ * the boot that actually ran - the key provisioning, the migrations and the
+ * step that reads the owner's password out of DATABASE_URL in the one, the
+ * start in the other - so it is the only place the question "did any of that
+ * print a credential" has a real answer.
  */
-export function appLogs(): string {
+export function serviceLogs(
+  service: "schema-owner" | "migrate" | "app",
+): string {
   return execFileSync(
     "docker",
-    [...COMPOSE_ARGS, "logs", "--no-color", "app"],
+    [...COMPOSE_ARGS, "logs", "--no-color", service],
     {
       cwd: repositoryRoot,
       encoding: "utf8",
@@ -328,7 +420,7 @@ export async function claimLinkFromLog(timeoutMs = 30_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const links = [
-      ...appLogs().matchAll(
+      ...serviceLogs("app").matchAll(
         /(https?:\/\/\S+\/app\/setup#claim=[A-Za-z0-9_-]+)/g,
       ),
     ];
@@ -355,10 +447,13 @@ export function claimTokenOf(link: string): string {
   return token;
 }
 
-/** Prints the application's logs. Called when the suite fails, not otherwise. */
+/** Prints the instance's logs. Called when the suite fails, not otherwise. */
 export function printAppLogs(): void {
   try {
-    compose(["logs", "--no-color", "--tail", "200", "app"], 60_000);
+    compose(
+      ["logs", "--no-color", "--tail", "200", "schema-owner", "migrate", "app"],
+      60_000,
+    );
   } catch {
     // Best effort: a missing container must not mask the real failure.
   }

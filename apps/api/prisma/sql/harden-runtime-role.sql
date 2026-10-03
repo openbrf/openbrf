@@ -8,11 +8,14 @@
 --
 -- Production therefore uses two roles:
 --
---   openbrf        owns the schema and runs `prisma migrate deploy`
+--   openbrf_owner  owns the schema and runs `prisma migrate deploy`; not a
+--                  superuser (docker/schema-owner.sql)
 --   openbrf_app    the application connection, owns nothing
 --
 -- Apply this script once, as the owner, after migrations. Then point the
--- application at the runtime role via DATABASE_URL_RUNTIME.
+-- application at the runtime role via DATABASE_URL_RUNTIME. The owner needs
+-- CREATEROLE to create the role, or ADMIN OPTION on it when it exists
+-- already; on PostgreSQL 16 and later that reaches no role it was not given.
 --
 -- Usage:
 --   RUNTIME_DB_PASSWORD="..." psql "$DATABASE_URL" \
@@ -116,8 +119,9 @@ WHERE d.datname = current_database()
 -- instance's: this script grants CONNECT on exactly one database. Taking it
 -- over would reset that instance's password and give one role both databases.
 -- PostgreSQL 16 refuses the ALTER ROLE below to an owner that did not create
--- the role, but not to a superuser owner, which is what the bundled database
--- makes of POSTGRES_USER.
+-- the role, but not to one holding ADMIN OPTION on it - which
+-- docker/schema-owner.sql gives the owner over a runtime role the superuser
+-- created before the owner existed - nor to a superuser.
 --
 -- Only grants naming the role count. A database still open to PUBLIC says
 -- nothing about whose role this is, and only that database's owner can close
@@ -141,9 +145,14 @@ HAVING count(*) > 0
 -- the statutory archive with it. Neither is reachable by any revoke in this
 -- file, so if the runtime role owns anything the script refuses rather than
 -- reporting a hardening it did not achieve.
+--
+-- The names are quoted as identifiers, not as literals, so the message is
+-- passed to RAISE as a parameter (%L) rather than as its format string: a
+-- name holding ' or % would otherwise end the literal or read as a placeholder.
 SELECT format($sql$DO $body$ BEGIN
-  RAISE EXCEPTION 'Role %I owns %s in this database. An owner can disable the statutory triggers, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.';
-END $body$$sql$, :'app_role', string_agg(owned.description, ', ' ORDER BY owned.description))
+  RAISE EXCEPTION '%%', %L;
+END $body$$sql$, format('Role %I owns %s in this database. An owner can disable the statutory triggers, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.',
+  :'app_role', string_agg(owned.description, ', ' ORDER BY owned.description)))
 FROM (
   SELECT format('relation %I.%I', n.nspname, c.relname) AS description
   FROM pg_class c
@@ -217,11 +226,21 @@ SELECT format(
 
 -- A role membership carries privileges that the revokes below cannot reach,
 -- because they belong to the granted role rather than to the runtime role.
-SELECT format('REVOKE %I FROM %I', granted.rolname, :'app_role')
+-- The owner cannot take one away either: on PostgreSQL 16 and later only the
+-- grantor, or a superuser, may revoke a membership, and the owner grants none.
+-- So the script refuses and names the superuser's script, which revokes them,
+-- rather than stopping on a bare permission error.
+-- The message is passed as a parameter for the same reason as the ownership
+-- refusal above.
+SELECT format($sql$DO $body$ BEGIN
+  RAISE EXCEPTION '%%', %L;
+END $body$$sql$, format('Role %I is a member of %s, whose privileges this script cannot take away. The schema-owner service revokes these memberships as the database superuser on every `up` (docker/schema-owner.sql); on a server you do not administer, ask its administrator to revoke them. Then run this again.',
+  :'app_role', string_agg(format('role %I', granted.rolname), ', ' ORDER BY granted.rolname)))
 FROM pg_auth_members m
 JOIN pg_roles member ON member.oid = m.member
 JOIN pg_roles granted ON granted.oid = m.roleid
 WHERE member.rolname = :'app_role'
+HAVING count(*) > 0
 \gexec
 
 -- The database name comes from the connection string in the usage note above,
@@ -302,6 +321,13 @@ REVOKE UPDATE, DELETE ON public."register_report_obligation" FROM :"app_role";
 REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM :"app_role";
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM :"app_role";
 
+-- The migration history, which the blanket grant above reached as well. The
+-- owner applies whatever the history says has not been applied, so a row
+-- written here by the application would decide which migrations - a new
+-- guard, a new revoke - never run, and one rewritten would stop every
+-- deploy after it. Nothing in the application reads it.
+REVOKE ALL ON public."_prisma_migrations" FROM :"app_role";
+
 -- Migrations are the owner's job, so the application cannot reshape the schema
 -- and cannot disable the triggers that back the rules above.
 REVOKE CREATE ON SCHEMA public FROM :"app_role";
@@ -321,26 +347,42 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO :"app_rol
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO :"app_role";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO :"app_role";
 
+-- The job schema's version, which the owner's pg-boss install reads to decide
+-- which of its own migrations to run. The application reads it at start and
+-- has no reason to write it.
+--
+-- The same row carries the timestamps pg-boss's maintenance stamps as it runs
+-- (cron_on and its siblings), and those the application does write. So UPDATE
+-- comes back column by column for every column but the version itself - read
+-- from the catalog, because a pg-boss upgrade adds stamps of its own. The
+-- table-level revoke also takes back any column grant an earlier run made, so
+-- a column pg-boss drops loses its grant with it.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM :"app_role";
+SELECT format('GRANT UPDATE (%s) ON pgboss.version TO %I',
+  string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum), :'app_role')
+FROM pg_attribute a
+WHERE a.attrelid = 'pgboss.version'::regclass
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+  AND a.attname <> 'version'
+HAVING count(*) > 0
+\gexec
+
 -- Queues are declared at runtime, by the feature module that owns the queue
--- name, and pg-boss creates a table per queue for some queue shapes. Granting
--- CREATE here is what lets a queue appear without a deploy step, which is also
--- what an installed plugin needs: a plugin that enqueues work must not require
--- the operator to rebuild or re-run a privilege script.
+-- name, and that needs no CREATE: an ordinary queue is a row in pgboss.queue.
+-- The one queue shape that creates a table of its own is a partitioned one,
+-- and attaching that table to pgboss.job requires owning pgboss.job, which the
+-- application never does - so CREATE here bought nothing a queue can use.
 --
--- What this permits: creating, and therefore owning, objects inside pgboss.
---
--- What it does not permit. It is scoped to this schema, so `public` is
--- untouched: the REVOKE CREATE above still stands, migrations remain the
--- owner's job, and the application still cannot reshape or disable the guards
--- on the statutory tables. And CREATE is not ownership. Attaching a partition
--- to a table the owner owns requires being that owner, whatever the schema ACL
--- says, so pg-boss work that partitions `pgboss.job` or `pgboss.queue_stats`
--- stays with the owner at deploy time and is not reachable from here.
-GRANT CREATE ON SCHEMA pgboss TO :"app_role";
+-- What it did buy was ownership. A table the application created would be the
+-- application's, and the owner's pg-boss install works on the tables named in
+-- pgboss.queue at every deploy; and the ownership refusal at the top of this
+-- file would stop the next boot the moment one existed. An installation that
+-- granted it before this revoke gets it taken away here.
+REVOKE CREATE ON SCHEMA pgboss FROM :"app_role";
 
 -- Tables the owner adds to that schema later - a pg-boss upgrade migrating its
--- own schema - must be reachable too. Objects the application creates itself
--- need no entry here: it owns those.
+-- own schema - must be reachable too.
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_role";
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
