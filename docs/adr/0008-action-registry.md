@@ -37,11 +37,18 @@ else unless the design forbids it.
 ### One choke point, and the services stay ignorant
 
 `ActionRegistry.invoke()` is the only way an action is performed. It resolves
-the caller, checks the surface, plugin liveness and the arming, refuses writes in
+the caller, checks the surface, checks for a plugin's action that the plugin is
+serving and then that an administrator has armed the action, refuses writes in
 read-only mode, checks the token's scope, re-derives the caller's capabilities
 through `PrincipalService.forPerson`, checks one capability, checks the plugin's
 own capability floor, parses a strict input, calls the handler, validates the
 output, and writes no audit entry of its own.
+
+Liveness comes before the arming because of what each refusal says. A plugin
+that is not serving is answered with `not-serving` and a 404, the status an
+unknown name gets, so the refusal does not confirm that the action exists. Asked
+the other way round, an action left unarmed on a stopped plugin would be refused
+as not offered here, which says that it is there.
 
 The write services are not given a principal and check nothing. This is the part
 most likely to be undone by a later change that means well, so the reason is
