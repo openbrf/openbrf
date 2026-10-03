@@ -503,6 +503,13 @@ export class EventService {
     const now = new Date();
 
     const row = await this.prisma.$transaction(async (tx) => {
+      /*
+       * The series' row first, so the dates below are read after any other
+       * edit or removal of the series has finished. The moves are planned
+       * from that read, and a plan from a read another writer has since
+       * overtaken would move a date that is gone or add one already there.
+       */
+      await tx.$queryRaw`SELECT id FROM event WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.event.findUnique({
         where: { id },
         select: WITH_OCCURRENCES,
@@ -892,6 +899,8 @@ export class EventService {
    */
   async remove(id: string, actorPersonId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // The series' row first, for the reason the edit path gives.
+      await tx.$queryRaw`SELECT id FROM event WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.event.findUnique({
         where: { id },
         select: WITH_OCCURRENCES,

@@ -10,6 +10,7 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -973,6 +974,131 @@ describe("editing a series", () => {
     // The same row, at a new time: a sign-up pointing at it survives the edit.
     expect(after?.id).toBe(before);
     expect(after?.startsAt).toBe(`${String(YEAR)}-04-18T09:00:00.000Z`);
+  });
+});
+
+/**
+ * Two writes to one series at once.
+ *
+ * An edit plans its moves from the dates it reads, so a second write landing
+ * between that read and the edit's own writes leaves it moving a date that is
+ * gone, or adding one that is already there. The second writer has to read
+ * after the first has finished.
+ *
+ * Played out deterministically. The test holds the sign-up key of every date
+ * in the series, which both writers take before they write, so the first
+ * request queues there; the second is sent and queues too, behind the key or
+ * behind the first writer; then the keys are released.
+ */
+describe("two writes to one series at once", () => {
+  /** How many connections to this database are waiting for any lock. */
+  async function lockWaiters(): Promise<number> {
+    const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
+      SELECT count(*)::int AS waiting
+        FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND wait_event_type = 'Lock'`;
+    return row?.waiting ?? 0;
+  }
+
+  async function oneAfterTheOther<First, Second>(
+    series: EventView,
+    first: () => Promise<First>,
+    second: () => Promise<Second>,
+  ): Promise<[First, Second]> {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: () => void;
+    const holds = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        for (const occurrence of series.occurrences) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`event-occurrence-signups:${occurrence.id}`}))`;
+        }
+        held();
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await holds;
+
+    const firstAnswer = first();
+    await waitFor(async () => (await lockWaiters()) >= 1);
+    const secondAnswer = second();
+    await waitFor(async () => (await lockWaiters()) >= 2);
+    release();
+
+    const [one, two] = await Promise.all([firstAnswer, secondAnswer, holding]);
+    return [one, two];
+  }
+
+  function edit(id: string, payload: object) {
+    return inject({
+      method: "PUT",
+      url: `/api/events/${id}`,
+      payload,
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("plans the second edit from the dates the first one left", async () => {
+    const title = `Tva andringar ${suffix}`;
+    const created = await createSeries({ ...cleaningDay, title });
+
+    const [cut, moved] = await oneAfterTheOther(
+      created,
+      // Three dates down to one.
+      () =>
+        edit(created.id, {
+          ...cleaningDay,
+          title,
+          recurrence: null,
+        }),
+      // All three to noon, from a form that still showed three.
+      () =>
+        edit(created.id, {
+          ...cleaningDay,
+          title,
+          startsAtMinute: 12 * 60,
+        }),
+    );
+
+    expect(cut.statusCode).toBe(200);
+    expect(moved.statusCode).toBe(200);
+    expect(
+      moved
+        .json<EventView>()
+        .occurrences.map((occurrence) => occurrence.startsAt),
+    ).toEqual([
+      `${String(YEAR)}-04-18T10:00:00.000Z`,
+      `${String(YEAR)}-04-25T10:00:00.000Z`,
+      `${String(YEAR)}-05-02T10:00:00.000Z`,
+    ]);
+  });
+
+  it("answers an edit of a series removed under it as not found", async () => {
+    const title = `Andrad och borttagen ${suffix}`;
+    const created = await createSeries({ ...cleaningDay, title });
+
+    const [removed, edited] = await oneAfterTheOther(
+      created,
+      () =>
+        inject({
+          method: "DELETE",
+          url: `/api/events/${created.id}`,
+          headers: { cookie: boardCookie },
+        }),
+      () =>
+        edit(created.id, { ...cleaningDay, title, startsAtMinute: 12 * 60 }),
+    );
+
+    expect(removed.statusCode).toBe(204);
+    expect(edited.statusCode).toBe(404);
+    expect(edited.json<{ reason: string }>().reason).toBe("not-found");
   });
 });
 
