@@ -12,6 +12,16 @@
 export type ImportRunStatus =
   "MAPPING" | "QUEUED" | "APPLYING" | "APPLIED" | "FAILED";
 
+/**
+ * An import that has been claimed and has not ended: waiting for its job, or
+ * being written. Only one may exist at a time, a restart re-queues these, and
+ * the purge leaves them alone.
+ */
+export const RUNNING_IMPORT_STATUSES = [
+  "QUEUED",
+  "APPLYING",
+] as const satisfies readonly ImportRunStatus[];
+
 /** What an import has written. Counted as chunks commit, not at the end. */
 export interface ImportApplyResult {
   personsCreated: number;

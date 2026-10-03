@@ -87,6 +87,26 @@ export async function waitingLockCount(prisma: PrismaService): Promise<bigint> {
   return row?.locks ?? 0n;
 }
 
+/**
+ * How many connections to this database are blocked waiting for a lock.
+ *
+ * The count to use when a test holds a row rather than a table. A writer queued
+ * behind a row lock waits on the holder's transaction id, and `pg_locks` does
+ * not tie a transaction id lock to a database, so {@link waitingLockCount}
+ * never sees it. `pg_stat_activity` reports the wait against the connection,
+ * which does belong to one.
+ */
+export async function blockedConnectionCount(
+  prisma: PrismaService,
+): Promise<bigint> {
+  const [row] = await prisma.$queryRaw<{ blocked: bigint }[]>`
+    SELECT count(*) AS blocked
+    FROM pg_stat_activity
+    WHERE wait_event_type = 'Lock'
+      AND datname = current_database()`;
+  return row?.blocked ?? 0n;
+}
+
 /** Polls until the condition holds, or gives up so a failure is a failure. */
 export async function waitFor(
   condition: () => Promise<boolean>,

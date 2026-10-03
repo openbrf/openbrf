@@ -31,7 +31,7 @@ import {
   type IdentityIndexCache,
   ImportPlannerService,
 } from "./import-planner.service";
-import type { ImportApplyResult } from "./import-run";
+import { type ImportApplyResult, RUNNING_IMPORT_STATUSES } from "./import-run";
 
 /**
  * Writing the register, as a background job.
@@ -65,8 +65,12 @@ export const IMPORT_APPLY_QUEUE = "import-apply";
  * Where an apply lands once its retries are spent. The handler records the
  * interruption on the session, so a job that never got to finish is reported as
  * stopped rather than left looking like one that is still running.
+ *
+ * The queue keeps the name it was created with, so a job already waiting in it
+ * on a running instance is still delivered. It has nothing to do with an
+ * administrator abandoning an import, which is `ImportService.abandon`.
  */
-export const IMPORT_APPLY_ABANDONED_QUEUE = "import-apply-abandoned";
+export const IMPORT_APPLY_DEAD_LETTER_QUEUE = "import-apply-abandoned";
 
 /**
  * Rows one chunk plans, encrypts and writes.
@@ -79,6 +83,12 @@ export const IMPORT_APPLY_ABANDONED_QUEUE = "import-apply-abandoned";
  * interruption.
  */
 export const IMPORT_CHUNK_ROWS = 100;
+
+/**
+ * How long one chunk's transaction may run. It holds the session row for all
+ * of it, so this is also the longest anything waiting for that row waits.
+ */
+export const IMPORT_CHUNK_TRANSACTION_MS = 120_000;
 
 /**
  * How long the queue waits before deciding a worker is gone.
@@ -99,7 +109,7 @@ const APPLY_JOB_OPTIONS = {
   retryDelay: 5,
   retryBackoff: true,
   expireInSeconds: APPLY_EXPIRE_SECONDS,
-  deadLetter: IMPORT_APPLY_ABANDONED_QUEUE,
+  deadLetter: IMPORT_APPLY_DEAD_LETTER_QUEUE,
 } satisfies JobSendOptions;
 
 /** Payload of the apply job. */
@@ -143,9 +153,9 @@ export class ImportApplyService implements OnModuleInit {
       await this.runApply(data.sessionId);
     });
     await this.jobs.work<ImportApplyJob>(
-      IMPORT_APPLY_ABANDONED_QUEUE,
+      IMPORT_APPLY_DEAD_LETTER_QUEUE,
       async (data) => {
-        await this.recordAbandoned(data.sessionId);
+        await this.recordRetriesSpent(data.sessionId);
       },
     );
   }
@@ -158,7 +168,7 @@ export class ImportApplyService implements OnModuleInit {
    */
   async ensureQueues(): Promise<void> {
     await this.jobs.ensureQueue(IMPORT_APPLY_QUEUE);
-    await this.jobs.ensureQueue(IMPORT_APPLY_ABANDONED_QUEUE);
+    await this.jobs.ensureQueue(IMPORT_APPLY_DEAD_LETTER_QUEUE);
   }
 
   /**
@@ -202,7 +212,7 @@ export class ImportApplyService implements OnModuleInit {
    */
   async resumeInterruptedApplies(): Promise<number> {
     const unfinished = await this.prisma.importSession.findMany({
-      where: { status: { in: ["QUEUED", "APPLYING"] } },
+      where: { status: { in: [...RUNNING_IMPORT_STATUSES] } },
       select: { id: true },
     });
 
@@ -293,15 +303,26 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
     if (session.status === "QUEUED") {
-      await this.prisma.importSession.updateMany({
+      const started = await this.prisma.importSession.updateMany({
         where: { id: sessionId, status: "QUEUED" },
         data: { status: "APPLYING", startedAt: new Date() },
       });
+      if (started.count === 0) {
+        // Abandoned while it waited, or started by another worker a moment
+        // ago. Either way there is nothing here for this one to do, and
+        // stopping now spares decrypting and indexing a file whose chunk claim
+        // would fail anyway.
+        return false;
+      }
     }
 
     const cursor = session.rowsDone;
     if (cursor >= session.rowCount) {
-      await this.finish(sessionId, cursor);
+      // Every row is written, but the session was not marked applied: left by
+      // an instance that marked it after the last chunk rather than with it.
+      if (await finishImport(this.prisma, sessionId)) {
+        this.logger.log(`Import session ${sessionId} applied`);
+      }
       return false;
     }
 
@@ -347,7 +368,8 @@ export class ImportApplyService implements OnModuleInit {
     // milliseconds by design, and a chunk of them inside a transaction would
     // hold it open long past any sensible timeout.
     const encrypted = await this.encryptRows(plan.rows, decisions, indexes);
-    const planned = plan.rows.length;
+    const done = cursor + plan.rows.length;
+    const last = done >= session.rowCount;
 
     const counts = await this.prisma.$transaction(
       async (tx) => {
@@ -356,7 +378,7 @@ export class ImportApplyService implements OnModuleInit {
         // finds the cursor moved when the first one commits.
         const claimed = await tx.importSession.updateMany({
           where: { id: sessionId, status: "APPLYING", rowsDone: cursor },
-          data: { rowsDone: cursor + planned },
+          data: { rowsDone: done },
         });
         if (claimed.count === 0) {
           return null;
@@ -396,11 +418,18 @@ export class ImportApplyService implements OnModuleInit {
             },
             rowsSkipped: { increment: written.skipped },
             rowsWithProblems: { increment: written.errors },
+            // The last chunk ends the import in the same commit that writes
+            // its rows. Marked afterwards, there would be a moment when every
+            // row was written and the session still read as running, and
+            // anything that ended it then - an administrator's abandon, the
+            // dead letter after a crash - would record a complete import as
+            // one that failed.
+            ...(last ? { status: "APPLIED", finishedAt: new Date() } : {}),
           },
         });
         return written;
       },
-      { timeout: 120_000, maxWait: 20_000 },
+      { timeout: IMPORT_CHUNK_TRANSACTION_MS, maxWait: 20_000 },
     );
 
     if (counts === null) {
@@ -408,42 +437,26 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
 
-    const done = cursor + planned;
     this.logger.log(
       `Import session ${sessionId}: ${String(done)} of ${String(session.rowCount)} rows`,
     );
 
-    if (done >= session.rowCount) {
-      await this.finish(sessionId, done);
+    if (last) {
+      this.logger.log(`Import session ${sessionId} applied`);
       return false;
     }
     return true;
   }
 
-  /** Records that an apply ran out of attempts without finishing. */
-  private async recordAbandoned(sessionId: string): Promise<void> {
-    const { count } = await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: { in: ["QUEUED", "APPLYING"] } },
-      data: {
-        status: "FAILED",
-        failureReason: "apply-interrupted",
-        finishedAt: new Date(),
-      },
-    });
-    if (count > 0) {
+  /**
+   * Records that an apply ran out of attempts without finishing. The dead
+   * letter's handler.
+   */
+  private async recordRetriesSpent(sessionId: string): Promise<void> {
+    if (await stopImport(this.prisma, sessionId, "apply-interrupted")) {
       this.logger.error(
-        `Import session ${sessionId}: apply abandoned after its retries`,
+        `Import session ${sessionId}: apply gave up after its retries`,
       );
-    }
-  }
-
-  private async finish(sessionId: string, rowsDone: number): Promise<void> {
-    const { count } = await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: "APPLYING", rowsDone },
-      data: { status: "APPLIED", finishedAt: new Date() },
-    });
-    if (count > 0) {
-      this.logger.log(`Import session ${sessionId} applied`);
     }
   }
 
@@ -451,14 +464,7 @@ export class ImportApplyService implements OnModuleInit {
     sessionId: string,
     reason: ImportErrorReason,
   ): Promise<void> {
-    await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: { in: ["QUEUED", "APPLYING"] } },
-      data: {
-        status: "FAILED",
-        failureReason: reason,
-        finishedAt: new Date(),
-      },
-    });
+    await stopImport(this.prisma, sessionId, reason);
     this.logger.warn(`Import session ${sessionId} stopped: ${reason}`);
   }
 
@@ -718,6 +724,58 @@ export class ImportApplyService implements OnModuleInit {
     });
     result.residenciesCreated++;
   }
+}
+
+/**
+ * Ends a running import as FAILED, for the reason given, unless it has written
+ * every row. Returns whether it ended it.
+ *
+ * Every way an import is stopped goes through here: a refusal the job meets,
+ * the dead letter once the retries are spent, and an administrator's abandon.
+ * So they agree on what can be stopped. An import whose cursor has reached the
+ * end of the file has written all it was going to, whatever its status says,
+ * and is never recorded as one that failed.
+ *
+ * One conditional statement, so a chunk holding the session row is waited for
+ * and the condition is read again against what that chunk committed.
+ */
+export async function stopImport(
+  client: Prisma.TransactionClient,
+  sessionId: string,
+  reason: ImportErrorReason,
+): Promise<boolean> {
+  const { count } = await client.importSession.updateMany({
+    where: {
+      id: sessionId,
+      status: { in: [...RUNNING_IMPORT_STATUSES] },
+      rowsDone: { lt: client.importSession.fields.rowCount },
+    },
+    data: { status: "FAILED", failureReason: reason, finishedAt: new Date() },
+  });
+  return count > 0;
+}
+
+/**
+ * Marks an import applied whose cursor has reached the end of the file but
+ * which still reads as applying. Returns whether it did.
+ *
+ * The last chunk marks its import applied in its own commit, so only a session
+ * left by an instance that did that afterwards, and stopped in between, is in
+ * this state. Its rows are all written; nothing is left but to say so.
+ */
+export async function finishImport(
+  client: Prisma.TransactionClient,
+  sessionId: string,
+): Promise<boolean> {
+  const { count } = await client.importSession.updateMany({
+    where: {
+      id: sessionId,
+      status: "APPLYING",
+      rowsDone: { gte: client.importSession.fields.rowCount },
+    },
+    data: { status: "APPLIED", finishedAt: new Date() },
+  });
+  return count > 0;
 }
 
 interface EncryptedRowValues {
