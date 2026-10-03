@@ -12,7 +12,8 @@ issue reporter's or a board mailbox correspondent's. Values are now encrypted
 as UTF-8, and the ciphertext records that in its authenticated associated data,
 so a value is never read in the wrong format: a value stored before this change
 is read as it always was, as latin1, and a new one as UTF-8, with no guessing
-from the bytes. Nothing has to be migrated, and the stored format is unchanged.
+from the bytes. Nothing has to be migrated, and the column format is unchanged, but a value
+written by this release cannot be read by an older one.
 An older value reads back as entered when it holds nothing above U+00FF, which
 covers the Swedish letters; a letter above that was cut to a single byte when
 it was stored and cannot be recovered. Blind indexes are computed as before, so

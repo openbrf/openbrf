@@ -75,8 +75,11 @@ export function detectDelimiter(text: string): CsvDelimiter {
  * holds no U+FFFD. A file that fails the strict decode but still holds
  * well-formed UTF-8 for a non-ASCII character is both encodings at once, and
  * the board is asked to save it again instead of being guessed for. A real
- * Windows-1252 file never matches: its letters sit next to letters, and a UTF-8
- * sequence needs the symbol bytes 0x80-0xBF after its first.
+ * Windows-1252 file rarely matches: its letters sit next to letters, and a
+ * UTF-8 sequence needs a byte in 0x80-0xBF after its first. It does match when
+ * Windows-1252 punctuation (’ ” – … or a no-break space) follows a capital in
+ * C2-DF (Å Ä Ö É Ü), as in "RENÉ’S" or "BJÖRKÖ" plus a no-break space. Such a
+ * file is refused, which is safe: saving it again as UTF-8 fixes it.
  */
 export function decodeCsv(bytes: Uint8Array): string {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
