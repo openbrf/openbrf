@@ -136,7 +136,11 @@ export interface PlannedRow {
   movedOutOn: string | null;
   /** The existing person this row will be written against. */
   matchedPersonId: string | null;
-  /** Their name as the register holds it, so the board can see who it is. */
+  /**
+   * Their name as the register holds it, so the board can see who it is. For a
+   * person an earlier row creates, the name that row gives them, while
+   * `matchedPersonId` is still null.
+   */
   matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
   /**
@@ -437,7 +441,7 @@ function planRow(
     ...base,
     outcome: "update",
     matchedPersonId: only.personId,
-    matchedPersonName: only.personId === null ? null : only.name,
+    matchedPersonName: only.name,
     // Named by the key when it was the identity number, which the person an
     // earlier row creates carries: the row then adds nothing they lack.
     matchedBy:

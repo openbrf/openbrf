@@ -2073,6 +2073,126 @@ describe("a row after one the board decided", () => {
     });
   }, 180_000);
 
+  it("is refused at the apply when the decision creates a person", async () => {
+    // Row 10 has the address of a person already in the register and another
+    // name, and the board makes it a person of its own - who then has that
+    // address too. Row 150, in the second chunk, is the register person's own
+    // row: an update in the preview, but two people share its address once row
+    // 10 is written.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-created-${suffix}@exempel.se`;
+    const registered = {
+      personId: `imp-created-${suffix}`,
+      firstName: "Registrerad",
+      email,
+    };
+    await createPerson(registered);
+    const total = IMPORT_CHUNK_ROWS + 60;
+    const row = (firstName: string, address: string, movedInOn: string) => [
+      addressLabel,
+      "2102",
+      firstName,
+      surname,
+      "Boende",
+      address,
+      "",
+      movedInOn,
+    ];
+
+    const rows: string[][] = [HEADERS];
+    for (let rowNumber = 1; rowNumber <= total; rowNumber++) {
+      if (rowNumber === 10) {
+        rows.push(row("Nyskapad", email, "2021-04-01"));
+      } else if (rowNumber === 150) {
+        rows.push(row("Registrerad", email, "2021-04-01"));
+      } else {
+        rows.push(row(`Skapad${String(rowNumber)}`, "", "01/03/2020"));
+      }
+    }
+
+    const session = await upload(
+      cookie,
+      "skapad-rad.csv",
+      encode(writeCsv(rows)),
+    );
+    const preview = async (decisions: Record<string, unknown>) => {
+      const response = await inject({
+        method: "POST",
+        url: `/api/import/sessions/${session.sessionId}/preview`,
+        payload: { mapping: session.suggestedMapping, decisions },
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return JSON.parse(response.body) as ImportPreview;
+    };
+
+    const first = await preview({});
+    expect(first.summary.ambiguous).toBe(1);
+    expect(first.rows[9]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      mismatch: "name",
+    });
+    expect(first.rows[149]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: registered.personId,
+    });
+
+    const decided = { "10": { action: "create" } };
+    const refused = await applyImport(cookie, session.sessionId, decided);
+    expect(refused.statusCode).toBe(400);
+    expect(reasonOf(refused)).toBe("ambiguous-rows-undecided");
+
+    // Nothing was queued and nothing was written.
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: "Nyskapad" },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.residency.count({
+        where: { personId: registered.personId },
+      }),
+    ).toBe(0);
+
+    // Previewed again with the decision, row 150 needs one too. The person row
+    // 10 creates has no id yet, so the register person is the one offered.
+    const second = await preview(decided);
+    expect(second.summary.ambiguous).toBe(2);
+    expect(second.rows[149]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      candidates: [
+        { personId: registered.personId, name: `Registrerad ${surname}` },
+      ],
+    });
+
+    const accepted = await applyImport(cookie, session.sessionId, {
+      ...decided,
+      "150": { action: "use-person", personId: registered.personId },
+    });
+    expect(accepted.statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      90_000,
+    );
+    expect(run.status).toBe("APPLIED");
+    expect(run.failureReason).toBeNull();
+    expect(run.result).toMatchObject({ personsCreated: 1, personsUpdated: 1 });
+    expect(
+      await prisma.residency.count({
+        where: { personId: registered.personId },
+      }),
+    ).toBe(1);
+  }, 180_000);
+
   it("is refused when a decision settles a row the preview asked about", async () => {
     // Both rows are a Dubbel of 2103 with the same address. Decided as a new
     // person, row 1 creates the Dubbel that address belongs to, and row 2 then

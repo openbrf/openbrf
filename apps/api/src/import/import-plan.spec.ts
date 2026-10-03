@@ -556,6 +556,9 @@ describe("one person appearing twice in the file", () => {
     expect(plan.rows[1]?.outcome).toBe("update");
     expect(plan.rows[1]?.sameAsRowNumber).toBe(1);
     expect(plan.rows[1]?.matchedBy).toBe("earlierRow");
+    // Named although they have no id yet, so the board need not look it up.
+    expect(plan.rows[1]?.matchedPersonId).toBeNull();
+    expect(plan.rows[1]?.matchedPersonName).toBe("Anna Lindqvist");
   });
 
   it("attaches both rows to the existing person when there is one", () => {
