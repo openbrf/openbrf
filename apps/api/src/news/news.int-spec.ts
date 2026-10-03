@@ -21,6 +21,7 @@ import {
 } from "../testing/integration-env";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
+import { NEWS_INDEX_PAGE_SIZE } from "../site/site-news.service";
 import { NewsWriteService } from "./news-write.service";
 
 /**
@@ -1153,6 +1154,40 @@ describe("the publication guardrails", () => {
 });
 
 describe("the website's answer", () => {
+  it("lists the index a page at a time, however much has been published", async () => {
+    // One more than a page, published after everything else on the instance
+    // so the first page is exactly the newest of them.
+    const paged = Array.from(
+      { length: NEWS_INDEX_PAGE_SIZE + 1 },
+      (_, n) => `news-paged-${suffix}-${String(n).padStart(2, "0")}`,
+    );
+    await prisma.news.createMany({
+      data: paged.map((slug, n) => ({
+        slug,
+        title: slug,
+        content: { version: 1, blocks: [] },
+        visibility: "PUBLIC" as const,
+        published: true,
+        publishedAt: new Date(Date.UTC(2099, 0, 1, 0, n)),
+      })),
+    });
+    try {
+      const [oldest] = paged;
+      const first = await inject({ method: "GET", url: "/nyheter" });
+      expect(first.statusCode).toBe(200);
+      expect(first.body).toContain(`/nyheter/${paged.at(-1) ?? ""}"`);
+      expect(first.body).not.toContain(`/nyheter/${oldest ?? ""}"`);
+      expect(first.body).toContain('href="/nyheter?sida=2"');
+
+      const second = await inject({ method: "GET", url: "/nyheter?sida=2" });
+      expect(second.statusCode).toBe(200);
+      expect(second.body).toContain(`/nyheter/${oldest ?? ""}"`);
+      expect(second.body).toContain('href="/nyheter" rel="prev"');
+    } finally {
+      await prisma.news.deleteMany({ where: { slug: { in: paged } } });
+    }
+  });
+
   it("serves a published public item to a visitor with no account", async () => {
     const item = await createNews(boardCookie, slugs.public, [
       paragraph("Vi städar gården på lördag."),

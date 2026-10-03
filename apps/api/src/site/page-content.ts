@@ -1,4 +1,4 @@
-import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
+import { PAGE_CONTENT_LIMITS, scannableRunsText } from "@openbrf/shared";
 import { z } from "zod";
 
 /**
@@ -598,7 +598,8 @@ export interface PageTextPart {
  * block type added later is scanned the day it is added instead of the day
  * somebody remembers to extend the scanner. An image's alternative text and
  * caption are in here for the same reason: they are published prose, whatever
- * they describe.
+ * they describe. So is every address a run links to, which is published in the
+ * page's HTML even though no reader sees it as text.
  */
 export function pageTextParts(content: PageContent): PageTextPart[] {
   return content.blocks.map((block, index) => ({
@@ -639,7 +640,7 @@ function blockText(block: PageBlock): string {
   switch (block.type) {
     case "paragraph":
     case "heading":
-      return block.runs.map((run) => run.text).join("");
+      return scannableRunsText(block.runs);
     case "image":
       return [block.alt, block.caption ?? ""].join(" ").trim();
     case "contactForm":
@@ -647,14 +648,14 @@ function blockText(block: PageBlock): string {
       // The intro only. The labels and the button are chrome, translated
       // rather than written by the board, so they are not the board's text to
       // be scanned or held against them.
-      return (block.intro ?? []).map((run) => run.text).join("");
+      return scannableRunsText(block.intro ?? []);
     case "faq":
       // Both halves, because both are the board's own writing published on the
       // page. A question is as good a place to paste a personal identity
       // number into as an answer.
       return block.items
         .map((item) =>
-          [item.question, ...item.answer.map((run) => run.text)].join(" "),
+          [item.question, scannableRunsText(item.answer)].join(" "),
         )
         .join(" ")
         .trim();
@@ -716,10 +717,17 @@ function normalize(block: PageBlock): PageBlock | null {
           question: item.question.trim(),
           answer: item.answer.filter((run) => run.text !== ""),
         }))
-        .filter((item) => item.question !== "" && item.answer.length > 0);
+        .filter(
+          (item) =>
+            item.question !== "" &&
+            item.answer.some((run) => run.text.trim() !== ""),
+        );
       // A question with no answer is a question the page asks the reader, so
       // an entry needs both halves to survive - and a block left with no
-      // entries is the empty paragraph case: a gap in the page.
+      // entries is the empty paragraph case: a gap in the page. An answer of
+      // nothing but spaces is no answer, exactly as the read path decides: kept
+      // here, it would be saved and echoed back and then vanish on the next
+      // read.
       return items.length === 0 ? null : { type: "faq", items };
     }
     // A form with nothing above it is still a form, unlike a paragraph with no

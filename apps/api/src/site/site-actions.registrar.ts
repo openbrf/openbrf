@@ -46,14 +46,16 @@ import {
  *   photo-consent-required refusal travels back unchanged: the board member
  *   confirms it in the web interface, or the page stays a draft.
  *
- *   `expectedRevision` is required on page_update and offered nowhere else,
- *   because update is the one call that claims on it. A save carries the whole
+ *   `expectedRevision` is required on page_update. A save carries the whole
  *   page, so two callers who each read it and then wrote would leave the
  *   second one's copy standing and the first one's work gone; requiring the
  *   number a caller read means a model that means to rewrite a page has to
- *   read it first. setPublished, setVisibility and remove accept no revision
- *   at all, and publishing a precondition the service would discard is worse
- *   than not offering one.
+ *   read it first. page_publish, page_unpublish, page_set_visibility and
+ *   page_delete offer it as optional, because the service claims on it there
+ *   too: sent, the act is refused if the page has been written since it was
+ *   read; left out, the act proceeds as the route always has. Each of those
+ *   acts carries nothing of the page's content, so a caller that never read
+ *   the body is not made to.
  *
  *   Reads are bounded and answer with drafts. page_list is the summary read,
  *   never the editor's own unbounded list(), whose rows carry whole page
@@ -429,7 +431,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
           cursor: idSchema
             .optional()
             .describe(
-              "The nextCursor from the previous call. Absent starts at the first page of the list.",
+              "The nextCursor from the previous call. Absent starts at the first page of the list. A cursor from an earlier release of OpenBRF answers not-found; start the list again without one.",
             ),
           publishedOnly: z
             .boolean()
