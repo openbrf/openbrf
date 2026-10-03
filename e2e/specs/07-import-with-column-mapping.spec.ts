@@ -2,7 +2,11 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { memberRegisterEntriesByRecordedName } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
-import { uniqueEmail, uniqueSurname } from "../src/identity";
+import {
+  uniqueEmail,
+  uniquePersonalIdentityNumber,
+  uniqueSurname,
+} from "../src/identity";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
 import { buildWorkbook } from "../src/xlsx";
 import * as api from "../src/api";
@@ -41,10 +45,11 @@ const GUNNAR = {
   lastName: uniqueSurname("Wikander"),
   email: uniqueEmail("gunnar"),
   /**
-   * Valid under the Luhn checksum the register enforces, and nobody's:
-   * 1970-12-31 with an invented suffix.
+   * This run's too. The import matches a row by its identity number before
+   * anything else, so a fixed one would preview Gunnar as an update of the
+   * Gunnar an earlier run wrote rather than as a new person.
    */
-  personalIdentityNumber: "19701231-1119",
+  personalIdentityNumber: uniquePersonalIdentityNumber("gunnar"),
 } as const;
 
 /** In the register already, with an email and nothing else, so the file updates her. */
