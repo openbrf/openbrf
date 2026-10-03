@@ -485,7 +485,13 @@ export class PluginAdminService {
       throw new PluginsDisabledError();
     }
 
-    const entry = await this.catalog.entry(request.id);
+    /*
+     * Read from the source rather than the cache: the screen that sent this
+     * browsed the catalog up to a minute ago, and a curator who deprecated
+     * the entry or changed what it declares since must be seen by the gates
+     * below, not by the copy the screen was drawn from.
+     */
+    const entry = await this.catalog.entry(request.id, { refresh: true });
     if (entry === null || entry.type !== "plugin") {
       throw new CatalogEntryNotFoundError(request.id);
     }
