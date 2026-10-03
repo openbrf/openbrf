@@ -390,14 +390,37 @@ describe("when the read fails", () => {
     });
     await screen.findByText("Perioden kan inte sluta innan den börjar.");
 
+    // The corrected period is read from the server, not from the list kept for
+    // it, so the refusal is held until that read answers. The row can be on
+    // screen before then - it is the list of the same period read earlier - and
+    // is not evidence the new request has completed.
+    const callsBefore = fetchDebitingList.mock.calls.length;
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    fetchDebitingList.mockImplementationOnce(async () => {
+      await answered;
+      return { ok: true, value: LIST };
+    });
     fireEvent.change(screen.getByLabelText("Från"), {
       target: { value: "2026-01-01" },
     });
-
-    expect(await screen.findByText("Nyckel till cykelrummet")).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchDebitingList.mock.calls.length).toBe(callsBefore + 1);
+    });
     expect(
-      screen.queryByText("Perioden kan inte sluta innan den börjar."),
-    ).toBeNull();
+      screen.getByText("Perioden kan inte sluta innan den börjar."),
+    ).toBeTruthy();
+
+    answer();
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Perioden kan inte sluta innan den börjar."),
+      ).toBeNull();
+    });
+    expect(screen.getByText("Nyckel till cykelrummet")).toBeTruthy();
   });
 });
 
