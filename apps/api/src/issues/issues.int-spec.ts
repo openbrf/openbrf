@@ -11,8 +11,10 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { IssueTypeService } from "./issue-type.service";
 import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
@@ -806,5 +808,136 @@ describe("the type catalogue", () => {
       headers: { cookie: boardCookie },
     });
     expect(removed.statusCode).toBe(204);
+  });
+});
+
+/**
+ * A type removed while somebody else writes against it.
+ *
+ * The checks before each write read the type and its reports and only then
+ * write, so a write by somebody else can land in between. The foreign key from
+ * an issue to its type is what notices, and it has to answer with the refusal
+ * the check would have given rather than with a 500.
+ *
+ * Played out deterministically: the test opens a transaction that writes one
+ * side and holds it open, sends the other side, waits until the database says
+ * that request is queued behind the open transaction, and then commits.
+ */
+describe("a type removed while somebody writes against it", () => {
+  /** How many connections to this database are waiting for a row. */
+  async function rowLockWaiters(): Promise<number> {
+    const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
+      SELECT count(*)::int AS waiting
+        FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND wait_event_type = 'Lock'
+         AND wait_event IN ('transactionid', 'tuple')`;
+    return row?.waiting ?? 0;
+  }
+
+  /** Writes `first` in a transaction and holds it until `second` waits. */
+  async function across<T>(
+    first: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    second: () => Promise<T>,
+  ): Promise<T> {
+    let written!: () => void;
+    const wrote = new Promise<void>((resolve) => {
+      written = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        await first(tx);
+        written();
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await wrote;
+
+    const answering = second();
+    await waitFor(async () => (await rowLockWaiters()) > 0);
+    release();
+    const [answer] = await Promise.all([answering, holding]);
+    return answer;
+  }
+
+  async function racingType(): Promise<string> {
+    const type = await prisma.issueType.create({
+      data: { name: `is-type-racing-${suffix}`, audience: "MEMBER" },
+      select: { id: true },
+    });
+    return type.id;
+  }
+
+  async function sweep(typeId: string): Promise<void> {
+    await prisma.issue.deleteMany({ where: { typeId } });
+    await prisma.issueType.deleteMany({ where: { id: typeId } });
+  }
+
+  it("refuses the removal as in use when a report lands first", async () => {
+    const typeId = await racingType();
+    try {
+      const removed = await across(
+        (tx) =>
+          tx.issue.create({
+            data: { typeId, description: "Kranen droppar." },
+          }),
+        () =>
+          inject({
+            method: "DELETE",
+            url: `/api/issue-types/${typeId}`,
+            headers: { cookie: boardCookie },
+          }),
+      );
+
+      expect(removed.statusCode).toBe(409);
+      expect(removed.json<{ reason: string }>().reason).toBe("type-in-use");
+    } finally {
+      await sweep(typeId);
+    }
+  });
+
+  it("refuses the report as of no such type when the removal lands first", async () => {
+    const typeId = await racingType();
+    try {
+      const filed = await across(
+        (tx) => tx.issueType.delete({ where: { id: typeId } }),
+        () =>
+          report(residentCookie, {
+            typeId,
+            description: "Lampan i trapphuset ar trasig.",
+          }),
+      );
+
+      expect(filed.statusCode).toBe(404);
+      expect(filed.reason).toBe("type-not-found");
+    } finally {
+      await sweep(typeId);
+    }
+  });
+
+  it("refuses an edit of a type removed under it as of no such type", async () => {
+    const typeId = await racingType();
+    try {
+      const edited = await across(
+        (tx) => tx.issueType.delete({ where: { id: typeId } }),
+        () =>
+          inject({
+            method: "PUT",
+            url: `/api/issue-types/${typeId}`,
+            payload: { name: `is-type-racing-${suffix}`, audience: "MEMBER" },
+            headers: { cookie: boardCookie },
+          }),
+      );
+
+      expect(edited.statusCode).toBe(404);
+      expect(edited.json<{ reason: string }>().reason).toBe("type-not-found");
+    } finally {
+      await sweep(typeId);
+    }
   });
 });

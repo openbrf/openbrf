@@ -4,6 +4,7 @@ import { localDayOf } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
@@ -158,7 +159,7 @@ export class IssueService {
         ? null
         : await this.requireOwnApartment(principal.personId, input.apartmentId);
 
-    const issue = await this.prisma.issue.create({
+    const filing = this.prisma.issue.create({
       data: {
         typeId: type.id,
         reporterPersonId: principal.personId,
@@ -168,6 +169,7 @@ export class IssueService {
       },
       select: { id: true },
     });
+    const issue = await filing.catch(typeRemoved);
 
     // The identifier and the type only. The description is the resident's own
     // account of their home and has no business in a log line.
@@ -207,7 +209,7 @@ export class IssueService {
             input.reporterEmail,
           );
 
-    const issue = await this.prisma.issue.create({
+    const filing = this.prisma.issue.create({
       data: {
         typeId: type.id,
         // No account behind it. The reporter reference stays null and the
@@ -228,6 +230,7 @@ export class IssueService {
       },
       select: { id: true },
     });
+    const issue = await filing.catch(typeRemoved);
 
     // The identifier and the type. What a passer-by wrote about the building,
     // and who they said they were, has no business in a log line.
@@ -597,6 +600,25 @@ function toApartmentView(apartment: ApartmentRecord): IssueApartmentView {
     number: apartment.number,
     address: `${apartment.address.street} ${apartment.address.number}`,
   };
+}
+
+/**
+ * A report whose type was removed after it was read.
+ *
+ * Both reporting paths read the type before they write, so a board removing it
+ * at the same moment makes the insert raise P2003 against the restrictive key.
+ * That is a type that does not exist, and is answered as one rather than with
+ * a 500. The apartment's key cannot be the one: the reporter's residency holds
+ * the apartment in the register.
+ */
+function typeRemoved(cause: unknown): never {
+  if (
+    cause instanceof Prisma.PrismaClientKnownRequestError &&
+    cause.code === "P2003"
+  ) {
+    throw new IssueError("No such issue type.", "type-not-found");
+  }
+  throw cause;
 }
 
 function toOwnView(issue: {
