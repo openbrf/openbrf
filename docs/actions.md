@@ -314,7 +314,8 @@ no plugin could ever declare a `site:manage` action - which is the case the
 arming toggle exists to govern - and there is no ordering on the capability names
 for "at or above" to mean anything. The separate question, that an action is
 never reachable by a caller the plugin's own routes would refuse, is answered per
-call by the floor check inside `invoke()`.
+call by the floor check inside `invoke()`, and `list()` applies the same floor so
+such a caller is not offered the action either.
 
 **`DENIED_ACTION_SERVICES`** - services no handler may be bound to:
 `MoveService`, `SystemRoleService`, `BoardPositionService`, `PluginAdminService`,

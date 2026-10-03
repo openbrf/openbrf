@@ -644,6 +644,22 @@ describe("what a plugin's action depends on", () => {
     ).rejects.toMatchObject({ reason: "forbidden-capability" });
   });
 
+  it("does not offer it to a caller the plugin's own routes would refuse", async () => {
+    // The listing half of the floor check above. A catalogue is never a list
+    // of things to be refused, and the name and description of an action are
+    // themselves something the plugin's routes would not have shown.
+    const { registry, callers } = withPlugin({
+      serving: true,
+      armedActions: ["occupancy_summary"],
+      capabilityFloor: "addressBook:read",
+    });
+
+    expect(await registry.list(callers.forRequest(request()))).toEqual([]);
+    expect(
+      await registry.list(callers.forRequest(request()), { surface: "mcp" }),
+    ).toEqual([]);
+  });
+
   it("disappears with the plugin", async () => {
     const { registry, callers } = withPlugin({
       serving: true,

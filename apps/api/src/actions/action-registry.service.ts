@@ -397,8 +397,14 @@ export class ActionRegistryService {
           return true;
         }
         // Against the surface actually being listed, so a listing of "mcp"
-        // answers what a connected app could really be asked to do.
-        return permits(states.get(held.owner.pluginId) ?? null, held, surface);
+        // answers what a connected app could really be asked to do, and
+        // against the floor invoke() holds a caller to at step 9.
+        const state = states.get(held.owner.pluginId) ?? null;
+        return (
+          permits(state, held, surface) &&
+          state !== null &&
+          holdsCapability(principal, state.capabilityFloor)
+        );
       })
       .map((held) => summarise(held.definition, translate));
 
