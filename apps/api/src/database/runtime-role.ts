@@ -16,10 +16,11 @@ import { PrismaClient } from "../generated/prisma/client";
  * it is asked, once, before the application serves anything.
  *
  * The questions are the ones prisma/sql/harden-runtime-role.sql answers when it
- * constrains openbrf_app, asked the other way round: attributes that override
- * every privilege, ownership (or membership of the owning role, which confers
- * the same), and the privileges that script revokes on the statutory archive
- * and the migration history.
+ * constrains the runtime role, asked the other way round: attributes that
+ * override every privilege, ownership (or membership of the owning role, which
+ * confers the same), CREATE in the application's schemas, which is the way to
+ * ownership, and every privilege that script revokes on the statutory archive,
+ * the migration history and the job schema's version.
  */
 
 /** What a Prisma client, or a transaction on one, offers for a raw read. */
@@ -34,17 +35,50 @@ type RoleFacts = {
   ownsDatabase: boolean;
   ownsSchema: boolean;
   ownsRelation: boolean;
-  rewritesArchive: boolean;
+  createsInSchema: boolean;
+  rewritableArchive: string[];
   writesMigrationHistory: boolean;
+  writesJobSchemaVersion: boolean;
 };
 
 /**
- * Asked of the member register and the audit log. The full list of statutory
- * tables is the hardening script's; these two stand for it, because a
- * connection that can rewrite either is not the constrained role whatever else
- * it can do.
+ * The statutory tables and what prisma/sql/harden-runtime-role.sql takes away
+ * on each. TRUNCATE is listed everywhere because the script revokes it on every
+ * table in the schema. A transfer and a lien note keep UPDATE on purpose: a
+ * lien is released and a mis-keyed transfer corrected.
+ *
+ * Exported so the integration suite can grant each of these in turn and see
+ * the start refuse it.
  */
-const ARCHIVE_WRITE = "UPDATE, DELETE, TRUNCATE";
+export const ARCHIVE_REVOKES: readonly {
+  readonly table: string;
+  readonly privileges: readonly string[];
+}[] = [
+  {
+    table: "member_register_entry",
+    privileges: ["UPDATE", "DELETE", "TRUNCATE"],
+  },
+  { table: "audit_log_entry", privileges: ["UPDATE", "DELETE", "TRUNCATE"] },
+  { table: "termination", privileges: ["UPDATE", "DELETE", "TRUNCATE"] },
+  { table: "transfer_reversal", privileges: ["UPDATE", "DELETE", "TRUNCATE"] },
+  {
+    table: "register_report_obligation",
+    privileges: ["UPDATE", "DELETE", "TRUNCATE"],
+  },
+  { table: "transfer", privileges: ["DELETE", "TRUNCATE"] },
+  { table: "lien_note", privileges: ["DELETE", "TRUNCATE"] },
+];
+
+/**
+ * The names of the statutory tables the role holds a revoked privilege on.
+ * Built from the constants above, never from anything the database or the
+ * configuration says, so the interpolation is not a way in. A table that does
+ * not exist yet answers NULL, which counts as no privilege.
+ */
+const REWRITABLE_ARCHIVE = `array_remove(ARRAY[${ARCHIVE_REVOKES.map(
+  ({ table, privileges }) =>
+    `CASE WHEN coalesce(has_table_privilege(to_regclass('public.${table}'), '${privileges.join(", ")}'), false) THEN '${table}' END`,
+).join(",\n    ")}], NULL)`;
 
 const ROLE_FACTS = `
 SELECT
@@ -72,11 +106,20 @@ SELECT
     WHERE n.nspname IN ('public', 'pgboss')
       AND pg_has_role(current_user, c.relowner, 'MEMBER')
   ) AS "ownsRelation",
-  coalesce(has_table_privilege(to_regclass('public.member_register_entry'), '${ARCHIVE_WRITE}'), false)
-    OR coalesce(has_table_privilege(to_regclass('public.audit_log_entry'), '${ARCHIVE_WRITE}'), false)
-    AS "rewritesArchive",
+  EXISTS (
+    SELECT 1 FROM pg_namespace n
+    WHERE n.nspname IN ('public', 'pgboss')
+      AND has_schema_privilege(n.oid, 'CREATE')
+  ) AS "createsInSchema",
+  ${REWRITABLE_ARCHIVE} AS "rewritableArchive",
   coalesce(has_table_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE, DELETE, TRUNCATE'), false)
-    AS "writesMigrationHistory"
+    AS "writesMigrationHistory",
+  -- The version column alone: the application stamps the row's other columns
+  -- as pg-boss's maintenance runs. Asked of the column, so a grant on that one
+  -- column is found as well as one on the table.
+  coalesce(has_table_privilege(to_regclass('pgboss.version'), 'INSERT, DELETE, TRUNCATE'), false)
+    OR coalesce(has_column_privilege(to_regclass('pgboss.version'), 'version', 'UPDATE'), false)
+    AS "writesJobSchemaVersion"
 FROM pg_roles r
 WHERE r.rolname = current_user
 `;
@@ -112,13 +155,21 @@ export async function runtimeRoleProblems(
   if (facts.ownsRelation) {
     problems.push(`${facts.role} owns tables in the application's schemas`);
   }
-  if (facts.rewritesArchive) {
+  if (facts.createsInSchema) {
     problems.push(
-      `${facts.role} can rewrite the member register or the audit log`,
+      `${facts.role} can create objects in the public or the pgboss schema`,
+    );
+  }
+  if (facts.rewritableArchive.length > 0) {
+    problems.push(
+      `${facts.role} can rewrite or delete statutory records in ${facts.rewritableArchive.join(", ")}`,
     );
   }
   if (facts.writesMigrationHistory) {
     problems.push(`${facts.role} can write the migration history`);
+  }
+  if (facts.writesJobSchemaVersion) {
+    problems.push(`${facts.role} can write the job schema's version`);
   }
   return problems;
 }
@@ -153,7 +204,7 @@ export async function assertConstrainedRuntimeRole(env: Env): Promise<void> {
       "The application's database connection is not the constrained runtime " +
         `role: ${problems.join("; ")}. Point DATABASE_URL_RUNTIME at a role ` +
         "that owns nothing and holds only what " +
-        "prisma/sql/harden-runtime-role.sql grants openbrf_app.",
+        "prisma/sql/harden-runtime-role.sql grants the runtime role.",
     );
   }
 }
