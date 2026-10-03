@@ -582,6 +582,53 @@ describe("a list that arrives after the panel is shown", () => {
     );
   });
 
+  it("drops a stay half chosen on a resource that is no longer offered", async () => {
+    /*
+     * The panel falls back to the first resource when the one picked drops out
+     * of a re-read list. The stay was cleared only when the reader picked
+     * another, so the nights chosen on one guest room were booked on the other.
+     */
+    const GUEST_ROOM: BookableResourceSummary = {
+      ...GUEST_APARTMENT,
+      id: "resource-guest-room",
+      name: "Gästrummet",
+    };
+    fetchBookableSlots.mockResolvedValue({
+      ok: true,
+      value: [night(16, "FREE"), night(17, "FREE")],
+    });
+    const session = userEvent.setup();
+    const view = render(
+      <BookSlotPanel
+        resources={[GUEST_APARTMENT, GUEST_ROOM]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+    await session.selectOptions(
+      screen.getByLabelText("Vad du vill boka"),
+      GUEST_ROOM.id,
+    );
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    expect(screen.getByRole("button", { name: "Boka vistelsen" })).toBeTruthy();
+
+    view.rerender(
+      <BookSlotPanel
+        resources={[GUEST_APARTMENT]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Boka vistelsen" })).toBeNull();
+    expect(screen.queryByText(/^Ankomst/u)).toBeNull();
+  });
+
   it("books against an apartment that arrived late", async () => {
     const session = userEvent.setup();
     const view = render(

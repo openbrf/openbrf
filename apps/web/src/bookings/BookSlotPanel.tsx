@@ -146,6 +146,19 @@ export function BookSlotPanel({
   const [from, setFrom] = useState(() => localDayNow());
   const [answer, setAnswer] = useState<Calendar | null>(null);
   const [stay, setStay] = useState<StayDraft | null>(null);
+  /*
+   * A stay is nights of one resource, so it goes when the resource in force
+   * changes - not only when the reader picks another, but also when the one
+   * they picked drops out of a re-read list and the first stands in for it.
+   * Left, the nights half chosen on one resource would be booked on another.
+   * Set during the render rather than in an effect, so the stay is never drawn
+   * against the resource it was not chosen on.
+   */
+  const [stayResourceId, setStayResourceId] = useState(resourceId);
+  if (stayResourceId !== resourceId) {
+    setStayResourceId(resourceId);
+    setStay(null);
+  }
   /**
    * Bumped to ask for the calendar again without changing what is asked for.
    *
@@ -311,7 +324,6 @@ export function BookSlotPanel({
             value={resourceId}
             onChange={(event) => {
               setResourceId(event.target.value);
-              setStay(null);
               setFrom(localDayNow());
             }}
             className={FIELD}
