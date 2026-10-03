@@ -90,15 +90,27 @@ describe("failureFrames", () => {
   });
 
   it("keeps no line of a message whose stack head no longer matches the error", () => {
-    // Renamed after the stack was captured, so the stack begins with a name
-    // the error no longer has and cannot be cut off by it.
-    const error = new Error("Recipient refused\nat anna@example.se");
+    // V8 writes the head when the stack is first read, so it is read here
+    // before the rename: the stack then begins with a name the error no longer
+    // has, and the head cannot be cut off by the error's current one.
+    const error = new Error("Recipient refused\n    at anna@example.se");
+    void error.stack;
     error.name = "DeliveryError";
 
     const frames = failureFrames(error) ?? "";
 
     expect(frames).not.toContain("anna");
     expect(frames).toContain("failure.spec.ts");
+  });
+
+  it("keeps nothing when the message changed after the stack was read", () => {
+    // No head can be told from the message lines below it any more, so no
+    // line can be told to be a frame.
+    const error = new Error("Recipient refused\n    at anna@example.se");
+    void error.stack;
+    error.message = "Delivery failed";
+
+    expect(failureFrames(error)).toBeUndefined();
   });
 
   it("keeps only the call frames", () => {
