@@ -1106,6 +1106,101 @@ describe("two writes to one series at once", () => {
   });
 });
 
+/**
+ * A date called off or put back while an edit takes it out of the series.
+ *
+ * Both read the date and then write to it. An edit that deleted the date in
+ * between left the write matching no row, and the caller was answered with a
+ * 500, or told the date was not called off, rather than that it no longer
+ * exists.
+ *
+ * Played out in that order: the test takes the series' row and deletes the
+ * date in a transaction it holds open, as an edit does, sends the request,
+ * waits until the database says it is queued behind that transaction, and
+ * commits.
+ */
+describe("a date called off or put back while an edit drops it", () => {
+  async function whileDropped<T>(
+    eventId: string,
+    occurrenceId: string,
+    request: () => Promise<T>,
+  ): Promise<T> {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await tx.$queryRaw`SELECT id FROM event WHERE id = ${eventId} FOR UPDATE`;
+        await tx.eventOccurrence.delete({ where: { id: occurrenceId } });
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    try {
+      const answering = request();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      return answer;
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+  }
+
+  function act(occurrenceId: string, action: "cancel" | "reinstate") {
+    return inject({
+      method: "POST",
+      url: `/api/events/occurrences/${occurrenceId}/${action}`,
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("answers a call-off that the date is gone", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Avbrutet och borttaget ${suffix}`,
+    });
+    const dropped = created.occurrences[2]?.id ?? "";
+
+    const answer = await whileDropped(created.id, dropped, () =>
+      act(dropped, "cancel"),
+    );
+
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-found",
+    );
+  });
+
+  it("answers a reinstatement that the date is gone", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Atertaget och borttaget ${suffix}`,
+    });
+    const dropped = created.occurrences[2]?.id ?? "";
+    expect((await act(dropped, "cancel")).statusCode).toBe(201);
+
+    const answer = await whileDropped(created.id, dropped, () =>
+      act(dropped, "reinstate"),
+    );
+
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-found",
+    );
+  });
+});
+
 describe("calling off one date", () => {
   it("leaves the rest of the series standing", async () => {
     const created = await createSeries({

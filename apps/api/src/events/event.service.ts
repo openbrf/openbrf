@@ -722,6 +722,7 @@ export class EventService {
     now: Date = new Date(),
   ): Promise<EventView> {
     const row = await this.prisma.$transaction(async (tx) => {
+      await this.lockSeriesOf(tx, occurrenceId);
       const occurrence = await tx.eventOccurrence.findUnique({
         where: { id: occurrenceId },
         select: { id: true, eventId: true, startsAt: true, cancelledAt: true },
@@ -818,6 +819,7 @@ export class EventService {
     now: Date = new Date(),
   ): Promise<EventView> {
     const row = await this.prisma.$transaction(async (tx) => {
+      await this.lockSeriesOf(tx, occurrenceId);
       const occurrence = await tx.eventOccurrence.findUnique({
         where: { id: occurrenceId },
         select: { id: true, eventId: true, startsAt: true, cancelledAt: true },
@@ -1050,6 +1052,29 @@ export class EventService {
       throw new EventError("There is no such event.", "not-found");
     }
     return row;
+  }
+
+  /**
+   * Takes the series' row of one date, as an edit and a removal take it, so
+   * the date is read after either has finished.
+   *
+   * An edit can delete the date. A call-off or a reinstatement that read it
+   * before the edit committed would then write to a row that is gone, and the
+   * caller would be answered with a 500 rather than told the date no longer
+   * exists. The series is found from the date without a lock, and a date
+   * already gone has no series to take: the read after this answers it.
+   */
+  private async lockSeriesOf(
+    tx: Prisma.TransactionClient,
+    occurrenceId: string,
+  ): Promise<void> {
+    const occurrence = await tx.eventOccurrence.findUnique({
+      where: { id: occurrenceId },
+      select: { eventId: true },
+    });
+    if (occurrence !== null) {
+      await tx.$queryRaw`SELECT id FROM event WHERE id = ${occurrence.eventId} FOR UPDATE`;
+    }
   }
 
   /** The series as it stands after a write, read on the writing client. */
