@@ -12,6 +12,7 @@ import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import { ActionCatalogueController } from "./action-catalogue.controller";
+import { ACTION_ERROR_MCP } from "./action.error";
 
 /**
  * What the catalogue demands of whoever reads it.
@@ -96,6 +97,11 @@ describe("looking up one action", () => {
         request,
         reply,
       ),
-    ).resolves.toMatchObject({ name: "news_list" });
+    ).resolves.toEqual({
+      name: "news_list",
+      inputSchema: {},
+      outputSchema: {},
+      errorHandling: ACTION_ERROR_MCP,
+    });
   });
 });
