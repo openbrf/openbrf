@@ -754,7 +754,9 @@ describe("a group", () => {
       };
     });
     await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
-    await userEvent.click(screen.getByRole("button", { name: "Styrelsechatten" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Styrelsechatten" }),
+    );
     answer();
 
     await screen.findByRole("button", { name: "Uppgång C" });

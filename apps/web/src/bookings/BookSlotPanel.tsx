@@ -265,7 +265,9 @@ export function BookSlotPanel({
           setStay(null);
         }
       })
-      .finally(() => setClaiming((current) => (current === startsAt ? null : current)));
+      .finally(() =>
+        setClaiming((current) => (current === startsAt ? null : current)),
+      );
   };
 
   /**
