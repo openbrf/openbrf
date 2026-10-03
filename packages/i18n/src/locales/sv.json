@@ -252,6 +252,7 @@
       },
       "current": "Pågående",
       "ended": "Avslutat",
+      "upcoming": "Kommande",
       "electedOn": "Vald",
       "endedOn": "Avslutades",
       "protectionFailed": "Maskeringen kunde inte ändras. Försök igen.",
