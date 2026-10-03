@@ -562,7 +562,9 @@ instance does.
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
-digest does not match is discarded, never unpacked.
+digest does not match is discarded, never unpacked. `@openbrf/plugin-sdk`
+exports `parseSha512` and `formatSha512`, which read and spell a digest, so a
+catalog's own check accepts exactly the spellings an instance does.
 
 ### What a listing must meet
 
