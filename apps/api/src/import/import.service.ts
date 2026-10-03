@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import type { ImportPreviewStatus } from "../generated/prisma/enums";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { parseCsv, writeCsv } from "./csv";
@@ -175,7 +176,10 @@ export class ImportService implements OnModuleInit {
     }
     const data = rows.slice(1);
     if (data.length > MAX_IMPORT_ROWS) {
-      throw new ImportError("That file has too many rows.", "too-many-rows");
+      throw new ImportError(
+        `That file has more than ${String(MAX_IMPORT_ROWS)} rows below its column titles.`,
+        "too-many-rows",
+      );
     }
 
     const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
@@ -325,6 +329,19 @@ export class ImportService implements OnModuleInit {
   }
 
   /**
+   * Stops a preview the screen has stopped waiting for: the board picked
+   * another file, or left the page.
+   *
+   * Without this the job would go on planning it until it noticed nobody was
+   * asking, and one worker plans every preview on the instance, so everybody
+   * else's would wait behind it. Answered the same whatever the preview's state:
+   * one already finished, replaced or stopped has nothing left to stop.
+   */
+  async cancelPreview(sessionId: string, previewId: string): Promise<void> {
+    await this.previews.cancel(sessionId, previewId);
+  }
+
+  /**
    * Starts the apply.
    *
    * Every ambiguous row needs a decision, and the rows that need one are the
@@ -361,7 +378,10 @@ export class ImportService implements OnModuleInit {
     // they have to be the decisions made on this preview. A screen holding an
     // older one is told, rather than having its answers applied to a mapping
     // somebody else chose since. A preview still being planned, or one that
-    // stopped, has issued no token at all.
+    // stopped, has issued no token at all - and the token this request carries
+    // came from a preview that was ready, so another has been asked for since
+    // and "changed" is what happened. It is also the answer that sends the
+    // screen back to its mapping.
     if (
       session.previewToken === null ||
       session.previewToken !== input.previewToken
@@ -546,7 +566,7 @@ export class ImportService implements OnModuleInit {
   }
 
   private async loadForApply(sessionId: string): Promise<{
-    previewStatus: string | null;
+    previewStatus: ImportPreviewStatus | null;
     previewToken: string | null;
     ambiguousRows: Prisma.JsonValue;
   }> {

@@ -196,6 +196,23 @@ export function fetchImportPreview(
 }
 
 /**
+ * Tells the API the screen has stopped waiting for a preview, so the job
+ * planning it frees the worker for the next one. Sent as the page is left as
+ * well, so it is allowed to outlive the page.
+ */
+export function cancelImportPreview(
+  sessionId: string,
+  previewId: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "DELETE",
+    `/api/import/sessions/${encodeURIComponent(sessionId)}/preview/${encodeURIComponent(previewId)}`,
+    undefined,
+    { keepalive: true },
+  );
+}
+
+/**
  * Starts the import.
  *
  * Only the decisions go up, with the token of the preview they were made on: the

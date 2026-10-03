@@ -23,6 +23,7 @@ export type ImportErrorReason =
   | "preview-required"
   | "preview-changed"
   | "preview-interrupted"
+  | "preview-cancelled"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";

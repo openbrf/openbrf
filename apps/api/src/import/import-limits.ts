@@ -13,14 +13,13 @@
  * apartments, a dozen columns, values a person types into a cell.
  */
 
-/** Data rows, header excluded. */
-export const MAX_IMPORT_ROWS = 5000;
-
-/** Columns. The mapping step accepts no more than this either. */
-export const MAX_IMPORT_COLUMNS = 200;
-
-/** Characters in one cell. A name, an address or a date is far shorter. */
-export const MAX_IMPORT_CELL_LENGTH = 1000;
+// Data rows, columns and characters in a cell: shared, because the screen
+// names them when it refuses a file.
+export {
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "@openbrf/shared";
 
 /**
  * Bytes one entry of an xlsx archive may inflate to.

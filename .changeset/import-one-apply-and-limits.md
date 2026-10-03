@@ -2,6 +2,7 @@
 "@openbrf/api": patch
 "@openbrf/web": patch
 "@openbrf/i18n": patch
+"@openbrf/shared": patch
 ---
 
 The member list import writes each person once, and reads a file within fixed
@@ -14,8 +15,9 @@ limits.
 - The preview is worked out in the background, and the screen shows how far it
   has got. A long file with personal identity numbers, checked against a
   register that already holds some, no longer keeps a request open for
-  minutes. A preview the screen stops asking about is stopped, so it does not
-  hold up the next one.
+  minutes. A preview the screen stops waiting for - another file is chosen, or
+  the page is left - is stopped at once, and one the screen stops asking about
+  is stopped after two minutes, so neither holds up the next one.
 - The apply runs only the preview the screen was shown. If the upload has been
   previewed again since - in another tab, or by another board member - the apply
   is refused and the screen goes back to the column mapping.

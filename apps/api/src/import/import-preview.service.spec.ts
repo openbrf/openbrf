@@ -193,12 +193,10 @@ function harness(
       };
     },
   );
-  const planner = {
-    decryptRows: vi.fn(() =>
-      Promise.resolve(Array.from({ length: ROWS }, () => ["Anna", "1101"])),
-    ),
-    plan,
-  } as unknown as ImportPlannerService;
+  const decryptRows = vi.fn(() =>
+    Promise.resolve(Array.from({ length: ROWS }, () => ["Anna", "1101"])),
+  );
+  const planner = { decryptRows, plan } as unknown as ImportPlannerService;
 
   const encryption = {
     encrypt: vi.fn((_id: string, plaintext: string) =>
@@ -227,7 +225,7 @@ function harness(
         : [],
     );
 
-  return { service, plan, send, reported };
+  return { service, plan, decryptRows, send, reported };
 }
 
 describe("planning a preview", () => {
@@ -320,10 +318,17 @@ describe("a preview overtaken halfway through", () => {
 
 describe("a preview nobody is watching", () => {
   it("is stopped and recorded as interrupted", async () => {
-    const stored = session({
-      previewWatchedAt: new Date(Date.now() - PREVIEW_UNWATCHED_MS - 1000),
+    // The screen last asked long enough ago by the time row 10 is planned.
+    const stored = session();
+    const { service, reported } = harness(stored, {
+      duringRow: (rowsPrepared, row) => {
+        if (rowsPrepared === 10) {
+          row.previewWatchedAt = new Date(
+            Date.now() - PREVIEW_UNWATCHED_MS - 1000,
+          );
+        }
+      },
     });
-    const { service, reported } = harness(stored);
 
     await service.runPreview("session-1", "preview-1");
 
@@ -332,6 +337,22 @@ describe("a preview nobody is watching", () => {
       previewStatus: "FAILED",
       previewFailureReason: "preview-interrupted",
       previewToken: null,
+    });
+  });
+
+  it("is not decrypted when its job starts after the screen has gone", async () => {
+    const stored = session({
+      previewWatchedAt: new Date(Date.now() - PREVIEW_UNWATCHED_MS - 1000),
+    });
+    const { service, plan, decryptRows } = harness(stored);
+
+    await service.runPreview("session-1", "preview-1");
+
+    expect(decryptRows).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      previewStatus: "FAILED",
+      previewFailureReason: "preview-interrupted",
     });
   });
 
@@ -344,6 +365,62 @@ describe("a preview nobody is watching", () => {
     await service.runPreview("session-1", "preview-1");
 
     expect(stored.previewStatus).toBe("READY");
+  });
+});
+
+describe("a preview the screen stopped waiting for", () => {
+  it("frees the worker at the next progress report", async () => {
+    // The board picked another file while row 10 was planned. The job lets go
+    // at its first report rather than planning on until the preview is found
+    // unwatched, so the next preview on the instance does not wait behind it.
+    const stored = session();
+    let furthest = 0;
+    const { service, reported } = harness(stored, {
+      duringRow: (rowsPrepared) => {
+        furthest = rowsPrepared;
+        if (rowsPrepared === 10) {
+          void service.cancel("session-1", "preview-1");
+        }
+      },
+    });
+
+    await service.runPreview("session-1", "preview-1");
+
+    expect(reported()).toEqual([PREVIEW_PROGRESS_ROWS]);
+    expect(furthest).toBe(PREVIEW_PROGRESS_ROWS);
+    expect(stored).toMatchObject({
+      previewStatus: "FAILED",
+      previewFailureReason: "preview-cancelled",
+      previewToken: null,
+      previewCipher: null,
+    });
+  });
+
+  it("leaves a preview alone once it is ready", async () => {
+    const stored = session();
+    const { service } = harness(stored);
+    await service.runPreview("session-1", "preview-1");
+    const token = stored.previewToken;
+
+    await service.cancel("session-1", "preview-1");
+
+    expect(stored).toMatchObject({
+      previewStatus: "READY",
+      previewToken: token,
+    });
+  });
+
+  it("leaves the preview that replaced it alone", async () => {
+    const stored = session({ previewId: "preview-2" });
+    const { service } = harness(stored);
+
+    await service.cancel("session-1", "preview-1");
+
+    expect(stored).toMatchObject({
+      previewId: "preview-2",
+      previewStatus: "PLANNING",
+      previewFailureReason: null,
+    });
   });
 });
 
@@ -403,5 +480,21 @@ describe("resuming after a restart", () => {
       { sessionId: "session-1", previewId: "preview-1" },
       expect.objectContaining({ retryLimit: expect.any(Number) }),
     );
+  });
+
+  it("records one nobody has asked about since as interrupted", async () => {
+    // The process was down longer than a screen keeps waiting: re-queuing it
+    // would only decrypt the file to find nobody is looking.
+    const stored = session({
+      previewWatchedAt: new Date(Date.now() - PREVIEW_UNWATCHED_MS - 1000),
+    });
+    const { service, send } = harness(stored);
+
+    expect(await service.resumeInterruptedPreviews()).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      previewStatus: "FAILED",
+      previewFailureReason: "preview-interrupted",
+    });
   });
 });

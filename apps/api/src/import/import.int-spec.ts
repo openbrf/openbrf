@@ -134,7 +134,7 @@ const personIds = [
 
 let ipCounter = 0;
 function inject(options: {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   url: string;
   payload?: object;
   headers?: Record<string, string>;
@@ -1112,6 +1112,50 @@ describe("the preview job", () => {
       defaultMovedInOn: "2010-01-01",
     });
     expect(preview.rows).toHaveLength(IMPORT_CHUNK_ROWS + 20);
+  });
+
+  it("stops a preview the screen has cancelled", async () => {
+    // The board picked another file. Told so, the job lets go of the worker
+    // rather than planning on until the preview is found unwatched.
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "lang.csv",
+      encode(writeCsv(longFixture("Cancelled"))),
+    );
+    const previewId = `cancelled-${suffix}`;
+    await planningWithoutJob(session, previewId);
+
+    const cancelled = await inject({
+      method: "DELETE",
+      url: `/api/import/sessions/${session.sessionId}/preview/${previewId}`,
+      headers: { cookie },
+    });
+    expect(cancelled.statusCode).toBe(204);
+
+    await previews.runPreview(session.sessionId, previewId);
+    const stopped = await readPreview(cookie, session.sessionId, previewId);
+    expect(JSON.parse(stopped.body) as ImportPreviewRun).toMatchObject({
+      status: "FAILED",
+      rowsDone: 0,
+      failureReason: "preview-cancelled",
+      preview: null,
+    });
+
+    // A preview that has been replaced since is not the one cancelled.
+    const next = await askForPreview(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      defaultMovedInOn: "2010-01-01",
+    });
+    const late = await inject({
+      method: "DELETE",
+      url: `/api/import/sessions/${session.sessionId}/preview/${previewId}`,
+      headers: { cookie },
+    });
+    expect(late.statusCode).toBe(204);
+    expect(
+      (await waitForPreview(cookie, session.sessionId, next.previewId)).status,
+    ).toBe("READY");
   });
 
   it("records a refusal, and holds up neither a later preview nor the apply", async () => {

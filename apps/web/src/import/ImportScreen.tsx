@@ -16,6 +16,7 @@ import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
   applyImport,
+  cancelImportPreview,
   fetchActiveImport,
   fetchImportPreview,
   fetchImportRun,
@@ -35,6 +36,7 @@ import {
   uploadImport,
 } from "./import-api";
 import {
+  FAILURE_VALUES,
   failureMessage,
   FIELD_LABEL,
   OUTCOME_LABEL,
@@ -190,38 +192,57 @@ export function ImportScreen(): ReactElement {
   // A plain interval rather than usePoll, which pauses while the tab is hidden:
   // here the asking is what tells the API somebody is still waiting, and a
   // board member who looks at another tab during a long preview still wants it.
+  //
+  // Asked once at once, then every interval: a short file is often planned
+  // before the first interval is up.
+  //
+  // And the screen says when it stops waiting. Whatever ends the wait before
+  // the preview does - another file, back to the start, leaving the page - ends
+  // this effect, and a preview nobody is waiting for any more would otherwise
+  // hold the one worker that plans every preview on the instance until the API
+  // noticed nobody was asking.
   useEffect(() => {
     if (plannedSessionId === null || plannedPreviewId === null) {
       return;
     }
     let abandoned = false;
+    /** Whether the preview has ended, so there is nothing left to cancel. */
+    let settled = false;
 
+    const poll = async (): Promise<void> => {
+      const response = await fetchImportPreview(
+        plannedSessionId,
+        plannedPreviewId,
+      );
+      if (abandoned) {
+        return;
+      }
+      if (response.ok) {
+        settled = response.value.status !== "PLANNING";
+        receivePreview(response.value);
+        return;
+      }
+      // A refusal ends the wait - the preview was replaced, the upload
+      // expired, or the import was started elsewhere. A request that never
+      // reached the server, or a server error, is asked again.
+      if (response.failure.status >= 400 && response.failure.status < 500) {
+        settled = true;
+        setPlanning(null);
+        setFailure(failureMessage(response.failure.reason));
+      }
+    };
+
+    void poll();
     const timer = setInterval(() => {
-      void (async () => {
-        const response = await fetchImportPreview(
-          plannedSessionId,
-          plannedPreviewId,
-        );
-        if (abandoned) {
-          return;
-        }
-        if (response.ok) {
-          receivePreview(response.value);
-          return;
-        }
-        // A refusal ends the wait - the preview was replaced, the upload
-        // expired, or the import was started elsewhere. A request that never
-        // reached the server, or a server error, is asked again.
-        if (response.failure.status >= 400 && response.failure.status < 500) {
-          setPlanning(null);
-          setFailure(failureMessage(response.failure.reason));
-        }
-      })();
+      void poll();
     }, PREVIEW_POLL_MS);
 
     return () => {
       abandoned = true;
       clearInterval(timer);
+      if (!settled) {
+        void cancelImportPreview(plannedSessionId, plannedPreviewId);
+      }
     };
   }, [plannedSessionId, plannedPreviewId, receivePreview]);
 
@@ -360,7 +381,7 @@ export function ImportScreen(): ReactElement {
 
       {failure === null ? null : (
         <Notice tone="danger" live>
-          {t(failure)}
+          {t(failure, FAILURE_VALUES)}
         </Notice>
       )}
 
@@ -380,8 +401,7 @@ export function ImportScreen(): ReactElement {
           busy={busy}
           planning={planning}
           onBack={() => {
-            // Not waited for any longer: the API stops a preview nobody asks
-            // about.
+            // Ending the wait cancels the preview: see the effect above.
             setPlanning(null);
             setStep("upload");
           }}
@@ -672,26 +692,14 @@ function PlanningProgress({
   planning: ImportPreviewRun;
 }): ReactElement {
   const { t } = useTranslation();
-  const percent =
-    planning.rowsTotal === 0
-      ? 0
-      : Math.round((planning.rowsDone / planning.rowsTotal) * 100);
 
   return (
     <div className="flex flex-col gap-2 border-t border-line pt-4">
-      <div
-        role="progressbar"
-        aria-label={t("import.mapping.planningProgressLabel")}
-        aria-valuemin={0}
-        aria-valuemax={planning.rowsTotal}
-        aria-valuenow={planning.rowsDone}
-        className="h-2 w-full overflow-hidden rounded-control bg-sunken"
-      >
-        <div
-          className="h-full bg-ink transition-[width] duration-300 ease-out"
-          style={{ width: `${String(percent)}%` }}
-        />
-      </div>
+      <ProgressBar
+        label={t("import.mapping.planningProgressLabel")}
+        done={planning.rowsDone}
+        total={planning.rowsTotal}
+      />
       <p className="font-data text-data text-ink-muted">
         {t("import.run.progress", {
           done: planning.rowsDone,
@@ -699,6 +707,35 @@ function PlanningProgress({
         })}
       </p>
       <p className={HINT}>{t("import.mapping.planningHint")}</p>
+    </div>
+  );
+}
+
+/** Rows worked through against rows in the file, as a bar. */
+function ProgressBar({
+  label,
+  done,
+  total,
+}: {
+  label: string;
+  done: number;
+  total: number;
+}): ReactElement {
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={done}
+      className="h-2 w-full overflow-hidden rounded-control bg-sunken"
+    >
+      <div
+        className="h-full bg-ink transition-[width] duration-300 ease-out"
+        style={{ width: `${String(percent)}%` }}
+      />
     </div>
   );
 }
@@ -916,8 +953,6 @@ function ApplyStep({
   const { t } = useTranslation();
 
   const running = isImportRunning(run.status);
-  const percent =
-    run.rowsTotal === 0 ? 0 : Math.round((run.rowsDone / run.rowsTotal) * 100);
 
   const counts = [
     ["import.result.personsCreated", run.result.personsCreated],
@@ -940,19 +975,11 @@ function ApplyStep({
       </p>
 
       <div className="flex flex-col gap-2">
-        <div
-          role="progressbar"
-          aria-label={t("import.run.progressLabel")}
-          aria-valuemin={0}
-          aria-valuemax={run.rowsTotal}
-          aria-valuenow={run.rowsDone}
-          className="h-2 w-full overflow-hidden rounded-control bg-sunken"
-        >
-          <div
-            className="h-full bg-ink transition-[width] duration-300 ease-out"
-            style={{ width: `${String(percent)}%` }}
-          />
-        </div>
+        <ProgressBar
+          label={t("import.run.progressLabel")}
+          done={run.rowsDone}
+          total={run.rowsTotal}
+        />
         {/*
          * The state is written out beside the bar rather than left to the bar's
          * length: a bar that has stopped moving looks the same whether the

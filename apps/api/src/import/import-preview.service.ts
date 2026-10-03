@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import type { ImportPreviewStatus } from "../generated/prisma/enums";
 import {
   type JobSendOptions,
   JobQueueService,
@@ -117,8 +118,6 @@ export interface ImportPreview {
   rows: ImportPreviewRow[];
 }
 
-export type ImportPreviewStatus = "PLANNING" | "READY" | "FAILED";
-
 /** A preview as the screen polls it. */
 export interface ImportPreviewRun {
   sessionId: string;
@@ -129,7 +128,7 @@ export interface ImportPreviewRun {
   rowsDone: number;
   rowsTotal: number;
   /** The import's own reason code when the preview stopped, else null. */
-  failureReason: string | null;
+  failureReason: ImportErrorReason | null;
   /** The preview itself, once it is ready. */
   preview: ImportPreview | null;
 }
@@ -145,15 +144,9 @@ export const IMPORT_PREVIEW_SELECT = {
   previewToken: true,
 } as const;
 
-interface ImportPreviewRunRow {
-  rowCount: number;
-  previewId: string | null;
-  previewStatus: ImportPreviewStatus | null;
-  previewRowsDone: number;
-  previewFailureReason: string | null;
-  previewCipher: string | null;
-  previewToken: string | null;
-}
+type ImportPreviewRunRow = Prisma.ImportSessionGetPayload<{
+  select: typeof IMPORT_PREVIEW_SELECT;
+}>;
 
 /** What is stored of a finished preview. The token is a column of its own. */
 interface StoredPreview {
@@ -241,7 +234,10 @@ export class ImportPreviewService implements OnModuleInit {
    * Re-queues every preview that was being planned when the process stopped.
    *
    * A preview is planned from the start every time, so this is all resuming
-   * takes. One whose screen has gone stops at its first progress report.
+   * takes. One nobody has asked about for {@link PREVIEW_UNWATCHED_MS} - the
+   * process was down longer than that - is recorded as interrupted instead:
+   * its screen has stopped waiting, and the job would only decrypt the file and
+   * hash rows to find that out.
    */
   async resumeInterruptedPreviews(): Promise<number> {
     const unfinished = await this.prisma.importSession.findMany({
@@ -250,24 +246,45 @@ export class ImportPreviewService implements OnModuleInit {
         previewStatus: "PLANNING",
         expiresAt: { gt: new Date() },
       },
-      select: { id: true, previewId: true },
+      select: { id: true, previewId: true, previewWatchedAt: true },
     });
 
     let queued = 0;
     for (const session of unfinished) {
-      if (session.previewId !== null) {
-        await this.jobs.send<ImportPreviewJob>(
-          IMPORT_PREVIEW_QUEUE,
-          { sessionId: session.id, previewId: session.previewId },
-          PREVIEW_JOB_OPTIONS,
-        );
-        queued++;
+      if (session.previewId === null) {
+        continue;
       }
+      if (!watched(session.previewWatchedAt)) {
+        await this.release(
+          session.id,
+          session.previewId,
+          "preview-interrupted",
+        );
+        continue;
+      }
+      await this.jobs.send<ImportPreviewJob>(
+        IMPORT_PREVIEW_QUEUE,
+        { sessionId: session.id, previewId: session.previewId },
+        PREVIEW_JOB_OPTIONS,
+      );
+      queued++;
     }
     if (queued > 0) {
       this.logger.log(`Re-queued ${String(queued)} unfinished import previews`);
     }
     return queued;
+  }
+
+  /**
+   * Stops a preview the screen no longer waits for.
+   *
+   * Recorded through the same guard as every other end of a preview, so it
+   * touches only a preview still being planned, and the job planning it lets go
+   * of the worker at its next progress report rather than when the preview is
+   * next found unwatched.
+   */
+  async cancel(sessionId: string, previewId: string): Promise<void> {
+    await this.release(sessionId, previewId, "preview-cancelled");
   }
 
   /**
@@ -289,6 +306,7 @@ export class ImportPreviewService implements OnModuleInit {
         status: true,
         previewId: true,
         previewStatus: true,
+        previewWatchedAt: true,
       },
     });
     if (
@@ -297,7 +315,14 @@ export class ImportPreviewService implements OnModuleInit {
       session.previewId !== previewId ||
       session.previewStatus !== "PLANNING"
     ) {
-      // Purged, started, or previewed again since: nobody wants this one.
+      // Purged, started, cancelled or previewed again since: nobody wants this
+      // one.
+      return;
+    }
+    if (!watched(session.previewWatchedAt)) {
+      // A job that waited out an outage or a long queue: its screen has gone,
+      // so the file is not decrypted for it.
+      await this.release(sessionId, previewId, "preview-interrupted");
       return;
     }
 
@@ -373,7 +398,8 @@ export class ImportPreviewService implements OnModuleInit {
       status,
       rowsDone: session.previewRowsDone,
       rowsTotal: session.rowCount,
-      failureReason: session.previewFailureReason,
+      // Written only from an ImportErrorReason, by release().
+      failureReason: session.previewFailureReason as ImportErrorReason | null,
       preview,
     };
   }
@@ -383,8 +409,8 @@ export class ImportPreviewService implements OnModuleInit {
    *
    * One conditional update does both. It matches only while this is still the
    * session's preview and a screen has asked about it recently; when it
-   * matches nothing, the preview has been replaced, the import started, or the
-   * screen has gone, and the job stops where it is.
+   * matches nothing, the preview has been replaced or cancelled, the import
+   * started, or the screen has gone, and the job stops where it is.
    */
   private async reportProgress(
     sessionId: string,
@@ -399,8 +425,9 @@ export class ImportPreviewService implements OnModuleInit {
       data: { previewRowsDone: rowsDone },
     });
     if (count === 0) {
-      // A replaced preview is left alone by this; one left unwatched is marked
-      // stopped, so a screen that does come back is told rather than waiting.
+      // A replaced or cancelled preview is left alone by this; one left
+      // unwatched is marked stopped, so a screen that does come back is told
+      // rather than waiting.
       await this.release(sessionId, previewId, "preview-interrupted");
       throw new PreviewReleased();
     }
@@ -467,6 +494,14 @@ export class ImportPreviewService implements OnModuleInit {
   }
 }
 
+/** Whether a screen has asked about the preview recently enough to go on. */
+function watched(watchedAt: Date | null): boolean {
+  return (
+    watchedAt !== null &&
+    watchedAt.getTime() >= Date.now() - PREVIEW_UNWATCHED_MS
+  );
+}
+
 /** The session, while this preview is still the one it is planning. */
 function current(
   sessionId: string,
@@ -480,7 +515,7 @@ function current(
   };
 }
 
-export function toPreviewRow(row: PlannedRow): ImportPreviewRow {
+function toPreviewRow(row: PlannedRow): ImportPreviewRow {
   const { person, movedInStated: _movedInStated, ...rest } = row;
   return {
     ...rest,

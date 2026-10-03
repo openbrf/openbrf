@@ -1,3 +1,9 @@
+import {
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "@openbrf/shared";
+
 import type { TranslationKey } from "../i18n/translation-key";
 import type { ImportField, ImportOutcome, ImportRunStatus } from "./import-api";
 
@@ -26,6 +32,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "preview-required": "import.errors.previewRequired",
   "preview-changed": "import.errors.previewChanged",
   "preview-interrupted": "import.errors.previewInterrupted",
+  "preview-cancelled": "import.errors.previewCancelled",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",
@@ -38,6 +45,16 @@ const FAILURES: Record<string, TranslationKey> = {
 export function failureMessage(reason: string): TranslationKey {
   return FAILURES[reason] ?? "import.errors.unknown";
 }
+
+/**
+ * The limits a refused file is told about, for the failure messages that name
+ * one. The same numbers the API enforces, so the two cannot disagree.
+ */
+export const FAILURE_VALUES = {
+  maxRows: MAX_IMPORT_ROWS,
+  maxColumns: MAX_IMPORT_COLUMNS,
+  maxCellLength: MAX_IMPORT_CELL_LENGTH,
+} as const;
 
 const PROBLEMS: Record<string, TranslationKey> = {
   "name-missing": "import.problem.name-missing",

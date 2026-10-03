@@ -70,14 +70,22 @@ export async function apiRequest<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
+  options: {
+    /**
+     * Lets the request outlive the page that sent it, for the one a screen
+     * sends as it is left.
+     */
+    keepalive?: boolean;
+  } = {},
 ): Promise<ApiResult<T>> {
+  const keepalive = options.keepalive === true ? { keepalive: true } : {};
   // The body and its header are added only when there is one. A GET carrying a
   // body key at all - even an undefined one - is invalid, and passing the
   // content type without content is a lie about the request.
   return send<T>(
     path,
     body === undefined
-      ? { method, credentials: "same-origin" }
+      ? { method, credentials: "same-origin", ...keepalive }
       : {
           method,
           headers: { "content-type": "application/json" },
@@ -85,6 +93,7 @@ export async function apiRequest<T>(
           // Belt and braces: same-origin is already fetch's default, and the
           // session is an http-only cookie that has to travel with every call.
           credentials: "same-origin",
+          ...keepalive,
         },
   );
 }

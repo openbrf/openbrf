@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -154,6 +155,20 @@ export class ImportController {
     @Param("previewId") previewId: string,
   ): Promise<ImportPreviewRun> {
     return this.imports.previewRun(id, previewId);
+  }
+
+  /**
+   * Stops a preview the screen no longer waits for, so the job planning it
+   * frees the worker for the next one. Sent as the page is left too, so it
+   * answers with nothing and the same whatever the preview's state.
+   */
+  @Delete("sessions/:id/preview/:previewId")
+  @HttpCode(204)
+  async cancelPreview(
+    @Param("id") id: string,
+    @Param("previewId") previewId: string,
+  ): Promise<void> {
+    await this.imports.cancelPreview(id, previewId);
   }
 
   /**

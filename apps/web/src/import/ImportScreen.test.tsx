@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -58,6 +59,7 @@ const IDENTITY_NUMBER = "19811228-9874";
 const uploadImport = vi.fn();
 const previewImport = vi.fn();
 const fetchImportPreview = vi.fn();
+const cancelImportPreview = vi.fn();
 const applyImport = vi.fn();
 const fetchImportRun = vi.fn();
 const fetchActiveImport = vi.fn();
@@ -69,6 +71,8 @@ vi.mock("./import-api", async (importOriginal) => ({
     previewImport(sessionId, input),
   fetchImportPreview: (sessionId: string, previewId: string) =>
     fetchImportPreview(sessionId, previewId),
+  cancelImportPreview: (sessionId: string, previewId: string) =>
+    cancelImportPreview(sessionId, previewId),
   applyImport: (sessionId: string, input: unknown) =>
     applyImport(sessionId, input),
   fetchImportRun: (sessionId: string) => fetchImportRun(sessionId),
@@ -299,6 +303,9 @@ beforeEach(() => {
     ok: true,
     value: previewRun(),
   });
+  cancelImportPreview
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: undefined });
   // The apply is accepted, not done: what comes back is a queued import.
   applyImport.mockReset().mockResolvedValue({ ok: true, value: runView() });
   fetchImportRun.mockReset().mockResolvedValue({ ok: true, value: FINISHED });
@@ -387,13 +394,14 @@ describe("while the preview is planned", () => {
       screen.getByRole("button", { name: /Förhandsgranska importen/ }),
     );
 
-    // Accepted, not done: the screen stays on the mapping and says so.
+    // Accepted, not done: the screen stays on the mapping and says so. It
+    // asks once straight away rather than waiting out the first interval.
     expect(
       await screen.findByRole("progressbar", {
         name: /Hur stor del av filen som gåtts igenom/,
       }),
     ).toBeTruthy();
-    expect(screen.getByText(/0 av 3 rader/)).toBeTruthy();
+    expect(await screen.findByText(/2 av 3 rader/)).toBeTruthy();
     expect(
       screen
         .getByRole("button", { name: /Räknar ut vad som skulle hända/ })
@@ -405,15 +413,67 @@ describe("while the preview is planned", () => {
         .getByRole("combobox", { name: /Personnummer/ })
         .hasAttribute("disabled"),
     ).toBe(true);
-    expect(fetchImportPreview).not.toHaveBeenCalled();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
 
-    // The screen asks on its own, once every poll interval.
-    await nextPoll();
-    expect(await screen.findByText(/2 av 3 rader/)).toBeTruthy();
+    // Then on its own, once every poll interval.
     await nextPoll();
     expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
     expect(fetchImportPreview).toHaveBeenCalledTimes(2);
     expect(fetchImportPreview).toHaveBeenCalledWith("session-1", "planning-1");
+    // A preview that finished has nothing to cancel.
+    expect(cancelImportPreview).not.toHaveBeenCalled();
+  });
+
+  it("shows a short file's preview without waiting a poll interval", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+
+    expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the preview when the board picks another file", async () => {
+    // Otherwise the job goes on planning it, and every other preview on the
+    // instance waits behind it until the API notices nobody is asking.
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview.mockResolvedValue({ ok: true, value: PLANNING });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await screen.findByRole("progressbar");
+    await session.click(
+      screen.getByRole("button", { name: /Välj en annan fil/ }),
+    );
+
+    expect(cancelImportPreview).toHaveBeenCalledTimes(1);
+    expect(cancelImportPreview).toHaveBeenCalledWith("session-1", "planning-1");
+    // And stops asking about it.
+    const asked = fetchImportPreview.mock.calls.length;
+    await nextPoll();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(asked);
+  });
+
+  it("cancels the preview when the page is left", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview.mockResolvedValue({ ok: true, value: PLANNING });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await screen.findByRole("progressbar");
+    cleanup();
+
+    expect(cancelImportPreview).toHaveBeenCalledWith("session-1", "planning-1");
   });
 
   it("says the preview stopped, and lets the board ask again", async () => {
@@ -485,7 +545,9 @@ describe("while the preview is planned", () => {
     await session.click(
       screen.getByRole("button", { name: /Förhandsgranska importen/ }),
     );
-    await nextPoll();
+    await waitFor(() => {
+      expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+    });
     expect(screen.getByRole("progressbar")).toBeTruthy();
     await nextPoll();
 
@@ -775,6 +837,21 @@ describe("when the file cannot be read", () => {
     expect(
       await screen.findByText(/citattecken i filen avslutas aldrig/),
     ).toBeTruthy();
+  });
+
+  it("names the row cap a file went over", async () => {
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "too-many-rows" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    // Written as Swedish writes a number, from the cap the API enforces.
+    expect(await screen.findByText(/fler än 5\s000 rader/)).toBeTruthy();
   });
 
   it("says which problem it was", async () => {
