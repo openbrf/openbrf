@@ -14,8 +14,8 @@ limits.
 - The apply runs only the preview the screen was shown. If the upload has been
   previewed again since - in another tab, or by another board member - the apply
   is refused and the screen goes back to the column mapping.
-- A row for someone who already lives in the apartment in another role, or from
-  another date, is reported as a problem with the row instead of being dropped
+- A row for someone who already lives in the apartment in another role, or for
+  other dates, is reported as a problem with the row instead of being dropped
   without a word. Someone who moved out and back in gets their second period.
 - Rows for one person are written to that person when they carry different
   identifiers, when the person's residency has ended, and when they fall far

@@ -394,9 +394,11 @@ export function rowResidency(row: PlannedRow): RowResidency | null {
  * it is what a row already written, or a row listed twice, looks like. A row
  * that does not state its own move-in date says only that the person lives
  * here in that role, so a residency in that role that it shares a day with is
- * the same one too. Read as a residency of its own from the default date, a
- * register imported again without its move-in column would refuse every
- * resident it already holds.
+ * the same one too, as long as it ends when the row says. Read as a residency
+ * of its own from the default date, a register imported again without its
+ * move-in column would refuse every resident it already holds. A row that
+ * ends a residency still open, or keeps one open that has ended, is not that
+ * residency: taken as it, the row's end would be dropped without a word.
  */
 export function heldAlready(
   residency: RowResidency,
@@ -407,7 +409,9 @@ export function heldAlready(
       other.apartmentId === residency.apartmentId &&
       other.role === residency.role &&
       (other.movedInOn === residency.movedInOn ||
-        (!residency.movedInStated && overlaps(residency, other))),
+        (!residency.movedInStated &&
+          other.movedOutOn === residency.movedOutOn &&
+          overlaps(residency, other))),
   );
 }
 
