@@ -2376,6 +2376,7 @@
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
       "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
+      "previewOutdated": "En annan import ändrade registret efter att förhandsgranskningen gjordes. Förhandsgranskningen nedan är gjord på nytt: kontrollera den, ta ställning till de rader som behöver det och genomför importen igen.",
       "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",

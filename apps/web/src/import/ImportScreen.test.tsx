@@ -446,6 +446,47 @@ describe("after pressing apply", () => {
     expect(fetchActiveImport).toHaveBeenCalledTimes(1);
   });
 
+  it("takes the preview again when another import has overtaken it", async () => {
+    // Another import finished after this preview was taken, so the preview may
+    // describe a register that is no longer there. The screen takes it again
+    // and asks again about the rows that need a decision.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "preview-outdated" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/En annan import ändrade registret/),
+    ).toBeTruthy();
+    expect(previewImport).toHaveBeenCalledTimes(2);
+    expect(previewImport.mock.calls[1]).toEqual(previewImport.mock.calls[0]);
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
+    // The decision belonged to the preview that was replaced.
+    expect(
+      (
+        screen.getByRole("combobox", {
+          name: /Den här raden är/,
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
   it("follows the import to the end", async () => {
     await apply();
     await screen.findByText(/Importen pågår/);

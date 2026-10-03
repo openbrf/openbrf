@@ -18,6 +18,13 @@ export type ImportErrorReason =
    * finished.
    */
   | "another-import-running"
+  /**
+   * Another import wrote to the register after this session was previewed, so
+   * the preview no longer describes what the apply would do. Answered with 409
+   * and the session is left in MAPPING: previewing it again makes it
+   * applicable.
+   */
+  | "preview-outdated"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
@@ -40,7 +47,8 @@ export class ImportError extends DomainError {
         ? 404
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
-            reason === "another-import-running"
+            reason === "another-import-running" ||
+            reason === "preview-outdated"
           ? 409
           : 400;
   }
