@@ -1453,6 +1453,39 @@ describe("a member's proxy authorisation", () => {
       twoHoldings.personId,
     );
   });
+
+  it("refuses to withdraw an authority once the meeting has been held", async () => {
+    // Registering it again is refused after the conclusion, so a withdrawal
+    // that went through would take the vote out of the held meeting for good.
+    const meetingId = await arrangeMeeting();
+    const created = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+    });
+    expect(created.statusCode).toBe(201);
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: twoHoldings.personId,
+          capacity: "PROXY_HOLDER",
+        })
+      ).statusCode,
+    ).toBe(201);
+    await concludeMeeting(meetingId);
+
+    const withdrawn = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/proxy-authorisations/${created.json<{ id: string }>().id}/withdrawal`,
+      headers: { cookie: boardCookie },
+    });
+    expect(withdrawn.statusCode).toBe(409);
+    expect(withdrawn.json<{ reason: string }>().reason).toBe(
+      "meeting-already-held",
+    );
+    expect(
+      lineOf(await readMeeting(meetingId), soloMember.personId)?.votePresent,
+    ).toBe(true);
+  });
 });
 
 describe("the agenda and what the meeting decided", () => {

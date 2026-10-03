@@ -812,7 +812,8 @@ export class MeetingService {
    *
    * A date and never a delete: a member who takes their proxy authorisation
    * back has done something, and a deleted row could only say so by absence.
-   * Idempotent, like striking a line off the list.
+   * Idempotent, like striking a line off the list, and refused once the meeting
+   * has been held for the same reason: registering it again would be refused.
    */
   async withdrawProxy(
     meetingId: string,
@@ -820,6 +821,9 @@ export class MeetingService {
     actorPersonId: string,
   ): Promise<ProxyAuthorisationView> {
     return this.prisma.$transaction(async (tx) => {
+      const meeting = await this.requireMeeting(tx, meetingId);
+      this.refuseIfHeld(meeting);
+
       const existing = await tx.proxyAuthorisation.findFirst({
         where: { id: authorisationId, meetingId },
         select: PROXY_COLUMNS,
