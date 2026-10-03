@@ -17,8 +17,8 @@ import { gunzipSync, gzipSync } from "node:zlib";
  *   segment, no backslash. Extraction never joins a path this reader has not
  *   already accepted.
  *
- *   Entry count, per-entry size and total size are capped, so a small download
- *   cannot expand into an unbounded write.
+ *   File count, directory count, per-entry size and total size are capped, so
+ *   a small download cannot expand into an unbounded write.
  *
  * The whole archive is held in memory. A theme is colours, a manifest and a
  * few font files; the cap below is the ceiling on that, not a streaming limit.
@@ -29,20 +29,29 @@ const BLOCK_SIZE = 512;
 export const MAX_ARCHIVE_ENTRIES = 200;
 export const MAX_ENTRY_BYTES = 4 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
+/**
+ * Directory records are capped apart from files: `tar` writes one for every
+ * folder it packs, so counting them as files would refuse a theme of 200 files
+ * packed from a folder. Without a cap of their own they would be the one part
+ * of an archive with no bound, and the ceiling below could not cover them.
+ */
+export const MAX_DIRECTORY_RECORDS = 200;
 
 /**
  * Ceiling on the size of the unzipped tarball, handed to the decompressor so a
  * small gzip cannot inflate past it before any entry is looked at.
  *
- * It is the most a package within the limits above can occupy: the content, a
- * header block and up to a block's worth of padding for each of the allowed
- * entries, the two zero blocks that end the archive, and one record of the
- * zero padding `tar` writes after them.
+ * It is the most a package `tar` writes within the limits above can occupy:
+ * the content, a header block and up to a block's worth of padding for each of
+ * the allowed files, a header block for each of the allowed directories, the
+ * two zero blocks that end the archive, and one record of the zero padding
+ * `tar` writes after them.
  */
 const TAR_RECORD_SIZE = 20 * BLOCK_SIZE;
 export const MAX_TARBALL_BYTES =
   MAX_TOTAL_BYTES +
   MAX_ARCHIVE_ENTRIES * (2 * BLOCK_SIZE - 1) +
+  MAX_DIRECTORY_RECORDS * BLOCK_SIZE +
   2 * BLOCK_SIZE +
   TAR_RECORD_SIZE;
 
@@ -169,6 +178,7 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
   // Counts every regular-file record, not distinct paths: an archive that
   // repeats one path would otherwise never reach the cap.
   let fileRecords = 0;
+  let directoryRecords = 0;
   let offset = 0;
   let trailingZeroBlocks = 0;
 
@@ -198,6 +208,12 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
     if (typeFlag === "5") {
       // A directory entry carries no content and creates nothing: extraction
       // makes the directories the files it keeps actually need.
+      if (directoryRecords >= MAX_DIRECTORY_RECORDS) {
+        throw new ThemeArchiveError(
+          `The archive contains more than ${String(MAX_DIRECTORY_RECORDS)} directory entries.`,
+        );
+      }
+      directoryRecords += 1;
       offset += dataBlocks;
       continue;
     }
