@@ -588,11 +588,12 @@ export class MeetingService {
         .catch((cause: unknown) => {
           // The count above narrows the window and the partial index closes
           // it: two assistants for one principal checked in at once both pass
-          // the count, and the second write raises P2002.
+          // the count, and the second write raises P2002 on that index. A
+          // collision on any other key is not a second assistant, and telling
+          // the board to strike one off would name the person they are adding.
           if (
             input.capacity === "ASSISTANT" &&
-            cause instanceof Prisma.PrismaClientKnownRequestError &&
-            cause.code === "P2002"
+            violatedIndex(cause) === STANDING_ASSISTANT_INDEX
           ) {
             throw secondAssistant();
           }
@@ -1630,6 +1631,34 @@ export class MeetingService {
     });
     return present > 0;
   }
+}
+
+/**
+ * The partial index that allows one standing assistant per principal, written
+ * by hand in the meetings migration.
+ */
+const STANDING_ASSISTANT_INDEX =
+  "meeting_attendance_meetingId_onBehalfOfPersonId_live_key";
+
+/**
+ * The index a unique violation was raised on, as the PostgreSQL driver adapter
+ * reports it, or null for any other failure.
+ */
+function violatedIndex(cause: unknown): string | null {
+  if (
+    !(cause instanceof Prisma.PrismaClientKnownRequestError) ||
+    cause.code !== "P2002"
+  ) {
+    return null;
+  }
+  const index = (
+    cause.meta as
+      | {
+          driverAdapterError?: { cause?: { constraint?: { index?: unknown } } };
+        }
+      | undefined
+  )?.driverAdapterError?.cause?.constraint?.index;
+  return typeof index === "string" ? index : null;
 }
 
 /** The refusal of a second standing assistant for one principal. */
