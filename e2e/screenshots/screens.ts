@@ -2025,4 +2025,46 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Meny" } }],
     waitFor: { link: "Dataskydd" },
   },
+
+  // --- decisions that write ---------------------------------------------------
+  // Last, because the board's answer is the screen and the answer is a write:
+  // the approval below moves the applicant into the register, and the election
+  // is refused before anything is recorded.
+  {
+    /*
+     * The queue after the board has approved the request waiting in it: the
+     * notice that says the invitation is on its way. The other notice, for an
+     * approval whose invitation could not be sent, needs a mail server that
+     * refuses, which this stack does not have.
+     */
+    name: "settings-signup-queue-approved",
+    as: "administrator",
+    goto: appPath("/settings"),
+    prepare: [
+      { see: { text: APPLICANT.email } },
+      {
+        select: { combobox: "Lägenhet i registret" },
+        option: APPLICANT.claimedApartmentNumber,
+      },
+      { click: { button: "Godkänn" } },
+    ],
+    waitFor: { text: /Ansökan är godkänd\. En inbjudan är på väg till/ },
+    capture: { panel: "Väntande ansökningar" },
+  },
+  {
+    /*
+     * A person's view with the refusal an election to a position of trust gets
+     * when it is dated too far ahead: the reason the server names, where it used
+     * to be "your account may not do this".
+     */
+    name: "person-election-refused",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Öppna Astrid Lindqvist" } },
+      { see: { heading: "Astrid Lindqvist" } },
+      { fill: { label: "Vald den" }, value: "2099-01-01" },
+      { click: { button: "Anteckna valet" } },
+    ],
+    waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
+  },
 ];
