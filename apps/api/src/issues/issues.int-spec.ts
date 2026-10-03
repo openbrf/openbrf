@@ -15,6 +15,7 @@ import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { IssueTypeService } from "./issue-type.service";
+import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
 
 /**
  * Issues over HTTP, against a real database.
@@ -558,6 +559,52 @@ describe("photographs", () => {
       .json<{ id: string; photos: unknown[] }[]>()
       .find((candidate) => candidate.id === filed.id);
     expect(row?.photos).toHaveLength(1);
+  });
+
+  it("holds the cap against uploads sent at once and keeps no refused file", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Fuktflack i taket, fotad fran alla hall.",
+    });
+    expect(filed.statusCode).toBe(201);
+    const issueId = filed.id ?? "";
+    const filesBefore = await prisma.mediaFile.count({
+      where: { uploadedByPersonId: resident.personId },
+    });
+
+    // Two more than the cap, all at once, so most of them read the count
+    // before any other has written its photo.
+    const body = multipart(pngBytes(24, 24), "tak.png", "image/png");
+    const responses = await Promise.all(
+      Array.from({ length: MAX_PHOTOS_PER_ISSUE + 2 }, () =>
+        inject({
+          method: "POST",
+          url: `/api/issues/${issueId}/photos`,
+          payload: body.payload,
+          headers: { ...body.headers, cookie: residentCookie },
+        }),
+      ),
+    );
+
+    const refused = responses.filter((response) => response.statusCode !== 201);
+    expect(refused.map((response) => response.statusCode)).toEqual([409, 409]);
+    for (const response of refused) {
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "too-many-photos",
+      );
+    }
+    const photos = await prisma.issuePhoto.findMany({
+      where: { issueId },
+      select: { sortOrder: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    expect(photos.map((photo) => photo.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
+    // A late refusal comes after the bytes were stored, and takes them away.
+    expect(
+      await prisma.mediaFile.count({
+        where: { uploadedByPersonId: resident.personId },
+      }),
+    ).toBe(filesBefore + MAX_PHOTOS_PER_ISSUE);
   });
 });
 

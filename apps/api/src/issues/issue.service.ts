@@ -422,14 +422,41 @@ export class IssueService {
       channel: "WEB",
     });
 
-    const photo = await this.prisma.issuePhoto.create({
-      data: {
-        issueId: issue.id,
-        fileId: file.id,
-        sortOrder: issue._count.photos,
-      },
-      select: { id: true },
-    });
+    /*
+     * Counted again under the issue's lock. The count above only spares the
+     * disk an upload that was going to be refused; uploads sent together all
+     * pass it, and only a count that each of them takes in turn holds the cap
+     * and gives every photograph its own place in the order.
+     */
+    let photo: { id: string };
+    try {
+      photo = await this.prisma.$transaction(async (tx) => {
+        await lockIssue(tx, issue.id);
+        const photos = await tx.issuePhoto.count({
+          where: { issueId: issue.id },
+        });
+        if (photos >= MAX_PHOTOS_PER_ISSUE) {
+          throw new IssueError(
+            "This report already carries as many photographs as it may.",
+            "too-many-photos",
+          );
+        }
+        return tx.issuePhoto.create({
+          data: { issueId: issue.id, fileId: file.id, sortOrder: photos },
+          select: { id: true },
+        });
+      });
+    } catch (cause) {
+      // The upload is already in the audit log, and so is this removal. That
+      // pair is the honest record of what happened.
+      await this.media
+        .remove(file.id, input.reporterPersonId, "WEB")
+        .catch(() => {
+          /* Reported by the media service; the original failure is the one to
+             raise. */
+        });
+      throw cause;
+    }
 
     return {
       id: photo.id,
