@@ -58,6 +58,8 @@ interface Options {
   installed?: readonly InstalledPluginFixture[];
   /** What the index lists, when the subject is browsing rather than installing. */
   listed?: readonly CatalogPluginEntry[];
+  /** What the record of recipients says, by plugin id. */
+  recipients?: ReadonlyMap<string, string>;
   /** OPENBRF_PLUGINS_ENABLED; on unless the instance is the subject. */
   pluginsEnabled?: boolean;
 }
@@ -127,7 +129,10 @@ function build(options: Options = {}) {
     // The recipient's classification, the processing it performs, and what the
     // instance is configured to hand data to. Recorded on install; the
     // assertions here are about the consent row, so these only have to exist.
-    { record: recordProcessor } as never,
+    {
+      record: recordProcessor,
+      forPlugins: async () => new Map(options.recipients ?? []),
+    } as never,
     {
       seedPlugin: vi.fn(async () => undefined),
       endPlugin: vi.fn(async () => undefined),
@@ -471,6 +476,22 @@ describe("what the consent step records about the recipient", () => {
     },
   );
 
+  it("leaves the record of recipients alone when the request carries no answer", async () => {
+    // A reinstall over a classification the board has completed sends none.
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+      },
+      null,
+      "WEB",
+    );
+
+    expect(consent).toHaveBeenCalledTimes(1);
+    expect(recordProcessor).not.toHaveBeenCalled();
+  });
+
   it("records a processor with the recipient the board named", async () => {
     await service.install(
       {
@@ -491,6 +512,168 @@ describe("what the consent step records about the recipient", () => {
       // Being made, not in place: the board has not said an agreement exists.
       status: "PENDING",
       counterparty: "Belaggningstjansten AB",
+    });
+  });
+
+  /*
+   * A form sends an emptied field as an empty string, not as a missing key.
+   * Read as an answer, it would win over the value it was meant to leave alone.
+   */
+  it("names the recipient as the other party when the other party was left empty", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          counterparty: "  ",
+          note: "Decides its own purposes for the occupancy data.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      counterparty: "Belaggningstjansten AB",
+    });
+  });
+
+  it("gives the instance's own reason when a plugin sending nothing has an empty note", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false, note: "" },
+      },
+      null,
+      "WEB",
+    );
+
+    // The translator in `build` answers with the key it was asked for.
+    expect(classified()).toMatchObject({
+      classification: "NOT_A_PROCESSOR",
+      note: "dataProtection.processors.seed.pluginLocal",
+    });
+  });
+
+  it("reads the other party as the recipient when the recipient was left empty", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "",
+          counterparty: "Belaggningstjansten AB",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "PROCESSOR",
+      counterparty: "Belaggningstjansten AB",
+    });
+  });
+
+  it("records no agreement details for an independent controller", async () => {
+    /*
+     * The date an agreement was signed, its reference and its note on
+     * sub-processors describe an art. 28(3) contract, and an independent
+     * controller has none to describe.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          signedOn: "2026-09-01",
+          reference: "Avtal 2026/14",
+          subProcessorNote: "Hosts with Driftbolaget AB.",
+          note: "Decides its own purposes for the occupancy data.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      signedOn: null,
+      reference: null,
+      subProcessorNote: null,
+    });
+  });
+
+  it("keeps the agreement details for a processor", async () => {
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Belaggningstjansten AB",
+          status: "IN_PLACE",
+          termsConfirmed: true,
+          signedOn: "2026-09-01",
+          reference: "Avtal 2026/14",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "PROCESSOR",
+      signedOn: new Date("2026-09-01"),
+      reference: "Avtal 2026/14",
+    });
+  });
+
+  it("records an independent controller with the reason and no agreement", async () => {
+    /*
+     * The other answer the consent step offers once the board says data leaves.
+     * A controller in its own right has no art. 28(3) agreement, so every field
+     * describing one has to arrive empty - the record refuses them on this
+     * classification - and the reason the board gave is what the record keeps
+     * instead of an agreement.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Kartbolaget AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          note: "Bestammer sjalv over sina kartdata.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      status: null,
+      counterparty: "Kartbolaget AB",
+      termsConfirmed: null,
+      subProcessorsAuthorised: null,
+      note: "Bestammer sjalv over sina kartdata.",
     });
   });
 
@@ -597,6 +780,27 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+
+  it("carries what the record of recipients says about the plugin", async () => {
+    // The consent step keeps a recorded classification rather than asking
+    // again, and a plugin removed and installed again still has one.
+    const { service } = build({
+      listed: [ENTRY],
+      recipients: new Map([["occupancy", "inPlace"]]),
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipientState).toBe("inPlace");
+  });
+
+  it("says not recorded for a plugin the record does not name", async () => {
+    const { service } = build({ listed: [ENTRY] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipientState).toBe("notRecorded");
   });
 });
 

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import type { AdminPage } from "../api/site";
+import type { AdminPage, PageBlock } from "../api/site";
 import { SiteAdminScreen } from "./SiteAdminScreen";
 
 /**
@@ -500,6 +500,85 @@ describe("the editor", () => {
         "page-2",
         expect.objectContaining({ expectedRevision: 3 }),
       );
+    });
+  });
+
+  describe("blocks this screen does not arrange", () => {
+    /*
+     * A save carries the whole page, so a block the editor leaves out of the
+     * body is a block the save deletes from the saved page. Nobody is told:
+     * the editor does not show the block, and the API stores what it was sent.
+     */
+    async function saveAfterEditing(blocks: PageBlock[]) {
+      const page: AdminPage = {
+        ...DRAFT,
+        slug: "integritet",
+        title: "Integritetspolicy",
+        content: { version: 1, blocks },
+      };
+      fetchPages.mockResolvedValue({ ok: true, value: [HOME, page] });
+
+      const user = userEvent.setup();
+      renderScreen();
+      await screen.findByText("Valkommen");
+      const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+      await user.click(second as HTMLElement);
+
+      const paragraph = await screen.findByLabelText("Stycke 1");
+      await user.clear(paragraph);
+      await user.type(paragraph, "Vi behandlar dina uppgifter så här.");
+      await user.click(screen.getByRole("button", { name: "Spara" }));
+
+      await waitFor(() => {
+        expect(savePage).toHaveBeenCalled();
+      });
+      return savePage.mock.calls.at(-1)?.[1] as {
+        content: { blocks: PageBlock[] };
+      };
+    }
+
+    it("keeps the controller's contact block on the privacy notice", async () => {
+      /*
+       * Placed by the privacy notice screen, and what the notice needs to say
+       * who is responsible for the processing (GDPR art. 13(1)(a)). Losing it on
+       * a save to a paragraph leaves a notice that no longer names anyone.
+       */
+      const edit = await saveAfterEditing([
+        { type: "paragraph", runs: [{ text: "Gammal text." }] },
+        { type: "controllerContact" },
+      ]);
+
+      expect(edit.content.blocks).toEqual([
+        {
+          type: "paragraph",
+          runs: [{ text: "Vi behandlar dina uppgifter så här." }],
+        },
+        { type: "controllerContact" },
+      ]);
+    });
+
+    it("keeps a block type it does not know, unchanged", async () => {
+      /*
+       * A newer API can store a block this build of the interface has never
+       * heard of. Not knowing how to edit it is no reason to delete it.
+       */
+      const future = {
+        type: "somethingNewer",
+        setting: 4,
+      } as unknown as PageBlock;
+
+      const edit = await saveAfterEditing([
+        { type: "paragraph", runs: [{ text: "Gammal text." }] },
+        future,
+      ]);
+
+      expect(edit.content.blocks).toEqual([
+        {
+          type: "paragraph",
+          runs: [{ text: "Vi behandlar dina uppgifter så här." }],
+        },
+        { type: "somethingNewer", setting: 4 },
+      ]);
     });
   });
 });

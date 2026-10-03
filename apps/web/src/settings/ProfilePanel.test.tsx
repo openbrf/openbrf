@@ -123,7 +123,10 @@ describe("taking your own data with you", () => {
   });
 
   it("says so when the export could not be prepared", async () => {
-    exportOwnData.mockResolvedValue({ ok: false, error: { reason: "failed" } });
+    exportOwnData.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
 
     render(
       <ThemeModeProvider>
@@ -137,5 +140,29 @@ describe("taking your own data with you", () => {
     expect(
       screen.getByText("Uppgifterna kunde inte hämtas just nu."),
     ).toBeTruthy();
+  });
+
+  it.each([
+    ["export-rate-limited", /flera gånger den senaste minuten/i],
+    ["export-busy", /Många hämtningar förbereds just nu/i],
+  ])("says why when the server answers %s", async (reason, sentence) => {
+    exportOwnData.mockResolvedValue({
+      ok: false,
+      failure: { status: 429, reason },
+    });
+
+    render(
+      <ThemeModeProvider>
+        <ProfilePanel viewer={VIEWER} />
+      </ThemeModeProvider>,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Hämta mina uppgifter" }),
+    );
+
+    expect(screen.getByText(sentence)).toBeTruthy();
+    expect(
+      screen.queryByText("Uppgifterna kunde inte hämtas just nu."),
+    ).toBeNull();
   });
 });

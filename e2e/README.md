@@ -2,7 +2,8 @@
 
 The suite drives a browser against the production stack: the image built from
 this repository's `Dockerfile`, started through `docker-compose.prod.yml` with
-the overlay in `docker-compose.e2e.yml`, from empty volumes.
+the overlay in `docker-compose.e2e.yml`, from empty volumes. The production file
+runs a published release; the overlay is what builds this checkout instead.
 
 That is the point of it. Several of the properties under test only exist in the
 deployed artefact - the entrypoint provisioning the field encryption key, the
@@ -23,6 +24,10 @@ minutes; later runs reuse the layer cache. The stack listens on
 `localhost:3010`, its database on `5442` and its mail server on `8125`, so it
 never collides with a development database on 5432 or an application on 3000.
 
+The suite imports `@openbrf/shared`, so the package has to be built.
+`pnpm test:e2e` builds it first. To run `playwright test` directly from `e2e/`,
+build it once with `pnpm --filter @openbrf/shared build`.
+
 While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and
@@ -31,9 +36,13 @@ While writing a spec:
   `03-invitations` fails on a reused instance too, and has to: an invitation
   activates an account for a person who has none, and the two it invites got
   theirs on the run before. The rest re-runs without colliding, because a
-  person a spec makes for itself is named for the run that made them
-  (`src/identity.ts`), and an apartment a spec moves somebody into is claimed
-  for the run that claimed it (`src/apartments.ts`).
+  person a spec makes for itself takes their name and email address from the
+  run that made them (`src/identity.ts`), and an apartment a spec moves
+  somebody into is claimed for the run that claimed it (`src/apartments.ts`).
+  A personal identity number comes from the run only where the spec asks
+  `uniquePersonalIdentityNumber` for it: `06-protected-personal-data` and
+  `09-statutory-registers` still write a fixed one, so each reused run stores
+  another person holding the same number.
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
@@ -102,7 +111,11 @@ on the account the later specs sign in as.
 
 Specs run serially, in file-name order. `01-first-boot` needs an unclaimed
 instance, which an instance is exactly once, and the rest share the instance it
-leaves behind rather than each paying for a stack of their own.
+leaves behind rather than each paying for a stack of their own. The stack sets
+no setup link digest, so the instance prints its setup link to its log when it
+starts, and whatever claims it - the walk in `01-first-boot`, or
+`ensureInstance` when a run starts later in the list - reads the link from
+there (`claimLinkFromLog` in `src/stack.ts`).
 
 ## What is covered
 
@@ -528,7 +541,11 @@ The pieces:
 - **Order matters, and each entry starts where the one above it stopped.** An
   instance is unclaimed exactly once, so the setup wizard comes first, and its
   seven steps are seven entries on one URL: the wizard keeps its step in React
-  state, so `prepare` drives it forward rather than navigating to it.
+  state, so `prepare` drives it forward rather than navigating to it. Before
+  them, `setup-claim` shows the wizard reached without the setup link, and the
+  administrator step opens the link itself: its `goto` is `SETUP_CLAIM_LINK`,
+  which the capture replaces with the link the stack's instance printed to its
+  log, since the token is minted when the stack starts.
 - **`as`** establishes a session. Omit it to carry on in the current one.
   Anything other than `nobody` provisions the cooperative and its register
   first, so an entry never has to arrange that itself.
@@ -555,10 +572,12 @@ The pieces:
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
-  `{ upload, file }` or `{ see }`. An uploaded file is written out in the
-  manifest - a name, a media type and its text - rather than read from disk, so
-  what a screen is photographed reading can be checked against the publishing
-  rules in the diff. A screen needing a kind that is not there adds it to the
+  `{ upload, file }`, `{ recordBreach }` or `{ see }`. An uploaded file is
+  written out in the manifest - a name, a media type and its text - rather than
+  read from disk, so what a screen is photographed reading can be checked
+  against the publishing rules in the diff. `{ recordBreach }` writes up a
+  personal data breach over the API and reopens the screen, because no screen
+  records one; it is written out in the manifest for the same reason. A screen needing a kind that is not there adds it to the
   `Action` union and to `perform` in `capture.spec.ts`, once, and every later
   screen has it.
 

@@ -54,6 +54,21 @@ export interface BreachClock {
   discoveredAt: Date;
   decidedAt: Date | null;
   closedAt: Date | null;
+  imyNotificationRequired: boolean | null;
+  imyNotifiedAt: Date | null;
+}
+
+/**
+ * Whether the notification art. 33(1) asks for is still owed: the board has
+ * decided IMY is to be notified and nothing says it has been.
+ *
+ * The decision is not the act. A board that decides on day one to notify and
+ * then does not has missed the 72 hours as surely as one that never decided,
+ * so everything that watches the clock - the state, the reminder, the overview -
+ * keeps watching it until the notification is recorded.
+ */
+export function imyNotificationOwed(row: BreachClock): boolean {
+  return row.imyNotificationRequired === true && row.imyNotifiedAt === null;
 }
 
 /**
@@ -102,27 +117,37 @@ export function hoursLeft(discoveredAt: Date, now: Date): number {
 /**
  * What the register shows about one breach.
  *
- * Four states rather than more, and the order they are tested in matters:
+ * Five states rather than more, and the order they are tested in matters:
  *
  *   - `closed`: the association has nothing left to do. Closing requires a
- *     decision, so this is always downstream of `decided`.
- *   - `decided`: the board has answered both questions art. 33 and art. 34 ask.
- *     A decided breach has no clock left to run, which is why the bound stops
- *     mattering here even if the notification itself was late - the lateness is
- *     recorded on the row as the reasons for the delay.
- *   - `overdue`: undecided and past the bound. Still actionable: art. 33(1)
- *     requires the notification anyway, with its reasons.
+ *     decision and no notification owed, so this is always downstream of
+ *     `decided`.
+ *   - `decided`: the board has answered both questions art. 33 and art. 34 ask,
+ *     and IMY has been notified or is not to be. A decided breach has no clock
+ *     left to run, which is why the bound stops mattering here even if the
+ *     notification itself was late - the lateness is recorded on the row as the
+ *     reasons for the delay.
+ *   - `overdue`: past the bound with the art. 33(1) act still owed, whether
+ *     that is the decision or the notification the decision said would be
+ *     made. Still actionable: art. 33(1) requires the notification anyway, with
+ *     its reasons.
+ *   - `notificationOwed`: decided that IMY is to be notified, not notified yet,
+ *     and inside the bound.
  *   - `awaitingDecision`: undecided and inside the bound.
  */
 export function breachState(
   row: BreachClock,
   now: Date,
-): "awaitingDecision" | "overdue" | "decided" | "closed" {
+): "awaitingDecision" | "notificationOwed" | "overdue" | "decided" | "closed" {
   if (row.closedAt !== null) {
     return "closed";
   }
-  if (row.decidedAt !== null) {
+  const owed = imyNotificationOwed(row);
+  if (row.decidedAt !== null && !owed) {
     return "decided";
   }
-  return hoursLeft(row.discoveredAt, now) < 0 ? "overdue" : "awaitingDecision";
+  if (hoursLeft(row.discoveredAt, now) < 0) {
+    return "overdue";
+  }
+  return row.decidedAt === null ? "awaitingDecision" : "notificationOwed";
 }

@@ -237,3 +237,96 @@ it("names the kind it submitted, not the one on screen when the answer lands", a
     ),
   ).toBeTruthy();
 });
+it("says the date is not on the calendar rather than asking to try again", async () => {
+  // Trying again with the same impossible date fails the same way, so the
+  // general fallback would send the board round in a loop.
+  moveIn.mockResolvedValue({
+    ok: false,
+    failure: { status: 400, reason: "date-not-a-calendar-date" },
+  });
+  const session = userEvent.setup();
+  render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+  await session.click(
+    await screen.findByRole("button", { name: CHOOSE_PERSON }),
+  );
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  expect(await screen.findByText(/finns inte i kalendern/)).toBeTruthy();
+  expect(screen.queryByText(/Försök igen/)).toBeNull();
+});
+
+it("points at the dates and the price when the request itself is refused", async () => {
+  // What the API answers over HTTP for an impossible date or a price that is
+  // not an amount: its request schema refuses before the service is reached.
+  moveIn.mockResolvedValue({
+    ok: false,
+    failure: { status: 400, reason: "invalid-body" },
+  });
+  const session = userEvent.setup();
+  render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+  await session.click(
+    await screen.findByRole("button", { name: CHOOSE_PERSON }),
+  );
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  expect(
+    await screen.findByText(/Kontrollera datumen och priset/),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Försök igen/)).toBeNull();
+});
+
+it.each([
+  [
+    "seller-not-tenant-owner",
+    409,
+    "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
+  ],
+  [
+    "seller-is-acquirer",
+    400,
+    "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
+  ],
+])(
+  "names the refusal %s in the interface's own words",
+  async (reason, status, message) => {
+    // The server checks the previous holder against the register; the form cannot, and
+    // a refusal it could only show as the general fallback would leave the
+    // board guessing whether to try again.
+    moveIn.mockResolvedValue({ ok: false, failure: { status, reason } });
+    fetchApartment.mockResolvedValue({
+      residents: [
+        { personId: "person-karin", name: "Karin Ohman", role: "MEMBER" },
+      ],
+    });
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
+    await session.selectOptions(
+      screen.getByLabelText(/Tidigare innehavare/),
+      "person-karin",
+    );
+    await session.type(
+      screen.getByLabelText(/Inflyttningsdatum/),
+      "2026-04-07",
+    );
+    await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-04-07");
+    await session.type(
+      screen.getByLabelText(/Avtalshänvisning/),
+      "OVL-2026-1201",
+    );
+    await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+    expect(await screen.findByText(message)).toBeTruthy();
+  },
+);

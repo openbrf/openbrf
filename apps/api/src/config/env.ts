@@ -31,10 +31,9 @@ function envBoolean(defaultValue: boolean) {
  * beside another driver has to be told apart from one nobody set, so that it
  * can be named at boot. The reader supplies the default.
  *
- * Stricter than envBoolean, because the flag this serves decides whether a
- * connection is encrypted from the start: "TRUE" or "1" read as false would
- * leave it in the clear until STARTTLS without a word, so any other value is
- * named at boot instead.
+ * Stricter than envBoolean, because the flags this serves decide whether a
+ * connection is encrypted: "TRUE" or "1" read as false would leave it in the
+ * clear without a word, so any other value is named at boot instead.
  */
 function optionalEnvBoolean() {
   return z
@@ -44,6 +43,9 @@ function optionalEnvBoolean() {
 }
 
 const HEX_32_BYTES = /^[0-9a-f]{64}$/i;
+
+/** A SHA-256 digest as hashOpaqueToken writes it: base64url, unpadded. */
+const BASE64URL_SHA256 = /^[A-Za-z0-9_-]{43}$/;
 
 /**
  * A domain written the way the right-hand side of a Message-ID is: labels of
@@ -183,6 +185,22 @@ export const envSchema = z.object({
   DATABASE_URL_RUNTIME: z.string().min(1).optional(),
 
   /**
+   * How many connections the application's own pool may hold open.
+   *
+   * Ten is node-postgres's default and what an instance with a server of its
+   * own needs. The job queue holds two more of its own, so an instance takes
+   * twelve of the server's max_connections, which is 100 unless the server is
+   * configured otherwise. Where several instances share one server, whoever
+   * runs them divides that budget between them (docs/deployment.md).
+   */
+  OPENBRF_DATABASE_POOL_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(10),
+
+  /**
    * Public base URL, used to build invitation and magic links.
    *
    * Also the origin of the OAuth protected resource, which is the audience
@@ -215,6 +233,23 @@ export const envSchema = z.object({
     .optional(),
 
   BETTER_AUTH_SECRET: z.string().min(16),
+
+  /**
+   * The digest of the setup link's token, for an instance whose host minted
+   * the link (ADR 0023).
+   *
+   * Only the digest: the token itself goes to whoever is to claim the
+   * instance, so nothing in this environment, the database or a backup can be
+   * presented as it. When absent, an unclaimed instance mints a token of its
+   * own at start and prints the link to its log (setup-claim.service.ts).
+   */
+  OPENBRF_SETUP_TOKEN_DIGEST: z
+    .string()
+    .regex(
+      BASE64URL_SHA256,
+      "must be one SHA-256 digest, base64url without padding (43 characters)",
+    )
+    .optional(),
 
   /**
    * Where uploaded files are kept. "local" writes under OPENBRF_DATA_DIR,
@@ -326,6 +361,13 @@ export const envSchema = z.object({
   OPENBRF_SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   /** Implicit TLS. Unset is false; absent here so a stray value can be named. */
   OPENBRF_SMTP_SECURE: optionalEnvBoolean(),
+  /**
+   * Whether the sign-in waits for STARTTLS. Unset, it does unless the relay is
+   * on loopback (mail-settings.ts). "false" is the host vouching for the
+   * network between the instance and a relay that offers no STARTTLS, such as
+   * a sidecar on the Compose network, and is logged at start.
+   */
+  OPENBRF_SMTP_REQUIRE_TLS: optionalEnvBoolean(),
   OPENBRF_SMTP_USER: z.string().min(1).optional(),
   /**
    * In the environment in plain text, as the S3 keys are: the operator supplies
@@ -393,6 +435,7 @@ const MAIL_DRIVER_VARIABLES = {
     "OPENBRF_SMTP_HOST",
     "OPENBRF_SMTP_PORT",
     "OPENBRF_SMTP_SECURE",
+    "OPENBRF_SMTP_REQUIRE_TLS",
     "OPENBRF_SMTP_USER",
     "OPENBRF_SMTP_PASSWORD",
   ],

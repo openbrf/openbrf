@@ -17,6 +17,11 @@ import {
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { OpenBrfLogo } from "../ui/OpenBrfLogo";
+import {
+  claimInFragment,
+  readHeldClaim,
+  takeClaimFromAddress,
+} from "./setup-claim";
 
 /**
  * The steps, in order.
@@ -64,10 +69,27 @@ export interface SetupWizardProps {
    * already exists and an admin is resuming the wizard from settings.
    */
   administratorNeeded: boolean;
+  /**
+   * The setup link's token, when the route has already taken it out of the
+   * address bar. Passed down as well as held, so a tab whose session storage
+   * cannot be used still has it.
+   */
+  claimFromLink?: string | null;
   /** Where to go once setup is finished. */
   onFinished: () => void;
-  /** Renders the administrator step. Injected so it can be tested apart. */
-  administratorStep: (props: { onCreated: () => void }) => ReactElement;
+  /**
+   * Renders the administrator step. Injected so it can be tested apart.
+   *
+   * `claimToken` is the setup link's token when the wizard was opened with
+   * one (ADR 0023), and null when the step has to ask for the code instead.
+   * `onClaimRefused` drops it after the server refused it, so the step asks
+   * for the code rather than sending a dead token again.
+   */
+  administratorStep: (props: {
+    claimToken: string | null;
+    onClaimRefused: () => void;
+    onCreated: () => void;
+  }) => ReactElement;
 }
 
 /**
@@ -82,6 +104,7 @@ export interface SetupWizardProps {
  */
 export function SetupWizard({
   administratorNeeded,
+  claimFromLink = null,
   onFinished,
   administratorStep,
 }: SetupWizardProps): ReactElement {
@@ -93,6 +116,34 @@ export function SetupWizard({
   const [skipped, setSkipped] = useState<readonly StepId[]>([]);
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const [finishFailed, setFinishFailed] = useState(false);
+  // Read while the first render is built, so a wizard opened with the link
+  // never shows the code field for a frame before it switches.
+  const [claimToken, setClaimToken] = useState<string | null>(
+    () =>
+      claimFromLink ?? claimInFragment(window.location.hash) ?? readHeldClaim(),
+  );
+
+  /*
+   * The setup link's token, taken out of the address bar and held in state
+   * and in this tab's session storage.
+   *
+   * On hashchange as well as on mount: a link pasted into a tab that already
+   * shows the wizard changes only the fragment, which the browser treats as a
+   * move within the page and never loads the wizard again for.
+   */
+  useEffect(() => {
+    const take = (): void => {
+      const token = takeClaimFromAddress();
+      if (token !== null) {
+        setClaimToken(token);
+      }
+    };
+    take();
+    window.addEventListener("hashchange", take);
+    return () => {
+      window.removeEventListener("hashchange", take);
+    };
+  }, []);
 
   const read = useCallback(async (): Promise<Loaded> => {
     const [instance, addressList] = await Promise.all([
@@ -171,6 +222,10 @@ export function SetupWizard({
 
       {stepId === "administrator"
         ? administratorStep({
+            claimToken,
+            onClaimRefused: () => {
+              setClaimToken(null);
+            },
             onCreated: () => {
               goTo("housingCooperative");
             },

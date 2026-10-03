@@ -1,5 +1,11 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { formatDateColumn } from "@openbrf/shared";
+import {
+  addLocalDays,
+  dateColumnOf,
+  formatDateColumn,
+  localDayOfColumn,
+  parseLocalDay,
+} from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -19,7 +25,15 @@ import {
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
-import { lockResidencyTransitions } from "../registers/residency-lock";
+import { residencyHeldOn } from "../registers/held-on";
+import {
+  appendOwedMembershipEvents,
+  readMemberResidencies,
+} from "../registers/membership-transitions";
+import {
+  lockApartmentResidencies,
+  lockResidencyTransitionsInOrder,
+} from "../registers/residency-lock";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 
@@ -63,7 +77,10 @@ export type MoveErrorReason =
   | "moved-out-before-moved-in"
   | "transfer-person-not-found"
   | "transfer-reference-required"
-  | "grant-has-no-seller";
+  | "grant-has-no-seller"
+  | "date-not-a-calendar-date"
+  | "seller-is-acquirer"
+  | "seller-not-tenant-owner";
 
 /**
  * The status each refusal answers with.
@@ -81,6 +98,9 @@ const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
   "moved-out-before-moved-in": 409,
   "transfer-reference-required": 400,
   "grant-has-no-seller": 400,
+  "date-not-a-calendar-date": 400,
+  "seller-is-acquirer": 400,
+  "seller-not-tenant-owner": 409,
 };
 
 export class MoveError extends DomainError {
@@ -240,9 +260,6 @@ export class MoveService implements OnModuleInit {
         id: true,
         firstName: true,
         lastName: true,
-        postalStreet: true,
-        postalCode: true,
-        postalCity: true,
         emailCipher: true,
         preferredLocale: true,
       },
@@ -267,7 +284,19 @@ export class MoveService implements OnModuleInit {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
-      await lockResidencyTransitions(tx, person.id);
+      // The apartment first: a purge deciding from who has ever lived here
+      // must either see this residency or finish before it exists.
+      await lockApartmentResidencies(tx, apartment.id);
+      // The seller's lock as well as the buyer's, because the transfer below
+      // reads the seller's residencies to decide whether they held what they
+      // are recorded as selling, and a move-out for the seller running beside
+      // this one could change the answer after it was read.
+      await lockResidencyTransitionsInOrder(tx, [
+        person.id,
+        ...(input.transfer?.fromPersonId == null
+          ? []
+          : [input.transfer.fromPersonId]),
+      ]);
 
       // A residency on this apartment that would overlap the new one: open, or
       // ending after the new move-in date. One ending on that date does not
@@ -288,19 +317,13 @@ export class MoveService implements OnModuleInit {
         );
       }
 
-      // Read before the insert: whether this move-in starts a membership
-      // depends on whether one was already running, and the row about to be
-      // created would answer its own question.
-      const alreadyMember =
+      // Read before the insert: what the register owes this move-in depends on
+      // what the person held without it, and the row about to be created would
+      // answer its own question.
+      const memberResidencies =
         input.role === "MEMBER"
-          ? (await tx.residency.count({
-              where: {
-                personId: person.id,
-                role: "MEMBER",
-                OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedInOn } }],
-              },
-            })) > 0
-          : false;
+          ? await readMemberResidencies(tx, person.id)
+          : null;
 
       const residency = await tx.residency.create({
         data: {
@@ -328,23 +351,15 @@ export class MoveService implements OnModuleInit {
         input.actorPersonId ?? null,
       );
 
-      let memberRegisterEntryRecorded = false;
-      if (input.role === "MEMBER" && !alreadyMember) {
-        await tx.memberRegisterEntry.create({
-          data: {
-            personId: person.id,
-            apartmentId: apartment.id,
-            eventType: "ENTRY",
-            eventOn: movedInOn,
-            recordedFirstName: person.firstName,
-            recordedLastName: person.lastName,
-            recordedPostalStreet: person.postalStreet,
-            recordedPostalCode: person.postalCode,
-            recordedPostalCity: person.postalCity,
-          },
-        });
-        memberRegisterEntryRecorded = true;
-      }
+      // Whether the person held a tenant-ownership on the day they move in, and
+      // not whether one had merely not ended by then: a purchase entered ahead
+      // of a back-dated one held nothing on the earlier day, and counting it
+      // dated the membership from the later one.
+      const memberRegisterEntryRecorded =
+        memberResidencies !== null &&
+        (
+          await appendOwedMembershipEvents(tx, person.id, memberResidencies)
+        ).some((event) => event.eventType === "ENTRY");
 
       const transferId =
         input.transfer === undefined
@@ -455,9 +470,6 @@ export class MoveService implements OnModuleInit {
             id: true,
             firstName: true,
             lastName: true,
-            postalStreet: true,
-            postalCode: true,
-            postalCity: true,
             emailCipher: true,
             preferredLocale: true,
           },
@@ -494,7 +506,17 @@ export class MoveService implements OnModuleInit {
     await this.jobs.ensureQueue(MOVE_OUT_REMINDER_QUEUE);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      await lockResidencyTransitions(tx, person.id);
+      // The acquirer's lock too when a transfer is recorded, taken in the same
+      // order the move-in takes the pair in, so the two flows cannot deadlock.
+      await lockResidencyTransitionsInOrder(tx, [
+        person.id,
+        ...(input.transfer === undefined ? [] : [input.transfer.toPersonId]),
+      ]);
+
+      const memberResidencies =
+        residency.role === "MEMBER"
+          ? await readMemberResidencies(tx, person.id)
+          : null;
 
       // Conditional on the residency still being open, because the check above
       // ran before this transaction and is only as fresh as the moment it was
@@ -515,36 +537,15 @@ export class MoveService implements OnModuleInit {
 
       // Membership ends with the LAST tenant-ownership, not with this one. A
       // member who sells one of two apartments is still a member, and an EXIT
-      // row written here could never be taken back.
-      const remainingMemberships =
-        residency.role === "MEMBER"
-          ? await tx.residency.count({
-              where: {
-                personId: person.id,
-                role: "MEMBER",
-                id: { not: residency.id },
-                OR: [{ movedOutOn: null }, { movedOutOn: { gt: movedOutOn } }],
-              },
-            })
-          : 0;
-
-      let memberRegisterExitRecorded = false;
-      if (residency.role === "MEMBER" && remainingMemberships === 0) {
-        await tx.memberRegisterEntry.create({
-          data: {
-            personId: person.id,
-            apartmentId: residency.apartment.id,
-            eventType: "EXIT",
-            eventOn: movedOutOn,
-            recordedFirstName: person.firstName,
-            recordedLastName: person.lastName,
-            recordedPostalStreet: person.postalStreet,
-            recordedPostalCode: person.postalCode,
-            recordedPostalCity: person.postalCity,
-          },
-        });
-        memberRegisterExitRecorded = true;
-      }
+      // row written here could never be taken back. But the other apartment
+      // counts only on the days it is held: one bought for later leaves a gap
+      // the register has to show, and one whose move-out was entered first
+      // ends the membership on its own date once this one has closed.
+      const memberRegisterExitRecorded =
+        memberResidencies !== null &&
+        (
+          await appendOwedMembershipEvents(tx, person.id, memberResidencies)
+        ).some((event) => event.eventType === "EXIT");
 
       const transferId =
         input.transfer === undefined
@@ -748,6 +749,56 @@ export class MoveService implements OnModuleInit {
       );
     }
 
+    /*
+     * A person cannot sell to themselves. A row naming the same person on both
+     * sides records a change of hands that did not happen, and it cannot be
+     * deleted afterwards.
+     */
+    if (
+      input.fromPersonId !== null &&
+      input.fromPersonId === input.toPersonId
+    ) {
+      throw new MoveError(
+        "The seller and the acquirer are the same person.",
+        "seller-is-acquirer",
+      );
+    }
+
+    /*
+     * The seller has to be a tenant-owner of this apartment when it passes on:
+     * a MEMBER residency on it, held on the transfer day or on the day before.
+     * The day before as well, because the move-out date is the first day a
+     * residency is no longer held, and a seller moved out on the day the
+     * apartment passed on held it until that day. Read under the seller's
+     * transition lock, which the caller has taken.
+     *
+     * A transfer row cannot be deleted, and the seller it names is on the
+     * apartment register extract and on their own access report from then on,
+     * so a seller who never held the apartment is refused rather than recorded.
+     */
+    if (input.fromPersonId !== null) {
+      const transferredOn = localDayOfColumn(
+        parseDate(input.transfer.transferredOn),
+      );
+      const held = await tx.residency.count({
+        where: {
+          personId: input.fromPersonId,
+          apartmentId: input.apartmentId,
+          role: "MEMBER",
+          OR: [
+            residencyHeldOn(transferredOn),
+            residencyHeldOn(addLocalDays(transferredOn, -1)),
+          ],
+        },
+      });
+      if (held === 0) {
+        throw new MoveError(
+          "The seller did not hold this apartment on the day of the transfer.",
+          "seller-not-tenant-owner",
+        );
+      }
+    }
+
     // Refused rather than stored as null. The apartment register extract has to
     // state a reference for every transfer it lists, and this row is one the
     // database will not let anyone delete, so a transfer with nothing to point
@@ -831,10 +882,21 @@ export class MoveService implements OnModuleInit {
 /**
  * Reads a calendar date.
  *
- * Parsed as UTC midnight, matching how @db.Date columns come back, so day
- * arithmetic on a purge date cannot drift across a Swedish daylight saving
- * boundary and erase service data a day early.
+ * Written as UTC midnight through `dateColumnOf`, matching how @db.Date columns
+ * come back, so day arithmetic on a purge date cannot drift across a Swedish
+ * daylight saving boundary and erase service data a day early.
+ *
+ * Refused rather than rolled over when the date is not on the calendar: `Date`
+ * reads "2026-02-30" as the 2nd of March, and the register entry, the transfer
+ * and the obligation this date lands on are rows nobody can correct.
  */
 function parseDate(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new MoveError(
+      "That is not a calendar date.",
+      "date-not-a-calendar-date",
+    );
+  }
+  return dateColumnOf(day);
 }

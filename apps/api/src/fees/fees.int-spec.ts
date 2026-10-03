@@ -20,6 +20,11 @@ import type {
   FeeNotificationSummary,
 } from "./fee-notification.service";
 import type { FeeRegister, FeeRow } from "./fee.service";
+import {
+  holdLockCount,
+  residencyApartmentLockCount,
+  waitFor,
+} from "../testing/advisory-locks";
 
 /**
  * Fees and their notices, against a real database.
@@ -232,43 +237,6 @@ async function setStartMonth(month: number): Promise<void> {
     where: { id: 1 },
     data: { financialYearStartMonth: month },
   });
-}
-
-/**
- * How many transactions hold, or are queued behind, this person's hold key.
- *
- * `hashtext` gives a signed int4 and the advisory lock space addresses it as two
- * halves of a bigint, which is what the shifting reassembles.
- */
-async function holdLockCount(
-  personId: string,
-  granted: boolean,
-): Promise<bigint> {
-  const key = `legal-hold:${personId}`;
-  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
-    SELECT count(*) AS locks
-    FROM pg_locks
-    WHERE locktype = 'advisory'
-      AND granted = ${granted}
-      AND objsubid = 1
-      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
-      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return row?.locks ?? 0n;
-}
-
-/** Polls until the condition holds, or gives up so a failure is a failure. */
-async function waitFor(
-  condition: () => Promise<boolean>,
-  timeoutMs = 20_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error("Timed out waiting for the purge to block or finish.");
 }
 
 /** Grants or lifts a restriction of processing, as the flag the purge reads. */
@@ -1440,6 +1408,102 @@ describe("the purge", () => {
     await clearFees();
   });
 
+  it("sees a held resident whose residency lands while it runs", async () => {
+    /*
+     * The apartment has nobody on record when the purge starts. An import is
+     * bringing in former residents, and one of them is under a
+     * hold; their residency is written but not yet committed. Read before the
+     * transaction, the purge found no residents, checked nobody and erased the
+     * rates the hold was placed to keep.
+     *
+     * The import is held open rather than raced: it takes the apartment's key,
+     * writes the residency and waits, so the purge meets exactly the window
+     * the key exists for.
+     */
+    await recordFee(
+      feeOn({ apartmentId: emptyApartmentId, appliesFrom: "2020-01-01" }),
+    );
+    await recordFee(
+      feeOn({ apartmentId: emptyApartmentId, appliesFrom: "2020-07-01" }),
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: manager.personId,
+        reason: `Tvist fran tiden i lagenheten ${suffix}`,
+        placedByPersonId: board.personId,
+      },
+    });
+
+    let commitImport = (): void => undefined;
+    let residencyImport: Promise<void> = Promise.resolve();
+    let purge: Promise<{ fees: number; notices: number }> = Promise.resolve({
+      fees: 0,
+      notices: 0,
+    });
+
+    try {
+      const importHeld = new Promise<void>((resolve) => {
+        commitImport = (): void => {
+          resolve();
+        };
+      });
+      let importReady = (): void => undefined;
+      const importStarted = new Promise<void>((resolve) => {
+        importReady = resolve;
+      });
+
+      residencyImport = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency-apartment:${emptyApartmentId}`}))`;
+          await tx.residency.create({
+            data: {
+              personId: manager.personId,
+              apartmentId: emptyApartmentId,
+              role: "MEMBER",
+              movedInOn: new Date("2019-01-01"),
+              movedOutOn: new Date("2021-12-31"),
+            },
+          });
+          importReady();
+          await importHeld;
+        },
+        { timeout: 20_000 },
+      );
+
+      await importStarted;
+      purge = app
+        .get(FeePurgeService)
+        .purgeApartment(
+          emptyApartmentId,
+          new Date("2029-01-02T12:00:00.000+01:00"),
+        );
+
+      await waitFor(
+        async () =>
+          (await residencyApartmentLockCount(prisma, emptyApartmentId, false)) >
+          0n,
+      );
+      commitImport();
+      await residencyImport;
+
+      expect(await purge).toEqual({ fees: 0, notices: 0 });
+      expect(
+        await prisma.fee.count({ where: { apartmentId: emptyApartmentId } }),
+      ).toBe(2);
+    } finally {
+      // Settled first, so a purge that never blocked fails on the wait above
+      // and does not leave the import to time out in the middle of another test.
+      commitImport();
+      await residencyImport.catch(() => undefined);
+      await purge.catch(() => undefined);
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.residency.deleteMany({
+        where: { personId: manager.personId, apartmentId: emptyApartmentId },
+      });
+      await clearFees();
+    }
+  });
+
   it("is stopped by a restriction on anybody who lived there, until it is lifted", async () => {
     /*
      * Art. 18(2): under a restriction the association may store the data and
@@ -1499,14 +1563,14 @@ describe("the purge", () => {
 
     try {
       await waitFor(
-        async () => (await holdLockCount(member.personId, true)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, true)) > 0n,
       );
 
       const running = app
         .get(FeePurgeService)
         .purgeApartment(apartmentId, new Date("2029-01-02T12:00:00.000+01:00"));
       await waitFor(
-        async () => (await holdLockCount(member.personId, false)) > 0n,
+        async () => (await holdLockCount(prisma, member.personId, false)) > 0n,
       );
 
       releaseHolder?.();

@@ -30,6 +30,7 @@ function facts(overrides: Partial<ProcessorFacts> = {}): ProcessorFacts {
   return {
     mailHost: "smtp.example.test",
     mailFromAddress: "styrelsen@granngarden.test",
+    mailDriver: "settings",
     smsDriver: null,
     smsGatewayUrl: null,
     storageDriver: "local",

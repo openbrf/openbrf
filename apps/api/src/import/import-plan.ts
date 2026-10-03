@@ -493,11 +493,11 @@ function readMovedIn(
   defaults: ImportDefaults,
   problems: ImportProblem[],
 ): string | null {
-  const raw = values.movedInOn;
+  // The default is read by the same parser as a cell. It is stated once and
+  // lands on every row without a date of its own, so a default the calendar
+  // does not have would be the same wrong day on every one of them.
+  const raw = values.movedInOn ?? defaults.defaultMovedInOn ?? undefined;
   if (raw === undefined) {
-    if (defaults.defaultMovedInOn !== null) {
-      return defaults.defaultMovedInOn;
-    }
     problems.push({ field: "movedInOn", reason: "moved-in-missing" });
     return null;
   }

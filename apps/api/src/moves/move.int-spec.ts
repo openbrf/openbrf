@@ -82,6 +82,22 @@ const apartments = {
   refusedGrant: `mv-apartment-k-${suffix}`,
   /** A transfer whose seller the register does not hold. */
   unknownSeller: `mv-apartment-l-${suffix}`,
+  /** Moved into on a date the calendar does not have, and refused. */
+  misdated: `mv-apartment-m-${suffix}`,
+  /** Entered after a later purchase, with a move-in dated before it. */
+  backDated: `mv-apartment-n-${suffix}`,
+  /** The later purchase the back-dated move-in is entered after. */
+  laterPurchase: `mv-apartment-o-${suffix}`,
+  /** Two apartments whose move-outs are entered against their date order. */
+  leftLast: `mv-apartment-p-${suffix}`,
+  leftFirst: `mv-apartment-q-${suffix}`,
+  /** Left while an apartment bought for later waits. */
+  leftBeforeGap: `mv-apartment-r-${suffix}`,
+  boughtAfterGap: `mv-apartment-s-${suffix}`,
+  /** Held by two sellers in turn, and sold on by the second. */
+  sold: `mv-apartment-t-${suffix}`,
+  /** Held by somebody who never held `sold`. */
+  strangerHome: `mv-apartment-u-${suffix}`,
 };
 
 const actors = {
@@ -147,6 +163,46 @@ const actors = {
   stale: {
     personId: `mv-stale-${suffix}`,
     email: `mv-stale-${suffix}@exempel.se`,
+  },
+  /** Refused a move-in dated on a day the calendar does not have. */
+  misdated: {
+    personId: `mv-misdated-${suffix}`,
+    email: `mv-misdated-${suffix}@exempel.se`,
+  },
+  /** Has a move-in entered after a later one. */
+  backDater: {
+    personId: `mv-back-${suffix}`,
+    email: `mv-back-${suffix}@exempel.se`,
+  },
+  /** Has two move-outs entered against their date order. */
+  lateRecorder: {
+    personId: `mv-late-${suffix}`,
+    email: `mv-late-${suffix}@exempel.se`,
+  },
+  /** Holds no tenant-ownership for two months between two apartments. */
+  gapHolder: {
+    personId: `mv-gap-${suffix}`,
+    email: `mv-gap-${suffix}@exempel.se`,
+  },
+  /** Held `sold` years ago, and sold it on long before the transfers below. */
+  formerHolder: {
+    personId: `mv-former-${suffix}`,
+    email: `mv-former-${suffix}@exempel.se`,
+  },
+  /** Holds `sold` until the day it passes on, and moves out on that day. */
+  soldBy: {
+    personId: `mv-sold-by-${suffix}`,
+    email: `mv-sold-by-${suffix}@exempel.se`,
+  },
+  /** A tenant-owner, but of another apartment than `sold`. */
+  stranger: {
+    personId: `mv-stranger-${suffix}`,
+    email: `mv-stranger-${suffix}@exempel.se`,
+  },
+  /** Buys `sold`, after every refusal below has left it untouched. */
+  soldTo: {
+    personId: `mv-sold-to-${suffix}`,
+    email: `mv-sold-to-${suffix}@exempel.se`,
   },
 } as const;
 
@@ -332,14 +388,84 @@ beforeAll(async () => {
     firstName: "Stina",
     email: actors.stale.email,
   });
+  await createPerson({
+    personId: actors.misdated.personId,
+    firstName: "Maja",
+    email: actors.misdated.email,
+  });
+  await createPerson({
+    personId: actors.backDater.personId,
+    firstName: "Bodil",
+    email: actors.backDater.email,
+  });
+  await createPerson({
+    personId: actors.lateRecorder.personId,
+    firstName: "Lars",
+    email: actors.lateRecorder.email,
+  });
+  await createPerson({
+    personId: actors.gapHolder.personId,
+    firstName: "Gustav",
+    email: actors.gapHolder.email,
+  });
+  await createPerson({
+    personId: actors.formerHolder.personId,
+    firstName: "Frida",
+    email: actors.formerHolder.email,
+  });
+  await createPerson({
+    personId: actors.soldBy.personId,
+    firstName: "Sixten",
+    email: actors.soldBy.email,
+  });
+  await createPerson({
+    personId: actors.stranger.personId,
+    firstName: "Stig",
+    email: actors.stranger.email,
+  });
+  await createPerson({
+    personId: actors.soldTo.personId,
+    firstName: "Siri",
+    email: actors.soldTo.email,
+  });
 
-  await prisma.residency.create({
-    data: {
-      personId: actors.resident.personId,
-      apartmentId: apartments.first,
-      role: "RESIDENT",
-      movedInOn: new Date("2022-01-01T00:00:00.000Z"),
-    },
+  await prisma.residency.createMany({
+    data: [
+      {
+        personId: actors.resident.personId,
+        apartmentId: apartments.first,
+        role: "RESIDENT",
+        movedInOn: new Date("2022-01-01T00:00:00.000Z"),
+      },
+      // The seller of the buyer's apartment, up to the day the buyer moves in.
+      {
+        personId: actors.seller.personId,
+        apartmentId: apartments.second,
+        role: "MEMBER",
+        movedInOn: new Date("2018-06-01T00:00:00.000Z"),
+        movedOutOn: new Date("2026-03-01T00:00:00.000Z"),
+      },
+      {
+        personId: actors.formerHolder.personId,
+        apartmentId: apartments.sold,
+        role: "MEMBER",
+        movedInOn: new Date("2012-01-01T00:00:00.000Z"),
+        movedOutOn: new Date("2019-09-01T00:00:00.000Z"),
+      },
+      {
+        personId: actors.soldBy.personId,
+        apartmentId: apartments.sold,
+        role: "MEMBER",
+        movedInOn: new Date("2019-09-01T00:00:00.000Z"),
+        movedOutOn: new Date("2026-04-10T00:00:00.000Z"),
+      },
+      {
+        personId: actors.stranger.personId,
+        apartmentId: apartments.strangerHome,
+        role: "MEMBER",
+        movedInOn: new Date("2019-01-01T00:00:00.000Z"),
+      },
+    ],
   });
 
   await prisma.boardPosition.createMany({
@@ -519,6 +645,74 @@ describe("an upplatelse and an overgang are different events", () => {
     ).toBe(0);
   });
 
+  /*
+   * `Date` reads "2026-02-30" as the 2nd of March, and the entry, the transfer
+   * and the obligation a move-in writes are rows the database will not let
+   * anyone correct. A month of 13 is an Invalid Date, which reached the
+   * database as a server error rather than a refusal.
+   */
+  it.each([
+    { movedInOn: "2026-02-30", transferredOn: "2026-02-14" },
+    { movedInOn: "2026-03-01", transferredOn: "2026-02-29" },
+    { movedInOn: "2026-13-01", transferredOn: "2026-02-14" },
+  ])(
+    "refuses a move-in on $movedInOn transferred on $transferredOn and writes nothing",
+    async ({ movedInOn, transferredOn }) => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/moves/move-in",
+        payload: {
+          personId: actors.misdated.personId,
+          apartmentId: apartments.misdated,
+          role: "MEMBER",
+          movedInOn,
+          transfer: {
+            kind: "GRANT",
+            transferredOn,
+            agreementReference: `Upplatelse ${suffix}`,
+          },
+        },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      // The request schema answers, not the service: the move forms map this
+      // reason to a sentence, so the two must not drift apart unnoticed.
+      expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+        "invalid-body",
+      );
+      expect(
+        await prisma.residency.count({
+          where: { personId: actors.misdated.personId },
+        }),
+      ).toBe(0);
+      expect(await registerEntries(actors.misdated.personId)).toEqual([]);
+      expect(
+        await prisma.transfer.count({
+          where: { apartmentId: apartments.misdated },
+        }),
+      ).toBe(0);
+    },
+  );
+
+  it("refuses a date the calendar does not have in the service too", async () => {
+    // The controller refuses first; this is the service's own guard, for a
+    // caller that reaches it without going through the request schema.
+    await expect(
+      moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.misdated.personId,
+        apartmentId: apartments.misdated,
+        role: "MEMBER",
+        movedInOn: "2026-02-30",
+      }),
+    ).rejects.toMatchObject({
+      reason: "date-not-a-calendar-date",
+      status: 400,
+    });
+    expect(await registerEntries(actors.misdated.personId)).toEqual([]);
+  });
+
   it("leaves a transfer with an unrecorded seller without a deadline", async () => {
     const response = await inject({
       method: "POST",
@@ -561,6 +755,223 @@ describe("an upplatelse and an overgang are different events", () => {
         where: { transferId: transferId ?? "" },
       }),
     ).toBe(0);
+  });
+});
+
+describe("a transfer names a seller who held the apartment", () => {
+  /**
+   * A transfer row cannot be deleted, and the seller it names is on the
+   * apartment register extract and on their own access report from then on.
+   * So the seller is checked against the register before the row is written:
+   * a MEMBER residency on this apartment, held when it passed on.
+   *
+   * Every refusal here is on the same apartment, and the last test sells it
+   * for real, so each refusal is also checked to have left nothing behind -
+   * no transfer and no residency for the buyer.
+   */
+  async function moveInBuying(input: {
+    apartmentId: string;
+    fromPersonId: string;
+    transferredOn: string;
+  }) {
+    return inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.soldTo.personId,
+        apartmentId: input.apartmentId,
+        role: "MEMBER",
+        movedInOn: "2026-04-10",
+        transfer: {
+          kind: "TRANSFER",
+          fromPersonId: input.fromPersonId,
+          transferredOn: input.transferredOn,
+          agreementReference: `Overlatelse ${input.fromPersonId}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+  }
+
+  async function expectNothingWritten(apartmentId: string): Promise<void> {
+    expect(await prisma.transfer.count({ where: { apartmentId } })).toBe(0);
+    expect(
+      await prisma.residency.count({
+        where: { apartmentId, personId: actors.soldTo.personId },
+      }),
+    ).toBe(0);
+    expect(await registerEntries(actors.soldTo.personId)).toEqual([]);
+  }
+
+  it("refuses a seller who never held the apartment", async () => {
+    // A tenant-owner, and a person the register holds - just not of this one.
+    const response = await moveInBuying({
+      apartmentId: apartments.sold,
+      fromPersonId: actors.stranger.personId,
+      transferredOn: "2026-04-10",
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-not-tenant-owner",
+    );
+    await expectNothingWritten(apartments.sold);
+  });
+
+  it("refuses a seller who had sold the apartment on before the transfer", async () => {
+    const response = await moveInBuying({
+      apartmentId: apartments.sold,
+      fromPersonId: actors.formerHolder.personId,
+      transferredOn: "2026-04-10",
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-not-tenant-owner",
+    );
+    await expectNothingWritten(apartments.sold);
+  });
+
+  it("refuses a seller whose holding began after the transfer", async () => {
+    // The right seller, and a transfer day before they held the apartment.
+    const response = await moveInBuying({
+      apartmentId: apartments.sold,
+      fromPersonId: actors.soldBy.personId,
+      transferredOn: "2019-08-01",
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-not-tenant-owner",
+    );
+    await expectNothingWritten(apartments.sold);
+  });
+
+  it("refuses a seller who lived there without holding the tenant-ownership", async () => {
+    // A RESIDENT residency: somebody living in the apartment, not a holder.
+    const response = await moveInBuying({
+      apartmentId: apartments.first,
+      fromPersonId: actors.resident.personId,
+      transferredOn: "2026-04-10",
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-not-tenant-owner",
+    );
+    await expectNothingWritten(apartments.first);
+  });
+
+  it("refuses a seller who is the acquirer", async () => {
+    const response = await moveInBuying({
+      apartmentId: apartments.sold,
+      fromPersonId: actors.soldTo.personId,
+      transferredOn: "2026-04-10",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-is-acquirer",
+    );
+    await expectNothingWritten(apartments.sold);
+  });
+
+  it("refuses a move-out that transfers the apartment to whoever is leaving it", async () => {
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: {
+        personId: actors.stranger.personId,
+        apartmentId: apartments.strangerHome,
+      },
+      select: { id: true },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-out",
+      payload: {
+        residencyId: residency.id,
+        movedOutOn: "2026-05-01",
+        transfer: {
+          toPersonId: actors.stranger.personId,
+          transferredOn: "2026-05-01",
+          agreementReference: `Overlatelse till sig sjalv ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-is-acquirer",
+    );
+    expect(
+      await prisma.transfer.count({
+        where: { apartmentId: apartments.strangerHome },
+      }),
+    ).toBe(0);
+    // The move-out shares the transaction, so it is refused with the transfer.
+    const after = await prisma.residency.findUniqueOrThrow({
+      where: { id: residency.id },
+      select: { movedOutOn: true },
+    });
+    expect(after.movedOutOn).toBeNull();
+  });
+
+  it("refuses a move-out whose transfer falls after the seller left", async () => {
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: {
+        personId: actors.stranger.personId,
+        apartmentId: apartments.strangerHome,
+      },
+      select: { id: true },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-out",
+      payload: {
+        residencyId: residency.id,
+        movedOutOn: "2026-05-01",
+        transfer: {
+          toPersonId: actors.soldTo.personId,
+          transferredOn: "2026-06-01",
+          agreementReference: `Overlatelse efter utflyttning ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "seller-not-tenant-owner",
+    );
+    expect(
+      await prisma.transfer.count({
+        where: { apartmentId: apartments.strangerHome },
+      }),
+    ).toBe(0);
+  });
+
+  it("records a transfer from a seller who moved out on the day it passed on", async () => {
+    // The move-out date is the first day a residency is not held, so this
+    // seller held the apartment up to the transfer day and not on it. That is
+    // the ordinary order of a sale, and it has to go through.
+    const response = await moveInBuying({
+      apartmentId: apartments.sold,
+      fromPersonId: actors.soldBy.personId,
+      transferredOn: "2026-04-10",
+    });
+
+    expect(response.statusCode).toBe(201);
+    const { transferId } = JSON.parse(response.body) as {
+      transferId: string | null;
+    };
+    const transfer = await prisma.transfer.findUniqueOrThrow({
+      where: { id: transferId ?? "" },
+      select: { fromPersonId: true, toPersonId: true },
+    });
+    expect(transfer.fromPersonId).toBe(actors.soldBy.personId);
+    expect(transfer.toPersonId).toBe(actors.soldTo.personId);
   });
 });
 
@@ -1127,6 +1538,175 @@ describe("moving out", () => {
     await expect(
       prisma.memberRegisterEntry.delete({ where: { id: exit.id } }),
     ).rejects.toThrow();
+  });
+});
+
+describe("moves entered out of date order", () => {
+  /*
+   * A buyer is entered before they take over, a move-in is back-dated, two
+   * move-outs arrive in the order the paperwork did. The register has to read
+   * the same as if each had been entered on its day: whether a move begins or
+   * ends a membership depends on what else the person held on that day, not on
+   * what had merely not ended by it. Each case here wrote the wrong rows before
+   * that was the rule, into a register that cannot have a row removed.
+   */
+
+  async function residencyOf(personId: string, apartmentId: string) {
+    return prisma.residency.findFirstOrThrow({
+      where: { personId, apartmentId },
+      select: { id: true },
+    });
+  }
+
+  function rows(entries: Awaited<ReturnType<typeof registerEntries>>) {
+    return entries.map((entry) => ({
+      eventType: entry.eventType,
+      eventOn: entry.eventOn.toISOString().slice(0, 10),
+      apartmentId: entry.apartmentId,
+    }));
+  }
+
+  it("enters a back-dated move-in recorded after a later one", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+
+    try {
+      await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.backDater.personId,
+        apartmentId: apartments.laterPurchase,
+        role: "MEMBER",
+        movedInOn: "2027-01-01",
+      });
+      const backDated = await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.backDater.personId,
+        apartmentId: apartments.backDated,
+        role: "MEMBER",
+        movedInOn: "2026-10-01",
+      });
+
+      // The purchase entered first had not begun on 2026-10-01, so it held
+      // nothing that day and the membership begins with the back-dated one.
+      expect(backDated.memberRegisterEntryRecorded).toBe(true);
+      expect(rows(await registerEntries(actors.backDater.personId))).toEqual([
+        {
+          eventType: "ENTRY",
+          eventOn: "2026-10-01",
+          apartmentId: apartments.backDated,
+        },
+        {
+          eventType: "ENTRY",
+          eventOn: "2027-01-01",
+          apartmentId: apartments.laterPurchase,
+        },
+      ]);
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("writes the EXIT when a move-out is recorded before an earlier one", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+
+    try {
+      for (const [apartmentId, movedInOn] of [
+        [apartments.leftLast, "2020-01-01"],
+        [apartments.leftFirst, "2021-01-01"],
+      ] as const) {
+        await moves.moveIn({
+          actorPersonId: actors.board.personId,
+          personId: actors.lateRecorder.personId,
+          apartmentId,
+          role: "MEMBER",
+          movedInOn,
+        });
+      }
+
+      const later = await moves.moveOut({
+        residencyId: (
+          await residencyOf(actors.lateRecorder.personId, apartments.leftLast)
+        ).id,
+        movedOutOn: "2026-12-01",
+      });
+      const earlier = await moves.moveOut({
+        residencyId: (
+          await residencyOf(actors.lateRecorder.personId, apartments.leftFirst)
+        ).id,
+        movedOutOn: "2026-11-01",
+      });
+
+      // The other apartment was still held when the first move-out was
+      // entered, so that one ends nothing. The second closes the last one, and
+      // the membership ends on the later of the two dates.
+      expect(later.memberRegisterExitRecorded).toBe(false);
+      expect(earlier.memberRegisterExitRecorded).toBe(true);
+      expect(rows(await registerEntries(actors.lateRecorder.personId))).toEqual(
+        [
+          {
+            eventType: "ENTRY",
+            eventOn: "2020-01-01",
+            apartmentId: apartments.leftLast,
+          },
+          {
+            eventType: "EXIT",
+            eventOn: "2026-12-01",
+            apartmentId: apartments.leftLast,
+          },
+        ],
+      );
+    } finally {
+      send.mockRestore();
+    }
+  });
+
+  it("records the gap before an apartment bought for later", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+
+    try {
+      await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.gapHolder.personId,
+        apartmentId: apartments.leftBeforeGap,
+        role: "MEMBER",
+        movedInOn: "2020-01-01",
+      });
+      await moves.moveIn({
+        actorPersonId: actors.board.personId,
+        personId: actors.gapHolder.personId,
+        apartmentId: apartments.boughtAfterGap,
+        role: "MEMBER",
+        movedInOn: "2026-12-01",
+      });
+      const left = await moves.moveOut({
+        residencyId: (
+          await residencyOf(actors.gapHolder.personId, apartments.leftBeforeGap)
+        ).id,
+        movedOutOn: "2026-09-30",
+      });
+
+      // Two months in which the person held no tenant-ownership, which the
+      // register has to show rather than bridge.
+      expect(left.memberRegisterExitRecorded).toBe(true);
+      expect(rows(await registerEntries(actors.gapHolder.personId))).toEqual([
+        {
+          eventType: "ENTRY",
+          eventOn: "2020-01-01",
+          apartmentId: apartments.leftBeforeGap,
+        },
+        {
+          eventType: "EXIT",
+          eventOn: "2026-09-30",
+          apartmentId: apartments.leftBeforeGap,
+        },
+        {
+          eventType: "ENTRY",
+          eventOn: "2026-12-01",
+          apartmentId: apartments.boughtAfterGap,
+        },
+      ]);
+    } finally {
+      send.mockRestore();
+    }
   });
 });
 

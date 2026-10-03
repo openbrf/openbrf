@@ -132,7 +132,10 @@ locally the application runs from source beside the PostgreSQL that
       public only while the instance is unclaimed - no account exists and setup
       has never been completed - and admin-only from its second screen onwards,
       because a first-boot wizard that stayed open would be a way to create an
-      account on an instance holding a statutory register
+      account on an instance holding a statutory register. The wizard opens
+      only with the setup link: an instance prints its link to its log on
+      start, or takes the link's digest from its host, so nobody who merely
+      finds a fresh instance can claim it
 - [x] Settings: housing cooperative, addresses and apartments, appearance and
       the accent colour, email, retention, sign-up requests with the board's
       queue for deciding them, your own profile, and sign-in security. The board
@@ -218,6 +221,12 @@ locally the application runs from source beside the PostgreSQL that
       and the data volume, with the encryption key backed up once and kept
       apart from every backup, because a backup without the key cannot be read
       and a backup with it opens everything
+- [x] A published image: every release is built for amd64 and arm64 by a
+      workflow, tagged with its version and its minor line, carries a build
+      provenance attestation that says which commit and which workflow made it,
+      and names its version on start. An instance follows a minor line with
+      `pull`, and several instances can share one database server, each with
+      its own runtime role and a database closed to the others.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,

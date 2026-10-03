@@ -16,13 +16,28 @@ PostgreSQL container, and nothing else to install.
 
 ## Starting an instance
 
+An instance needs two files: `docker-compose.prod.yml` and
+`.env.production.example`. Every release carries both as assets, the second
+under the name `env.production.example`, so either download them from the
+release to run
+
+```sh
+mkdir openbrf && cd openbrf
+curl -fLO https://github.com/openbrf/openbrf/releases/download/v0.1.0/docker-compose.prod.yml
+curl -fL -o .env.production https://github.com/openbrf/openbrf/releases/download/v0.1.0/env.production.example
+```
+
+or take them from a clone of the repository:
+
 ```sh
 git clone https://github.com/openbrf/openbrf.git
 cd openbrf
 cp .env.production.example .env.production
 ```
 
-Fill in the four values `.env.production` asks for, generating each with
+Set `OPENBRF_VERSION` in `.env.production` to the release line to run, such as
+`0.1` (see [Versions and upgrades](#versions-and-upgrades)), and fill in the
+four secrets it asks for, generating each with
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -54,15 +69,43 @@ Then:
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
-Open `APP_URL`. An unclaimed instance sends every visitor to the setup wizard,
-which creates the first administrator account, the housing cooperative, its
-addresses and its apartments, the email settings and the accent colour.
-Everything after the administrator account and the name can be skipped and
-finished later in settings.
+An unclaimed instance prints its setup link to its log once it is up:
+
+```sh
+docker compose -f docker-compose.prod.yml --env-file .env.production logs app
+```
+
+```
+This instance is unclaimed. Open https://brf.example.se/app/setup#claim=... to
+create the first administrator. The link works until the instance is claimed or
+restarted.
+```
+
+Open that link. The setup wizard creates the first administrator account, the
+housing cooperative, its addresses and its apartments, the email settings and
+the accent colour. Everything after the administrator account and the name can
+be skipped and finished later in settings.
 
 The wizard is public only while the instance is unclaimed - no account exists
 and setup has never been completed - and admin-only from its second screen
-onwards.
+onwards. Its first step creates the administrator only for whoever holds the
+setup link, so somebody who merely finds a fresh instance cannot claim it
+([ADR 0023](adr/0023-claiming-a-fresh-instance.md)). Reached without the link,
+the wizard asks for the setup code, which is the part of the link after
+`#claim=`.
+
+The link lives in the process's memory, not in the database. It stops working
+once the instance is claimed, and a restart before that prints a new link and
+ends the old one, so a link that may have been seen by somebody else is ended
+by restarting. The link is in the container's log for as long as that log is
+kept, and wherever the log is shipped; it opens nothing once the instance is
+claimed.
+
+A host that hands the link to the board instead mints the token itself and sets
+its digest as `OPENBRF_SETUP_TOKEN_DIGEST` before the first start
+(`.env.production.example` shows how). The instance then prints no link, only
+that it waits for its setup link, and the link is
+`<APP_URL>/app/setup#claim=<token>`.
 
 Once the instance is claimed, `APP_URL` serves the association's own public
 website and the application moves to `/app` under it. Finishing the wizard
@@ -98,36 +141,127 @@ The entrypoint runs, in this order, before the application listens:
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
 5. The job queue schema is installed or migrated, as the owner.
-6. The application's own database role, `openbrf_app`, is created and
-   constrained.
+6. The application's own database role is created and constrained: `openbrf_app`,
+   or the name `RUNTIME_DB_ROLE` gives it.
 7. The owner's credentials are dropped from the environment, and the
-   application starts, connecting as `openbrf_app`.
+   application starts, connecting as that role. Its first line after listening
+   names the release and the commit it was built from, as
+   `Open BRF 0.1.0 (1a2b3c4d5e6f)`.
+
+The start is refused before anything connects when `RUNTIME_DB_ROLE` cannot be
+a runtime role's name: see
+[Several instances on one database server](#several-instances-on-one-database-server).
 
 Steps 4 to 6 are idempotent, so upgrading is a newer image and the same `up -d`
-that started the instance.
-
-There is no published image yet, so the image is built from the checkout. A
-`pull` has no registry to fetch it from and fails; an `up -d` on its own does
-not rebuild an image that already exists. The build is therefore its own step:
-
-```sh
-git pull
-docker compose -f docker-compose.prod.yml --env-file .env.production build
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-```
-
-Once an image is published, the `git pull` and the `build` become one `pull`:
+that started the instance:
 
 ```sh
 docker compose -f docker-compose.prod.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
+`pull` fetches the image `OPENBRF_VERSION` names as it stands at that moment:
+the newest patch release of a line such as `0.1`, or the one exact version.
+Stop the application and take a backup before it; see
+[the upgrade, step by step](#the-upgrade-step-by-step).
+
 Both selectors belong on every one of those commands. Without
 `-f docker-compose.prod.yml`, Compose picks up the `docker-compose.yml` in this
 repository instead, which defines the development database and no application
 at all: the upgrade would touch the wrong volumes and leave the running
 instance on its old image.
+
+A build from a checkout, rather than a release, is an image under a tag of
+its own that `OPENBRF_VERSION` then names. It is never pulled, so `pull` is
+not part of running it:
+
+```sh
+docker build -t ghcr.io/openbrf/openbrf:checkout .
+# OPENBRF_VERSION=checkout in .env.production
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+**What a failed migration leaves.** The entrypoint stops at the first error and
+the container exits with a non-zero status. With `restart: unless-stopped` it
+is started again and fails the same way. The failing migration is rolled back
+whole, because each migration runs in one transaction, but the migrations
+applied before it in the same start stay applied, and the failure is recorded
+in the database's `_prisma_migrations` table, which makes every later start
+refuse to migrate until it is resolved. The database is then between two
+releases, and the previous image is not guaranteed to run against it.
+
+**Rolling back** is restoring the backup taken before the upgrade - the
+database and the data volume together, as
+[backup-and-restore.md](backup-and-restore.md) takes them - and starting the
+previous image, named by its exact version. Never the database alone: a start
+can rewrite the stored files on the volume before the application listens
+([ADR 0015](adr/0015-stored-files-encrypted-at-rest.md)). Never the previous image
+against the newer database. And never `prisma migrate resolve` to push past a
+failed migration: it records the migration as dealt with without doing what it
+does.
+
+**One container per database.** An upgrade that starts the new container before
+stopping the old one runs the migrations under a live older release. Stop, back
+up, start.
+
+## Versions and upgrades
+
+Every release is published as `ghcr.io/openbrf/openbrf`, one image for
+`linux/amd64` and `linux/arm64`, under up to three tags:
+
+- `X.Y.Z`, the release itself, which never moves;
+- `X.Y`, the release line, which moves to each patch release of that line;
+- `X`, from 1.0.0 on, which moves to each release of that major version.
+
+There is no `latest` tag. A tag that moved across release lines would install
+the one upgrade an operator is meant to choose. A patch to an older line moves
+that line's tag and nothing else.
+
+`OPENBRF_VERSION` is one of those tags. A line follows its patch releases on
+every `pull`; an exact version stays where it is; and a version with its
+digest, `0.1.0@sha256:<digest>`, is that image and no other, whatever happens to
+any tag. The digest is the one the release's attestation names and
+`docker buildx imagetools inspect ghcr.io/openbrf/openbrf:0.1.0` prints.
+
+What a release may change follows from its version:
+
+- **A patch release** (0.1.0 to 0.1.1) fixes without changing anything an
+  operator does, and can be installed without anybody choosing it.
+- **Before 1.0, a minor release** (0.1 to 0.2) may carry something an operator
+  has to act on - a new required variable, a variable removed or renamed, a
+  PostgreSQL major version no longer supported, a plugin API version no longer
+  accepted, a data change that needs a manual step - and waits for the
+  operator's choice. Its release notes say what.
+- **From 1.0 on**, minor releases join patch releases, and anything on that
+  list is a major release instead. [CONTRIBUTING.md](../CONTRIBUTING.md),
+  "Releasing the platform", is the rule a release is versioned by.
+
+Every image carries a build provenance attestation that names the commit and
+the workflow that built it. The release carries the same attestation as its
+asset `openbrf-X.Y.Z.intoto.jsonl`, and this checks the image against it:
+
+```sh
+gh attestation verify oci://ghcr.io/openbrf/openbrf:0.1.0 \
+  --repo openbrf/openbrf \
+  --signer-workflow openbrf/openbrf/.github/workflows/image.yml
+```
+
+The image's labels say the same: `org.opencontainers.image.version` and
+`org.opencontainers.image.revision`.
+
+### The upgrade, step by step
+
+The order an operator follows by hand, and the one an automated upgrade has to
+follow as well:
+
+1. Stop the application, then back up the database and the data volume
+   ([backup-and-restore.md](backup-and-restore.md), "Before an upgrade").
+2. Start the target image by digest - the digest its attestation names, not a
+   tag that could move.
+3. The upgrade has succeeded when the container's health is `healthy` within
+   its start period.
+4. Otherwise, stop it, restore both halves of the backup, and start the
+   previous image by its digest.
 
 ## Two database roles, and why
 
@@ -136,11 +270,11 @@ the database rather than by application code alone. A table's owner can run
 `ALTER TABLE ... DISABLE TRIGGER` and walk straight past them, so the
 application must not be the owner.
 
-`openbrf` owns the schema and runs migrations. `openbrf_app` owns nothing, holds
-no `CREATE` privilege, and has `UPDATE` and `DELETE` revoked on the statutory
-tables. The entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on
-every start, so the privileges are reapplied after any migration that added a
-table.
+`openbrf` owns the schema and runs migrations. The runtime role - `openbrf_app`,
+unless `RUNTIME_DB_ROLE` names another - owns nothing, holds no `CREATE`
+privilege, and has `UPDATE` and `DELETE` revoked on the statutory tables. The
+entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on every start,
+so the privileges are reapplied after any migration that added a table.
 
 The owner's credentials never reach the server. Neither password is passed as a
 process argument - `/proc/<pid>/cmdline` is readable by every process in the
@@ -157,13 +291,113 @@ entrypoint then skips step 6 and constrains nothing, so the role has to be
 granted no more than
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) grants
 it. A `DATABASE_URL_RUNTIME` supplied that way is used as written, so its
-password has to be percent-encoded already.
+password has to be percent-encoded already. The entrypoint still refuses one
+that signs in as the owner, carries a `user` query parameter, which would
+override the user in the URL, or names no user, which the server's `PGUSER`
+would fill in. The same two are refused in `DATABASE_URL`, so that the owner's
+name read from it is the one that signs in.
 
 Neither variable is required by the Compose file, because requiring either one
 would make the other impossible to use. The entrypoint is what refuses a
 production start that has neither, because the alternative is an application
 connecting as the owner - so that refusal, rather than a missing value in the
 env file, is the error an operator who has set up neither will read.
+
+## Several instances on one database server
+
+One PostgreSQL server can hold the databases of several instances. Each is
+still a container of its own, with its own data volume and its own key. It
+reaches the server through `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB` and
+`POSTGRES_USER` beside its two passwords, set in `.env.production`; left empty,
+they name the database `docker-compose.prod.yml` bundles. Such an instance has
+no use for that database, so it starts the application service alone, and
+upgrades it the same way:
+
+```sh
+docker compose -f docker-compose.prod.yml --env-file .env.production pull app
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps app
+```
+
+Setting `DATABASE_URL` instead of the first four, and `DATABASE_URL_RUNTIME`
+instead of the runtime password, works as well, through an override file that
+adds them to the `app` service. Three things are then required, and each start
+checks them before it grants anything, refusing with a message that names what
+is wrong:
+
+- **PostgreSQL 16 or later**, when the owner is not a superuser. Each
+  instance's owner creates that instance's runtime role, so it holds
+  `CREATEROLE`. From 16 on, a role with `CREATEROLE` manages only the roles it
+  created, so one instance's owner cannot alter another's runtime role. Before
+  16 it could.
+- **A database owned by that instance's owner**, one owner per instance. Only
+  the database's owner can close it to the other roles on the server; for any
+  other role PostgreSQL would report the attempt as a warning and leave the
+  database open.
+- **A runtime role name of its own**, in `RUNTIME_DB_ROLE`. A role belongs to
+  the whole server rather than to one database, so two instances naming the
+  same role would each set its password on every start and grant it both
+  databases. The entrypoint refuses, before anything connects, a name that is
+  not a lower-case identifier of at most 63 characters, one that begins with
+  `pg_`, one PostgreSQL reserves such as `public`, and the owner's own. The
+  start refuses a role that another database already grants `CONNECT` to,
+  because that role is another instance's.
+  With `RUNTIME_DB_PASSWORD` set, a `DATABASE_URL_RUNTIME` you supply has to
+  sign in as that same role, or the entrypoint refuses to start: the
+  application would otherwise run as a role it never constrained. The
+  connection limit the script sets for the role has to be 1 or more; `-1`
+  would mean no limit.
+
+A new database grants `CONNECT` to every role on the server. Each start that
+constrains the runtime role revokes that grant on the instance's own database,
+and checks afterwards that it is gone, so no instance's runtime role can open
+a session on another's. The instance's own roles lose nothing: the runtime
+role holds a grant of its own, and the owner owns the database. Any other role
+that connects - a monitoring or a backup user - needs
+`GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner.
+
+That holds for the databases of instances that have started. A database no
+instance has hardened yet, the server's own `postgres`, or another
+application's database stays as its owner left it, open to every role on the
+server, this instance's runtime role included. Only that database's owner can
+close it, so a start does not refuse because of it. Create a new instance's
+database and start that instance before putting data in it, and close the
+databases of other applications yourself.
+
+An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
+and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
+it. Its owner runs `REVOKE CONNECT ON DATABASE <database> FROM PUBLIC` once, and
+grants `CONNECT` to the runtime role and to any other role that connects.
+
+The names of every role and every database on the server remain visible to all
+of them whatever the grants, so neither should carry anything an association
+would not want its neighbours to read. The server's own `postgres` database
+still grants `CONNECT` to everyone; revoking that is the server
+administrator's.
+
+**Renaming the runtime role.** A start with a new `RUNTIME_DB_ROLE` constrains
+the new role and leaves the old one as it was: still able to sign in, still
+granted `CONNECT` and every table, and never constrained again when a later
+migration adds one. Once the instance runs as the new role, the owner removes
+the old one, in the instance's database:
+
+```sql
+GRANT openbrf_app TO openbrf;  -- the owner; PostgreSQL 16 asks for it first
+DROP OWNED BY openbrf_app;
+DROP ROLE openbrf_app;
+```
+
+**Connections.** The application's pool holds up to
+`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
+more, so an instance can take twelve at the defaults. Each start limits the
+runtime role to that plus three, so an instance - or code running inside it -
+cannot take more than its share. PostgreSQL allows 100 connections unless
+`max_connections` says otherwise, three of them reserved for superusers, which
+leaves room for six instances at their limits and a few connections over for
+the migrations each start runs and for anybody else who connects. The limits,
+and room for those, have to fit within `max_connections` less the reserved
+connections; a smaller pool, or a larger `max_connections`, makes room for more
+instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
+own bounds the migrations as well.
 
 ## Backups
 
@@ -181,6 +415,12 @@ it. The proxy must set `X-Forwarded-For` itself rather than passing through
 whatever a client sends: the header identifies the client for rate limiting on
 the authentication endpoints and on the forms an anonymous visitor can submit,
 and a client that can set it can spoof its way around both.
+
+The limits on a member exporting their own data - three a minute and one at a
+time each, twelve a minute and three at once for the whole instance - are
+counted in the memory of the application process, so running more than one
+application container for an instance multiplies every one of them by the number
+of containers.
 
 ## The data volume
 
@@ -223,6 +463,7 @@ answers itself. Where they go out is decided in one of two places:
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
 | `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is on loopback. See "The SMTP relay" below                |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
@@ -258,6 +499,15 @@ must upgrade through STARTTLS before the instance signs in, and a relay that doe
 not offer it is a failed send rather than a password sent in the clear. Only a
 relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
 with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+
+A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
+Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
+`OPENBRF_SMTP_REQUIRE_TLS=false`. The instance still upgrades when the relay
+offers STARTTLS, but otherwise sends the sign-in and every message in the clear,
+and so does it when something on the path removes the relay's offer. Set it only when you control every hop between the two, such as a network
+that only these containers share. The instance logs a warning at start while it
+is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
+loopback too.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that

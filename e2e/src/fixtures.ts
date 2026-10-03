@@ -60,10 +60,15 @@ export const test = base.extend<{
   api: APIRequestContext;
 }>({
   // The browser name is part of the address so that a second browser project,
-  // were one added, would not share a rate-limit bucket with this one.
+  // were one added, would not share a rate-limit bucket with this one. The
+  // repeat is part of it so that `--repeat-each` does not spend one repeat's
+  // sign-in attempts on the next, which starts seconds later; a retry keeps its
+  // repeat's index, and so its bucket.
   clientAddress: async ({ browserName }, use, testInfo) => {
     await use(
-      addressFor(`${browserName}::${testInfo.file}::${testInfo.title}`),
+      addressFor(
+        `${browserName}::${testInfo.file}::${testInfo.title}::${String(testInfo.repeatEachIndex)}`,
+      ),
     );
   },
 

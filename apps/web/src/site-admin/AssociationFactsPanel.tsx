@@ -2,7 +2,14 @@ import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import {
+  FIELD,
+  FIELD_DATA,
+  FIELD_MULTILINE,
+  HINT,
+  LABEL,
+  PRIMARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -186,7 +193,7 @@ export function AssociationFactsPanel(): ReactElement {
         onChange={(event) => {
           set(field, event.target.value);
         }}
-        className={`${FIELD} py-2`}
+        className={`${FIELD_MULTILINE}`}
       />
       {hintKey === undefined ? null : (
         <span className={HINT}>{t(hintKey)}</span>

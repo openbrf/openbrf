@@ -39,7 +39,13 @@ import { apiRequest, type ApiResult } from "./client";
 
 export type BreachRisk = "UNLIKELY" | "LIKELY" | "HIGH";
 
-export type BreachState = "awaitingDecision" | "overdue" | "decided" | "closed";
+/**
+ * `notificationOwed` is a breach the board has decided IMY is to be notified
+ * of, with no notification recorded yet. `overdue` is past the 72 hours with
+ * either the decision or that notification still owed; `decidedAt` tells which.
+ */
+export type BreachState =
+  "awaitingDecision" | "notificationOwed" | "overdue" | "decided" | "closed";
 
 export interface BreachSubject {
   personId: string;
@@ -104,6 +110,18 @@ export interface DecideBreachInput {
   delayReasons?: string | null;
   subjectsInformationRequired: boolean;
   subjectsDecisionGround?: string | null;
+}
+
+/**
+ * The acts a breach records after its decision. The facts are frozen by the
+ * decision and the API refuses them here; these stay writable because they
+ * happen afterwards.
+ */
+export interface UpdateBreachInput {
+  imyNotifiedAt?: string | null;
+  imyReference?: string | null;
+  delayReasons?: string | null;
+  subjectsInformedAt?: string | null;
 }
 
 export type LegalBasis =
@@ -175,7 +193,15 @@ export type ProcessorAgreementState =
   | "notRecorded";
 
 export type ProcessorKind =
-  "SMTP" | "SMS" | "STORAGE" | "HOSTING" | "MAILBOX" | "PLUGIN" | "EXTERNAL";
+  | "SMTP"
+  | "HOST_SMTP"
+  | "MAIL_API"
+  | "SMS"
+  | "STORAGE"
+  | "HOSTING"
+  | "MAILBOX"
+  | "PLUGIN"
+  | "EXTERNAL";
 
 export interface ProcessorView {
   processorKey: string;
@@ -239,8 +265,10 @@ export interface PrivacyNoticeCoverage {
 export interface DataProtectionOverview {
   breaches: {
     awaitingDecision: number;
+    notificationOwed: number;
     overdue: number;
-    nearestDeadline: string | null;
+    nearestDecisionDeadline: string | null;
+    nearestNotificationDeadline: string | null;
   };
   requests: { open: number; overdue: number };
   processors: { notRecorded: number; pending: number };
@@ -272,6 +300,13 @@ export function decideBreach(
     `/api/data-protection/breaches/${breachId}/decision`,
     input,
   );
+}
+
+export function updateBreach(
+  breachId: string,
+  input: UpdateBreachInput,
+): Promise<ApiResult<BreachView>> {
+  return apiRequest("PUT", `/api/data-protection/breaches/${breachId}`, input);
 }
 
 export function addBreachSubject(

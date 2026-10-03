@@ -19,7 +19,7 @@ import {
 } from "../api/board-mailbox";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
-  FIELD,
+  FIELD_MULTILINE,
   LABEL,
   PRIMARY_BUTTON,
   QUIET_BUTTON,
@@ -307,7 +307,7 @@ export function BoardMailboxThreadPanel({
               onChange={(event) => {
                 setDraft(event.target.value);
               }}
-              className={`${FIELD} py-2`}
+              className={`${FIELD_MULTILINE}`}
             />
           </label>
           <span className="text-small text-ink-muted">

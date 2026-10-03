@@ -15,6 +15,7 @@ import {
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   PRIMARY_BUTTON,
@@ -269,7 +270,7 @@ export function ReportIssuePanel({
             onChange={(event) => {
               setDraft({ ...draft, description: event.target.value });
             }}
-            className={`${FIELD} py-2`}
+            className={`${FIELD_MULTILINE}`}
           />
         </label>
 

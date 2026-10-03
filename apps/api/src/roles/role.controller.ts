@@ -8,6 +8,7 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
+import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -17,16 +18,13 @@ import { BoardPositionService } from "./board-position.service";
 import type { BoardPositionView, SystemRoleGrantsView } from "./role-changes";
 import { SystemRoleService } from "./system-role.service";
 
-/** ISO calendar date. A register date is never guessed from free text. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
-
 const electSchema = z.object({
   position: z.enum(["CHAIR", "BOARD_MEMBER", "DEPUTY_BOARD_MEMBER"]),
-  electedOn: isoDate,
+  electedOn: calendarDateSchema,
 });
 
 const endTermSchema = z.object({
-  endedOn: isoDate,
+  endedOn: calendarDateSchema,
 });
 
 const systemRoleSchema = z.object({

@@ -10,9 +10,11 @@ import {
 } from "./processor-key";
 
 describe("processor keys", () => {
-  it("names the five recipients an instance has at most one of", () => {
+  it("names the seven recipients an instance has at most one of", () => {
     expect(PROCESSOR_KEYS).toEqual([
       "smtp",
+      "hostSmtp",
+      "mailApi",
       "sms",
       "storage",
       "hosting",
@@ -58,14 +60,17 @@ describe("processor keys", () => {
     });
   });
 
-  it.each(["smtp", "sms", "storage", "hosting", "mailbox"])(
-    "reads the fixed key %s back as its kind",
-    (key) => {
-      expect(parseProcessorKey(key)).toEqual({
-        kind: key.toUpperCase(),
-      });
-    },
-  );
+  it.each([
+    ["smtp", "SMTP"],
+    ["hostSmtp", "HOST_SMTP"],
+    ["mailApi", "MAIL_API"],
+    ["sms", "SMS"],
+    ["storage", "STORAGE"],
+    ["hosting", "HOSTING"],
+    ["mailbox", "MAILBOX"],
+  ])("reads the fixed key %s back as %s", (key, kind) => {
+    expect(parseProcessorKey(key)).toEqual({ kind });
+  });
 
   it.each([
     ["a key naming nothing", "postal"],

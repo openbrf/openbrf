@@ -3,6 +3,7 @@ import type {
   ProcessorClassification,
   ProcessorKind,
 } from "../generated/prisma/enums";
+import type { Env } from "../config/env";
 import { selectedDriverKind } from "../sms/sms.service";
 import {
   connectedAppProcessorKey,
@@ -47,6 +48,12 @@ export interface ProcessorFacts {
    */
   mailHost: string | null;
   mailFromAddress: string | null;
+  /**
+   * Which mail that is, as `OPENBRF_MAIL_DRIVER` names it: the board's own
+   * settings, or the SMTP relay or HTTP mail API the environment sets. Null
+   * while the instance cannot send.
+   */
+  mailDriver: Env["OPENBRF_MAIL_DRIVER"] | null;
   smsDriver: string | null;
   smsGatewayUrl: string | null;
   storageDriver: "local" | "s3";
@@ -197,6 +204,23 @@ export function connectedAppHost(client: {
   }
 }
 
+/**
+ * The recipient each mail driver hands the mail to.
+ *
+ * Three, because they are three parties: the provider the board chose, and the
+ * relay or the API the host sends through. Keyed apart, an agreement the board
+ * recorded with its own provider stays with that provider while the host's
+ * mail is in use, and applies again once the board's settings do.
+ */
+const MAIL_RECIPIENTS: Record<
+  Env["OPENBRF_MAIL_DRIVER"],
+  readonly [FixedProcessorKey, ProcessorKind]
+> = {
+  settings: ["smtp", "SMTP"],
+  smtp: ["hostSmtp", "HOST_SMTP"],
+  "http-api": ["mailApi", "MAIL_API"],
+};
+
 /** The host part of a URL, for naming a gateway without repeating its path. */
 function hostOf(url: string): string {
   try {
@@ -243,8 +267,13 @@ export function currentProcessors(
   // Mail. Both halves, because the settings screen reports an instance that
   // cannot send as exactly that, and a host with no sender address sends
   // nothing.
-  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
-    fixed("smtp", "SMTP", facts.mailHost, facts.mailFromAddress);
+  if (
+    facts.mailDriver !== null &&
+    facts.mailHost !== null &&
+    facts.mailFromAddress !== null
+  ) {
+    const [key, kind] = MAIL_RECIPIENTS[facts.mailDriver];
+    fixed(key, kind, facts.mailHost, facts.mailFromAddress);
   }
 
   // SMS only where a provider is actually configured. An instance with none

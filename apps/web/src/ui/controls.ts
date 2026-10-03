@@ -12,9 +12,25 @@
  * variants, and nothing here widens that.
  */
 
-/** Text input, select and textarea. min-h-11 is the 44px touch target. */
-export const FIELD =
-  "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 text-body text-ink";
+/**
+ * What every field shares. min-h-11 is the 44px touch target.
+ *
+ * A field marked `aria-invalid` takes the error state DESIGN.md fixes: a 2px
+ * danger border, in light and dark alike through the token. The padding gives
+ * back the pixel the wider border takes on every side, so neither the text nor
+ * the field's size moves. The vertical padding is set by the two classes below
+ * and never appended: Tailwind orders `py-px` after `py-2` in the stylesheet
+ * whatever order the class names are written in, so an added `py-2` would lose,
+ * and the error state could not give back the right pixel.
+ */
+const FIELD_FRAME =
+  "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 text-body text-ink aria-invalid:border-2 aria-invalid:border-danger aria-invalid:px-[11px]";
+
+/** Text input, select and a textarea that sits tight on its text. */
+export const FIELD = `${FIELD_FRAME} py-px aria-invalid:py-0`;
+
+/** A textarea for running text, with room above and below its lines. */
+export const FIELD_MULTILINE = `${FIELD_FRAME} py-2 aria-invalid:py-[7px]`;
 
 /** The data face, for anything that belongs on the mono grid. */
 export const FIELD_DATA = `${FIELD} font-data`;

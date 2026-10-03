@@ -144,6 +144,9 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
 
   const collected = new Map<string, Uint8Array>();
   let total = 0;
+  // Counts every regular-file record, not distinct paths: an archive that
+  // repeats one path would otherwise never reach the cap.
+  let fileRecords = 0;
   let offset = 0;
   let trailingZeroBlocks = 0;
 
@@ -195,11 +198,13 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
         `The archive unpacks to more than ${String(MAX_TOTAL_BYTES)} bytes.`,
       );
     }
-    if (collected.size >= MAX_ARCHIVE_ENTRIES) {
+    if (fileRecords >= MAX_ARCHIVE_ENTRIES) {
       throw new ThemeArchiveError(
         `The archive contains more than ${String(MAX_ARCHIVE_ENTRIES)} files.`,
       );
     }
+
+    fileRecords += 1;
 
     const prefix = decodeString(header, 345, 155);
     const name = decodeString(header, 0, 100);

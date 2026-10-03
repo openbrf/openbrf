@@ -189,6 +189,7 @@ test("a password holding URL delimiters reaches the database intact", async () =
  * and only the rendered configuration is read.
  */
 const COMPOSE_REQUIRED = {
+  OPENBRF_VERSION: "0.1",
   APP_URL: "https://example.invalid",
   POSTGRES_PASSWORD: "owner-password-for-rendering",
   BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
@@ -227,14 +228,21 @@ test("both documented ways to supply the runtime connection reach the container"
   // as absent, so the entrypoint leaves the operator's role alone.
   expect(managed.RUNTIME_DB_PASSWORD).toBe("");
 
+  // With the two settings a server shared by several instances needs: the
+  // runtime role's own name, and the pool's size out of that server's
+  // connections. The entrypoint and the API read them from the container.
   const entrypointManaged = productionComposeConfig({
     ...COMPOSE_REQUIRED,
     RUNTIME_DB_PASSWORD: "runtime-password",
+    RUNTIME_DB_ROLE: "brf_example_app",
+    OPENBRF_DATABASE_POOL_SIZE: "4",
   });
   expect(entrypointManaged.status, entrypointManaged.output).toBe(0);
   const ordinary = appEnvironment(entrypointManaged.output);
   expect(ordinary.RUNTIME_DB_PASSWORD).toBe("runtime-password");
   expect(ordinary.DATABASE_URL_RUNTIME).toBe("");
+  expect(ordinary.RUNTIME_DB_ROLE).toBe("brf_example_app");
+  expect(ordinary.OPENBRF_DATABASE_POOL_SIZE).toBe("4");
 
   // With neither, the configuration still renders. Refusing here would report
   // whichever variable was named first as missing, which is wrong half the
@@ -245,6 +253,37 @@ test("both documented ways to supply the runtime connection reach the container"
   const nothing = appEnvironment(neither.output);
   expect(nothing.RUNTIME_DB_PASSWORD).toBe("");
   expect(nothing.DATABASE_URL_RUNTIME).toBe("");
+  // Empty, which the entrypoint and the API both read as their defaults:
+  // openbrf_app, and a pool of ten.
+  expect(nothing.RUNTIME_DB_ROLE).toBe("");
+  expect(nothing.OPENBRF_DATABASE_POOL_SIZE).toBe("");
+});
+
+test("the setup link's digest reaches the container, and is optional", () => {
+  // docs/deployment.md offers a host two ways to hand over an instance: set
+  // the digest of a link it minted, or leave it empty and read the link the
+  // instance prints to its log (ADR 0023). The first is only real if
+  // docker-compose.prod.yml maps the variable into the container.
+  const digest = "Dw2IjKhXMqZmAQPb-7sHzcTMAl5w-M6-vjgoiaP5WP8";
+
+  const provisioned = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+    OPENBRF_SETUP_TOKEN_DIGEST: digest,
+  });
+  expect(provisioned.status, provisioned.output).toBe(0);
+  expect(appEnvironment(provisioned.output).OPENBRF_SETUP_TOKEN_DIGEST).toBe(
+    digest,
+  );
+
+  // Unset renders as empty, which the API's env schema reads as absent: the
+  // instance then mints its own link.
+  const selfHosted = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(selfHosted.status, selfHosted.output).toBe(0);
+  expect(appEnvironment(selfHosted.output).OPENBRF_SETUP_TOKEN_DIGEST).toBe("");
 });
 
 test("mail set where the instance runs reaches the container", () => {
@@ -298,6 +337,7 @@ test("the owner's password is still required by the compose file", () => {
   // The database container is created from it, so there is no second way to
   // supply it and nothing further on that could report its absence better.
   const { status, output } = productionComposeConfig({
+    OPENBRF_VERSION: COMPOSE_REQUIRED.OPENBRF_VERSION,
     APP_URL: COMPOSE_REQUIRED.APP_URL,
     BETTER_AUTH_SECRET: COMPOSE_REQUIRED.BETTER_AUTH_SECRET,
     RUNTIME_DB_PASSWORD: "runtime-password",
@@ -307,6 +347,32 @@ test("the owner's password is still required by the compose file", () => {
   // The compose file's own wording, so an unrelated rendering error cannot
   // stand in for it.
   expect(output).toContain("set POSTGRES_PASSWORD in the env file");
+});
+
+test("the release to run is required by the compose file", () => {
+  // The image is the published one at the tag this names, and there is no
+  // tag that could be right for every operator: a moving tag across release
+  // lines would install the very upgrade an operator is meant to choose.
+  const { OPENBRF_VERSION: _left, ...withoutVersion } = COMPOSE_REQUIRED;
+  const { status, output } = productionComposeConfig({
+    ...withoutVersion,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+
+  expect(status, "rendering fails without it").not.toBe(0);
+  expect(output).toContain("set OPENBRF_VERSION to the release line to run");
+
+  // And with it, the image is the published one at exactly that tag.
+  const pinned = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(pinned.status, pinned.output).toBe(0);
+  const config = JSON.parse(pinned.output) as {
+    services: { app: { image: string; build?: unknown } };
+  };
+  expect(config.services.app.image).toBe("ghcr.io/openbrf/openbrf:0.1");
+  expect(config.services.app.build, "nothing is built").toBeUndefined();
 });
 
 test("the entrypoint refuses a production start with no runtime connection", () => {
@@ -340,6 +406,225 @@ test("the entrypoint refuses a production start with no runtime connection", () 
     output.includes("openbrf: starting"),
     "the server was never reached",
   ).toBe(false);
+});
+
+test("the entrypoint refuses a runtime role name that cannot be one, before anything connects", () => {
+  test.setTimeout(120_000);
+
+  // A role belongs to the whole server, so an instance sharing one names its
+  // own - and a name that is not a plain identifier, one PostgreSQL reserves,
+  // or the owner's own would each be applied by the hardening script after the
+  // migrations had already run. The owner's case is the dangerous one: the
+  // script would set the owner's password and the application would connect
+  // as the role that can disable the append-only triggers.
+  //
+  // Nothing listens on port 1, so a start that got as far as connecting would
+  // wait thirty seconds and say so; stopping at the name says nothing of it.
+  for (const [role, refusal] of [
+    ["Brf_App", "has to be a lower-case PostgreSQL role name"],
+    ["pg_brf_app", "which PostgreSQL reserves for its own roles"],
+    ["public", "session_user, which PostgreSQL reserves"],
+    ["openbrf", "names the schema owner"],
+  ] as const) {
+    const { status, output } = runInAppContainer(
+      ["/usr/local/bin/openbrf-entrypoint", "true"],
+      {
+        RUNTIME_DB_ROLE: role,
+        DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      },
+      60_000,
+    );
+
+    expect(status, `${role}: the start stops: ${output}`).toBe(1);
+    expect(output, role).toContain(refusal);
+    expect(
+      output.includes(WAITED_FOR_A_DATABASE),
+      `${role}: nothing connected`,
+    ).toBe(false);
+    expect(output.includes("openbrf: starting"), role).toBe(false);
+    expect(output.includes(DECOY_PASSWORD), `${role}: no password echoed`).toBe(
+      false,
+    );
+  }
+});
+
+test("the entrypoint refuses a runtime URL that signs in as a role it was not asked to constrain", () => {
+  test.setTimeout(120_000);
+
+  // With RUNTIME_DB_PASSWORD the entrypoint hardens the role RUNTIME_DB_ROLE
+  // names, but the application connects as whoever DATABASE_URL_RUNTIME says.
+  // The two have to be the same role, or the application runs as one the
+  // hardening never touched. Nothing listens on port 1, so a start that got as
+  // far as connecting would wait thirty seconds and say so.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_ROLE: "brf_example_app",
+      RUNTIME_DB_PASSWORD: DECOY_PASSWORD,
+      DATABASE_URL_RUNTIME: `postgresql://openbrf_other:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL_RUNTIME signs in as a role other than",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses a runtime URL whose user query parameter overrides the role it names", () => {
+  test.setTimeout(120_000);
+
+  // pg-connection-string lets a user query parameter win over the URL's own
+  // username, so a URL that passes for the constrained role could still sign
+  // the application in as the owner.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_ROLE: "brf_example_app",
+      RUNTIME_DB_PASSWORD: DECOY_PASSWORD,
+      DATABASE_URL_RUNTIME: `postgresql://brf_example_app:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL_RUNTIME carries a user query parameter",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses a runtime URL that signs in as the owner when the operator manages the role", () => {
+  test.setTimeout(120_000);
+
+  // Without RUNTIME_DB_PASSWORD the role is the operator's, but the application
+  // still must not connect as the schema owner. The app container already has
+  // RUNTIME_DB_PASSWORD from the stack's env file, so it is cleared here to
+  // take the managed path. Nothing listens on port 1.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL_RUNTIME signs in as the schema owner");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses a user query parameter on a runtime URL the operator manages", () => {
+  test.setTimeout(120_000);
+
+  // The parameter overrides the URL's username in every mode, so a managed
+  // role's URL could sign in as the owner through it just the same. The
+  // password is cleared so this runs in managed mode, as its title says.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      DATABASE_URL_RUNTIME: `postgresql://role_a:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL_RUNTIME carries a user query parameter",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses a runtime URL that names no user, which PGUSER would fill in", () => {
+  test.setTimeout(120_000);
+
+  // A URL without a user signs in as PGUSER, which can be the owner. The password
+  // is cleared to take the managed path, where the owner check would otherwise
+  // see an empty name and pass it.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      PGUSER: "openbrf",
+      DATABASE_URL_RUNTIME: `postgresql://:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL_RUNTIME has to name its user");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses an owner URL whose user query parameter hides the owner's name", () => {
+  test.setTimeout(120_000);
+
+  // ownerUser() reads the owner's name from DATABASE_URL, and a user query
+  // parameter there would make it read a name the owner does not sign in as, so
+  // the owner check on the runtime URL would compare against the wrong one.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://decoy_user:${DECOY_PASSWORD}@127.0.0.1:1/openbrf?user=openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL carries a user query parameter");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
+});
+
+test("the entrypoint refuses an owner URL that names no user, which PGUSER would fill in", () => {
+  test.setTimeout(120_000);
+
+  // The same for an owner URL with no user: ownerUser() would read an empty name.
+  const { status, output } = runInAppContainer(
+    ["/usr/local/bin/openbrf-entrypoint", "true"],
+    {
+      RUNTIME_DB_PASSWORD: "",
+      PGUSER: "openbrf",
+      DATABASE_URL_RUNTIME: `postgresql://openbrf:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+      DATABASE_URL: `postgresql://:${DECOY_PASSWORD}@127.0.0.1:1/openbrf`,
+    },
+    60_000,
+  );
+
+  expect(status, `the start stops: ${output}`).toBe(1);
+  expect(output).toContain("DATABASE_URL has to name its user");
+  expect(output.includes(WAITED_FOR_A_DATABASE), "nothing connected").toBe(
+    false,
+  );
+  expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
 });
 
 test("an unknown API path answers JSON, and a client route answers the client", async ({

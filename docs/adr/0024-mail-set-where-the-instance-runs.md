@@ -61,6 +61,7 @@ Each driver's variables are checked at boot (`apps/api/src/config/env.ts`):
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required     |                                                                                  |
 | `OPENBRF_SMTP_PORT`                          | `smtp`               | 465 with implicit TLS, 587 without                                               |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`               | implicit TLS, `true` or `false` exactly; unset is false                          |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`               | STARTTLS before the sign-in, `true` or `false`; unset, required off loopback     |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`               | both or neither                                                                  |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required | https, or http on loopback; no credentials, query or fragment; a path is allowed |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required | the bearer key                                                                   |
@@ -81,9 +82,18 @@ encrypted at rest, as before.
 the instance uses: `current()` for sending, with the stored password decrypted
 when the settings decide, and `describe()` - source, driver, host and sender,
 decrypting nothing - for the settings screen and for `ProcessorFactsService`.
-The processor register's `smtp` row and the mail rows of the record of processing
+The processor register's mail row and the mail rows of the record of processing
 activities therefore name the host mail actually goes through: the environment's
 SMTP host, or the mail API's host.
+
+The register keys the mail row by driver, because the three are different
+parties: `smtp` (kind `SMTP`) for the server the board entered, `hostSmtp`
+(`HOST_SMTP`) for the environment's SMTP relay and `mailApi` (`MAIL_API`) for the
+mail API. An agreement the board recorded with its own provider stays under
+`smtp`, is not listed while the environment chooses the mail, and applies again
+once the settings do. Rows under `smtp` are not migrated: no release let the
+environment choose the mail before the keys were split, so every one describes
+the board's own server.
 
 ### Two drivers behind one interface
 
@@ -127,7 +137,10 @@ the selection.
 
 `SmtpMailDriver` requires STARTTLS before it signs in to the environment's relay,
 unless the relay is on loopback, so a relay whose offer of STARTTLS an attacker
-on the path strips gets no password in the clear. A server the board entered is
+on the path strips gets no password in the clear. `OPENBRF_SMTP_REQUIRE_TLS=false`
+lets a host vouch for the network to a relay that offers none, such as a sidecar
+on the Compose network, and the instance logs a warning at start while it is set.
+A server the board entered is
 used as before. The SMTP driver also reports the `Message-ID` it handed over as
 the delivered one, so the environment's relay must keep it; one that rewrites it
 belongs behind `http-api`.
@@ -169,7 +182,9 @@ threading may fail.
 - DMARC holds: the sender is on the domain the service has verified, and a
   Reply-To needs no alignment.
 - The processor register and the record of processing activities name the mail
-  API's host, and the board classifies it as it classifies an SMTP provider.
+  API's host, and the board classifies it as it classifies an SMTP provider -
+  as a recipient of its own, with no agreement carried over from the board's
+  server.
 - The instance sees no delivery events from the service; what it knows is that
   the service accepted the message.
 - The board mailbox is still collected over POP3. Collecting it through a

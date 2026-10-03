@@ -58,21 +58,42 @@ export async function setupState(
   return (await response.json()) as SetupState;
 }
 
+export type FirstAdministratorInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  /** The setup link's token (ADR 0023). Omitted to show that one is needed. */
+  claimToken?: string;
+};
+
 export async function createFirstAdministrator(
   request: APIRequestContext,
   baseUrl: string,
-  input: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    password: string;
-  },
+  input: FirstAdministratorInput & { claimToken: string },
 ): Promise<string> {
   const response = await request.post(`${baseUrl}/api/setup/administrator`, {
     data: input,
   });
   await expectOk(response, "POST /api/setup/administrator");
   return ((await response.json()) as { personId: string }).personId;
+}
+
+/**
+ * The same call with every status kept, for the specs that assert a refusal.
+ */
+export async function attemptFirstAdministrator(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: FirstAdministratorInput,
+): Promise<{ status: number; reason: unknown }> {
+  const response = await request.post(`${baseUrl}/api/setup/administrator`, {
+    data: input,
+  });
+  return {
+    status: response.status(),
+    reason: jsonBodyOrNothing(await response.text()).reason,
+  };
 }
 
 export async function signIn(
@@ -739,6 +760,29 @@ export async function findPersonIdByName(
   return (await findPersonByName(request, baseUrl, name))?.personId;
 }
 
+/**
+ * Since when the person's processing has been restricted, or null.
+ *
+ * The dated flag every use a restriction stops reads - the mailings, the
+ * resident directory, the published board roster, the purge - so null is what
+ * "no longer withheld" means, and no screen has to be trusted to say it.
+ */
+export async function processingRestrictedAt(
+  request: APIRequestContext,
+  baseUrl: string,
+  personId: string,
+): Promise<string | null> {
+  const response = await request.get(
+    `${baseUrl}/api/address-book/persons/${encodeURIComponent(personId)}`,
+  );
+  await expectOk(response, "GET /api/address-book/persons/:personId");
+  return (
+    (await response.json()) as {
+      readonly processingRestrictedAt: string | null;
+    }
+  ).processingRestrictedAt;
+}
+
 /** A block in a page's body, as the write API takes it. */
 export type SitePageBlock = Record<string, unknown>;
 
@@ -923,7 +967,8 @@ export type BreachRow = {
   readonly breachId: string;
   readonly title: string;
   readonly discoveredAt: string;
-  readonly state: "awaitingDecision" | "overdue" | "decided" | "closed";
+  readonly state:
+    "awaitingDecision" | "notificationOwed" | "overdue" | "decided" | "closed";
 };
 
 /**
@@ -975,7 +1020,15 @@ export async function recordPersonalDataBreach(
 export type ProcessorRow = {
   readonly processorKey: string;
   readonly processorKind:
-    "SMTP" | "SMS" | "STORAGE" | "HOSTING" | "MAILBOX" | "PLUGIN" | "EXTERNAL";
+    | "SMTP"
+    | "HOST_SMTP"
+    | "MAIL_API"
+    | "SMS"
+    | "STORAGE"
+    | "HOSTING"
+    | "MAILBOX"
+    | "PLUGIN"
+    | "EXTERNAL";
   /** Null where the instance has no name for it; the screen says its kind. */
   readonly identity: string | null;
   readonly state:

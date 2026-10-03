@@ -16,11 +16,12 @@ import {
   ensureAccountFor,
   ensureRegisterFixture,
 } from "../src/provision";
-import { appPath, repositoryRoot, stack } from "../src/stack";
+import { appPath, claimLinkFromLog, repositoryRoot, stack } from "../src/stack";
 import { MEMBER, RESIDENT } from "./people";
 import { assertSafeToPublish, freezeScripts } from "./safety";
 import {
   SCREENS,
+  SETUP_CLAIM_LINK,
   type Action,
   type Actor,
   type Screen,
@@ -291,6 +292,23 @@ async function perform(page: Page, action: Action): Promise<void> {
     await locate(page, action.select).selectOption({ label: action.option });
     return;
   }
+  if ("recordBreach" in action) {
+    const breach = action.recordBreach;
+    // The page's own request context, so the breach is recorded by whoever
+    // the walk is signed in as, with that browser's session and address.
+    await api.recordPersonalDataBreach(page.request, stack.baseUrl, {
+      title: breach.title,
+      description: breach.description,
+      discoveredAt: new Date(
+        Date.now() - breach.discoveredHoursAgo * 60 * 60 * 1000,
+      ),
+      dataDescription: breach.dataDescription,
+      effects: breach.effects,
+      measures: breach.measures,
+    });
+    await page.reload();
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.
@@ -526,7 +544,13 @@ test("captures every declared screen in light and dark", async ({
         screen.viewport === "phone" ? PHONE : BROWSER.viewport,
       );
       if (screen.goto !== undefined) {
-        await page.goto(screen.goto);
+        // The setup link exists only in the log of the stack this walk
+        // started, so it is read from there at the moment it is needed.
+        await page.goto(
+          screen.goto === SETUP_CLAIM_LINK
+            ? await claimLinkFromLog()
+            : screen.goto,
+        );
       }
       for (const action of screen.prepare ?? []) {
         await perform(page, action);

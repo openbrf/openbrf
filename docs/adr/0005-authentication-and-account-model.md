@@ -6,6 +6,9 @@ Date: 2026-08-28
 
 Accepted
 
+Its first way an account comes to exist is narrowed by
+[ADR 0023](0023-claiming-a-fresh-instance.md).
+
 ## Context
 
 An Open BRF instance holds a statutory register. Who may sign in, and how, is

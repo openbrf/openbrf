@@ -10,7 +10,8 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { MediaService } from "../media/media.service";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
-import { withheldPersonIds } from "../retention/withheld-persons";
+import { withheldAddressIndexes } from "../retention/withheld-addresses";
+import { COLLECTION_REFUSALS } from "./board-mailbox-delivery";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -93,7 +94,9 @@ export interface BoardMailboxPurgeRunSummary {
  * A restriction of processing stops it the same way. Art. 18(2) lets the
  * association keep storing the data and little else, so erasing it is the one
  * act the person asked it not to perform; `retention/withheld-persons.ts` is
- * where every purge asks both questions as one.
+ * where every purge asks both questions as one, and
+ * `retention/withheld-addresses.ts` turns the answer into addresses for the
+ * two purges keyed on one - this and the public-form issue purge.
  *
  * Reaching those threads is the one place in this module that goes from a person
  * to their correspondence, and it is worth being precise about why that is not
@@ -312,6 +315,22 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         return false;
       }
 
+      /*
+       * The mailbox identifiers of what was collected onto this thread, read
+       * before the cascade takes them.
+       *
+       * The collector never deletes from the mailbox, and what it holds is
+       * decided by the identifiers it remembers. Once the messages go, nothing
+       * remembers these, so the next collection would store every letter on the
+       * thread again under its old date and this purge would erase it again the
+       * next night. Recording them as ignored, in this transaction, is what
+       * keeps an erased letter erased.
+       */
+      const collected = await tx.boardMailboxMessage.findMany({
+        where: { threadId, sourceUid: { not: null } },
+        select: { sourceUid: true },
+      });
+
       const { count } = await tx.boardMailboxThread.deleteMany({
         where: { id: threadId, lastMessageAt: { lte: cutoff } },
       });
@@ -320,6 +339,19 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         // gained a message, while this ran. An entry for an erasure that erased
         // nothing would be a false record in a table that cannot be corrected.
         return false;
+      }
+
+      const sourceUids = collected
+        .map((row) => row.sourceUid)
+        .filter((uid): uid is string => uid !== null);
+      if (sourceUids.length > 0) {
+        await tx.boardMailboxIgnoredMessage.createMany({
+          data: sourceUids.map((sourceUid) => ({
+            sourceUid,
+            reason: COLLECTION_REFUSALS.purged,
+          })),
+          skipDuplicates: true,
+        });
       }
 
       await this.audit.record(
@@ -416,24 +448,26 @@ export class BoardMailboxPurgeService implements OnModuleInit {
 
   /**
    * This table's blind index for every address a legal hold or a restriction
-   * of processing stands against.
-   *
-   * The two stored indexes are not comparable - CipherSweet derives a distinct
-   * key per table and field, which `field-encryption.service.ts` states - so each
-   * withheld person's address is decrypted and re-indexed under this table's own
-   * label. A hold is a dispute the board entered deliberately and a restriction a
-   * request it granted, so this is a handful of rows in a cooperative that has
-   * any at all.
+   * of processing stands against. `retention/withheld-addresses.ts` says how.
    */
   private async heldAddressIndexes(): Promise<string[]> {
-    const indexes: string[] = [];
-    for (const person of await this.withheldPersons(this.prisma)) {
-      const index = await this.indexFor(person.emailCipher);
-      if (index !== null) {
-        indexes.push(index);
-      }
+    return [...(await this.withheldAddresses(this.prisma)).keys()];
+  }
+
+  /**
+   * Whether a legal hold or a restriction of processing stands against this
+   * address, given as this table's blind index.
+   *
+   * Asked by the collector about a letter already past the window, which it
+   * would otherwise leave in the mailbox for good. A thread with a withheld
+   * person is exactly what this purge keeps, so a letter to or from one is kept
+   * too, and answered by the same match the purge makes.
+   */
+  async withholds(correspondentEmailIndex: string | null): Promise<boolean> {
+    if (correspondentEmailIndex === null) {
+      return false;
     }
-    return indexes;
+    return (await this.heldPersonFor(correspondentEmailIndex)) !== null;
   }
 
   /** The withheld person whose address this thread is with, if any. */
@@ -441,47 +475,19 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     correspondentEmailIndex: string,
     client: Prisma.TransactionClient = this.prisma,
   ): Promise<string | null> {
-    for (const person of await this.withheldPersons(client)) {
-      const index = await this.indexFor(person.emailCipher);
-      if (index !== null && index === correspondentEmailIndex) {
-        return person.id;
-      }
-    }
-    return null;
+    return (
+      (await this.withheldAddresses(client)).get(correspondentEmailIndex) ??
+      null
+    );
   }
 
-  /**
-   * Everybody no purge may touch, with the address each is matched on.
-   *
-   * Who that is comes from `withheldPersonIds`, the one answer every purge
-   * shares, so this table cannot come to disagree with the others about what a
-   * restriction of processing means.
-   */
-  private async withheldPersons(
+  private withheldAddresses(
     client: Prisma.TransactionClient,
-  ): Promise<{ id: string; emailCipher: string | null }[]> {
-    const ids = await withheldPersonIds(client);
-    if (ids.length === 0) {
-      return [];
-    }
-    return client.person.findMany({
-      where: { id: { in: ids } },
-      select: { id: true, emailCipher: true },
-    });
-  }
-
-  private async indexFor(emailCipher: string | null): Promise<string | null> {
-    if (emailCipher === null) {
-      // A person the purge has already stripped the contact details of. There is
-      // nothing left to match a thread against, which is the erasure working
-      // rather than a gap: the hold still stops that person's own purge, and it
-      // is the register that says who they are.
-      return null;
-    }
-    const address = await this.encryption.decrypt("person.email", emailCipher);
-    return this.encryption.computeIndex(
+  ): Promise<Map<string, string>> {
+    return withheldAddressIndexes(
+      client,
+      this.encryption,
       "boardMailboxThread.correspondentEmail",
-      address,
     );
   }
 }

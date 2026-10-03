@@ -22,6 +22,7 @@ import {
 import type { Viewer } from "../api/instance";
 import {
   FIELD,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   PRIMARY_BUTTON,
@@ -836,7 +837,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               <label className={LABEL}>
                 {t("chat.field")}
                 <textarea
-                  className={`${FIELD} min-h-24 py-2`}
+                  className={`${FIELD_MULTILINE} min-h-24`}
                   value={draft}
                   maxLength={MESSAGE_MAX_LENGTH}
                   required

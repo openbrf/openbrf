@@ -13,8 +13,13 @@ import type { MoveErrorReason } from "./moves-api";
  * API and not given a message here fails the build instead of reaching a board
  * member as the general fallback. The lookup below still takes a `string`,
  * because the wire value is whatever the server sent and no type checks that.
+ *
+ * `invalid-body` is the request schema's refusal rather than a domain reason.
+ * On these forms it means a date the calendar does not have, or a price that is
+ * not an amount, and the sentence names both: retrying the same form fails the
+ * same way, so the general "try again" would be the wrong advice.
  */
-const MESSAGES: Record<MoveErrorReason, TranslationKey> = {
+const MESSAGES: Record<MoveErrorReason | "invalid-body", TranslationKey> = {
   "person-not-found": "moves.errors.personNotFound",
   "apartment-not-found": "moves.errors.apartmentNotFound",
   "residency-not-found": "moves.errors.residencyNotFound",
@@ -24,6 +29,10 @@ const MESSAGES: Record<MoveErrorReason, TranslationKey> = {
   "transfer-person-not-found": "moves.errors.transferPersonNotFound",
   "transfer-reference-required": "moves.errors.transferReferenceRequired",
   "grant-has-no-seller": "moves.errors.grantHasNoSeller",
+  "date-not-a-calendar-date": "moves.errors.dateNotACalendarDate",
+  "invalid-body": "moves.errors.invalidBody",
+  "seller-is-acquirer": "moves.errors.sellerIsAcquirer",
+  "seller-not-tenant-owner": "moves.errors.sellerNotTenantOwner",
 };
 
 export function failureMessage(reason: string): TranslationKey {

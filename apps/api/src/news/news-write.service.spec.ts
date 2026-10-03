@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "../site/page-content";
 import type { NewsMailerService } from "./news-mailer.service";
 import type { NewsSmsService } from "./news-sms.service";
@@ -53,6 +54,7 @@ interface Fakes {
     count: ReturnType<typeof vi.fn>;
   };
   newsDelivery: { createMany: ReturnType<typeof vi.fn> };
+  newsComment: { count: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   mailer: {
     ensureQueues: ReturnType<typeof vi.fn>;
@@ -68,7 +70,7 @@ interface Fakes {
 
 function build(
   overrides: Partial<typeof ITEM> = {},
-  options: { claims?: boolean; members?: string[] } = {},
+  options: { claims?: boolean; members?: string[]; comments?: number } = {},
 ): Fakes {
   const stored = { ...ITEM, ...overrides };
 
@@ -110,6 +112,9 @@ function build(
     count: vi.fn().mockResolvedValue(2),
   };
   const newsDelivery = { createMany: vi.fn().mockResolvedValue({ count: 2 }) };
+  const newsComment = {
+    count: vi.fn().mockResolvedValue(options.comments ?? 0),
+  };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const order: string[] = [];
   const mailer = {
@@ -133,6 +138,7 @@ function build(
     news,
     person,
     newsDelivery,
+    newsComment,
     // The transaction client is the same fake: what these tests check is that
     // the claim, the ledger, the audit entries and the job are written by one
     // call, not that Postgres isolates them.
@@ -152,6 +158,7 @@ function build(
     news,
     person,
     newsDelivery,
+    newsComment,
     audit,
     mailer,
     texter,
@@ -876,5 +883,64 @@ describe("a mailing request against a publish that lands beside it", () => {
       expect.objectContaining({ action: "NEWS_MAILING_REQUEST_DISMISSED" }),
       expect.anything(),
     );
+  });
+});
+
+describe("removing a news item", () => {
+  it("removes an item nobody has commented on, and records the take-down", async () => {
+    const { service, news, audit } = build({ published: true });
+
+    await service.remove(ITEM.id, { personId: AUTHOR, channel: "WEB" });
+
+    expect(news.delete).toHaveBeenCalledWith({ where: { id: ITEM.id } });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "NEWS_PUBLISHED",
+        context: expect.objectContaining({ deleted: true }) as unknown,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses an item with comments under it, and deletes and records nothing", async () => {
+    /*
+     * The comments are their authors' personal data and are erased by their
+     * own purge, which honours a legal hold and writes the audit entry. The
+     * item's removal is not a second way to reach them.
+     */
+    const { service, news, audit } = build(
+      { published: true },
+      { comments: 2 },
+    );
+
+    const refusal = await refusalOf(
+      service.remove(ITEM.id, { personId: AUTHOR, channel: "WEB" }),
+    );
+
+    expect(refusal.reason).toBe("has-comments");
+    expect(refusal.status).toBe(422);
+    expect(news.delete).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("answers the same refusal when the foreign key decides", async () => {
+    /*
+     * The count narrows the race and the restrictive key closes it: a comment
+     * written between the two makes the delete raise P2003, which has to reach
+     * the board as the sentence above rather than as a server error.
+     */
+    const { service, news } = build({ published: true });
+    news.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("foreign key violation", {
+        code: "P2003",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.remove(ITEM.id, { personId: AUTHOR, channel: "WEB" }),
+    );
+
+    expect(refusal.reason).toBe("has-comments");
   });
 });

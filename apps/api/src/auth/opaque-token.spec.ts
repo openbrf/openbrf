@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hashOpaqueToken } from "./opaque-token";
+import { hashOpaqueToken, tokensMatch } from "./opaque-token";
 
 /**
  * The digest is pinned to a literal on purpose.
@@ -46,5 +46,27 @@ describe("hashOpaqueToken", () => {
   it("does not contain the token", () => {
     const token = "a-secret-bearer-value";
     expect(hashOpaqueToken(token)).not.toContain(token);
+  });
+});
+
+describe("tokensMatch", () => {
+  it("matches equal values", () => {
+    const digest = hashOpaqueToken("a-secret-bearer-value");
+    expect(tokensMatch(digest, hashOpaqueToken("a-secret-bearer-value"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses values that differ in one character", () => {
+    expect(
+      tokensMatch(hashOpaqueToken("token-a"), hashOpaqueToken("token-b")),
+    ).toBe(false);
+  });
+
+  it("refuses values of different lengths rather than throwing", () => {
+    // timingSafeEqual throws on buffers of unequal length, and a caller holding
+    // a value of the wrong shape is refused, not an error.
+    expect(tokensMatch("short", "longer-value")).toBe(false);
+    expect(tokensMatch("", hashOpaqueToken(""))).toBe(false);
   });
 });
