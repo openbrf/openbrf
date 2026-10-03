@@ -40,12 +40,14 @@ import { NotRecorded } from "../ui/NotRecorded";
 import { feeFailureKey } from "./fee-failures";
 import {
   type FeeKind,
+  type FeeNoticeExport,
   type FeeRegister,
   type FeeVatTreatment,
   fetchFeeRegister,
   recordFee,
   removeFee,
 } from "./fees-api";
+import { FeeNoticeDocument } from "./FeeNoticeDocument";
 import { FeeNotificationsPanel } from "./FeeNotificationsPanel";
 import { suggestMonthlyAmounts } from "./participation-share";
 
@@ -171,6 +173,7 @@ export function FeesScreen(): ReactElement {
 
   const [yearlyTotal, setYearlyTotal] = useState("");
   const [aidOpen, setAidOpen] = useState(false);
+  const [notices, setNotices] = useState<FeeNoticeExport | null>(null);
 
   const load = useCallback((): void => {
     setReload((generation) => generation + 1);
@@ -563,7 +566,7 @@ export function FeesScreen(): ReactElement {
           )}
         </section>
 
-        <FeeNotificationsPanel onRefused={setRefusal} />
+        <FeeNotificationsPanel onRefused={setRefusal} onProduced={setNotices} />
 
         <AccountingBasisPanel onRefused={setRefusal} />
 
@@ -590,8 +593,24 @@ export function FeesScreen(): ReactElement {
         </button>
       </div>
 
+      {notices === null ? null : (
+        <FeeNoticeDocument
+          produced={notices}
+          onClose={() => {
+            setNotices(null);
+          }}
+        />
+      )}
+
+      {/*
+        One document to a printed page: while the notices are open they are
+        what prints, and closing them gives the page back to the register.
+      */}
       {register === null || failed ? null : (
-        <section {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
+        <section
+          {...DOCUMENT_ATTRIBUTE}
+          className={notices === null ? DOCUMENT : `${DOCUMENT} print:hidden`}
+        >
           <header className="flex flex-col gap-1">
             <h2 className="text-title">{t("fees.documentTitle")}</h2>
             <p className="font-data text-data text-ink">

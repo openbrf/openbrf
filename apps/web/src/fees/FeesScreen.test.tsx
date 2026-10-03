@@ -306,6 +306,66 @@ describe("the notices", () => {
     expect(await screen.findByText(/inte en faktura/u)).toBeTruthy();
   });
 
+  it("prints the notices, and the register again once they are closed", async () => {
+    /*
+     * The contract has the board take the notices away as the printed page a
+     * browser writes a PDF from. Inside the screen's print:hidden controls,
+     * printing gave no notices at all.
+     */
+    const printed = (element: Element | null): boolean =>
+      element !== null && element.closest(".print\\:hidden") === null;
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    const register = (
+      await screen.findByText(/Avgiftsregister - gäller/u)
+    ).closest("section");
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+    const notices = await screen.findByRole("table", { name: "Avier" });
+
+    expect(printed(notices)).toBe(true);
+    // One document to a printed page.
+    expect(printed(register)).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Stäng avierna" }));
+    expect(screen.queryByRole("table", { name: "Avier" })).toBeNull();
+    expect(printed(register)).toBe(true);
+  });
+
+  it("names each giro, and prints both where both are recorded", async () => {
+    // A number with no name on it may be paid as the wrong kind of giro.
+    produceFeeNotices.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PRODUCED,
+        document: {
+          ...PRODUCED.document,
+          housingCooperative: {
+            ...PRODUCED.document.housingCooperative,
+            plusgiro: "12 34 56-7",
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+
+    expect(
+      await screen.findByText("Betalas till bankgiro 123-4567."),
+    ).toBeTruthy();
+    expect(screen.getByText("Betalas till plusgiro 12 34 56-7.")).toBeTruthy();
+  });
+
   it("produces one document at a time, and says which run it is", async () => {
     /*
      * Each production is an audited disclosure. With a second one allowed in

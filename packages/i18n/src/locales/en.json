@@ -4311,8 +4311,11 @@
         "total": "Total",
         "actions": "Actions"
       },
-      "payTo": "Paid to {{bankgiro}}.",
-      "noGiro": "no giro number in the settings"
+      "print": "Print the notices",
+      "close": "Close the notices",
+      "payToBankgiro": "Paid to bankgiro {{number}}.",
+      "payToPlusgiro": "Paid to plusgiro {{number}}.",
+      "noGiro": "No bankgiro or plusgiro is recorded in the settings."
     },
     "notice": {
       "column": {
