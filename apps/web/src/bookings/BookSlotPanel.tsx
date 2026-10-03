@@ -132,8 +132,17 @@ export function BookSlotPanel({
 }: BookSlotPanelProps): ReactElement {
   const { t, i18n } = useTranslation();
 
-  const [resourceId, setResourceId] = useState(resources[0]?.id ?? "");
-  const [apartmentId, setApartmentId] = useState(apartments[0]?.id ?? "");
+  /*
+   * What the reader picked, and what is in force. The two differ when the
+   * lists change under a mounted panel: a retry after a failed read hands over
+   * lists the first render never had, and a choice that is no longer offered
+   * means nothing. The first entry stands in until the reader picks, which is
+   * also what the select shows.
+   */
+  const [pickedResourceId, setResourceId] = useState("");
+  const [pickedApartmentId, setApartmentId] = useState("");
+  const resourceId = offeredOrFirst(resources, pickedResourceId);
+  const apartmentId = offeredOrFirst(apartments, pickedApartmentId);
   const [from, setFrom] = useState(() => localDayNow());
   const [answer, setAnswer] = useState<Calendar | null>(null);
   const [stay, setStay] = useState<StayDraft | null>(null);
@@ -568,6 +577,16 @@ function withinStay(slot: BookableSlot, stay: StayDraft): boolean {
     return slot.startsAt === stay.startsAt;
   }
   return slot.startsAt >= stay.startsAt && slot.endsAt <= stay.endsAt;
+}
+
+/** The id picked if it is still offered, otherwise the first one offered. */
+function offeredOrFirst(
+  offered: readonly { id: string }[],
+  picked: string,
+): string {
+  return offered.some((candidate) => candidate.id === picked)
+    ? picked
+    : (offered[0]?.id ?? "");
 }
 
 /** The period a slot covers, for the name a screen reader announces. */

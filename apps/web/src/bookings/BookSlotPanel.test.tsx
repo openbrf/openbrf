@@ -547,6 +547,79 @@ describe("a stay of several nights", () => {
   });
 });
 
+describe("a list that arrives after the panel is shown", () => {
+  /*
+   * The screen keeps the panel mounted while a failed read is retried, so what
+   * the first render was given is not what the panel ends up with. The choice
+   * on screen has to follow the lists it is given now.
+   */
+  it("reads the calendar of a resource that arrived late", async () => {
+    const view = render(
+      <BookSlotPanel
+        resources={[]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    view.rerender(
+      <BookSlotPanel
+        resources={[LAUNDRY]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Boka onsdag 16 september 07:00-10:00",
+        }),
+      ).toBeTruthy();
+    });
+    expect(fetchBookableSlots).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-laundry" }),
+    );
+  });
+
+  it("books against an apartment that arrived late", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <BookSlotPanel
+        resources={[LAUNDRY]}
+        apartments={[]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    view.rerender(
+      <BookSlotPanel
+        resources={[LAUNDRY]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Boka onsdag 16 september 07:00-10:00",
+        }),
+      ).toHaveProperty("disabled", false);
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledWith(
+        expect.objectContaining({ apartmentId: "apartment-1201" }),
+      );
+    });
+  });
+});
+
 describe("a household the register holds no apartment for", () => {
   it("is told why, rather than left with a grid that refuses", async () => {
     render(
