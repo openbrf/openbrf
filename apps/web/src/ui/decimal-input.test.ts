@@ -14,6 +14,22 @@ describe("decimalFromInput", () => {
     expect(decimalFromInput("1 500,00")).toBe("1500.00");
   });
 
+  it("does not turn a malformed grouping into a different figure", () => {
+    // Left as typed, so the server refuses it. Closing the gap would send 1234.
+    expect(decimalFromInput("12 34")).toBe("12 34");
+    expect(decimalFromInput("1 50")).toBe("1 50");
+    expect(decimalFromInput("1 5000")).toBe("1 5000");
+    expect(decimalFromInput("1500 000")).toBe("1500 000");
+    expect(decimalFromInput("1  500")).toBe("1  500");
+    expect(decimalFromInput("1 500,0 0")).toBe("1500.0 0");
+  });
+
+  it("still accepts an ungrouped figure and a grouped one with decimals", () => {
+    expect(decimalFromInput("1500000")).toBe("1500000");
+    expect(decimalFromInput("1 500 000.50")).toBe("1500000.50");
+    expect(decimalFromInput("1\u00a0500\u00a0000,50")).toBe("1500000.50");
+  });
+
   it("reads back what the formatter prints in Swedish", () => {
     expect(decimalFromInput(formatAmount("1500000.50", "sv-SE"))).toBe(
       "1500000.50",
