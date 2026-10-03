@@ -1,5 +1,13 @@
+import type { ActionSummary } from "@openbrf/plugin-sdk";
+import type { FastifyReply } from "fastify";
 import { describe, expect, it } from "vitest";
 
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import type { ActionCallerFactory } from "./action-caller";
+import type {
+  ActionListFilter,
+  ActionRegistryService,
+} from "./action-registry.service";
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
@@ -59,5 +67,35 @@ describe("who may read the action catalogue", () => {
     expect(isPublic(ActionCatalogueController)).not.toBe(true);
     expect(isPublic(handler(prototype, "list"))).not.toBe(true);
     expect(isPublic(handler(prototype, "byName"))).not.toBe(true);
+  });
+});
+
+describe("looking up one action", () => {
+  it("answers on the surface the list was read on", async () => {
+    // An action offered on "mcp" alone is in `?surface=mcp`; looking it up by
+    // name on the same surface must not answer that it does not exist.
+    const registry = {
+      list: async (_caller: unknown, filter?: ActionListFilter) =>
+        filter?.surface === "mcp"
+          ? [{ name: "news_list" } as ActionSummary]
+          : [],
+      inputJsonSchema: () => ({}),
+      outputJsonSchema: () => ({}),
+    } as unknown as ActionRegistryService;
+    const callers = {
+      forRequest: () => ({}),
+    } as unknown as ActionCallerFactory;
+    const controller = new ActionCatalogueController(registry, callers);
+    const request = { headers: {} } as RequestWithPrincipal;
+    const reply = { header: () => reply } as unknown as FastifyReply;
+
+    await expect(
+      controller.byName(
+        { name: "news_list" },
+        { surface: "mcp" },
+        request,
+        reply,
+      ),
+    ).resolves.toMatchObject({ name: "news_list" });
   });
 });
