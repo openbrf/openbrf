@@ -93,10 +93,12 @@ const RUN_POLL_MS = 1500;
 const PREVIEW_POLL_MS = 1500;
 
 /**
- * How long a poll may go unanswered before the screen gives it up and asks
- * again. A poll is only skipped while the last one is unanswered, so one that
- * never settles - a stalled connection, a proxy that holds the request - would
- * otherwise end the asking, and with it the progress, for good.
+ * How long a poll may go without an answer starting to arrive before the screen
+ * gives it up and asks again. Downloading a preview that is ready is not
+ * limited: a slow link is not a request that never reached the server. A poll
+ * is only skipped while the last one is unanswered, so one that never settles -
+ * a stalled connection, a proxy that holds the request - would otherwise end the
+ * asking, and with it the progress, for good.
  */
 const PREVIEW_POLL_TIMEOUT_MS = 4 * PREVIEW_POLL_MS;
 
@@ -218,6 +220,8 @@ export function ImportScreen(): ReactElement {
     let settled = false;
     /** Whether a poll is still waiting for its answer. */
     let asking = false;
+    /** Ends the poll in flight when the effect does. */
+    const leaving = new AbortController();
 
     // A tick is skipped while the last poll is unanswered, or once the preview
     // has ended: the interval is only cleared when the screen has taken in the
@@ -229,15 +233,12 @@ export function ImportScreen(): ReactElement {
         return;
       }
       asking = true;
-      const giveUp = new AbortController();
-      const giveUpTimer = setTimeout(() => {
-        giveUp.abort();
-      }, PREVIEW_POLL_TIMEOUT_MS);
       try {
         const response = await fetchImportPreview(
           plannedSessionId,
           plannedPreviewId,
-          giveUp.signal,
+          leaving.signal,
+          PREVIEW_POLL_TIMEOUT_MS,
         );
         if (abandoned) {
           return;
@@ -256,7 +257,6 @@ export function ImportScreen(): ReactElement {
           setFailure(failureMessage(response.failure.reason));
         }
       } finally {
-        clearTimeout(giveUpTimer);
         asking = false;
       }
     };
@@ -268,6 +268,7 @@ export function ImportScreen(): ReactElement {
 
     return () => {
       abandoned = true;
+      leaving.abort();
       clearInterval(timer);
       if (!settled) {
         void cancelImportPreview(plannedSessionId, plannedPreviewId);

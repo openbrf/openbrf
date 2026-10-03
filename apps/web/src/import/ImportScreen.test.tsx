@@ -73,7 +73,8 @@ vi.mock("./import-api", async (importOriginal) => ({
     sessionId: string,
     previewId: string,
     signal?: AbortSignal,
-  ) => fetchImportPreview(sessionId, previewId, signal),
+    answerTimeoutMs?: number,
+  ) => fetchImportPreview(sessionId, previewId, signal, answerTimeoutMs),
   cancelImportPreview: (sessionId: string, previewId: string) =>
     cancelImportPreview(sessionId, previewId),
   applyImport: (sessionId: string, input: unknown) =>
@@ -429,6 +430,7 @@ describe("while the preview is planned", () => {
       "session-1",
       "planning-1",
       expect.any(AbortSignal),
+      PREVIEW_POLL_TIMEOUT_MS,
     );
     // A preview that finished has nothing to cancel.
     expect(cancelImportPreview).not.toHaveBeenCalled();
@@ -469,6 +471,27 @@ describe("while the preview is planned", () => {
     const asked = fetchImportPreview.mock.calls.length;
     await nextPoll();
     expect(fetchImportPreview).toHaveBeenCalledTimes(asked);
+  });
+
+  it("gives up the poll in flight when the board stops waiting", async () => {
+    // A stalled request would otherwise live on until its own timeout.
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview.mockResolvedValue({ ok: true, value: PLANNING });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await screen.findByRole("progressbar");
+    const signal = fetchImportPreview.mock.calls[0]?.[2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    await session.click(
+      screen.getByRole("button", { name: /Välj en annan fil/ }),
+    );
+
+    expect(signal.aborted).toBe(true);
   });
 
   it("cancels the preview when the page is left", async () => {
@@ -576,15 +599,20 @@ describe("while the preview is planned", () => {
   it("gives up a poll that is never answered and asks again", async () => {
     const session = userEvent.setup();
     previewImport.mockResolvedValue({ ok: true, value: PLANNING });
-    // The first poll hangs until it is given up, as a request does that is
-    // aborted: it then comes back the way one that never got an answer does.
+    // The first poll hangs until the client's answer timeout gives it up: it
+    // then comes back the way a request that never got an answer does.
     fetchImportPreview
       .mockImplementationOnce(
-        (_sessionId: string, _previewId: string, signal?: AbortSignal) =>
+        (
+          _sessionId: string,
+          _previewId: string,
+          _signal?: AbortSignal,
+          answerTimeoutMs?: number,
+        ) =>
           new Promise((resolve) => {
-            signal?.addEventListener("abort", () => {
+            setTimeout(() => {
               resolve({ ok: false, failure: { status: 0, reason: "offline" } });
-            });
+            }, answerTimeoutMs);
           }),
       )
       .mockResolvedValue({ ok: true, value: previewRun() });

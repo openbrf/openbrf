@@ -187,18 +187,21 @@ export function previewImport(
 /**
  * How far the preview has got, and the preview once it is ready.
  *
- * The signal gives the request up, which comes back as an "offline" failure.
+ * The signal gives the request up, and so does the answer not starting within
+ * `answerTimeoutMs`; both come back as an "offline" failure. The timeout does
+ * not run while the preview downloads, which is up to 5000 rows.
  */
 export function fetchImportPreview(
   sessionId: string,
   previewId: string,
   signal?: AbortSignal,
+  answerTimeoutMs?: number,
 ): Promise<ApiResult<ImportPreviewRun>> {
   return apiRequest(
     "GET",
     `/api/import/sessions/${encodeURIComponent(sessionId)}/preview/${encodeURIComponent(previewId)}`,
     undefined,
-    { signal },
+    { signal, answerTimeoutMs },
   );
 }
 
