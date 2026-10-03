@@ -1069,6 +1069,62 @@ describe("checking people in", () => {
     ).toHaveLength(1);
   });
 
+  it("strikes an assistant off with the last line of whoever brought them", async () => {
+    // An assistant cannot have been brought by somebody who is not there, so
+    // the register must not keep one standing with nobody beside them.
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await registerProxy(meetingId, {
+          memberPersonId: otherMember.personId,
+          proxyHolderPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    const lines: Record<string, string> = {};
+    for (const capacity of ["MEMBER", "PROXY_HOLDER"] as const) {
+      const created = await checkIn(meetingId, {
+        personId: twoHoldings.personId,
+        capacity,
+      });
+      expect(created.statusCode).toBe(201);
+      lines[capacity] = created.json<{ id: string }>().id;
+    }
+    const assistant = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(assistant.statusCode).toBe(201);
+    const assistantId = assistant.json<{ id: string }>().id;
+
+    const strike = (attendanceId: string | undefined) =>
+      inject({
+        method: "POST",
+        url: `/api/meetings/${meetingId}/attendances/${String(attendanceId)}/withdrawal`,
+        headers: { cookie: boardCookie },
+      });
+
+    // Still present as a proxy holder, so the assistant stays.
+    expect((await strike(lines.MEMBER)).statusCode).toBe(201);
+    expect(
+      (await readMeeting(meetingId)).votingRegister.assistantsPresent,
+    ).toBe(1);
+
+    // Gone altogether, and the assistant goes with them.
+    expect((await strike(lines.PROXY_HOLDER)).statusCode).toBe(201);
+    const meeting = await readMeeting(meetingId);
+    expect(meeting.votingRegister.assistantsPresent).toBe(0);
+    expect(
+      meeting.attendances.find((line) => line.id === assistantId)?.withdrawnAt,
+    ).not.toBeNull();
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "MEETING_ATTENDANCE_WITHDRAWN", targetId: assistantId },
+      select: { targetPersonId: true },
+    });
+    expect(entry?.targetPersonId).toBe(soloMember.personId);
+  });
+
   it("refuses to strike a line off once the meeting has been held", async () => {
     // Checking the member back in is refused after the conclusion, so a strike
     // that went through would leave the held meeting's register wrong for good.

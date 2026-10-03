@@ -675,6 +675,48 @@ export class MeetingService {
         tx,
       );
 
+      /*
+       * An assistant came with a member or a proxy holder (EFL 6 kap. 7 §), so
+       * somebody left with no line of their own takes their assistant off the
+       * list with them - struck off as a line of its own, with an entry naming
+       * the assistant as the subject.
+       */
+      if (
+        existing.capacity !== "ASSISTANT" &&
+        !(await this.isPrincipalPresent(tx, meetingId, existing.personId))
+      ) {
+        const assistant = await tx.meetingAttendance.findFirst({
+          where: {
+            meetingId,
+            onBehalfOfPersonId: existing.personId,
+            withdrawnAt: null,
+          },
+          select: { id: true, personId: true },
+        });
+        if (assistant !== null) {
+          await tx.meetingAttendance.update({
+            where: { id: assistant.id },
+            data: { withdrawnAt: new Date() },
+          });
+          await this.audit.record(
+            {
+              action: "MEETING_ATTENDANCE_WITHDRAWN",
+              channel: "WEB",
+              actorPersonId,
+              targetPersonId: assistant.personId,
+              targetKind: "meetingAttendance",
+              targetId: assistant.id,
+              context: {
+                meetingId,
+                capacity: "ASSISTANT",
+                withPrincipal: true,
+              },
+            },
+            tx,
+          );
+        }
+      }
+
       this.logger.log(
         `Attendance ${attendanceId} struck off meeting ${meetingId}`,
       );
@@ -1533,20 +1575,31 @@ export class MeetingService {
         "assistant-principal-not-present",
       );
     }
-    const present = await client.meetingAttendance.count({
-      where: {
-        meetingId,
-        personId: onBehalfOfPersonId,
-        capacity: { in: ["MEMBER", "PROXY_HOLDER"] },
-        withdrawnAt: null,
-      },
-    });
-    if (present === 0) {
+    if (
+      !(await this.isPrincipalPresent(client, meetingId, onBehalfOfPersonId))
+    ) {
       throw new MeetingError(
         "The member or proxy holder who brought them is not on the list.",
         "assistant-principal-not-present",
       );
     }
+  }
+
+  /** Whether somebody stands on the list as a member or a proxy holder. */
+  private async isPrincipalPresent(
+    client: Prisma.TransactionClient,
+    meetingId: string,
+    personId: string,
+  ): Promise<boolean> {
+    const present = await client.meetingAttendance.count({
+      where: {
+        meetingId,
+        personId,
+        capacity: { in: ["MEMBER", "PROXY_HOLDER"] },
+        withdrawnAt: null,
+      },
+    });
+    return present > 0;
   }
 }
 
