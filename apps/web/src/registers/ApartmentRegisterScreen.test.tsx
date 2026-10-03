@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -522,7 +522,7 @@ describe("releasing a lien", () => {
 
     await session.click(
       await screen.findByRole("button", {
-        name: "Avnotera panten från Sparbanken",
+        name: "Avnotera panten från Sparbanken, 2019-06-15, 1500000.00",
       }),
     );
     expect(releaseLien).not.toHaveBeenCalled();
@@ -536,7 +536,7 @@ describe("releasing a lien", () => {
     await session.type(day, "2026-08-25");
     await session.click(
       screen.getByRole("button", {
-        name: "Registrera avnoteringen av panten från Sparbanken",
+        name: "Registrera avnoteringen av panten från Sparbanken, 2019-06-15, 1500000.00",
       }),
     );
 
@@ -563,11 +563,11 @@ describe("releasing a lien", () => {
 
     await session.click(
       await screen.findByRole("button", {
-        name: "Avnotera panten från Sparbanken",
+        name: "Avnotera panten från Sparbanken, 2019-06-15, 1500000.00",
       }),
     );
     const confirm = screen.getByRole("button", {
-      name: "Registrera avnoteringen av panten från Sparbanken",
+      name: "Registrera avnoteringen av panten från Sparbanken, 2019-06-15, 1500000.00",
     });
     await session.click(confirm);
     await session.click(confirm);
@@ -576,8 +576,101 @@ describe("releasing a lien", () => {
 
     settle();
     await screen.findByRole("button", {
-      name: "Avnotera panten från Sparbanken",
+      name: "Avnotera panten från Sparbanken, 2019-06-15, 1500000.00",
     });
+  });
+});
+
+describe("releasing a lien when the register cannot be read back", () => {
+  const SPARBANKEN = (releasedOn: string | null) => ({
+    id: "lien-1",
+    creditor: "Sparbanken",
+    notedOn: "2019-06-15",
+    releasedOn,
+    amount: "1500000.00",
+  });
+  const withLien = (releasedOn: string | null): ApartmentRegisterExtract => ({
+    ...MASKED,
+    rows: MASKED.rows.map((row) => ({
+      ...row,
+      liens: [SPARBANKEN(releasedOn)],
+    })),
+  });
+
+  it("keeps the release as recorded and offers to read again, not to release again", async () => {
+    /*
+     * The release was written; the read after it failed, so the extract still
+     * shows the lien as open. Closing the form would offer the same release
+     * a second time, which the route refuses.
+     */
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    fetchApartmentRegister.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Avnoteringen är registrerad, men registret/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: `Avnotera panten från ${name}` }),
+    ).toBeNull();
+
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien("2026-09-01"),
+    });
+    await session.click(
+      screen.getByRole("button", { name: "Läs om registret" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Avnoteringen är registrerad, men/)).toBeNull();
+    });
+    expect(screen.getByText(/Avnoterad 2026-09-01/)).toBeTruthy();
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells two open liens from one creditor apart by name", async () => {
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [
+            SPARBANKEN(null),
+            { ...SPARBANKEN(null), id: "lien-2", notedOn: "2021-02-03" },
+          ],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+
+    const buttons = await screen.findAllByRole("button", {
+      name: /^Avnotera panten från Sparbanken/,
+    });
+    const names = buttons.map((button) => button.getAttribute("aria-label"));
+
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
   });
 });
 
