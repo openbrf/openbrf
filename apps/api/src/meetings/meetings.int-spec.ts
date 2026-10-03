@@ -15,6 +15,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -1765,6 +1766,97 @@ describe("the agenda and what the meeting decided", () => {
       "meeting-day-in-the-future",
     );
     expect((await readMeeting(meetingId)).concludedAt).toBeNull();
+  });
+
+  /**
+   * Holds a write the way a transaction of the service would, until released.
+   *
+   * Driven this way rather than by racing two requests, for the reason the
+   * proxy lock's test gives: a race passes with no lock at all whenever the two
+   * transactions happen not to interleave.
+   */
+  function holdOpen(
+    write: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  ): {
+    held: Promise<void>;
+    release: () => void;
+  } {
+    let release = (): void => {
+      /* replaced below */
+    };
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = prisma.$transaction(
+      async (tx) => {
+        await write(tx);
+        await holding;
+      },
+      { timeout: 20_000 },
+    );
+    return { held, release };
+  }
+
+  async function answersWithin(
+    pending: Promise<unknown>,
+  ): Promise<"answered" | "blocked"> {
+    return Promise.race([
+      pending.then(() => "answered" as const),
+      new Promise<"blocked">((resolve) =>
+        setTimeout(() => resolve("blocked"), 750),
+      ),
+    ]);
+  }
+
+  it("checks nobody in past a conclusion that is still being written", async () => {
+    /*
+     * A check-in reads that the meeting is open and then writes. Read at READ
+     * COMMITTED while a conclusion is in flight, it would see the meeting open
+     * and write a line onto a meeting that was held a moment later - a line
+     * that could then never be struck off again.
+     */
+    const meetingId = await arrangeMeeting();
+    const conclusion = holdOpen((tx) =>
+      tx.meeting.update({
+        where: { id: meetingId },
+        data: { concludedAt: new Date() },
+      }),
+    );
+
+    const pending = checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "MEMBER",
+    });
+    expect(await answersWithin(pending)).toBe("blocked");
+
+    conclusion.release();
+    await conclusion.held;
+    const response = await pending;
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "meeting-already-held",
+    );
+  });
+
+  it("waits for the agenda lock before recording the meeting as held", async () => {
+    // Issuing the notice and putting a motion to the meeting decide under this
+    // key alone, so a conclusion that did not take it could overtake them.
+    const meetingId = await arrangeMeeting();
+    const key = `meeting-agenda:${meetingId}`;
+    const agenda = holdOpen(
+      (tx) => tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
+    );
+
+    const pending = inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/conclusion`,
+      headers: { cookie: boardCookie },
+    });
+    expect(await answersWithin(pending)).toBe("blocked");
+
+    agenda.release();
+    await agenda.held;
+    expect((await pending).statusCode).toBe(201);
   });
 });
 

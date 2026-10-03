@@ -337,12 +337,20 @@ export class MeetingService {
    * Refused before the meeting day, compared as calendar dates (ADR 0013): no
    * route reopens a meeting, so a conclusion recorded early by mistake would
    * close its agenda, check-in and notice for good.
+   *
+   * Under the agenda lock, because issuing the notice and putting a motion to
+   * the meeting decide on a read of the meeting under that key and never lock
+   * its row; every other writer here is held off by the row lock
+   * {@link requireMeeting} takes. Taken before the row, which is the order
+   * those writers take them in, and it also queues a second conclusion behind
+   * the first rather than letting both hold the row and deadlock on it.
    */
   async conclude(
     meetingId: string,
     actorPersonId: string,
   ): Promise<MeetingSummaryView> {
     return this.prisma.$transaction(async (tx) => {
+      await lockMeetingAgenda(tx, meetingId);
       const existing = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(existing);
       if (
@@ -1251,8 +1259,17 @@ export class MeetingService {
     }));
   }
 
+  /**
+   * The meeting a write is about, with its row held against being concluded.
+   *
+   * Every caller reads `concludedAt` and then writes, at READ COMMITTED. A
+   * share lock on the row is what makes that read a decision: {@link conclude}
+   * updates the row, so it waits for a writer that got here first, and a writer
+   * arriving while a conclusion is in flight waits for it and then reads the
+   * meeting as held. Writers do not block one another.
+   */
   private async requireMeeting(
-    client: MeetingDbClient,
+    client: Prisma.TransactionClient,
     meetingId: string,
   ): Promise<{
     id: string;
@@ -1260,6 +1277,7 @@ export class MeetingService {
     concludedAt: Date | null;
     notice: { id: string } | null;
   }> {
+    await client.$executeRaw`SELECT 1 FROM "meeting" WHERE "id" = ${meetingId} FOR SHARE`;
     const meeting = await client.meeting.findUnique({
       where: { id: meetingId },
       select: {
