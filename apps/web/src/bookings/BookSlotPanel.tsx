@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -165,6 +171,11 @@ export function BookSlotPanel({
   const to = shiftLocalDay(from, windowDays - 1);
 
   const key = `${resourceId}|${from}|${to}`;
+  // What is on screen now, for a booking that settles after the reader moved on.
+  const onScreen = useRef(key);
+  useEffect(() => {
+    onScreen.current = key;
+  }, [key]);
 
   const read = useCallback(async (): Promise<Calendar> => {
     if (resourceId === "") {
@@ -205,7 +216,6 @@ export function BookSlotPanel({
   const claim = useSaveAction(
     bookSlot,
     () => {
-      setStay(null);
       // Asks the effect for a fresh read rather than taking one, so the answer
       // belongs to whatever is on screen when it lands.
       setRefreshes((count) => count + 1);
@@ -245,9 +255,17 @@ export function BookSlotPanel({
     // names goes on reading "booking" over a booking that has finished - the
     // accessible name says what the slot has become while the words in it still
     // say what is happening to it.
+    const sentFor = key;
     void claim
       .submit({ resourceId, apartmentId, startsAt, endsAt })
-      .finally(() => setClaiming(null));
+      .then((booked) => {
+        // The stay belongs to the window it was chosen in; one chosen since,
+        // somewhere else, is not the one that was booked.
+        if (booked && onScreen.current === sentFor) {
+          setStay(null);
+        }
+      })
+      .finally(() => setClaiming((current) => (current === startsAt ? null : current)));
   };
 
   /**

@@ -403,6 +403,51 @@ describe("a slot lost to somebody quicker", () => {
   });
 });
 
+describe("a booking that settles after the reader moved on", () => {
+  it("is neither confirmed nor refused over the next week's calendar", async () => {
+    /*
+     * Moving on clears the action's state, but the request is still in flight.
+     * Its answer used to set the state again, so the next week opened with a
+     * refusal - or a confirmation - about a slot it does not show.
+     */
+    let settle!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await pending;
+      return { ok: false, failure: { status: 409, reason: "slot-taken" } };
+    });
+    const session = userEvent.setup();
+    await open();
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Bokar...")).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    settle();
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(1);
+    });
+    // The refusal asks for a read; wait for it so the answer has been applied.
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    expect(
+      screen.queryByText(
+        "Någon hann före på den tiden. Kalendern har lästs om.",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("a quota that has been spent", () => {
   /** Clicks the free slot and waits for whatever the refusal says. */
   async function refuse(detail: unknown): Promise<void> {
