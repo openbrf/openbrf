@@ -226,6 +226,16 @@ async function arrangeMeeting(heldOn = MEETING_DAY_TEXT): Promise<string> {
   return created.id;
 }
 
+/** Records the meeting as held, as the board. */
+async function concludeMeeting(meetingId: string): Promise<void> {
+  const response = await inject({
+    method: "POST",
+    url: `/api/meetings/${meetingId}/conclusion`,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode).toBe(201);
+}
+
 async function readMeeting(meetingId: string): Promise<MeetingView> {
   const response = await inject({
     method: "GET",
@@ -972,6 +982,31 @@ describe("checking people in", () => {
         (line) => line.personId === soloMember.personId,
       ),
     ).toHaveLength(1);
+  });
+
+  it("refuses to strike a line off once the meeting has been held", async () => {
+    // Checking the member back in is refused after the conclusion, so a strike
+    // that went through would leave the held meeting's register wrong for good.
+    const meetingId = await arrangeMeeting();
+    const created = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "MEMBER",
+    });
+    expect(created.statusCode).toBe(201);
+    await concludeMeeting(meetingId);
+
+    const struck = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/attendances/${created.json<{ id: string }>().id}/withdrawal`,
+      headers: { cookie: boardCookie },
+    });
+    expect(struck.statusCode).toBe(409);
+    expect(struck.json<{ reason: string }>().reason).toBe(
+      "meeting-already-held",
+    );
+    expect(
+      lineOf(await readMeeting(meetingId), soloMember.personId)?.votePresent,
+    ).toBe(true);
   });
 });
 

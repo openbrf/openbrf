@@ -560,6 +560,10 @@ export class MeetingService {
    * stays answerable - the argument a called-off occurrence and a withdrawn
    * sign-up both make. Idempotent: striking off a line that is already off is
    * the state the caller asked for.
+   *
+   * Refused once the meeting has been held, as checking in is: the list is
+   * then the record of who was there, and a line struck off by mistake could
+   * not be taken back on.
    */
   async withdrawAttendance(
     meetingId: string,
@@ -567,6 +571,9 @@ export class MeetingService {
     actorPersonId: string,
   ): Promise<AttendanceView> {
     return this.prisma.$transaction(async (tx) => {
+      const meeting = await this.requireMeeting(tx, meetingId);
+      this.refuseIfHeld(meeting);
+
       const existing = await tx.meetingAttendance.findFirst({
         where: { id: attendanceId, meetingId },
         select: ATTENDANCE_COLUMNS,
