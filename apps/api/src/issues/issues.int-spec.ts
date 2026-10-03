@@ -15,6 +15,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { waitFor } from "../testing/advisory-locks";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { IssueTypeService } from "./issue-type.service";
 import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
@@ -824,24 +825,13 @@ describe("the type catalogue", () => {
  * that request is queued behind the open transaction, and then commits.
  */
 describe("a type removed while somebody writes against it", () => {
-  /** How many connections to this database are waiting for a row. */
-  async function rowLockWaiters(): Promise<number> {
-    const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
-      SELECT count(*)::int AS waiting
-        FROM pg_stat_activity
-       WHERE datname = current_database()
-         AND wait_event_type = 'Lock'
-         AND wait_event IN ('transactionid', 'tuple')`;
-    return row?.waiting ?? 0;
-  }
-
   /** Writes `first` in a transaction and holds it until `second` waits. */
   async function across<T>(
     first: (tx: Prisma.TransactionClient) => Promise<unknown>,
     second: () => Promise<T>,
   ): Promise<T> {
-    let written!: () => void;
-    const wrote = new Promise<void>((resolve) => {
+    let written!: (pid: number) => void;
+    const wrote = new Promise<number>((resolve) => {
       written = resolve;
     });
     let release!: () => void;
@@ -850,19 +840,29 @@ describe("a type removed while somebody writes against it", () => {
     });
     const holding = prisma.$transaction(
       async (tx) => {
+        const pid = await backendPid(tx);
         await first(tx);
-        written();
+        written(pid);
         await released;
       },
       { timeout: 60_000, maxWait: 20_000 },
     );
-    await wrote;
+    const holder = await wrote;
 
-    const answering = second();
-    await waitFor(async () => (await rowLockWaiters()) > 0);
-    release();
-    const [answer] = await Promise.all([answering, holding]);
-    return answer;
+    // Let go however the wait ends, so a failure does not leave the write
+    // held until the transaction times out.
+    try {
+      const answering = second();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      return answer;
+    } finally {
+      release();
+      // Already settled on the way through; on a failure, its own rejection is
+      // the second one and the first is what the test reports.
+      await holding.catch(() => undefined);
+    }
   }
 
   async function racingType(): Promise<string> {

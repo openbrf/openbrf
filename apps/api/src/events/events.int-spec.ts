@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { waitFor } from "../testing/advisory-locks";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -991,16 +992,6 @@ describe("editing a series", () => {
  * behind the first writer; then the keys are released.
  */
 describe("two writes to one series at once", () => {
-  /** How many connections to this database are waiting for any lock. */
-  async function lockWaiters(): Promise<number> {
-    const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
-      SELECT count(*)::int AS waiting
-        FROM pg_stat_activity
-       WHERE datname = current_database()
-         AND wait_event_type = 'Lock'`;
-    return row?.waiting ?? 0;
-  }
-
   async function oneAfterTheOther<First, Second>(
     series: EventView,
     first: () => Promise<First>,
@@ -1010,30 +1001,43 @@ describe("two writes to one series at once", () => {
     const released = new Promise<void>((resolve) => {
       release = resolve;
     });
-    let held!: () => void;
-    const holds = new Promise<void>((resolve) => {
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
       held = resolve;
     });
     const holding = prisma.$transaction(
       async (tx) => {
+        const pid = await backendPid(tx);
         for (const occurrence of series.occurrences) {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`event-occurrence-signups:${occurrence.id}`}))`;
         }
-        held();
+        held(pid);
         await released;
       },
       { timeout: 60_000, maxWait: 20_000 },
     );
-    await holds;
+    const holder = await holds;
 
-    const firstAnswer = first();
-    await waitFor(async () => (await lockWaiters()) >= 1);
-    const secondAnswer = second();
-    await waitFor(async () => (await lockWaiters()) >= 2);
-    release();
-
-    const [one, two] = await Promise.all([firstAnswer, secondAnswer, holding]);
-    return [one, two];
+    // Let go however the waits end, so a failure does not leave the keys held
+    // until the transaction times out.
+    try {
+      const firstAnswer = first();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+      const secondAnswer = second();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 2);
+      release();
+      const [one, two] = await Promise.all([
+        firstAnswer,
+        secondAnswer,
+        holding,
+      ]);
+      return [one, two];
+    } finally {
+      release();
+      // Already settled on the way through; on a failure, its own rejection is
+      // the second one and the first is what the test reports.
+      await holding.catch(() => undefined);
+    }
   }
 
   function edit(id: string, payload: object) {
