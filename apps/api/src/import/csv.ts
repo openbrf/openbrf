@@ -56,8 +56,11 @@ export function detectDelimiter(text: string): CsvDelimiter {
  * allocation, so counting it afterwards is too late.
  */
 export interface CsvLimits {
-  /** Rows with content, header included. */
-  maxRows: number;
+  /**
+   * Rows with content below the header. The header is one more, and is not
+   * counted against this: the cap a board is told is the cap on its members.
+   */
+  maxDataRows: number;
   maxColumns: number;
   maxCellLength: number;
 }
@@ -78,7 +81,7 @@ export function parseCsv(
 ): ParsedCsv {
   const text = input.startsWith(BYTE_ORDER_MARK) ? input.slice(1) : input;
   const separator = delimiter ?? detectDelimiter(text);
-  const maxRows = limits?.maxRows ?? Infinity;
+  const maxDataRows = limits?.maxDataRows ?? Infinity;
   const maxColumns = limits?.maxColumns ?? Infinity;
   const maxCellLength = limits?.maxCellLength ?? Infinity;
 
@@ -106,9 +109,10 @@ export function parseCsv(
     // Only a row with something in it counts, so blank lines a spreadsheet
     // leaves at the end of a file are neither counted nor kept.
     if (row.some((value) => value.trim() !== "")) {
-      if (populated.length >= maxRows) {
+      // The first row with content is the header.
+      if (populated.length > maxDataRows) {
         throw new ImportShapeError(
-          `The file has more than ${String(maxRows)} rows.`,
+          `The file has more than ${String(maxDataRows)} rows below its column titles.`,
           "too-many-rows",
         );
       }

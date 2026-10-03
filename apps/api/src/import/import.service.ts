@@ -475,8 +475,7 @@ export class ImportService implements OnModuleInit {
     try {
       if (format === "CSV") {
         return parseCsv(bytes.toString("utf8"), undefined, {
-          // The header is a row too.
-          maxRows: MAX_IMPORT_ROWS + 1,
+          maxDataRows: MAX_IMPORT_ROWS,
           maxColumns: MAX_IMPORT_COLUMNS,
           maxCellLength: MAX_IMPORT_CELL_LENGTH,
         }).rows;

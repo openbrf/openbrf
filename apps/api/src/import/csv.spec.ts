@@ -101,7 +101,7 @@ describe("parsing", () => {
 });
 
 describe("limits", () => {
-  const limits = { maxRows: 3, maxColumns: 4, maxCellLength: 10 };
+  const limits = { maxDataRows: 2, maxColumns: 4, maxCellLength: 10 };
 
   it("refuses a row wider than the limit while reading it", () => {
     // A wide header padded onto every row below it is the allocation, so the
@@ -118,6 +118,17 @@ describe("limits", () => {
 
     expect(() => parseCsv(text, ";", limits)).toThrow(
       expect.objectContaining({ reason: "too-many-rows" }),
+    );
+  });
+
+  it("names the cap on the rows below the header, which is what it counts", () => {
+    // Two data rows are allowed; the header is not one of them.
+    expect(parseCsv("Namn\na\nb\n", ";", limits).rows).toHaveLength(3);
+    expect(() => parseCsv("Namn\na\nb\nc\n", ";", limits)).toThrow(
+      expect.objectContaining({
+        reason: "too-many-rows",
+        message: "The file has more than 2 rows below its column titles.",
+      }),
     );
   });
 
