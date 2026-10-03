@@ -2023,6 +2023,12 @@ enum AuditAction {
   /// whoever wrote it. Only a group's message can be struck: the board chat has
   /// no strike-through at all.
   CHAT_MESSAGE_STRUCK
+
+  /// An administrator abandoned a member list import that was queued or
+  /// applying, so that another one could run. The target is the import session;
+  /// the entry carries how far through the file it got, never anything from the
+  /// file. What the import already wrote stays in the register.
+  IMPORT_ABANDONED
 }
 
 /// Which way a change reached the association's records (granskningskanal).

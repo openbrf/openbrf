@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { useViewerCapabilities } from "../shell/use-viewer-capabilities";
 import {
+  CAUTION_BUTTON,
   FIELD,
   FIELD_DATA,
   HINT,
@@ -15,6 +17,7 @@ import {
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
+  abandonImport,
   applyImport,
   fetchActiveImport,
   fetchImportRun,
@@ -85,6 +88,7 @@ const DATA_CELL = `${CELL} font-data text-data text-ink`;
 
 export function ImportScreen(): ReactElement {
   const { t } = useTranslation();
+  const canAbandon = useViewerCapabilities().includes("association:manage");
 
   const [step, setStep] = useState<Step>("upload");
   const [session, setSession] = useState<ImportSessionView | null>(null);
@@ -325,7 +329,12 @@ export function ImportScreen(): ReactElement {
       ) : null}
 
       {step === "apply" && run !== null && run.status !== "MAPPING" ? (
-        <ApplyStep run={{ ...run, status: run.status }} onRestart={restart} />
+        <ApplyStep
+          run={{ ...run, status: run.status }}
+          canAbandon={canAbandon}
+          onAbandoned={setRun}
+          onRestart={restart}
+        />
       ) : null}
     </div>
   );
@@ -764,14 +773,40 @@ function PreviewRow({
  */
 function ApplyStep({
   run,
+  canAbandon,
+  onAbandoned,
   onRestart,
 }: {
   run: StartedImportRun;
+  /** Whether the viewer may abandon a running import: an administrator. */
+  canAbandon: boolean;
+  onAbandoned: (run: ImportRunView) => void;
   onRestart: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const [confirmingAbandon, setConfirmingAbandon] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
+  const [abandonFailure, setAbandonFailure] = useState<TranslationKey | null>(
+    null,
+  );
 
   const running = isImportRunning(run.status);
+
+  const abandon = async (): Promise<void> => {
+    setAbandoning(true);
+    setAbandonFailure(null);
+    const response = await abandonImport(run.sessionId);
+    setAbandoning(false);
+    setConfirmingAbandon(false);
+    if (!response.ok) {
+      // "session-not-running" is the import having ended on its own a moment
+      // earlier. The poll brings that state in; the notice says why the press
+      // did nothing.
+      setAbandonFailure(failureMessage(response.failure.reason));
+      return;
+    }
+    onAbandoned(response.value);
+  };
   const percent =
     run.rowsTotal === 0 ? 0 : Math.round((run.rowsDone / run.rowsTotal) * 100);
 
@@ -833,6 +868,67 @@ function ApplyStep({
 
       {running ? (
         <Notice tone="info">{t("import.run.keepsGoing")}</Notice>
+      ) : null}
+
+      {/*
+       * Only while it runs, and only for an administrator: the API refuses
+       * everybody else, so offering the control would only produce a refusal.
+       * Two presses rather than one, because it stops an import part way
+       * through a register that cannot be edited.
+       */}
+      {running && canAbandon ? (
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <p className={HINT}>{t("import.abandon.description")}</p>
+          {abandonFailure === null ? null : (
+            <Notice tone="danger" live>
+              {t(abandonFailure)}
+            </Notice>
+          )}
+          {confirmingAbandon ? (
+            <>
+              <Notice tone="warn" live>
+                {t("import.abandon.warning")}
+              </Notice>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={abandoning}
+                  onClick={() => {
+                    void abandon();
+                  }}
+                  className={CAUTION_BUTTON}
+                >
+                  {abandoning
+                    ? t("import.abandon.working")
+                    : t("import.abandon.confirm")}
+                </button>
+                <button
+                  type="button"
+                  disabled={abandoning}
+                  onClick={() => {
+                    setConfirmingAbandon(false);
+                  }}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("import.abandon.cancel")}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setAbandonFailure(null);
+                  setConfirmingAbandon(true);
+                }}
+                className={CAUTION_BUTTON}
+              >
+                {t("import.abandon.start")}
+              </button>
+            </div>
+          )}
+        </div>
       ) : null}
 
       {run.status === "FAILED" ? (

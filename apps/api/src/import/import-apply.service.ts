@@ -81,6 +81,12 @@ export const IMPORT_APPLY_ABANDONED_QUEUE = "import-apply-abandoned";
 export const IMPORT_CHUNK_ROWS = 100;
 
 /**
+ * How long one chunk's transaction may run. It holds the session row for all
+ * of it, so this is also the longest anything waiting for that row waits.
+ */
+export const IMPORT_CHUNK_TRANSACTION_MS = 120_000;
+
+/**
  * How long the queue waits before deciding a worker is gone.
  *
  * Generous, because one job execution walks the whole file: the largest file the
@@ -293,10 +299,17 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
     if (session.status === "QUEUED") {
-      await this.prisma.importSession.updateMany({
+      const started = await this.prisma.importSession.updateMany({
         where: { id: sessionId, status: "QUEUED" },
         data: { status: "APPLYING", startedAt: new Date() },
       });
+      if (started.count === 0) {
+        // Abandoned while it waited, or started by another worker a moment
+        // ago. Either way there is nothing here for this one to do, and
+        // stopping now spares decrypting and indexing a file whose chunk claim
+        // would fail anyway.
+        return false;
+      }
     }
 
     const cursor = session.rowsDone;
@@ -400,7 +413,7 @@ export class ImportApplyService implements OnModuleInit {
         });
         return written;
       },
-      { timeout: 120_000, maxWait: 20_000 },
+      { timeout: IMPORT_CHUNK_TRANSACTION_MS, maxWait: 20_000 },
     );
 
     if (counts === null) {

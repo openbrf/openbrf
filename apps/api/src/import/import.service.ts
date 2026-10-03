@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
+import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -11,6 +13,7 @@ import { parseCsv, writeCsv } from "./csv";
 import {
   type ImportDecisions,
   ImportApplyService,
+  IMPORT_CHUNK_TRANSACTION_MS,
 } from "./import-apply.service";
 import {
   type ImportField,
@@ -60,6 +63,12 @@ export const IMPORT_PURGE_QUEUE = "import-session-purge";
 
 /** Rows shown on the mapping screen so a column can be recognised by content. */
 const SAMPLE_ROWS = 5;
+
+/**
+ * How long abandoning an import may take. Longer than a chunk's transaction,
+ * because a chunk in flight holds the session row the abandon has to update.
+ */
+const ABANDON_TIMEOUT_MS = IMPORT_CHUNK_TRANSACTION_MS + 10_000;
 
 export interface ImportSessionView {
   sessionId: string;
@@ -121,6 +130,7 @@ export class ImportService implements OnModuleInit {
     private readonly jobs: JobQueueService,
     private readonly planner: ImportPlannerService,
     private readonly applies: ImportApplyService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -309,7 +319,8 @@ export class ImportService implements OnModuleInit {
    * normally ends as APPLIED, or as FAILED on a refusal or through the dead
    * letter once its retries run out. Until then every other apply is refused:
    * for as long as a hung attempt takes to time out and be retried, and for a
-   * session whose job was lost, until the next start re-queues it.
+   * session whose job was lost, until the next start re-queues it - or until
+   * an administrator abandons it (`abandon`).
    */
   async apply(
     sessionId: string,
@@ -388,6 +399,87 @@ export class ImportService implements OnModuleInit {
 
     this.logger.log(`Import session ${sessionId}: apply queued`);
     return this.run(sessionId);
+  }
+
+  /**
+   * Ends an import that is queued or applying, without waiting for the queue.
+   *
+   * One import runs at a time, so a session whose job was lost, or whose
+   * attempt hangs, refuses every other import until the queue gives up on it:
+   * up to the next restart for the first, and the expiry times the retries for
+   * the second. This is the way out an administrator takes meanwhile. The
+   * session is recorded as FAILED with `apply-abandoned`, exactly as the dead
+   * letter would record it, and the next apply is accepted.
+   *
+   * It stops the import; it undoes nothing. What the chunks before it wrote is
+   * in a register that cannot be edited, and the counts on the session say how
+   * much that was.
+   *
+   * After this returns, the abandoned session writes nothing more. Every write
+   * the job makes is conditional on the session still being APPLYING, and a
+   * chunk takes the session row before it writes. So the update below either
+   * waits for a chunk that holds the row and lands after it, or lands first and
+   * the chunk then finds nothing to claim. A job that wakes later for this
+   * session - a retry, a redelivery, the re-queue at the next start - reads it
+   * as FAILED and ends without having done anything.
+   *
+   * The audit entry is written in the same transaction as the change of status,
+   * so neither exists without the other.
+   */
+  async abandon(
+    sessionId: string,
+    actor: ActorContext,
+  ): Promise<ImportRunView> {
+    const session = await this.prisma.$transaction(
+      async (tx) => {
+        const { count } = await tx.importSession.updateMany({
+          where: { id: sessionId, status: { in: ["QUEUED", "APPLYING"] } },
+          data: {
+            status: "FAILED",
+            failureReason: "apply-abandoned",
+            finishedAt: new Date(),
+          },
+        });
+
+        // Read after the update, under its row lock, so the cursor is the one
+        // the import finally stopped at rather than one a chunk was about to
+        // move.
+        const after = await tx.importSession.findUnique({
+          where: { id: sessionId },
+          select: IMPORT_RUN_SELECT,
+        });
+        if (after === null) {
+          throw new ImportError("No such import.", "session-not-found");
+        }
+        if (count === 0) {
+          throw new ImportError(
+            "That import is not running.",
+            "session-not-running",
+          );
+        }
+
+        await this.audit.record(
+          {
+            action: "IMPORT_ABANDONED",
+            ...auditActor(actor),
+            targetKind: "importSession",
+            targetId: sessionId,
+            context: { rowsDone: after.rowsDone, rowsTotal: after.rowCount },
+          },
+          tx,
+        );
+        return after;
+      },
+      // Longer than the budget a chunk's own transaction has, so an abandon
+      // that arrives while a chunk holds the session row waits for it to commit
+      // or roll back instead of failing first.
+      { timeout: ABANDON_TIMEOUT_MS, maxWait: 20_000 },
+    );
+
+    this.logger.warn(
+      `Import session ${sessionId}: abandoned by an administrator`,
+    );
+    return toRunView(session);
   }
 
   /** How far the apply has got, read from the session itself. */
