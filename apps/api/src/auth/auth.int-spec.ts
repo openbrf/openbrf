@@ -273,6 +273,7 @@ describe("magic link and the second-factor policy", () => {
 
       // Answered while the mail server still has not replied.
       expect(known.statusCode).toBe(200);
+      expect(unknown.statusCode).toBe(200);
       expect(known.body).toBe(unknown.body);
     } finally {
       release();
