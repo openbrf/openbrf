@@ -518,17 +518,49 @@ describe("while the preview is planned", () => {
     await session.click(
       screen.getByRole("button", { name: /Förhandsgranska importen/ }),
     );
-    await nextPoll();
 
+    // The poll straight after the preview was accepted is refused.
     expect(
       await screen.findByText(/förhandsgranskat uppladdningen igen/),
     ).toBeTruthy();
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.queryByText(/Vad detta skulle göra/)).toBeNull();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
 
     // And stops asking.
     await nextPoll();
     expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask again while the last poll is unanswered", async () => {
+    const session = userEvent.setup();
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    let answer: (value: unknown) => void = () => undefined;
+    fetchImportPreview
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      )
+      .mockResolvedValue({ ok: true, value: previewRun() });
+
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+    await waitFor(() => {
+      expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+    });
+    await nextPoll();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(1);
+
+    // Once it is answered, the next interval asks again.
+    await act(async () => {
+      answer({ ok: true, value: PLANNING });
+    });
+    await nextPoll();
+    expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(2);
   });
 
   it("goes on waiting through a request that never reached the server", async () => {

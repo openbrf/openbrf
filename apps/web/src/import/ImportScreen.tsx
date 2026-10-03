@@ -208,27 +208,40 @@ export function ImportScreen(): ReactElement {
     let abandoned = false;
     /** Whether the preview has ended, so there is nothing left to cancel. */
     let settled = false;
+    /** Whether a poll is still waiting for its answer. */
+    let asking = false;
 
+    // A tick is skipped while the last poll is unanswered, or once the preview
+    // has ended: the interval is only cleared when the screen has taken in the
+    // answer, and a slow request would otherwise overlap the next one.
     const poll = async (): Promise<void> => {
-      const response = await fetchImportPreview(
-        plannedSessionId,
-        plannedPreviewId,
-      );
-      if (abandoned) {
+      if (asking || settled) {
         return;
       }
-      if (response.ok) {
-        settled = response.value.status !== "PLANNING";
-        receivePreview(response.value);
-        return;
-      }
-      // A refusal ends the wait - the preview was replaced, the upload
-      // expired, or the import was started elsewhere. A request that never
-      // reached the server, or a server error, is asked again.
-      if (response.failure.status >= 400 && response.failure.status < 500) {
-        settled = true;
-        setPlanning(null);
-        setFailure(failureMessage(response.failure.reason));
+      asking = true;
+      try {
+        const response = await fetchImportPreview(
+          plannedSessionId,
+          plannedPreviewId,
+        );
+        if (abandoned) {
+          return;
+        }
+        if (response.ok) {
+          settled = response.value.status !== "PLANNING";
+          receivePreview(response.value);
+          return;
+        }
+        // A refusal ends the wait - the preview was replaced, the upload
+        // expired, or the import was started elsewhere. A request that never
+        // reached the server, or a server error, is asked again.
+        if (response.failure.status >= 400 && response.failure.status < 500) {
+          settled = true;
+          setPlanning(null);
+          setFailure(failureMessage(response.failure.reason));
+        }
+      } finally {
+        asking = false;
       }
     };
 
