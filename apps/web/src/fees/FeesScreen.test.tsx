@@ -562,6 +562,66 @@ describe("recording a fee", () => {
     ).toBeTruthy();
   });
 
+  it("reads an amount typed the Swedish way", async () => {
+    // "3 450,50" is how this screen prints an amount, and a comma is what a
+    // Swedish phone's decimal pad offers.
+    const user = userEvent.setup();
+    recordFee.mockResolvedValue({
+      ok: true,
+      value: REGISTER.apartments[0]?.fees[0],
+    });
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Lägenhet" }),
+      "apartment-1",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Belopp per månad i kronor" }),
+      "3 450,50",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Registrera avgiften" }),
+    );
+
+    await waitFor(() => {
+      expect(recordFee).toHaveBeenCalledWith(
+        expect.objectContaining({ monthlyAmount: "3450.50" }),
+      );
+    });
+  });
+
+  it("says at the field that a rate is a whole percentage, and sends nothing", async () => {
+    // "25,5" used to travel as NaN, which JSON sends as null, and the server
+    // then asked for a rate the board had typed.
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Lägenhet" }),
+      "apartment-1",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Belopp per månad i kronor" }),
+      "500",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Moms" }),
+      "RATE",
+    );
+    const rate = screen.getByRole("textbox", { name: "Momssats i procent" });
+    await user.type(rate, "25,5");
+    await user.click(
+      screen.getByRole("button", { name: "Registrera avgiften" }),
+    );
+
+    expect(recordFee).not.toHaveBeenCalled();
+    expect(rate.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toMatch(/hela procent/u);
+  });
+
   it("says a fee may be dated forward and a charge may not", async () => {
     render(<FeesScreen />);
 

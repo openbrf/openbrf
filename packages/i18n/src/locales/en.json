@@ -2222,7 +2222,8 @@
       "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every grant and every transfer, and the record cannot be removed once written.",
       "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
       "dateNotACalendarDate": "That date is not on the calendar. Check the day and the month.",
-      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
+      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is stated in kronor with at most two decimal places.",
+      "priceNotAnAmount": "State the price in kronor, with at most two decimal places, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
       "unknown": "That could not be saved just now. Please try again."
@@ -4172,7 +4173,7 @@
       "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
       "dateNotACalendarDate": "That is not a date.",
       "dateInTheFuture": "A charge cannot be dated ahead of today.",
-      "amountNotASum": "State the amount in kronor, with at most two decimal places and no thousands separator.",
+      "amountNotASum": "State the amount in kronor, with at most two decimal places.",
       "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
       "reasonRequired": "State what the charge is for.",
       "vatRateRequired": "State the rate for a charge that carries VAT.",

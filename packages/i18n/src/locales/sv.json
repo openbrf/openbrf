@@ -2222,7 +2222,8 @@
       "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje upplåtelse och varje överlåtelse, och posten går inte att ta bort när den väl är registrerad.",
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "dateNotACalendarDate": "Datumet finns inte i kalendern. Kontrollera dag och månad.",
-      "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
+      "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris anges i kronor med högst två decimaler.",
+      "priceNotAnAmount": "Ange priset i kronor, med högst två decimaler, till exempel 2 150 000,50.",
       "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
       "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
@@ -4172,7 +4173,7 @@
       "personalIdentityNumberCount_other": "{{count}} nummer hittades i texten.",
       "dateNotACalendarDate": "Det är inget datum.",
       "dateInTheFuture": "En debitering kan inte dateras framåt i tiden.",
-      "amountNotASum": "Ange beloppet i kronor, med högst två decimaler och utan tusentalsavgränsare.",
+      "amountNotASum": "Ange beloppet i kronor, med högst två decimaler.",
       "amountNotPositive": "En debitering är ett positivt belopp. En kreditering görs i bokföringssystemet.",
       "reasonRequired": "Ange vad debiteringen avser.",
       "vatRateRequired": "Ange satsen för en debitering som bär moms.",

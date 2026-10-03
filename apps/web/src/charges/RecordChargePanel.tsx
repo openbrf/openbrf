@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
@@ -11,6 +11,7 @@ import {
   PANEL,
   PRIMARY_BUTTON,
 } from "../ui/controls";
+import { normalizeAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { chargeFailureKey, refusedIdentityNumbers } from "./charge-failures";
@@ -94,6 +95,8 @@ export function RecordChargePanel({
   const [apartmentId, setApartmentId] = useState("");
   const [chargedOn, setChargedOn] = useState(today);
   const [amount, setAmount] = useState("");
+  const [amountInvalid, setAmountInvalid] = useState(false);
+  const amountErrorId = useId();
   const [reason, setReason] = useState("");
   const [vatTreatment, setVatTreatment] = useState<VatTreatment>("EXEMPT");
   const [vatRatePercent, setVatRatePercent] = useState("");
@@ -121,11 +124,18 @@ export function RecordChargePanel({
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
+          // Said at the field rather than by the request schema, whose refusal
+          // can only point at the whole form.
+          const normalized = normalizeAmount(amount);
+          if (normalized === null) {
+            setAmountInvalid(true);
+            return;
+          }
           void submit({
             personId: partyKind === "person" ? personId : null,
             apartmentId: partyKind === "apartment" ? apartmentId : null,
             chargedOn,
-            amount,
+            amount: normalized,
             reason,
             vatTreatment,
             vatRatePercent:
@@ -222,19 +232,33 @@ export function RecordChargePanel({
             />
           </label>
 
-          <label className={LABEL}>
-            {t("charges.record.amount")}
-            <input
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => {
-                setAmount(event.target.value);
-              }}
-              required
-              className={FIELD_DATA}
-            />
-          </label>
+          <div className="flex flex-col gap-1">
+            <label className={LABEL}>
+              {t("charges.record.amount")}
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => {
+                  setAmount(event.target.value);
+                  setAmountInvalid(false);
+                }}
+                required
+                aria-invalid={amountInvalid}
+                aria-describedby={amountInvalid ? amountErrorId : undefined}
+                className={FIELD_DATA}
+              />
+            </label>
+            {amountInvalid ? (
+              <p
+                id={amountErrorId}
+                role="alert"
+                className="text-small text-danger"
+              >
+                {t("charges.errors.amountNotASum")}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <label className={LABEL}>

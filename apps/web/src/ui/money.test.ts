@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAmount } from "./money";
+import { formatAmount, normalizeAmount } from "./money";
 
 /**
  * The money formatter.
@@ -70,5 +70,32 @@ describe("formatAmount", () => {
 
   it("is zero for zero", () => {
     expect(formatAmount("0.00", "sv-SE")).toBe("0,00");
+  });
+});
+
+describe("normalizeAmount", () => {
+  it("reads an amount typed the Swedish way", () => {
+    // The way formatAmount prints it, and what a Swedish phone's decimal pad
+    // offers: a comma, and spaces or no-break spaces between the thousands.
+    expect(normalizeAmount("1 234,50")).toBe("1234.50");
+    expect(normalizeAmount("1\u00a0234,5")).toBe("1234.5");
+    expect(normalizeAmount("1\u202f234")).toBe("1234");
+    expect(normalizeAmount(formatAmount("3450.50", "sv-SE"))).toBe("3450.50");
+  });
+
+  it("leaves an amount the server already reads as it is", () => {
+    expect(normalizeAmount("3600.00")).toBe("3600.00");
+    expect(normalizeAmount(" 450 ")).toBe("450");
+  });
+
+  it("refuses what is not a sum of kronor and ore", () => {
+    // Refused rather than guessed at: a third decimal, a second separator or a
+    // sign would each be a figure nobody stated.
+    expect(normalizeAmount("")).toBeNull();
+    expect(normalizeAmount("12,345")).toBeNull();
+    expect(normalizeAmount("1.234,50")).toBeNull();
+    expect(normalizeAmount("-450")).toBeNull();
+    expect(normalizeAmount("4e2")).toBeNull();
+    expect(normalizeAmount("1234567890123")).toBeNull();
   });
 });

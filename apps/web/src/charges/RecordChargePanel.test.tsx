@@ -99,6 +99,41 @@ describe("the charged party", () => {
   });
 });
 
+describe("the amount", () => {
+  async function recordWith(amount: string): Promise<void> {
+    panel();
+    await userEvent.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await userEvent.type(screen.getByLabelText("Belopp i kronor"), amount);
+    await userEvent.type(
+      screen.getByLabelText("Vad debiteringen avser"),
+      "Byte av lås",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    );
+  }
+
+  it("reads an amount typed the Swedish way", async () => {
+    // The way the screens print an amount, and what a Swedish phone offers.
+    await recordWith("1 234,50");
+
+    expect(recordCharge).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: "1234.50" }),
+    );
+  });
+
+  it("says at the field what is wrong with an amount, and sends nothing", async () => {
+    // A third decimal is a figure nobody can have meant; the server would
+    // refuse it with a sentence about the whole form.
+    await recordWith("12,345");
+
+    expect(recordCharge).not.toHaveBeenCalled();
+    const field = screen.getByLabelText("Belopp i kronor");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toMatch(/två decimaler/u);
+  });
+});
+
 describe("two people the register holds the same way", () => {
   it("tells them apart by the day each of them moved in", async () => {
     /*

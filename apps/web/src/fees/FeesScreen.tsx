@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -27,7 +34,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
-import { formatAmount } from "../ui/money";
+import { formatAmount, normalizeAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import { feeFailureKey } from "./fee-failures";
@@ -117,6 +124,23 @@ const VAT_LABEL: Readonly<Record<FeeVatTreatment, TranslationKey>> = {
   RATE: "fees.vat.RATE",
 };
 
+/**
+ * The rate as the server reads it: null where none was typed, which the server
+ * answers with the sentence asking for one, and undefined where what was typed
+ * is not a whole percentage. `Number("25,5")` is NaN, which JSON sends as null,
+ * and the board would be asked for a rate it had typed.
+ */
+function vatRateOf(typed: string): number | null | undefined {
+  const rate = typed.replaceAll(/\s/gu, "");
+  if (rate === "") {
+    return null;
+  }
+  const percent = Number(rate);
+  return /^\d{1,3}$/u.test(rate) && percent >= 1 && percent <= 100
+    ? percent
+    : undefined;
+}
+
 export function FeesScreen(): ReactElement {
   const { t, i18n } = useTranslation();
 
@@ -134,6 +158,10 @@ export function FeesScreen(): ReactElement {
   const [monthlyAmount, setMonthlyAmount] = useState("");
   const [vatTreatment, setVatTreatment] = useState<FeeVatTreatment>("EXEMPT");
   const [vatRatePercent, setVatRatePercent] = useState("");
+  const [amountInvalid, setAmountInvalid] = useState(false);
+  const [rateInvalid, setRateInvalid] = useState(false);
+  const amountErrorId = useId();
+  const rateErrorId = useId();
   const [recording, setRecording] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
@@ -221,6 +249,15 @@ export function FeesScreen(): ReactElement {
   const onRecord = useCallback(
     async (submitter: HTMLElement | null): Promise<void> => {
       setRefusal(null);
+      // Said at the field rather than by the request schema, whose refusal
+      // can only point at the whole form.
+      const amount = normalizeAmount(monthlyAmount);
+      const rate = vatTreatment === "RATE" ? vatRateOf(vatRatePercent) : null;
+      setAmountInvalid(amount === null);
+      setRateInvalid(rate === undefined);
+      if (amount === null || rate === undefined) {
+        return;
+      }
       // Safari and macOS Firefox do not focus a button that was clicked, so the
       // submitter stands in for the focused control when focus is elsewhere.
       const focused = document.activeElement;
@@ -236,12 +273,9 @@ export function FeesScreen(): ReactElement {
         apartmentId,
         kind,
         appliesFrom,
-        monthlyAmount,
+        monthlyAmount: amount,
         vatTreatment,
-        vatRatePercent:
-          vatTreatment === "RATE" && vatRatePercent !== ""
-            ? Number(vatRatePercent)
-            : null,
+        vatRatePercent: rate,
       });
       setRecording(false);
       if (!result.ok) {
@@ -385,19 +419,33 @@ export function FeesScreen(): ReactElement {
                 />
               </label>
 
-              <label className={LABEL}>
-                {t("fees.record.monthlyAmount")}
-                <input
-                  ref={amountRef}
-                  type="text"
-                  inputMode="decimal"
-                  value={monthlyAmount}
-                  onChange={(event) => {
-                    setMonthlyAmount(event.target.value);
-                  }}
-                  className={FIELD_DATA}
-                />
-              </label>
+              <div className="flex flex-col gap-1">
+                <label className={LABEL}>
+                  {t("fees.record.monthlyAmount")}
+                  <input
+                    ref={amountRef}
+                    type="text"
+                    inputMode="decimal"
+                    value={monthlyAmount}
+                    onChange={(event) => {
+                      setMonthlyAmount(event.target.value);
+                      setAmountInvalid(false);
+                    }}
+                    aria-invalid={amountInvalid}
+                    aria-describedby={amountInvalid ? amountErrorId : undefined}
+                    className={FIELD_DATA}
+                  />
+                </label>
+                {amountInvalid ? (
+                  <p
+                    id={amountErrorId}
+                    role="alert"
+                    className="text-small text-danger"
+                  >
+                    {t("fees.errors.amountNotASum")}
+                  </p>
+                ) : null}
+              </div>
 
               <label className={LABEL}>
                 {t("fees.record.vatTreatment")}
@@ -417,18 +465,32 @@ export function FeesScreen(): ReactElement {
               </label>
 
               {vatTreatment === "RATE" ? (
-                <label className={LABEL}>
-                  {t("fees.record.vatRatePercent")}
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={vatRatePercent}
-                    onChange={(event) => {
-                      setVatRatePercent(event.target.value);
-                    }}
-                    className={FIELD_DATA}
-                  />
-                </label>
+                <div className="flex flex-col gap-1">
+                  <label className={LABEL}>
+                    {t("fees.record.vatRatePercent")}
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={vatRatePercent}
+                      onChange={(event) => {
+                        setVatRatePercent(event.target.value);
+                        setRateInvalid(false);
+                      }}
+                      aria-invalid={rateInvalid}
+                      aria-describedby={rateInvalid ? rateErrorId : undefined}
+                      className={FIELD_DATA}
+                    />
+                  </label>
+                  {rateInvalid ? (
+                    <p
+                      id={rateErrorId}
+                      role="alert"
+                      className="text-small text-danger"
+                    >
+                      {t("fees.errors.vatRateOutOfRange")}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
 
               <button

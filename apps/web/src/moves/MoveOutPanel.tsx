@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -12,6 +12,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { normalizeAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { failureMessage } from "./move-errors";
 import { moveOut, type MoveOutResult } from "./moves-api";
@@ -54,6 +55,8 @@ export function MoveOutPanel({
   const [transferredOn, setTransferredOn] = useState("");
   const [toPerson, setToPerson] = useState<PersonOption | null>(null);
   const [price, setPrice] = useState("");
+  const [priceInvalid, setPriceInvalid] = useState(false);
+  const priceErrorId = useId();
   const [agreementReference, setAgreementReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
@@ -75,6 +78,14 @@ export function MoveOutPanel({
       setFailure("moves.errors.transferReferenceRequired");
       return;
     }
+    // Said at the field rather than by the request schema, whose refusal can
+    // only point at the whole form. A price is optional, so only a typed one
+    // that is not an amount is refused.
+    const typedPrice = price.trim() === "" ? null : normalizeAmount(price);
+    if (recordTransfer && price.trim() !== "" && typedPrice === null) {
+      setPriceInvalid(true);
+      return;
+    }
     setSubmitting(true);
     setFailure(null);
 
@@ -86,7 +97,7 @@ export function MoveOutPanel({
           ? {
               toPersonId: toPerson.personId,
               transferredOn,
-              price: price.trim() === "" ? null : price.trim(),
+              price: typedPrice,
               agreementReference: agreementReference.trim(),
             }
           : undefined,
@@ -196,19 +207,33 @@ export function MoveOutPanel({
                   />
                 </label>
 
-                <label className={LABEL} htmlFor="move-out-price">
-                  {t("moves.transfer.price")}
-                  <input
-                    id="move-out-price"
-                    type="text"
-                    inputMode="decimal"
-                    value={price}
-                    onChange={(event) => {
-                      setPrice(event.target.value);
-                    }}
-                    className={FIELD_DATA}
-                  />
-                </label>
+                <div className="flex flex-col gap-1">
+                  <label className={LABEL} htmlFor="move-out-price">
+                    {t("moves.transfer.price")}
+                    <input
+                      id="move-out-price"
+                      type="text"
+                      inputMode="decimal"
+                      value={price}
+                      onChange={(event) => {
+                        setPrice(event.target.value);
+                        setPriceInvalid(false);
+                      }}
+                      aria-invalid={priceInvalid}
+                      aria-describedby={priceInvalid ? priceErrorId : undefined}
+                      className={FIELD_DATA}
+                    />
+                  </label>
+                  {priceInvalid ? (
+                    <p
+                      id={priceErrorId}
+                      role="alert"
+                      className="text-small text-danger"
+                    >
+                      {t("moves.errors.priceNotAnAmount")}
+                    </p>
+                  ) : null}
+                </div>
 
                 <div className="flex flex-col gap-1">
                   <label className={LABEL} htmlFor="move-out-agreement">
