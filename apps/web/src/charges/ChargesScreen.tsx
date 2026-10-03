@@ -510,7 +510,18 @@ export function ChargesScreen(): ReactElement {
                         <button
                           type="button"
                           onClick={() => {
-                            void onRemove(row.chargeId);
+                            // Confirmed because the row is deleted for good:
+                            // nothing here puts a charge back.
+                            if (
+                              window.confirm(
+                                t("charges.removeConfirm", {
+                                  chargedOn: row.chargedOn,
+                                  reason: row.reason,
+                                }),
+                              )
+                            ) {
+                              void onRemove(row.chargeId);
+                            }
                           }}
                           className={QUIET_BUTTON}
                         >

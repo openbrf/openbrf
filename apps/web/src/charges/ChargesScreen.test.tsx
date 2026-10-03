@@ -6,7 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { ChargesScreen } from "./ChargesScreen";
@@ -136,6 +136,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchDebitingList.mockResolvedValue({ ok: true, value: LIST });
   loadChargeParties.mockResolvedValue(PARTIES);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("the debiting list", () => {
@@ -282,6 +286,7 @@ describe("the file", () => {
     // A charge is removed while the file is being produced, which reads the
     // period again. The period is unchanged, so nothing about the dates says
     // the rows moved - but they did, and the file was produced before it.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     removeCharge.mockResolvedValue({ ok: true, value: undefined });
     const row = (await screen.findByText("Nyckel till cykelrummet")).closest(
       "tr",
@@ -458,7 +463,25 @@ describe("when the read fails", () => {
 });
 
 describe("removing a charge", () => {
+  it("asks first, and removes nothing when the board declines", async () => {
+    // The server deletes the row for good, so a misclick has no undo.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining("Nyckel till cykelrummet"),
+    );
+    expect(removeCharge).not.toHaveBeenCalled();
+  });
+
   it("re-reads the list, so the document matches what is stored", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     removeCharge.mockResolvedValue({ ok: true, value: undefined });
     render(<ChargesScreen />);
     await screen.findByText("Astrid Vallin");

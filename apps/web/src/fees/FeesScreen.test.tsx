@@ -307,6 +307,31 @@ describe("the notices", () => {
   });
 });
 
+describe("removing a fee", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("asks first, and removes nothing when the board declines", async () => {
+    // The server deletes the rate for good, so a misclick has no undo.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    const button = await screen.findByRole("button", {
+      name: "Ta bort Årsavgift för Storgatan 12 1001",
+    });
+
+    await user.click(button);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(removeFee).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    removeFee.mockResolvedValue({ ok: true, value: undefined });
+    await user.click(button);
+    expect(removeFee).toHaveBeenCalledWith("fee-1");
+  });
+});
+
 describe("recording a fee", () => {
   it("sends what the board stated and reads the register back", async () => {
     const user = userEvent.setup();

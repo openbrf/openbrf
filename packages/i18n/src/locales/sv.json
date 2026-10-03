@@ -4105,6 +4105,7 @@
     "maskedApartment": "Skyddad, skrivs inte ut",
     "apartmentItself": "Lägenheten",
     "remove": "Ta bort",
+    "removeConfirm": "Ta bort debiteringen daterad {{chargedOn}}, {{reason}}? Den försvinner ur debiteringslängden och ingenting här lägger tillbaka den.",
     "stamp": "Debiteringslängd - {{from}} till {{to}} - framställd {{date}}",
     "total": "Summa {{total}} kr",
     "period": {
@@ -4228,6 +4229,7 @@
     "amountWithUnit": "{{amount}} kr",
     "stamp": "Avgiftsregister - gäller {{date}} - {{total}} kr per månad",
     "remove": "Ta bort",
+    "removeConfirm": "Ta bort {{kind}} för {{apartment}}? Avgiften försvinner ur registret och ingenting här lägger tillbaka den.",
     "removeNamed": "Ta bort {{kind}} för {{apartment}}",
     "empty": {
       "title": "Inga lägenheter i registret",

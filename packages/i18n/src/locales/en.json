@@ -4105,6 +4105,7 @@
     "maskedApartment": "Protected, not printed",
     "apartmentItself": "The apartment",
     "remove": "Remove",
+    "removeConfirm": "Remove the charge dated {{chargedOn}}, {{reason}}? It leaves the debiting list, and nothing here puts it back.",
     "stamp": "Debiting list - {{from}} to {{to}} - produced {{date}}",
     "total": "Total {{total}} kr",
     "period": {
@@ -4228,6 +4229,7 @@
     "amountWithUnit": "{{amount}} kr",
     "stamp": "Fee register - as it stands on {{date}} - {{total}} kr per month",
     "remove": "Remove",
+    "removeConfirm": "Remove {{kind}} for {{apartment}}? The fee leaves the register, and nothing here puts it back.",
     "removeNamed": "Remove {{kind}} for {{apartment}}",
     "empty": {
       "title": "No apartments in the register",

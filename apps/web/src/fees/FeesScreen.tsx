@@ -681,7 +681,18 @@ export function FeesScreen(): ReactElement {
                             key={fee.feeId}
                             type="button"
                             onClick={() => {
-                              void onRemove(fee.feeId);
+                              // Confirmed because the rate is deleted for
+                              // good: nothing here puts it back.
+                              if (
+                                window.confirm(
+                                  t("fees.removeConfirm", {
+                                    kind: t(KIND_LABEL[fee.kind]),
+                                    apartment: apartment.label,
+                                  }),
+                                )
+                              ) {
+                                void onRemove(fee.feeId);
+                              }
                             }}
                             className={QUIET_BUTTON}
                             aria-label={t("fees.removeNamed", {
