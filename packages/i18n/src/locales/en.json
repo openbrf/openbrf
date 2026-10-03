@@ -309,6 +309,9 @@
         "systemWorking": "Saving",
         "errors": {
           "positionAlreadyHeld": "This person already holds that position. End the term before recording a new election to it.",
+          "termOverlaps": "An earlier term in that position runs past this election date. Check the date.",
+          "electedTooFarAhead": "An election cannot be dated that far into the future. Check the year.",
+          "boardSeatRequired": "The board records its own seats. Without a seat you can record only the first board, and never your own seat.",
           "termAlreadyEnded": "That term has already ended. Its dates are the record of a period that has run and they stand.",
           "endedBeforeElected": "A term cannot end before the election that began it.",
           "endedTooFarAhead": "A term cannot run that far into the future. Check the year.",
@@ -1318,15 +1321,17 @@
       "approve": "Approve",
       "approving": "Approving...",
       "approved": "The request is approved. An invitation is on its way to {{email}}.",
+      "approvedNotInvited": "The request is approved and the person is in the register, but the invitation to {{email}} could not be sent. Check the email settings and send the invitation from the person's own view.",
       "reject": "Reject",
       "rejecting": "Rejecting...",
       "rejected": "The request is rejected. Nothing was created.",
       "rejectReason": "Reason (optional)",
       "errors": {
         "alreadyDecided": "Somebody has already decided that request. The list has been read again.",
-        "notFound": "That request is gone - a newer one from the same email address replaces it. The list has been read again.",
+        "notFound": "That request is gone. The list has been read again.",
+        "alreadyResident": "That person already lives in that apartment according to the register. Reject the request, or choose another apartment.",
+        "emailShared": "More than one person in the register has that email address, so the request cannot be matched to one of them. Give each person their own address in the address book, then decide again.",
         "apartmentNotFound": "That apartment is no longer in the register. Reload the page and choose again.",
-        "mailNotConfigured": "The request is approved and the person is in the register, but the invitation could not be sent: this instance has no email server. Set one up under Email and send the invitation from the person's own view.",
         "unknown": "The request could not be decided just now. Please try again."
       }
     },
@@ -2545,7 +2550,7 @@
     "submit": "Send the request",
     "working": "Sending...",
     "receivedTitle": "The request has been received",
-    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. A new request from the same email address replaces this one.",
+    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. While a request from an email address is waiting, the first one stands, and a later request from the same address is considered only after it has been decided.",
     "closed": "This housing cooperative is not accepting account requests at the moment. Ask the board, who can invite you instead.",
     "errors": {
       "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",

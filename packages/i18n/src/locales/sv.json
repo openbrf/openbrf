@@ -309,6 +309,9 @@
         "systemWorking": "Sparar",
         "errors": {
           "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
+          "termOverlaps": "Ett tidigare uppdrag på samma post löper förbi det här valdatumet. Kontrollera datumet.",
+          "electedTooFarAhead": "Ett val kan inte dateras så långt fram i tiden. Kontrollera årtalet.",
+          "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du bara anteckna den första styrelsen, och aldrig ditt eget uppdrag.",
           "termAlreadyEnded": "Uppdraget är redan avslutat. Datumen är beskrivningen av en period som har löpt och de står kvar.",
           "endedBeforeElected": "Ett uppdrag kan inte avslutas före valet som påbörjade det.",
           "endedTooFarAhead": "Ett uppdrag kan inte löpa så långt fram i tiden. Kontrollera årtalet.",
@@ -1318,15 +1321,17 @@
       "approve": "Godkänn",
       "approving": "Godkänner...",
       "approved": "Ansökan är godkänd. En inbjudan är på väg till {{email}}.",
+      "approvedNotInvited": "Ansökan är godkänd och personen finns i registret, men inbjudan till {{email}} kunde inte skickas. Kontrollera e-postinställningarna och skicka inbjudan från personens egen vy.",
       "reject": "Avslå",
       "rejecting": "Avslår...",
       "rejected": "Ansökan är avslagen. Ingenting skapades.",
       "rejectReason": "Skäl (frivilligt)",
       "errors": {
         "alreadyDecided": "Någon har redan avgjort den ansökan. Listan är hämtad på nytt.",
-        "notFound": "Ansökan finns inte kvar - en nyare från samma e-postadress har ersatt den. Listan är hämtad på nytt.",
+        "notFound": "Ansökan finns inte kvar. Listan är hämtad på nytt.",
+        "alreadyResident": "Personen bor redan i den lägenheten enligt registret. Avslå ansökan eller välj en annan lägenhet.",
+        "emailShared": "Fler än en person i registret har den e-postadressen, så ansökan kan inte kopplas till en av dem. Ge var och en en egen adress i adressboken och avgör sedan på nytt.",
         "apartmentNotFound": "Lägenheten finns inte kvar i registret. Ladda om sidan och välj på nytt.",
-        "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
         "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
       }
     },
@@ -2545,7 +2550,7 @@
     "submit": "Skicka ansökan",
     "working": "Skickar...",
     "receivedTitle": "Ansökan är mottagen",
-    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. En ny ansökan från samma e-postadress ersätter den här.",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan en ansökan från en e-postadress väntar gäller den första, och en senare ansökan från samma adress prövas först när den har avgjorts.",
     "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
     "errors": {
       "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",

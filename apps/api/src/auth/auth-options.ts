@@ -161,6 +161,17 @@ export interface MagicLinkDelivery {
    * nobody else.
    */
   sendSecondFactorNotice: (input: { email: string }) => Promise<void>;
+  /**
+   * Runs a delivery after the response, and keeps its failure to itself.
+   *
+   * The endpoint answers every address alike, and it has to answer alike in
+   * time as well: awaiting an SMTP round trip only for an address that has an
+   * account, or failing only for one when mail is down, tells the caller which
+   * addresses have accounts (ADR 0005). Not a queued job, because the job
+   * would hold the sign-in link, a credential stored nowhere else in plain
+   * text.
+   */
+  background: (task: () => Promise<void>) => void;
 }
 
 /**
@@ -352,12 +363,16 @@ export function buildAuthOptions(
         // address that followed a link, which is open registration by another
         // name on an invite-only instance.
         disableSignUp: true,
-        sendMagicLink: async ({ email, url }) => {
-          await deliverMagicLink(magicLinkDelivery, {
-            email,
-            url,
-            expiresAt: new Date(Date.now() + MAGIC_LINK_TTL_SECONDS * 1000),
-          });
+        // Answered before anything is looked up or sent: see
+        // MagicLinkDelivery.background.
+        sendMagicLink: ({ email, url }) => {
+          const expiresAt = new Date(
+            Date.now() + MAGIC_LINK_TTL_SECONDS * 1000,
+          );
+          magicLinkDelivery.background(() =>
+            deliverMagicLink(magicLinkDelivery, { email, url, expiresAt }),
+          );
+          return Promise.resolve();
         },
       }),
 

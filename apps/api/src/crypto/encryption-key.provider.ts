@@ -1,5 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { Logger } from "@nestjs/common";
@@ -81,7 +88,26 @@ export class EncryptionKeyProvider {
 
     const key = randomBytes(KEY_LENGTH_BYTES).toString("hex");
     mkdirSync(dirname(keyPath), { recursive: true, mode: 0o700 });
-    writeFileSync(keyPath, `${key}\n`, { encoding: "utf8", mode: 0o600 });
+    /*
+     * Written whole under a name of its own, then linked into place. A link
+     * refuses an existing name, so two processes generating at once - the
+     * server and the CLI, or two test workers - cannot both win: the second
+     * reads the first one's key rather than replacing it, which would leave
+     * everything already sealed under the first unreadable. The link is also
+     * what keeps a reader from seeing a file that exists and is still empty.
+     */
+    const staged = `${keyPath}.${String(process.pid)}.${randomBytes(4).toString("hex")}`;
+    writeFileSync(staged, `${key}\n`, { encoding: "utf8", mode: 0o600 });
+    try {
+      linkSync(staged, keyPath);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "EEXIST") {
+        return this.readKeyFile(keyPath);
+      }
+      throw cause;
+    } finally {
+      unlinkSync(staged);
+    }
     this.logger.log(
       `Generated a new field encryption key at ${keyPath}. Copy it out once and ` +
         "keep it apart from every backup: losing it loses the encrypted data, " +

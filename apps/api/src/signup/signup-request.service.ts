@@ -1,10 +1,14 @@
 import { Injectable, Logger } from "@nestjs/common";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
+import { droppedSubmissionId } from "../http/honeypot";
 import { InvitationService } from "../invitations/invitation.service";
-import { lockApartmentResidencies } from "../registers/residency-lock";
+import { failureName } from "../logging/failure";
+import { MoveService } from "../moves/move.service";
 
 export class SignupRequestError extends Error {
   constructor(
@@ -15,7 +19,8 @@ export class SignupRequestError extends Error {
       | "not-found"
       | "already-decided"
       | "apartment-not-found"
-      | "already-has-account",
+      | "already-has-account"
+      | "email-shared",
   ) {
     super(message);
     this.name = "SignupRequestError";
@@ -56,6 +61,7 @@ export class SignupRequestService {
     private readonly encryption: FieldEncryptionService,
     private readonly invitations: InvitationService,
     private readonly audit: AuditLogService,
+    private readonly moves: MoveService,
   ) {}
 
   /**
@@ -111,14 +117,26 @@ export class SignupRequestService {
         ? null
         : await this.encryption.encrypt("person.phone", input.phone);
 
-    const request = await this.prisma.$transaction(async (tx) => {
-      // One outstanding request per email address: resubmitting from the same
-      // address replaces the old one rather than filling the board's queue
-      // with duplicates.
-      await tx.signupRequest.deleteMany({
-        where: { emailIndex, status: "PENDING" },
-      });
-      return tx.signupRequest.create({
+    /*
+     * One outstanding request per email address, and it is the first one. A
+     * later submission from the same address is answered exactly as a stored
+     * one is and stored nowhere: the form is anonymous, so replacing the
+     * request would let anybody who knows a resident's address swap the claim
+     * the board reads for one of their own. A resident who mistyped theirs
+     * asks the board to reject it and submits again.
+     *
+     * The read is a fast path; the partial unique index on the address of a
+     * pending request decides two submissions arriving together.
+     */
+    const outstanding = await this.prisma.signupRequest.count({
+      where: { emailIndex, status: "PENDING" },
+    });
+    if (outstanding > 0) {
+      return { id: droppedSubmissionId() };
+    }
+
+    try {
+      const request = await this.prisma.signupRequest.create({
         data: {
           firstName: input.firstName,
           lastName: input.lastName,
@@ -130,10 +148,17 @@ export class SignupRequestService {
         },
         select: { id: true },
       });
-    });
-
-    this.logger.log(`Received signup request ${request.id}`);
-    return request;
+      this.logger.log(`Received signup request ${request.id}`);
+      return request;
+    } catch (cause) {
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2002"
+      ) {
+        return { id: droppedSubmissionId() };
+      }
+      throw cause;
+    }
   }
 
   /** The board's queue. Contact details stay encrypted until decrypted here. */
@@ -173,18 +198,26 @@ export class SignupRequestService {
    * Approves a request: creates or links the person, records the residency and
    * sends the activation invitation.
    *
+   * The residency is always a resident's. A self-signup never grants
+   * membership: holding a tenant-ownership is a matter of record, entered by
+   * a move-in with its transfer, and a membership that began here would have
+   * no ENTRY in the member register and no transfer behind it.
+   *
    * An existing person is matched by email rather than by name, and the match
    * is computed from the plaintext against the person-scoped blind index. The
    * two stored indexes are not comparable directly: CipherSweet derives a
    * separate key per table and field, so the request's own index would never
    * equal the person's.
+   *
+   * The invitation goes out after the commit. A mail server that refuses it
+   * does not undo the approval, which has been recorded by then, so the answer
+   * says whether it was sent and the board re-invites from the address book.
    */
   async approve(input: {
     requestId: string;
     apartmentId: string;
     decidedByPersonId: string;
-    role?: "MEMBER" | "RESIDENT";
-  }): Promise<{ personId: string }> {
+  }): Promise<{ personId: string; invitationSent: boolean }> {
     const request = await this.prisma.signupRequest.findUnique({
       where: { id: input.requestId },
     });
@@ -215,27 +248,36 @@ export class SignupRequestService {
       email,
     );
 
-    const existing =
+    /*
+     * Every person on the address, not the first one. A household can share
+     * one, so the index is not unique: linking to whichever row came back
+     * first could attach the applicant to their partner's record, and miss
+     * the one that already has an account. Two is enough to tell.
+     */
+    const matches =
       personEmailIndex === null
-        ? null
-        : await this.prisma.person.findFirst({
+        ? []
+        : await this.prisma.person.findMany({
             where: { emailIndex: personEmailIndex },
             select: { id: true, userAccount: { select: { id: true } } },
+            take: 2,
           });
 
-    if (existing?.userAccount != null) {
+    if (matches.some((match) => match.userAccount !== null)) {
       throw new SignupRequestError(
         "That address already has an account.",
         "already-has-account",
       );
     }
+    if (matches.length > 1) {
+      throw new SignupRequestError(
+        "More than one person in the register has that address.",
+        "email-shared",
+      );
+    }
+    const existing = matches[0];
 
     const personId = await this.prisma.$transaction(async (tx) => {
-      // Before anything else, for the residency this writes: a purge deciding
-      // from who has ever lived in the apartment must either see it or finish
-      // before it exists. See lockApartmentResidencies.
-      await lockApartmentResidencies(tx, apartment.id);
-
       // The PENDING check above is only a fast path: two boards clicking
       // approve at the same moment both pass it. This conditional update is
       // what actually decides the race. Postgres re-evaluates the WHERE clause
@@ -278,15 +320,20 @@ export class SignupRequestService {
         id = created.id;
       }
 
-      await tx.residency.create({
-        data: {
-          personId: id,
-          apartmentId: apartment.id,
-          // A self-signup never grants membership: holding a tenant-ownership
-          // is a matter of record, not of asking.
-          role: input.role ?? "RESIDENT",
-          movedInOn: new Date(),
-        },
+      /*
+       * Through the move-in's own rules, in this transaction: the apartment's
+       * lock and the person's transition lock, the refusal of a second
+       * residency on the apartment for a person matched by email, and the
+       * close of an erasure request the move-in overtakes. Dated by the calendar day in Stockholm (ADR 0013),
+       * not by the UTC instant, which is the day before for the first hours
+       * after midnight in summer.
+       */
+      await this.moves.enterResidency(tx, {
+        actorPersonId: input.decidedByPersonId,
+        personId: id,
+        apartmentId: apartment.id,
+        role: "RESIDENT",
+        movedInOn: dateColumnOf(localDayOf(new Date())),
       });
 
       /*
@@ -307,8 +354,8 @@ export class SignupRequestService {
           targetId: request.id,
           context: {
             apartmentId: apartment.id,
-            role: input.role ?? "RESIDENT",
-            personExisted: existing?.id !== undefined,
+            role: "RESIDENT",
+            personExisted: existing !== undefined,
           },
         },
         tx,
@@ -317,13 +364,23 @@ export class SignupRequestService {
       return id;
     });
 
-    await this.invitations.invite({
-      personId,
-      invitedByPersonId: input.decidedByPersonId,
-    });
+    let invitationSent = false;
+    try {
+      await this.invitations.invite({
+        personId,
+        invitedByPersonId: input.decidedByPersonId,
+      });
+      invitationSent = true;
+    } catch (cause) {
+      // Named by its class only: a mail server's refusal quotes the envelope,
+      // and the envelope holds the address decrypted above.
+      this.logger.warn(
+        `Approved signup request ${request.id}, but the invitation was not sent: ${failureName(cause)}`,
+      );
+    }
 
     this.logger.log(`Approved signup request ${request.id}`);
-    return { personId };
+    return { personId, invitationSent };
   }
 
   async reject(input: {
