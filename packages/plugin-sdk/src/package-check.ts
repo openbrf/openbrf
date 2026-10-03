@@ -104,8 +104,62 @@ const KEYWORDS_BEFORE_EXPRESSION: ReadonlySet<string> = new Set([
   "yield",
 ]);
 
+/**
+ * Tokens after which a `/` divides. "postfix" stands for a `++` or `--` that
+ * follows its operand; before its operand, as in `++/a/.lastIndex`, a `/`
+ * opens a regular expression.
+ */
+const TOKENS_BEFORE_DIVISION: ReadonlySet<string> = new Set([
+  "literal",
+  "postfix",
+  ")",
+  "]",
+  "}",
+]);
+
+/**
+ * Tokens after which a method name can stand, in a class body or an object
+ * literal: `{ require(name) { ... } }`, `static require(name) { ... }`.
+ */
+const TOKENS_BEFORE_METHOD_NAME: ReadonlySet<string> = new Set([
+  "{",
+  ",",
+  ";",
+  "}",
+  "*",
+  "async",
+  "get",
+  "set",
+  "static",
+]);
+
 const IDENTIFIER_START = /[\p{ID_Start}$_]/u;
-const IDENTIFIER_PART = /[\p{ID_Continue}$‌‍]/u;
+const IDENTIFIER_PART = /[\p{ID_Continue}$\u200c\u200d]/u;
+
+/** A `\uXXXX` escape, or a `\u{...}` one, which may pad its digits with zeros. */
+const UNICODE_ESCAPE = /\\u(?:([0-9a-fA-F]{4})|\{([0-9a-fA-F]+)\})/y;
+
+/** The characters that end a line in JavaScript, and so a line comment. */
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+const NEXT_LINE_TERMINATOR = new RegExp(LINE_TERMINATOR.source, "g");
+
+/**
+ * Punctuators of more than one character that the scanner tells apart: `++`
+ * and `--` because a `/` after a postfix one divides, `?.` because it reaches
+ * a property as `.` does, and `...` because it spreads rather than reaching
+ * one.
+ */
+const LONG_PUNCTUATORS = ["...", "?.", "++", "--"] as const;
+
+/** A call to require whose closing parenthesis the scanner has yet to reach. */
+interface PendingCall {
+  /** The specifier, or null when the argument is not one plain literal. */
+  specifier: string | null;
+  /** Whether a method name could stand where the word is. */
+  mayBeMethod: boolean;
+  /** How many `/` the scanner had read as code when it reached the word. */
+  slashes: number;
+}
 
 /**
  * Every problem that would stop a package installing or loading, one English
@@ -254,6 +308,22 @@ function isHostPackage(specifier: string): boolean {
  * text or a regular expression is not a call, and neither is a method of that
  * name on some other object. `module.require` is the one exception, since it
  * is the same loader under another name.
+ *
+ * A method or accessor named require, `{ require(name) { ... } }`, reads like
+ * a call up to its closing parenthesis, and only the `{` after that tells the
+ * two apart. So a call is recorded when the scanner reaches its closing
+ * parenthesis rather than when it reads the word, which keeps the reading a
+ * single pass. Every doubt goes to the call, since a check that fails a
+ * method is better than one that passes a call:
+ *
+ * - The word must stand where a method name can, after `{`, `,`, `;`, `}`,
+ *   `static`, `get`, `set`, `async` or `*`. In
+ *   `class A extends require("x") {}` the `{` opens the class body.
+ * - The `{` must be on the same line: there a line break may be the end of a
+ *   statement.
+ * - No `/` may stand between the parentheses. The scanner can take a regular
+ *   expression for a division, and a `)` inside it would then close the call
+ *   early.
  */
 function requireCalls(source: string): {
   specifiers: string[];
@@ -261,6 +331,25 @@ function requireCalls(source: string): {
 } {
   const specifiers: string[] = [];
   let computed = false;
+  const record = (call: PendingCall | undefined): void => {
+    if (call === undefined) {
+      return;
+    } else if (call.specifier === null) {
+      computed = true;
+    } else {
+      specifiers.push(call.specifier);
+    }
+  };
+
+  /**
+   * A require whose parenthesis is the next one the scanner reaches, and the
+   * open parentheses, each with the require it opened, if it opened one.
+   */
+  let awaiting: PendingCall | undefined;
+  const parentheses: (PendingCall | undefined)[] = [];
+
+  /** How many `/` the scanner has read as a division or a regular expression. */
+  let slashes = 0;
 
   /** The last three words or punctuators seen, newest last. */
   const recent: string[] = [];
@@ -305,28 +394,47 @@ function requireCalls(source: string): {
       index = templateText(index + 1);
     } else if (char === "/" && startsExpression(previous(1))) {
       index = afterRegularExpression(source, index);
+      slashes += 1;
       remember("literal");
-    } else if (IDENTIFIER_START.test(char)) {
-      let end = index + 1;
-      while (
-        end < source.length &&
-        IDENTIFIER_PART.test(source[end] as string)
-      ) {
-        end += 1;
-      }
-      const word = source.slice(index, end);
-      if (word === "require" && isLoaderReference(previous)) {
-        const argument = requireArgument(source, end);
-        if (argument === "not-a-call") {
-          // `typeof require`, `require.resolve`: named, not called.
-        } else if (argument === null) {
-          computed = true;
-        } else {
-          specifiers.push(argument);
-        }
+    } else if (char === "#" && startsIdentifier(source, index + 1)) {
+      // A private name, `#require`, which is never the loader.
+      const identifier = afterIdentifier(source, index + 1);
+      remember(`#${identifier.name}`);
+      index = identifier.end;
+    } else if (startsIdentifier(source, index)) {
+      const { name: word, end } = afterIdentifier(source, index);
+      // `typeof require` and `require.resolve` name the loader without
+      // calling it, so they leave nothing awaiting.
+      const argument =
+        word === "require" && isLoaderReference(previous)
+          ? requireArgument(source, end)
+          : "not-a-call";
+      if (argument !== "not-a-call") {
+        awaiting = {
+          specifier: argument,
+          mayBeMethod: TOKENS_BEFORE_METHOD_NAME.has(previous(1) ?? ""),
+          slashes,
+        };
       }
       remember(word);
       index = end;
+    } else if (char === "(") {
+      parentheses.push(awaiting);
+      awaiting = undefined;
+      remember(char);
+      index += 1;
+    } else if (char === ")") {
+      const call = parentheses.pop();
+      const parameterList =
+        call !== undefined &&
+        call.mayBeMethod &&
+        call.slashes === slashes &&
+        opensBody(source, index + 1);
+      if (!parameterList) {
+        record(call);
+      }
+      remember(char);
+      index += 1;
     } else if (/[0-9]/.test(char)) {
       index += 1;
       while (index < source.length && /[\w.]/.test(source[index] as string)) {
@@ -344,12 +452,36 @@ function requireCalls(source: string): {
       } else if (char === "}") {
         depth -= 1;
       }
-      remember(source.startsWith("...", index) ? "..." : char);
-      index += source.startsWith("...", index) ? 3 : 1;
+      if (char === "/") {
+        slashes += 1;
+      }
+      const punctuator = longPunctuator(source, index) ?? char;
+      // `a++ / b` divides, `++/a/.lastIndex` does not: a postfix operator
+      // follows what could end an expression.
+      const postfix =
+        (punctuator === "++" || punctuator === "--") &&
+        !startsExpression(previous(1));
+      remember(postfix ? "postfix" : punctuator);
+      index += punctuator.length;
     }
   }
 
+  // A call whose parenthesis is left open is still counted.
+  for (const call of parentheses) {
+    record(call);
+  }
+
   return { specifiers, computed };
+}
+
+/** The multi-character punctuator starting at `from`, if there is one. */
+function longPunctuator(source: string, from: number): string | undefined {
+  return LONG_PUNCTUATORS.find(
+    (punctuator) =>
+      source.startsWith(punctuator, from) &&
+      // `a ?.5 : b` is a conditional, not an optional chain.
+      !(punctuator === "?." && /[0-9]/.test(source[from + 2] ?? "")),
+  );
 }
 
 /**
@@ -359,13 +491,27 @@ function requireCalls(source: string): {
 function isLoaderReference(
   previous: (back: number) => string | undefined,
 ): boolean {
+  const reachesProperty = (token: string | undefined): boolean =>
+    token === "." || token === "?.";
   if (previous(1) === "function") {
     return false;
   }
-  if (previous(1) !== ".") {
+  if (!reachesProperty(previous(1))) {
     return true;
   }
-  return previous(2) === "module" && previous(3) !== ".";
+  return previous(2) === "module" && !reachesProperty(previous(3));
+}
+
+/**
+ * Whether a `{` opening a function body follows the closing parenthesis just
+ * before `from` on the same line, which makes what that parenthesis closed a
+ * parameter list rather than a call's arguments.
+ */
+function opensBody(source: string, from: number): boolean {
+  const end = afterGap(source, from);
+  // Only the gap itself: searching on to the next line break would rescan the
+  // rest of a one-line bundle at every parenthesis.
+  return source[end] === "{" && !LINE_TERMINATOR.test(source.slice(from, end));
 }
 
 /** Whether a `/` after this token opens a regular expression. */
@@ -373,22 +519,88 @@ function startsExpression(token: string | undefined): boolean {
   if (token === undefined) {
     return true;
   }
-  if (token === "literal" || token === ")" || token === "]" || token === "}") {
+  if (TOKENS_BEFORE_DIVISION.has(token)) {
     return false;
   }
-  if (IDENTIFIER_START.test(token.charAt(0))) {
+  if (token.startsWith("#") || IDENTIFIER_START.test(token.charAt(0))) {
     return KEYWORDS_BEFORE_EXPRESSION.has(token);
   }
   return true;
 }
 
 /**
+ * Whether an identifier starts at `from`, spelled out or opening with a
+ * Unicode escape: `requ\u0069re` is the same name as `require`.
+ */
+function startsIdentifier(source: string, from: number): boolean {
+  const char = source[from];
+  return (
+    char !== undefined &&
+    (IDENTIFIER_START.test(char) || unicodeEscape(source, from) !== null)
+  );
+}
+
+/** Past the identifier starting at `from`, and its name with escapes read. */
+function afterIdentifier(
+  source: string,
+  from: number,
+): { end: number; name: string } {
+  // The name is sliced from the source up to the first escape, and built
+  // from there on.
+  let name: string | undefined;
+  let index = from;
+  while (index < source.length) {
+    const escape = unicodeEscape(source, index);
+    if (escape !== null) {
+      name = (name ?? source.slice(from, index)) + escape.char;
+      index = escape.end;
+    } else if (
+      index === from
+        ? IDENTIFIER_START.test(source[index] as string)
+        : IDENTIFIER_PART.test(source[index] as string)
+    ) {
+      if (name !== undefined) {
+        name += source[index] as string;
+      }
+      index += 1;
+    } else {
+      break;
+    }
+  }
+  return { end: index, name: name ?? source.slice(from, index) };
+}
+
+/** The `\uXXXX` or `\u{X}` escape at `from`: the character, and past it. */
+function unicodeEscape(
+  source: string,
+  from: number,
+): { char: string; end: number } | null {
+  if (source[from] !== "\\") {
+    return null;
+  }
+  UNICODE_ESCAPE.lastIndex = from;
+  const match = UNICODE_ESCAPE.exec(source);
+  const code =
+    match === null
+      ? Number.NaN
+      : Number.parseInt(match[1] ?? match[2] ?? "", 16);
+  if (match === null || code > 0x10ffff) {
+    return null;
+  }
+  return { char: String.fromCodePoint(code), end: from + match[0].length };
+}
+
+/**
  * What a `require` is called with, read from just after the word: the
  * specifier when it is one plain string literal and nothing else, null when
- * it is anything else, and "not-a-call" when no parenthesis follows.
+ * it is anything else, and "not-a-call" when no parenthesis follows. An
+ * optional call, `require?.(name)`, is a call.
  */
 function requireArgument(source: string, from: number): string | null {
   let index = afterGap(source, from);
+  if (longPunctuator(source, index) === "?.") {
+    index = afterGap(source, index + 2);
+  }
   if (source[index] !== "(") {
     return "not-a-call";
   }
@@ -429,8 +641,9 @@ function afterGap(source: string, from: number): number {
 /** Past the comment starting at `from`, which is a `/` followed by `/` or `*`. */
 function afterComment(source: string, from: number): number {
   if (source[from + 1] === "/") {
-    const end = source.indexOf("\n", from + 2);
-    return end === -1 ? source.length : end + 1;
+    NEXT_LINE_TERMINATOR.lastIndex = from + 2;
+    const end = NEXT_LINE_TERMINATOR.exec(source);
+    return end === null ? source.length : end.index + 1;
   }
   const end = source.indexOf("*/", from + 2);
   return end === -1 ? source.length : end + 2;
@@ -440,6 +653,8 @@ function afterComment(source: string, from: number): number {
  * Past the string literal opening at `from`, and whether it was plain: no
  * escape inside it, and closed on the line it opened on. An unclosed string
  * ends at the line break, so a misread quote costs one line at most.
+ *
+ * Only CR and LF end a string: U+2028 and U+2029 may stand inside one.
  */
 function afterString(
   source: string,
@@ -452,10 +667,11 @@ function afterString(
     const char = source[index];
     if (char === "\\") {
       plain = false;
-      index += 2;
+      // A backslash before CRLF continues the string onto the next line.
+      index += source.startsWith("\r\n", index + 1) ? 3 : 2;
     } else if (char === quote) {
       return { end: index + 1, plain };
-    } else if (char === "\n") {
+    } else if (char === "\n" || char === "\r") {
       return { end: index, plain: false };
     } else {
       index += 1;
@@ -490,13 +706,17 @@ function afterRegularExpression(source: string, from: number): number {
   let index = from + 1;
   let inClass = false;
   while (index < source.length) {
-    const char = source[index];
+    const char = source[index] as string;
+    if (LINE_TERMINATOR.test(char)) {
+      return index;
+    }
     if (char === "\\") {
+      // Not even an escaped line break continues a regular expression.
+      if (LINE_TERMINATOR.test(source[index + 1] ?? "")) {
+        return index + 1;
+      }
       index += 2;
       continue;
-    }
-    if (char === "\n") {
-      return index;
     }
     if (char === "[") {
       inClass = true;
