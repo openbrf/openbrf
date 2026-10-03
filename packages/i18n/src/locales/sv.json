@@ -2222,7 +2222,8 @@
       "transferReferenceRequired": "Ange en hänvisning till avtalet. Utdraget ur lägenhetsförteckningen anger en för varje upplåtelse och varje överlåtelse, och posten går inte att ta bort när den väl är registrerad.",
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "dateNotACalendarDate": "Datumet finns inte i kalendern. Kontrollera dag och månad.",
-      "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
+      "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris anges i kronor med högst två decimaler.",
+      "priceNotAnAmount": "Ange priset i kronor, med högst två decimaler, till exempel 2 150 000,50.",
       "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
       "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
@@ -3397,7 +3398,7 @@
       "booking": "Bokar...",
       "booked": "Bokningen är gjord.",
       "bookStay": "Boka vistelsen",
-      "stayNeedsCheckOut": "Ankomst {{from}}. Välj vilken dag du reser.",
+      "stayNeedsCheckOut": "Ankomst {{from}}. Välj din sista natt, eller samma natt igen om du bara stannar en.",
       "stayChosen": "Ankomst {{from}}, avresa {{to}}."
     },
     "mine": {
@@ -3439,6 +3440,8 @@
       "apartmentNotFound": "Lägenheten är inte din under den period du bokar. Välj igen.",
       "bookingNotFound": "Bokningen finns inte längre. Listan har lästs om.",
       "alreadyCancelled": "Bokningen är redan avbokad, så det finns inget att avboka.",
+      "bookingStarted": "Bokningen har redan börjat, så den går inte längre att avboka.",
+      "bookingEnded": "Bokningen är redan slut, så det finns inget kvar att avboka.",
       "rangeInvalid": "De dagarna går inte att hämta en kalender för. Ladda om sidan.",
       "unknown": "Det gick inte just nu. Försök igen."
     }
@@ -3554,6 +3557,7 @@
       "withdrawNamed": "Återkalla ansökan för {{from}} till {{to}}",
       "withdrawing": "Återkallar ...",
       "closedOn": "Styrelsen svarade den {{date}}.",
+      "withdrawnOn": "Du återkallade den {{date}}.",
       "boardSaid": "Styrelsen skrev: {{note}}",
       "tribunalAvailable": "Styrelsen har vägrat. Du får ändå upplåta lägenheten om hyresnämnden lämnar tillstånd (bostadsrättslagen 7 kap. 11 §). Berätta för styrelsen om den gör det, så att föreningens egen anteckning stämmer.",
       "tribunalPermitted": "Hyresnämnden lämnade tillstånd den {{on}}, till och med {{until}}. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
@@ -3642,6 +3646,7 @@
       "withdrawing": "Återkallar ...",
       "handedOverOn": "Utlämnad den {{date}}.",
       "closedOn": "Styrelsen svarade den {{date}}.",
+      "withdrawnOn": "Du återkallade den {{date}}.",
       "boardSaid": "Styrelsen skrev: {{note}}"
     },
     "queue": {
@@ -3814,7 +3819,7 @@
       "occurrenceInUse": "Någon har anmält sig till tillfällen som ändringen skulle flytta eller ta bort. Ställ in dem, eller avanmäl deltagarna, först:",
       "occurrenceAlreadyCancelled": "Tillfället är redan inställt, så det finns inget att ställa in.",
       "occurrenceNotCancelled": "Tillfället var inte inställt, så det finns inget att återuppta.",
-      "occurrenceAlreadyBegun": "Tillfället har redan börjat och kan inte återupptas. Det blev inte av, och kalendern kan inte i efterhand säga att det blev det.",
+      "occurrenceAlreadyBegun": "Tillfället har redan börjat och kan inte längre ställas in eller återupptas. Kalendern behåller det som hände som det var.",
       "rangeInvalid": "Kalendern läses två månader i taget, och slutet måste ligga på eller efter början. Använd tidigare och senare för att flytta perioden.",
       "signupNotOffered": "Det evenemanget har ingen anmälan.",
       "occurrenceCancelled": "Styrelsen har ställt in tillfället, så det går inte att anmäla sig.",
@@ -4049,6 +4054,7 @@
       "agendaItemNotFound": "Den dagordningspunkten finns inte längre. Läs stämman igen.",
       "meetingAlreadyHeld": "Den här stämman är antecknad som hållen och kan därför inte längre ändras.",
       "meetingNotHeld": "Den här stämman är inte antecknad som hållen än, så ingenting kan antecknas på den.",
+      "meetingDayInTheFuture": "Den här stämmans dag har inte kommit än, så den kan inte antecknas som hållen.",
       "noticeAlreadyIssued": "Kallelsen till den här stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §); botemedlet är en extra föreningsstämma.",
       "meetingHasNoAgenda": "En kallelse anger vilka ärenden stämman ska behandla, och den här stämman har inga. Skriv dagordningen först.",
       "noticeTimeNotOnTheMeetingDay": "Den tiden infaller inte på stämmans dag. Klockan hoppar över en timme när sommartiden börjar.",
@@ -4056,15 +4062,18 @@
       "notAMemberOnTheMeetingDay": "Medlemsförteckningen visar inte den här personen som medlem på stämmans dag, så hen har ingen rösträtt på den.",
       "proxyHolderHoldsNoAuthority": "Den här personen har ingen gällande fullmakt för den här stämman. Registrera fullmakten först.",
       "assistantPrincipalNotPresent": "Ett biträde tas med av en medlem eller ett ombud, och den angivna personen står inte på förteckningen. Pricka av hen först.",
+      "assistantAlreadyPresent": "Medlemmen eller ombudet har redan ett biträde på förteckningen, och var och en får ta med ett (EFL 6 kap. 7 §). Stryk det biträdet från förteckningen först.",
+      "assistantIsTheirOwnPrincipal": "Ingen kan vara sitt eget biträde. Ange den medlem eller det ombud som tog med hen.",
       "attendancePrincipalNotApplicable": "Bara ett biträde tas med av någon. Lämna det fältet ifred för en medlem eller ett ombud.",
       "attendanceNotFound": "Den raden står inte längre på förteckningen. Läs stämman igen.",
       "proxyHolderNotAMember": "Bara en annan medlem får vara ombud, och medlemsförteckningen visar inte den här personen som medlem på stämmans dag.",
       "proxyHolderNotPermittedByBylaws": "Stadgarna tillåter inte någon utanför medlemmens make, maka eller sambo eller en annan medlem att ha fullmakt. Anteckna klausulen i inställningarna om de gör det.",
       "proxyHolderLimitReached": "Den här personen företräder redan så många medlemmar som stadgarna tillåter på den här stämman.",
+      "proxyHolderIsTheMember": "En medlem kan inte vara sitt eget ombud. Ett ombud företräder en medlem som inte själv är närvarande (EFL 6 kap. 4 §).",
       "proxyAuthorisationNotFound": "Den fullmakten är inte längre registrerad för den här stämman. Läs stämman igen.",
       "invalidBody": "Formuläret skickade något servern inte kunde läsa. Kontrollera fälten och försök igen.",
       "unknown": "Det gick inte att göra. Försök igen.",
-      "proxyAuthorisationNotYetIssued": "Fullmakten är daterad efter stämmans dag. En medlem kan inte ha skrivit under en dag som inte har kommit.",
+      "proxyAuthorisationNotYetIssued": "Fullmakten är daterad efter i dag eller efter stämmans dag. En medlem kan inte ha skrivit under en dag som inte har kommit.",
       "proxyAuthorisationExpired": "Fullmakten är mer än ett år äldre än stämman. En fullmakt gäller högst ett år från den dag medlemmen skrev under den (EFL 6 kap. 4 §)."
     },
     "kind": {
@@ -4101,6 +4110,7 @@
     "maskedApartment": "Skyddad, skrivs inte ut",
     "apartmentItself": "Lägenheten",
     "remove": "Ta bort",
+    "removeConfirm": "Ta bort debiteringen daterad {{chargedOn}}, {{reason}}? Den försvinner ur debiteringslängden och ingenting här lägger tillbaka den.",
     "stamp": "Debiteringslängd - {{from}} till {{to}} - framställd {{date}}",
     "total": "Summa {{total}} kr",
     "period": {
@@ -4158,6 +4168,15 @@
       "saving": "Registrerar",
       "saved": "Debiteringen är registrerad."
     },
+    "correct": {
+      "action": "Rätta",
+      "heading": "Rätta en debitering",
+      "description": "Debiteringen rättas där den står, och loggen visar vad som ändrades. Vem som debiteras går inte att ändra: har fel part debiterats tar ni bort debiteringen och registrerar en ny.",
+      "submit": "Spara rättelsen",
+      "saving": "Sparar rättelsen",
+      "saved": "Debiteringen är rättad.",
+      "cancel": "Avbryt"
+    },
     "errors": {
       "notFound": "Debiteringen finns inte längre.",
       "personNotFound": "Registret innehåller inte den personen.",
@@ -4169,7 +4188,7 @@
       "personalIdentityNumberCount_other": "{{count}} nummer hittades i texten.",
       "dateNotACalendarDate": "Det är inget datum.",
       "dateInTheFuture": "En debitering kan inte dateras framåt i tiden.",
-      "amountNotASum": "Ange beloppet i kronor, med högst två decimaler och utan tusentalsavgränsare.",
+      "amountNotASum": "Ange beloppet i kronor, med högst två decimaler.",
       "amountNotPositive": "En debitering är ett positivt belopp. En kreditering görs i bokföringssystemet.",
       "reasonRequired": "Ange vad debiteringen avser.",
       "vatRateRequired": "Ange satsen för en debitering som bär moms.",
@@ -4224,6 +4243,7 @@
     "amountWithUnit": "{{amount}} kr",
     "stamp": "Avgiftsregister - gäller {{date}} - {{total}} kr per månad",
     "remove": "Ta bort",
+    "removeConfirm": "Ta bort {{kind}} för {{apartment}}? Avgiften försvinner ur registret och ingenting här lägger tillbaka den.",
     "removeNamed": "Ta bort {{kind}} för {{apartment}}",
     "empty": {
       "title": "Inga lägenheter i registret",
@@ -4290,6 +4310,7 @@
       "download": "Hämta filen",
       "notAnInvoice": "Avin är inte en faktura. En årsavgift är undantagen från moms (ML 10 kap. 35 §); en momspliktig rad kräver en riktig faktura, som Open BRF inte framställer.",
       "documentTitle": "Avier",
+      "documentPeriod": "Avier för {{from}} till {{to}}, framställda {{issuedOn}}. Förfallodag {{dueOn}}.",
       "column": {
         "period": "Period",
         "dueOn": "Förfallodag",
@@ -4297,8 +4318,11 @@
         "total": "Summa",
         "actions": "Åtgärder"
       },
-      "payTo": "Betalas till {{bankgiro}}.",
-      "noGiro": "gironummer saknas i inställningarna"
+      "print": "Skriv ut avierna",
+      "close": "Stäng avierna",
+      "payToBankgiro": "Betalas till bankgiro {{number}}.",
+      "payToPlusgiro": "Betalas till plusgiro {{number}}.",
+      "noGiro": "Inget bankgiro eller plusgiro är registrerat i inställningarna."
     },
     "notice": {
       "column": {

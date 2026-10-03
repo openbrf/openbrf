@@ -999,6 +999,71 @@ describe("the purge", () => {
     await prisma.motion.deleteMany({ where: { id: open } });
   });
 
+  it("keeps an acknowledged motion until the meeting it is on has been held", async () => {
+    /*
+     * A motion closes when the board acknowledges it, which is ordinarily
+     * before the meeting takes it up. Neither the window nor a granted erasure
+     * request may take it off that meeting's agenda before the meeting has been
+     * held; once it has, both reach it as they reach any closed motion.
+     */
+    const meeting = await prisma.meeting.create({
+      data: { kind: "ORDINARY", heldOn: new Date("2027-05-20T00:00:00.000Z") },
+      select: { id: true },
+    });
+    const pending = `mo-purge-pending-${suffix}`;
+    await seedMotion({
+      id: pending,
+      personId: member.personId,
+      closedAt: daysBefore(RETENTION_DAYS + 5),
+      status: "ACKNOWLEDGED",
+    });
+    await prisma.motion.update({
+      where: { id: pending },
+      data: { meetingId: meeting.id },
+    });
+
+    try {
+      await expect(
+        purge.purgePerson(member.personId, NOW, RETENTION_DAYS),
+      ).resolves.toBe(0);
+
+      await prisma.dataSubjectRequest.create({
+        data: {
+          personId: member.personId,
+          kind: "ERASURE",
+          requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+          ground: "Jag vill inte finnas kvar hos foreningen.",
+          erasureGround: "NO_LONGER_NECESSARY",
+          decision: "GRANTED",
+          erasureException: "NONE",
+          decisionGround: "Inget lagligt krav hindrar radering.",
+          decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+          decidedByPersonId: board.personId,
+        },
+      });
+      await expect(
+        purge.purgePerson(member.personId, NOW, RETENTION_DAYS),
+      ).resolves.toBe(0);
+      expect(
+        await prisma.motion.findUnique({ where: { id: pending } }),
+      ).not.toBeNull();
+
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: { concludedAt: new Date() },
+      });
+      await expect(
+        purge.purgePerson(member.personId, NOW, RETENTION_DAYS),
+      ).resolves.toBe(1);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: member.personId },
+      });
+      await prisma.motion.deleteMany({ where: { id: pending } });
+      await prisma.meeting.deleteMany({ where: { id: meeting.id } });
+    }
+  });
+
   it("records the erasure with a count and no title", async () => {
     const erasable = `mo-purge-audited-${suffix}`;
     await seedMotion({

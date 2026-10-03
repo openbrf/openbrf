@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { BoardRosterService } from "../board/board-roster.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
@@ -542,6 +543,45 @@ describe("a board roster on a page anybody can open", () => {
     expect(forMember).toContain(CONSENTED_SURNAME);
     expect(forMember).not.toContain(SILENT_SURNAME);
     expect(forMember).not.toContain(PROTECTED_SURNAME);
+  });
+
+  it("names the board that holds its seats on the association's day", async () => {
+    /*
+     * The election date is the first day a seat is held and the end date the
+     * first day it is not (ADR 0014), and the day is the association's own
+     * (ADR 0013). Asked at an instant that is the 21st in UTC and the 22nd
+     * here, so a roster that read either end on the UTC day would publish a
+     * seat that ended today and leave out one that began today.
+     */
+    const at = new Date("2026-06-21T22:30:00.000Z");
+    const roster = app.get(BoardRosterService);
+    const seatedFrom = async (
+      electedOn: string,
+      endedOn: string | null,
+    ): Promise<boolean> => {
+      await prisma.boardPosition.updateMany({
+        where: { personId: boardMember.personId },
+        data: {
+          electedOn: new Date(electedOn),
+          endedOn: endedOn === null ? null : new Date(endedOn),
+        },
+      });
+      return (await roster.published(at)).some((entry) =>
+        entry.name.includes(CONSENTED_SURNAME),
+      );
+    };
+
+    try {
+      expect(await seatedFrom("2026-01-01", "2026-06-22")).toBe(false);
+      expect(await seatedFrom("2026-01-01", "2026-06-23")).toBe(true);
+      expect(await seatedFrom("2026-06-23", null)).toBe(false);
+      expect(await seatedFrom("2026-06-22", null)).toBe(true);
+    } finally {
+      await prisma.boardPosition.updateMany({
+        where: { personId: boardMember.personId },
+        data: { electedOn: new Date("2026-01-01"), endedOn: null },
+      });
+    }
   });
 });
 

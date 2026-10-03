@@ -2222,7 +2222,8 @@
       "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every grant and every transfer, and the record cannot be removed once written.",
       "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
       "dateNotACalendarDate": "That date is not on the calendar. Check the day and the month.",
-      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
+      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is stated in kronor with at most two decimal places.",
+      "priceNotAnAmount": "State the price in kronor, with at most two decimal places, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
       "unknown": "That could not be saved just now. Please try again."
@@ -3397,7 +3398,7 @@
       "booking": "Booking...",
       "booked": "The booking is made.",
       "bookStay": "Book the stay",
-      "stayNeedsCheckOut": "Check-in {{from}}. Choose the day you leave.",
+      "stayNeedsCheckOut": "Check-in {{from}}. Choose your last night, or the same night again for a one-night stay.",
       "stayChosen": "Check-in {{from}}, check-out {{to}}."
     },
     "mine": {
@@ -3439,6 +3440,8 @@
       "apartmentNotFound": "That apartment is not one you hold for the period you are booking. Choose again.",
       "bookingNotFound": "That booking is gone. The list has been read again.",
       "alreadyCancelled": "That booking is already cancelled, so there is nothing to cancel.",
+      "bookingStarted": "That booking has already begun, so it can no longer be cancelled.",
+      "bookingEnded": "That booking has already ended, so there is nothing left to cancel.",
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
     }
@@ -3554,6 +3557,7 @@
       "withdrawNamed": "Withdraw the application for {{from}} to {{to}}",
       "withdrawing": "Withdrawing...",
       "closedOn": "The board answered this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}.",
       "boardSaid": "The board wrote: {{note}}",
       "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
       "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
@@ -3642,6 +3646,7 @@
       "withdrawing": "Withdrawing...",
       "handedOverOn": "Handed over on {{date}}.",
       "closedOn": "The board answered this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}.",
       "boardSaid": "The board wrote: {{note}}"
     },
     "queue": {
@@ -3814,7 +3819,7 @@
       "occurrenceInUse": "People have signed up to dates this change would move or remove. Call those dates off, or stand their sign-ups down, first:",
       "occurrenceAlreadyCancelled": "That date is already called off, so there is nothing to call off.",
       "occurrenceNotCancelled": "That date was not called off, so there is nothing to reinstate.",
-      "occurrenceAlreadyBegun": "That date has already begun, so it cannot be reinstated. It did not go ahead, and the calendar cannot say afterwards that it did.",
+      "occurrenceAlreadyBegun": "That date has already begun, so it can no longer be called off or reinstated. The calendar keeps what happened as it was.",
       "rangeInvalid": "The calendar is read two months at a time, ending on or after it begins. Use earlier and later to move the period.",
       "signupNotOffered": "That event takes no sign-ups.",
       "occurrenceCancelled": "The board has called that date off, so it takes no sign-ups.",
@@ -4049,6 +4054,7 @@
       "agendaItemNotFound": "That agenda item no longer exists. Read the meeting again.",
       "meetingAlreadyHeld": "This meeting has been recorded as held, so it can no longer be changed.",
       "meetingNotHeld": "This meeting has not been recorded as held yet, so nothing can be minuted on it.",
+      "meetingDayInTheFuture": "This meeting's day has not come yet, so it cannot be recorded as held.",
       "noticeAlreadyIssued": "The notice for this meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §); the remedy is an extra general meeting.",
       "meetingHasNoAgenda": "A notice states the matters the meeting is to deal with, and this meeting has none. Write the agenda first.",
       "noticeTimeNotOnTheMeetingDay": "That time does not fall on the day of the meeting. The clock skips an hour when summer time begins.",
@@ -4056,15 +4062,18 @@
       "notAMemberOnTheMeetingDay": "The member register does not show this person as a member on the day of this meeting, so they have no vote at it.",
       "proxyHolderHoldsNoAuthority": "This person holds no current authority for this meeting. Register the proxy authorisation first.",
       "assistantPrincipalNotPresent": "An assistant is brought by a member or a proxy holder, and the person named is not on the list. Check them in first.",
+      "assistantAlreadyPresent": "The member or proxy holder named already has an assistant on the list, and each may bring one (EFL 6 kap. 7 §). Strike that assistant off the list first.",
+      "assistantIsTheirOwnPrincipal": "Nobody can be their own assistant. Name the member or proxy holder who brought them.",
       "attendancePrincipalNotApplicable": "Only an assistant is brought by somebody. Leave that field alone for a member or a proxy holder.",
       "attendanceNotFound": "That line is no longer on the list. Read the meeting again.",
       "proxyHolderNotAMember": "Only another member may be a proxy holder, and the member register does not show this person as one on the day of this meeting.",
       "proxyHolderNotPermittedByBylaws": "The bylaws do not let anybody outside the member's spouse or cohabitant or another member hold an authority. Record the clause in settings if they do.",
       "proxyHolderLimitReached": "This person already represents as many members as the bylaws allow at this meeting.",
+      "proxyHolderIsTheMember": "A member cannot be their own proxy holder. A proxy holder acts for a member who is not there themselves (EFL 6 kap. 4 §).",
       "proxyAuthorisationNotFound": "That authority is no longer registered for this meeting. Read the meeting again.",
       "invalidBody": "The form sent something the server could not read. Check the fields and try again.",
       "unknown": "That could not be done. Try again.",
-      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after the day of the meeting. A member cannot have signed on a day that has not arrived.",
+      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after today or after the day of the meeting. A member cannot have signed on a day that has not arrived.",
       "proxyAuthorisationExpired": "The proxy authorisation is more than a year older than the meeting. One is good for at most a year from the day the member signed it (EFL 6 kap. 4 §)."
     },
     "kind": {
@@ -4101,6 +4110,7 @@
     "maskedApartment": "Protected, not printed",
     "apartmentItself": "The apartment",
     "remove": "Remove",
+    "removeConfirm": "Remove the charge dated {{chargedOn}}, {{reason}}? It leaves the debiting list, and nothing here puts it back.",
     "stamp": "Debiting list - {{from}} to {{to}} - produced {{date}}",
     "total": "Total {{total}} kr",
     "period": {
@@ -4158,6 +4168,15 @@
       "saving": "Recording",
       "saved": "The charge is recorded."
     },
+    "correct": {
+      "action": "Correct",
+      "heading": "Correct a charge",
+      "description": "The charge is corrected where it stands, and the log shows what changed. Who is charged cannot be changed: if the wrong party was charged, remove the charge and record a new one.",
+      "submit": "Save the correction",
+      "saving": "Saving the correction",
+      "saved": "The charge is corrected.",
+      "cancel": "Cancel"
+    },
     "errors": {
       "notFound": "That charge no longer exists.",
       "personNotFound": "The register does not hold that person.",
@@ -4169,7 +4188,7 @@
       "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
       "dateNotACalendarDate": "That is not a date.",
       "dateInTheFuture": "A charge cannot be dated ahead of today.",
-      "amountNotASum": "State the amount in kronor, with at most two decimal places and no thousands separator.",
+      "amountNotASum": "State the amount in kronor, with at most two decimal places.",
       "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
       "reasonRequired": "State what the charge is for.",
       "vatRateRequired": "State the rate for a charge that carries VAT.",
@@ -4224,6 +4243,7 @@
     "amountWithUnit": "{{amount}} kr",
     "stamp": "Fee register - as it stands on {{date}} - {{total}} kr per month",
     "remove": "Remove",
+    "removeConfirm": "Remove {{kind}} for {{apartment}}? The fee leaves the register, and nothing here puts it back.",
     "removeNamed": "Remove {{kind}} for {{apartment}}",
     "empty": {
       "title": "No apartments in the register",
@@ -4290,6 +4310,7 @@
       "download": "Download the file",
       "notAnInvoice": "A notice is not an invoice. An annual fee is exempt from value added tax (ML 10 kap. 35 §); a taxable line needs a real invoice, which Open BRF does not produce.",
       "documentTitle": "Fee notices",
+      "documentPeriod": "Notices for {{from}} to {{to}}, produced {{issuedOn}}. Due date {{dueOn}}.",
       "column": {
         "period": "Period",
         "dueOn": "Due date",
@@ -4297,8 +4318,11 @@
         "total": "Total",
         "actions": "Actions"
       },
-      "payTo": "Paid to {{bankgiro}}.",
-      "noGiro": "no giro number in the settings"
+      "print": "Print the notices",
+      "close": "Close the notices",
+      "payToBankgiro": "Paid to bankgiro {{number}}.",
+      "payToPlusgiro": "Paid to plusgiro {{number}}.",
+      "noGiro": "No bankgiro or plusgiro is recorded in the settings."
     },
     "notice": {
       "column": {

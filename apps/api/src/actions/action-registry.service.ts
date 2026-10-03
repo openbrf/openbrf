@@ -29,6 +29,10 @@ import {
 } from "../auth/resource-challenge";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
+import {
+  DENIED_ACTION_CAPABILITIES,
+  DENIED_NAME_PATTERNS,
+} from "./action-denylist";
 import { ActionError, type ActionErrorReason } from "./action.error";
 
 /**
@@ -130,6 +134,29 @@ export class ActionRegistryService {
     this.assertNameFree(definition.name);
     for (const alias of definition.deprecatedAliases ?? []) {
       this.assertNameFree(alias);
+    }
+
+    if (owner.kind === "core") {
+      /*
+       * Beslutslogg 64, refused at registration rather than only by the
+       * contract test over the catalogue. A plugin's declaration is refused
+       * earlier, by the gate (plugin-action-gate.ts), where the board reads
+       * the finding; a core action passes through no gate but this one.
+       */
+      if (
+        (DENIED_ACTION_CAPABILITIES as readonly string[]).includes(
+          definition.capability,
+        )
+      ) {
+        throw new Error(
+          `${definition.name}: "${definition.capability}" is a capability no action may hold.`,
+        );
+      }
+      if (DENIED_NAME_PATTERNS.test(definition.name)) {
+        throw new Error(
+          `${definition.name}: the name describes an act no action may perform.`,
+        );
+      }
     }
 
     // Converted here, at registration, rather than when something asks for the
@@ -262,6 +289,17 @@ export class ActionRegistryService {
       : (this.actions.get(canonical) ?? null);
   }
 
+  /**
+   * Everything registered, aliases aside, with no caller in mind.
+   *
+   * For the contract test over the catalogue, which has to see an action that
+   * nobody added to its pinned list. Never served: list() is what a caller is
+   * offered.
+   */
+  all(): RegisteredAction[] {
+    return [...this.actions.values()];
+  }
+
   inputJsonSchema(name: string): Record<string, unknown> {
     const held = this.require(name);
     return actionInputJsonSchema(held.definition.input, name);
@@ -359,8 +397,14 @@ export class ActionRegistryService {
           return true;
         }
         // Against the surface actually being listed, so a listing of "mcp"
-        // answers what a connected app could really be asked to do.
-        return permits(states.get(held.owner.pluginId) ?? null, held, surface);
+        // answers what a connected app could really be asked to do, and
+        // against the floor invoke() holds a caller to at step 9.
+        const state = states.get(held.owner.pluginId) ?? null;
+        return (
+          permits(state, held, surface) &&
+          state !== null &&
+          holdsCapability(principal, state.capabilityFloor)
+        );
       })
       .map((held) => summarise(held.definition, translate));
 
@@ -406,12 +450,26 @@ export class ActionRegistryService {
       );
     }
 
-    // 4. And whether an administrator has switched it on, for a plugin's.
-    // Read here once and used again at step 9, so one call costs one lookup.
+    // 4. And, for a plugin's, whether the plugin is serving and an
+    // administrator has switched the action on. Read here once and used again
+    // at step 9, so one call costs one lookup. A plugin that is not serving is
+    // answered with a 404 like an unknown name, so the refusal does not
+    // confirm that the action exists.
     const pluginState =
       held.owner.kind === "plugin"
         ? ((await this.liveness?.get(held.owner.pluginId)) ?? null)
         : null;
+    if (
+      held.owner.kind === "plugin" &&
+      (pluginState === null || !pluginState.serving)
+    ) {
+      throw this.refuse(
+        resolved,
+        definition.name,
+        "not-serving",
+        "No such action.",
+      );
+    }
     if (!permits(pluginState, held, surface)) {
       throw this.refuse(
         resolved,
@@ -483,23 +541,16 @@ export class ActionRegistryService {
 
     // 9. For a plugin's action, the floor its own routes demand, so an action
     // is never reachable by a caller the plugin's routes would refuse.
-    if (held.owner.kind === "plugin") {
-      if (pluginState === null || !pluginState.serving) {
-        throw this.refuse(
-          resolved,
-          definition.name,
-          "not-serving",
-          "No such action.",
-        );
-      }
-      if (!holdsCapability(principal, pluginState.capabilityFloor)) {
-        throw this.refuse(
-          resolved,
-          definition.name,
-          "forbidden-capability",
-          "This person may not do that.",
-        );
-      }
+    if (
+      pluginState !== null &&
+      !holdsCapability(principal, pluginState.capabilityFloor)
+    ) {
+      throw this.refuse(
+        resolved,
+        definition.name,
+        "forbidden-capability",
+        "This person may not do that.",
+      );
     }
 
     // 10. The input. The standard entry point RETURNS its issues rather than

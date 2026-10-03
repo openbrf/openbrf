@@ -1,14 +1,18 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  compareLocalDays,
   dateColumnOf,
   formatLocalDay,
+  localDayOf,
   localDayOfColumn,
   parseLocalDay,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+// The namespace as a value, not only as a type: the check-in below reads a
+// Prisma error class.
+import { Prisma } from "../generated/prisma/client";
 
 import type {
   AttendanceCapacity,
@@ -329,18 +333,43 @@ export class MeetingService {
    * fact about a day that has passed. Conditional on the meeting still being
    * open, so two board members clicking the same button produce one close and
    * the loser is answered exactly as a read would have answered them.
+   *
+   * Refused before the meeting day, compared as calendar dates (ADR 0013): no
+   * route reopens a meeting, so a conclusion recorded early by mistake would
+   * close its agenda, check-in and notice for good.
+   *
+   * Under the agenda lock, because issuing the notice and putting a motion to
+   * the meeting decide on a read of the meeting under that key and never lock
+   * its row; every other writer here is held off by the row lock
+   * {@link requireMeeting} takes. Taken before the row, which is the order
+   * those writers take them in, and it also queues a second conclusion behind
+   * the first rather than letting both hold the row and deadlock on it.
    */
   async conclude(
     meetingId: string,
     actorPersonId: string,
   ): Promise<MeetingSummaryView> {
     return this.prisma.$transaction(async (tx) => {
+      await lockMeetingAgenda(tx, meetingId);
+      const existing = await this.requireMeeting(tx, meetingId);
+      this.refuseIfHeld(existing);
+      if (
+        compareLocalDays(
+          localDayOfColumn(existing.heldOn),
+          localDayOf(new Date()),
+        ) > 0
+      ) {
+        throw new MeetingError(
+          "This meeting's day has not come yet.",
+          "meeting-day-in-the-future",
+        );
+      }
+
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, concludedAt: null },
         data: { concludedAt: new Date() },
       });
       if (count === 0) {
-        await this.requireMeeting(tx, meetingId);
         throw new MeetingError(
           "This meeting has already been recorded as held.",
           "meeting-already-held",
@@ -464,7 +493,7 @@ export class MeetingService {
    * An ASSISTANT line requires the member or proxy holder they came with to be
    * on the list already. EFL 6 kap. 7 § has a member or a proxy holder bring
    * the assistant, so an assistant with nobody there to have brought them is
-   * not one. At most one per principal, which the database states.
+   * not one. At most one per principal, which the database also states.
    *
    * Nothing else may carry `onBehalfOfPersonId`, which the database also
    * states. A member is nobody's stand-in and a proxy holder's principals are
@@ -496,6 +525,13 @@ export class MeetingService {
           "attendance-principal-not-applicable",
         );
       }
+      // The table refuses it too, and would answer with a 500.
+      if (onBehalfOfPersonId === input.personId) {
+        throw new MeetingError(
+          "Nobody is their own assistant.",
+          "assistant-is-their-own-principal",
+        );
+      }
 
       if (input.capacity === "MEMBER") {
         await this.requireMemberOn(tx, input.personId, meeting.heldOn, {
@@ -507,29 +543,62 @@ export class MeetingService {
       }
       if (input.capacity === "ASSISTANT") {
         await this.requirePrincipalPresent(tx, meetingId, onBehalfOfPersonId);
+        /*
+         * Asked before the partial index answers, so the refusal names the
+         * rule. This person's own line is left out, because recording them
+         * again with the same principal updates that line rather than adding
+         * a second assistant.
+         */
+        const assistants = await tx.meetingAttendance.count({
+          where: {
+            meetingId,
+            capacity: "ASSISTANT",
+            onBehalfOfPersonId,
+            withdrawnAt: null,
+            personId: { not: input.personId },
+          },
+        });
+        if (assistants > 0) {
+          throw secondAssistant();
+        }
       }
 
-      const attendance = await tx.meetingAttendance.upsert({
-        where: {
-          meetingId_personId_capacity: {
+      const attendance = await tx.meetingAttendance
+        .upsert({
+          where: {
+            meetingId_personId_capacity: {
+              meetingId,
+              personId: input.personId,
+              capacity: input.capacity,
+            },
+          },
+          create: {
             meetingId,
             personId: input.personId,
             capacity: input.capacity,
+            mode: input.mode,
+            onBehalfOfPersonId,
           },
-        },
-        create: {
-          meetingId,
-          personId: input.personId,
-          capacity: input.capacity,
-          mode: input.mode,
-          onBehalfOfPersonId,
-        },
-        // A line struck off and taken up again is the same line with its date
-        // cleared, so the board's list does not grow a second row for one
-        // person in one capacity.
-        update: { mode: input.mode, onBehalfOfPersonId, withdrawnAt: null },
-        select: ATTENDANCE_COLUMNS,
-      });
+          // A line struck off and taken up again is the same line with its date
+          // cleared, so the board's list does not grow a second row for one
+          // person in one capacity.
+          update: { mode: input.mode, onBehalfOfPersonId, withdrawnAt: null },
+          select: ATTENDANCE_COLUMNS,
+        })
+        .catch((cause: unknown) => {
+          // The count above narrows the window and the partial index closes
+          // it: two assistants for one principal checked in at once both pass
+          // the count, and the second write raises P2002 on that index. A
+          // collision on any other key is not a second assistant, and telling
+          // the board to strike one off would name the person they are adding.
+          if (
+            input.capacity === "ASSISTANT" &&
+            violatedIndex(cause) === STANDING_ASSISTANT_INDEX
+          ) {
+            throw secondAssistant();
+          }
+          throw cause;
+        });
 
       await this.audit.record(
         {
@@ -560,6 +629,10 @@ export class MeetingService {
    * stays answerable - the argument a called-off occurrence and a withdrawn
    * sign-up both make. Idempotent: striking off a line that is already off is
    * the state the caller asked for.
+   *
+   * Refused once the meeting has been held, as checking in is: the list is
+   * then the record of who was there, and a line struck off by mistake could
+   * not be taken back on.
    */
   async withdrawAttendance(
     meetingId: string,
@@ -567,6 +640,9 @@ export class MeetingService {
     actorPersonId: string,
   ): Promise<AttendanceView> {
     return this.prisma.$transaction(async (tx) => {
+      const meeting = await this.requireMeeting(tx, meetingId);
+      this.refuseIfHeld(meeting);
+
       const existing = await tx.meetingAttendance.findFirst({
         where: { id: attendanceId, meetingId },
         select: ATTENDANCE_COLUMNS,
@@ -599,6 +675,48 @@ export class MeetingService {
         },
         tx,
       );
+
+      /*
+       * An assistant came with a member or a proxy holder (EFL 6 kap. 7 §), so
+       * somebody left with no line of their own takes their assistant off the
+       * list with them - struck off as a line of its own, with an entry naming
+       * the assistant as the subject.
+       */
+      if (
+        existing.capacity !== "ASSISTANT" &&
+        !(await this.isPrincipalPresent(tx, meetingId, existing.personId))
+      ) {
+        const assistant = await tx.meetingAttendance.findFirst({
+          where: {
+            meetingId,
+            onBehalfOfPersonId: existing.personId,
+            withdrawnAt: null,
+          },
+          select: { id: true, personId: true },
+        });
+        if (assistant !== null) {
+          await tx.meetingAttendance.update({
+            where: { id: assistant.id },
+            data: { withdrawnAt: new Date() },
+          });
+          await this.audit.record(
+            {
+              action: "MEETING_ATTENDANCE_WITHDRAWN",
+              channel: "WEB",
+              actorPersonId,
+              targetPersonId: assistant.personId,
+              targetKind: "meetingAttendance",
+              targetId: assistant.id,
+              context: {
+                meetingId,
+                capacity: "ASSISTANT",
+                withPrincipal: true,
+              },
+            },
+            tx,
+          );
+        }
+      }
 
       this.logger.log(
         `Attendance ${attendanceId} struck off meeting ${meetingId}`,
@@ -657,6 +775,15 @@ export class MeetingService {
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
 
+      // A proxy holder acts for a member who is not there themselves (EFL 6
+      // kap. 4 §). The table refuses this too, and would answer with a 500.
+      if (input.memberPersonId === input.proxyHolderPersonId) {
+        throw new MeetingError(
+          "A member is not their own proxy holder.",
+          "proxy-holder-is-the-member",
+        );
+      }
+
       const bylaws = await this.readBylaws(tx);
       const authorisedOn = this.readMeetingDay(input.authorisedOn);
 
@@ -672,6 +799,19 @@ export class MeetingService {
         throw new MeetingError(
           "The authority does not cover the day of this meeting.",
           problem,
+        );
+      }
+      // Nor dated after today, which a meeting still to come would otherwise
+      // accept: a member cannot have signed on a day that has not arrived.
+      if (
+        compareLocalDays(
+          localDayOfColumn(authorisedOn),
+          localDayOf(new Date()),
+        ) > 0
+      ) {
+        throw new MeetingError(
+          "The authority is dated after today.",
+          "proxy-authority-not-yet-issued",
         );
       }
 
@@ -805,7 +945,8 @@ export class MeetingService {
    *
    * A date and never a delete: a member who takes their proxy authorisation
    * back has done something, and a deleted row could only say so by absence.
-   * Idempotent, like striking a line off the list.
+   * Idempotent, like striking a line off the list, and refused once the meeting
+   * has been held for the same reason: registering it again would be refused.
    */
   async withdrawProxy(
     meetingId: string,
@@ -813,6 +954,9 @@ export class MeetingService {
     actorPersonId: string,
   ): Promise<ProxyAuthorisationView> {
     return this.prisma.$transaction(async (tx) => {
+      const meeting = await this.requireMeeting(tx, meetingId);
+      this.refuseIfHeld(meeting);
+
       const existing = await tx.proxyAuthorisation.findFirst({
         where: { id: authorisationId, meetingId },
         select: PROXY_COLUMNS,
@@ -1086,6 +1230,7 @@ export class MeetingService {
           select: {
             memberPersonId: true,
             proxyHolderPersonId: true,
+            ground: true,
             authorisedOn: true,
             withdrawnAt: true,
           },
@@ -1171,8 +1316,17 @@ export class MeetingService {
     }));
   }
 
+  /**
+   * The meeting a write is about, with its row held against being concluded.
+   *
+   * Every caller reads `concludedAt` and then writes, at READ COMMITTED. A
+   * share lock on the row is what makes that read a decision: {@link conclude}
+   * updates the row, so it waits for a writer that got here first, and a writer
+   * arriving while a conclusion is in flight waits for it and then reads the
+   * meeting as held. Writers do not block one another.
+   */
   private async requireMeeting(
-    client: MeetingDbClient,
+    client: Prisma.TransactionClient,
     meetingId: string,
   ): Promise<{
     id: string;
@@ -1180,6 +1334,7 @@ export class MeetingService {
     concludedAt: Date | null;
     notice: { id: string } | null;
   }> {
+    await client.$executeRaw`SELECT 1 FROM "meeting" WHERE "id" = ${meetingId} FOR SHARE`;
     const meeting = await client.meeting.findUnique({
       where: { id: meetingId },
       select: {
@@ -1236,10 +1391,10 @@ export class MeetingService {
    * here: it refuses a date in the future because a tenant-ownership that has
    * not ceased cannot be reported as having ceased. A general meeting is
    * arranged before it is held and a proxy authorisation is dated for a meeting
-   * still to come, so both of the days this method reads are ordinarily ahead
-   * of today. The one future date that is refused is a proxy authorisation
-   * dated after the meeting it is for, which `proxy-authority.ts` decides on
-   * its own grounds.
+   * still to come, so the meeting day is ordinarily ahead of today. The future
+   * dates that are refused are a proxy authorisation dated after today, which
+   * `registerProxy` refuses, and one dated after the meeting it is for, which
+   * `proxy-authority.ts` decides on its own grounds.
    */
   private readMeetingDay(text: string): Date {
     const day = parseLocalDay(text);
@@ -1435,21 +1590,83 @@ export class MeetingService {
         "assistant-principal-not-present",
       );
     }
-    const present = await client.meetingAttendance.count({
-      where: {
-        meetingId,
-        personId: onBehalfOfPersonId,
-        capacity: { in: ["MEMBER", "PROXY_HOLDER"] },
-        withdrawnAt: null,
-      },
-    });
-    if (present === 0) {
+    /*
+     * Read with a share lock, held until the check-in commits, so that an
+     * assistant cannot outlive the person who brought them. Striking that
+     * person off updates one of these rows, so it waits for this transaction,
+     * and its own look for the assistant then sees the one written here. A
+     * strike-off that got there first has dated the line by the time its lock
+     * is released, the row no longer matches, and nobody is present. A count
+     * at READ COMMITTED would see neither: each transaction would miss the
+     * other's write, and both would commit.
+     */
+    const lines = await client.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "meeting_attendance"
+       WHERE "meetingId" = ${meetingId}
+         AND "personId" = ${onBehalfOfPersonId}
+         AND "capacity" IN ('MEMBER', 'PROXY_HOLDER')
+         AND "withdrawnAt" IS NULL
+         FOR SHARE`;
+    if (lines.length === 0) {
       throw new MeetingError(
         "The member or proxy holder who brought them is not on the list.",
         "assistant-principal-not-present",
       );
     }
   }
+
+  /** Whether somebody stands on the list as a member or a proxy holder. */
+  private async isPrincipalPresent(
+    client: Prisma.TransactionClient,
+    meetingId: string,
+    personId: string,
+  ): Promise<boolean> {
+    const present = await client.meetingAttendance.count({
+      where: {
+        meetingId,
+        personId,
+        capacity: { in: ["MEMBER", "PROXY_HOLDER"] },
+        withdrawnAt: null,
+      },
+    });
+    return present > 0;
+  }
+}
+
+/**
+ * The partial index that allows one standing assistant per principal, written
+ * by hand in the meetings migration.
+ */
+const STANDING_ASSISTANT_INDEX =
+  "meeting_attendance_meetingId_onBehalfOfPersonId_live_key";
+
+/**
+ * The index a unique violation was raised on, as the PostgreSQL driver adapter
+ * reports it, or null for any other failure.
+ */
+function violatedIndex(cause: unknown): string | null {
+  if (
+    !(cause instanceof Prisma.PrismaClientKnownRequestError) ||
+    cause.code !== "P2002"
+  ) {
+    return null;
+  }
+  const index = (
+    cause.meta as
+      | {
+          driverAdapterError?: { cause?: { constraint?: { index?: unknown } } };
+        }
+      | undefined
+  )?.driverAdapterError?.cause?.constraint?.index;
+  return typeof index === "string" ? index : null;
+}
+
+/** The refusal of a second standing assistant for one principal. */
+function secondAssistant(): MeetingError {
+  return new MeetingError(
+    "The member or proxy holder who brought them already has an assistant on the list.",
+    "assistant-already-present",
+  );
 }
 
 const ATTENDANCE_COLUMNS = {
