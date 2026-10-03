@@ -13,7 +13,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { normalizeAmount } from "../ui/money";
+import { normalizeAmount, vatRateOf } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
 import { chargeFailureKey, refusedIdentityNumbers } from "./charge-failures";
@@ -122,6 +122,8 @@ export function RecordChargePanel({
   const [vatRatePercent, setVatRatePercent] = useState(
     correcting?.vatRatePercent?.toString() ?? "",
   );
+  const [rateInvalid, setRateInvalid] = useState(false);
+  const rateErrorId = useId();
   const [handedToManagerOn, setHandedToManagerOn] = useState(
     correcting?.handedToManagerOn ?? "",
   );
@@ -171,8 +173,11 @@ export function RecordChargePanel({
           // Said at the field rather than by the request schema, whose refusal
           // can only point at the whole form.
           const normalized = normalizeAmount(amount);
-          if (normalized === null) {
-            setAmountInvalid(true);
+          const rate =
+            vatTreatment === "RATE" ? vatRateOf(vatRatePercent) : null;
+          setAmountInvalid(normalized === null);
+          setRateInvalid(rate === undefined);
+          if (normalized === null || rate === undefined) {
             return;
           }
           const fields = {
@@ -180,10 +185,7 @@ export function RecordChargePanel({
             amount: normalized,
             reason,
             vatTreatment,
-            vatRatePercent:
-              vatTreatment === "RATE" && vatRatePercent !== ""
-                ? Number(vatRatePercent)
-                : null,
+            vatRatePercent: rate,
             handedToManagerOn:
               handedToManagerOn === "" ? null : handedToManagerOn,
           };
@@ -350,21 +352,38 @@ export function RecordChargePanel({
           </label>
 
           {vatTreatment === "RATE" ? (
-            <label className={LABEL}>
-              {t("charges.record.vatRatePercent")}
-              <input
-                type="number"
-                min={1}
-                max={100}
-                step={1}
-                value={vatRatePercent}
-                onChange={(event) => {
-                  setVatRatePercent(event.target.value);
-                }}
-                required
-                className={FIELD_DATA}
-              />
-            </label>
+            <div className="flex flex-col gap-1">
+              {/*
+                A text field rather than a number one: a browser empties a
+                number field it cannot read, so "25,5" would arrive as no rate
+                at all and be refused as one never typed.
+              */}
+              <label className={LABEL}>
+                {t("charges.record.vatRatePercent")}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={vatRatePercent}
+                  onChange={(event) => {
+                    setVatRatePercent(event.target.value);
+                    setRateInvalid(false);
+                  }}
+                  required
+                  aria-invalid={rateInvalid}
+                  aria-describedby={rateInvalid ? rateErrorId : undefined}
+                  className={FIELD_DATA}
+                />
+              </label>
+              {rateInvalid ? (
+                <p
+                  id={rateErrorId}
+                  role="alert"
+                  className="text-small text-danger"
+                >
+                  {t("charges.errors.vatRateOutOfRange")}
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

@@ -242,6 +242,31 @@ describe("value added tax", () => {
       expect.objectContaining({ vatTreatment: "RATE", vatRatePercent: 25 }),
     );
   });
+
+  it("says at the field that it cannot read a rate, and sends nothing", async () => {
+    /*
+     * "25,5" is not a whole percentage. Sent as Number("25,5"), NaN went over
+     * the wire as null and the server asked for a rate the board had typed.
+     */
+    panel();
+
+    await userEvent.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await userEvent.type(screen.getByLabelText("Belopp i kronor"), "1000.00");
+    await userEvent.type(
+      screen.getByLabelText("Vad debiteringen avser"),
+      "Uthyrd parkeringsplats",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Moms"), "RATE");
+    await userEvent.type(screen.getByLabelText("Sats i procent"), "25,5");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    );
+
+    expect(recordCharge).not.toHaveBeenCalled();
+    const field = screen.getByLabelText("Sats i procent");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toMatch(/helt procenttal/u);
+  });
 });
 
 describe("a refusal", () => {
