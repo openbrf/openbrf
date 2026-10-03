@@ -200,6 +200,20 @@ function ItemDecision({
       });
   };
 
+  /*
+   * The fields no longer say what was recorded, so the confirmation goes: the
+   * one this action holds, and the one the screen keeps across the re-read that
+   * remounts this form.
+   */
+  const edited = (): void => {
+    if (save.state.kind === "saved") {
+      save.reset();
+    }
+    if (saved) {
+      onSaved(false);
+    }
+  };
+
   const formId = `meeting-decision-${item.id}`;
   /*
    * The form is a named group, so the three counts inside it are announced with
@@ -278,6 +292,7 @@ function ItemDecision({
                 className={`${FIELD} w-48`}
                 value={outcome}
                 onChange={(event) => {
+                  edited();
                   setOutcome(event.target.value as MeetingDecisionOutcome);
                 }}
               >
@@ -292,17 +307,26 @@ function ItemDecision({
             <CountField
               label={t("meetings.decisions.votesFor")}
               value={votesFor}
-              onChange={setVotesFor}
+              onChange={(value) => {
+                edited();
+                setVotesFor(value);
+              }}
             />
             <CountField
               label={t("meetings.decisions.votesAgainst")}
               value={votesAgainst}
-              onChange={setVotesAgainst}
+              onChange={(value) => {
+                edited();
+                setVotesAgainst(value);
+              }}
             />
             <CountField
               label={t("meetings.decisions.votesAbstaining")}
               value={votesAbstaining}
-              onChange={setVotesAbstaining}
+              onChange={(value) => {
+                edited();
+                setVotesAbstaining(value);
+              }}
             />
 
             <label className="flex min-h-11 items-center gap-2 text-small">
@@ -310,6 +334,7 @@ function ItemDecision({
                 type="checkbox"
                 checked={closedBallot}
                 onChange={(event) => {
+                  edited();
                   setClosedBallot(event.target.checked);
                 }}
               />

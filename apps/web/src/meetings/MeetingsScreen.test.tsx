@@ -489,9 +489,14 @@ describe("the general meeting screen", () => {
     render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
     await openTheMeeting(user);
 
+    // The title as the server has it differs from the one typed, so the field
+    // showing it proves the panel was remounted on the re-read - the local
+    // notice alone is on screen before that.
     const saved: Meeting = {
       ...ARRANGING,
-      agenda: [{ id: "item-2", position: 1, title: "Arvoden", decision: null }],
+      agenda: [
+        { id: "item-2", position: 1, title: "Arvoden 2027", decision: null },
+      ],
     };
     setMeetingAgenda.mockResolvedValue({ ok: true, value: saved });
     fetchMeeting.mockResolvedValue({ ok: true, value: saved });
@@ -504,9 +509,117 @@ describe("the general meeting screen", () => {
     );
 
     await waitFor(() => {
-      expect(fetchMeeting).toHaveBeenCalledTimes(2);
+      expect((screen.getByLabelText("Punkt 1") as HTMLInputElement).value).toBe(
+        "Arvoden 2027",
+      );
     });
+    expect(screen.getByText("Dagordningen är sparad.")).toBeTruthy();
+
+    // Edited again, the draft is no longer what was saved.
+    await user.type(screen.getByLabelText("Punkt 1"), "!");
+    expect(screen.queryByText("Dagordningen är sparad.")).toBeNull();
+  });
+
+  it("takes the agenda's confirmation away as soon as the saved draft is edited", async () => {
+    const user = userEvent.setup();
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    setMeetingAgenda.mockResolvedValue({ ok: true, value: ARRANGING });
+
+    await user.click(
+      screen.getByRole("button", { name: "Spara dagordningen" }),
+    );
     expect(await screen.findByText("Dagordningen är sparad.")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Punkt 1"), " igen");
+
+    expect(screen.queryByText("Dagordningen är sparad.")).toBeNull();
+  });
+
+  it("does not say the agenda is saved on a meeting other than the one that was saved", async () => {
+    /*
+     * A save still in flight when another meeting is opened reports back after
+     * the screen has cleared its flags. The confirmation belongs to the meeting
+     * that was saved, not to whichever one is on screen when the answer lands.
+     */
+    const user = userEvent.setup();
+    const other: Meeting = {
+      ...ARRANGING,
+      id: "meeting-2",
+      kind: "EXTRAORDINARY",
+    };
+    fetchMeetings.mockResolvedValue({
+      ok: true,
+      value: [SUMMARY, { ...SUMMARY, id: "meeting-2", kind: "EXTRAORDINARY" }],
+    });
+    fetchMeeting.mockImplementation(async (id: string) => ({
+      ok: true,
+      value: id === "meeting-2" ? other : ARRANGING,
+    }));
+    let land!: () => void;
+    const landed = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    setMeetingAgenda.mockImplementation(async () => {
+      await landed;
+      return { ok: true, value: ARRANGING };
+    });
+
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    await user.click(
+      screen.getByRole("button", { name: "Spara dagordningen" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /^Öppna Extra/ }),
+    );
+    await waitFor(() => {
+      expect(fetchMeeting).toHaveBeenCalledWith("meeting-2");
+    });
+
+    land();
+    await waitFor(() => {
+      expect(setMeetingAgenda).toHaveBeenCalledTimes(1);
+    });
+    // The save's own follow-up read, which is the last thing it does.
+    await waitFor(() => {
+      expect(fetchMeeting.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    expect(screen.queryByText("Dagordningen är sparad.")).toBeNull();
+  });
+
+  it("takes the decision's confirmation away as soon as a figure is changed", async () => {
+    const user = userEvent.setup();
+    fetchMeeting.mockResolvedValue({ ok: true, value: HELD });
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    recordDecision.mockResolvedValue({
+      ok: true,
+      value: {
+        outcome: "CARRIED",
+        votesFor: 4,
+        votesAgainst: 1,
+        votesAbstaining: 0,
+        closedBallot: false,
+        recordedAt: "2027-05-21T09:00:00.000Z",
+        recordedByPersonId: "person-board",
+      },
+    });
+
+    await user.type(screen.getByLabelText("För"), "4");
+    await user.type(screen.getByLabelText("Mot"), "1");
+    await user.type(screen.getByLabelText("Avstår"), "0");
+    await user.click(
+      screen.getByRole("button", {
+        name: "Anteckna beslutet om Val av styrelse",
+      }),
+    );
+    expect(await screen.findByText("Beslutet är antecknat.")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("För"), "5");
+
+    expect(screen.queryByText("Beslutet är antecknat.")).toBeNull();
   });
 
   it("still says the decision was recorded once the re-read has landed", async () => {
