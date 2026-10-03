@@ -345,6 +345,29 @@ describe("installing", () => {
     expect(screen.getByText(/lagstadgade registret/i)).toBeTruthy();
   });
 
+  it("says the catalog has withdrawn a theme it deprecated after the screen loaded", async () => {
+    // Listed as maintained when browsed; the curator deprecated it before the
+    // confirmation, so the install button was live and the API refuses.
+    installTheme.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "entry-deprecated" },
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /installera/i })).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: /installera/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/anger att det temat inte underhålls längre/),
+      ).toBeTruthy();
+    });
+  });
+
   it("reports what the lint let through with a remark", async () => {
     installTheme.mockResolvedValue({
       ok: true,
