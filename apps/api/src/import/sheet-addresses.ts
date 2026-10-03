@@ -24,6 +24,12 @@ import {
  * holds it is refused, and with that a row holding a value lies within the
  * import's rows, because the value's own address does.
  *
+ * The library also counts rows. A row that states no number, and holds no cell
+ * to take one from, goes after the row before it, and the library keeps every
+ * such row at the bottom of a sheet, padded to the widest column. So each row
+ * is followed to where the library puts it, and one placed by counting alone
+ * is held to the import's rows as well.
+ *
  * The scan follows saxen's own tokenizing: text runs to the next `<`, a comment,
  * a CDATA section and a processing instruction run to their closing marks, and
  * a tag runs to the first `>` outside a quoted value. Every element name and
@@ -46,12 +52,21 @@ export class UnreadableSheetError extends Error {
 const ROW = /^[1-9][0-9]*$/;
 const CELL = /^([A-Z]+)([1-9][0-9]*)$/;
 
+/** Where the library is in a sheet, as far as the rows go. */
+interface Rows {
+  /**
+   * The number the library places the cells being read at, once a row states
+   * one or its first cell does. It holds until the next row closes, as the
+   * library's own does.
+   */
+  row: number | undefined;
+  /** How many rows the library holds once the rows closed so far are in. */
+  read: number;
+}
+
 /** Throws when an address in this XML part lies past the import's limits. */
 export function checkAddresses(xml: string): void {
-  // The number the library places the cells being read at, when a row states
-  // one. It holds from a `<row r>` to the next row that closes, as the
-  // library's own does.
-  let row: number | undefined;
+  const rows: Rows = { row: undefined, read: 0 };
   let at = 0;
   for (;;) {
     const open = xml.indexOf("<", at);
@@ -74,10 +89,10 @@ export function checkAddresses(xml: string): void {
     const close = tagEnd(xml, open);
     if (marker === "/") {
       if (elementName(xml.slice(open + 2, close)) === "row") {
-        row = undefined;
+        closeRow(rows);
       }
     } else if (marker !== "!") {
-      row = checkStartTag(xml.slice(open + 1, close), row);
+      checkStartTag(xml.slice(open + 1, close), rows);
     }
     at = close + 1;
   }
@@ -108,30 +123,40 @@ function tagEnd(xml: string, open: number): number {
   throw new UnreadableSheetError("A sheet part never closes a tag.");
 }
 
-/**
- * `body` is everything between `<` and `>`, and `row` the number the cells
- * being read are placed at. Returns that number once the tag is read.
- */
-function checkStartTag(
-  body: string,
-  row: number | undefined,
-): number | undefined {
+/** `body` is everything between `<` and `>`. */
+function checkStartTag(body: string, rows: Rows): void {
   const selfClosing = body.endsWith("/");
   const tag = selfClosing ? body.slice(0, -1) : body;
   const nameEnd = nameLength(tag);
   const element = localName(tag.slice(0, nameEnd));
   if (element !== "row" && element !== "c") {
-    return row;
+    return;
   }
 
   const addresses = addressesIn(tag.slice(nameEnd));
   if (element === "row") {
-    return checkRowAddresses(addresses, selfClosing, row);
+    checkRowAddresses(addresses, rows);
+    if (selfClosing) {
+      closeRow(rows);
+    }
+    return;
   }
   for (const address of addresses) {
-    checkCellAddress(address, selfClosing, row);
+    checkCellAddress(address, selfClosing, rows);
   }
-  return row;
+}
+
+/**
+ * The library puts a row at the number it was given, or after the row before
+ * it when it was given none, and forgets the number. Rows only it counts are
+ * kept however far down they lie, so they are held to the import's rows.
+ */
+function closeRow(rows: Rows): void {
+  if (rows.row === undefined) {
+    checkRow(rows.read + 1, MAX_IMPORT_ROWS + 1);
+  }
+  rows.read = Math.max(rows.read + 1, rows.row ?? 0);
+  rows.row = undefined;
 }
 
 /** The local name of the element a tag's body opens with. */
@@ -187,15 +212,10 @@ function namesR(attributes: string, equals: number): boolean {
 }
 
 /**
- * Returns the number the row's cells are placed at. A row that closes itself
- * holds none, and the library forgets its number as it closes. A row that
- * states none leaves the number where it was, as the library does.
+ * Sets the number the row's cells are placed at. A row that states none
+ * leaves the number where it was, as the library does.
  */
-function checkRowAddresses(
-  addresses: string[],
-  selfClosing: boolean,
-  row: number | undefined,
-): number | undefined {
+function checkRowAddresses(addresses: string[], rows: Rows): void {
   let stated: number | undefined;
   for (const address of addresses) {
     if (!ROW.test(address)) {
@@ -210,27 +230,24 @@ function checkRowAddresses(
     checkRow(number, MAX_WORKBOOK_EMPTY_ROW);
     stated = number;
   }
-  return selfClosing ? undefined : (stated ?? row);
+  rows.row = stated ?? rows.row;
 }
 
 /**
  * A self-closing cell has no value, only a format, so it is held to the
  * empty-cell limits. Any other cell is held to the import's. Either is
  * refused when it lies outside the row that holds it, since the library would
- * place it in that row instead.
+ * place it in that row instead. The first cell of a row that states no
+ * number gives the row its number, as it does in the library.
  */
-function checkCellAddress(
-  address: string,
-  empty: boolean,
-  row: number | undefined,
-): void {
+function checkCellAddress(address: string, empty: boolean, rows: Rows): void {
   const parts = CELL.exec(address);
   if (parts === null) {
     throw new UnreadableSheetError("A cell address is not a cell address.");
   }
   const [, letters = "", cellRow = ""] = parts;
   const number = Number(cellRow);
-  if (row !== undefined && number !== row) {
+  if (rows.row !== undefined && number !== rows.row) {
     throw new UnreadableSheetError("A cell lies outside the row holding it.");
   }
   // The header is the row above the data, so it is one more.
@@ -243,6 +260,7 @@ function checkCellAddress(
       "too-many-columns",
     );
   }
+  rows.row ??= number;
 }
 
 function checkRow(row: number, lastRow: number): void {

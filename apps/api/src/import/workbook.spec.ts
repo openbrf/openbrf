@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import {
   MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_ROWS,
   MAX_WORKBOOK_EMPTY_ROW,
   MAX_WORKBOOK_ENTRY_BYTES,
 } from "./import-limits";
@@ -171,6 +172,20 @@ describe("a workbook past the import's limits", () => {
       "a row number stated on the row around a row",
       '<row r="65536"><row><c r="A2" t="inlineStr"><is><t>x</t></is></c></row></row>',
     ],
+    [
+      "rows that state no number below a wide row",
+      '<row r="1"><c r="GR1" t="inlineStr"><is><t>x</t></is></c></row>' +
+        "<row/>".repeat(70_000),
+    ],
+    [
+      "rows that close without opening",
+      '<row r="1"><c r="GR1" t="inlineStr"><is><t>x</t></is></c></row>' +
+        "</row>".repeat(70_000),
+    ],
+    [
+      "a cell outside the row its first cell names",
+      '<row><c r="A2" s="0"/><c r="B3" t="inlineStr"><is><t>x</t></is></c></row>',
+    ],
   ])("refuses %s before the parser reads it", async (_, sheetData) => {
     const workbook = buildWorkbook([], "Blad1", { sheetData });
 
@@ -205,6 +220,23 @@ describe("a workbook past the import's limits", () => {
       ["Anna"],
       ["Bo"],
     ]);
+  });
+
+  it("reads rows that state no number down to the import's last row", async () => {
+    const header =
+      '<row><c r="A1" t="inlineStr"><is><t>Namn</t></is></c></row>';
+    const anna = '<row><c r="A2" t="inlineStr"><is><t>Anna</t></is></c></row>';
+    // The header and Anna, then empty rows down to the last row a file holds.
+    const lastRow = header + anna + "<row/>".repeat(MAX_IMPORT_ROWS - 1);
+
+    await expect(
+      parseWorkbook(buildWorkbook([], "Blad1", { sheetData: lastRow })),
+    ).resolves.toEqual([["Namn"], ["Anna"]]);
+    expect(() =>
+      inspectWorkbook(
+        buildWorkbook([], "Blad1", { sheetData: `${lastRow}<row/>` }),
+      ),
+    ).toThrow(expect.objectContaining({ reason: "too-many-rows" }));
   });
 
   it("checks a sheet the workbook stores outside xl/worksheets", () => {
