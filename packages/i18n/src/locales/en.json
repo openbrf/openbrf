@@ -3396,7 +3396,7 @@
       "booking": "Booking...",
       "booked": "The booking is made.",
       "bookStay": "Book the stay",
-      "stayNeedsCheckOut": "Check-in {{from}}. Choose the day you leave.",
+      "stayNeedsCheckOut": "Check-in {{from}}. Choose your last night, or the same night again for a one-night stay.",
       "stayChosen": "Check-in {{from}}, check-out {{to}}."
     },
     "mine": {

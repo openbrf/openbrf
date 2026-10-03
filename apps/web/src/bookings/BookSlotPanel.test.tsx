@@ -453,6 +453,44 @@ describe("a stay of several nights", () => {
     });
   });
 
+  it("can be a single night, by choosing the check-in night again", async () => {
+    /*
+     * The second click names the last night, not the day of departure, so a
+     * stay of one night is the check-in night chosen twice. Treating that click
+     * as starting over left a single night impossible to book.
+     */
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    expect(
+      screen.getByText(
+        "Ankomst 16 september 2026. Välj din sista natt, eller samma natt igen om du bara stannar en.",
+      ),
+    ).toBeTruthy();
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+
+    expect(
+      screen.getByText("Ankomst 16 september 2026, avresa 17 september 2026."),
+    ).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledWith({
+        resourceId: "resource-guest-apartment",
+        apartmentId: "apartment-1201",
+        startsAt: "2026-09-15T22:00:00.000Z",
+        endsAt: "2026-09-16T22:00:00.000Z",
+      });
+    });
+  });
+
   it("cannot be made to span a night somebody else holds", async () => {
     /*
      * The night between is held, so it cannot be clicked - but clicking past it
@@ -475,7 +513,9 @@ describe("a stay of several nights", () => {
     );
 
     expect(
-      screen.getByText("Ankomst 18 september 2026. Välj vilken dag du reser."),
+      screen.getByText(
+        "Ankomst 18 september 2026. Välj din sista natt, eller samma natt igen om du bara stannar en.",
+      ),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Boka vistelsen" }),

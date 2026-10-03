@@ -224,11 +224,12 @@ export function BookSlotPanel({
   /**
    * Adds a click to the stay being put together.
    *
-   * The first free night is the check-in. A later night is the check-out, and
-   * clicking on or before the check-in starts again rather than producing a
-   * stay that runs backwards - which the server would refuse, but refusing it
-   * here leaves the length of the stay as the only thing the form can be wrong
-   * about.
+   * The first free night is the check-in. The next click names the last night,
+   * so the check-out is the morning after it, and choosing the check-in night
+   * again is a stay of that one night. Clicking before the check-in starts
+   * again rather than producing a stay that runs backwards - which the server
+   * would refuse, but refusing it here leaves the length of the stay as the
+   * only thing the form can be wrong about.
    *
    * A stay is also unbroken. Only a free night can be clicked, but the nights
    * between two of them need not be free, and a range covering one somebody
@@ -240,7 +241,7 @@ export function BookSlotPanel({
   const pickNight = (slot: BookableSlot): void => {
     setStay((current) => {
       const fresh: StayDraft = { startsAt: slot.startsAt, endsAt: null };
-      if (current === null || slot.startsAt <= current.startsAt) {
+      if (current === null || slot.startsAt < current.startsAt) {
         return fresh;
       }
       const stay: StayDraft = {

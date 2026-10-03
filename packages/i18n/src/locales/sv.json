@@ -3396,7 +3396,7 @@
       "booking": "Bokar...",
       "booked": "Bokningen är gjord.",
       "bookStay": "Boka vistelsen",
-      "stayNeedsCheckOut": "Ankomst {{from}}. Välj vilken dag du reser.",
+      "stayNeedsCheckOut": "Ankomst {{from}}. Välj din sista natt, eller samma natt igen om du bara stannar en.",
       "stayChosen": "Ankomst {{from}}, avresa {{to}}."
     },
     "mine": {
