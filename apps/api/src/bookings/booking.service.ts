@@ -407,12 +407,37 @@ export class BookingService {
       // Apartment first and resource second, which is the one order every
       // booking takes; see booking-lock.ts.
       await lockApartmentBookings(tx, apartmentId);
-      if (resource.mode === "DATE_RANGE") {
+
+      /*
+       * The resource again, under a share lock on its row. The read above took
+       * no lock, so the board may have re-cut the grid or withdrawn the
+       * resource since, and the index would not notice: a slot from the old
+       * grid starts at a different instant from the one overlapping it on the
+       * new grid. The board's edits take the row for update, so from here on
+       * they wait for this claim, and what is read now is what they wrote.
+       */
+      await tx.$queryRaw`SELECT id FROM bookable_resource WHERE id = ${resource.id} FOR SHARE`;
+      const current = await this.requireOfferedResource(resource.id, tx);
+      const recut = periodFor(current, {
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+      });
+      if (
+        recut?.startsAt.getTime() !== period.startsAt.getTime() ||
+        recut.endsAt.getTime() !== period.endsAt.getTime()
+      ) {
+        throw new BookingError(
+          "That period is not a slot this resource offers.",
+          "slot-not-bookable",
+        );
+      }
+
+      if (current.mode === "DATE_RANGE") {
         await lockResourceBookings(tx, resource.id);
         await this.refuseOverlap(tx, resource.id, period);
       }
 
-      await this.refuseOverQuota(tx, resource, apartmentId, period, now);
+      await this.refuseOverQuota(tx, current, apartmentId, period, now);
 
       /*
        * The claim, and the whole of what refuses a double booking.
@@ -479,7 +504,7 @@ export class BookingService {
           context: {
             resourceId: resource.id,
             apartmentId,
-            mode: resource.mode,
+            mode: current.mode,
             startsAt: period.startsAt.toISOString(),
             days: daysIn(period),
           },
@@ -689,8 +714,9 @@ export class BookingService {
   /** The resource, when it exists and is still offered for booking. */
   private async requireOfferedResource(
     resourceId: string,
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<ResourceRecord> {
-    const resource = await this.prisma.bookableResource.findUnique({
+    const resource = await client.bookableResource.findUnique({
       where: { id: resourceId },
       select: RESOURCE_SELECT,
     });
