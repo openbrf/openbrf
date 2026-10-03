@@ -150,6 +150,28 @@ describe("what a row shows", () => {
 });
 
 describe("approving", () => {
+  it("names a failed apartment read and offers to read it again", async () => {
+    // An empty select would leave Approve disabled for good, with nothing on
+    // screen saying why.
+    fetchApartments.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    expect(
+      within(row()).getByText(/Lägenheterna på adressen kunde inte hämtas/),
+    ).toBeTruthy();
+
+    await session.click(retry);
+
+    await waitForTheRow();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
   it("waits for a real apartment before it offers the decision", async () => {
     renderPanel();
 
@@ -230,6 +252,32 @@ describe("approving", () => {
       );
     });
     expect(fetchSignupRequests).toHaveBeenCalledTimes(2);
+  });
+
+  it("points the board at rejecting when the address already has an account", async () => {
+    // Every retry would get the same refusal, so "try again" is the one thing
+    // this must not say.
+    approveSignupRequest.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "already-has-account" },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    await waitForTheRow();
+    await session.selectOptions(
+      screen.getByLabelText("Lägenhet i registret"),
+      "apartment-1203",
+    );
+    await session.click(approveButton());
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain(
+        "har redan ett konto",
+      );
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Avslå ansökan");
   });
 });
 

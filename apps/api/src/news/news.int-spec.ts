@@ -111,6 +111,7 @@ const slugs = {
   notProse: `news-not-prose-${suffix}`,
   draft: `news-draft-${suffix}`,
   objected: `news-objected-${suffix}`,
+  edited: `news-edited-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -173,6 +174,7 @@ interface NewsBody {
   emailQueuedAt: string | null;
   smsQueuedAt: string | null;
   delivery: { email: ChannelReport; sms: ChannelReport };
+  revision: number;
 }
 
 function paragraph(text: string) {
@@ -1149,6 +1151,40 @@ describe("the publication guardrails", () => {
     expect((response.json() as { reason: string }).reason).toBe(
       "unsupported-block",
     );
+  });
+});
+
+describe("two board members editing the same item", () => {
+  it("refuses the second save built on the same copy, and keeps the first", async () => {
+    const item = await createNews(boardCookie, slugs.edited);
+
+    const save = (text: string) =>
+      inject({
+        method: "PUT",
+        url: `/api/news/${item.id}`,
+        payload: {
+          slug: slugs.edited,
+          title: `Nyhet ${slugs.edited}`,
+          content: { blocks: [paragraph(text)] },
+          expectedRevision: item.revision,
+        },
+        headers: { cookie: boardCookie },
+      });
+
+    const first = await save("Den första versionen.");
+    expect(first.statusCode).toBe(200);
+    expect(first.json<NewsBody>().revision).toBe(item.revision + 1);
+
+    const second = await save("Den andra versionen.");
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { reason: string }).reason).toBe("news-changed");
+
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { content: true, revision: true },
+    });
+    expect(JSON.stringify(stored.content)).toContain("Den första versionen.");
+    expect(stored.revision).toBe(item.revision + 1);
   });
 });
 

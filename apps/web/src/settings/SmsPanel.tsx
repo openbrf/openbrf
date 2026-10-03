@@ -14,7 +14,11 @@ import {
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import {
+  failureMessage,
+  failureMessageKey,
+  useSaveAction,
+} from "../ui/save-state";
 
 export interface SmsPanelProps {
   value: SmsSettings;
@@ -25,6 +29,13 @@ export interface SmsPanelProps {
 const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "sms-not-configured": "settings.sms.errors.notConfigured",
   "no-phone": "settings.sms.errors.noPhone",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  driver: "settings.sms.driver",
+  gatewayUrl: "settings.sms.gatewayUrl",
+  senderName: "settings.sms.senderName",
+  token: "settings.sms.token",
 };
 
 /**
@@ -99,12 +110,12 @@ export function SmsPanel({
       notice={
         save.state.kind === "failed" ? (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                save.state.failure,
-                {},
-                "settings.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              save.state.failure,
+              {},
+              "settings.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         ) : test.state.kind === "failed" ? (
@@ -168,6 +179,9 @@ export function SmsPanel({
             type="url"
             name="smsGatewayUrl"
             autoComplete="off"
+            /* The API takes http and https only; a browser's url check also
+               passes ftp:// and the like. */
+            pattern="https?://.*"
             disabled={!editable}
             value={gatewayUrl}
             onChange={(event) => {
