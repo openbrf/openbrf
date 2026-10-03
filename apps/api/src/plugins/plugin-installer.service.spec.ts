@@ -1,20 +1,25 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   rm,
   utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../config/env";
+import { npmInstall } from "../packaging/npm-install";
 import {
   ARCHIVE_TIMEOUT_MS,
+  assertStagedPackages,
   buildDependencySet,
   collectAbandonedStaging,
   FETCH_BUDGET_MS,
@@ -24,6 +29,14 @@ import {
 } from "./plugin-installer.service";
 import type { PluginRecord } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
+
+// Whether npm is started at all is what some of the specs below observe.
+vi.mock("../packaging/npm-install", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  npmInstall: vi.fn(),
+}));
+
+const exec = promisify(execFile);
 
 /**
  * The staging root is shared between processes.
@@ -157,6 +170,211 @@ describe("buildDependencySet", () => {
 });
 
 /**
+ * The staged tree is checked against the consent rows before it is moved into
+ * place. npm installs an archive under the name it is handed, so a verified
+ * archive that holds another package, or another release, would otherwise be
+ * marked installed and then refused by the loader at every boot.
+ */
+describe("assertStagedPackages", () => {
+  const consented = new Map([["openbrf-plugin-occupancy", "1.4.0"]]);
+
+  async function staged(packageJson: Record<string, unknown>): Promise<void> {
+    const directory = join(staging, "openbrf-plugin-occupancy");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, "package.json"),
+      JSON.stringify(packageJson),
+    );
+  }
+
+  it("accepts the package consented to", async () => {
+    await staged({
+      name: "openbrf-plugin-occupancy",
+      version: "1.4.0",
+      dependencies: {},
+    });
+
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses an archive that holds another package", async () => {
+    await staged({ name: "@someone-else/occupancy", version: "1.4.0" });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "The archive for openbrf-plugin-occupancy@1.4.0 holds @someone-else/occupancy@1.4.0.",
+    );
+  });
+
+  it("refuses an archive that holds another version", async () => {
+    await staged({ name: "openbrf-plugin-occupancy", version: "1.3.0" });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "holds openbrf-plugin-occupancy@1.3.0",
+    );
+  });
+
+  it("refuses an archive that declares a runtime dependency", async () => {
+    await staged({
+      name: "openbrf-plugin-occupancy",
+      version: "1.4.0",
+      dependencies: "left-pad",
+    });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      /is not an installable plugin package: dependencies: /,
+    );
+  });
+
+  it("refuses a tree the archive is missing from", async () => {
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "was not installed as a package",
+    );
+  });
+
+  it("refuses a package npm brought in beside the consented ones", async () => {
+    await staged({ name: "openbrf-plugin-occupancy", version: "1.4.0" });
+    await mkdir(join(staging, "local-package"));
+    await mkdir(join(staging, "@scope", "other"), { recursive: true });
+
+    await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
+      "npm installed packages no archive was consented for: @scope/other, local-package.",
+    );
+  });
+
+  it("accepts a scoped package and npm's own bookkeeping", async () => {
+    const directory = join(staging, "@openbrf", "plugin-occupancy");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, "package.json"),
+      JSON.stringify({ name: "@openbrf/plugin-occupancy", version: "1.4.0" }),
+    );
+    await writeFile(join(staging, ".package-lock.json"), "{}");
+    await mkdir(join(staging, ".bin"));
+
+    await expect(
+      assertStagedPackages(
+        staging,
+        new Map([["@openbrf/plugin-occupancy", "1.4.0"]]),
+      ),
+    ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * npm acts on what an archive's package.json declares before the staged tree
+ * can be read: offline, a `file:` dependency still resolves, and npm links a
+ * package from elsewhere on the volume into the staging tree. So an archive's
+ * package.json is read from the archive, and a package declaring anything is
+ * refused before npm is started at all.
+ */
+describe("the archives handed to npm", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(npmInstall).mockReset();
+  });
+
+  /** A verified-looking record for a package npm packs from `packageJson`. */
+  async function packed(
+    packageJson: Record<string, unknown>,
+  ): Promise<{ record: PluginRecord; bytes: Buffer }> {
+    const source = join(staging, "source");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "package.json"), JSON.stringify(packageJson));
+    const { stdout } = await exec(
+      "npm",
+      ["pack", "--json", "--pack-destination", staging],
+      { cwd: source },
+    );
+    const name = (JSON.parse(stdout) as { filename: string }[])[0]?.filename;
+    const bytes = await readFile(join(staging, name ?? ""));
+    const record = {
+      id: "occupancy",
+      packageName: String(packageJson.name),
+      version: String(packageJson.version),
+      tarballUrl:
+        "https://github.com/openbrf/occupancy/releases/download/v1.0.0/occupancy.tgz",
+      checksum: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    } as PluginRecord;
+    return { record, bytes };
+  }
+
+  function reconcile(record: PluginRecord, bytes: Buffer) {
+    vi.stubGlobal("fetch", () => Promise.resolve(new Response(bytes)));
+    const failed: string[] = [];
+    const service = new PluginInstallerService(
+      { OPENBRF_DATA_DIR: join(staging, "data") } as Env,
+      {
+        list: () => Promise.resolve([record]),
+        markFailed: (id: string) => {
+          failed.push(id);
+          return Promise.resolve();
+        },
+        markInstalled: () => Promise.resolve(),
+      } as never,
+      {} as never,
+      {
+        allowsUncuratedSources: () => false,
+        authorizationFor: () => ({}),
+      } as never,
+      {} as never,
+      {} as never,
+    );
+    return { outcome: service.reconcile(), failed };
+  }
+
+  it("refuses a local dependency without starting npm", async () => {
+    const outside = join(staging, "outside");
+    await mkdir(outside);
+    await writeFile(
+      join(outside, "package.json"),
+      JSON.stringify({ name: "local-package", version: "1.0.0" }),
+    );
+    const { record, bytes } = await packed({
+      name: "openbrf-plugin-occupancy",
+      version: "1.0.0",
+      dependencies: { "local-package": `file:${outside}` },
+    });
+
+    const attempt = reconcile(record, bytes);
+    const outcome = await attempt.outcome;
+
+    expect(npmInstall).not.toHaveBeenCalled();
+    expect(outcome.changed).toBe(false);
+    expect(outcome.failed).toEqual([
+      {
+        id: "occupancy",
+        error: expect.stringMatching(
+          /openbrf-plugin-occupancy is not an installable plugin package: dependencies: /,
+        ) as string,
+      },
+    ]);
+    expect(attempt.failed).toEqual(["occupancy"]);
+  });
+
+  it("hands npm an archive that declares nothing", async () => {
+    const { record, bytes } = await packed({
+      name: "openbrf-plugin-occupancy",
+      version: "1.0.0",
+    });
+    vi.mocked(npmInstall).mockImplementation(async ({ cwd }) => {
+      const directory = join(cwd, "node_modules", "openbrf-plugin-occupancy");
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        join(directory, "package.json"),
+        JSON.stringify({ name: "openbrf-plugin-occupancy", version: "1.0.0" }),
+      );
+    });
+
+    const outcome = await reconcile(record, bytes).outcome;
+
+    expect(npmInstall).toHaveBeenCalledOnce();
+    expect(outcome).toMatchObject({ failed: [], changed: true });
+  });
+});
+
+/**
  * A reconcile this process did not accept.
  *
  * The command-line tool queues the run the server's worker performs, and the
@@ -213,6 +431,12 @@ describe("the queue worker", () => {
     return { handler, restart };
   }
 
+  const outcome = (changed: boolean): ReconcileOutcome => ({
+    installed: [],
+    failed: changed ? [] : [{ id: "occupancy", error: "no archive" }],
+    changed,
+  });
+
   const install = (id: string, retryCount: number, retryLimit = 2): Batch => [
     {
       id,
@@ -231,6 +455,65 @@ describe("the queue worker", () => {
     void handler(install("job-1", 0));
 
     expect(restart.restartPending).toBe(true);
+  });
+
+  /*
+   * The run a boot queues when the volume does not match. A tree the reconcile
+   * cannot fix - an upgrade whose archive cannot be fetched, say - would
+   * otherwise restart the instance into the same tree on every boot.
+   */
+  describe("the run a boot queues", () => {
+    const boot: Batch = [
+      {
+        id: "job-1",
+        data: { reason: "boot", restart: true, onlyIfChanged: true },
+        retryCount: 0,
+        retryLimit: 2,
+      },
+    ];
+
+    it("does not restart when it changed nothing", async () => {
+      const { handler, restart } = await worker(() =>
+        Promise.resolve(outcome(false)),
+      );
+      const restarting = vi
+        .spyOn(restart, "restartWhenCommitted")
+        .mockResolvedValue(undefined);
+
+      await handler(boot);
+
+      expect(restarting).not.toHaveBeenCalled();
+      expect(restart.restartPending).toBe(false);
+    });
+
+    it("restarts when it rebuilt the tree", async () => {
+      const { handler, restart } = await worker(() =>
+        Promise.resolve(outcome(true)),
+      );
+      const restarting = vi
+        .spyOn(restart, "restartWhenCommitted")
+        .mockResolvedValue(undefined);
+
+      await handler(boot);
+
+      expect(restarting).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("restarts after an install that changed nothing", async () => {
+    // The command-line tool reconciles itself and then leaves the queued run
+    // to the server, which finds the tree already in place and still has to
+    // restart to serve it.
+    const { handler, restart } = await worker(() =>
+      Promise.resolve(outcome(false)),
+    );
+    const restarting = vi
+      .spyOn(restart, "restartWhenCommitted")
+      .mockResolvedValue(undefined);
+
+    await handler(install("job-1", 0));
+
+    expect(restarting).toHaveBeenCalledOnce();
   });
 
   /*

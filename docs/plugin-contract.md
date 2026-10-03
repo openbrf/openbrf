@@ -495,6 +495,15 @@ An instance never contacts a package registry. The catalog lists direct
 tarball URLs with a sha512, and the install job downloads, verifies, and
 installs from the local file.
 
+The installer holds npm to that. npm runs offline, with a cache of its own that
+starts empty and none of the host's npm configuration or environment, so it
+has nothing to install but the verified archives. A package whose
+`dependencies`, `optionalDependencies`, `bundleDependencies` or
+`bundledDependencies` is anything but absent, an empty map or an empty list
+fails the manifest schema and is not loaded. The installer also checks that
+each installed package has the name and version the board consented to, and
+fails the install before it replaces the running installation otherwise.
+
 One index lists plugins and themes alike:
 
 ```jsonc
@@ -718,7 +727,7 @@ lists everything on the data volume that is not running and why:
 | `action-refused`          | An action it declares could not be registered.                         |
 | `forbidden-injection`     | One of its providers reaches for a core service a plugin may not hold. |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
-| `not-consented`           | On the volume with no record of consent.                               |
+| `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |
