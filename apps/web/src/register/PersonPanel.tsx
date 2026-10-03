@@ -129,10 +129,10 @@ function isHeld(seat: PersonBoardPosition, today: string): boolean {
  * ended.
  */
 function residencyStateKey(
-  residency: { movedInOn: string; movedOutOn: string | null },
+  residency: { movedInOn: string | null; movedOutOn: string | null },
   today: string,
 ): TranslationKey {
-  if (residency.movedInOn > today) {
+  if (residency.movedInOn !== null && residency.movedInOn > today) {
     return "register.person.upcoming";
   }
   return residency.movedOutOn === null || residency.movedOutOn > today
