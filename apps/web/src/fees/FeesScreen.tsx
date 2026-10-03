@@ -135,6 +135,11 @@ export function FeesScreen(): ReactElement {
   const [failed, setFailed] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [refusal, setRefusal] = useState<TranslationKey | null>(null);
+  /*
+   * The register date the server refused, kept apart from the form's refusal:
+   * the next read that succeeds clears this one and must not clear that.
+   */
+  const [dateRefusal, setDateRefusal] = useState<TranslationKey | null>(null);
   const [reload, setReload] = useState(0);
 
   const [apartmentId, setApartmentId] = useState("");
@@ -182,12 +187,24 @@ export function FeesScreen(): ReactElement {
         setRegister(result.value);
         setFailed(false);
         setForbidden(false);
+        setDateRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
         setForbidden(true);
         setFailed(false);
         setRegister(null);
+        return;
+      }
+      /*
+       * A date the server refuses is not a failed read: the board stated
+       * something it can correct on the date control, whether the refusal is
+       * the date's own (422) or the request schema's (400). A retry would ask
+       * for the same date again.
+       */
+      if (result.failure.status === 422 || result.failure.status === 400) {
+        setFailed(false);
+        setDateRefusal(feeFailureKey(result.failure));
         return;
       }
       setFailed(true);
@@ -337,6 +354,11 @@ export function FeesScreen(): ReactElement {
         {failed ? (
           <LoadFailure messageKey="fees.loadFailed" onRetry={load} />
         ) : null}
+        {dateRefusal === null ? null : (
+          <Notice tone="danger" live>
+            {t(dateRefusal)}
+          </Notice>
+        )}
         {refusal === null ? null : (
           <Notice tone="danger" live>
             {t(refusal)}
@@ -589,7 +611,7 @@ export function FeesScreen(): ReactElement {
         One document to a printed page: while the notices are open they are
         what prints, and closing them gives the page back to the register.
       */}
-      {register === null || failed ? null : (
+      {register === null || failed || dateRefusal !== null ? null : (
         <section
           {...DOCUMENT_ATTRIBUTE}
           className={notices === null ? DOCUMENT : `${DOCUMENT} print:hidden`}

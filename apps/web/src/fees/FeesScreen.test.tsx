@@ -821,6 +821,38 @@ describe("reads that fail", () => {
     ).toBeNull();
   });
 
+  it.each([
+    [400, "invalid-body", "Något i formuläret gick inte att läsa."],
+    [422, "date-not-a-calendar-date", "Det är inget datum."],
+  ])(
+    "treats a date the server refuses with %i as something to correct",
+    async (status, reason, sentence) => {
+      /*
+       * The board stated a date it can change on the control above. Called a
+       * failed read, it was offered a retry that asked for the same date again.
+       */
+      const user = userEvent.setup();
+      render(<FeesScreen />);
+      await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+      fetchFeeRegister.mockResolvedValue({
+        ok: false,
+        failure: { status, reason },
+      });
+      const date = screen.getByLabelText("Gäller den");
+      await user.clear(date);
+      await user.type(date, "2026-10-15");
+
+      expect(await screen.findByText(sentence)).toBeTruthy();
+      expect(
+        screen.queryByText("Avgifterna kunde inte läsas just nu."),
+      ).toBeNull();
+      expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+      // The previous day's register is not left under the date it refused.
+      expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
+    },
+  );
+
   it("does not report a failed read of the runs as none issued", async () => {
     // "No notices have been produced yet" is a statement about the books, and a
     // board reading it after a dropped request would issue a period twice.
