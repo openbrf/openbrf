@@ -146,8 +146,14 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
    * are told, and it keeps them the only things that read.
    */
   const [refreshes, setRefreshes] = useState(0);
-  /** Whether the agenda's last save landed, and whose decision's last did. */
-  const [agendaSaved, setAgendaSaved] = useState(false);
+  /**
+   * Whose agenda's last save landed, and whose decision's last did.
+   *
+   * Each names what it belongs to. A save still in flight when another meeting
+   * is opened reports to the screen after `selectMeeting` has cleared these, and
+   * a bare flag would carry that confirmation over to the meeting now on screen.
+   */
+  const [agendaSaved, setAgendaSaved] = useState<string | null>(null);
   const [decisionSaved, setDecisionSaved] = useState<string | null>(null);
 
   /*
@@ -256,7 +262,7 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   const selectMeeting = (meetingId: string): void => {
     if (meetingId !== selectedId) {
       setMeeting(null);
-      setAgendaSaved(false);
+      setAgendaSaved(null);
       setDecisionSaved(null);
       // A new meeting is a new read, so whatever the last one failed at is not
       // a fact about this one.
@@ -306,8 +312,12 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
           <MeetingAgendaPanel
             key={agendaKeyOf(meeting)}
             meeting={meeting}
-            saved={agendaSaved}
-            onSaved={setAgendaSaved}
+            saved={agendaSaved === meeting.id}
+            onSaved={(landed) => {
+              setAgendaSaved((held) =>
+                landed ? meeting.id : held === meeting.id ? null : held,
+              );
+            }}
             onChanged={reload}
           />
 

@@ -150,13 +150,29 @@ export function MeetingAgendaPanel({
       });
   };
 
+  /*
+   * The draft no longer says what was saved, so the confirmation goes. It is
+   * held by this panel's own save and, across the re-read that remounts the
+   * panel, by the screen's flag; both are let go on the first edit.
+   */
+  const edited = (): void => {
+    if (save.state.kind === "saved") {
+      save.reset();
+    }
+    if (saved) {
+      onSaved(false);
+    }
+  };
+
   const change = (key: number, title: string): void => {
+    edited();
     setItems((rows) =>
       rows.map((row) => (row.key === key ? { ...row, title } : row)),
     );
   };
 
   const remove = (key: number): void => {
+    edited();
     setItems((rows) => {
       const next = rows.filter((row) => row.key !== key);
       // Never nothing: an empty list would leave the board with no field to type
@@ -166,6 +182,7 @@ export function MeetingAgendaPanel({
   };
 
   const move = (index: number, by: -1 | 1): void => {
+    edited();
     setItems((rows) => {
       const to = index + by;
       const moved = rows[index];
@@ -226,6 +243,7 @@ export function MeetingAgendaPanel({
               className={SECONDARY_BUTTON}
               disabled={items.length >= MEETING_AGENDA_MAX_ITEMS}
               onClick={() => {
+                edited();
                 setItems((rows) => [...rows, ...draftFrom([""])]);
               }}
             >
