@@ -252,6 +252,7 @@
       },
       "current": "Pågående",
       "ended": "Avslutat",
+      "upcoming": "Kommande",
       "electedOn": "Vald",
       "endedOn": "Avslutades",
       "protectionFailed": "Maskeringen kunde inte ändras. Försök igen.",
@@ -1930,9 +1931,15 @@
         "cancel": "Avbryt",
         "submit": "Notera panten",
         "release": "Avnotera",
-        "releaseLabel": "Avnotera panten från {{creditor}}",
+        "releaseLabel": "Avnotera panten från {{lien}}",
+        "releasedOnLabel": "Avnoterad den",
+        "releasedOnLabelFor": "Avnoterad den, för panten från {{lien}}",
+        "releaseSubmit": "Registrera avnoteringen",
+        "releaseSubmitLabel": "Registrera avnoteringen av panten från {{lien}}",
         "releasing": "Avnoterar",
-        "failed": "Panten kunde inte registreras. Kontrollera panthavare och datum."
+        "releaseRecordedUnread": "Avnoteringen är registrerad, men registret kunde inte läsas om. Panten kan se öppen ut tills det har lästs om.",
+        "readAgain": "Läs om registret",
+        "failed": "Panten kunde inte registreras. Kontrollera panthavare, datum och belopp."
       },
       "transfers": {
         "heading": "Upplåtelser och överlåtelser",
@@ -2125,7 +2132,7 @@
           "forbidden": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
           "association-not-set-up": "Föreningens egen post saknas, så filen skulle inte identifiera någon. Slutför uppstarten först.",
           "association-name-missing": "Föreningen har inget namn registrerat, så filen skulle inte identifiera någon. Registrera det i inställningarna först.",
-          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det på lägenhetsförteckningens skärm först.",
+          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det först under Inställningar, Föreningen.",
           "unexpected": "Det inledande uppgiftslämnandet kunde inte tas fram just nu. Försök igen."
         },
         "download": "Spara filen",
@@ -2685,6 +2692,7 @@
       "summary_one": "Från {{correspondent}}. Ett meddelande.",
       "summary_other": "Från {{correspondent}}. {{count}} meddelanden.",
       "more": "Visa äldre trådar",
+      "moreFailed": "De äldre trådarna kunde inte läsas just nu. Försök igen.",
       "reading": "Läser..."
     },
     "thread": {
@@ -2706,7 +2714,8 @@
       "replyRemaining_other": "{{count}} tecken kvar.",
       "olderNotShown": "Visar de {{shown}} senaste av {{total}} meddelanden i den här tråden.",
       "readEarlier": "Visa tidigare meddelanden",
-      "readingEarlier": "Läser..."
+      "readingEarlier": "Läser...",
+      "earlierFailed": "De tidigare meddelandena kunde inte läsas just nu. Försök igen."
     },
     "message": {
       "received": "Inkommet",
@@ -2743,6 +2752,7 @@
     "description": "Alla som har ett uppdrag i styrelsen är med i rummet, och ingen annan. Ingenting här publiceras, ingenting skickas med e-post, och ingenting visas på föreningens webbplats.",
     "loading": "Öppnar chatten...",
     "loadFailed": "Chatten kunde inte öppnas just nu. Ladda om sidan.",
+    "relistFailed": "Listan över rummen kunde inte läsas om just nu.",
     "notOffered": "Chatten är för styrelsen och för dem som bor i huset. Ett konto som varken har ett uppdrag i styrelsen eller ett hem här når den inte.",
     "reading": "Läser meddelandena...",
     "empty": "Ingenting har skrivits här än.",

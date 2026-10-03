@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -120,6 +120,26 @@ function isHeld(seat: PersonBoardPosition, today: string): boolean {
   return seat.endedOn === null || seat.endedOn > today;
 }
 
+/**
+ * Where a residency stands on a day, by both of its dates.
+ *
+ * The same rule the server holds a residency by (ADR 0014): the move-in day is
+ * the first day it is held and the move-out day the first day it is not. One
+ * that begins ahead of today is held by nobody yet, so it is neither current nor
+ * ended.
+ */
+function residencyStateKey(
+  residency: { movedInOn: string | null; movedOutOn: string | null },
+  today: string,
+): TranslationKey {
+  if (residency.movedInOn !== null && residency.movedInOn > today) {
+    return "register.person.upcoming";
+  }
+  return residency.movedOutOn === null || residency.movedOutOn > today
+    ? "register.person.current"
+    : "register.person.ended";
+}
+
 const CONSENT_SCOPE_LABEL = {
   PHOTO: "register.person.consentScope.photo",
   NAME_ON_SITE: "register.person.consentScope.nameOnSite",
@@ -219,7 +239,39 @@ export function PersonPanel({
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const [revealed, setRevealed] = useState<RevealedFields>({});
-  const [revealing, setRevealing] = useState<MaskableField | null>(null);
+  /*
+   * Per field, because every reveal is an audit entry: one shared flag let the
+   * first answer to arrive re-enable a button whose own reveal was still in
+   * flight, inviting a second, duplicate reveal of it.
+   */
+  const [revealing, setRevealing] = useState<ReadonlySet<MaskableField>>(
+    new Set(),
+  );
+  /*
+   * Bumped when the person's masking changes, which also clears what was
+   * revealed. A reveal answers into the generation it was asked in, so one
+   * still in flight across the change cannot put a value back on the screen.
+   */
+  const revealGeneration = useRef(0);
+  /*
+   * Which request owns a field's busy state. A request that was let go of by a
+   * change of masking must not clear the flag of a newer one for the same field
+   * when it finally settles, or the button would be offered again over a reveal
+   * still in flight and an audited reveal repeated.
+   */
+  const revealOwner = useRef(new Map<MaskableField, number>());
+  const revealCount = useRef(0);
+  /*
+   * Whether the masking is being changed, and the protected person has not been
+   * read back yet. Held as a ref as well as state, because a reveal asks it
+   * from a callback and must see the answer of this moment: a reveal begun in
+   * between would capture the generation the change has already moved to, and
+   * be accepted over a person still drawn unmasked.
+   */
+  const [changingProtection, setChangingProtection] = useState(false);
+  const changingProtectionRef = useRef(false);
+  /** Set when the read after a protection change is asked for. */
+  const readAfterProtection = useRef(false);
   const [revealFailed, setRevealFailed] = useState(false);
   const [protectionFailed, setProtectionFailed] = useState(false);
   const [consentFailed, setConsentFailed] = useState(false);
@@ -246,6 +298,8 @@ export function PersonPanel({
    * not known yet is not offered an end date.
    */
   const [heldSeats, setHeldSeats] = useState<ReadonlySet<string>>(new Set());
+  /** The association's day when the register was read, for the same reason. */
+  const [readOn, setReadOn] = useState("");
   const [endedOn, setEndedOn] = useState("");
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   /*
@@ -280,11 +334,21 @@ export function PersonPanel({
    */
   useEffect(() => {
     const controller = new AbortController();
+    // Whether this read is the one a protection change asked for. Read now, so
+    // a read that was already running when the change was made cannot end it.
+    const answersProtectionChange = readAfterProtection.current;
+    readAfterProtection.current = false;
 
     void (async () => {
       try {
         const detail = await fetchPerson(personId, controller.signal);
         setPerson(detail);
+        if (answersProtectionChange) {
+          // Only now is the person drawn as the server holds them, so only now
+          // may a value be revealed into the panel again.
+          changingProtectionRef.current = false;
+          setChangingProtection(false);
+        }
         /*
          * Whether an outstanding invitation has expired is decided here, at the
          * moment the register was read, rather than during a render: a render
@@ -307,6 +371,7 @@ export function PersonPanel({
          * offered an act on a term the server no longer treats as running.
          */
         const today = localDayNow();
+        setReadOn(today);
         setHeldSeats(
           new Set(
             detail.boardPositions
@@ -329,15 +394,33 @@ export function PersonPanel({
 
   const reveal = useCallback(
     async (field: MaskableField): Promise<void> => {
-      setRevealing(field);
+      if (changingProtectionRef.current) {
+        return;
+      }
+      const generation = revealGeneration.current;
+      revealCount.current += 1;
+      const owner = revealCount.current;
+      revealOwner.current.set(field, owner);
+      setRevealing((current) => new Set(current).add(field));
       setRevealFailed(false);
       try {
         const result = await revealFields(personId, [field]);
-        setRevealed((current) => ({ ...current, ...result }));
+        if (generation === revealGeneration.current) {
+          setRevealed((current) => ({ ...current, ...result }));
+        }
       } catch {
-        setRevealFailed(true);
+        if (generation === revealGeneration.current) {
+          setRevealFailed(true);
+        }
       } finally {
-        setRevealing(null);
+        if (revealOwner.current.get(field) === owner) {
+          revealOwner.current.delete(field);
+          setRevealing((current) => {
+            const next = new Set(current);
+            next.delete(field);
+            return next;
+          });
+        }
       }
     },
     [personId],
@@ -362,13 +445,28 @@ export function PersonPanel({
   const toggleProtection = useCallback(
     async (next: boolean): Promise<void> => {
       setProtectionFailed(false);
+      /*
+       * From here until the person has been read back, nothing may be revealed
+       * into the panel and nothing already asked for may land in it. Waiting for
+       * the change to succeed first would leave the span between its answer and
+       * the read back open to a reveal that begins in it and is taken for a
+       * current one.
+       */
+      changingProtectionRef.current = true;
+      setChangingProtection(true);
+      revealGeneration.current += 1;
+      revealOwner.current.clear();
+      setRevealing(new Set());
+      setRevealed({});
       try {
         await setProtectedPersonalData(personId, next);
       } catch {
+        changingProtectionRef.current = false;
+        setChangingProtection(false);
         setProtectionFailed(true);
         return;
       }
-      setRevealed({});
+      readAfterProtection.current = true;
       setReloadToken((token) => token + 1);
       onChanged();
     },
@@ -671,7 +769,11 @@ export function PersonPanel({
               <SignChip sign="PROTECTED" />
             ) : null}
             {person.boardPositions
-              .filter((position) => position.endedOn === null)
+              .filter(
+                (position) =>
+                  heldSeats.has(position.boardPositionId) &&
+                  (position.electedOn ?? "") <= readOn,
+              )
               .map((position) => (
                 <SignChip key={position.position} sign={position.position} />
               ))}
@@ -699,7 +801,8 @@ export function PersonPanel({
                     ? person.contact.email
                     : (revealed.email ?? null)
                 }
-                revealing={revealing === "email"}
+                revealing={revealing.has("email")}
+                blocked={changingProtection}
                 onReveal={() => {
                   void reveal("email");
                 }}
@@ -723,7 +826,8 @@ export function PersonPanel({
                     ? person.contact.phone
                     : (revealed.phone ?? null)
                 }
-                revealing={revealing === "phone"}
+                revealing={revealing.has("phone")}
+                blocked={changingProtection}
                 onReveal={() => {
                   void reveal("phone");
                 }}
@@ -744,7 +848,8 @@ export function PersonPanel({
                 masked
                 present={person.hasPersonalIdentityNumber}
                 value={revealed.personalIdentityNumber ?? null}
-                revealing={revealing === "personalIdentityNumber"}
+                revealing={revealing.has("personalIdentityNumber")}
+                blocked={changingProtection}
                 onReveal={() => {
                   void reveal("personalIdentityNumber");
                 }}
@@ -773,7 +878,8 @@ export function PersonPanel({
                   // nothing to show, and no reason to ask a second time.
                   present={revealedPostalAddress !== ""}
                   value={revealedPostalAddress ?? null}
-                  revealing={revealing === "postalAddress"}
+                  revealing={revealing.has("postalAddress")}
+                  blocked={changingProtection}
                   onReveal={() => {
                     void reveal("postalAddress");
                   }}
@@ -828,9 +934,7 @@ export function PersonPanel({
                         toLabelKey="register.column.movedOut"
                       />
                       <span className="text-small text-ink-muted">
-                        {residency.movedOutOn === null
-                          ? t("register.person.current")
-                          : t("register.person.ended")}
+                        {t(residencyStateKey(residency, readOn))}
                       </span>
                     </span>
                     {residency.purgeOn === null ? null : (
@@ -1469,6 +1573,7 @@ function MaskedValue({
   present,
   value,
   revealing,
+  blocked,
   onReveal,
   onHide,
 }: {
@@ -1477,6 +1582,8 @@ function MaskedValue({
   present: boolean;
   value: string | null;
   revealing: boolean;
+  /** The masking is being changed, so no value may be asked for now. */
+  blocked: boolean;
   onReveal: () => void;
   onHide: () => void;
 }): ReactElement {
@@ -1518,7 +1625,7 @@ function MaskedValue({
       <button
         type="button"
         onClick={onReveal}
-        disabled={revealing}
+        disabled={revealing || blocked}
         aria-label={t("register.reveal.ariaLabel", {
           field: t(FIELD_LABEL[field]),
         })}

@@ -376,6 +376,52 @@ describe("when the read fails", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
   });
+
+  it("takes the refusal away once a corrected period is read", async () => {
+    render(<ChargesScreen />);
+    await screen.findByText("Nyckel till cykelrummet");
+
+    fetchDebitingList.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 422, reason: "range-invalid" },
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2027-02-01" },
+    });
+    await screen.findByText("Perioden kan inte sluta innan den börjar.");
+
+    // The corrected period is read from the server, not from the list kept for
+    // it, so the refusal is held until that read answers. The row can be on
+    // screen before then - it is the list of the same period read earlier - and
+    // is not evidence the new request has completed.
+    const callsBefore = fetchDebitingList.mock.calls.length;
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    fetchDebitingList.mockImplementationOnce(async () => {
+      await answered;
+      return { ok: true, value: LIST };
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2026-01-01" },
+    });
+    await waitFor(() => {
+      expect(fetchDebitingList.mock.calls.length).toBe(callsBefore + 1);
+    });
+    expect(
+      screen.getByText("Perioden kan inte sluta innan den börjar."),
+    ).toBeTruthy();
+
+    answer();
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Perioden kan inte sluta innan den börjar."),
+      ).toBeNull();
+    });
+    expect(screen.getByText("Nyckel till cykelrummet")).toBeTruthy();
+  });
 });
 
 describe("removing a charge", () => {
@@ -396,5 +442,23 @@ describe("removing a charge", () => {
     await waitFor(() => {
       expect(fetchDebitingList.mock.calls.length).toBeGreaterThan(1);
     });
+  });
+
+  it("does not read the address book again", async () => {
+    // The parties are the same after a removal, and reading them walks the
+    // whole address book plus one request per address.
+    removeCharge.mockResolvedValue({ ok: true, value: undefined });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+
+    await waitFor(() => {
+      expect(fetchDebitingList).toHaveBeenCalledTimes(2);
+    });
+    expect(loadChargeParties).toHaveBeenCalledTimes(1);
   });
 });

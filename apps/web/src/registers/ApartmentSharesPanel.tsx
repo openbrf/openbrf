@@ -10,6 +10,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { decimalFromInput } from "../ui/decimal-input";
 import { Notice } from "../ui/Notice";
 import {
   type ApartmentRegisterRow,
@@ -109,8 +110,8 @@ export function ApartmentSharesPanel({
         if (entry === undefined) {
           return [];
         }
-        const share = entry.participationShare.trim();
-        const capital = entry.initialShareCapital.trim();
+        const share = decimalFromInput(entry.participationShare);
+        const capital = decimalFromInput(entry.initialShareCapital);
         return [
           {
             apartmentId: row.apartmentId,

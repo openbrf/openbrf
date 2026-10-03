@@ -1,3 +1,4 @@
+import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
 import {
   useState,
   type ChangeEvent,
@@ -252,6 +253,7 @@ export function ReportIssuePanel({
             type="text"
             name="issueLocation"
             autoComplete="off"
+            maxLength={ISSUE_REPORT_LIMITS.location}
             value={draft.location}
             onChange={(event) => {
               setDraft({ ...draft, location: event.target.value });
@@ -266,6 +268,7 @@ export function ReportIssuePanel({
           <textarea
             name="issueDescription"
             rows={5}
+            maxLength={ISSUE_REPORT_LIMITS.description}
             value={draft.description}
             onChange={(event) => {
               setDraft({ ...draft, description: event.target.value });

@@ -255,7 +255,10 @@ describe("the period on screen", () => {
 
     await user.click(screen.getByRole("button", { name: "Tidigare" }));
     await waitFor(() => {
-      expect(fetchEventSeries).toHaveBeenCalledWith({
+      // The last call rather than any call: the read at mount asked for the
+      // same period, and would otherwise stand in for a "Tidigare" that did
+      // nothing.
+      expect(fetchEventSeries).toHaveBeenLastCalledWith({
         from: "2026-04-01",
         to: "2026-06-01",
       });
@@ -421,6 +424,29 @@ describe("publishing", () => {
         values: { published: false },
       });
     });
+  });
+
+  it("follows an audience changed elsewhere, so publishing does not undo it", async () => {
+    // A colleague made the series public. The card keeps the board's typed
+    // fields across the re-read, but the audience select has to follow what is
+    // stored, or "Publicera" would quietly make the series members-only again.
+    await open();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    fetchEventSeries.mockResolvedValue({
+      ok: true,
+      value: [{ ...CLEANING, visibility: "PUBLIC" }],
+    });
+
+    // Any act re-reads the period; this one leaves the card's fields alone.
+    await user.click(
+      screen.getByRole("button", { name: "Ställ in lördag 18 april 2026" }),
+    );
+    await screen.findByText("Publicerat för alla");
+
+    expect(screen.getByLabelText("Vem det är för")).toHaveProperty(
+      "value",
+      "PUBLIC",
+    );
   });
 
   it("offers no way down for a series that is not published", async () => {

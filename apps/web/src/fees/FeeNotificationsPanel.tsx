@@ -20,6 +20,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
@@ -58,11 +59,6 @@ import {
  * a POST rather than a GET because it is an audited disclosure: named
  * apartments' amounts leaving the association is an act somebody chose to take.
  */
-
-/** The file as something a browser will save. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
 
 /**
  * The first day of this month on the association's own calendar - the day a

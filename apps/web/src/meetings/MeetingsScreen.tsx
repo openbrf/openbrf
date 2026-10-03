@@ -9,7 +9,6 @@ import {
   type MeetingSummary,
 } from "../api/meetings";
 import { LoadFailure } from "../ui/LoadFailure";
-import { Notice } from "../ui/Notice";
 import { MeetingAgendaPanel } from "./MeetingAgendaPanel";
 import { MeetingCheckInPanel } from "./MeetingCheckInPanel";
 import { MeetingDecisionsPanel } from "./MeetingDecisionsPanel";
@@ -77,6 +76,10 @@ export interface MeetingsScreenProps {
  * below tie those drafts to the answer they were seeded from, so a save that
  * landed replaces the fields and a re-read that changed nothing leaves a
  * half-typed correction alone.
+ *
+ * That remount is also why the screen holds what was last saved. A save always
+ * changes the key, so a panel holding its own "saved" would lose it the moment
+ * the re-read landed - too soon for a screen reader to announce it.
  */
 /**
  * What ties the agenda draft to the answer it was seeded from.
@@ -143,6 +146,15 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
    * are told, and it keeps them the only things that read.
    */
   const [refreshes, setRefreshes] = useState(0);
+  /**
+   * Whose agenda's last save landed, and whose decision's last did.
+   *
+   * Each names what it belongs to. A save still in flight when another meeting
+   * is opened reports to the screen after `selectMeeting` has cleared these, and
+   * a bare flag would carry that confirmation over to the meeting now on screen.
+   */
+  const [agendaSaved, setAgendaSaved] = useState<string | null>(null);
+  const [decisionSaved, setDecisionSaved] = useState<string | null>(null);
 
   /*
    * Read only for a viewer who will be shown a meeting. The route asks for a
@@ -250,6 +262,8 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
   const selectMeeting = (meetingId: string): void => {
     if (meetingId !== selectedId) {
       setMeeting(null);
+      setAgendaSaved(null);
+      setDecisionSaved(null);
       // A new meeting is a new read, so whatever the last one failed at is not
       // a fact about this one.
       setMeetingFailed(false);
@@ -272,9 +286,10 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
           without them: every identifier renders as itself. Said once here rather
           than repeated on the six panels that would each have to say it. */}
       {people.failed ? (
-        <Notice tone="warn" live>
-          {t("meetings.peopleLoadFailed")}
-        </Notice>
+        <LoadFailure
+          messageKey="meetings.peopleLoadFailed"
+          onRetry={people.retry}
+        />
       ) : null}
 
       {!canManage ? null : meetings === null ? (
@@ -297,6 +312,12 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
           <MeetingAgendaPanel
             key={agendaKeyOf(meeting)}
             meeting={meeting}
+            saved={agendaSaved === meeting.id}
+            onSaved={(landed) => {
+              setAgendaSaved((held) =>
+                landed ? meeting.id : held === meeting.id ? null : held,
+              );
+            }}
             onChanged={reload}
           />
 
@@ -324,6 +345,12 @@ export function MeetingsScreen({ viewer }: MeetingsScreenProps): ReactElement {
             key={decisionsKeyOf(meeting)}
             meeting={meeting}
             people={people}
+            savedItemId={decisionSaved}
+            onSaved={(agendaItemId, landed) => {
+              setDecisionSaved((held) =>
+                landed ? agendaItemId : held === agendaItemId ? null : held,
+              );
+            }}
             onChanged={reload}
           />
         </>

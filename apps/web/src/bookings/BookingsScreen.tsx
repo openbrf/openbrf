@@ -149,6 +149,12 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
 
   const { ready, resources, apartments, own, loadFailed } = loaded;
 
+  const [cancellations, setCancellations] = useState(0);
+  const cancelled = useCallback((): void => {
+    setCancellations((count) => count + 1);
+    reload();
+  }, [reload]);
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
@@ -172,13 +178,14 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
             resources={resources}
             apartments={apartments}
             onBooked={reload}
+            cancellations={cancellations}
           />
-          <OwnBookingsPanel bookings={own} onCancelled={reload} />
+          <OwnBookingsPanel bookings={own} onCancelled={cancelled} />
         </>
       ) : null}
 
       {ready && canManage ? (
-        <BookingBoardPanel resources={resources} onChanged={reload} />
+        <BookingBoardPanel resources={resources} onChanged={cancelled} />
       ) : null}
     </div>
   );

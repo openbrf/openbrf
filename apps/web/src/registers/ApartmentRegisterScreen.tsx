@@ -14,6 +14,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { decimalFromInput } from "../ui/decimal-input";
 import { Notice } from "../ui/Notice";
 import { ApartmentSharesPanel } from "./ApartmentSharesPanel";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -30,6 +31,7 @@ import {
 } from "./document";
 import {
   type ApartmentRegisterExtract,
+  type ApartmentRegisterLien,
   type ApartmentRegisterRow,
   type ApartmentRegisterTransfer,
   type LandTenure,
@@ -93,6 +95,15 @@ async function loadExtract(): Promise<LoadedExtract> {
     ? { state: "ok", audience: "holder", extract: own.value }
     : { state: "failed" };
 }
+
+/**
+ * What releasing a lien came to.
+ *
+ * "recorded-unread" is a release the register holds that the screen has not
+ * read back, so the lien still reads as open. It is not a refusal, and submitting
+ * the release again would be refused.
+ */
+type ReleaseOutcome = "refused" | "recorded" | "recorded-unread";
 
 interface LienDraft {
   apartmentId: string;
@@ -221,6 +232,10 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [revealFailed, setRevealFailed] = useState(false);
   const [draft, setDraft] = useState<LienDraft | null>(null);
   const [lienFailed, setLienFailed] = useState(false);
+  // Whether a lien note is in flight, for the termination's reason: lien_note
+  // is append-only with no uniqueness rule, so a second click writes a second
+  // lien into the statutory register.
+  const [recordingLien, setRecordingLien] = useState(false);
   const [termination, setTermination] = useState<TerminationDraft | null>(null);
   const [terminationFailed, setTerminationFailed] = useState(false);
   // Whether a termination is in flight; see submitTermination below.
@@ -271,8 +286,11 @@ export function ApartmentRegisterScreen(): ReactElement {
     };
   }, [apply]);
 
-  const load = useCallback(async (): Promise<void> => {
-    apply(await loadExtract());
+  /** Reads the register again, and says whether the read answered. */
+  const load = useCallback(async (): Promise<boolean> => {
+    const loaded = await loadExtract();
+    apply(loaded);
+    return loaded.state === "ok";
   }, [apply]);
 
   const reveal = useCallback(async (): Promise<void> => {
@@ -293,31 +311,39 @@ export function ApartmentRegisterScreen(): ReactElement {
   const submitLien = useCallback(
     async (input: LienDraft): Promise<void> => {
       setLienFailed(false);
-      const result = await noteLien({
-        apartmentId: input.apartmentId,
-        creditor: input.creditor.trim(),
-        notedOn: input.notedOn,
-        amount: input.amount.trim() === "" ? null : input.amount.trim(),
-      });
-      if (!result.ok) {
-        setLienFailed(true);
-        return;
+      setRecordingLien(true);
+      const amount = decimalFromInput(input.amount);
+      try {
+        const result = await noteLien({
+          apartmentId: input.apartmentId,
+          creditor: input.creditor.trim(),
+          notedOn: input.notedOn,
+          amount: amount === "" ? null : amount,
+        });
+        if (!result.ok) {
+          setLienFailed(true);
+          return;
+        }
+        setDraft(null);
+        await load();
+      } finally {
+        setRecordingLien(false);
       }
-      setDraft(null);
-      await load();
     },
     [load],
   );
 
   const release = useCallback(
-    async (lienId: string, releasedOn: string): Promise<void> => {
+    async (lienId: string, releasedOn: string): Promise<ReleaseOutcome> => {
       setLienFailed(false);
       const result = await releaseLien({ lienId, releasedOn });
       if (!result.ok) {
         setLienFailed(true);
-        return;
+        return "refused";
       }
-      await load();
+      // The release is written whether or not the register reads back, and the
+      // two are told apart: a failed read leaves the lien on screen as open.
+      return (await load()) ? "recorded" : "recorded-unread";
     },
     [load],
   );
@@ -840,12 +866,12 @@ export function ApartmentRegisterScreen(): ReactElement {
                     setDraft(null);
                   }}
                   onChangeLien={setDraft}
+                  recordingLien={recordingLien}
                   onSubmitLien={(input) => {
                     void submitLien(input);
                   }}
-                  onRelease={(lienId, releasedOn) => {
-                    void release(lienId, releasedOn);
-                  }}
+                  onRelease={release}
+                  onReread={load}
                   termination={
                     termination?.apartmentId === row.apartmentId
                       ? termination
@@ -926,8 +952,10 @@ function ApartmentEntry({
   onStartLien,
   onCancelLien,
   onChangeLien,
+  recordingLien,
   onSubmitLien,
   onRelease,
+  onReread,
   termination,
   onStartTermination,
   onCancelTermination,
@@ -948,8 +976,10 @@ function ApartmentEntry({
   onStartLien: () => void;
   onCancelLien: () => void;
   onChangeLien: (draft: LienDraft) => void;
+  recordingLien: boolean;
   onSubmitLien: (draft: LienDraft) => void;
-  onRelease: (lienId: string, releasedOn: string) => void;
+  onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
+  onReread: () => Promise<boolean>;
   termination: TerminationDraft | null;
   onStartTermination: () => void;
   onCancelTermination: () => void;
@@ -1089,18 +1119,11 @@ function ApartmentEntry({
                 )}
                 {lien.releasedOn === null ? (
                   canWrite ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onRelease(lien.id, today());
-                      }}
-                      aria-label={t("registers.apartment.liens.releaseLabel", {
-                        creditor: lien.creditor,
-                      })}
-                      className={`${QUIET_BUTTON} print:hidden`}
-                    >
-                      {t("registers.apartment.liens.release")}
-                    </button>
+                    <LienReleaseControl
+                      lien={lien}
+                      onRelease={onRelease}
+                      onReread={onReread}
+                    />
                   ) : null
                 ) : (
                   <span className="font-data text-data text-ink-muted">
@@ -1127,6 +1150,9 @@ function ApartmentEntry({
             className="flex flex-col gap-3 rounded-control border border-line p-4 print:hidden"
             onSubmit={(event) => {
               event.preventDefault();
+              if (recordingLien) {
+                return;
+              }
               onSubmitLien(draft);
             }}
           >
@@ -1167,7 +1193,11 @@ function ApartmentEntry({
               />
             </label>
             <div className="flex flex-wrap gap-3">
-              <button type="submit" className={PRIMARY_BUTTON}>
+              <button
+                type="submit"
+                disabled={recordingLien}
+                className={PRIMARY_BUTTON}
+              >
                 {t("registers.apartment.liens.submit")}
               </button>
               <button
@@ -1607,6 +1637,144 @@ function ReportBasisControl({
         {t("registers.apartment.transfers.basisSubmit")}
       </button>
     </span>
+  );
+}
+
+/**
+ * Releases one lien note, in two steps: the first click asks for the day, the
+ * second records it.
+ *
+ * The day is the board's to state because a release is often recorded after
+ * the fact, and it is bounded the way the server bounds it: no later than today
+ * on the association's calendar and no earlier than the day the lien was noted.
+ * It opens on today, which is the ordinary case.
+ *
+ * One request at a time. The route refuses a second release of the same note,
+ * so a second click would report a failure after the release has succeeded.
+ */
+function LienReleaseControl({
+  lien,
+  onRelease,
+  onReread,
+}: {
+  lien: ApartmentRegisterLien;
+  onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
+  onReread: () => Promise<boolean>;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [releasedOn, setReleasedOn] = useState<string | null>(null);
+  const [releasing, setReleasing] = useState(false);
+  const [recordedUnread, setRecordedUnread] = useState(false);
+  const [reading, setReading] = useState(false);
+  /*
+   * Named by the creditor, the day it was noted and the amount. A creditor can
+   * hold several open notes on one apartment, and a control that said only who
+   * they are owed to would be the same control twice, for acts that cannot be
+   * taken back.
+   */
+  const names = {
+    lien: [lien.creditor, lien.notedOn, lien.amount]
+      .filter((part): part is string => part !== null)
+      .join(", "),
+  };
+
+  if (recordedUnread) {
+    return (
+      <span className="flex flex-wrap items-center gap-2 print:hidden">
+        <span role="status" className="text-small text-ink-muted">
+          {t("registers.apartment.liens.releaseRecordedUnread")}
+        </span>
+        <button
+          type="button"
+          disabled={reading}
+          onClick={() => {
+            setReading(true);
+            void onReread().then((read) => {
+              setReading(false);
+              if (read) {
+                setRecordedUnread(false);
+              }
+            });
+          }}
+          className={QUIET_BUTTON}
+        >
+          {t("registers.apartment.liens.readAgain")}
+        </button>
+      </span>
+    );
+  }
+
+  if (releasedOn === null) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setReleasedOn(today());
+        }}
+        aria-label={t("registers.apartment.liens.releaseLabel", names)}
+        className={`${QUIET_BUTTON} print:hidden`}
+      >
+        {t("registers.apartment.liens.release")}
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2 print:hidden"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (releasing) {
+          return;
+        }
+        setReleasing(true);
+        void onRelease(lien.id, releasedOn).then((outcome) => {
+          setReleasing(false);
+          if (outcome === "recorded") {
+            setReleasedOn(null);
+          } else if (outcome === "recorded-unread") {
+            setReleasedOn(null);
+            setRecordedUnread(true);
+          }
+        });
+      }}
+    >
+      <label className="flex items-center gap-2 text-small text-ink-muted">
+        {t("registers.apartment.liens.releasedOnLabel")}
+        <input
+          type="date"
+          required
+          value={releasedOn}
+          min={lien.notedOn}
+          max={today()}
+          onChange={(event) => {
+            setReleasedOn(event.target.value);
+          }}
+          aria-label={t("registers.apartment.liens.releasedOnLabelFor", names)}
+          className={FIELD_DATA}
+        />
+      </label>
+      <button
+        type="submit"
+        disabled={releasing}
+        aria-label={t("registers.apartment.liens.releaseSubmitLabel", names)}
+        className={QUIET_BUTTON}
+      >
+        {releasing
+          ? t("registers.apartment.liens.releasing")
+          : t("registers.apartment.liens.releaseSubmit")}
+      </button>
+      <button
+        type="button"
+        disabled={releasing}
+        onClick={() => {
+          setReleasedOn(null);
+        }}
+        className={QUIET_BUTTON}
+      >
+        {t("registers.apartment.liens.cancel")}
+      </button>
+    </form>
   );
 }
 

@@ -21,6 +21,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -90,11 +91,6 @@ function defaultPeriod(): { from: string; to: string } {
   return { from: `${year}-01-01`, to: `${year}-12-31` };
 }
 
-/** The file as something a browser will save, per the module comment. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
-
 export function ChargesScreen(): ReactElement {
   const { t } = useTranslation();
   const initial = defaultPeriod();
@@ -129,6 +125,8 @@ export function ChargesScreen(): ReactElement {
     null,
   );
   const [reload, setReload] = useState(0);
+  /** Its own counter, so a recorded or removed charge re-reads only the list. */
+  const [partiesRead, setPartiesRead] = useState(0);
 
   /*
    * The parties are read once and the list on every period change, so changing
@@ -159,7 +157,7 @@ export function ChargesScreen(): ReactElement {
     return () => {
       controller.abort();
     };
-  }, [reload]);
+  }, [partiesRead]);
 
   /*
    * Which read the list on the screen came from. The period cannot say it on
@@ -185,6 +183,8 @@ export function ChargesScreen(): ReactElement {
         setList(result.value);
         setFailed(false);
         setForbidden(false);
+        // A period the server refused is no longer the one on the controls.
+        setRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
@@ -235,7 +235,10 @@ export function ChargesScreen(): ReactElement {
     setFailed(false);
     setLoading(true);
     setReload((count) => count + 1);
-  }, []);
+    if (parties === null) {
+      setPartiesRead((count) => count + 1);
+    }
+  }, [parties]);
 
   const refresh = useCallback(() => {
     // The file is from the period as it stood; a charge recorded or removed

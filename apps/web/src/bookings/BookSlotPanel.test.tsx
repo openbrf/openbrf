@@ -356,6 +356,98 @@ describe("taking a free slot", () => {
   });
 });
 
+describe("a slot lost to somebody quicker", () => {
+  async function refused(): Promise<void> {
+    bookSlot.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "slot-taken" },
+    });
+    const session = userEvent.setup();
+    await open();
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await screen.findByText(
+      "Någon hann före på den tiden. Kalendern har lästs om.",
+    );
+  }
+
+  it("reads the calendar again, as the sentence says it has", async () => {
+    await refused();
+
+    // The first read, and the one the refusal asked for.
+    await waitFor(() => {
+      expect(fetchBookableSlots).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("is not said over another week's calendar", async () => {
+    await refused();
+
+    // The next week cannot be read: that is what has to be said now.
+    fetchBookableSlots.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Senare" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Någon hann före på den tiden. Kalendern har lästs om.",
+        ),
+      ).toBeNull();
+    });
+  });
+});
+
+describe("a booking that settles after the reader moved on", () => {
+  it("is neither confirmed nor refused over the next week's calendar", async () => {
+    /*
+     * Moving on clears the action's state, but the request is still in flight.
+     * Its answer used to set the state again, so the next week opened with a
+     * refusal - or a confirmation - about a slot it does not show.
+     */
+    let settle!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await pending;
+      return { ok: false, failure: { status: 409, reason: "slot-taken" } };
+    });
+    const session = userEvent.setup();
+    await open();
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Bokar...")).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    settle();
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(1);
+    });
+    // The refusal asks for a read; wait for it so the answer has been applied.
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    expect(
+      screen.queryByText(
+        "Någon hann före på den tiden. Kalendern har lästs om.",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("a quota that has been spent", () => {
   /** Clicks the free slot and waits for whatever the refusal says. */
   async function refuse(detail: unknown): Promise<void> {
@@ -451,6 +543,22 @@ describe("a stay of several nights", () => {
         endsAt: "2026-09-17T22:00:00.000Z",
       });
     });
+  });
+
+  it("starts again when the window moves", async () => {
+    // The check for a held night in between sees only the window on screen, so
+    // a stay may not reach into one that is no longer shown.
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    expect(screen.queryByText(/^Ankomst/u)).toBeNull();
   });
 
   it("cannot be made to span a night somebody else holds", async () => {
