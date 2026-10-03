@@ -194,6 +194,16 @@ async function add(
       ? "none"
       : values.map((value) => t(key(value))).join("; ");
 
+  // Refused before the consent is printed, as the install would refuse it: a
+  // dry run that passes must mean the real run gets past the catalog.
+  if (entry.deprecated && entry.installedVersion === null) {
+    console.error(
+      `The catalog has deprecated ${id}, so it can only be reinstalled or ` +
+        "updated where it is already installed.",
+    );
+    return 1;
+  }
+
   console.log(`${entry.name.en} ${entry.version} (${entry.packageName})`);
   console.log(`  ${entry.description.en}`);
   console.log(

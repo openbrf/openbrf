@@ -40,6 +40,7 @@ import { PluginRegistryService } from "./plugin-registry.service";
 import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
+  PluginEntryDeprecatedError,
   PluginConsentMismatchError,
   PluginRecipientRequiredError,
   PluginNotFoundError,
@@ -451,8 +452,9 @@ export class PluginAdminService {
   /**
    * Installs from the catalog.
    *
-   * Five gates before anything is written: the entry has to exist, its
-   * contract version has to be one this host implements, it may take the
+   * Six gates before anything is written: the entry has to exist, it may not
+   * be deprecated unless this instance already has the plugin, its contract
+   * version has to be one this host implements, it may take the
    * reserved connector id only by serving the resource that id names, no other
    * installed plugin may already declare that resource, and what the board
    * confirmed has to still match what the catalog says. The last exists because
@@ -468,9 +470,23 @@ export class PluginAdminService {
       throw new PluginsDisabledError();
     }
 
-    const entry = await this.catalog.entry(request.id);
+    /*
+     * Read from the source rather than the cache: the screen that sent this
+     * browsed the catalog up to a minute ago, and a curator who deprecated
+     * the entry or changed what it declares since must be seen by the gates
+     * below, not by the copy the screen was drawn from.
+     */
+    const entry = await this.catalog.entry(request.id, { refresh: true });
     if (entry === null || entry.type !== "plugin") {
       throw new CatalogEntryNotFoundError(request.id);
+    }
+    /*
+     * A reinstall or an update of a plugin already here is let through: the
+     * row is what says the board chose it, and refusing it would leave a board
+     * unable to repair or patch a plugin it already depends on.
+     */
+    if (entry.deprecated && (await this.registry.find(entry.id)) === null) {
+      throw new PluginEntryDeprecatedError(entry.id);
     }
     if (!isSupportedApiVersion(entry.apiVersion)) {
       throw new PluginApiVersionError(entry.id, entry.apiVersion);

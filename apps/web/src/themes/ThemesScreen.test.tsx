@@ -197,6 +197,36 @@ describe("what a board sees before deciding", () => {
     });
   });
 
+  it("offers no install of a deprecated theme this instance does not have", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [{ ...CATALOG_ENTRY, deprecated: true }],
+    });
+
+    renderScreen();
+
+    const install = await screen.findByRole("button", {
+      name: /^installera$/i,
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("still offers the update of a deprecated theme already installed", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...CATALOG_ENTRY, deprecated: true, installedVersion: "0.9.0" },
+      ],
+    });
+
+    renderScreen();
+
+    const update = await screen.findByRole("button", {
+      name: /^uppdatera till 1\.0\.0$/i,
+    });
+    expect((update as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("does not mark a theme the catalog still maintains", async () => {
     renderScreen();
 
@@ -313,6 +343,29 @@ describe("installing", () => {
       screen.getByText(/text-register mot surface-register 1\.10:1/i),
     ).toBeTruthy();
     expect(screen.getByText(/lagstadgade registret/i)).toBeTruthy();
+  });
+
+  it("says the catalog has withdrawn a theme it deprecated after the screen loaded", async () => {
+    // Listed as maintained when browsed; the curator deprecated it before the
+    // confirmation, so the install button was live and the API refuses.
+    installTheme.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "entry-deprecated" },
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /installera/i })).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: /installera/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/anger att det temat inte underhålls längre/),
+      ).toBeTruthy();
+    });
   });
 
   it("reports what the lint let through with a remark", async () => {

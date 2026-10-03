@@ -1559,7 +1559,8 @@
       "errors": {
         "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till.",
         "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
-        "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t."
+        "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t.",
+        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat."
       }
     },
     "permissions": {
@@ -1753,6 +1754,7 @@
       "identityMismatch": "Paketet beskriver inte det tema katalogen listade.",
       "lintFailed": "Temat avvisades:",
       "notInCatalog": "Katalogen listar inte längre det temat.",
+      "entryDeprecated": "Katalogen anger att det temat inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
       "themeNotInstalled": "Det temat är inte installerat.",
       "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
       "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
