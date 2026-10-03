@@ -13,6 +13,7 @@ import {
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   erasureRequestedPersonIds,
+  isErasureInForce,
   withheldPersonIds,
 } from "../retention/withheld-persons";
 import {
@@ -258,9 +259,7 @@ export class BookingPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = bookingPurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
-    const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
-      (personId) => !withheld.includes(personId),
-    );
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
     /*
      * Every booking of theirs, however recent: bringing the purge forward is
@@ -356,17 +355,13 @@ export class BookingPurgeService implements OnModuleInit {
        * freed from. The request is not closed here - the service-data purge
        * runs after this job and closes it, which is why this job still sees it
        * open.
+       *
+       * Only a request nothing refuses. A board seat, a system role or a
+       * residency still running would make the closing job refuse the
+       * erasure, so this job does not start it either: the person stays on the
+       * window, and the request is left open as blocked, with nothing erased.
        */
-      const request = await tx.dataSubjectRequest.findFirst({
-        where: {
-          personId,
-          kind: "ERASURE",
-          decision: "GRANTED",
-          executedAt: null,
-          closedAt: null,
-        },
-        select: { id: true },
-      });
+      const onRequest = await isErasureInForce(tx, personId, now);
 
       /*
        * A granted erasure drops the bound rather than moving it to now. The
@@ -377,10 +372,9 @@ export class BookingPurgeService implements OnModuleInit {
        * erasure as carried out.
        */
       const { count } = await tx.booking.deleteMany({
-        where:
-          request === null
-            ? { bookedByPersonId: personId, endsAt: { lte: cutoff } }
-            : bookingsErasedOnRequest(personId),
+        where: onRequest
+          ? bookingsErasedOnRequest(personId)
+          : { bookedByPersonId: personId, endsAt: { lte: cutoff } },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them

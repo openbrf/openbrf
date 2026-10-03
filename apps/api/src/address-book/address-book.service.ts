@@ -635,7 +635,14 @@ export class AddressBookService {
     }
 
     if (options.audience === "resident") {
-      conditions.push({
+      /*
+       * Only residencies held today, whatever the filter says. A neighbour
+       * has a reason to find who lives here now and none to list who used to,
+       * or who is about to: a former household stays in the register for the
+       * board until the purge, and a buyer's move-in date is not the other
+       * households' business before the day. So "moved out" is empty here.
+       */
+      conditions.push(residencyHeldOn(localDayOf(now)), {
         person: residentVisibilityWhere(options.viewerPersonId),
       });
     }
@@ -665,13 +672,29 @@ export class AddressBookService {
       return null;
     }
 
+    const today = localDayOf(now);
+    // The board sees a person with no residency at all; a household that has
+    // moved out is a row of its own, under "moved out". A resident is shown
+    // only residencies held today, so for them "lives nowhere here" also takes
+    // in a person whose residency has ended or has not begun. A board member
+    // who has moved out still holds the seat until the annual meeting and is
+    // still somebody to find.
     const conditions: Prisma.PersonWhereInput[] = [
-      { residencies: { none: {} } },
+      {
+        residencies:
+          options.audience === "resident"
+            ? { none: residencyHeldOn(today) }
+            : { none: {} },
+      },
     ];
 
-    if (query.filter === "board") {
+    // Residents are shown only the board among the people who live nowhere
+    // here - an external board member is somebody they may need to find. An
+    // administrator, the property manager and a person not yet moved in are
+    // not.
+    if (query.filter === "board" || options.audience === "resident") {
       conditions.push({
-        boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
+        boardPositions: { some: boardSeatHeldOn(today) },
       });
     }
     if (terms !== null) {

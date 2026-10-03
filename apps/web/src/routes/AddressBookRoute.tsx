@@ -11,7 +11,10 @@ import { ApartmentPanel } from "../register/ApartmentPanel";
 import { Board } from "../register/Board";
 import { DataSubjectReport } from "../register/DataSubjectReport";
 import { PersonPanel } from "../register/PersonPanel";
-import type { RegisterFilter } from "../register/register-api";
+import {
+  RESIDENT_FILTERS,
+  type RegisterFilter,
+} from "../register/register-api";
 import {
   useAddressBook,
   useDebouncedValue,
@@ -340,6 +343,7 @@ export function AddressBookRoute(): ReactElement {
                 <Board
                   page={view.page}
                   filter={filter}
+                  filters={RESIDENT_FILTERS}
                   onFilterChange={changeFilter}
                   addressId={addressId}
                   onAddressChange={changeAddress}

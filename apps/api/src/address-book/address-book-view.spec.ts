@@ -185,6 +185,20 @@ describe("resident-facing rows", () => {
     expect(row).not.toHaveProperty("purgeOn");
   });
 
+  it("does not say when a household moves out, nor that it has", () => {
+    // A residency held today carries a future date; the past one is the guard
+    // behind it, should a moved-out row ever reach this mapper.
+    for (const movedOutOn of ["2026-09-30", "2026-08-01"]) {
+      const row = toResidentDirectoryRow(
+        record({ movedOutOn: new Date(`${movedOutOn}T00:00:00.000Z`) }),
+        { today: TODAY },
+      );
+
+      expect(row.movedOutOn).toBeNull();
+      expect(row.signs).not.toContain("MOVED_OUT");
+    }
+  });
+
   it("still shows names, apartments, roles and dates", () => {
     const row = toResidentDirectoryRow(record(), { today: TODAY });
 
@@ -201,7 +215,11 @@ describe("who appears in the resident-facing directory", () => {
     // protected lives in 1103", which is the fact protection withholds.
     expect(
       isVisibleToResidents(
-        { personId: "person-1", protectedPersonalData: true },
+        {
+          personId: "person-1",
+          protectedPersonalData: true,
+          processingRestricted: false,
+        },
         VIEWER,
       ),
     ).toBe(false);
@@ -210,16 +228,40 @@ describe("who appears in the resident-facing directory", () => {
   it("includes a protected person's own entry for themselves", () => {
     expect(
       isVisibleToResidents(
-        { personId: VIEWER, protectedPersonalData: true },
+        {
+          personId: VIEWER,
+          protectedPersonalData: true,
+          processingRestricted: false,
+        },
         VIEWER,
       ),
+    ).toBe(true);
+  });
+
+  it("excludes a person under a restriction of processing, except to themselves", () => {
+    // Art. 18(2): the association may store the data, and showing a name to
+    // every household is a use of it. The query leaves them out; this is the
+    // second line of defence behind it.
+    const restricted = {
+      protectedPersonalData: false,
+      processingRestricted: true,
+    };
+    expect(
+      isVisibleToResidents({ personId: "person-1", ...restricted }, VIEWER),
+    ).toBe(false);
+    expect(
+      isVisibleToResidents({ personId: VIEWER, ...restricted }, VIEWER),
     ).toBe(true);
   });
 
   it("includes everyone else", () => {
     expect(
       isVisibleToResidents(
-        { personId: "person-1", protectedPersonalData: false },
+        {
+          personId: "person-1",
+          protectedPersonalData: false,
+          processingRestricted: false,
+        },
         VIEWER,
       ),
     ).toBe(true);

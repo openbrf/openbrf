@@ -6,8 +6,14 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  remainingRunBound,
+  subletApplicationsErasedOnRequest,
+} from "../retention/erasure-domains";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
+  erasureRequestedPersonIds,
+  isErasureInForce,
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
@@ -34,6 +40,9 @@ const PURGE_CRON = "17 3 * * *";
  * retention window is shortened. Nothing is lost by stopping - eligibility is
  * computed from the data rather than marked on it, so the next night's run finds
  * the rest.
+ *
+ * The people a granted erasure request names are taken before it and cannot be
+ * cut by it: `retention/erasure-domains.ts` has the whole of why.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
@@ -76,6 +85,15 @@ export interface SubletPurgeRunSummary {
  * association is processing it, so the purpose it is held for has not ended, and
  * a queue nobody has worked is something for the board to see rather than for a
  * job to erase.
+ *
+ * ## A granted erasure request
+ *
+ * Brings the purge forward: every closed application of the person's goes on
+ * the next run, whatever its period, and an open one stays for the board to
+ * answer - `retention/erasure-domains.ts` counts it as kept, so the request
+ * stays open until it closes. The request is only in force once the person no
+ * longer lives here, so the consent it would erase is about an apartment they
+ * no longer hold.
  *
  * ## Legal hold
  *
@@ -191,7 +209,7 @@ export class SubletPurgeService implements OnModuleInit {
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
         `Sublet purge stopped at its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
@@ -229,20 +247,41 @@ export class SubletPurgeService implements OnModuleInit {
    */
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const held = await withheldPersonIds(this.prisma);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
-    const groups = await this.prisma.subletApplication.groupBy({
-      by: ["appliedByPersonId"],
-      where: {
-        ...erasable(now, retentionDays),
-        // Spelled conditionally rather than as an empty `notIn`, so what the
-        // query asks does not depend on how the client renders a list of none.
-        ...(held.length > 0 ? { appliedByPersonId: { notIn: held } } : {}),
-      },
-      orderBy: [{ appliedByPersonId: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-    });
+    // Their closed applications, however recent, and taken ahead of the
+    // bound: see `retention/erasure-domains.ts`.
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.subletApplication.groupBy({
+            by: ["appliedByPersonId"],
+            where: subletApplicationsErasedOnRequest({ in: requested }),
+            orderBy: [{ appliedByPersonId: "asc" }],
+            take: requested.length,
+          });
 
-    return groups.map((group) => group.appliedByPersonId);
+    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const excluded = [...held, ...requested];
+    const expired =
+      bound === 0
+        ? []
+        : await this.prisma.subletApplication.groupBy({
+            by: ["appliedByPersonId"],
+            where: {
+              ...erasable(now, retentionDays),
+              // Spelled conditionally rather than as an empty `notIn`, so what
+              // the query asks does not depend on how the client renders a list
+              // of none.
+              ...(excluded.length > 0
+                ? { appliedByPersonId: { notIn: excluded } }
+                : {}),
+            },
+            orderBy: [{ appliedByPersonId: "asc" }],
+            take: bound,
+          });
+
+    return [...onRequest, ...expired].map((group) => group.appliedByPersonId);
   }
 
   /**
@@ -282,8 +321,13 @@ export class SubletPurgeService implements OnModuleInit {
         return 0;
       }
 
+      // A granted erasure request that nothing refuses drops the window; an
+      // open application stays either way.
+      const onRequest = await isErasureInForce(tx, personId, now);
       const { count } = await tx.subletApplication.deleteMany({
-        where: { appliedByPersonId: personId, ...erasable(now, retentionDays) },
+        where: onRequest
+          ? subletApplicationsErasedOnRequest(personId)
+          : { appliedByPersonId: personId, ...erasable(now, retentionDays) },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them

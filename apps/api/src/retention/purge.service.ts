@@ -27,6 +27,7 @@ import { purgeCutoff } from "./purge-window";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 import {
   erasureRequestedPersonIds,
+  grantedErasurePersonIds,
   withheldPersonIds,
 } from "./withheld-persons";
 
@@ -454,7 +455,7 @@ export class PurgeService implements OnModuleInit {
     failedPersonIds: ReadonlySet<string>,
   ): Promise<OpenErasureRequest[]> {
     const open: OpenErasureRequest[] = [];
-    for (const personId of await erasureRequestedPersonIds(this.prisma)) {
+    for (const personId of await grantedErasurePersonIds(this.prisma)) {
       const remainder = await erasureRemainder(this.prisma, personId, now);
       const described = remainder.map(describeRemainder).join("; ");
 
@@ -557,8 +558,15 @@ export class PurgeService implements OnModuleInit {
    * A person with no residency at all is not selected. There is no move-out to
    * anchor a purge date on, so nothing has run out: an external board member or
    * an administrator who never lived here is not a former resident.
+   *
+   * @param maxPersons The per-run bound. A parameter so a test can make it
+   *   smaller than the number of granted requests and see them all taken.
    */
-  async eligible(now: Date, retentionDays: number): Promise<string[]> {
+  async eligible(
+    now: Date,
+    retentionDays: number,
+    maxPersons: number = MAX_PERSONS_PER_RUN,
+  ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
     const defaultLocale = await this.defaultLocale();
 
@@ -572,7 +580,7 @@ export class PurgeService implements OnModuleInit {
      */
     const referencedIds = await this.referencedPersonIds();
 
-    const requested = await erasureRequestedPersonIds(this.prisma);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
     const withheld = new Set(await withheldPersonIds(this.prisma));
 
     /*
@@ -582,10 +590,12 @@ export class PurgeService implements OnModuleInit {
      * an external board member, an administrator - has service data like
      * anybody else and no move-out to anchor a date on.
      *
-     * Every other refusal still stands, which is why this is a query of its own
-     * rather than a relaxed version of the one below: a person who still lives
-     * here, sits on the board, holds a system role or is under a hold is not
-     * erased because they asked, and the board is told which of those it was.
+     * Every other refusal still stands, and `erasureRequestedPersonIds` is
+     * where it is applied - the same predicate every job that erases on a
+     * request selects on, so none of them can have started an erasure this
+     * job then refuses. A person who still lives here, sits on the board,
+     * holds a system role or is under a hold is not erased because they asked,
+     * and the account below tells the board which of those it was.
      *
      * Taken first, and what is left of the bound is what the query below may
      * take. These people are selected by a flag that this job clears, so one
@@ -597,28 +607,12 @@ export class PurgeService implements OnModuleInit {
       requested.length === 0
         ? []
         : await this.prisma.person.findMany({
-            where: {
-              id: { in: requested },
-              NOT: {
-                residencies: {
-                  some: {
-                    OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-                  },
-                },
-              },
-              boardPositions: {
-                none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-              },
-              systemRoles: { none: {} },
-              legalHolds: { none: { releasedAt: null } },
-              processingRestrictedAt: null,
-            },
+            where: { id: { in: requested } },
             orderBy: [{ createdAt: "asc" }],
-            take: requested.length,
             select: { id: true },
           });
 
-    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const bound = remainingRunBound(onRequest.length, maxPersons);
     const persons =
       bound === 0
         ? []

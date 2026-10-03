@@ -4,6 +4,8 @@ import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  normalizeFreeText,
+  normalizeSingleLineText,
   scanForPersonalIdentityNumbers,
 } from "./personal-identity-number.ts";
 
@@ -137,6 +139,93 @@ describe("scanForPersonalIdentityNumbers", () => {
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toEqual([]);
   });
 
+  it.each([
+    ["a soft hyphen", "Ring Anna på 811228\u00AD-9874 om du undrar."],
+    ["a zero-width space", "Ring Anna på 811228-\u200B9874 om du undrar."],
+    ["a zero-width joiner", "Ring Anna på 81\u200D1228-9874 om du undrar."],
+    ["fullwidth digits", "Ring Anna på ８１１２２８-９８７４ om du undrar."],
+    ["a fullwidth hyphen", "Ring Anna på 811228\uFF0D9874 om du undrar."],
+    ["a byte order mark", "Ring Anna på 811228\uFEFF-9874 om du undrar."],
+    ["a word joiner", "Ring Anna på 811228\u2060-9874 om du undrar."],
+    [
+      "a combining grapheme joiner",
+      "Ring Anna på 811228\u034F-9874 om du undrar.",
+    ],
+    ["a variation selector", "Ring Anna på 811228\uFE0F-9874 om du undrar."],
+    ["a Hangul filler", "Ring Anna på 811228\u3164-9874 om du undrar."],
+  ])("finds a number hidden behind %s", (_name, text) => {
+    expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
+  });
+
+  it("reports a hidden number where it sits in the text it was given", () => {
+    const text = "Nr \u200B811228\u00AD-9874 nu";
+    const [hit] = scanForPersonalIdentityNumbers(text, REFERENCE);
+
+    // From the first digit to the last, invisible characters inside included.
+    expect(hit?.index).toBe(text.indexOf("8"));
+    expect(hit?.value).toBe("811228\u00AD-9874");
+  });
+
+  it("keeps a line break a boundary: the end of one line is not the start of the next", () => {
+    expect(
+      scanForPersonalIdentityNumbers("Ring 811228\n9874", REFERENCE),
+    ).toEqual([]);
+  });
+
+  it("reports a number hidden behind a byte order mark where it sits in the text", () => {
+    const text = "Nr 811228\uFEFF-9874 nu";
+    const [hit] = scanForPersonalIdentityNumbers(text, REFERENCE);
+
+    expect(hit?.index).toBe(text.indexOf("8"));
+    expect(hit?.value).toBe("811228\uFEFF-9874");
+  });
+
+  it.each(["\t", "\r", "\u0085", "\u2028", "\u00A0", "\u3000"])(
+    "keeps %j a boundary, as a line break is",
+    (separator) => {
+      expect(
+        scanForPersonalIdentityNumbers(
+          `Ring 811228${separator}9874`,
+          REFERENCE,
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("finds a number in the raw text whenever it finds one in the normalised text", () => {
+    const number = "811228-9874";
+    const hidden = [
+      "\u00AD",
+      "\u200B",
+      "\u200D",
+      "\u2060",
+      "\u034F",
+      "\uFE0F",
+      "\uFEFF",
+      "\u180E",
+      "\u3164",
+      "\u0000",
+      "\u001F",
+      "\u{E0020}",
+      "\t",
+      "\n",
+      "\r",
+      "\u0085",
+      "\u2028",
+    ];
+    for (const character of hidden) {
+      for (let at = 1; at < number.length; at++) {
+        const text = number.slice(0, at) + character + number.slice(at);
+        const seen = scanForPersonalIdentityNumbers(text, REFERENCE).length;
+        const stored = scanForPersonalIdentityNumbers(
+          normalizeFreeText(text),
+          REFERENCE,
+        ).length;
+        expect(seen, JSON.stringify(text)).toBeGreaterThanOrEqual(stored);
+      }
+    }
+  });
+
   it("finds nothing in an empty text", () => {
     expect(scanForPersonalIdentityNumbers("", REFERENCE)).toEqual([]);
   });
@@ -146,5 +235,95 @@ describe("scanForPersonalIdentityNumbers", () => {
 
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
+  });
+});
+
+describe("normalizeFreeText", () => {
+  it("removes what cannot be seen and folds what looks like something else", () => {
+    expect(normalizeFreeText("a\u00ADb\u200Bc\u0000de")).toBe("abcde");
+    expect(normalizeFreeText("８１１２２８－９８７４")).toBe("811228-9874");
+  });
+
+  it("removes a byte order mark, a word joiner and the marks a renderer draws as nothing", () => {
+    expect(normalizeFreeText("811228\uFEFF-9874")).toBe("811228-9874");
+    expect(normalizeFreeText("8112\u206028\u034F-\uFE0F9874")).toBe(
+      "811228-9874",
+    );
+  });
+
+  it("keeps line breaks, so two lines do not join into one run", () => {
+    expect(normalizeFreeText("line one\nline two\ttab\r\n")).toBe(
+      "line one\nline two\ttab\r\n",
+    );
+  });
+
+  it("is its own normal form when removing a character lets a mark compose", () => {
+    const text = "e\u200B\u0301";
+
+    expect(normalizeFreeText(normalizeFreeText(text))).toBe(
+      normalizeFreeText(text),
+    );
+    expect(normalizeFreeText(text)).toBe("\u00E9");
+  });
+
+  it("is idempotent for every code point that is dropped, combines or folds, alone and beside a base letter and a mark", () => {
+    // The rest of Unicode passes through unchanged, so looping over it would
+    // only spend the time limit: what can change is what is invisible, a
+    // separator, a mark that composes, or has a compatibility form. Unassigned
+    // and private-use code points are all dropped the same way, so a sample of
+    // them stands for the roughly 950 000 of them.
+    const relevant = /[\p{C}\p{Default_Ignorable_Code_Point}\p{M}\p{Z}]/u;
+    const alike = /[\p{Cn}\p{Co}]/u;
+
+    for (let point = 0; point <= 0x10ffff; point++) {
+      if (point >= 0xd800 && point <= 0xdfff) {
+        continue;
+      }
+      const character = String.fromCodePoint(point);
+      if (alike.test(character) && point % 251 !== 0) {
+        continue;
+      }
+      if (
+        !relevant.test(character) &&
+        character.normalize("NFKC") === character
+      ) {
+        continue;
+      }
+      for (const text of [
+        character,
+        `e${character}\u0301`,
+        `${character}\u0301a`,
+      ]) {
+        const once = normalizeFreeText(text);
+        if (normalizeFreeText(once) !== once) {
+          throw new Error(`not idempotent for U+${point.toString(16)}`);
+        }
+      }
+    }
+  });
+
+  it("leaves ordinary text, Swedish letters included, as it is", () => {
+    expect(normalizeFreeText("Årsstämma i föreningslokalen")).toBe(
+      "Årsstämma i föreningslokalen",
+    );
+  });
+});
+
+describe("normalizeSingleLineText", () => {
+  it("turns a line break into a space rather than joining the lines", () => {
+    expect(normalizeSingleLineText("  Ritning\nbadrum\t\u200B 2  ")).toBe(
+      "Ritning badrum 2",
+    );
+  });
+
+  it("treats a next-line character as a line break", () => {
+    expect(normalizeSingleLineText("Ritning\u0085badrum")).toBe(
+      "Ritning badrum",
+    );
+    expect(normalizeSingleLineText("\u0085Ritning\u0085")).toBe("Ritning");
+  });
+
+  it("gives nothing for a text made only of invisible characters", () => {
+    expect(normalizeSingleLineText("\u200B\uFEFF \n")).toBe("");
   });
 });

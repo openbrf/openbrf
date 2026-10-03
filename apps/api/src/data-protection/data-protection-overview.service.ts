@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 
 import { PrismaService } from "../database/prisma.service";
 import { breachState, computeBreachDeadline } from "./breach-deadline";
-import { dueOn } from "./data-subject-request";
+import { isPastDue } from "./data-subject-request";
 import { PrivacyNoticeService } from "./privacy-notice.service";
 import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
@@ -106,8 +106,8 @@ export class DataProtectionOverviewService {
         open: requests.length,
         // Past the month art. 12(3) gives, and still owed: an overdue answer is
         // not an answer the association no longer has to give.
-        overdue: requests.filter(
-          (request) => dueOn(request.requestedOn).getTime() < now.getTime(),
+        overdue: requests.filter((request) =>
+          isPastDue(request.requestedOn, now),
         ).length,
       },
       processors: {

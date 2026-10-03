@@ -4,11 +4,12 @@ import type { Prisma } from "../generated/prisma/client";
 /**
  * What a granted erasure request still owes one person, domain by domain.
  *
- * A granted request (GDPR art. 17) is carried out by six jobs rather than one.
- * Five of them erase a person's rows in the domain they belong to - bookings,
- * chat messages, event sign-ups, motions and news comments - and the sixth
- * erases the contact details and the account and then marks the request
- * executed and closed. The sixth only ever finds the request while it is open,
+ * A granted request (GDPR art. 17) is carried out by several jobs rather than
+ * one. Each of the domain jobs erases a person's rows in the domain they belong
+ * to - board mailbox threads, bookings, chat, event sign-ups, key orders,
+ * motions, news comments and sublet applications - and the last one erases the
+ * contact details and the account and then marks the request executed and
+ * closed. The last one only ever finds the request while it is open,
  * and so does every other job, so closing it is the act that ends the erasure
  * for good: rows still standing afterwards fall back to their ordinary
  * retention window instead of the date the board granted.
@@ -28,11 +29,11 @@ import type { Prisma } from "../generated/prisma/client";
  *
  * ## What is owed and what is kept
  *
- * A domain can hold rows for a person that a granted erasure does not reach. A
- * motion that is still open is the one case in the product: it is a matter the
- * association is still dealing with and the member who put it has a right to
- * have it dealt with, so the motion purge leaves it standing however the board
- * decided the erasure. Those rows are counted apart, because the record has to
+ * A domain can hold rows for a person that a granted erasure does not reach: a
+ * motion, a key order or a sublet application that is still open. Each is a
+ * matter the association is still dealing with, and a motion's member has a
+ * right to have it dealt with, so the purge leaves it standing however the
+ * board decided the erasure. Those rows are counted apart, because the record has to
  * say which of two very different things happened - a job that has not got
  * through this person yet, or a row that is deliberately staying. Neither
  * closes the request, and a request left open says which it was.
@@ -45,6 +46,15 @@ import type { Prisma } from "../generated/prisma/client";
  * fails for one that is not registered here - which is the same walk that keeps
  * them in order, so a domain added later is held to both rules without anybody
  * remembering either.
+ *
+ * ## What is not a domain
+ *
+ * Member charges and fee notices are not here, and not by omission. They are
+ * the association's accounting records, which BFL 7 kap. 2 § obliges it to
+ * keep for seven years, so a granted erasure does not reach them (art.
+ * 17(3)(b)): they are erased on their own preservation clock, request or no
+ * request. The member register, transfers, terminations, lien notes and the
+ * audit log are kept for the same kind of reason and are never purged at all.
  *
  * ADR 0016 is the decision and the whole of the reasoning.
  */
@@ -141,6 +151,74 @@ export function newsCommentsErasedOnRequest(
   return { authorPersonId: personId, createdAt: { lte: now } };
 }
 
+/**
+ * The board mailbox threads a granted erasure request erases: those the thread
+ * was linked to the person by, as it was opened.
+ *
+ * Only `correspondentPersonId`, never an address. A thread whose correspondent
+ * could not be established as exactly one person is linked to nobody, and the
+ * access report does not list it either - erasing it on the strength of an
+ * address somebody else may hold now would be the attribution the mailbox
+ * refuses.
+ */
+export function boardMailboxThreadsErasedOnRequest(
+  personId: ErasurePersonFilter,
+): Prisma.BoardMailboxThreadWhereInput {
+  return { correspondentPersonId: personId };
+}
+
+/**
+ * What a granted erasure request erases in the chat besides the messages: the
+ * person's places in groups, the markers of what they have read, and the
+ * reports they made, with the note they wrote on each.
+ *
+ * None of these carries a date worth judging. A person a request is in force
+ * for holds no residency and no seat, so they are in no room and cannot add a
+ * row between the chat purge and the closing job.
+ */
+export function chatTracesErasedOnRequest(personId: ErasurePersonFilter): {
+  memberships: Prisma.ChatGroupMemberWhereInput;
+  readMarkers: Prisma.ChatReadWhereInput;
+  reports: Prisma.ChatMessageReportWhereInput;
+} {
+  return {
+    memberships: { personId },
+    readMarkers: { personId },
+    reports: { reporterPersonId: personId },
+  };
+}
+
+/** The key orders a granted erasure request erases. */
+export function keyOrdersErasedOnRequest(
+  personId: ErasurePersonFilter,
+): Prisma.KeyOrderWhereInput {
+  // Closed ones. An open order is with the board, which still has to answer
+  // it, on the reading the motions give.
+  return { orderedByPersonId: personId, closedAt: { not: null } };
+}
+
+/** The key orders a granted erasure request leaves standing. */
+export function keyOrdersKeptFromErasure(
+  personId: ErasurePersonFilter,
+): Prisma.KeyOrderWhereInput {
+  return { orderedByPersonId: personId, closedAt: null };
+}
+
+/** The sublet applications a granted erasure request erases. */
+export function subletApplicationsErasedOnRequest(
+  personId: ErasurePersonFilter,
+): Prisma.SubletApplicationWhereInput {
+  // Closed ones, for the reason the key orders give.
+  return { appliedByPersonId: personId, closedAt: { not: null } };
+}
+
+/** The sublet applications a granted erasure request leaves standing. */
+export function subletApplicationsKeptFromErasure(
+  personId: ErasurePersonFilter,
+): Prisma.SubletApplicationWhereInput {
+  return { appliedByPersonId: personId, closedAt: null };
+}
+
 /** One domain a granted erasure request reaches, and how to ask it. */
 export interface ErasureDomain {
   /**
@@ -180,6 +258,14 @@ export interface ErasureDomain {
  */
 export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   {
+    job: "board-mailbox/board-mailbox-purge.service.ts",
+    name: "board mailbox threads",
+    countOwed: async (client, personId) =>
+      client.boardMailboxThread.count({
+        where: boardMailboxThreadsErasedOnRequest(personId),
+      }),
+  },
+  {
     job: "bookings/booking-purge.service.ts",
     name: "bookings",
     countOwed: async (client, personId) =>
@@ -187,11 +273,18 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "chat/chat-purge.service.ts",
-    name: "chat messages",
-    countOwed: async (client, personId, now) =>
-      client.chatMessage.count({
-        where: chatMessagesErasedOnRequest(personId, now),
-      }),
+    name: "chat",
+    countOwed: async (client, personId, now) => {
+      const traces = chatTracesErasedOnRequest(personId);
+      return (
+        (await client.chatMessage.count({
+          where: chatMessagesErasedOnRequest(personId, now),
+        })) +
+        (await client.chatGroupMember.count({ where: traces.memberships })) +
+        (await client.chatRead.count({ where: traces.readMarkers })) +
+        (await client.chatMessageReport.count({ where: traces.reports }))
+      );
+    },
   },
   {
     job: "events/event-signup-purge.service.ts",
@@ -200,6 +293,17 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       client.eventSignup.count({
         where: eventSignupsErasedOnRequest(personId),
       }),
+  },
+  {
+    job: "key-orders/key-order-purge.service.ts",
+    name: "key orders",
+    countOwed: async (client, personId) =>
+      client.keyOrder.count({ where: keyOrdersErasedOnRequest(personId) }),
+    kept: {
+      because: "an open key order is still with the board",
+      count: async (client, personId) =>
+        client.keyOrder.count({ where: keyOrdersKeptFromErasure(personId) }),
+    },
   },
   {
     job: "motions/motion-purge.service.ts",
@@ -220,6 +324,21 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       client.newsComment.count({
         where: newsCommentsErasedOnRequest(personId, now),
       }),
+  },
+  {
+    job: "sublets/sublet-purge.service.ts",
+    name: "sublet applications",
+    countOwed: async (client, personId) =>
+      client.subletApplication.count({
+        where: subletApplicationsErasedOnRequest(personId),
+      }),
+    kept: {
+      because: "an open sublet application is still with the board",
+      count: async (client, personId) =>
+        client.subletApplication.count({
+          where: subletApplicationsKeptFromErasure(personId),
+        }),
+    },
   },
 ];
 

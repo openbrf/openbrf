@@ -1,19 +1,26 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { residencyHeldOn } from "../registers/held-on";
 import {
   chatMessagesErasedOnRequest,
+  chatTracesErasedOnRequest,
   remainingRunBound,
 } from "../retention/erasure-domains";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import { lockChat } from "./chat-lock";
+import { livesHere } from "./chat-membership";
 import {
   erasureRequestedPersonIds,
+  isErasureInForce,
+  isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
 import {
@@ -72,6 +79,8 @@ export interface ChatPurgeRunSummary {
   failed: number;
   /** Empty groups erased, with the membership lists that were all they held. */
   groupsDeleted: number;
+  /** Places in groups taken from people who no longer live here. */
+  formerResidentsRemoved: number;
 }
 
 /**
@@ -96,6 +105,21 @@ export interface ChatPurgeRunSummary {
  * written anything for a year has; deleting it would only mean creating it again
  * on the next read. A read marker names an instant and no message, so it says
  * nothing once the messages are gone.
+ *
+ * ## A granted erasure request
+ *
+ * Takes every message the person wrote however recent, and with them what else
+ * the chat holds of theirs: their places in groups, their read markers and the
+ * reports they made, with the note on each. `retention/erasure-domains.ts`
+ * counts all four, so the request is not closed while any of them stands.
+ *
+ * ## Somebody who has moved out
+ *
+ * Loses their place in every group on the next run. A place in a group rests
+ * on a residency held today (`chat-membership.ts`), so a former resident can
+ * neither read the room nor leave it, and the row would keep them on its
+ * member list and bring them back into the room unannounced if they moved in
+ * again. Each removal is recorded as the act ADR 0012 makes it, with no actor.
  *
  * ## Legal hold
  *
@@ -217,6 +241,7 @@ export class ChatPurgeService implements OnModuleInit {
       );
     }
 
+    const formerResidentsRemoved = await this.removeFormerResidents(now);
     const groupsDeleted = await this.purgeEmptyGroups(now, retentionDays);
 
     return {
@@ -225,7 +250,84 @@ export class ChatPurgeService implements OnModuleInit {
       messagesDeleted,
       failed,
       groupsDeleted,
+      formerResidentsRemoved,
     };
+  }
+
+  /**
+   * Takes out of every group the people who no longer live here.
+   *
+   * Not a person under a hold or a restriction: the row is theirs, and erasing
+   * it is what either forbids. The room does not list them all the same,
+   * because who is in a room is asked of the register as well as of the row.
+   */
+  private async removeFormerResidents(now: Date): Promise<number> {
+    const residents = await this.prisma.person.findMany({
+      where: { residencies: { some: residencyHeldOn(localDayOf(now)) } },
+      select: { id: true },
+    });
+    const withheld = await withheldPersonIds(this.prisma);
+    const kept = [...residents.map((person) => person.id), ...withheld];
+
+    const stale = await this.prisma.chatGroupMember.findMany({
+      where: kept.length > 0 ? { personId: { notIn: kept } } : {},
+      orderBy: [{ chatId: "asc" }, { personId: "asc" }],
+      take: MAX_PERSONS_PER_RUN,
+      select: { chatId: true, personId: true },
+    });
+
+    let removed = 0;
+    for (const { chatId, personId } of stale) {
+      try {
+        removed += await this.prisma.$transaction(async (tx) => {
+          // The room's lock, which a member being put in takes too, and the
+          // hold key, so a hold placed since the scan still wins.
+          await lockLegalHold(tx, personId);
+          await lockChat(tx, chatId);
+          // Moved back in since the scan, and the place is theirs again.
+          if (
+            (await isPersonWithheld(tx, personId)) ||
+            (await livesHere(tx, personId, now))
+          ) {
+            return 0;
+          }
+          const { count } = await tx.chatGroupMember.deleteMany({
+            where: { chatId, personId },
+          });
+          if (count === 0) {
+            return 0;
+          }
+          await tx.chatRead.deleteMany({ where: { chatId, personId } });
+          await this.audit.record(
+            {
+              action: "CHAT_GROUP_MEMBER_REMOVED",
+              channel: "SYSTEM",
+              // Nobody took them out: their residency ended.
+              actorPersonId: null,
+              targetPersonId: personId,
+              targetKind: "chat",
+              targetId: chatId,
+              context: { chatKind: "GROUP", residencyEnded: true },
+            },
+            tx,
+          );
+          return count;
+        });
+      } catch (error) {
+        // The class of the failure and the room, for the reason the empty
+        // group sweep gives.
+        this.logger.error(
+          `Taking a former resident out of group chat ${chatId} failed: ${failureName(error)}`,
+        );
+      }
+    }
+
+    if (removed > 0) {
+      this.logger.log(
+        `Took ${String(removed)} former residents out of group chats`,
+      );
+    }
+    return removed;
   }
 
   /**
@@ -368,29 +470,17 @@ export class ChatPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = chatMessagePurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
-    const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
-      (personId) => !withheld.includes(personId),
-    );
 
     /*
-     * Every message of theirs, however recent: bringing the purge forward is
-     * what the board granted. Bounded by the list itself, which is as many
-     * people as the board has granted erasure to and not yet had carried out.
+     * Every one of them, whether or not a message of theirs is left: a place
+     * in a group, a read marker or a report is theirs too, and bringing the
+     * purge forward is what the board granted. Bounded by the list itself,
+     * which is as many people as the board has granted erasure to and not yet
+     * had carried out, and `purgePerson` writes nothing for one who has nothing
+     * here.
      */
-    const onRequest =
-      requested.length === 0
-        ? []
-        : await this.prisma.chatMessage.groupBy({
-            by: ["authorPersonId"],
-            // The same expression the delete below and the closing job's count
-            // use, asked of the whole list at once, so what the scan looks for
-            // cannot drift from what is erased or from what is verified gone.
-            where: chatMessagesErasedOnRequest({ in: requested }, now),
-            orderBy: [{ authorPersonId: "asc" }],
-            take: requested.length,
-          });
-
-    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
+    const bound = remainingRunBound(requested.length, MAX_PERSONS_PER_RUN);
     const excluded = [...withheld, ...requested];
     const expired =
       bound === 0
@@ -410,7 +500,7 @@ export class ChatPurgeService implements OnModuleInit {
             take: bound,
           });
 
-    return [...onRequest, ...expired].map((group) => group.authorPersonId);
+    return [...requested, ...expired.map((group) => group.authorPersonId)];
   }
 
   /**
@@ -467,24 +557,29 @@ export class ChatPurgeService implements OnModuleInit {
        * from. The request is not closed here - the service-data purge runs after
        * this job and closes it, which is why this job still sees it open and a
        * granted erasure reaches the chat on the same night.
+       *
+       * Only a request nothing refuses. A board seat, a system role or a
+       * residency still running would make the closing job refuse the
+       * erasure, so this job does not start it either: the person stays on the
+       * window, and the request is left open as blocked, with nothing erased.
        */
-      const request = await tx.dataSubjectRequest.findFirst({
-        where: {
-          personId,
-          kind: "ERASURE",
-          decision: "GRANTED",
-          executedAt: null,
-          closedAt: null,
-        },
-        select: { id: true },
-      });
+      const onRequest = await isErasureInForce(tx, personId, now);
       const { count } = await tx.chatMessage.deleteMany({
-        where:
-          request === null
-            ? { authorPersonId: personId, createdAt: { lte: cutoff } }
-            : chatMessagesErasedOnRequest(personId, now),
+        where: onRequest
+          ? chatMessagesErasedOnRequest(personId, now)
+          : { authorPersonId: personId, createdAt: { lte: cutoff } },
       });
-      if (count === 0) {
+
+      // The rest of what the chat holds of theirs, on a request only: on the
+      // window a place, a marker and a report go with the room or the message.
+      const traces = onRequest
+        ? await this.eraseTraces(tx, personId)
+        : { memberships: 0, readMarkers: 0, reports: 0 };
+
+      if (
+        count + traces.memberships + traces.readMarkers + traces.reports ===
+        0
+      ) {
         // The scan filters these out, so reaching here means the last of them
         // went while this ran. An entry for an erasure that erased nothing would
         // be a false record in a table that cannot be corrected.
@@ -511,6 +606,13 @@ export class ChatPurgeService implements OnModuleInit {
           context: {
             chatMessages: count,
             retentionDaysAfterMessage: retentionDays,
+            ...(onRequest
+              ? {
+                  chatGroupMemberships: traces.memberships,
+                  chatReadMarkers: traces.readMarkers,
+                  chatReports: traces.reports,
+                }
+              : {}),
           },
         },
         tx,
@@ -518,5 +620,27 @@ export class ChatPurgeService implements OnModuleInit {
 
       return count;
     });
+  }
+
+  /** Erases a person's places in groups, read markers and reports. */
+  private async eraseTraces(
+    tx: Prisma.TransactionClient,
+    personId: string,
+  ): Promise<{ memberships: number; readMarkers: number; reports: number }> {
+    const traces = chatTracesErasedOnRequest(personId);
+    const memberships = await tx.chatGroupMember.deleteMany({
+      where: traces.memberships,
+    });
+    const readMarkers = await tx.chatRead.deleteMany({
+      where: traces.readMarkers,
+    });
+    const reports = await tx.chatMessageReport.deleteMany({
+      where: traces.reports,
+    });
+    return {
+      memberships: memberships.count,
+      readMarkers: readMarkers.count,
+      reports: reports.count,
+    };
   }
 }

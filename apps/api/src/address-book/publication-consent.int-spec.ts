@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
+  runIdentityNumber,
   runSuffix,
 } from "../testing/integration-env";
 import type { PersonDetail } from "./person.service";
@@ -306,13 +307,91 @@ describe("recording and withdrawing", () => {
       orderBy: { createdAt: "desc" },
     });
     expect(entry?.actorPersonId).toBe(board.personId);
-    expect(entry?.context).toMatchObject({ scope: "NAME_ON_SITE" });
+    // That there was a note, and not the note: the log outlives every
+    // erasure, and the note is the board's free text about a household.
+    expect(entry?.context).toEqual({ scope: "NAME_ON_SITE", hasNote: true });
 
     const row = await prisma.publicationConsent.findFirstOrThrow({
       where: { personId: subject.personId, scope: "NAME_ON_SITE" },
     });
     expect(row.recordedByPersonId).toBe(board.personId);
   });
+
+  it("refuses a note sent with a withdrawal instead of dropping it", async () => {
+    const cookie = await signIn(board.email);
+    const before = await prisma.publicationConsent.findFirstOrThrow({
+      where: { personId: subject.personId, scope: "NAME_ON_SITE" },
+    });
+
+    const response = await setConsent(cookie, {
+      scope: "NAME_ON_SITE",
+      granted: false,
+      note: "Ångrade sig",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((response.json() as { reason?: string }).reason).toBe(
+      "invalid-body",
+    );
+    // Refused before anything was read, so the consent still stands.
+    const after = await prisma.publicationConsent.findFirstOrThrow({
+      where: { personId: subject.personId, scope: "NAME_ON_SITE" },
+    });
+    expect(after.withdrawnAt).toBeNull();
+    expect(after.id).toBe(before.id);
+  });
+
+  it("refuses a note carrying a personal identity number", async () => {
+    const cookie = await signIn(board.email);
+    const response = await setConsent(cookie, {
+      scope: "PHOTO",
+      granted: true,
+      note: `Godkant av ${runIdentityNumber(suffix)}`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      reason: "personal-identity-number",
+    });
+    expect(
+      await prisma.publicationConsent.count({
+        where: { personId: subject.personId, scope: "PHOTO" },
+      }),
+    ).toBe(0);
+  });
+
+  it.each([
+    ["a soft hyphen", (n: string) => `${n.slice(0, 8)}\u00AD${n.slice(8)}`],
+    [
+      "a zero-width space",
+      (n: string) => `${n.slice(0, 6)}\u200B${n.slice(6)}`,
+    ],
+    [
+      "fullwidth digits",
+      (n: string) =>
+        Array.from(n, (d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
+    ],
+  ])(
+    "refuses a note whose identity number is hidden by %s",
+    async (_name, hide) => {
+      const cookie = await signIn(board.email);
+      const response = await setConsent(cookie, {
+        scope: "PHOTO",
+        granted: true,
+        note: `Godkant av ${hide(runIdentityNumber(suffix))}`,
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        reason: "personal-identity-number",
+      });
+      expect(
+        await prisma.publicationConsent.count({
+          where: { personId: subject.personId, scope: "PHOTO" },
+        }),
+      ).toBe(0);
+    },
+  );
 
   it("shows the consent on the board's person view", async () => {
     const cookie = await signIn(board.email);
