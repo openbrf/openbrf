@@ -49,6 +49,7 @@ export type MeetingReason =
   | "meeting-not-found"
   | "meeting-already-held"
   | "meeting-not-held"
+  | "meeting-day-in-the-future"
   | "agenda-item-not-found"
   | "date-not-a-calendar-date"
   | "not-a-member-on-the-meeting-day"
@@ -100,6 +101,7 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
    */
   "meeting-already-held": "meetings.errors.meetingAlreadyHeld",
   "meeting-not-held": "meetings.errors.meetingNotHeld",
+  "meeting-day-in-the-future": "meetings.errors.meetingDayInTheFuture",
 
   /*
    * The notice, and what issuing it settles. EFL 6 kap. 22 § has the notice

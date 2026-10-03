@@ -4053,6 +4053,7 @@
       "agendaItemNotFound": "Den dagordningspunkten finns inte längre. Läs stämman igen.",
       "meetingAlreadyHeld": "Den här stämman är antecknad som hållen och kan därför inte längre ändras.",
       "meetingNotHeld": "Den här stämman är inte antecknad som hållen än, så ingenting kan antecknas på den.",
+      "meetingDayInTheFuture": "Den här stämmans dag har inte kommit än, så den kan inte antecknas som hållen.",
       "noticeAlreadyIssued": "Kallelsen till den här stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §); botemedlet är en extra föreningsstämma.",
       "meetingHasNoAgenda": "En kallelse anger vilka ärenden stämman ska behandla, och den här stämman har inga. Skriv dagordningen först.",
       "noticeTimeNotOnTheMeetingDay": "Den tiden infaller inte på stämmans dag. Klockan hoppar över en timme när sommartiden börjar.",

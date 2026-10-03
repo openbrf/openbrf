@@ -3,7 +3,12 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { dateColumnOf, localDayOf } from "@openbrf/shared";
+import {
+  addLocalDays,
+  dateColumnOf,
+  formatLocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
@@ -1647,6 +1652,24 @@ describe("the agenda and what the meeting decided", () => {
       headers: { cookie: boardCookie },
     });
     expect(agenda.statusCode).toBe(409);
+  });
+
+  it("refuses to record a meeting as held before its day has come", async () => {
+    // A conclusion closes the agenda, check-in and the notice for good, so one
+    // recorded months early by mistake would leave the meeting unusable.
+    const meetingId = await arrangeMeeting(
+      formatLocalDay(addLocalDays(today, 1)),
+    );
+    const early = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/conclusion`,
+      headers: { cookie: boardCookie },
+    });
+    expect(early.statusCode).toBe(409);
+    expect(early.json<{ reason: string }>().reason).toBe(
+      "meeting-day-in-the-future",
+    );
+    expect((await readMeeting(meetingId)).concludedAt).toBeNull();
   });
 });
 

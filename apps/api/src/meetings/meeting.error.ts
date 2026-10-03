@@ -36,6 +36,7 @@ export class MeetingError extends DomainError {
       | "meeting-not-found"
       | "meeting-already-held"
       | "meeting-not-held"
+      | "meeting-day-in-the-future"
       | "agenda-item-not-found"
       | "date-not-a-calendar-date"
       | "not-a-member-on-the-meeting-day"
@@ -74,6 +75,7 @@ function statusFor(reason: MeetingError["reason"]): number {
 
     case "meeting-already-held":
     case "meeting-not-held":
+    case "meeting-day-in-the-future":
       /*
        * A conflict: the request is well formed and describes a state the meeting
        * is already in, or is not yet in. This is what a second board member

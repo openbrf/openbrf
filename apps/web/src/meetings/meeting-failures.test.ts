@@ -31,6 +31,7 @@ const REASONS: readonly MeetingReason[] = [
   "meeting-not-found",
   "meeting-already-held",
   "meeting-not-held",
+  "meeting-day-in-the-future",
   "agenda-item-not-found",
   "date-not-a-calendar-date",
   "not-a-member-on-the-meeting-day",

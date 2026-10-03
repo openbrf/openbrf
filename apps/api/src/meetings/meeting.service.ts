@@ -1,7 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  compareLocalDays,
   dateColumnOf,
   formatLocalDay,
+  localDayOf,
   localDayOfColumn,
   parseLocalDay,
 } from "@openbrf/shared";
@@ -329,18 +331,35 @@ export class MeetingService {
    * fact about a day that has passed. Conditional on the meeting still being
    * open, so two board members clicking the same button produce one close and
    * the loser is answered exactly as a read would have answered them.
+   *
+   * Refused before the meeting day, compared as calendar dates (ADR 0013): no
+   * route reopens a meeting, so a conclusion recorded early by mistake would
+   * close its agenda, check-in and notice for good.
    */
   async conclude(
     meetingId: string,
     actorPersonId: string,
   ): Promise<MeetingSummaryView> {
     return this.prisma.$transaction(async (tx) => {
+      const existing = await this.requireMeeting(tx, meetingId);
+      this.refuseIfHeld(existing);
+      if (
+        compareLocalDays(
+          localDayOfColumn(existing.heldOn),
+          localDayOf(new Date()),
+        ) > 0
+      ) {
+        throw new MeetingError(
+          "This meeting's day has not come yet.",
+          "meeting-day-in-the-future",
+        );
+      }
+
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, concludedAt: null },
         data: { concludedAt: new Date() },
       });
       if (count === 0) {
-        await this.requireMeeting(tx, meetingId);
         throw new MeetingError(
           "This meeting has already been recorded as held.",
           "meeting-already-held",

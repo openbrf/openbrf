@@ -907,7 +907,9 @@ test.describe("the general meeting", () => {
     const people = await ensureMeetingFixture(request, clientAddress);
     await signInAsTheBoard(page, clientAddress);
 
-    const day = meetingDay(7);
+    // A day that has passed, after HELD_FROM: the server records a meeting as
+    // held only once its day has come.
+    const day = "2026-05-17";
     await arrangeAndOpen(page, day);
     await writeAgenda(page, "Arvode till styrelsen");
     expect(await checkIn(page, people.present, "MEMBER")).toBe(201);

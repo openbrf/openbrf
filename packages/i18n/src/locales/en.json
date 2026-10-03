@@ -4053,6 +4053,7 @@
       "agendaItemNotFound": "That agenda item no longer exists. Read the meeting again.",
       "meetingAlreadyHeld": "This meeting has been recorded as held, so it can no longer be changed.",
       "meetingNotHeld": "This meeting has not been recorded as held yet, so nothing can be minuted on it.",
+      "meetingDayInTheFuture": "This meeting's day has not come yet, so it cannot be recorded as held.",
       "noticeAlreadyIssued": "The notice for this meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §); the remedy is an extra general meeting.",
       "meetingHasNoAgenda": "A notice states the matters the meeting is to deal with, and this meeting has none. Write the agenda first.",
       "noticeTimeNotOnTheMeetingDay": "That time does not fall on the day of the meeting. The clock skips an hour when summer time begins.",
