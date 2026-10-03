@@ -18,4 +18,10 @@ be applied straight away. What it had already written stays in the member
 register. The job behind it writes nothing more: a chunk in flight is waited
 for, and a retry or re-queue that comes for the import later finds it stopped
 and does nothing. Each abandon writes an `IMPORT_ABANDONED` audit entry naming
-who did it and how many rows the import had reached.
+who did it, how many rows the import had reached, when it had started and who
+uploaded the file.
+
+An import that has written every row is not abandoned: the abandon is refused
+as `session-not-running`, and an import an earlier version left applying with
+every row written is marked applied instead. The last chunk of an import now
+marks it applied in the same commit that writes its rows.

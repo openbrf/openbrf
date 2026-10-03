@@ -786,23 +786,19 @@ function ApplyStep({
   const { t } = useTranslation();
   const [confirmingAbandon, setConfirmingAbandon] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
-  const [abandonFailure, setAbandonFailure] = useState<TranslationKey | null>(
-    null,
-  );
+  /** The reason the API refused the abandon, if it did. */
+  const [abandonRefusal, setAbandonRefusal] = useState<string | null>(null);
 
   const running = isImportRunning(run.status);
 
   const abandon = async (): Promise<void> => {
     setAbandoning(true);
-    setAbandonFailure(null);
+    setAbandonRefusal(null);
     const response = await abandonImport(run.sessionId);
     setAbandoning(false);
     setConfirmingAbandon(false);
     if (!response.ok) {
-      // "session-not-running" is the import having ended on its own a moment
-      // earlier. The poll brings that state in; the notice says why the press
-      // did nothing.
-      setAbandonFailure(failureMessage(response.failure.reason));
+      setAbandonRefusal(response.failure.reason);
       return;
     }
     onAbandoned(response.value);
@@ -879,11 +875,6 @@ function ApplyStep({
       {running && canAbandon ? (
         <div className="flex flex-col gap-3 border-t border-line pt-4">
           <p className={HINT}>{t("import.abandon.description")}</p>
-          {abandonFailure === null ? null : (
-            <Notice tone="danger" live>
-              {t(abandonFailure)}
-            </Notice>
-          )}
           {confirmingAbandon ? (
             <>
               <Notice tone="warn" live>
@@ -919,7 +910,7 @@ function ApplyStep({
               <button
                 type="button"
                 onClick={() => {
-                  setAbandonFailure(null);
+                  setAbandonRefusal(null);
                   setConfirmingAbandon(true);
                 }}
                 className={CAUTION_BUTTON}
@@ -930,6 +921,22 @@ function ApplyStep({
           )}
         </div>
       ) : null}
+
+      {/*
+       * Outside the control, because the commonest refusal outlives it:
+       * "session-not-running" is the import having ended on its own a moment
+       * before the press, and the next poll brings that state in and takes the
+       * control away. The notice stays to say why the press did nothing. That
+       * one is information, not an error; anything else the press met is one.
+       */}
+      {abandonRefusal === null ? null : (
+        <Notice
+          tone={abandonRefusal === "session-not-running" ? "info" : "danger"}
+          live
+        >
+          {t(failureMessage(abandonRefusal))}
+        </Notice>
+      )}
 
       {run.status === "FAILED" ? (
         <Notice tone="danger" live>

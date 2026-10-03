@@ -643,11 +643,19 @@ describe("an import that has stopped moving", () => {
     expect(screen.getByText(/Skriver registret/)).toBeTruthy();
   });
 
-  it("says so when the import ended before the press", async () => {
+  it("says so when the import ended before the press, and keeps saying it", async () => {
     capabilities.mockReturnValue(ADMINISTRATOR);
-    abandonImport.mockResolvedValue({
-      ok: false,
-      failure: { status: 409, reason: "session-not-running" },
+    // The import finished between the screen's last poll and the press, so
+    // the API refuses and the next poll brings in the finished import.
+    abandonImport.mockImplementation(() => {
+      fetchImportRun.mockResolvedValue({
+        ok: true,
+        value: { ...FINISHED, rowsDone: 120, rowsTotal: 120 },
+      });
+      return Promise.resolve({
+        ok: false,
+        failure: { status: 409, reason: "session-not-running" },
+      });
     });
     const session = userEvent.setup();
     render(<ImportScreen />);
@@ -660,5 +668,16 @@ describe("an import that has stopped moving", () => {
     expect(
       await screen.findByText(/Den importen pågår inte längre/),
     ).toBeTruthy();
-  });
+    // The poll takes the control away. The notice stays, to say why the press
+    // did nothing.
+    expect(
+      await screen.findByText(/Importen är klar/, undefined, {
+        timeout: 5000,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Avbryt importen/ }),
+    ).toBeNull();
+    expect(screen.getByText(/Den importen pågår inte längre/)).toBeTruthy();
+  }, 10_000);
 });

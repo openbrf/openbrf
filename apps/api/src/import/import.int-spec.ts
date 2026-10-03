@@ -31,9 +31,11 @@ import {
 import {
   advisoryLockCount,
   blockedConnectionCount,
+  residencyApartmentLockCount,
   waitFor,
   waitingLockCount,
 } from "../testing/advisory-locks";
+import { lockApartmentResidencies } from "../registers/residency-lock";
 
 /**
  * The import from upload to applied register, against a real database and a
@@ -1348,7 +1350,14 @@ describe("abandoning an import that is stuck", () => {
       actorPersonId: actors.admin.personId,
       targetKind: "importSession",
       targetPersonId: null,
-      context: { rowsDone: 0, rowsTotal: 1 },
+      // Never started, and uploaded by the board: what the entry has to say
+      // on its own once the session is purged.
+      context: {
+        rowsDone: 0,
+        rowsTotal: 1,
+        startedAt: null,
+        createdById: actors.board.personId,
+      },
     });
 
     // The import the lost one was holding off now runs.
@@ -1437,6 +1446,8 @@ describe("abandoning an import that is stuck", () => {
     expect(entry?.context).toEqual({
       rowsDone: IMPORT_CHUNK_ROWS,
       rowsTotal: IMPORT_CHUNK_ROWS + 20,
+      startedAt: run.startedAt,
+      createdById: actors.board.personId,
     });
   }, 120_000);
 
@@ -1467,71 +1478,212 @@ describe("abandoning an import that is stuck", () => {
     });
   }, 60_000);
 
+  /**
+   * Abandons the session while its next chunk is in flight, and answers what
+   * the chunk returned and what the abandon did.
+   *
+   * The chunk is the real one, held at the one point an abandon can race it. A
+   * test transaction holds the residency key of the apartment the chunk writes
+   * to. The chunk claims the cursor, which takes the session row, and then
+   * waits for that key. The abandon then has to wait for the session row, and
+   * is shown to be waiting before the chunk is let go.
+   */
+  async function abandonDuringChunk(
+    admin: string,
+    sessionId: string,
+    apartmentId: string,
+  ): Promise<{
+    more: boolean;
+    response: Awaited<ReturnType<typeof abandonImport>>;
+  }> {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let taken!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      taken = resolve;
+    });
+    const apartment = prisma.$transaction(
+      async (tx) => {
+        await lockApartmentResidencies(tx, apartmentId);
+        taken();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await holding;
+
+    let chunkSettled = false;
+    let abandonSettled = false;
+    const chunk = applies.applyNextChunk(sessionId).finally(() => {
+      chunkSettled = true;
+    });
+    let abandoning: ReturnType<typeof abandonImport> | null = null;
+    try {
+      // Waiting for the apartment means the cursor is claimed.
+      await waitFor(
+        async () =>
+          chunkSettled ||
+          (await residencyApartmentLockCount(prisma, apartmentId, false)) > 0n,
+      );
+      expect(chunkSettled).toBe(false);
+
+      abandoning = abandonImport(admin, sessionId).finally(() => {
+        abandonSettled = true;
+      });
+      // Two connections blocked: the chunk on the apartment, the abandon on
+      // the session row the chunk holds.
+      await waitFor(
+        async () =>
+          abandonSettled || (await blockedConnectionCount(prisma)) > 1n,
+      );
+      expect(abandonSettled).toBe(false);
+    } finally {
+      release();
+    }
+    await apartment;
+
+    const more = await chunk;
+    if (abandoning === null) {
+      throw new Error("The abandon was never sent");
+    }
+    return { more, response: await abandoning };
+  }
+
   it("waits for a chunk in flight and reports where it really stopped", async () => {
     // A chunk claims the cursor first thing in its transaction and holds the
     // session row until it commits. An abandon that arrives meanwhile has to
     // wait for it rather than fail, and has to report and log the cursor that
-    // chunk committed - not the one it read before the chunk finished.
+    // chunk committed - not the one it read before the chunk finished. The
+    // chunk held is the first of two, so the import is still running when it
+    // commits.
     const board = await signIn(actors.board.email);
     const admin = await signIn(actors.admin.email);
     const session = await uploadAndPreview(
       board,
       "mitt-i.csv",
-      harmlessRows("MittI"),
+      longFixture("MittI"),
     );
     await prisma.importSession.update({
       where: { id: session.sessionId },
-      data: { status: "APPLYING", startedAt: new Date(), decisions: {} },
+      data: { status: "QUEUED", decisions: {} },
     });
 
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let holding!: () => void;
-    const taken = new Promise<void>((resolve) => {
-      holding = resolve;
-    });
-    // Stands in for the chunk: the same conditional claim, held open.
-    const chunk = prisma.$transaction(
-      async (tx) => {
-        const claimed = await tx.importSession.updateMany({
-          where: { id: session.sessionId, status: "APPLYING", rowsDone: 0 },
-          data: { rowsDone: 1 },
-        });
-        expect(claimed.count).toBe(1);
-        holding();
-        await held;
-      },
-      { timeout: 60_000, maxWait: 20_000 },
+    // The first chunk writes its one real row in 2101.
+    const { more, response } = await abandonDuringChunk(
+      admin,
+      session.sessionId,
+      apartments.a,
     );
-    await taken;
 
-    let settled = false;
-    const abandoning = abandonImport(admin, session.sessionId).finally(() => {
-      settled = true;
-    });
-    try {
-      await waitFor(
-        async () => settled || (await blockedConnectionCount(prisma)) > 0n,
-      );
-      expect(settled).toBe(false);
-    } finally {
-      release();
-    }
-    await chunk;
-    const response = await abandoning;
-
+    expect(more).toBe(true);
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body) as ImportRunView).toMatchObject({
       status: "FAILED",
       failureReason: "apply-abandoned",
-      rowsDone: 1,
+      rowsDone: IMPORT_CHUNK_ROWS,
     });
+    // What the chunk wrote is there; the abandon undid none of it.
+    expect(
+      await prisma.person.count({
+        where: { firstName: "MittIFirst", lastName: surname },
+      }),
+    ).toBe(1);
     const entry = await prisma.auditLogEntry.findFirst({
       where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
     });
-    expect(entry?.context).toEqual({ rowsDone: 1, rowsTotal: 1 });
+    expect(entry?.context).toEqual({
+      rowsDone: IMPORT_CHUNK_ROWS,
+      rowsTotal: IMPORT_CHUNK_ROWS + 20,
+      startedAt: expect.any(String),
+      createdById: actors.board.personId,
+    });
+  }, 120_000);
+
+  it("refuses once the last chunk in flight has written every row", async () => {
+    // The last chunk ends the import in the commit that writes its rows, so an
+    // abandon that waited for it finds an import that is no longer running.
+    // Recording it as abandoned would tell the board that an import which
+    // wrote every row did not finish.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(board, "sista.csv", [
+      HEADERS,
+      [addressLabel, "2102", "Sista", surname, "Boende", "", "", "2022-02-01"],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    const { more, response } = await abandonDuringChunk(
+      admin,
+      session.sessionId,
+      apartments.b,
+    );
+
+    expect(more).toBe(false);
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("session-not-running");
+    const run = await readRun(board, session.sessionId);
+    expect(run).toMatchObject({
+      status: "APPLIED",
+      failureReason: null,
+      rowsDone: 1,
+      rowsTotal: 1,
+    });
+    expect(run.finishedAt).not.toBeNull();
+    expect(
+      await prisma.residency.count({
+        where: {
+          apartmentId: apartments.b,
+          person: { firstName: "Sista", lastName: surname },
+        },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
+  it("finishes rather than abandons an import left applying with every row written", async () => {
+    // What an instance that marked an import applied after its last chunk,
+    // rather than with it, leaves when it stops in between: the rows are all
+    // there and the session still says applying. It holds every other import
+    // off like a stuck one, and the abandon is how an administrator clears
+    // it - as applied, which is what it is.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "skriven.csv",
+      harmlessRows("Skriven"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        status: "APPLYING",
+        startedAt: new Date(),
+        decisions: {},
+        rowsDone: 1,
+      },
+    });
+
+    const response = await abandonImport(admin, session.sessionId);
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("session-not-running");
+    const run = await readRun(board, session.sessionId);
+    expect(run).toMatchObject({ status: "APPLIED", failureReason: null });
+    expect(run.finishedAt).not.toBeNull();
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+      }),
+    ).toBe(0);
   }, 60_000);
 });
 

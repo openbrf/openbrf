@@ -11,9 +11,11 @@ import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { parseCsv, writeCsv } from "./csv";
 import {
+  finishImport,
   type ImportDecisions,
   ImportApplyService,
   IMPORT_CHUNK_TRANSACTION_MS,
+  stopImport,
 } from "./import-apply.service";
 import {
   type ImportField,
@@ -24,7 +26,12 @@ import { ImportError } from "./import-errors";
 import { lockImportApply } from "./import-lock";
 import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
-import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
+import {
+  IMPORT_RUN_SELECT,
+  type ImportRunView,
+  RUNNING_IMPORT_STATUSES,
+  toRunView,
+} from "./import-run";
 import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
 
 /**
@@ -166,7 +173,7 @@ export class ImportService implements OnModuleInit {
     const { count } = await this.prisma.importSession.deleteMany({
       where: {
         expiresAt: { lt: now },
-        status: { notIn: ["QUEUED", "APPLYING"] },
+        status: { notIn: [...RUNNING_IMPORT_STATUSES] },
       },
     });
     if (count > 0) {
@@ -367,7 +374,7 @@ export class ImportService implements OnModuleInit {
       const running = await tx.importSession.findFirst({
         where: {
           id: { not: sessionId },
-          status: { in: ["QUEUED", "APPLYING"] },
+          status: { in: [...RUNNING_IMPORT_STATUSES] },
         },
         select: { id: true },
       });
@@ -408,8 +415,9 @@ export class ImportService implements OnModuleInit {
    * attempt hangs, refuses every other import until the queue gives up on it:
    * up to the next restart for the first, and the expiry times the retries for
    * the second. This is the way out an administrator takes meanwhile. The
-   * session is recorded as FAILED with `apply-abandoned`, exactly as the dead
-   * letter would record it, and the next apply is accepted.
+   * session is recorded as FAILED, as the dead letter would record it but with
+   * `apply-abandoned` rather than `apply-interrupted`, so the screen can say who
+   * stopped it. The next apply is accepted.
    *
    * It stops the import; it undoes nothing. What the chunks before it wrote is
    * in a register that cannot be edited, and the counts on the session say how
@@ -423,6 +431,13 @@ export class ImportService implements OnModuleInit {
    * session - a retry, a redelivery, the re-queue at the next start - reads it
    * as FAILED and ends without having done anything.
    *
+   * An import that has written every row is not abandoned, because it is not
+   * running: there is nothing left to stop. The last chunk marks its import
+   * applied in the commit that writes its rows, so an abandon that waited for
+   * that chunk is refused. A session an earlier instance left applying with
+   * every row written is marked applied here, which is all its job had left
+   * to do, and the abandon is refused all the same.
+   *
    * The audit entry is written in the same transaction as the change of status,
    * so neither exists without the other.
    */
@@ -432,30 +447,27 @@ export class ImportService implements OnModuleInit {
   ): Promise<ImportRunView> {
     const session = await this.prisma.$transaction(
       async (tx) => {
-        const { count } = await tx.importSession.updateMany({
-          where: { id: sessionId, status: { in: ["QUEUED", "APPLYING"] } },
-          data: {
-            status: "FAILED",
-            failureReason: "apply-abandoned",
-            finishedAt: new Date(),
-          },
-        });
+        const abandoned = await stopImport(tx, sessionId, "apply-abandoned");
 
         // Read after the update, under its row lock, so the cursor is the one
         // the import finally stopped at rather than one a chunk was about to
         // move.
         const after = await tx.importSession.findUnique({
           where: { id: sessionId },
-          select: IMPORT_RUN_SELECT,
+          select: { ...IMPORT_RUN_SELECT, createdById: true },
         });
         if (after === null) {
           throw new ImportError("No such import.", "session-not-found");
         }
-        if (count === 0) {
-          throw new ImportError(
-            "That import is not running.",
-            "session-not-running",
-          );
+        if (!abandoned) {
+          // Returned rather than thrown, because throwing would roll back
+          // marking a complete import applied.
+          if (await finishImport(tx, sessionId)) {
+            this.logger.log(
+              `Import session ${sessionId}: every row was written, marked applied`,
+            );
+          }
+          return null;
         }
 
         await this.audit.record(
@@ -464,7 +476,15 @@ export class ImportService implements OnModuleInit {
             ...auditActor(actor),
             targetKind: "importSession",
             targetId: sessionId,
-            context: { rowsDone: after.rowsDone, rowsTotal: after.rowCount },
+            // Enough to answer for the abandon once the session is purged:
+            // how far the import got, whether its job had ever started it, and
+            // who uploaded it.
+            context: {
+              rowsDone: after.rowsDone,
+              rowsTotal: after.rowCount,
+              startedAt: after.startedAt?.toISOString() ?? null,
+              createdById: after.createdById,
+            },
           },
           tx,
         );
@@ -475,6 +495,12 @@ export class ImportService implements OnModuleInit {
       // or roll back instead of failing first.
       { timeout: ABANDON_TIMEOUT_MS, maxWait: 20_000 },
     );
+    if (session === null) {
+      throw new ImportError(
+        "That import is not running.",
+        "session-not-running",
+      );
+    }
 
     this.logger.warn(
       `Import session ${sessionId}: abandoned by an administrator`,
