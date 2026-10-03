@@ -16,10 +16,12 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import type { MeetingSummaryView, MeetingView } from "./meeting.service";
 
 /**
@@ -1123,6 +1125,97 @@ describe("checking people in", () => {
       select: { targetPersonId: true },
     });
     expect(entry?.targetPersonId).toBe(soloMember.personId);
+  });
+
+  it("strikes off an assistant checked in while the person who brought them was struck off", async () => {
+    /*
+     * The check-in reads that the principal is present and then writes; the
+     * strike-off writes and then looks for the principal's assistant. Each at
+     * READ COMMITTED, each could miss the other's write, and both commit: an
+     * assistant brought by nobody.
+     *
+     * Played out in that order rather than raced. This suite holds an
+     * uncommitted line for the same assistant, so the check-in queues at its
+     * own write, after it has read the principal present. The strike-off is
+     * sent then, and either answers at once, which is the defect, or queues
+     * behind the check-in, which is the principal's line held until the
+     * check-in commits. The held line is then taken back and both finish.
+     */
+    const meetingId = await arrangeMeeting();
+    const principal = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "MEMBER",
+    });
+    expect(principal.statusCode).toBe(201);
+    const principalLine = principal.json<{ id: string }>().id;
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        const line = await tx.meetingAttendance.create({
+          data: {
+            meetingId,
+            personId: lodger.personId,
+            capacity: "ASSISTANT",
+            mode: "IN_PERSON",
+            onBehalfOfPersonId: soloMember.personId,
+          },
+          select: { id: true },
+        });
+        held(pid);
+        await released;
+        await tx.meetingAttendance.delete({ where: { id: line.id } });
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    let checkingIn!: ReturnType<typeof checkIn>;
+    let striking!: ReturnType<typeof inject>;
+    try {
+      checkingIn = checkIn(meetingId, {
+        personId: lodger.personId,
+        capacity: "ASSISTANT",
+        onBehalfOfPersonId: soloMember.personId,
+      });
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+
+      let struckOff = false;
+      striking = inject({
+        method: "POST",
+        url: `/api/meetings/${meetingId}/attendances/${principalLine}/withdrawal`,
+        headers: { cookie: boardCookie },
+      });
+      void striking.then(() => {
+        struckOff = true;
+      });
+      await waitFor(
+        async () => struckOff || (await waitersBehind(prisma, holder)) >= 2,
+      );
+    } finally {
+      release();
+      await holding;
+    }
+
+    const [checkedIn, struck] = await Promise.all([checkingIn, striking]);
+    expect(checkedIn.statusCode).toBe(201);
+    expect(struck.statusCode).toBe(201);
+    const meeting = await readMeeting(meetingId);
+    expect(meeting.votingRegister.assistantsPresent).toBe(0);
+    expect(
+      meeting.attendances.find(
+        (line) =>
+          line.personId === lodger.personId && line.capacity === "ASSISTANT",
+      )?.withdrawnAt,
+    ).not.toBeNull();
   });
 
   it("refuses to strike a line off once the meeting has been held", async () => {

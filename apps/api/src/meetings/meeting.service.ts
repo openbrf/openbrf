@@ -1589,9 +1589,24 @@ export class MeetingService {
         "assistant-principal-not-present",
       );
     }
-    if (
-      !(await this.isPrincipalPresent(client, meetingId, onBehalfOfPersonId))
-    ) {
+    /*
+     * Read with a share lock, held until the check-in commits, so that an
+     * assistant cannot outlive the person who brought them. Striking that
+     * person off updates one of these rows, so it waits for this transaction,
+     * and its own look for the assistant then sees the one written here. A
+     * strike-off that got there first has dated the line by the time its lock
+     * is released, the row no longer matches, and nobody is present. A count
+     * at READ COMMITTED would see neither: each transaction would miss the
+     * other's write, and both would commit.
+     */
+    const lines = await client.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "meeting_attendance"
+       WHERE "meetingId" = ${meetingId}
+         AND "personId" = ${onBehalfOfPersonId}
+         AND "capacity" IN ('MEMBER', 'PROXY_HOLDER')
+         AND "withdrawnAt" IS NULL
+         FOR SHARE`;
+    if (lines.length === 0) {
       throw new MeetingError(
         "The member or proxy holder who brought them is not on the list.",
         "assistant-principal-not-present",
