@@ -103,6 +103,24 @@ describe("failureFrames", () => {
     expect(frames).toContain("failure.spec.ts");
   });
 
+  it("keeps a frame-shaped message line out when the error was renamed after capture", () => {
+    // The stack was captured as `Error: ...`, so the head the error has now
+    // (`DeliveryError: ...`) is not the one in the stack. The message line below
+    // is indented like a V8 frame and is the only thing that tells it apart
+    // from one, which is the head and not the shape of the line.
+    const error = new Error(
+      "Recipient refused\n    at anna@example.se\n    at /data/plugins/other/index.js:1:1",
+    );
+    void error.stack;
+    error.name = "DeliveryError";
+
+    const frames = failureFrames(error);
+
+    expect(frames ?? "").not.toContain("anna@example.se");
+    expect(frames ?? "").not.toContain("/data/plugins/other/");
+    expect(frames?.split("\n")).not.toContain("    at anna@example.se");
+  });
+
   it("keeps nothing when the message changed after the stack was read", () => {
     // No head can be told from the message lines below it any more, so no
     // line can be told to be a frame.
