@@ -151,12 +151,23 @@ export class ImportService implements OnModuleInit {
    * An apply that is still running is left alone however old its upload is.
    * Deleting the rows underneath a job would stop the import halfway through a
    * register that cannot be corrected by editing.
+   *
+   * An import that has finished is kept for a lifetime after it finished, not
+   * after it was uploaded. The apply of any other session previewed before it
+   * finished is refused as outdated by finding it (see `apply`), and a session
+   * that is still valid may have been previewed while this one was still
+   * waiting to be applied. Any session previewed before the finish was
+   * uploaded earlier still, so by then it has expired itself.
    */
   async purgeExpiredSessions(now: Date = new Date()): Promise<number> {
     const { count } = await this.prisma.importSession.deleteMany({
       where: {
         expiresAt: { lt: now },
         status: { notIn: ["QUEUED", "APPLYING"] },
+        OR: [
+          { finishedAt: null },
+          { finishedAt: { lt: new Date(now.getTime() - SESSION_LIFETIME_MS) } },
+        ],
       },
     });
     if (count > 0) {
@@ -245,6 +256,11 @@ export class ImportService implements OnModuleInit {
   ): Promise<ImportPreview> {
     const session = await this.loadForPreview(sessionId);
 
+    // Taken before the register is read rather than after the plan is made. The
+    // apply compares it with when other imports finished, and one that finished
+    // while this plan was being worked out may not be in what the plan read.
+    const previewedAt = new Date();
+
     const plan = await this.planner.plan({
       rows: await this.planner.decryptRows(session.rowsCipher),
       columnCount: session.columns.length,
@@ -273,7 +289,7 @@ export class ImportService implements OnModuleInit {
         defaultRole: input.defaultRole,
         defaultMovedInOn: input.defaultMovedInOn,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
-        previewedAt: new Date(),
+        previewedAt,
       },
     });
 
@@ -310,13 +326,22 @@ export class ImportService implements OnModuleInit {
    * letter once its retries run out. Until then every other apply is refused:
    * for as long as a hung attempt takes to time out and be retried, and for a
    * session whose job was lost, until the next start re-queues it.
+   *
+   * And an import that wrote to the register after this one was previewed makes
+   * the preview out of date. The counts it showed may no longer hold, and a row
+   * it matched to one person can match two now - which the job would find on
+   * its first chunk and stop on, leaving a FAILED session that has to be
+   * uploaded again. Refused instead, before anything is claimed: the session
+   * stays in MAPPING, and previewing it again shows the board what the apply
+   * would do now and asks again about every row that needs a decision.
    */
   async apply(
     sessionId: string,
     input: { decisions: ImportDecisions },
   ): Promise<ImportRunView> {
     const session = await this.loadForApply(sessionId);
-    if (session.previewedAt === null) {
+    const { previewedAt } = session;
+    if (previewedAt === null) {
       throw new ImportError(
         "That import has not been previewed.",
         "preview-required",
@@ -349,7 +374,7 @@ export class ImportService implements OnModuleInit {
     await this.applies.ensureQueues();
 
     // A refusal is thrown from inside the transaction, which rolls back and
-    // rethrows it. Neither refusal has written anything by then.
+    // rethrows it. No refusal has written anything by then.
     await this.prisma.$transaction(async (tx) => {
       await lockImportApply(tx);
 
@@ -364,6 +389,30 @@ export class ImportService implements OnModuleInit {
         throw new ImportError(
           "Another import is running. Apply this one when it has finished.",
           "another-import-running",
+        );
+      }
+
+      // After the read above and not before it. An import that finishes
+      // between the two reads is seen by this one, finished; in the other
+      // order it could be missed by both, still running for the first read
+      // and no longer running for the second.
+      //
+      // An import that stopped before its first chunk committed (no rows done)
+      // changed nothing in the register, and sending the board back to the
+      // preview over it would show them the same preview again. One that
+      // stopped later has still committed the chunks before it.
+      const finishedSince = await tx.importSession.findFirst({
+        where: {
+          id: { not: sessionId },
+          finishedAt: { gt: previewedAt },
+          rowsDone: { gt: 0 },
+        },
+        select: { id: true },
+      });
+      if (finishedSince !== null) {
+        throw new ImportError(
+          "Another import changed the register after this one was previewed. Preview it again.",
+          "preview-outdated",
         );
       }
 

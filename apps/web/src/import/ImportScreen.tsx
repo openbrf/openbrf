@@ -176,9 +176,10 @@ export function ImportScreen(): ReactElement {
     }
   }, []);
 
-  const runPreview = useCallback(async (): Promise<void> => {
+  /** Takes the preview. Resolves to whether there is one on screen now. */
+  const runPreview = useCallback(async (): Promise<boolean> => {
     if (session === null) {
-      return;
+      return false;
     }
     setBusy(true);
     setFailure(null);
@@ -190,11 +191,12 @@ export function ImportScreen(): ReactElement {
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
-      return;
+      return false;
     }
     setPreview(response.value);
     setDecisions({});
     setStep("preview");
+    return true;
   }, [
     session,
     mapping,
@@ -224,6 +226,18 @@ export function ImportScreen(): ReactElement {
           setStep("apply");
         }
       }
+      if (response.failure.reason === "preview-outdated") {
+        // Another import wrote to the register after this preview was taken,
+        // so what is on the screen may no longer be what would happen. Taken
+        // again rather than leaving the board to find the way back to it, and
+        // the decisions go with the old preview: a row may match other people
+        // now, or nobody.
+        setFailure(
+          (await runPreview())
+            ? "import.errors.previewOutdated"
+            : "import.errors.previewOutdatedNotRefreshed",
+        );
+      }
       // "another-import-running" stays on the preview: it is a different
       // file that is running, and this one is still waiting to be applied
       // once that has finished.
@@ -231,7 +245,7 @@ export function ImportScreen(): ReactElement {
     }
     setRun(response.value);
     setStep("apply");
-  }, [session, decisions]);
+  }, [session, decisions, runPreview]);
 
   const restart = useCallback((): void => {
     setRun(null);

@@ -24,6 +24,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",
   "another-import-running": "import.errors.anotherImportRunning",
+  "preview-outdated": "import.errors.previewOutdated",
   "ambiguous-rows-undecided": "import.errors.ambiguousRowsUndecided",
   "decision-not-a-candidate": "import.errors.decisionNotACandidate",
   "apply-interrupted": "import.errors.applyInterrupted",

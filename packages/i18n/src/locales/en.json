@@ -2376,6 +2376,8 @@
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",
       "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
+      "previewOutdated": "Another import changed the register after this preview was made. Check the new preview below, choose for the rows that need it, then apply.",
+      "previewOutdatedNotRefreshed": "Another import changed the register after this preview was made, and a new preview could not be made. Apply again to try once more.",
       "ambiguousRowsUndecided": "Some rows still match more than one person.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
