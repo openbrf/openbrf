@@ -2232,6 +2232,7 @@
     "heading": "Import a member list",
     "description": "Loads an existing member list once: a file, a mapping you confirm, a preview you approve, and then the register is written.",
     "open": "Import list",
+    "loading": "Checking for an import under way",
     "step": {
       "upload": "File",
       "mapping": "Columns",

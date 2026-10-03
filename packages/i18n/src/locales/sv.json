@@ -2232,6 +2232,7 @@
     "heading": "Importera medlemslista",
     "description": "Läser in en befintlig medlemslista en gång: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret.",
     "open": "Importera lista",
+    "loading": "Ser efter om en import pågår",
     "step": {
       "upload": "Fil",
       "mapping": "Kolumner",
