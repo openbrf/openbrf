@@ -417,7 +417,9 @@ export function RecordChargePanel({
             className={PRIMARY_BUTTON}
           >
             {correcting !== undefined
-              ? t("charges.correct.submit")
+              ? state.kind === "saving"
+                ? t("charges.correct.saving")
+                : t("charges.correct.submit")
               : state.kind === "saving"
                 ? t("charges.record.saving")
                 : t("charges.record.submit")}

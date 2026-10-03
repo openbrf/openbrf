@@ -22,10 +22,13 @@ import { RecordChargePanel } from "./RecordChargePanel";
  */
 
 const recordCharge = vi.fn();
+const correctCharge = vi.fn();
 
 vi.mock("./charges-api", () => ({
   VAT_TREATMENTS: ["EXEMPT", "RATE"],
   recordCharge: (input: unknown) => recordCharge(input),
+  correctCharge: (chargeId: string, input: unknown) =>
+    correctCharge(chargeId, input),
 }));
 
 const PARTIES: ChargeParties = {
@@ -266,6 +269,43 @@ describe("value added tax", () => {
     const field = screen.getByLabelText("Sats i procent");
     expect(field.getAttribute("aria-invalid")).toBe("true");
     expect(screen.getByRole("alert").textContent).toMatch(/helt procenttal/u);
+  });
+});
+
+describe("a correction", () => {
+  it("says it is saving while the correction is on its way", async () => {
+    // The button is disabled meanwhile, and a disabled button that still
+    // reads "Save" tells the board nothing about why it does not answer.
+    correctCharge.mockReturnValue(new Promise(() => undefined));
+    render(
+      <RecordChargePanel
+        parties={PARTIES}
+        today="2026-06-01"
+        onRecorded={() => undefined}
+        correcting={{
+          chargeId: "charge-1",
+          chargedOn: "2026-03-05",
+          chargedTo: {
+            kind: "apartment",
+            apartmentId: "apartment-1",
+            apartment: { state: "visible", label: "Storgatan 12 1002" },
+          },
+          amount: "450.00",
+          vatTreatment: "EXEMPT",
+          vatRatePercent: null,
+          reason: "Nyckel till cykelrummet",
+          handedToManagerOn: null,
+        }}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara rättelsen" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Sparar rättelsen" }),
+    ).toBeTruthy();
   });
 });
 
