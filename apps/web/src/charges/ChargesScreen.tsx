@@ -412,7 +412,11 @@ export function ChargesScreen(): ReactElement {
 
       {forbidden ? null : <AccountingBasisPanel onRefused={setRefusal} />}
 
-      {loading && shown === null && !forbidden ? (
+      {/*
+        Not while a date is empty: nothing is read for a period that is not
+        one, so nothing would ever turn the status off again.
+      */}
+      {loading && shown === null && !forbidden && from !== "" && to !== "" ? (
         <p role="status" className="text-body text-ink-muted">
           {t("charges.loading")}
         </p>

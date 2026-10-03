@@ -380,6 +380,24 @@ describe("when the read fails", () => {
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
   });
 
+  it("does not say it is reading when a retry has no period to read", async () => {
+    /*
+     * The retry turned the reading status on, and the read it started stopped
+     * at the empty date before it could turn it off again.
+     */
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ChargesScreen />);
+    await screen.findByText(/kunde inte l.sas just nu/i);
+
+    fireEvent.change(screen.getByLabelText("Från"), { target: { value: "" } });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(screen.queryByText("Läser in debiteringarna")).toBeNull();
+  });
+
   it("treats a period the request schema refuses as something to correct", async () => {
     fetchDebitingList.mockResolvedValue({
       ok: false,
