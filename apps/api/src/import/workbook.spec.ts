@@ -10,6 +10,7 @@ import {
   MAX_WORKBOOK_EMPTY_ROW,
   MAX_WORKBOOK_ENTRY_BYTES,
 } from "./import-limits";
+import { UnreadableSheetError } from "./sheet-addresses";
 import { cellText, inspectWorkbook, parseWorkbook } from "./workbook";
 
 vi.mock("read-excel-file/node", async (importOriginal) => {
@@ -162,12 +163,48 @@ describe("a workbook past the import's limits", () => {
       "a row number in hexadecimal",
       '<row r="0x3B9ACA00"><c r="A1"><v>1</v></c></row>',
     ],
+    [
+      "a row number its cell does not state",
+      '<row r="65536"><c r="GR2" t="inlineStr"><is><t>x</t></is></c></row>',
+    ],
+    [
+      "a row number stated on the row around a row",
+      '<row r="65536"><row><c r="A2" t="inlineStr"><is><t>x</t></is></c></row></row>',
+    ],
   ])("refuses %s before the parser reads it", async (_, sheetData) => {
     const workbook = buildWorkbook([], "Blad1", { sheetData });
 
     expect(() => inspectWorkbook(workbook)).toThrow();
     await expect(parseWorkbook(workbook)).rejects.toThrow();
     expect(readSheet).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cell outside the row that holds it", async () => {
+    // The library would read Anna as row 3, whatever her cell says.
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetData:
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>Namn</t></is></c></row>' +
+        '<row r="3"><c r="A2" t="inlineStr"><is><t>Anna</t></is></c></row>',
+    });
+
+    expect(() => inspectWorkbook(workbook)).toThrow(UnreadableSheetError);
+    await expect(parseWorkbook(workbook)).rejects.toThrow(UnreadableSheetError);
+    expect(readSheet).not.toHaveBeenCalled();
+  });
+
+  it("reads rows that leave their number to their cells", async () => {
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetData:
+        '<row><c r="A1" t="inlineStr"><is><t>Namn</t></is></c></row>' +
+        '<row><c r="A2" t="inlineStr"><is><t>Anna</t></is></c></row>' +
+        '<row r="3"/><row><c r="A4" t="inlineStr"><is><t>Bo</t></is></c></row>',
+    });
+
+    await expect(parseWorkbook(workbook)).resolves.toEqual([
+      ["Namn"],
+      ["Anna"],
+      ["Bo"],
+    ]);
   });
 
   it("checks a sheet the workbook stores outside xl/worksheets", () => {

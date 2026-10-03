@@ -18,6 +18,12 @@ import {
  * `1e9`, and decodes character references first, so guessing at what it would
  * make of an unusual address is how a check and a parser come to disagree.
  *
+ * The library places a row's cells by the row's own `r`, not by theirs, and
+ * pads every row to the widest column that holds a value. So a cell is also
+ * held to the row around it: one whose row differs from the `<row r>` that
+ * holds it is refused, and with that a row holding a value lies within the
+ * import's rows, because the value's own address does.
+ *
  * The scan follows saxen's own tokenizing: text runs to the next `<`, a comment,
  * a CDATA section and a processing instruction run to their closing marks, and
  * a tag runs to the first `>` outside a quoted value. Every element name and
@@ -42,6 +48,10 @@ const CELL = /^([A-Z]+)([1-9][0-9]*)$/;
 
 /** Throws when an address in this XML part lies past the import's limits. */
 export function checkAddresses(xml: string): void {
+  // The number the library places the cells being read at, when a row states
+  // one. It holds from a `<row r>` to the next row that closes, as the
+  // library's own does.
+  let row: number | undefined;
   let at = 0;
   for (;;) {
     const open = xml.indexOf("<", at);
@@ -62,8 +72,12 @@ export function checkAddresses(xml: string): void {
       continue;
     }
     const close = tagEnd(xml, open);
-    if (marker !== "!" && marker !== "/") {
-      checkStartTag(xml.slice(open + 1, close));
+    if (marker === "/") {
+      if (elementName(xml.slice(open + 2, close)) === "row") {
+        row = undefined;
+      }
+    } else if (marker !== "!") {
+      row = checkStartTag(xml.slice(open + 1, close), row);
     }
     at = close + 1;
   }
@@ -94,20 +108,48 @@ function tagEnd(xml: string, open: number): number {
   throw new UnreadableSheetError("A sheet part never closes a tag.");
 }
 
-/** `body` is everything between `<` and `>`. */
-function checkStartTag(body: string): void {
+/**
+ * `body` is everything between `<` and `>`, and `row` the number the cells
+ * being read are placed at. Returns that number once the tag is read.
+ */
+function checkStartTag(
+  body: string,
+  row: number | undefined,
+): number | undefined {
   const selfClosing = body.endsWith("/");
   const tag = selfClosing ? body.slice(0, -1) : body;
-  let nameEnd = 0;
-  while (nameEnd < tag.length && !isWhitespace(tag.charCodeAt(nameEnd))) {
-    nameEnd++;
-  }
+  const nameEnd = nameLength(tag);
   const element = localName(tag.slice(0, nameEnd));
   if (element !== "row" && element !== "c") {
-    return;
+    return row;
   }
 
-  const attributes = tag.slice(nameEnd);
+  const addresses = addressesIn(tag.slice(nameEnd));
+  if (element === "row") {
+    return checkRowAddresses(addresses, selfClosing, row);
+  }
+  for (const address of addresses) {
+    checkCellAddress(address, selfClosing, row);
+  }
+  return row;
+}
+
+/** The local name of the element a tag's body opens with. */
+function elementName(body: string): string {
+  return localName(body.slice(0, nameLength(body)));
+}
+
+function nameLength(body: string): number {
+  let length = 0;
+  while (length < body.length && !isWhitespace(body.charCodeAt(length))) {
+    length++;
+  }
+  return length;
+}
+
+/** Every value the library may read as the `r` of a tag's attributes. */
+function addressesIn(attributes: string): string[] {
+  const addresses = [];
   for (
     let equals = attributes.indexOf("=");
     equals !== -1;
@@ -124,13 +166,9 @@ function checkStartTag(body: string): void {
     if (end === -1) {
       throw new UnreadableSheetError("An address is not a quoted value.");
     }
-    const address = attributes.slice(equals + 2, end);
-    if (element === "row") {
-      checkRowAddress(address);
-    } else {
-      checkCellAddress(address, selfClosing);
-    }
+    addresses.push(attributes.slice(equals + 2, end));
   }
+  return addresses;
 }
 
 /**
@@ -148,26 +186,55 @@ function namesR(attributes: string, equals: number): boolean {
   return before === ":" || !isNameCharacter(before);
 }
 
-function checkRowAddress(address: string): void {
-  if (!ROW.test(address)) {
-    throw new UnreadableSheetError("A row address is not a row number.");
+/**
+ * Returns the number the row's cells are placed at. A row that closes itself
+ * holds none, and the library forgets its number as it closes. A row that
+ * states none leaves the number where it was, as the library does.
+ */
+function checkRowAddresses(
+  addresses: string[],
+  selfClosing: boolean,
+  row: number | undefined,
+): number | undefined {
+  let stated: number | undefined;
+  for (const address of addresses) {
+    if (!ROW.test(address)) {
+      throw new UnreadableSheetError("A row address is not a row number.");
+    }
+    const number = Number(address);
+    if (stated !== undefined && number !== stated) {
+      throw new UnreadableSheetError("A row states two row numbers.");
+    }
+    // A row of its own holds no value, and a cell that holds one has to lie
+    // in this row: its own address is held to the import's limits.
+    checkRow(number, MAX_WORKBOOK_EMPTY_ROW);
+    stated = number;
   }
-  // A row of its own holds no value: its cells are checked as cells.
-  checkRow(Number(address), MAX_WORKBOOK_EMPTY_ROW);
+  return selfClosing ? undefined : (stated ?? row);
 }
 
 /**
  * A self-closing cell has no value, only a format, so it is held to the
- * empty-cell limits. Any other cell is held to the import's.
+ * empty-cell limits. Any other cell is held to the import's. Either is
+ * refused when it lies outside the row that holds it, since the library would
+ * place it in that row instead.
  */
-function checkCellAddress(address: string, empty: boolean): void {
+function checkCellAddress(
+  address: string,
+  empty: boolean,
+  row: number | undefined,
+): void {
   const parts = CELL.exec(address);
   if (parts === null) {
     throw new UnreadableSheetError("A cell address is not a cell address.");
   }
-  const [, letters = "", row = ""] = parts;
+  const [, letters = "", cellRow = ""] = parts;
+  const number = Number(cellRow);
+  if (row !== undefined && number !== row) {
+    throw new UnreadableSheetError("A cell lies outside the row holding it.");
+  }
   // The header is the row above the data, so it is one more.
-  checkRow(Number(row), empty ? MAX_WORKBOOK_EMPTY_ROW : MAX_IMPORT_ROWS + 1);
+  checkRow(number, empty ? MAX_WORKBOOK_EMPTY_ROW : MAX_IMPORT_ROWS + 1);
   const column = columnNumber(letters);
   const lastColumn = empty ? MAX_WORKBOOK_EMPTY_COLUMN : MAX_IMPORT_COLUMNS;
   if (column > lastColumn) {
