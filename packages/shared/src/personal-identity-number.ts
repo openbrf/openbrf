@@ -21,6 +21,8 @@
  * Swedish domain terms follow GLOSSARY.md.
  */
 
+import { compareLocalDays, localDayOf } from "./stockholm-calendar.ts";
+
 export interface PersonalIdentityNumberParts {
   /** Full four-digit year. */
   year: number;
@@ -70,25 +72,44 @@ export function parsePersonalIdentityNumber(
   const monthNumber = Number(month);
   const dayNumber = Number(day);
 
+  const isCoordinationNumber = dayNumber > 60;
+  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
+  // The association's day (ADR 0013), not the process time zone's.
+  const today = localDayOf(referenceDate);
+  const isFuture = (candidateYear: number): boolean =>
+    compareLocalDays(
+      { year: candidateYear, month: monthNumber, day: actualDay },
+      today,
+    ) > 0;
+
   let fullYear: number;
   if (century !== undefined) {
-    // Written with the century, so take it at face value.
+    // Written with the century, which is taken at face value only where a
+    // living person can have been born in it.
+    if (!["18", "19", "20"].includes(century)) {
+      return null;
+    }
     fullYear = Number(century) * 100 + twoDigitYear;
-  } else {
-    // Without a century, the most recent year that is not in the future wins,
-    // and a plus separator means the person has turned 100.
-    const referenceYear = referenceDate.getFullYear();
-    fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
-    if (fullYear > referenceYear) {
+    if (isFuture(fullYear)) {
+      return null;
+    }
+  } else if (separator === "+") {
+    // A plus is written from 1 January of the year the person turns 100, so
+    // it names the most recent year at least a hundred years back. The year
+    // alone decides: the birthday that year may not have come yet.
+    const latest = today.year - 100;
+    fullYear = Math.floor(latest / 100) * 100 + twoDigitYear;
+    if (fullYear > latest) {
       fullYear -= 100;
     }
-    if (separator === "+") {
+  } else {
+    // Without a century, the most recent birth date that is not in the future
+    // wins.
+    fullYear = Math.floor(today.year / 100) * 100 + twoDigitYear;
+    if (isFuture(fullYear)) {
       fullYear -= 100;
     }
   }
-
-  const isCoordinationNumber = dayNumber > 60;
-  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
 
   if (monthNumber < 1 || monthNumber > 12 || actualDay < 1) {
     return null;

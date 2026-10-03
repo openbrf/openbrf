@@ -562,6 +562,11 @@ model Person {
 
   personalIdentityNumberCipher String?
   personalIdentityNumberIndex  String?
+  /// The normalization version (NORMALIZATION_VERSION in crypto/personal-data.ts)
+  /// the index was computed under. Rows below the current version are rewritten
+  /// by IdentityNumberReindexService. The default is the current version, so
+  /// every writer records it without saying so, and is raised with it.
+  personalIdentityNumberIndexVersion Int @default(2)
 
   /// Protected personal data (skyddade personuppgifter): masked in every view,
   /// export and extract; each reveal is written to the audit log.
@@ -2675,6 +2680,20 @@ enum ImportSessionStatus {
   FAILED
 }
 
+/// Where the preview of a session's latest mapping has got.
+///
+/// The preview is a background job like the apply: matching a file against a
+/// register that holds identity numbers is an Argon2id hash per row, minutes on
+/// the largest file accepted, and no request should be held open for that.
+enum ImportPreviewStatus {
+  /// Asked for, and a worker is planning the rows or is about to.
+  PLANNING
+  /// Planned. The preview is stored and its token issued.
+  READY
+  /// The preview stopped. `previewFailureReason` says why.
+  FAILED
+}
+
 /// One uploaded member list, held between upload, column mapping, preview and
 /// apply.
 ///
@@ -2719,6 +2738,34 @@ model ImportSession {
   defaultRole      ResidencyRole?
   defaultMovedInOn String?
 
+  /// The preview asked for last, by the id the screen polls it with. Asking
+  /// again replaces it, and a job planning a preview that is no longer this one
+  /// stops at its next progress report.
+  previewId            String?
+  previewStatus        ImportPreviewStatus?
+  /// Rows the preview job has planned, for the screen's progress bar.
+  previewRowsDone      Int                  @default(0)
+  /// Why the preview stopped, when it did. One of the import's reason codes.
+  previewFailureReason String?
+  /// When a screen last asked how the preview is getting on. A preview nobody
+  /// is watching has nobody to show it to - the screen holds its id, and a
+  /// reload loses it - so the job stops planning one left unwatched rather
+  /// than holding the worker other previews wait for.
+  previewWatchedAt     DateTime?
+
+  /// The finished preview as the screen shows it, encrypted as one value: it
+  /// names every person in the file and the register persons they match.
+  /// Cleared when the import is claimed, which no longer needs it.
+  previewCipher String?
+
+  /// Names the preview last recorded on this session, issued when its job
+  /// finishes and cleared when another is asked for. The preview hands it to
+  /// the screen it answered, and the apply is refused unless it carries the
+  /// same one: a second preview - another tab, another board member - replaces
+  /// the mapping and the rows needing a decision, and decisions made against the
+  /// first must not be applied under the second.
+  previewToken String?
+
   /// Rows the preview could not resolve to one person, as row number to the
   /// persons it could equally well have been. Written by the preview and read
   /// by the apply, which refuses to start while one of them has no decision.
@@ -2727,6 +2774,12 @@ model ImportSession {
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?
+
+  /// Which person each row was written to, as row number to person id, for the
+  /// rows the apply has committed that the preview resolved to one person. A
+  /// chunk reads it so a row the preview showed as the same person as a row of
+  /// an earlier chunk reaches that person rather than a second copy of them.
+  rowPersons Json?
 
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
@@ -2758,6 +2811,9 @@ model ImportSession {
   /// After this the session is stale and is refused rather than applied.
   expiresAt   DateTime
 
+  /// At most one session is QUEUED or APPLYING at a time, by the partial unique
+  /// index "import_session_one_apply" (migration 20261003100000_import_one_apply).
+  /// Prisma cannot express an index on an expression, so it is not declared here.
   @@index([status, expiresAt])
   @@map("import_session")
 }

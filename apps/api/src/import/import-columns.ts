@@ -161,6 +161,18 @@ export function suggestMapping(
 }
 
 /**
+ * A mapping as the session stores it, read back. An empty entry, or one naming
+ * no field, is a column not imported.
+ */
+export function readMapping(stored: readonly string[]): ImportMapping {
+  return stored.map((field) =>
+    (IMPORT_FIELDS as readonly string[]).includes(field)
+      ? (field as ImportField)
+      : null,
+  );
+}
+
+/**
  * Whether a mapping can be applied at all.
  *
  * Returns the problems rather than throwing, because the mapping screen has to

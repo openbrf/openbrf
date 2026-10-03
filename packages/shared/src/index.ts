@@ -26,6 +26,11 @@ export type {
   PersonalDataCategory,
 } from "./data-protection.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
+export {
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "./import-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
   isValidPersonalIdentityNumber,

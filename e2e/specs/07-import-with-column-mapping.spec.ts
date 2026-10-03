@@ -162,18 +162,34 @@ async function openImport(page: Page): Promise<void> {
  * member who closed the tab finds it again rather than an empty form suggesting
  * nothing happened. That is also what greets a second run against a stack that
  * is already up, and starting another list is how the screen gets back to the
- * first step. Which of the two is on screen is settled by waiting for either
- * rather than by looking once, so this cannot race the load.
+ * first step. Which of the two it will be is read from the API's answer, not
+ * from the screen: the upload step is on screen until that answer arrives, so
+ * waiting for either control can settle on the upload step a moment before the
+ * screen moves to the last import.
  */
 async function openUploadStep(page: Page): Promise<void> {
+  // Armed before the navigation: a wait registered afterwards can miss a
+  // response that has already arrived.
+  const answered = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/import/sessions/active") &&
+      response.request().method() === "GET",
+  );
   await openImport(page);
-  const another = page.getByRole("button", {
-    name: "Importera en annan lista",
-  });
+  const response = await answered;
+  expect(
+    response.ok(),
+    `asking for the last import answered ${String(response.status())}`,
+  ).toBe(true);
+  // A Nest handler returning null sends an empty body.
+  const body = await response.text();
+  const ranBefore = body !== "" && body !== "null";
+
   const file = page.getByLabel("Välj en fil");
-  await expect(another.or(file)).toBeVisible();
-  if (await another.isVisible()) {
-    await another.click();
+  if (ranBefore) {
+    await page
+      .getByRole("button", { name: "Importera en annan lista" })
+      .click();
   }
   await expect(file).toBeVisible();
 }

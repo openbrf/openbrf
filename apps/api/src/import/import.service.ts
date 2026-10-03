@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
+
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
+import type { ImportPreviewStatus } from "../generated/prisma/enums";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { parseCsv, writeCsv } from "./csv";
@@ -18,10 +21,21 @@ import {
   suggestMapping,
 } from "./import-columns";
 import { ImportError } from "./import-errors";
-import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
-import { ImportPlannerService } from "./import-planner.service";
+import type { ImportRole } from "./import-plan";
+import { assertMappingApplies } from "./import-planner.service";
+import {
+  IMPORT_PREVIEW_SELECT,
+  ImportPreviewService,
+  type ImportPreviewRun,
+} from "./import-preview.service";
 import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
-import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
+import {
+  ImportShapeError,
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "./import-limits";
+import { parseWorkbook } from "./workbook";
 
 /**
  * Importing a member list.
@@ -37,12 +51,13 @@ import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
  * that can be wrong. They are held encrypted: a cooperative's member list is
  * the densest personal data this instance ever handles.
  *
- * The first three steps answer inside the request. The fourth does not: writing
- * the register is minutes of Argon2id on a real member list, so it is a chunked
- * background job (ADR 0002) and this service only claims the session and queues
- * it. What the board previewed is recorded on the session, and the apply runs
- * that - so what is written is what was looked at, and the request that starts
- * it neither decrypts a row nor computes an index.
+ * The upload and the mapping answer inside the request. The preview and the
+ * apply do not: matching a member list against a register that holds identity
+ * numbers is an Argon2id hash per row, and writing the register is that and
+ * more, so both are background jobs (ADR 0002) that this service records and
+ * queues. The screen polls them. What the board previewed is recorded on the
+ * session, and the apply runs that - so what is written is what was looked at,
+ * and neither request decrypts a row or computes an index.
  */
 
 /** The largest upload accepted, decoded. A member list is far below this. */
@@ -72,36 +87,6 @@ export interface ImportSessionView {
   expiresAt: string;
 }
 
-/**
- * A previewed row.
- *
- * The personal identity number is reported as present or absent and never sent.
- * A preview is not a register view, and DESIGN.md keeps identity numbers out of
- * every screen that is not one.
- */
-export interface ImportPreviewRow extends Omit<
-  PlannedRow,
-  "person" | "problems"
-> {
-  person: {
-    firstName: string;
-    lastName: string;
-    email: string | null;
-    phone: string | null;
-    hasPersonalIdentityNumber: boolean;
-    postalStreet: string | null;
-    postalCode: string | null;
-    postalCity: string | null;
-  };
-  problems: { field: ImportField | null; reason: string }[];
-}
-
-export interface ImportPreview {
-  sessionId: string;
-  summary: Record<ImportOutcome, number>;
-  rows: ImportPreviewRow[];
-}
-
 export interface ImportMappingInput {
   mapping: ImportMapping;
   defaultRole: ImportRole | null;
@@ -118,7 +103,7 @@ export class ImportService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly i18n: I18nService,
     private readonly jobs: JobQueueService,
-    private readonly planner: ImportPlannerService,
+    private readonly previews: ImportPreviewService,
     private readonly applies: ImportApplyService,
   ) {}
 
@@ -191,7 +176,10 @@ export class ImportService implements OnModuleInit {
     }
     const data = rows.slice(1);
     if (data.length > MAX_IMPORT_ROWS) {
-      throw new ImportError("That file has too many rows.", "too-many-rows");
+      throw new ImportError(
+        `That file has more than ${String(MAX_IMPORT_ROWS)} rows below its column titles.`,
+        "too-many-rows",
+      );
     }
 
     const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
@@ -230,57 +218,127 @@ export class ImportService implements OnModuleInit {
   }
 
   /**
-   * Works out what the mapping would do, without doing any of it.
+   * Asks for the preview of a mapping: what it would do, without doing any of
+   * it.
    *
-   * It also records what it showed: the mapping, the defaults, and which rows it
-   * could not resolve to one person. The apply reads that back rather than being
-   * told again, so the import that runs is the one the board looked at and a row
-   * needing a decision cannot be slipped past by applying a mapping nobody
-   * previewed.
+   * The mapping is checked here, because a mapping problem is the board's to
+   * fix on the screen it is on. Then it is recorded with the defaults, and the
+   * job that plans it is queued in the same transaction. Asking again replaces
+   * the preview: the token of the one before is withdrawn at once, so a screen
+   * holding it cannot apply a mapping that is no longer the session's, and the
+   * job planning it stops at its next progress report.
+   *
+   * The job records what it showed - the plan, and which rows it could not
+   * resolve to one person - and issues the token when it finishes. The apply
+   * reads that back rather than being told again, so the import that runs is
+   * the one the board looked at.
    */
   async preview(
     sessionId: string,
     input: ImportMappingInput,
-  ): Promise<ImportPreview> {
+  ): Promise<ImportPreviewRun> {
     const session = await this.loadForPreview(sessionId);
-
-    const plan = await this.planner.plan({
-      rows: await this.planner.decryptRows(session.rowsCipher),
-      columnCount: session.columns.length,
+    assertMappingApplies({
       mapping: input.mapping,
+      columnCount: session.columns.length,
       defaultRole: input.defaultRole,
       defaultMovedInOn: input.defaultMovedInOn,
-      // A preview matches; it writes nothing. An identity number is therefore
-      // only worth its 43.8 ms when the register holds one to match it against.
-      indexEveryIdentityNumber: false,
-      indexes: new Map(),
     });
 
-    const ambiguousRows: Record<string, string[]> = {};
-    for (const row of plan.rows) {
-      if (row.outcome === "ambiguous") {
-        ambiguousRows[String(row.rowNumber)] = row.candidates.map(
-          (candidate) => candidate.personId,
-        );
+    // Before the transaction, as for the apply: creating a queue is the queue
+    // backend's own work on its own connection.
+    await this.previews.ensureQueues();
+
+    const previewId = randomUUID();
+    const recorded = await this.prisma.$transaction(async (tx) => {
+      // Conditional on the status, so a preview cannot be recorded on a session
+      // an apply has claimed in the meantime.
+      const { count } = await tx.importSession.updateMany({
+        where: { id: sessionId, status: "MAPPING" },
+        data: {
+          mapping: input.mapping.map((field) => field ?? ""),
+          defaultRole: input.defaultRole,
+          defaultMovedInOn: input.defaultMovedInOn,
+          previewId,
+          previewStatus: "PLANNING",
+          previewRowsDone: 0,
+          previewFailureReason: null,
+          previewWatchedAt: new Date(),
+          previewCipher: null,
+          previewToken: null,
+          previewedAt: null,
+          ambiguousRows: Prisma.DbNull,
+        },
+      });
+      if (count === 0) {
+        return false;
       }
+      await this.previews.enqueueInTransaction(tx, sessionId, previewId);
+      return true;
+    });
+    if (!recorded) {
+      throw new ImportError(
+        "That import has already been started.",
+        "session-already-applied",
+      );
     }
 
-    await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: "MAPPING" },
-      data: {
-        mapping: input.mapping.map((field) => field ?? ""),
-        defaultRole: input.defaultRole,
-        defaultMovedInOn: input.defaultMovedInOn,
-        ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
-        previewedAt: new Date(),
-      },
-    });
-
+    this.logger.log(`Import session ${sessionId}: preview queued`);
     return {
       sessionId,
-      summary: plan.summary,
-      rows: plan.rows.map(toPreviewRow),
+      previewId,
+      status: "PLANNING",
+      rowsDone: 0,
+      rowsTotal: session.rowCount,
+      failureReason: null,
+      preview: null,
     };
+  }
+
+  /**
+   * How far the preview has got, and the preview once it is ready.
+   *
+   * Asked for by the id the request answered with. A preview replaced since -
+   * another tab, another board member - is refused as changed rather than
+   * answered with the other one's, so the screen goes back to its mapping
+   * instead of showing a plan for a mapping it does not hold.
+   *
+   * Asking is also what keeps the job going: a preview nobody asks about is
+   * one nobody will see, and the job stops planning it.
+   */
+  async previewRun(
+    sessionId: string,
+    previewId: string,
+  ): Promise<ImportPreviewRun> {
+    const session = requireMapping(
+      await this.prisma.importSession.findUnique({
+        where: { id: sessionId },
+        select: { ...IMPORT_PREVIEW_SELECT, status: true, expiresAt: true },
+      }),
+    );
+    if (session.previewId !== previewId || session.previewStatus === null) {
+      throw previewChanged();
+    }
+    if (session.previewStatus === "PLANNING") {
+      await this.prisma.importSession.updateMany({
+        where: { id: sessionId, previewId, previewStatus: "PLANNING" },
+        data: { previewWatchedAt: new Date() },
+      });
+    }
+    return this.previews.view(sessionId, session);
+  }
+
+  /**
+   * Stops a preview the screen has stopped waiting for: the board picked
+   * another file, or left the page.
+   *
+   * Without this the job would go on planning it until it noticed nobody was
+   * asking, and one worker plans every preview on the instance, so everybody
+   * else's would wait behind it. Answered the same whatever the preview's state:
+   * one already finished, replaced or stopped has nothing left to stop.
+   */
+  async cancelPreview(sessionId: string, previewId: string): Promise<void> {
+    await this.previews.cancel(sessionId, previewId);
   }
 
   /**
@@ -297,17 +355,38 @@ export class ImportService implements OnModuleInit {
    * UPDATE and DELETE, so a member listed twice could only be answered with a
    * further correction entry. The conditional update takes the row lock, so the
    * second request finds nothing to claim and nothing is queued for it.
+   *
+   * Two sessions overlap just as easily: the same file uploaded twice, by two
+   * board members or in a second tab. Each chunk plans against the register as
+   * it stands, which does not yet hold what the other import's chunk is about
+   * to write, so both would create the same people. Only one import is queued
+   * or applying at a time, which a partial unique index enforces; the read
+   * first is for the answer, and the index is for the race.
    */
   async apply(
     sessionId: string,
-    input: { decisions: ImportDecisions },
+    input: { decisions: ImportDecisions; previewToken: string },
   ): Promise<ImportRunView> {
     const session = await this.loadForApply(sessionId);
-    if (session.previewedAt === null) {
+    if (session.previewStatus === null) {
       throw new ImportError(
         "That import has not been previewed.",
         "preview-required",
       );
+    }
+    // The decisions below are checked against the rows this preview found, so
+    // they have to be the decisions made on this preview. A screen holding an
+    // older one is told, rather than having its answers applied to a mapping
+    // somebody else chose since. A preview still being planned, or one that
+    // stopped, has issued no token at all - and the token this request carries
+    // came from a preview that was ready, so another has been asked for since
+    // and "changed" is what happened. It is also the answer that sends the
+    // screen back to its mapping.
+    if (
+      session.previewToken === null ||
+      session.previewToken !== input.previewToken
+    ) {
+      throw previewChanged();
     }
 
     for (const [rowNumber, candidates] of Object.entries(
@@ -331,32 +410,66 @@ export class ImportService implements OnModuleInit {
       }
     }
 
+    const running = await this.prisma.importSession.count({
+      where: { status: { in: ["QUEUED", "APPLYING"] } },
+    });
+    if (running > 0) {
+      throw anotherImportRunning();
+    }
+
     // Before the transaction: creating a queue is the queue backend's own work
     // on its own connection and has no business inside this one.
     await this.applies.ensureQueues();
 
-    const claimed = await this.prisma.$transaction(async (tx) => {
-      const claim = await tx.importSession.updateMany({
-        where: { id: sessionId, status: "MAPPING" },
-        data: {
-          status: "QUEUED",
-          decisions: input.decisions as Prisma.InputJsonValue,
-        },
+    let claimed: boolean;
+    try {
+      claimed = await this.prisma.$transaction(async (tx) => {
+        // On the token as well, so a preview recorded between the read above
+        // and this claim cannot have its mapping run with these decisions.
+        const claim = await tx.importSession.updateMany({
+          where: {
+            id: sessionId,
+            status: "MAPPING",
+            previewStatus: "READY",
+            previewToken: input.previewToken,
+          },
+          data: {
+            status: "QUEUED",
+            decisions: input.decisions as Prisma.InputJsonValue,
+            // The apply plans again from the rows; the stored preview has
+            // been looked at and is not kept past the point it was for.
+            previewCipher: null,
+          },
+        });
+        if (claim.count === 0) {
+          return false;
+        }
+        // The job is written by this transaction too, so the claim and the
+        // work it claims commit together. A session left claimed with no job
+        // behind it is an import that never runs and never says so.
+        await this.applies.enqueueInTransaction(tx, sessionId);
+        return true;
       });
-      if (claim.count === 0) {
-        return false;
+    } catch (cause) {
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2002"
+      ) {
+        throw anotherImportRunning();
       }
-      // The job is written by this transaction too, so the claim and the work
-      // it claims commit together. A session left claimed with no job behind it
-      // is an import that never runs and never says so.
-      await this.applies.enqueueInTransaction(tx, sessionId);
-      return true;
-    });
+      throw cause;
+    }
     if (!claimed) {
-      throw new ImportError(
-        "That import has already been started.",
-        "session-already-applied",
-      );
+      const now = await this.prisma.importSession.findUnique({
+        where: { id: sessionId },
+        select: { status: true },
+      });
+      throw now?.status === "MAPPING"
+        ? previewChanged()
+        : new ImportError(
+            "That import has already been started.",
+            "session-already-applied",
+          );
     }
 
     this.logger.log(`Import session ${sessionId}: apply queued`);
@@ -380,15 +493,28 @@ export class ImportService implements OnModuleInit {
    *
    * What a board member coming back to the screen needs is the import that was
    * started, whether it is still running or finished while the tab was closed.
-   * The most recent session that has left the mapping step is that import, and
-   * it stays answerable for as long as the upload does - after which the purge
-   * removes it and the screen offers a fresh upload again.
+   * An import that is still running comes first, however old: it is the one
+   * that locks out every other, and the screen that was just refused with
+   * `another-import-running` has to show it rather than a newer session that
+   * finished or failed. Otherwise the most recent session that has left the
+   * mapping step is that import, and it stays answerable for as long as the
+   * upload does - after which the purge removes it and the screen offers a
+   * fresh upload again.
    */
   async activeRun(): Promise<ImportRunView | null> {
+    const select = IMPORT_RUN_SELECT;
+    const running = await this.prisma.importSession.findFirst({
+      where: { status: { in: ["QUEUED", "APPLYING"] } },
+      orderBy: { createdAt: "desc" },
+      select,
+    });
+    if (running !== null) {
+      return toRunView(running);
+    }
     const session = await this.prisma.importSession.findFirst({
       where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
-      select: IMPORT_RUN_SELECT,
+      select,
     });
     return session === null ? null : toRunView(session);
   }
@@ -417,10 +543,17 @@ export class ImportService implements OnModuleInit {
   ): Promise<string[][]> {
     try {
       if (format === "CSV") {
-        return parseCsv(bytes.toString("utf8")).rows;
+        return parseCsv(bytes.toString("utf8"), undefined, {
+          maxDataRows: MAX_IMPORT_ROWS,
+          maxColumns: MAX_IMPORT_COLUMNS,
+          maxCellLength: MAX_IMPORT_CELL_LENGTH,
+        }).rows;
       }
       return await parseWorkbook(bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof ImportShapeError) {
+        throw new ImportError(error.message, error.reason);
+      }
       throw new ImportError(
         "That file could not be read as a spreadsheet.",
         "file-unreadable",
@@ -430,13 +563,14 @@ export class ImportService implements OnModuleInit {
 
   private async loadForPreview(sessionId: string): Promise<{
     columns: string[];
-    rowsCipher: string;
+    rowCount: number;
   }> {
+    // The rows are not read here either: planning them is the job's work.
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
         columns: true,
-        rowsCipher: true,
+        rowCount: true,
         status: true,
         expiresAt: true,
       },
@@ -445,7 +579,8 @@ export class ImportService implements OnModuleInit {
   }
 
   private async loadForApply(sessionId: string): Promise<{
-    previewedAt: Date | null;
+    previewStatus: ImportPreviewStatus | null;
+    previewToken: string | null;
     ambiguousRows: Prisma.JsonValue;
   }> {
     // The uploaded rows are deliberately not read here. Starting an import
@@ -453,7 +588,8 @@ export class ImportService implements OnModuleInit {
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
-        previewedAt: true,
+        previewStatus: true,
+        previewToken: true,
         ambiguousRows: true,
         status: true,
         expiresAt: true,
@@ -480,6 +616,20 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
     throw new ImportError("That upload has expired.", "session-expired");
   }
   return session;
+}
+
+function previewChanged(): ImportError {
+  return new ImportError(
+    "The upload was previewed again since. Preview it once more and decide again.",
+    "preview-changed",
+  );
+}
+
+function anotherImportRunning(): ImportError {
+  return new ImportError(
+    "Another import is being applied. Wait for it to finish.",
+    "another-import-running",
+  );
 }
 
 /** The rows the preview could not resolve, read back from the session. */
@@ -558,21 +708,4 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
     return "XLSX";
   }
   return fileName.toLowerCase().endsWith(".xlsx") ? "XLSX" : "CSV";
-}
-
-function toPreviewRow(row: PlannedRow): ImportPreviewRow {
-  const { person, ...rest } = row;
-  return {
-    ...rest,
-    person: {
-      firstName: person.firstName,
-      lastName: person.lastName,
-      email: person.email,
-      phone: person.phone,
-      hasPersonalIdentityNumber: person.personalIdentityNumber !== null,
-      postalStreet: person.postalStreet,
-      postalCode: person.postalCode,
-      postalCity: person.postalCity,
-    },
-  };
 }

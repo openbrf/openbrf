@@ -1,4 +1,5 @@
 import { DomainError } from "../http/domain-error";
+import type { ImportShapeReason } from "./import-limits";
 
 /**
  * What can go wrong with an import, as a code rather than as a sentence.
@@ -12,12 +13,17 @@ export type ImportErrorReason =
   | "session-not-found"
   | "session-expired"
   | "session-already-applied"
+  | "another-import-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
-  | "too-many-rows"
+  // A file refused for its shape while it was read.
+  | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
+  | "preview-changed"
+  | "preview-interrupted"
+  | "preview-cancelled"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";
@@ -32,7 +38,10 @@ export class ImportError extends DomainError {
     this.status =
       reason === "session-not-found"
         ? 404
-        : reason === "session-expired" || reason === "session-already-applied"
+        : reason === "session-expired" ||
+            reason === "session-already-applied" ||
+            reason === "another-import-running" ||
+            reason === "preview-changed"
           ? 409
           : 400;
   }

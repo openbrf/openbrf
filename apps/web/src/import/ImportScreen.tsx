@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -16,7 +16,9 @@ import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
   applyImport,
+  cancelImportPreview,
   fetchActiveImport,
+  fetchImportPreview,
   fetchImportRun,
   type ImportDecision,
   type ImportField,
@@ -24,6 +26,7 @@ import {
   IMPORT_TEMPLATE_URL,
   type ImportPreview,
   type ImportPreviewRow,
+  type ImportPreviewRun,
   type ImportRunView,
   type ImportSessionView,
   isImportRunning,
@@ -33,6 +36,7 @@ import {
   uploadImport,
 } from "./import-api";
 import {
+  FAILURE_VALUES,
   failureMessage,
   FIELD_LABEL,
   OUTCOME_LABEL,
@@ -56,12 +60,14 @@ import {
  * candidates are usually a parent and a child of the same name in the same
  * apartment.
  *
- * The fourth step is not this screen's work. Writing the register is a
- * background job, and the screen only watches it: it asks the API how far the
- * import has got and shows that. Which is also why closing the tab costs
- * nothing - the progress lives on the import itself, so the screen finds it
- * again by asking for the import that is running rather than by remembering
- * anything.
+ * Neither the preview nor the import is this screen's work. Matching a long
+ * file against a register that holds identity numbers takes minutes, and
+ * writing the register takes longer, so both are background jobs and the screen
+ * only watches them: it asks the API how far each has got and shows that. The
+ * import's progress lives on the import itself, so closing the tab costs
+ * nothing - the screen finds it again by asking for the import that is running
+ * rather than by remembering anything. A preview is only worth having while
+ * somebody is looking at it, so a reload simply asks for a new one.
  */
 
 type Step = "upload" | "mapping" | "preview" | "apply";
@@ -79,6 +85,23 @@ const STEPS: readonly Step[] = ["upload", "mapping", "preview", "apply"];
  */
 const RUN_POLL_MS = 1500;
 
+/**
+ * How often the screen asks how far the preview has got. The same reasoning as
+ * {@link RUN_POLL_MS}, and the asking is also what tells the API that somebody
+ * is still waiting for the preview: one nobody asks about is stopped.
+ */
+const PREVIEW_POLL_MS = 1500;
+
+/**
+ * How long a poll may go without an answer starting to arrive before the screen
+ * gives it up and asks again. Downloading a preview that is ready is not
+ * limited: a slow link is not a request that never reached the server. A poll
+ * is only skipped while the last one is unanswered, so one that never settles -
+ * a stalled connection, a proxy that holds the request - would otherwise end the
+ * asking, and with it the progress, for good.
+ */
+const PREVIEW_POLL_TIMEOUT_MS = 4 * PREVIEW_POLL_MS;
+
 const CELL = "px-3 py-2 text-left align-top";
 const HEAD_CELL = `${CELL} text-label uppercase text-ink-muted`;
 const DATA_CELL = `${CELL} font-data text-data text-ink`;
@@ -94,12 +117,22 @@ export function ImportScreen(): ReactElement {
   );
   const [defaultMovedInOn, setDefaultMovedInOn] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  /** The preview being planned, while the screen waits for it. */
+  const [planning, setPlanning] = useState<ImportPreviewRun | null>(null);
   const [decisions, setDecisions] = useState<Record<string, ImportDecision>>(
     {},
   );
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
+  /**
+   * Which preview request the screen is still waiting for.
+   *
+   * Stepping back, or leaving the page, ends the wait for a request that has
+   * not been answered yet. The answer comes anyway, and what it starts has to
+   * be cancelled rather than followed: see `runPreview`.
+   */
+  const previewRequest = useRef(0);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -154,6 +187,110 @@ export function ImportScreen(): ReactElement {
     };
   }, [watchedSessionId]);
 
+  /** Takes in what the API says about the preview being planned. */
+  const receivePreview = useCallback((next: ImportPreviewRun): void => {
+    if (next.status === "READY" && next.preview !== null) {
+      setPlanning(null);
+      setPreview(next.preview);
+      setDecisions({});
+      setStep("preview");
+      return;
+    }
+    if (next.status === "FAILED") {
+      setPlanning(null);
+      setFailure(failureMessage(next.failureReason ?? ""));
+      return;
+    }
+    setPlanning(next);
+  }, []);
+
+  const plannedSessionId = planning?.sessionId ?? null;
+  const plannedPreviewId = planning?.previewId ?? null;
+
+  // A plain interval rather than usePoll, which pauses while the tab is hidden:
+  // here the asking is what tells the API somebody is still waiting, and a
+  // board member who looks at another tab during a long preview still wants it.
+  //
+  // Asked once at once, then every interval: a short file is often planned
+  // before the first interval is up.
+  //
+  // And the screen says when it stops waiting. Whatever ends the wait before
+  // the preview does - another file, back to the start, leaving the page - ends
+  // this effect, and a preview nobody is waiting for any more would otherwise
+  // hold the one worker that plans every preview on the instance until the API
+  // noticed nobody was asking.
+  useEffect(() => {
+    if (plannedSessionId === null || plannedPreviewId === null) {
+      return;
+    }
+    let abandoned = false;
+    /** Whether the preview has ended, so there is nothing left to cancel. */
+    let settled = false;
+    /** Whether a poll is still waiting for its answer. */
+    let asking = false;
+    /** Ends the poll in flight when the effect does. */
+    const leaving = new AbortController();
+
+    // A tick is skipped while the last poll is unanswered, or once the preview
+    // has ended: the interval is only cleared when the screen has taken in the
+    // answer, and a slow request would otherwise overlap the next one. A poll
+    // that stays unanswered is given up after a timeout, which reads as a
+    // request that never reached the server, so the next tick asks again.
+    const poll = async (): Promise<void> => {
+      if (asking || settled) {
+        return;
+      }
+      asking = true;
+      try {
+        const response = await fetchImportPreview(
+          plannedSessionId,
+          plannedPreviewId,
+          leaving.signal,
+          PREVIEW_POLL_TIMEOUT_MS,
+        );
+        if (abandoned) {
+          return;
+        }
+        if (response.ok) {
+          settled = response.value.status !== "PLANNING";
+          receivePreview(response.value);
+          return;
+        }
+        // A refusal ends the wait - the preview was replaced, the upload
+        // expired, or the import was started elsewhere. A request that never
+        // reached the server, or a server error, is asked again.
+        if (response.failure.status >= 400 && response.failure.status < 500) {
+          settled = true;
+          setPlanning(null);
+          setFailure(failureMessage(response.failure.reason));
+        }
+      } finally {
+        asking = false;
+      }
+    };
+
+    void poll();
+    const timer = setInterval(() => {
+      void poll();
+    }, PREVIEW_POLL_MS);
+
+    return () => {
+      abandoned = true;
+      leaving.abort();
+      clearInterval(timer);
+      if (!settled) {
+        void cancelImportPreview(plannedSessionId, plannedPreviewId);
+      }
+    };
+  }, [plannedSessionId, plannedPreviewId, receivePreview]);
+
+  useEffect(() => {
+    const requests = previewRequest;
+    return () => {
+      requests.current += 1;
+    };
+  }, []);
+
   const upload = useCallback(async (file: File): Promise<void> => {
     setBusy(true);
     setFailure(null);
@@ -167,6 +304,7 @@ export function ImportScreen(): ReactElement {
       setSession(response.value);
       setMapping(response.value.suggestedMapping);
       setPreview(null);
+      setPlanning(null);
       setDecisions({});
       setStep("mapping");
     } catch {
@@ -182,19 +320,31 @@ export function ImportScreen(): ReactElement {
     }
     setBusy(true);
     setFailure(null);
+    previewRequest.current += 1;
+    const request = previewRequest.current;
     const response = await previewImport(session.sessionId, {
       mapping,
       defaultRole: needsDefaultRole ? defaultRole : null,
       defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
     });
+    if (request !== previewRequest.current) {
+      // The board stepped back, or left, while this was asked. The preview it
+      // started is planned for nobody, and the poll that would have cancelled
+      // it when the wait ended never began.
+      if (response.ok && response.value.status === "PLANNING") {
+        void cancelImportPreview(
+          response.value.sessionId,
+          response.value.previewId,
+        );
+      }
+      return;
+    }
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
       return;
     }
-    setPreview(response.value);
-    setDecisions({});
-    setStep("preview");
+    receivePreview(response.value);
   }, [
     session,
     mapping,
@@ -202,22 +352,38 @@ export function ImportScreen(): ReactElement {
     defaultRole,
     needsDefaultMovedIn,
     defaultMovedInOn,
+    receivePreview,
   ]);
 
   const apply = useCallback(async (): Promise<void> => {
-    if (session === null) {
+    if (session === null || preview === null) {
       return;
     }
     setBusy(true);
     setFailure(null);
-    const response = await applyImport(session.sessionId, { decisions });
+    const response = await applyImport(session.sessionId, {
+      previewToken: preview.previewToken,
+      decisions,
+    });
     setBusy(false);
     if (!response.ok) {
       setFailure(failureMessage(response.failure.reason));
-      if (response.failure.reason === "session-already-applied") {
-        // Somebody was quicker - the other tab, or the other board member. What
-        // this screen should show now is that import rather than a preview step
-        // that is over.
+      if (response.failure.reason === "preview-changed") {
+        // Somebody previewed this upload again, perhaps with another mapping.
+        // The decisions on this screen were made against rows that preview
+        // may not have, so they go, and the board previews again.
+        setPreview(null);
+        setDecisions({});
+        setStep("mapping");
+        return;
+      }
+      if (
+        response.failure.reason === "session-already-applied" ||
+        response.failure.reason === "another-import-running"
+      ) {
+        // Somebody was quicker - the other tab, or the other board member - with
+        // this upload or another one. What this screen should show now is that
+        // import rather than a preview step it cannot finish.
         const started = await fetchActiveImport();
         if (started.ok && started.value !== null) {
           setRun(started.value);
@@ -228,12 +394,13 @@ export function ImportScreen(): ReactElement {
     }
     setRun(response.value);
     setStep("apply");
-  }, [session, decisions]);
+  }, [session, preview, decisions]);
 
   const restart = useCallback((): void => {
     setRun(null);
     setSession(null);
     setPreview(null);
+    setPlanning(null);
     setDecisions({});
     setMapping([]);
     setFailure(null);
@@ -273,7 +440,7 @@ export function ImportScreen(): ReactElement {
 
       {failure === null ? null : (
         <Notice tone="danger" live>
-          {t(failure)}
+          {t(failure, FAILURE_VALUES)}
         </Notice>
       )}
 
@@ -291,7 +458,13 @@ export function ImportScreen(): ReactElement {
           defaultMovedInOn={defaultMovedInOn}
           onChangeDefaultMovedIn={setDefaultMovedInOn}
           busy={busy}
+          planning={planning}
           onBack={() => {
+            // Ending the wait cancels the preview: see the effect above. One
+            // not yet answered is cancelled when it is: see `runPreview`.
+            previewRequest.current += 1;
+            setBusy(false);
+            setPlanning(null);
             setStep("upload");
           }}
           onSubmit={() => {
@@ -395,6 +568,7 @@ function MappingStep({
   defaultMovedInOn,
   onChangeDefaultMovedIn,
   busy,
+  planning,
   onBack,
   onSubmit,
 }: {
@@ -408,10 +582,15 @@ function MappingStep({
   defaultMovedInOn: string;
   onChangeDefaultMovedIn: (value: string) => void;
   busy: boolean;
+  planning: ImportPreviewRun | null;
   onBack: () => void;
   onSubmit: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const working = busy || planning !== null;
+  // The preview being planned is of the mapping as it was asked for. Changing
+  // it meanwhile would show a plan for columns the screen no longer holds.
+  const locked = planning !== null;
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
@@ -466,6 +645,7 @@ function MappingStep({
                      */
                     aria-label={t("import.mapping.fieldFor", { column })}
                     value={mapping[index] ?? ""}
+                    disabled={locked}
                     onChange={(event) => {
                       const next = [...mapping];
                       next[index] =
@@ -491,7 +671,10 @@ function MappingStep({
       </div>
 
       {needsDefaultRole || needsDefaultMovedIn ? (
-        <fieldset className="flex flex-col gap-4 border-t border-line pt-4">
+        <fieldset
+          disabled={locked}
+          className="flex flex-col gap-4 border-t border-line pt-4"
+        >
           <legend className="text-label text-ink-muted uppercase">
             {t("import.mapping.defaults")}
           </legend>
@@ -542,17 +725,80 @@ function MappingStep({
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={busy || (needsDefaultMovedIn && defaultMovedInOn === "")}
+          disabled={working || (needsDefaultMovedIn && defaultMovedInOn === "")}
           onClick={onSubmit}
           className={PRIMARY_BUTTON}
         >
-          {busy ? t("import.mapping.working") : t("import.mapping.submit")}
+          {working ? t("import.mapping.working") : t("import.mapping.submit")}
         </button>
         <button type="button" onClick={onBack} className={SECONDARY_BUTTON}>
           {t("import.mapping.back")}
         </button>
       </div>
+
+      {planning === null ? null : <PlanningProgress planning={planning} />}
     </section>
+  );
+}
+
+/**
+ * How far the preview has got, while the board waits for it.
+ *
+ * The same bar as the import's own, for the same reason: a long file with
+ * identity numbers is minutes of work, and a button that only says it is
+ * working looks the same whether it is nearly done or stuck.
+ */
+function PlanningProgress({
+  planning,
+}: {
+  planning: ImportPreviewRun;
+}): ReactElement {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-4">
+      <ProgressBar
+        label={t("import.mapping.planningProgressLabel")}
+        done={planning.rowsDone}
+        total={planning.rowsTotal}
+      />
+      <p className="font-data text-data text-ink-muted">
+        {t("import.run.progress", {
+          done: planning.rowsDone,
+          total: planning.rowsTotal,
+        })}
+      </p>
+      <p className={HINT}>{t("import.mapping.planningHint")}</p>
+    </div>
+  );
+}
+
+/** Rows worked through against rows in the file, as a bar. */
+function ProgressBar({
+  label,
+  done,
+  total,
+}: {
+  label: string;
+  done: number;
+  total: number;
+}): ReactElement {
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={done}
+      className="h-2 w-full overflow-hidden rounded-control bg-sunken"
+    >
+      <div
+        className="h-full bg-ink transition-[width] duration-300 ease-out"
+        style={{ width: `${String(percent)}%` }}
+      />
+    </div>
   );
 }
 
@@ -769,8 +1015,6 @@ function ApplyStep({
   const { t } = useTranslation();
 
   const running = isImportRunning(run.status);
-  const percent =
-    run.rowsTotal === 0 ? 0 : Math.round((run.rowsDone / run.rowsTotal) * 100);
 
   const counts = [
     ["import.result.personsCreated", run.result.personsCreated],
@@ -793,19 +1037,11 @@ function ApplyStep({
       </p>
 
       <div className="flex flex-col gap-2">
-        <div
-          role="progressbar"
-          aria-label={t("import.run.progressLabel")}
-          aria-valuemin={0}
-          aria-valuemax={run.rowsTotal}
-          aria-valuenow={run.rowsDone}
-          className="h-2 w-full overflow-hidden rounded-control bg-sunken"
-        >
-          <div
-            className="h-full bg-ink transition-[width] duration-300 ease-out"
-            style={{ width: `${String(percent)}%` }}
-          />
-        </div>
+        <ProgressBar
+          label={t("import.run.progressLabel")}
+          done={run.rowsDone}
+          total={run.rowsTotal}
+        />
         {/*
          * The state is written out beside the bar rather than left to the bar's
          * length: a bar that has stopped moving looks the same whether the

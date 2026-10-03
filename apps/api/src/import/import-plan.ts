@@ -53,6 +53,15 @@ export interface RegisterApartment {
   addressLabel: string;
 }
 
+/** A residency the register holds, with its dates as calendar dates. */
+export interface RegisterResidency {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: string;
+  /** The first day it is no longer held, or null while it is. */
+  movedOutOn: string | null;
+}
+
 /**
  * What the register holds right now, in the shapes matching needs.
  *
@@ -63,8 +72,12 @@ export interface RegisterSnapshot {
   apartments: readonly RegisterApartment[];
   personsByIdentityNumber: ReadonlyMap<string, readonly string[]>;
   personsByEmail: ReadonlyMap<string, readonly string[]>;
-  /** Key from {@link apartmentNameKey}. */
+  /** Key from {@link apartmentNameKey}, over current residencies. */
   personsByApartmentAndName: ReadonlyMap<string, readonly string[]>;
+  /** The same key over every residency, ended ones included. */
+  personsByApartmentAndNameEver: ReadonlyMap<string, readonly string[]>;
+  /** Every residency of every person, ended ones included. */
+  residenciesByPerson: ReadonlyMap<string, readonly RegisterResidency[]>;
   personNames: ReadonlyMap<string, string>;
 }
 
@@ -109,6 +122,8 @@ export interface PlannedRow {
   apartment: { id: string; number: string; addressLabel: string } | null;
   role: ImportRole | null;
   movedInOn: string | null;
+  /** False when `movedInOn` is the file's default rather than the row's own. */
+  movedInStated: boolean;
   movedOutOn: string | null;
   /** The existing person this row will be written against. */
   matchedPersonId: string | null;
@@ -166,18 +181,39 @@ export function hasIndexableIdentityNumber(
   return value !== undefined && isValidPersonalIdentityNumber(value);
 }
 
+/**
+ * A row of the file planned and written before the rows being planned now.
+ *
+ * The apply plans one chunk at a time, and the rows of earlier chunks are not
+ * planned again. What it carries over from them is which person each row was
+ * written to, so a row further down the file that the preview showed as the
+ * same person as an earlier one reaches that person rather than a second copy.
+ */
+export interface EarlierRow {
+  row: PreparedRow;
+  personId: string;
+}
+
 export function planImport(
   rows: readonly PreparedRow[],
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
+  earlier: readonly EarlierRow[] = [],
 ): ImportPlan {
-  /** Rows already seen, so one person spread over two rows stays one person. */
-  const seenKeys = new Map<
-    string,
-    { rowNumber: number; personId: string | null }
-  >();
+  /** Persons already seen, so one person spread over two rows stays one. */
+  const seen = new SeenPersons();
+  for (const { row, personId } of earlier) {
+    const scratch: ImportProblem[] = [];
+    const name = readName(row.values, scratch);
+    const apartment = resolveApartment(row.values, snapshot, scratch);
+    seen.record(fileIdentity(row, name, apartment), {
+      rowNumber: row.rowNumber,
+      personId,
+      residencies: [],
+    });
+  }
 
-  const planned = rows.map((row) => planRow(row, snapshot, defaults, seenKeys));
+  const planned = rows.map((row) => planRow(row, snapshot, defaults, seen));
 
   const summary: Record<ImportOutcome, number> = {
     create: 0,
@@ -196,7 +232,7 @@ function planRow(
   row: PreparedRow,
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
-  seenKeys: Map<string, { rowNumber: number; personId: string | null }>,
+  seen: SeenPersons,
 ): PlannedRow {
   const problems: ImportProblem[] = [];
   const values = row.values;
@@ -234,6 +270,7 @@ function planRow(
           },
     role,
     movedInOn,
+    movedInStated: values.movedInOn !== undefined,
     movedOutOn,
     matchedPersonId: null,
     matchedBy: null,
@@ -246,7 +283,13 @@ function planRow(
     return base;
   }
 
-  const match = matchPerson(row, person, apartment, snapshot);
+  const match = matchPerson(row, person, apartment, snapshot, {
+    // A row that states its own move-in date can be about a residency that has
+    // since ended, so it is matched against ended residencies as well. One
+    // that only carries the file's default is matched against current ones:
+    // the default says nothing about when this person lived here.
+    includeEnded: values.movedInOn !== undefined,
+  });
   if (match.candidates.length > 1) {
     return {
       ...base,
@@ -261,34 +304,141 @@ function planRow(
 
   const matchedPersonId = match.candidates[0] ?? null;
 
-  // A file may list one person twice - two apartments, or a member and their
-  // own resident row. The second occurrence has to reach the same person, not a
-  // duplicate of them, whether that person already existed or was created by
-  // the earlier row.
-  const dedupeKey = withinFileKey(row, person, apartment);
-  const earlier = dedupeKey === null ? undefined : seenKeys.get(dedupeKey);
-  if (earlier !== undefined) {
-    return {
-      ...base,
-      outcome: "update",
-      matchedPersonId: earlier.personId,
-      matchedBy: earlier.personId === null ? "earlierRow" : match.key,
-      sameAsRowNumber: earlier.personId === null ? earlier.rowNumber : null,
-    };
-  }
-  if (dedupeKey !== null) {
-    seenKeys.set(dedupeKey, {
-      rowNumber: row.rowNumber,
-      personId: matchedPersonId,
-    });
-  }
+  // A file may list one person twice - two apartments, or one apartment for
+  // two periods of time. The second occurrence has to reach the same person,
+  // not a duplicate of them, whether that person already existed or was
+  // created by the earlier row. A person the register matched outright is not overruled
+  // by a weaker key shared with a row that the register said was someone else.
+  const identity = fileIdentity(row, name, apartment);
+  const found = seen.find(identity);
+  const earlier =
+    found !== undefined &&
+    (matchedPersonId === null || found.personId === matchedPersonId)
+      ? found
+      : undefined;
 
-  return {
-    ...base,
-    outcome: matchedPersonId === null ? "create" : "update",
-    matchedPersonId,
-    matchedBy: matchedPersonId === null ? null : match.key,
+  const resolved: PlannedRow =
+    earlier === undefined
+      ? {
+          ...base,
+          outcome: matchedPersonId === null ? "create" : "update",
+          matchedPersonId,
+          matchedBy: matchedPersonId === null ? null : match.key,
+        }
+      : {
+          ...base,
+          outcome: "update",
+          matchedPersonId: earlier.personId,
+          matchedBy:
+            earlier.personId === null || match.key === null
+              ? "earlierRow"
+              : match.key,
+          sameAsRowNumber: earlier.personId === null ? earlier.rowNumber : null,
+        };
+
+  // A residency already held as the row states it is not written again, which
+  // is also what lets a chunk be attempted twice. Any other residency of this
+  // person on this apartment that shares a day with the row's would be a
+  // second one held at the same time, which a move-in refuses: the board
+  // decides which is right rather than the import writing both, or dropping
+  // the row without a word.
+  const entry = earlier ?? {
+    rowNumber: row.rowNumber,
+    personId: matchedPersonId,
+    residencies: [],
   };
+  const residency = rowResidency(base);
+  if (residency !== null) {
+    const held = [
+      ...(entry.personId === null
+        ? []
+        : (snapshot.residenciesByPerson.get(entry.personId) ?? [])),
+      ...entry.residencies,
+    ];
+    if (conflictsWith(residency, held)) {
+      problems.push({ field: "movedInOn", reason: "residency-conflict" });
+      return { ...base, problems };
+    }
+    if (heldAlready(residency, held) === undefined) {
+      entry.residencies.push(residency);
+    }
+  }
+  seen.record(identity, entry);
+
+  return resolved;
+}
+
+/** A residency as a row states it. */
+export interface RowResidency extends RegisterResidency {
+  /** False when the move-in date is the file's default rather than the row's. */
+  movedInStated: boolean;
+}
+
+/** The residency a planned row would write, if it names one. */
+export function rowResidency(row: PlannedRow): RowResidency | null {
+  return row.apartment === null || row.role === null || row.movedInOn === null
+    ? null
+    : {
+        apartmentId: row.apartment.id,
+        role: row.role,
+        movedInOn: row.movedInOn,
+        movedInStated: row.movedInStated,
+        movedOutOn: row.movedOutOn,
+      };
+}
+
+/**
+ * The residency already held that the row's residency is, if there is one.
+ *
+ * The same role on the same apartment from the same day is the same residency:
+ * it is what a row already written, or a row listed twice, looks like. A row
+ * that does not state its own move-in date says only that the person lives
+ * here in that role, so a residency in that role that it shares a day with is
+ * the same one too, as long as it ends when the row says. Read as a residency
+ * of its own from the default date, a register imported again without its
+ * move-in column would refuse every resident it already holds. A row that
+ * ends a residency still open, or keeps one open that has ended, is not that
+ * residency: taken as it, the row's end would be dropped without a word.
+ */
+export function heldAlready(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): RegisterResidency | undefined {
+  return held.find(
+    (other) =>
+      other.apartmentId === residency.apartmentId &&
+      other.role === residency.role &&
+      (other.movedInOn === residency.movedInOn ||
+        (!residency.movedInStated &&
+          other.movedOutOn === residency.movedOutOn &&
+          overlaps(residency, other))),
+  );
+}
+
+/**
+ * Whether a residency would be held twice: whether, not being one the person
+ * already holds, it shares a day with another on the same apartment. A
+ * residency is held up to, and not including, the day it ends - the same rule
+ * a move-in follows.
+ */
+export function conflictsWith(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): boolean {
+  if (heldAlready(residency, held) !== undefined) {
+    return false;
+  }
+  return held.some(
+    (other) =>
+      other.apartmentId === residency.apartmentId && overlaps(residency, other),
+  );
+}
+
+function overlaps(one: RegisterResidency, other: RegisterResidency): boolean {
+  return (
+    (other.movedOutOn === null || one.movedInOn < other.movedOutOn) &&
+    (one.movedOutOn === null || other.movedInOn < one.movedOutOn)
+  );
 }
 
 function matchPerson(
@@ -296,6 +446,7 @@ function matchPerson(
   person: PlannedPerson,
   apartment: RegisterApartment | null,
   snapshot: RegisterSnapshot,
+  options: { includeEnded: boolean },
 ): { key: ImportMatchKey | null; candidates: readonly string[] } {
   if (row.identityNumberIndex !== null) {
     const found = snapshot.personsByIdentityNumber.get(row.identityNumberIndex);
@@ -315,7 +466,11 @@ function matchPerson(
       person.firstName,
       person.lastName,
     );
-    const found = snapshot.personsByApartmentAndName.get(key);
+    const found = (
+      options.includeEnded
+        ? snapshot.personsByApartmentAndNameEver
+        : snapshot.personsByApartmentAndName
+    ).get(key);
     if (found !== undefined && found.length > 0) {
       return { key: "apartmentAndName", candidates: found };
     }
@@ -323,12 +478,89 @@ function matchPerson(
   return { key: null, candidates: [] };
 }
 
+/** What identifies the person a row is about, within one file. */
+interface FileIdentity {
+  /** Normalized, when the row states a valid one. */
+  identityNumber: string | null;
+  emailIndex: string | null;
+  /** Every key the row can be found under, strongest first. */
+  keys: string[];
+}
+
+/** A person the file has already reached, and what they were planned to hold. */
+interface SeenPerson {
+  rowNumber: number;
+  /** Null for a person the file creates. */
+  personId: string | null;
+  residencies: RegisterResidency[];
+}
+
 /**
- * The key that says two rows of one file describe the same person.
+ * The persons one file has reached so far, under every key their rows carry.
  *
- * The same precedence as the register match, so a file that identifies people
- * by email in some rows and by identity number in others still collapses the
- * ones that are genuinely the same.
+ * Every key a row has is recorded, not only its strongest. A row with an
+ * identity number and an address followed by a row with only the address is
+ * one person, and keyed on the first identifier alone the second row would
+ * become a second person.
+ *
+ * A weaker key is not allowed to override a stronger one, though: two rows of
+ * the same name in the same apartment with different identity numbers are a
+ * parent and a child, not one person.
+ */
+class SeenPersons {
+  private readonly byKey = new Map<
+    string,
+    {
+      person: SeenPerson;
+      identityNumber: string | null;
+      emailIndex: string | null;
+    }
+  >();
+
+  find(identity: FileIdentity): SeenPerson | undefined {
+    for (const key of identity.keys) {
+      const found = this.byKey.get(key);
+      if (found === undefined) {
+        continue;
+      }
+      const viaIdentityNumber = key.startsWith("pin:");
+      const viaEmail = key.startsWith("email:");
+      const contradicts =
+        (!viaIdentityNumber &&
+          differ(found.identityNumber, identity.identityNumber)) ||
+        (!viaIdentityNumber &&
+          !viaEmail &&
+          differ(found.emailIndex, identity.emailIndex));
+      if (!contradicts) {
+        return found.person;
+      }
+    }
+    return undefined;
+  }
+
+  record(identity: FileIdentity, person: SeenPerson): void {
+    for (const key of identity.keys) {
+      const existing = this.byKey.get(key);
+      if (existing === undefined) {
+        this.byKey.set(key, {
+          person,
+          identityNumber: identity.identityNumber,
+          emailIndex: identity.emailIndex,
+        });
+      } else if (existing.person === person) {
+        existing.identityNumber ??= identity.identityNumber;
+        existing.emailIndex ??= identity.emailIndex;
+      }
+    }
+  }
+}
+
+function differ(a: string | null, b: string | null): boolean {
+  return a !== null && b !== null && a !== b;
+}
+
+/**
+ * The keys that say two rows of one file describe the same person.
  *
  * The identity number is keyed by its normalized value rather than by its blind
  * index. The key never leaves this pass, so the index buys nothing here - and
@@ -337,24 +569,27 @@ function matchPerson(
  * when nothing indexed it, which is the case whenever the register holds no
  * identity number to match against.
  */
-function withinFileKey(
+function fileIdentity(
   row: PreparedRow,
-  person: PlannedPerson,
+  name: { firstName: string; lastName: string } | null,
   apartment: RegisterApartment | null,
-): string | null {
+): FileIdentity {
   const identityNumber = hasIndexableIdentityNumber(row.values)
     ? normalizePersonalIdentityNumber(row.values.personalIdentityNumber ?? "")
     : null;
+  const keys: string[] = [];
   if (identityNumber !== null) {
-    return `pin:${identityNumber}`;
+    keys.push(`pin:${identityNumber}`);
   }
   if (row.emailIndex !== null) {
-    return `email:${row.emailIndex}`;
+    keys.push(`email:${row.emailIndex}`);
   }
-  if (apartment !== null) {
-    return `name:${apartmentNameKey(apartment.id, person.firstName, person.lastName)}`;
+  if (apartment !== null && name !== null) {
+    keys.push(
+      `name:${apartmentNameKey(apartment.id, name.firstName, name.lastName)}`,
+    );
   }
-  return null;
+  return { identityNumber, emailIndex: row.emailIndex, keys };
 }
 
 function readName(

@@ -1,23 +1,27 @@
 import { Injectable } from "@nestjs/common";
+import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
   apartmentNameKey,
+  type EarlierRow,
   hasIndexableIdentityNumber,
   type ImportPlan,
   type ImportRole,
   planImport,
   type PreparedRow,
   readRow,
+  type RegisterResidency,
   type RegisterSnapshot,
 } from "./import-plan";
 
 /**
- * Working out what an import would do, for the preview and for the job alike.
+ * Working out what an import would do, for the preview and the apply alike.
  *
  * Both callers plan through this one service so the rows a board approved and
  * the rows a worker writes are decided by the same code. The difference between
@@ -35,7 +39,7 @@ import {
  * rows are decrypted in this same process while the work runs anyway. What keeps
  * the exposure bounded is the lifetime - the map is created by the caller for
  * one unit of work and is gone when that unit ends, so nothing derived from an
- * identity number outlives the preview request or the chunk that needed it.
+ * identity number outlives the preview job or the chunk that needed it.
  *
  * It exists because the apply needs each index twice: once to match the row
  * against the register, once to write the person. At 43.8 ms a value that is the
@@ -69,6 +73,26 @@ export interface ImportPlanRequest {
    */
   indexEveryIdentityNumber: boolean;
   indexes: IdentityIndexCache;
+  /**
+   * Rows before the window that an earlier chunk wrote, by row number, to the
+   * person each was written to. Read back from the session, so a row the
+   * preview showed as the same person as one in an earlier chunk reaches that
+   * person.
+   */
+  earlier?: ReadonlyMap<number, string>;
+  /**
+   * Told how many rows of the window have been prepared, after each one. The
+   * preview job reports its progress through this, and stops through it as
+   * well: a report that throws ends the plan where it is, which is how a job
+   * planning a preview somebody has since replaced lets go of its worker.
+   */
+  onRowPrepared?: (rowsPrepared: number) => Promise<void>;
+  /**
+   * The transaction to read the register through. The apply plans a chunk a
+   * second time inside the transaction that writes it, under the import lock,
+   * so the register it plans against is the one it writes into.
+   */
+  db?: Prisma.TransactionClient;
 }
 
 @Injectable()
@@ -86,18 +110,7 @@ export class ImportPlannerService {
   }
 
   async plan(request: ImportPlanRequest): Promise<ImportPlan> {
-    const mappingProblems = validateMapping({
-      mapping: request.mapping,
-      columnCount: request.columnCount,
-      defaultRole: request.defaultRole,
-      defaultMovedInOn: request.defaultMovedInOn,
-    });
-    if (mappingProblems.length > 0) {
-      throw new ImportError(
-        `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
-        "mapping-invalid",
-      );
-    }
+    assertMappingApplies(request);
 
     const from = request.window?.from ?? 0;
     const to =
@@ -107,7 +120,7 @@ export class ImportPlannerService {
 
     // Loaded before the rows are prepared, because whether an identity number
     // is worth indexing depends on whether the register holds one to match.
-    const snapshot = await this.snapshot();
+    const snapshot = await this.snapshot(request.db ?? this.prisma);
     const indexIdentityNumbers =
       request.indexEveryIdentityNumber ||
       snapshot.personsByIdentityNumber.size > 0;
@@ -130,12 +143,46 @@ export class ImportPlannerService {
             ? null
             : await this.encryption.computeIndex("person.email", values.email),
       });
+      await request.onRowPrepared?.(prepared.length);
     }
 
-    return planImport(prepared, snapshot, {
-      defaultRole: request.defaultRole,
-      defaultMovedInOn: request.defaultMovedInOn,
-    });
+    // No identity number is indexed for these: the file's own keys are its
+    // normalized numbers, and the register match has already been made.
+    const earlier: EarlierRow[] = [];
+    for (const [rowNumber, personId] of request.earlier ?? []) {
+      if (rowNumber > from) {
+        continue;
+      }
+      const values = readRow(
+        request.rows[rowNumber - 1] ?? [],
+        request.mapping,
+      );
+      earlier.push({
+        row: {
+          rowNumber,
+          values,
+          identityNumberIndex: null,
+          emailIndex:
+            values.email === undefined
+              ? null
+              : await this.encryption.computeIndex(
+                  "person.email",
+                  values.email,
+                ),
+        },
+        personId,
+      });
+    }
+
+    return planImport(
+      prepared,
+      snapshot,
+      {
+        defaultRole: request.defaultRole,
+        defaultMovedInOn: request.defaultMovedInOn,
+      },
+      earlier,
+    );
   }
 
   /**
@@ -179,36 +226,46 @@ export class ImportPlannerService {
    * listed twice in one file is matched the second time rather than created
    * twice.
    */
-  private async snapshot(): Promise<RegisterSnapshot> {
-    const now = new Date();
+  private async snapshot(
+    db: Prisma.TransactionClient,
+  ): Promise<RegisterSnapshot> {
+    // Today as the date column holds it (ADR 0013): a move-out date is a day,
+    // and compared with a moment it would end a residency hours early.
+    const today = dateColumnOf(localDayOf(new Date()));
 
-    const [apartments, persons] = await Promise.all([
-      this.prisma.apartment.findMany({
-        select: {
-          id: true,
-          number: true,
-          addressId: true,
-          address: { select: { street: true, number: true } },
-        },
-      }),
-      this.prisma.person.findMany({
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          emailIndex: true,
-          personalIdentityNumberIndex: true,
-          residencies: {
-            where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
-            select: { apartmentId: true },
+    // One after the other: a transaction is one connection, and runs one query
+    // at a time however the calls are awaited.
+    const apartments = await db.apartment.findMany({
+      select: {
+        id: true,
+        number: true,
+        addressId: true,
+        address: { select: { street: true, number: true } },
+      },
+    });
+    const persons = await db.person.findMany({
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        emailIndex: true,
+        personalIdentityNumberIndex: true,
+        residencies: {
+          select: {
+            apartmentId: true,
+            role: true,
+            movedInOn: true,
+            movedOutOn: true,
           },
         },
-      }),
-    ]);
+      },
+    });
 
     const personsByIdentityNumber = new Map<string, string[]>();
     const personsByEmail = new Map<string, string[]>();
     const personsByApartmentAndName = new Map<string, string[]>();
+    const personsByApartmentAndNameEver = new Map<string, string[]>();
+    const residenciesByPerson = new Map<string, RegisterResidency[]>();
     const personNames = new Map<string, string>();
 
     for (const person of persons) {
@@ -226,17 +283,29 @@ export class ImportPlannerService {
       if (person.emailIndex !== null) {
         push(personsByEmail, person.emailIndex, person.id);
       }
+      const held: RegisterResidency[] = [];
       for (const residency of person.residencies) {
-        push(
-          personsByApartmentAndName,
-          apartmentNameKey(
-            residency.apartmentId,
-            person.firstName,
-            person.lastName,
-          ),
-          person.id,
+        const key = apartmentNameKey(
+          residency.apartmentId,
+          person.firstName,
+          person.lastName,
         );
+        if (
+          residency.movedOutOn === null ||
+          residency.movedOutOn.getTime() > today.getTime()
+        ) {
+          push(personsByApartmentAndName, key, person.id);
+        }
+        // Once per person and key: a person who moved out and back in is
+        // still one candidate, not two.
+        if (
+          !(personsByApartmentAndNameEver.get(key) ?? []).includes(person.id)
+        ) {
+          push(personsByApartmentAndNameEver, key, person.id);
+        }
+        held.push(registerResidency(residency));
       }
+      residenciesByPerson.set(person.id, held);
     }
 
     return {
@@ -249,8 +318,37 @@ export class ImportPlannerService {
       personsByIdentityNumber,
       personsByEmail,
       personsByApartmentAndName,
+      personsByApartmentAndNameEver,
+      residenciesByPerson,
       personNames,
     };
+  }
+}
+
+/**
+ * Refuses a mapping that cannot be applied to the file.
+ *
+ * Exported for the preview request, which checks the mapping before it queues
+ * anything: a mapping problem is the board's to fix on the screen it is on, and
+ * finding one costs nothing.
+ */
+export function assertMappingApplies(
+  request: Pick<
+    ImportPlanRequest,
+    "mapping" | "columnCount" | "defaultRole" | "defaultMovedInOn"
+  >,
+): void {
+  const mappingProblems = validateMapping({
+    mapping: request.mapping,
+    columnCount: request.columnCount,
+    defaultRole: request.defaultRole,
+    defaultMovedInOn: request.defaultMovedInOn,
+  });
+  if (mappingProblems.length > 0) {
+    throw new ImportError(
+      `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
+      "mapping-invalid",
+    );
   }
 }
 
@@ -261,4 +359,19 @@ function push(map: Map<string, string[]>, key: string, value: string): void {
   } else {
     existing.push(value);
   }
+}
+
+/** A stored residency with its dates as the calendar dates a plan compares. */
+export function registerResidency(residency: {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: Date;
+  movedOutOn: Date | null;
+}): RegisterResidency {
+  return {
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: formatDateColumn(residency.movedInOn),
+    movedOutOn: formatDateColumn(residency.movedOutOn),
+  };
 }
