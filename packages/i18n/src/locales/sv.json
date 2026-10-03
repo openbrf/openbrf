@@ -4163,6 +4163,13 @@
       "saving": "Registrerar",
       "saved": "Debiteringen är registrerad."
     },
+    "correct": {
+      "action": "Rätta",
+      "heading": "Rätta en debitering",
+      "description": "Debiteringen rättas där den står, och loggen visar vad som ändrades. Vem som debiteras går inte att ändra: har fel part debiterats tar ni bort debiteringen och registrerar en ny.",
+      "submit": "Spara rättelsen",
+      "cancel": "Avbryt"
+    },
     "errors": {
       "notFound": "Debiteringen finns inte längre.",
       "personNotFound": "Registret innehåller inte den personen.",

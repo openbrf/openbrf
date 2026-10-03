@@ -286,8 +286,12 @@ export function ChargesScreen(): ReactElement {
     [refresh],
   );
 
+  /** The charge the form is correcting, or null while it records a new one. */
+  const [correcting, setCorrecting] = useState<ChargeRow | null>(null);
+
   const onRecorded = useCallback(
     (_row: ChargeRow) => {
+      setCorrecting(null);
       refresh();
     },
     [refresh],
@@ -317,9 +321,18 @@ export function ChargesScreen(): ReactElement {
       */}
       {parties === null || forbidden ? null : (
         <RecordChargePanel
+          key={correcting?.chargeId ?? "new"}
           parties={parties}
           today={today()}
           onRecorded={onRecorded}
+          correcting={correcting ?? undefined}
+          onCancel={
+            correcting === null
+              ? undefined
+              : () => {
+                  setCorrecting(null);
+                }
+          }
         />
       )}
 
@@ -507,6 +520,15 @@ export function ChargesScreen(): ReactElement {
                         )}
                       </td>
                       <td className={`${CELL} print:hidden`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCorrecting(row);
+                          }}
+                          className={`${QUIET_BUTTON} me-2`}
+                        >
+                          {t("charges.correct.action")}
+                        </button>
                         <button
                           type="button"
                           onClick={() => {

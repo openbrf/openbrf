@@ -38,6 +38,7 @@ const fetchDebitingList = vi.fn();
 const exportDebitingList = vi.fn();
 const removeCharge = vi.fn();
 const recordCharge = vi.fn();
+const correctCharge = vi.fn();
 const loadChargeParties = vi.fn();
 
 vi.mock("./charges-api", () => ({
@@ -47,6 +48,8 @@ vi.mock("./charges-api", () => ({
     exportDebitingList(from, to),
   removeCharge: (chargeId: string) => removeCharge(chargeId),
   recordCharge: (input: unknown) => recordCharge(input),
+  correctCharge: (chargeId: string, input: unknown) =>
+    correctCharge(chargeId, input),
 }));
 
 vi.mock("./charge-parties", () => ({
@@ -459,6 +462,53 @@ describe("when the read fails", () => {
       await screen.findByText("Perioden kan inte sluta innan den börjar."),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+});
+
+describe("correcting a charge", () => {
+  it("corrects the charge in place, which recording it again could not", async () => {
+    /*
+     * The contract says a charge is correctable on this screen. A charge
+     * recorded before it was handed over could otherwise never be given that
+     * date: removing and recording it again changes its id and loses the
+     * audit trail.
+     */
+    correctCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    expect(
+      (screen.getByLabelText("Vad debiteringen avser") as HTMLInputElement)
+        .value,
+    ).toBe("Nyckel till cykelrummet");
+    // The party is not on the form: the server does not move it.
+    expect(screen.queryByLabelText("Medlem")).toBeNull();
+
+    fireEvent.change(
+      screen.getByLabelText(/^Skickat till ekonomisk förvaltare/u),
+      { target: { value: "2026-04-01" } },
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara rättelsen" }),
+    );
+
+    expect(correctCharge).toHaveBeenCalledWith("charge-1", {
+      chargedOn: "2026-03-05",
+      amount: "450.00",
+      reason: "Nyckel till cykelrummet",
+      vatTreatment: "EXEMPT",
+      vatRatePercent: null,
+      handedToManagerOn: "2026-04-01",
+    });
+    expect(recordCharge).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("heading", { name: "Registrera en debitering" }),
+    ).toBeTruthy();
+    expect(fetchDebitingList.mock.calls.length).toBeGreaterThan(1);
   });
 });
 

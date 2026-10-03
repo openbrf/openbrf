@@ -1,8 +1,9 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 
+import type { ApiResult } from "../api/client";
 import {
   FIELD,
   FIELD_DATA,
@@ -10,6 +11,7 @@ import {
   LABEL,
   PANEL,
   PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
 } from "../ui/controls";
 import { normalizeAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
@@ -18,6 +20,7 @@ import { chargeFailureKey, refusedIdentityNumbers } from "./charge-failures";
 import type { ChargeablePerson, ChargeParties } from "./charge-parties";
 import {
   type ChargeRow,
+  correctCharge,
   recordCharge,
   type VatTreatment,
   VAT_TREATMENTS,
@@ -48,6 +51,14 @@ import {
  * gone over with the last batch. It says when the basis left the association and
  * nothing about payment - the sentence under it says so, because that is the one
  * thing about this screen a reader is most likely to assume wrongly.
+ *
+ * ## Correcting a charge
+ *
+ * The same form, opened on a charge already recorded, corrects it in place:
+ * the charge keeps its id and the audit log records what moved. Everything but
+ * the charged party is offered, because the server takes everything but the
+ * party - a charge put on the wrong person is removed and recorded again, so
+ * that the log says what happened.
  */
 /**
  * What one person's option reads.
@@ -82,42 +93,75 @@ export function RecordChargePanel({
   parties,
   today,
   onRecorded,
+  correcting,
+  onCancel,
 }: {
   parties: ChargeParties;
   /** "YYYY-MM-DD". The default date, and the latest one the form offers. */
   today: string;
   onRecorded: (row: ChargeRow) => void;
+  /** The charge to correct; without it the form records a new one. */
+  correcting?: ChargeRow;
+  /** Closes a correction without saving it. */
+  onCancel?: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const chargedOnRef = useRef<HTMLInputElement>(null);
 
   const [partyKind, setPartyKind] = useState<"person" | "apartment">("person");
   const [personId, setPersonId] = useState("");
   const [apartmentId, setApartmentId] = useState("");
-  const [chargedOn, setChargedOn] = useState(today);
-  const [amount, setAmount] = useState("");
+  const [chargedOn, setChargedOn] = useState(correcting?.chargedOn ?? today);
+  const [amount, setAmount] = useState(correcting?.amount ?? "");
   const [amountInvalid, setAmountInvalid] = useState(false);
   const amountErrorId = useId();
-  const [reason, setReason] = useState("");
-  const [vatTreatment, setVatTreatment] = useState<VatTreatment>("EXEMPT");
-  const [vatRatePercent, setVatRatePercent] = useState("");
-  const [handedToManagerOn, setHandedToManagerOn] = useState("");
+  const [reason, setReason] = useState(correcting?.reason ?? "");
+  const [vatTreatment, setVatTreatment] = useState<VatTreatment>(
+    correcting?.vatTreatment ?? "EXEMPT",
+  );
+  const [vatRatePercent, setVatRatePercent] = useState(
+    correcting?.vatRatePercent?.toString() ?? "",
+  );
+  const [handedToManagerOn, setHandedToManagerOn] = useState(
+    correcting?.handedToManagerOn ?? "",
+  );
 
-  const { state, submit } = useSaveAction(recordCharge, (row) => {
-    // The party and the date stay: a board recording a batch of charges enters
-    // several against one day, and clearing them would make the second one a
-    // full re-entry.
-    setAmount("");
-    setReason("");
-    onRecorded(row);
-  });
+  // The correction opens from a row further down the page, so focus is taken
+  // to the form rather than left on a button beneath it.
+  const correctingId = correcting?.chargeId;
+  useEffect(() => {
+    if (correctingId !== undefined) {
+      chargedOnRef.current?.focus();
+    }
+  }, [correctingId]);
+
+  const { state, submit } = useSaveAction(
+    (save: () => Promise<ApiResult<ChargeRow>>) => save(),
+    (row) => {
+      // The party and the date stay: a board recording a batch of charges enters
+      // several against one day, and clearing them would make the second one a
+      // full re-entry.
+      setAmount("");
+      setReason("");
+      onRecorded(row);
+    },
+  );
 
   const chosen = partyKind === "person" ? personId : apartmentId;
 
   return (
     <section className={`${PANEL} flex flex-col gap-5 print:hidden`}>
       <div className="flex flex-col gap-1">
-        <h2 className="text-title">{t("charges.record.heading")}</h2>
-        <p className={HINT}>{t("charges.record.description")}</p>
+        <h2 className="text-title">
+          {correcting === undefined
+            ? t("charges.record.heading")
+            : t("charges.correct.heading")}
+        </h2>
+        <p className={HINT}>
+          {correcting === undefined
+            ? t("charges.record.description")
+            : t("charges.correct.description")}
+        </p>
       </div>
 
       <form
@@ -131,9 +175,7 @@ export function RecordChargePanel({
             setAmountInvalid(true);
             return;
           }
-          void submit({
-            personId: partyKind === "person" ? personId : null,
-            apartmentId: partyKind === "apartment" ? apartmentId : null,
+          const fields = {
             chargedOn,
             amount: normalized,
             reason,
@@ -144,83 +186,97 @@ export function RecordChargePanel({
                 : null,
             handedToManagerOn:
               handedToManagerOn === "" ? null : handedToManagerOn,
-          });
+          };
+          void submit(() =>
+            correcting === undefined
+              ? recordCharge({
+                  personId: partyKind === "person" ? personId : null,
+                  apartmentId: partyKind === "apartment" ? apartmentId : null,
+                  ...fields,
+                })
+              : correctCharge(correcting.chargeId, fields),
+          );
         }}
       >
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-label text-ink-muted uppercase">
-            {t("charges.record.party.legend")}
-          </legend>
-          <div className="flex flex-wrap gap-4">
-            {(["person", "apartment"] as const).map((kind) => (
-              <label
-                key={kind}
-                className="flex min-h-11 items-center gap-2 text-small text-ink"
-              >
-                <input
-                  type="radio"
-                  name="charge-party-kind"
-                  value={kind}
-                  checked={partyKind === kind}
-                  onChange={() => {
-                    setPartyKind(kind);
-                  }}
-                  className="size-4 accent-trust"
-                />
-                {t(`charges.record.party.${kind}`)}
-              </label>
-            ))}
-          </div>
-          <p className={HINT}>{t("charges.record.party.hint")}</p>
-        </fieldset>
+        {correcting === undefined ? (
+          <>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-label text-ink-muted uppercase">
+                {t("charges.record.party.legend")}
+              </legend>
+              <div className="flex flex-wrap gap-4">
+                {(["person", "apartment"] as const).map((kind) => (
+                  <label
+                    key={kind}
+                    className="flex min-h-11 items-center gap-2 text-small text-ink"
+                  >
+                    <input
+                      type="radio"
+                      name="charge-party-kind"
+                      value={kind}
+                      checked={partyKind === kind}
+                      onChange={() => {
+                        setPartyKind(kind);
+                      }}
+                      className="size-4 accent-trust"
+                    />
+                    {t(`charges.record.party.${kind}`)}
+                  </label>
+                ))}
+              </div>
+              <p className={HINT}>{t("charges.record.party.hint")}</p>
+            </fieldset>
 
-        {partyKind === "person" ? (
-          <label className={LABEL}>
-            {t("charges.record.person")}
-            <select
-              value={personId}
-              onChange={(event) => {
-                setPersonId(event.target.value);
-              }}
-              required
-              className={FIELD}
-            >
-              <option value="">{t("charges.record.choose")}</option>
-              {parties.persons.map((person) => (
-                <option key={person.personId} value={person.personId}>
-                  {personOption(person, t)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <label className={LABEL}>
-            {t("charges.record.apartment")}
-            <select
-              value={apartmentId}
-              onChange={(event) => {
-                setApartmentId(event.target.value);
-              }}
-              required
-              className={FIELD}
-            >
-              <option value="">{t("charges.record.choose")}</option>
-              {parties.apartments.map((apartment) => (
-                <option
-                  key={apartment.apartmentId}
-                  value={apartment.apartmentId}
+            {partyKind === "person" ? (
+              <label className={LABEL}>
+                {t("charges.record.person")}
+                <select
+                  value={personId}
+                  onChange={(event) => {
+                    setPersonId(event.target.value);
+                  }}
+                  required
+                  className={FIELD}
                 >
-                  {apartment.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+                  <option value="">{t("charges.record.choose")}</option>
+                  {parties.persons.map((person) => (
+                    <option key={person.personId} value={person.personId}>
+                      {personOption(person, t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className={LABEL}>
+                {t("charges.record.apartment")}
+                <select
+                  value={apartmentId}
+                  onChange={(event) => {
+                    setApartmentId(event.target.value);
+                  }}
+                  required
+                  className={FIELD}
+                >
+                  <option value="">{t("charges.record.choose")}</option>
+                  {parties.apartments.map((apartment) => (
+                    <option
+                      key={apartment.apartmentId}
+                      value={apartment.apartmentId}
+                    >
+                      {apartment.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className={LABEL}>
             {t("charges.record.chargedOn")}
             <input
+              ref={chargedOnRef}
               type="date"
               value={chargedOn}
               max={today}
@@ -335,13 +391,27 @@ export function RecordChargePanel({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={state.kind === "saving" || chosen === ""}
+            disabled={
+              state.kind === "saving" ||
+              (correcting === undefined && chosen === "")
+            }
             className={PRIMARY_BUTTON}
           >
-            {state.kind === "saving"
-              ? t("charges.record.saving")
-              : t("charges.record.submit")}
+            {correcting !== undefined
+              ? t("charges.correct.submit")
+              : state.kind === "saving"
+                ? t("charges.record.saving")
+                : t("charges.record.submit")}
           </button>
+          {onCancel === undefined ? null : (
+            <button
+              type="button"
+              onClick={onCancel}
+              className={SECONDARY_BUTTON}
+            >
+              {t("charges.correct.cancel")}
+            </button>
+          )}
           {state.kind === "saved" ? (
             <span role="status" className={HINT}>
               {t("charges.record.saved")}

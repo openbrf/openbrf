@@ -4163,6 +4163,13 @@
       "saving": "Recording",
       "saved": "The charge is recorded."
     },
+    "correct": {
+      "action": "Correct",
+      "heading": "Correct a charge",
+      "description": "The charge is corrected where it stands, and the log shows what changed. Who is charged cannot be changed: if the wrong party was charged, remove the charge and record a new one.",
+      "submit": "Save the correction",
+      "cancel": "Cancel"
+    },
     "errors": {
       "notFound": "That charge no longer exists.",
       "personNotFound": "The register does not hold that person.",
