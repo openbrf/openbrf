@@ -220,6 +220,7 @@ export function ChargesScreen(): ReactElement {
        * is the read failing, which is the state the retry is for.
        */
       if (result.failure.status === 422 || result.failure.status === 400) {
+        setListFailed(false);
         setRefusal(chargeFailureKey(result.failure));
         return;
       }

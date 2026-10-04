@@ -418,6 +418,31 @@ describe("when the read fails", () => {
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
   });
 
+  it("drops the retry when the next period is refused after a failed read", async () => {
+    // The retry is for a read that failed; a period the server then refuses is
+    // for the board to correct, and the failed read's notice no longer applies.
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ChargesScreen />);
+    await screen.findByText(/kunde inte l.sas just nu/i);
+
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "range-invalid" },
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2026-04-01" },
+    });
+
+    expect(
+      await screen.findByText("Perioden kan inte sluta innan den börjar."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/kunde inte l.sas just nu/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
   it("keeps the form when the list cannot be read", async () => {
     // A charge half typed is not lost to a read of the list failing.
     fetchDebitingList.mockResolvedValue({

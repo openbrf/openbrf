@@ -853,6 +853,39 @@ describe("reads that fail", () => {
     },
   );
 
+  it("drops a date's refusal when a valid date then fails to read", async () => {
+    /*
+     * A refused date followed by a read that fails on a valid one: the retry is
+     * for the second date, and the first date's "not a date" notice no longer
+     * describes the control.
+     */
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+    fetchFeeRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "date-not-a-calendar-date" },
+    });
+    const date = screen.getByLabelText("Gäller den");
+    await user.clear(date);
+    await user.type(date, "2026-10-14");
+    expect(await screen.findByText("Det är inget datum.")).toBeTruthy();
+
+    fetchFeeRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "offline" },
+    });
+    await user.clear(date);
+    await user.type(date, "2026-10-15");
+
+    expect(
+      await screen.findByText("Avgifterna kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Det är inget datum.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
+  });
+
   it("does not report a failed read of the runs as none issued", async () => {
     // "No notices have been produced yet" is a statement about the books, and a
     // board reading it after a dropped request would issue a period twice.

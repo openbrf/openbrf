@@ -193,6 +193,7 @@ export function FeesScreen(): ReactElement {
       if (result.failure.status === 403) {
         setForbidden(true);
         setFailed(false);
+        setDateRefusal(null);
         setRegister(null);
         return;
       }
@@ -207,6 +208,9 @@ export function FeesScreen(): ReactElement {
         setDateRefusal(feeFailureKey(result.failure));
         return;
       }
+      // The read failed for a date that was not refused, so an earlier refusal
+      // is no longer about the date on the control.
+      setDateRefusal(null);
       setFailed(true);
     })();
 
