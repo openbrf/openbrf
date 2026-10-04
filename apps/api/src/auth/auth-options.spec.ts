@@ -550,3 +550,18 @@ describe("a client that identifies itself by its metadata document", () => {
     expect(takes(uri)).toBe(false);
   });
 });
+
+describe("the sign-in routes' own origin check", () => {
+  it("is left on, for every route under /api/auth", () => {
+    /*
+     * The authorization guard leaves /api/auth to the library, whose router
+     * checks every request but a read on every path: one carrying the cookie
+     * has to name a trusted origin in Origin or Referer, and is refused when
+     * it names none. Off only under NODE_ENV=test or when one of these is set,
+     * so neither may be.
+     */
+    expect(options.advanced?.disableOriginCheck).toBeUndefined();
+    expect(options.advanced?.disableCSRFCheck).toBeUndefined();
+    expect(options.trustedOrigins).toBeUndefined();
+  });
+});
