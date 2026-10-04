@@ -25,7 +25,7 @@ pending request from an address that has a newer pending one, keeping only the
 newest. Those rows were never decided and are the same person asking twice, but
 the deletion is not reversible; take a backup first if you want to look at them.
 
-An approval whose invitation cannot be delivered (no mail set up, the mail
-server or API refusing it, or a person with no address) is no longer reported as
-a failure. It answers `invitationSent: false`, and the board's queue says the person is in
-the register and needs an invitation from the person's own view.
+An approval whose invitation is not sent, whatever the reason, is no longer
+reported as a failure. It answers `invitationSent: false`, and the board's queue
+says the person is in the register and needs an invitation from the person's own
+view.

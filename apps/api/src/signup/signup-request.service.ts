@@ -11,7 +11,7 @@ import {
   InvitationError,
   InvitationService,
 } from "../invitations/invitation.service";
-import { failureName } from "../logging/failure";
+import { failureFrames, failureName } from "../logging/failure";
 import { isDeliveryFailure } from "../mail/delivery-failure";
 import { MoveService } from "../moves/move.service";
 import { lockApartmentResidencies } from "../registers/residency-lock";
@@ -423,6 +423,7 @@ export class SignupRequestService {
         // was not sent, which is true, and to send it from the person's view.
         this.logger.error(
           `Approved account request ${request.id}, but sending the invitation failed unexpectedly: ${failureName(cause)}`,
+          failureFrames(cause),
         );
       }
     }

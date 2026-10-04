@@ -1,5 +1,5 @@
 ---
-"@openbrf/api": patch
+"@openbrf/api": minor
 ---
 
 Refuse to start in production with a `BETTER_AUTH_SECRET` shorter than 32

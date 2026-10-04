@@ -1,4 +1,4 @@
-import { request as httpRequest } from "node:http";
+import { Agent as HttpAgent, request as httpRequest } from "node:http";
 
 import {
   FastifyAdapter,
@@ -14,7 +14,11 @@ import {
   SESSION_READ_MAX,
   SESSION_READ_PATH,
 } from "./auth-options";
-import { AuthService, SHUTDOWN_GRACE_MS } from "./auth.service";
+import {
+  AuthService,
+  HTTP_CLOSE_GRACE_MS,
+  SHUTDOWN_GRACE_MS,
+} from "./auth.service";
 import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../database/prisma.service";
 import { DRAIN_TIMEOUT_MS } from "../plugins/restart-coordinator.service";
@@ -346,10 +350,15 @@ describe("magic link and the second-factor policy", () => {
     expect(sent).toBe(true);
   }, 60_000);
 
-  it("lets a sign-in request accepted as the close begins still send its link", async () => {
-    // Nest runs every onModuleDestroy before it closes the HTTP server, so a
-    // request accepted in between starts its delivery after a hook that looked
-    // at the deliveries running and found none.
+  /**
+   * Starts an application, holds a sign-in request inside the server (accepted
+   * but not yet answered, with no delivery started) and closes the application
+   * while it is held.
+   */
+  async function closeWhileRequestHeld(options: {
+    keepAlive: boolean;
+    holdMs: number;
+  }) {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -369,8 +378,6 @@ describe("magic link and the second-factor policy", () => {
       return { messageId: null };
     }) as MailService["send"];
 
-    // Holds the request inside the server, accepted but not yet answered and
-    // with no delivery started, while the close begins.
     const closingAuth = closing.get(AuthService);
     const handle = closingAuth.instance.handler;
     let reached!: () => void;
@@ -381,14 +388,17 @@ describe("magic link and the second-factor policy", () => {
       request,
     ) => {
       reached();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, options.holdMs));
       return handle(request);
     };
 
-    // Over a socket of its own that is not kept alive: an idle keep-alive
-    // connection is not closed once the server is, which would hold the close
-    // for a reason that has nothing to do with the delivery.
-    const status = new Promise<number>((resolve, reject) => {
+    // A keep-alive agent leaves the socket open after the reply, as a browser
+    // does. Without one the request gets a socket of its own that closes with
+    // the reply.
+    const agent = options.keepAlive
+      ? new HttpAgent({ keepAlive: true })
+      : false;
+    const outcome = new Promise<number | "dropped">((resolve) => {
       const body = JSON.stringify({ email: plain.email });
       const request = httpRequest(
         {
@@ -396,27 +406,72 @@ describe("magic link and the second-factor policy", () => {
           port: address.port,
           path: "/api/auth/sign-in/magic-link",
           method: "POST",
-          agent: false,
+          agent,
           headers: {
             "content-type": "application/json",
             "content-length": Buffer.byteLength(body),
-            connection: "close",
+            ...(options.keepAlive ? {} : { connection: "close" }),
           },
         },
         (reply) => {
           reply.resume();
           reply.on("end", () => resolve(reply.statusCode ?? 0));
+          reply.on("error", () => resolve("dropped"));
         },
       );
-      request.on("error", reject);
+      request.on("error", () => resolve("dropped"));
       request.end(body);
     });
     await requestReached;
 
+    const started = Date.now();
     await closing.close();
+    const closedAfter = Date.now() - started;
+    if (agent) {
+      agent.destroy();
+    }
 
-    expect(await status).toBe(200);
-    expect(sent).toBe(true);
+    return { outcome: await outcome, closedAfter, sent: () => sent };
+  }
+
+  it("lets a sign-in request accepted as the close begins still send its link", async () => {
+    // Nest runs every onModuleDestroy before it closes the HTTP server, so a
+    // request accepted in between starts its delivery after a hook that looked
+    // at the deliveries running and found none.
+    const result = await closeWhileRequestHeld({
+      keepAlive: false,
+      holdMs: 300,
+    });
+
+    expect(result.outcome).toBe(200);
+    expect(result.sent()).toBe(true);
+  }, 60_000);
+
+  it("does not wait for a keep-alive connection that goes idle during the close", async () => {
+    // Node reaps idle sockets once, when the close starts. This one is busy
+    // then and idle after its reply, and would hold the close until the
+    // keep-alive timeout, over a minute.
+    const result = await closeWhileRequestHeld({
+      keepAlive: true,
+      holdMs: 300,
+    });
+
+    expect(result.outcome).toBe(200);
+    expect(result.sent()).toBe(true);
+    expect(result.closedAfter).toBeLessThan(HTTP_CLOSE_GRACE_MS);
+  }, 60_000);
+
+  it("drops a connection still busy when the close has waited long enough", async () => {
+    const result = await closeWhileRequestHeld({
+      keepAlive: true,
+      holdMs: HTTP_CLOSE_GRACE_MS + 3_000,
+    });
+
+    expect(result.outcome).toBe("dropped");
+    expect(result.closedAfter).toBeGreaterThanOrEqual(
+      HTTP_CLOSE_GRACE_MS - 100,
+    );
+    expect(result.closedAfter).toBeLessThan(HTTP_CLOSE_GRACE_MS + 1_000);
   }, 60_000);
 
   it("abandons a delivery that does not finish and says so", async () => {
@@ -458,8 +513,10 @@ describe("magic link and the second-factor policy", () => {
     }
   }, 60_000);
 
-  it("waits for deliveries for less time than a restart allows the close", () => {
-    expect(SHUTDOWN_GRACE_MS).toBeLessThan(DRAIN_TIMEOUT_MS);
+  it("waits for the server and for deliveries for less time than a restart allows the close", () => {
+    expect(HTTP_CLOSE_GRACE_MS + SHUTDOWN_GRACE_MS).toBeLessThan(
+      DRAIN_TIMEOUT_MS,
+    );
   });
 
   it("stores the sign-in token hashed, so a leaked database yields no links", async () => {

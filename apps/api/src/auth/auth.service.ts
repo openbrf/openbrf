@@ -1,3 +1,5 @@
+import type { Server } from "node:http";
+
 import {
   ConflictException,
   Inject,
@@ -38,11 +40,21 @@ export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
 /**
  * How long a shutdown waits for sign-in links still being sent.
  *
- * Well inside RestartCoordinator's DRAIN_TIMEOUT_MS, which bounds the whole
- * close on a plugin-install restart: the job queue, the database connection
- * and the HTTP server close after this wait, and need time of their own.
+ * Together with HTTP_CLOSE_GRACE_MS well inside RestartCoordinator's
+ * DRAIN_TIMEOUT_MS, which bounds the whole close on a plugin-install restart:
+ * the job queue and the database connection close after both waits, and need
+ * time of their own.
  */
 export const SHUTDOWN_GRACE_MS = 5_000;
+
+/**
+ * How long a shutdown waits for the HTTP server to close before it drops the
+ * connections still open.
+ */
+export const HTTP_CLOSE_GRACE_MS = 2_000;
+
+/** How often a close looks for connections that have gone idle. */
+const IDLE_REAP_INTERVAL_MS = 50;
 
 /**
  * Owns the Better Auth instance and the small amount of glue between it and
@@ -108,11 +120,12 @@ export class AuthService implements OnModuleDestroy {
    * none can start, so what the deliveries set holds is final. Nest's own
    * close of the adapter afterwards finds it already closed.
    *
-   * Bounded, because a mail server that never answers must not hold the
-   * shutdown past the grace period the container is given.
+   * Both waits are bounded, so a mail server that never answers or a client
+   * that never lets go must not hold the shutdown past the grace period the
+   * container is given.
    */
   async onModuleDestroy(): Promise<void> {
-    await this.httpAdapterHost.httpAdapter?.close();
+    await this.closeHttpServer();
     if (this.deliveries.size === 0) {
       return;
     }
@@ -129,6 +142,40 @@ export class AuthService implements OnModuleDestroy {
       }
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Closes the HTTP server and waits for its connections to end.
+   *
+   * Node reaps the idle keep-alive sockets once, when the close starts. A
+   * request still in flight then goes idle after its response and would hold
+   * the close until the keep-alive timeout, so idle connections are reaped
+   * again while the close runs. What is still open after HTTP_CLOSE_GRACE_MS
+   * is dropped.
+   */
+  private async closeHttpServer(): Promise<void> {
+    const adapter = this.httpAdapterHost.httpAdapter;
+    if (!adapter) {
+      return;
+    }
+    const server = adapter.getHttpServer() as Server | undefined;
+    const closed = adapter.close();
+    const reaper = setInterval(
+      () => server?.closeIdleConnections(),
+      IDLE_REAP_INTERVAL_MS,
+    );
+    const deadline = setTimeout(() => {
+      this.logger.warn(
+        "HTTP connections were still open at shutdown and were closed",
+      );
+      server?.closeAllConnections();
+    }, HTTP_CLOSE_GRACE_MS);
+    try {
+      await closed;
+    } finally {
+      clearInterval(reaper);
+      clearTimeout(deadline);
     }
   }
 
