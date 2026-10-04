@@ -592,12 +592,14 @@ export class ImportApplyService implements OnModuleInit {
    * overwrite is how a register stops being evidence.
    *
    * The identity number is the exception to filling in: it is written onto an
-   * existing person only when the row reached them through that number. An
-   * email address or a name says who a row is probably about, and an identity
-   * number stored on the strength of a probably is one person's number in
-   * another person's record. The row is remembered instead, so a row in a
-   * later chunk stating the same number reaches the same person rather than
-   * nobody.
+   * existing person only when the row reached them, and only them, through that
+   * number. An email address or a name says who a row is probably about, and an
+   * identity number stored on the strength of a probably is one person's number
+   * in another person's record. A row the board decided is not written on the
+   * strength of its number either: the number matched more than one person, or
+   * the row reached the one it matched by another key. The row is remembered
+   * instead, so a row in a later chunk stating the same number reaches the same
+   * person rather than nobody.
    */
   private async upsertPerson(
     tx: Prisma.TransactionClient,
@@ -672,6 +674,7 @@ export class ImportApplyService implements OnModuleInit {
       data.phoneIndex = values.phone.index;
     }
     if (
+      row.outcome === "update" &&
       row.matchedBy === "personalIdentityNumber" &&
       existing.personalIdentityNumberCipher === null &&
       values.personalIdentityNumber !== null

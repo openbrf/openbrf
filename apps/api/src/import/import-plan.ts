@@ -424,6 +424,10 @@ function planRow(
 
   if (match.candidates.length > 1 || mismatch !== null) {
     const decision = decisions[String(row.rowNumber)];
+    // Named after the person the board chose, as an update is. Reached through
+    // a number only an earlier row stated, they are not that number's holder in
+    // the register, and the apply must not write it onto them.
+    let throughUnwrittenNumber = false;
     if (decision?.action === "create") {
       recordCreated(
         written,
@@ -441,6 +445,9 @@ function planRow(
         (candidate) => candidate.personId === decision.personId,
       );
       if (chosen !== undefined) {
+        throughUnwrittenNumber =
+          match.key === "personalIdentityNumber" &&
+          chosen.identityNumberFromRow !== null;
         recordWrites(
           written,
           chosen,
@@ -458,7 +465,8 @@ function planRow(
     return {
       ...base,
       outcome: "ambiguous",
-      matchedBy: earlier === null ? match.key : "earlierRow",
+      matchedBy:
+        earlier === null && !throughUnwrittenNumber ? match.key : "earlierRow",
       mismatch,
       sameAsRowNumber: earlier,
       // A person an earlier row creates has no id yet to be chosen by. The

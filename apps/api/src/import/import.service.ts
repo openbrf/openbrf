@@ -525,7 +525,8 @@ export class ImportService implements OnModuleInit {
    * The same goes for a row the preview showed as needing a decision that no
    * longer does, or that now matches other people: its decision would be
    * dropped, or name somebody the row no longer offers, without anyone seeing
-   * that. And for any other row the decisions write differently from the
+   * that. A decision for a row that needs none is refused for the same reason.
+   * And for any other row the decisions write differently from the
    * preview - a row shown as an update of the person an earlier decision chose
    * becomes a new person when that decision is changed to a skip - which is
    * why every row is compared, through the preview's digest.
@@ -581,6 +582,22 @@ export class ImportService implements OnModuleInit {
       throw new ImportError(
         "Given these decisions, a row the preview showed as needing a " +
           "decision no longer does, or matches other people.",
+        "preview-outdated",
+      );
+    }
+
+    // A decision is an answer to a row that asks for one, and to nothing else.
+    // One kept for a row that needs none would be carried into the job, where
+    // a register that changed between chunks could make that row need it, and
+    // the worker would then write what nobody was shown.
+    const decidable = new Set(
+      plan.rows
+        .filter((row) => row.outcome === "ambiguous")
+        .map((row) => String(row.rowNumber)),
+    );
+    if (Object.keys(decisions).some((rowNumber) => !decidable.has(rowNumber))) {
+      throw new ImportError(
+        "Given these decisions, a decision answers a row that does not need one.",
         "preview-outdated",
       );
     }

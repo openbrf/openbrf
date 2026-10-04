@@ -711,6 +711,46 @@ describe("an identity number an earlier row states without writing it", () => {
     });
   });
 
+  it("names a row decided for the earlier row's person after that row", () => {
+    // Between the chunks somebody else was given the number in the register,
+    // so the later row matches both of them by it. Chosen for Anna, the row is
+    // still not one that reached her through a number she holds.
+    const changed = snapshot({
+      ...anna,
+      personsByIdentityNumber: new Map([["pin-anna-index", ["person-other"]]]),
+      personNames: new Map([
+        ["person-anna", "Anna Lindqvist"],
+        ["person-other", "Annan Person"],
+      ]),
+      identityNumberIndexByPerson: new Map([
+        ["person-other", "pin-anna-index"],
+      ]),
+    });
+    const plan = (personId: string) =>
+      planImport(
+        [{ ...second, rowNumber: 150, identityNumberIndex: "pin-anna-index" }],
+        changed,
+        DEFAULTS,
+        { "150": { action: "use-person", personId } },
+        [
+          {
+            rowNumber: 1,
+            identityNumber: normalizePersonalIdentityNumber(PIN_ANNA) ?? "",
+            personId: "person-anna",
+          },
+        ],
+      ).rows[0];
+
+    expect(plan("person-anna")).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "earlierRow",
+    });
+    expect(plan("person-other")).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "personalIdentityNumber",
+    });
+  });
+
   it("waits for a decision when a later row gives the same person another number", () => {
     const plan = planImport(
       [

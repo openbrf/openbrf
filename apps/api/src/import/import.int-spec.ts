@@ -28,6 +28,7 @@ import {
   ImportService,
   type ImportSessionView,
 } from "./import.service";
+import { MAX_IMPORT_ROWS } from "./workbook";
 import {
   advisoryLockCount,
   waitFor,
@@ -2233,6 +2234,152 @@ describe("a person listed twice, the second time by identity number alone", () =
       stored.residencies.map((residency) => residency.apartmentId).sort(),
     ).toEqual([apartments.m, apartments.n].sort());
   }, 180_000);
+});
+
+describe("a decision for a row that does not need one", () => {
+  // The file of the case above: row 1 reaches a register person with no
+  // identity number by email, and row 150, in the second chunk, reaches them
+  // through row 1's number. Neither row needs a decision.
+  async function uploadTwice(label: string): Promise<{
+    session: ImportSessionView;
+    person: { personId: string };
+    number: string;
+  }> {
+    const cookie = await signIn(actors.board.email);
+    const [number = ""] = identityNumbers(1, "710312");
+    const person = {
+      personId: `imp-undecided-${label}-${suffix}`,
+      firstName: `Obeslutad${label}`,
+      email: `imp-undecided-${label}-${suffix}@exempel.se`,
+    };
+    await createPerson(person);
+    const row = (
+      apartment: string,
+      firstName: string,
+      email: string,
+      identityNumber: string,
+      movedInOn = "2021-04-01",
+    ) => [
+      addressLabel,
+      apartment,
+      firstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      movedInOn,
+      identityNumber,
+    ];
+
+    const rows: string[][] = [[...HEADERS, "Personnummer"]];
+    for (let rowNumber = 1; rowNumber <= IMPORT_CHUNK_ROWS + 60; rowNumber++) {
+      if (rowNumber === 1) {
+        rows.push(row("2113", person.firstName, person.email, number));
+      } else if (rowNumber === 150) {
+        rows.push(row("2114", person.firstName, "", number));
+      } else {
+        rows.push(row("2102", `Obe${String(rowNumber)}`, "", "", "01/03/2020"));
+      }
+    }
+
+    const session = await uploadAndPreview(cookie, `${label}.csv`, rows);
+    return { session, person, number };
+  }
+
+  it("is refused at the apply, and nothing is written", async () => {
+    const cookie = await signIn(actors.board.email);
+    const { session, person } = await uploadTwice("refused");
+
+    const response = await applyImport(cookie, session.sessionId, {
+      "150": { action: "use-person", personId: person.personId },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(
+      await prisma.residency.count({ where: { personId: person.personId } }),
+    ).toBe(0);
+  }, 120_000);
+
+  it("does not give the number to the person it names when the register changes between chunks", async () => {
+    // Stored as though an apply had accepted it. Between the chunks somebody
+    // else is given the number in the register, so row 150 then matches both
+    // of them by it, and the stored decision answers that.
+    const { session, person, number } = await uploadTwice("stored");
+    const other = {
+      personId: `imp-undecided-other-${suffix}`,
+      firstName: "Nummerhavare",
+    };
+    await createPerson(other);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        status: "QUEUED",
+        decisions: {
+          "150": { action: "use-person", personId: person.personId },
+        },
+      },
+    });
+
+    expect(await applies.applyNextChunk(session.sessionId)).toBe(true);
+    const given = await encryption.encrypt(
+      "person.personalIdentityNumber",
+      number,
+    );
+    await prisma.person.update({
+      where: { id: other.personId },
+      data: {
+        personalIdentityNumberCipher: given.cipher,
+        personalIdentityNumberIndex: given.index,
+      },
+    });
+    while (await applies.applyNextChunk(session.sessionId)) {
+      // On to the end.
+    }
+
+    expect(
+      await prisma.person.findUniqueOrThrow({
+        where: { id: person.personId },
+        select: {
+          personalIdentityNumberCipher: true,
+          personalIdentityNumberIndex: true,
+        },
+      }),
+    ).toEqual({
+      personalIdentityNumberCipher: null,
+      personalIdentityNumberIndex: null,
+    });
+  }, 120_000);
+
+  it("is refused before it is read when its row number is not one", async () => {
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "fel-nyckel.csv", [
+      HEADERS,
+      [addressLabel, "2102", "Nyckel", surname, "Boende", "", "", "2021-04-01"],
+    ]);
+
+    for (const decisions of [
+      { first: { action: "skip" } },
+      { "0": { action: "skip" } },
+      Object.fromEntries(
+        Array.from({ length: MAX_IMPORT_ROWS + 1 }, (_, index) => [
+          String(index + 1),
+          { action: "skip" },
+        ]),
+      ),
+    ]) {
+      const response = await applyImport(cookie, session.sessionId, decisions);
+      expect(response.statusCode).toBe(400);
+    }
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+  });
 });
 
 describe("a row after one the board decided", () => {

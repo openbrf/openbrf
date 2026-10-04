@@ -22,6 +22,7 @@ import {
   ImportService,
   MAX_UPLOAD_BYTES,
 } from "./import.service";
+import { MAX_IMPORT_ROWS } from "./workbook";
 
 /**
  * Base64 grows by four bytes for every three, so the encoded ceiling is a third
@@ -42,7 +43,14 @@ const decisionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("skip") }),
 ]);
 
-const decisionsSchema = z.record(z.string(), decisionSchema).default({});
+/**
+ * Keyed by a data row's number, which counts from 1. A file holds at most
+ * MAX_IMPORT_ROWS of them, so there are never more decisions than that.
+ */
+const decisionsSchema = z
+  .record(z.string().regex(/^[1-9]\d{0,5}$/), decisionSchema)
+  .refine((decisions) => Object.keys(decisions).length <= MAX_IMPORT_ROWS)
+  .default({});
 
 const previewSchema = z.object({
   mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
