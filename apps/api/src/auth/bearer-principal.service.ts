@@ -117,9 +117,20 @@ export class BearerPrincipalService {
         clientId: row.clientId,
         createdAt: { lte: row.createdAt },
       },
-      select: { id: true },
+      select: { scopes: true },
     });
     if (consent === null) {
+      return null;
+    }
+
+    /*
+     * And the token carries no more than the grant does now. A member who
+     * consents again to less narrows the row, not the tokens already issued
+     * under it, and a refresh token carries its scopes on into every token it
+     * mints; read here, the narrower answer holds from the next call.
+     */
+    const scopes = row.scopes.filter((scope) => consent.scopes.includes(scope));
+    if (scopes.length === 0) {
       return null;
     }
 
@@ -146,7 +157,7 @@ export class BearerPrincipalService {
       tokenRowId: row.id,
       clientId: row.clientId,
       clientHost: client === null ? null : connectedAppHost(client),
-      scopes: row.scopes,
+      scopes,
     };
   }
 }

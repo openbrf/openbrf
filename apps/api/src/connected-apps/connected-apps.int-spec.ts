@@ -465,6 +465,29 @@ describe("resolving a token", () => {
     await disconnectAll(member.personId);
   });
 
+  it("carries no scope the member's consent no longer grants", async () => {
+    // Consented again to reading only: the token issued under the wider grant
+    // keeps its row, and is read through the narrower one.
+    const token = `token-narrowed-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    const userId = await accountIdFor(member.personId);
+    await prisma.oauthConsent.updateMany({
+      where: { userId, clientId },
+      data: { scopes: ["mcp:read"] },
+    });
+
+    expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
+
+    // And nothing at all once the grant shares no scope with the token.
+    await prisma.oauthConsent.updateMany({
+      where: { userId, clientId },
+      data: { scopes: ["offline_access"] },
+    });
+    expect(await bearer.resolve(token)).toBeNull();
+
+    await disconnectAll(member.personId);
+  });
+
   it("stops resolving the moment the connection is cut", async () => {
     const token = `token-cutoff-${suffix}`;
     await grant({ personId: member.personId, client: clientId, token });
