@@ -597,15 +597,17 @@ The curated catalog lists a package when:
   offered on top of a parent that no longer is;
 - the tarball is a gzip archive that holds files and directories only, within
   the limits an instance applies when it reads a theme package: at most 200
-  files, no file over 4 MiB and no more than 8 MiB unpacked in all; every
+  files and 200 directory entries, no file over 4 MiB and no more than 8 MiB
+  unpacked in all; every
   file's path as stored in the archive, relative, at most 200 characters
   (counting the `package/` directory `npm pack` adds, because the length is
   checked before the common root is stripped), with no `..` or empty segment
   and no backslash; and no symbolic or hard links, devices, FIFOs, or GNU
   long-name or pax extension records. The catalog reads a plugin's tarball
   with the same reader, so a plugin outside these limits is not listed,
-  although an instance never reads a plugin with it. The three size limits are
-  `MAX_ARCHIVE_ENTRIES`, `MAX_ENTRY_BYTES` and `MAX_TOTAL_BYTES` in
+  although an instance never reads a plugin with it. The four limits are
+  `MAX_ARCHIVE_ENTRIES`, `MAX_DIRECTORY_RECORDS`, `MAX_ENTRY_BYTES` and
+  `MAX_TOTAL_BYTES` in
   `@openbrf/theme-tools`; the 200 characters is a literal in its
   `assertSafePath`, not one of those constants. An author can run
   `readThemeArchive` on the packed tarball to check all of it;
