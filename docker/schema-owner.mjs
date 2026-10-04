@@ -7,26 +7,21 @@
 // the owner, which is not a superuser.
 //
 // The connection is given to psql in libpq's own variables - PGHOST, PGPORT,
-// PGDATABASE, PGUSER and PGPASSWORD - rather than as a URL in an argument. An
-// argument is in /proc/<pid>/cmdline, which every process in the container can
-// read; an environment is not. The owner's password is read by the SQL itself
-// with \getenv from OWNER_DB_PASSWORD, and the two role names travel the same
-// way, checked here and passed on with their defaults already applied, so the
-// script and this process cannot disagree about them.
+// PGDATABASE, PGUSER and PGPASSWORD - rather than as a URL in an argument
+// (docker/psql.mjs). An argument is in /proc/<pid>/cmdline, which every
+// process in the container can read; an environment is not. The owner's
+// password is read by the SQL itself with \getenv from OWNER_DB_PASSWORD, and
+// the two role names travel the same way, checked here and passed on with
+// their defaults already applied, so the script and this process cannot
+// disagree about them.
 //
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { execFileSync } from "node:child_process";
-
 import { ownerRole, runtimeRole } from "./database-url.mjs";
+import { fail, superuserConnection } from "./psql.mjs";
 
 const SCHEMA_OWNER_SQL = "/app/docker/schema-owner.sql";
-
-function fail(message) {
-  console.error(`openbrf: ${message}`);
-  process.exit(1);
-}
 
 const superuserPassword = process.env.POSTGRES_PASSWORD ?? "";
 if (superuserPassword === "") {
@@ -49,32 +44,12 @@ try {
   fail(error instanceof Error ? error.message : String(error));
 }
 
-const psqlEnvironment = {
-  ...process.env,
-  PGHOST: process.env.POSTGRES_HOST || "db",
-  PGPORT: process.env.POSTGRES_PORT || "5432",
-  PGDATABASE: process.env.POSTGRES_DB || "openbrf",
-  PGUSER: process.env.POSTGRES_USER || "openbrf",
-  PGPASSWORD: superuserPassword,
+// The first container of a deploy to connect, so the one that waits for the
+// database: on a first start the database image initialises the volume with a
+// server of its own that is not reachable over the network yet.
+const { waitForDatabase, applyFile } = superuserConnection(superuserPassword);
+waitForDatabase();
+applyFile(SCHEMA_OWNER_SQL, {
   OWNER_DB_USER: owner,
   RUNTIME_DB_ROLE: runtime,
-};
-
-try {
-  execFileSync(
-    "psql",
-    [
-      "--quiet",
-      "--no-psqlrc",
-      "--set",
-      "ON_ERROR_STOP=on",
-      "--file",
-      SCHEMA_OWNER_SQL,
-    ],
-    { stdio: ["ignore", "inherit", "inherit"], env: psqlEnvironment },
-  );
-} catch {
-  // psql has already said why on stderr. Node's own error would add the
-  // command line, which holds nothing secret here, but says nothing either.
-  fail(`psql could not apply ${SCHEMA_OWNER_SQL} as the database superuser.`);
-}
+});

@@ -28,7 +28,8 @@
 // An argument is in /proc/<pid>/cmdline, which every process in the container
 // can read; an environment is not, so the password travels in PGPASSWORD and
 // the argument carries the rest. passwordOf and withoutPassword do that split
-// in-process for first-boot.mjs and harden-runtime-role.mjs; neither prints.
+// in-process for psql.mjs, which every deploy step that runs psql goes
+// through; neither prints.
 //
 // A URL that cannot be read as one is refused rather than passed on: it cannot
 // be taken apart, and passing it on puts the password straight back into the
@@ -49,9 +50,18 @@
 // Node built-ins only, like the rest of docker/, so it stays readable and
 // runnable inside the image an operator is debugging.
 
-const host = process.env.POSTGRES_HOST ?? "db";
-const port = process.env.POSTGRES_PORT ?? "5432";
-const database = process.env.POSTGRES_DB ?? "openbrf";
+/**
+ * The server and database every connection here goes to: the bundled database
+ * unless POSTGRES_HOST, POSTGRES_PORT or POSTGRES_DB names another. Empty is
+ * unset, as Compose passes an optional variable nobody set.
+ */
+export function databaseServer() {
+  return {
+    host: process.env.POSTGRES_HOST || "db",
+    port: process.env.POSTGRES_PORT || "5432",
+    database: process.env.POSTGRES_DB || "openbrf",
+  };
+}
 
 /** The names schema-owner.sql and harden-runtime-role.sql fall back to as well. */
 const DEFAULT_OWNER_ROLE = "openbrf_owner";
@@ -275,6 +285,7 @@ function assemble(role) {
       `${role.secret} is not set, so no connection URL can be built for ${role.user}.`,
     );
   }
+  const { host, port, database } = databaseServer();
   return `postgresql://${encodeURIComponent(role.user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
 }
 

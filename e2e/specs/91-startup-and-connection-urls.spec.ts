@@ -244,6 +244,7 @@ type RenderedService = {
   command?: string[];
   restart?: string;
   depends_on?: Record<string, { condition: string }>;
+  healthcheck?: { test?: string[] };
 };
 
 /** One service out of a rendered configuration. */
@@ -502,6 +503,21 @@ test("the instance's own containers run without capabilities or a writable root"
   }
   expect(renderedService(output, "db").security_opt).toContain(
     "no-new-privileges:true",
+  );
+});
+
+test("the database counts as healthy only once it answers over the network", () => {
+  // The deploy steps connect over TCP. On a first start the database image
+  // initialises the volume with a temporary server that listens on its socket
+  // alone, so a check over the socket could let schema-owner start, and fail,
+  // before anything on the network can connect.
+  const { status, output } = productionComposeConfig({
+    ...COMPOSE_REQUIRED,
+    RUNTIME_DB_PASSWORD: "runtime-password",
+  });
+  expect(status, output).toBe(0);
+  expect(renderedService(output, "db").healthcheck?.test?.join(" ")).toContain(
+    "pg_isready -h 127.0.0.1",
   );
 });
 

@@ -12,8 +12,8 @@
 //
 // Neither password reaches psql's arguments. An argument is in
 // /proc/<pid>/cmdline, which every process in the container can read; an
-// environment is not. The owner's password is split out of DATABASE_URL here
-// and travels in PGPASSWORD, the argument carries the rest of the URL, and the
+// environment is not. The owner's password is split out of DATABASE_URL by
+// docker/psql.mjs and travels in PGPASSWORD, the argument carries the rest of the URL, and the
 // runtime role's password is read by the SQL itself with \getenv from
 // RUNTIME_DB_PASSWORD. Nothing is printed either way. The role's name travels
 // the same way, in RUNTIME_DB_ROLE, checked here and passed on with the default
@@ -27,9 +27,8 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { execFileSync } from "node:child_process";
-
-import { passwordOf, runtimeRole, withoutPassword } from "./database-url.mjs";
+import { runtimeRole } from "./database-url.mjs";
+import { fail, ownerConnection } from "./psql.mjs";
 
 /** Relative to the working directory the image sets, /app/apps/api. */
 const HARDENING_SQL = "prisma/sql/harden-runtime-role.sql";
@@ -47,28 +46,14 @@ const JOB_POOL_SIZE = 2;
  */
 const SPARE_CONNECTIONS = 3;
 
-function fail(message) {
-  console.error(`openbrf: ${message}`);
-  process.exit(1);
-}
+// A URL that cannot be split stops the boot in ownerConnection(), before psql
+// is reached at all: handing it over whole is what would put the owner's
+// password into that argument. Prisma rejects the same shape, so nothing that
+// could have migrated is being turned away.
+const { applyFile } = ownerConnection();
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  fail(
-    "DATABASE_URL is not set, so the application's database role cannot be created. This runs under with-owner-url.mjs, which is what sets it.",
-  );
-}
-
-// A URL that cannot be split stops the boot here, before psql is reached at
-// all: handing it over whole is what would put the owner's password into that
-// argument. Prisma rejects the same shape, so nothing that could have migrated
-// is being turned away.
-let connectionArgument;
-let connectionPassword;
 let role;
 try {
-  connectionArgument = withoutPassword(connectionString, "DATABASE_URL");
-  connectionPassword = passwordOf(connectionString, "DATABASE_URL");
   role = runtimeRole();
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
@@ -89,30 +74,7 @@ if (!Number.isInteger(poolSize) || poolSize < 1 || poolSize > MAX_POOL_SIZE) {
 }
 const connectionLimit = String(poolSize + JOB_POOL_SIZE + SPARE_CONNECTIONS);
 
-const psqlEnvironment = {
-  ...process.env,
+applyFile(HARDENING_SQL, {
   RUNTIME_DB_ROLE: role,
   RUNTIME_DB_CONNECTION_LIMIT: connectionLimit,
-  ...(connectionPassword === "" ? {} : { PGPASSWORD: connectionPassword }),
-};
-
-try {
-  execFileSync(
-    "psql",
-    [
-      "--quiet",
-      "--no-psqlrc",
-      "--set",
-      "ON_ERROR_STOP=on",
-      connectionArgument,
-      "--file",
-      HARDENING_SQL,
-    ],
-    { stdio: ["ignore", "inherit", "inherit"], env: psqlEnvironment },
-  );
-} catch {
-  // Replaced rather than passed on: Node puts the whole command line into the
-  // message of the error it throws, and this runs during startup, so that
-  // message would reach the container's log.
-  fail(`psql could not apply ${HARDENING_SQL} against DATABASE_URL.`);
-}
+});

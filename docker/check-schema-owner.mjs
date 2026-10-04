@@ -14,12 +14,7 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { ownerConnection } from "./psql.mjs";
-
-function fail(message) {
-  console.error(`openbrf: ${message}`);
-  process.exit(1);
-}
+import { fail, ownerConnection } from "./psql.mjs";
 
 const { query, waitForDatabase } = ownerConnection();
 
