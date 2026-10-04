@@ -205,24 +205,43 @@ export function ImportScreen(): ReactElement {
     };
   }, [watchedSessionId]);
 
-  /** Takes in what the API says about the preview being planned. */
-  const receivePreview = useCallback((next: ImportPreviewRun): void => {
-    if (next.status === "READY" && next.preview !== null) {
-      const { kept, replanned: again } = pendingPreview.current;
-      setPlanning(null);
-      setPreview(next.preview);
-      setDecisions(keptDecisions(next.preview, kept));
-      setReplanned(again);
-      setStep("preview");
-      return;
-    }
-    if (next.status === "FAILED") {
-      setPlanning(null);
-      setFailure(failureMessage(next.failureReason ?? ""));
-      return;
-    }
-    setPlanning(next);
+  /**
+   * Ends the wait for a preview that is not coming.
+   *
+   * Asking for a preview withdrew the token of the one before it, so a preview
+   * still on the screen - the one the board was deciding on when the apply
+   * asked for it again - can no longer be applied. It goes, with the decisions
+   * made against it, and the board previews again from the mapping.
+   */
+  const abandonPreview = useCallback((reason: string): void => {
+    setPlanning(null);
+    setPreview(null);
+    setDecisions({});
+    setReplanned(false);
+    setFailure(failureMessage(reason));
+    setStep("mapping");
   }, []);
+
+  /** Takes in what the API says about the preview being planned. */
+  const receivePreview = useCallback(
+    (next: ImportPreviewRun): void => {
+      if (next.status === "READY" && next.preview !== null) {
+        const { kept, replanned: again } = pendingPreview.current;
+        setPlanning(null);
+        setPreview(next.preview);
+        setDecisions(keptDecisions(next.preview, kept));
+        setReplanned(again);
+        setStep("preview");
+        return;
+      }
+      if (next.status === "FAILED") {
+        abandonPreview(next.failureReason ?? "");
+        return;
+      }
+      setPlanning(next);
+    },
+    [abandonPreview],
+  );
 
   const plannedSessionId = planning?.sessionId ?? null;
   const plannedPreviewId = planning?.previewId ?? null;
@@ -281,8 +300,7 @@ export function ImportScreen(): ReactElement {
         // reached the server, or a server error, is asked again.
         if (response.failure.status >= 400 && response.failure.status < 500) {
           settled = true;
-          setPlanning(null);
-          setFailure(failureMessage(response.failure.reason));
+          abandonPreview(response.failure.reason);
         }
       } finally {
         asking = false;
@@ -302,7 +320,7 @@ export function ImportScreen(): ReactElement {
         void cancelImportPreview(plannedSessionId, plannedPreviewId);
       }
     };
-  }, [plannedSessionId, plannedPreviewId, receivePreview]);
+  }, [plannedSessionId, plannedPreviewId, receivePreview, abandonPreview]);
 
   useEffect(() => {
     const requests = previewRequest;
@@ -378,7 +396,9 @@ export function ImportScreen(): ReactElement {
       }
       setBusy(false);
       if (!response.ok) {
-        setFailure(failureMessage(response.failure.reason));
+        // A request that was refused may still have withdrawn the token of
+        // the preview on the screen, if its answer was what got lost.
+        abandonPreview(response.failure.reason);
         return;
       }
       receivePreview(response.value);
@@ -391,6 +411,7 @@ export function ImportScreen(): ReactElement {
       needsDefaultMovedIn,
       defaultMovedInOn,
       receivePreview,
+      abandonPreview,
     ],
   );
 

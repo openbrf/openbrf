@@ -484,6 +484,93 @@ describe("while the preview is planned", () => {
     ).toBe(false);
   });
 
+  /**
+   * Presses apply on the preview, has it refused because of the decision, and
+   * lets the preview it asks for again be answered with `answer`.
+   */
+  async function replanFromPreview(answer: unknown): Promise<void> {
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "preview-outdated" },
+    });
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview.mockResolvedValue(answer);
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+  }
+
+  it("leaves a preview it could not take again, rather than offering to apply it", async () => {
+    // Asking again withdrew the token of the preview on the screen. Keeping it
+    // would offer an apply that can only be refused, with a reason that is not
+    // what happened.
+    await replanFromPreview({
+      ok: true,
+      value: previewRun({
+        status: "FAILED",
+        rowsDone: 1,
+        failureReason: "preview-interrupted",
+        preview: null,
+      }),
+    });
+
+    expect(
+      await screen.findByText(/Förhandsgranskningen stoppades/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Vad detta skulle göra/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Genomför importen/ })).toBe(
+      null,
+    );
+    expect(screen.queryByRole("progressbar")).toBeNull();
+
+    // From the mapping the board asks again, without the decision it made
+    // against the preview that went.
+    previewImport.mockClear();
+    fetchImportPreview.mockResolvedValue({ ok: true, value: previewRun() });
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /Förhandsgranska importen/ }));
+    expect(await screen.findByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(previewImport).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ decisions: {} }),
+    );
+    expect(
+      (
+        screen.getByRole("combobox", {
+          name: /Den här raden är/,
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+  });
+
+  it("goes back to the mapping when somebody else previews the upload meanwhile", async () => {
+    await replanFromPreview({
+      ok: false,
+      failure: { status: 409, reason: "preview-replaced" },
+    });
+
+    expect(
+      await screen.findByText(/förhandsgranskat uppladdningen igen/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Kolumnerna/)).toBeTruthy();
+    expect(screen.queryByText(/Vad detta skulle göra/)).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+
+    // And stops asking.
+    const asked = fetchImportPreview.mock.calls.length;
+    await nextPoll();
+    expect(fetchImportPreview).toHaveBeenCalledTimes(asked);
+  });
+
   it("shows how far it has got, and the preview once it is ready", async () => {
     const session = userEvent.setup();
     previewImport.mockResolvedValue({ ok: true, value: PLANNING });
