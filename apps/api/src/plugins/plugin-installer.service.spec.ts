@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../config/env";
+import { readArchivePackageJson } from "../packaging/archive-package-json";
 import { npmInstall } from "../packaging/npm-install";
 import {
   ARCHIVE_TIMEOUT_MS,
@@ -35,6 +36,13 @@ vi.mock("../packaging/npm-install", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   npmInstall: vi.fn(),
 }));
+
+// Which archive is read, the one npm is given or another, is observed too.
+vi.mock("../packaging/archive-package-json", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../packaging/archive-package-json")>();
+  return { readArchivePackageJson: vi.fn(actual.readArchivePackageJson) };
+});
 
 const exec = promisify(execFile);
 
@@ -273,6 +281,7 @@ describe("the archives handed to npm", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.mocked(npmInstall).mockReset();
+    vi.mocked(readArchivePackageJson).mockClear();
   });
 
   /** A verified-looking record for a package npm packs from `packageJson`. */
@@ -371,6 +380,32 @@ describe("the archives handed to npm", () => {
 
     expect(npmInstall).toHaveBeenCalledOnce();
     expect(outcome).toMatchObject({ failed: [], changed: true });
+  });
+
+  it("reads the copy of the archive npm is given", async () => {
+    const { record, bytes } = await packed({
+      name: "openbrf-plugin-occupancy",
+      version: "1.0.0",
+    });
+    let given: string[] = [];
+    vi.mocked(npmInstall).mockImplementation(async ({ cwd }) => {
+      given = (await readdir(join(cwd, "archives"))).map((name) =>
+        join(cwd, "archives", name),
+      );
+      const directory = join(cwd, "node_modules", "openbrf-plugin-occupancy");
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        join(directory, "package.json"),
+        JSON.stringify({ name: "openbrf-plugin-occupancy", version: "1.0.0" }),
+      );
+    });
+
+    await reconcile(record, bytes).outcome;
+
+    expect(given).toHaveLength(1);
+    expect(
+      vi.mocked(readArchivePackageJson).mock.calls.map(([archive]) => archive),
+    ).toEqual(given);
   });
 });
 

@@ -25,9 +25,9 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { readArchivePackageJson } from "../packaging/archive-package-json";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
-import { readArchivePackageJson } from "../packaging/archive-package-json";
 import { npmInstall } from "../packaging/npm-install";
 import { ensureArchive } from "../packaging/package-archive";
 import {
@@ -539,21 +539,24 @@ export class PluginInstallerService
     archives: ReadonlyMap<string, string>,
     versions: ReadonlyMap<string, string>,
   ): Promise<void> {
-    // Before npm, which acts on what an archive's package.json declares - a
-    // `file:` dependency resolves even offline - before it can be checked.
-    await assertArchivedPackages(archives, versions);
-
     await mkdir(join(staging, "archives"), { recursive: true });
 
     // The archives are copied into the staging directory and referenced from
     // there, so npm's lockfile records paths that stay valid after the move.
     const staged: Record<string, string> = {};
+    const copies = new Map<string, string>();
     for (const [packageName, archive] of archives) {
       const name = basename(archive);
       const target = join(staging, "archives", name);
       await copyFile(archive, target);
       staged[packageName] = `file:./archives/${name}`;
+      copies.set(packageName, target);
     }
+
+    // Before npm, which acts on what an archive's package.json declares
+    // before it can be checked. The copies are what npm is given, so they are
+    // what is checked.
+    await assertArchivedPackages(copies, versions, join(staging, "unpacked"));
 
     await writeFile(
       join(staging, "package.json"),
@@ -730,20 +733,21 @@ function assertConsentedPackage(
  * before npm is given them.
  *
  * Read from the archive itself, because npm resolves what a package.json
- * declares before it can be read from the staged tree: offline, a `file:`
- * dependency is still linked or copied in from elsewhere on the volume.
+ * declares before it can be read from the staged tree.
  *
- * `archives` and `versions` map each consented package name to its verified
- * archive and its version.
+ * `archives` and `versions` map each consented package name to the archive
+ * npm is given and its version. Each archive is unpacked under `scratch`, which
+ * is removed again.
  */
 export async function assertArchivedPackages(
   archives: ReadonlyMap<string, string>,
   versions: ReadonlyMap<string, string>,
+  scratch: string,
 ): Promise<void> {
   for (const [packageName, archive] of archives) {
     let raw: unknown;
     try {
-      raw = await readArchivePackageJson(archive);
+      raw = await readArchivePackageJson(archive, scratch);
     } catch (cause) {
       throw new Error(
         `The archive for ${packageName} could not be read: ${(cause as Error).message}`,

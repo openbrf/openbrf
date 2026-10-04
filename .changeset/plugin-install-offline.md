@@ -18,10 +18,11 @@ the plugin contract requires. The loader
 reads the same schema, so such a package is reported as `manifest-invalid` and
 not loaded.
 
-A plugin must match the package name and version the board consented to. The
-installer reads each archive's own `package.json` before npm runs and refuses a
-package that does not match or declares a dependency, so npm never resolves a
-`file:` dependency from elsewhere on the volume. After npm, it checks that the
+A plugin must match the package name and version the board consented to. Before
+npm runs, the installer unpacks each archive it is about to hand npm the way npm
+does, with the same tar library and options in strict mode, and refuses a
+package whose `package.json` does not match or declares a dependency, or an
+archive the tar library warns about. After npm, it checks that the
 staged tree holds exactly the consented packages before it puts the new
 installation in place, and fails the install otherwise. At boot, a plugin
 that does not match is refused as `not-consented`, and the volume is reported
