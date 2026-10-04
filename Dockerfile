@@ -110,6 +110,19 @@ RUN chmod 0755 /usr/local/bin/openbrf-entrypoint \
     && install -d -o node -g node -m 0700 /data \
     && npm --version > /dev/null
 
+# The installer reads each archive's package.json by unpacking it with the API's
+# own node-tar, the way npm unpacks it (apps/api/src/packaging/
+# archive-package-json.ts). That reads the file npm reads only while both are
+# the same node-tar. The API pins `tar` to the exact version npm bundles, and
+# the base image and that pin are bumped separately, so the build stops here
+# when the two differ: bump the pin to npm's version.
+RUN app_tar="$(node -p 'require("/app/apps/api/node_modules/tar/package.json").version')" \
+    && npm_tar="$(node -p 'require(process.argv[1]).version' "$(npm root --global)/npm/node_modules/tar/package.json")" \
+    && if [ "$app_tar" != "$npm_tar" ]; then \
+         echo "apps/api pins tar $app_tar, but the npm in the image bundles tar $npm_tar." >&2; \
+         exit 1; \
+       fi
+
 # Declared so an empty named volume inherits this directory's owner and mode.
 # A bind mount does not: the entrypoint checks writability and says so.
 VOLUME ["/data"]

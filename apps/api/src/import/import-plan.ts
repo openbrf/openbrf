@@ -357,16 +357,24 @@ function planRow(
   decisions: ImportDecisions,
   written: FileWrites,
 ): PlannedRow {
-  const problems: ImportProblem[] = [];
   const values = row.values;
+  // First, and alone on its field: a value whose letters are gone also fails
+  // the check it was meant for, and saying so twice hides the reason.
+  const garbled = refuseGarbledText(values);
+  const read: ImportProblem[] = [];
 
-  const name = readName(values, problems);
-  const apartment = resolveApartment(values, snapshot, problems);
-  const role = readRole(values, defaults, problems);
-  const movedInOn = readMovedIn(values, defaults, problems);
-  const movedOutOn = readMovedOut(values, movedInOn, problems);
-  const identityNumber = readIdentityNumber(values, problems);
-  const email = readEmail(values, row, problems);
+  const name = readName(values, read);
+  const apartment = resolveApartment(values, snapshot, read);
+  const role = readRole(values, defaults, read);
+  const movedInOn = readMovedIn(values, defaults, read);
+  const movedOutOn = readMovedOut(values, movedInOn, read);
+  const identityNumber = readIdentityNumber(values, read);
+  const email = readEmail(values, row, read);
+  const garbledFields = new Set(garbled.map(({ field }) => field));
+  const problems = [
+    ...garbled,
+    ...read.filter(({ field }) => !garbledFields.has(field)),
+  ];
 
   const person: PlannedPerson = {
     firstName: name?.firstName ?? "",
@@ -821,6 +829,40 @@ function push<T>(map: Map<string, T[]>, key: string, value: T): void {
   } else {
     existing.push(value);
   }
+}
+
+/**
+ * U+FFFD, the character a decoder writes where it could not read a byte.
+ *
+ * Written as an escape: the character itself is invisible in some editors and
+ * indistinguishable from a question mark in others.
+ */
+const REPLACEMENT_CHARACTER = "\uFFFD";
+
+/**
+ * Refuses a value that has already lost characters.
+ *
+ * The upload decodes Windows-1252 as well as UTF-8, so this is no longer what a
+ * Swedish Excel file produces. It is what a file produces that went through a
+ * wrong decode before it reached this instance - exported from another system,
+ * opened and saved again - and the letters are gone from the bytes themselves.
+ * Imported, "Bj\uFFFDrk" would be written into a member register the database
+ * will not let anyone update, so the row is refused and the board sees why.
+ */
+function refuseGarbledText(
+  values: Partial<Record<ImportField, string>>,
+): ImportProblem[] {
+  const problems: ImportProblem[] = [];
+  // A Partial record may still hold a key whose value is undefined.
+  for (const [field, value] of Object.entries(values) as [
+    ImportField,
+    string | undefined,
+  ][]) {
+    if (value?.includes(REPLACEMENT_CHARACTER) === true) {
+      problems.push({ field, reason: "garbled-characters" });
+    }
+  }
+  return problems;
 }
 
 function readName(

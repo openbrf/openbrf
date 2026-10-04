@@ -1,6 +1,13 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { detectDelimiter, parseCsv, writeCsv } from "./csv";
+import { decodeCsv, detectDelimiter, parseCsv, writeCsv } from "./csv";
+
+function fixture(name: string): Buffer {
+  return readFileSync(join(process.cwd(), "src", "import", "fixtures", name));
+}
 
 /**
  * The shapes a member list actually arrives in.
@@ -30,6 +37,86 @@ describe("choosing the delimiter", () => {
     // "Namn, efternamn" is one column title containing a comma. Counting it
     // would pick the comma and split the file down the middle of a heading.
     expect(detectDelimiter('"Namn, efternamn";Lgh;E-post')).toBe(";");
+  });
+});
+
+describe("decoding the bytes", () => {
+  // Both fixtures are the same four columns and one row, saved the two ways
+  // Excel on Swedish Windows saves a CSV.
+  it('reads a Windows-1252 file, which is what "CSV (semikolonavgränsad)" is', () => {
+    const { rows } = parseCsv(decodeCsv(fixture("medlemmar-windows-1252.csv")));
+
+    expect(rows).toEqual([
+      ["Förnamn", "Efternamn", "Lägenhetsnummer", "Roll"],
+      ["Åsa", "Öberg", "1101", "Medlem"],
+    ]);
+  });
+
+  it('reads a UTF-8 file with a byte order mark, which is what "CSV UTF-8" is', () => {
+    const { rows } = parseCsv(decodeCsv(fixture("medlemmar-utf-8-bom.csv")));
+
+    expect(rows).toEqual([
+      ["Förnamn", "Efternamn", "Lägenhetsnummer", "Roll"],
+      ["Åsa", "Öberg", "1101", "Medlem"],
+    ]);
+  });
+
+  it("reads UTF-8 as UTF-8 rather than as Windows-1252", () => {
+    // Read as Windows-1252, the two bytes of "Å" would become "Ã…".
+    expect(decodeCsv(Buffer.from("Åsa Öberg", "utf8"))).toBe("Åsa Öberg");
+  });
+
+  it("keeps a replacement character the file itself contains", () => {
+    // Valid UTF-8 that already holds U+FFFD is not guessed at: the preview
+    // flags it instead.
+    expect(decodeCsv(Buffer.from("Bj\uFFFDrk", "utf8"))).toBe("Bj\uFFFDrk");
+  });
+
+  it("reads a file with a byte order mark as UTF-8 even when one byte is not", () => {
+    // Read as Windows-1252 the whole file would turn to mojibake nothing flags,
+    // "\u00EF\u00BB\u00BF" first. As UTF-8 only the stray byte is lost, and the preview
+    // refuses its row.
+    const bytes = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from("F\u00F6rnamn;Efternamn\n\u00C5sa;\u00D6berg\nBj", "utf8"),
+      Buffer.from([0xf6]),
+      Buffer.from("rk;Lind", "utf8"),
+    ]);
+
+    expect(decodeCsv(bytes)).toBe(
+      "F\u00F6rnamn;Efternamn\n\u00C5sa;\u00D6berg\nBj\uFFFDrk;Lind",
+    );
+  });
+
+  it("refuses a file without a byte order mark that is UTF-8 with one stray byte", () => {
+    // Read as Windows-1252 "Åsa Öberg" would become "Ã…sa Ã–berg", which holds
+    // no U+FFFD for the preview to catch, so the file is refused instead.
+    const bytes = Buffer.concat([
+      Buffer.from("Förnamn;Efternamn\nÅsa;Öberg\nBj", "utf8"),
+      Buffer.from([0xf6]),
+      Buffer.from("rk;Lind", "utf8"),
+    ]);
+
+    expect(() => decodeCsv(bytes)).toThrow();
+  });
+
+  it("reads bytes that are valid UTF-8 as UTF-8 even when Windows-1252 would read them differently", () => {
+    // C5 A0 is "Å" and a no-break space in Windows-1252 and "Š" in UTF-8. The
+    // bytes cannot say which, and the same rule keeps "Michał" in a UTF-8 file
+    // readable. The preview shows the name before anything is applied.
+    expect(decodeCsv(Buffer.from([0xc5, 0xa0]))).toBe("Š");
+    expect(decodeCsv(Buffer.from("Michał", "utf8"))).toBe("Michał");
+  });
+
+  it("still reads a Windows-1252 file with capitals and lowercase Swedish letters", () => {
+    // Å is C5 and ä is E4, each followed by a letter: none of it can be the
+    // start of a UTF-8 sequence, so the refusal above never reaches it.
+    const bytes = Buffer.from(
+      "Namn;Ort\nGunnar \u00C5kerlund;V\u00E4ster\u00E5s\n",
+      "latin1",
+    );
+
+    expect(decodeCsv(bytes)).toBe("Namn;Ort\nGunnar Åkerlund;Västerås\n");
   });
 });
 

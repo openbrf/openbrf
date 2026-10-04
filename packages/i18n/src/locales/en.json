@@ -2337,6 +2337,7 @@
       "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
       "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
       "invalid-email": "That is not an email address the register can store.",
+      "garbled-characters": "A character was already lost in the file (shown as �). Correct it in the file and upload it again.",
       "unknown": "The row could not be read."
     },
     "mappingProblem": {
