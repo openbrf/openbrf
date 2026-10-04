@@ -24,6 +24,7 @@ import {
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import {
+  apartmentNameKey,
   findUndecided,
   type ImportDecision,
   type ImportDecisions,
@@ -60,6 +61,10 @@ import {
  *   it wrote is in the snapshot, so a person listed twice in one file is matched
  *   the second time rather than created twice - by the same match-key precedence
  *   the preview used.
+ * - **A new person is looked for again before it is written.** The plan is
+ *   read before the transaction opens, so a row it enters as new is checked
+ *   against the register once the chunk holds its locks. Somebody added in
+ *   between stops the import rather than being entered a second time.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -411,6 +416,21 @@ export class ImportApplyService implements OnModuleInit {
         // it does. After the apartments and before the transition locks, the
         // order person-email-lock.ts gives.
         await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
+
+        // The plan was read before this transaction opened, and a person
+        // committed since - added from the address book, linked by a sign-up
+        // approval, moved in - is not in it. A row it planned as new would
+        // enter that human being a second time, and an access report or an
+        // erasure asked for by person would find one of the two. Thrown rather
+        // than returned, so the cursor claim rolls back with the chunk: the
+        // worker does not decide who the row is about, and the board does on a
+        // fresh preview.
+        if (await createsMatchedSincePlan(tx, plan, encrypted)) {
+          throw new ImportError(
+            "A row planned as a new person matches somebody the register gained since the plan.",
+            "register-changed-during-apply",
+          );
+        }
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -932,6 +952,101 @@ function writtenEmailIndexes(
 ): string[] {
   return [...encrypted.values()].flatMap(({ email }) =>
     email === null || email.index === null ? [] : [email.index],
+  );
+}
+
+/**
+ * Whether a row the plan enters as a new person matches somebody in the
+ * register now.
+ *
+ * Asked only of the rows planned as `create`. The plan found nobody under any
+ * of their keys, in the register or among the rows before them, so anybody
+ * found under one now was added, or given that address or that residency, after
+ * the plan read the register. The keys are the planner's own: the identity
+ * number, the email address, and the name of somebody currently living in the
+ * row's apartment. A row the board decided to enter as a new person is not
+ * asked: it matched people the board has already seen, and finding them again
+ * says nothing.
+ *
+ * Read through the chunk's transaction, after its apartment and email locks.
+ * Every writer of an address takes the email lock and every writer of a
+ * residency the apartment lock, so on those two keys nobody can match a row
+ * between this read and the commit. An identity number has no lock of its own,
+ * so on that key the read narrows the gap to the length of the transaction
+ * rather than closing it.
+ */
+async function createsMatchedSincePlan(
+  tx: Prisma.TransactionClient,
+  plan: ImportPlan,
+  encrypted: ReadonlyMap<number, EncryptedRowValues>,
+): Promise<boolean> {
+  const emailIndexes: string[] = [];
+  const identityNumberIndexes: string[] = [];
+  const nameKeys = new Set<string>();
+  const apartmentIds = new Set<string>();
+
+  for (const row of plan.rows) {
+    if (row.outcome !== "create") {
+      continue;
+    }
+    const values = encrypted.get(row.rowNumber);
+    const emailIndex = values?.email?.index ?? null;
+    if (emailIndex !== null) {
+      emailIndexes.push(emailIndex);
+    }
+    const identityNumberIndex = values?.personalIdentityNumber?.index ?? null;
+    if (identityNumberIndex !== null) {
+      identityNumberIndexes.push(identityNumberIndex);
+    }
+    if (row.apartment !== null) {
+      apartmentIds.add(row.apartment.id);
+      nameKeys.add(
+        apartmentNameKey(
+          row.apartment.id,
+          row.person.firstName,
+          row.person.lastName,
+        ),
+      );
+    }
+  }
+
+  if (emailIndexes.length > 0 || identityNumberIndexes.length > 0) {
+    const matched = await tx.person.count({
+      where: {
+        OR: [
+          { emailIndex: { in: emailIndexes } },
+          { personalIdentityNumberIndex: { in: identityNumberIndexes } },
+        ],
+      },
+    });
+    if (matched > 0) {
+      return true;
+    }
+  }
+
+  if (apartmentIds.size === 0) {
+    return false;
+  }
+  // Current the way the planner's snapshot counts it: not moved out, or moving
+  // out later than now.
+  const residents = await tx.residency.findMany({
+    where: {
+      apartmentId: { in: [...apartmentIds] },
+      OR: [{ movedOutOn: null }, { movedOutOn: { gt: new Date() } }],
+    },
+    select: {
+      apartmentId: true,
+      person: { select: { firstName: true, lastName: true } },
+    },
+  });
+  return residents.some((residency) =>
+    nameKeys.has(
+      apartmentNameKey(
+        residency.apartmentId,
+        residency.person.firstName,
+        residency.person.lastName,
+      ),
+    ),
   );
 }
 

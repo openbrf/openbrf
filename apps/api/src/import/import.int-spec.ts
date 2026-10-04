@@ -19,6 +19,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
@@ -92,6 +93,8 @@ const apartments = {
   m: `imp-apartment-m-${suffix}`,
   /** Where a row gives a register person an address a later row also has. */
   n: `imp-apartment-n-${suffix}`,
+  /** Where a person is entered while a chunk is applied. */
+  o: `imp-apartment-o-${suffix}`,
 };
 
 const actors = {
@@ -188,13 +191,16 @@ async function signIn(email: string): Promise<string> {
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
-async function createPerson(input: {
-  personId: string;
-  firstName: string;
-  lastName?: string;
-  email?: string;
-  identityNumber?: string;
-}): Promise<void> {
+async function createPerson(
+  input: {
+    personId: string;
+    firstName: string;
+    lastName?: string;
+    email?: string;
+    identityNumber?: string;
+  },
+  client: Prisma.TransactionClient = prisma,
+): Promise<void> {
   const email =
     input.email === undefined
       ? null
@@ -206,7 +212,7 @@ async function createPerson(input: {
           "person.personalIdentityNumber",
           input.identityNumber,
         );
-  await prisma.person.create({
+  await client.person.create({
     data: {
       id: input.personId,
       firstName: input.firstName,
@@ -495,6 +501,7 @@ beforeAll(async () => {
       { id: apartments.l, addressId, number: "2112", floor: 1 },
       { id: apartments.m, addressId, number: "2113", floor: 1 },
       { id: apartments.n, addressId, number: "2114", floor: 1 },
+      { id: apartments.o, addressId, number: "2115", floor: 1 },
     ],
   });
 
@@ -625,7 +632,15 @@ afterAll(async () => {
   });
   await prisma.apartment.deleteMany({
     where: {
-      id: { in: [apartments.b, apartments.c, apartments.m, apartments.n] },
+      id: {
+        in: [
+          apartments.b,
+          apartments.c,
+          apartments.m,
+          apartments.n,
+          apartments.o,
+        ],
+      },
     },
   });
   await app.close();
@@ -2222,6 +2237,206 @@ describe("an apply overlapping a move", () => {
       }),
     ).toBe(2);
     expect(entries.map((entry) => entry.eventType)).toEqual(["ENTRY"]);
+  }, 60_000);
+});
+
+describe("a person entered while a chunk is applied", () => {
+  // A chunk plans before its transaction opens and writes a row it planned as
+  // a new person inside it. Somebody entered in between - added from the
+  // address book, linked by a sign-up approval, moved in - is not in the plan,
+  // and writing the row as planned enters one human being twice: an access
+  // report or an erasure asked for by person then finds one of the two. The
+  // chunk has to look again once it holds its locks, and stop rather than
+  // decide who the row is about.
+  //
+  // Each case plays the other writer out as a transaction that holds a lock
+  // the chunk takes, has written the person, and commits only once the chunk is
+  // waiting for that lock. By then the chunk has planned without the person,
+  // so what it writes is decided by whether it reads the register again after
+  // the wait.
+
+  async function applyWhileEntering(
+    sessionId: string,
+    lockKey: string,
+    enter: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): Promise<void> {
+    let entered!: () => void;
+    const written = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const other = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        await enter(tx);
+        entered();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    // Started only once the other transaction holds the lock and has written:
+    // a chunk that got to the lock first would be the case where nothing
+    // overlaps.
+    await written;
+    let chunkSettled = false;
+    const chunk = applies
+      .runApply(sessionId)
+      .finally(() => (chunkSettled = true));
+
+    await waitFor(
+      async () =>
+        chunkSettled || (await advisoryLockCount(prisma, lockKey, false)) > 0n,
+    );
+    release();
+    await Promise.all([other, chunk]);
+  }
+
+  async function expectStoppedUnwritten(
+    cookie: string,
+    sessionId: string,
+    firstName: string,
+  ): Promise<void> {
+    const run = await readRun(cookie, sessionId);
+    expect(run.status).toBe("FAILED");
+    expect(run.failureReason).toBe("register-changed-during-apply");
+    // The chunk rolled back whole, its claim on the cursor included.
+    expect(run.rowsDone).toBe(0);
+    expect(run.result.personsCreated).toBe(0);
+    // The person the other writer entered, and nobody beside them.
+    expect(
+      await prisma.person.count({ where: { firstName, lastName: surname } }),
+    ).toBe(1);
+  }
+
+  async function queued(
+    cookie: string,
+    fileName: string,
+    rows: string[][],
+  ): Promise<string> {
+    const session = await uploadAndPreview(cookie, fileName, rows);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+    return session.sessionId;
+  }
+
+  it("stops when somebody with the row's address is added", async () => {
+    // The address book takes the address's lock before it writes the person,
+    // as every writer of an address does, so the chunk waits for it here.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-late-entry-${suffix}@exempel.se`;
+    const sessionId = await queued(cookie, "sen-adress.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2115",
+        "Senadress",
+        surname,
+        "Boende",
+        email,
+        "",
+        "2024-02-01",
+      ],
+    ]);
+    const emailIndex = await encryption.computeIndex("person.email", email);
+
+    await applyWhileEntering(
+      sessionId,
+      `person-email:${emailIndex ?? ""}`,
+      (tx) =>
+        createPerson(
+          {
+            personId: `imp-late-email-${suffix}`,
+            firstName: "Senadress",
+            email,
+          },
+          tx,
+        ),
+    );
+
+    await expectStoppedUnwritten(cookie, sessionId, "Senadress");
+  }, 60_000);
+
+  it("stops when somebody with the row's identity number is added", async () => {
+    // An identity number has no lock of its own. The other writer holds the
+    // apartment's instead, which only parks the chunk between its plan and its
+    // second look; what the case shows is that the second look reads the
+    // identity number too.
+    const cookie = await signIn(actors.board.email);
+    const [number = ""] = identityNumbers(1, "730909");
+    const sessionId = await queued(cookie, "sen-personnummer.csv", [
+      [...HEADERS, "Personnummer"],
+      [
+        addressLabel,
+        "2115",
+        "Sennummer",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2024-02-01",
+        number,
+      ],
+    ]);
+
+    await applyWhileEntering(
+      sessionId,
+      `residency-apartment:${apartments.o}`,
+      (tx) =>
+        createPerson(
+          {
+            personId: `imp-late-number-${suffix}`,
+            firstName: "Sennummer",
+            identityNumber: number,
+          },
+          tx,
+        ),
+    );
+
+    await expectStoppedUnwritten(cookie, sessionId, "Sennummer");
+  }, 60_000);
+
+  it("stops when somebody of the row's name moves into its apartment", async () => {
+    // A move-in takes the apartment's lock before it writes the residency, as
+    // every writer of a residency does, so the chunk waits for it here.
+    const cookie = await signIn(actors.board.email);
+    const sessionId = await queued(cookie, "sen-inflyttning.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2115",
+        "Seninflytt",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2024-02-01",
+      ],
+    ]);
+
+    await applyWhileEntering(
+      sessionId,
+      `residency-apartment:${apartments.o}`,
+      async (tx) => {
+        const personId = `imp-late-mover-${suffix}`;
+        await createPerson({ personId, firstName: "Seninflytt" }, tx);
+        await tx.residency.create({
+          data: {
+            personId,
+            apartmentId: apartments.o,
+            role: "RESIDENT",
+            movedInOn: new Date("2024-02-01T00:00:00.000Z"),
+          },
+        });
+      },
+    );
+
+    await expectStoppedUnwritten(cookie, sessionId, "Seninflytt");
   }, 60_000);
 });
 
