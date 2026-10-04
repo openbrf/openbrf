@@ -480,12 +480,15 @@ describe("the sign-in secret in production", () => {
   it.each([
     ["the published development placeholder", "dev-only-secret-change-me"],
     ["one of sixteen characters", "0123456789abcdef"],
+    ["one a character short of the floor", "k".repeat(31)],
   ])("refuses %s, naming the variable", (_name, secret) => {
     expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
   });
 
-  it("takes a long enough one", () => {
-    const secret = "k".repeat(48);
+  it.each([
+    ["one exactly at the floor", "k".repeat(32)],
+    ["a long one", "k".repeat(48)],
+  ])("takes %s", (_name, secret) => {
     expect(production(secret).BETTER_AUTH_SECRET).toBe(secret);
   });
 
