@@ -3,7 +3,17 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -20,7 +30,11 @@ import {
   ImportService,
   type ImportSessionView,
 } from "./import.service";
-import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+import {
+  advisoryLockCount,
+  waitFor,
+  waitingLockCount,
+} from "../testing/advisory-locks";
 
 /**
  * The import from upload to applied register, against a real database and a
@@ -312,6 +326,11 @@ function applyImport(
   });
 }
 
+/** The reason a refused request answered with. */
+function reasonOf(response: { body: string }): string {
+  return (JSON.parse(response.body) as { reason: string }).reason;
+}
+
 async function readRun(
   cookie: string,
   sessionId: string,
@@ -575,6 +594,25 @@ afterAll(async () => {
   await app.close();
 });
 
+// One import runs at a time, so a session a case leaves QUEUED or APPLYING -
+// claimed by hand with no job behind it, or stopped by a failed assertion -
+// would have every later apply in the file refused as another-import-running,
+// hiding the failure that left it there. Closed the way the dead letter closes
+// it once the retries are spent.
+afterEach(async () => {
+  await prisma.importSession.updateMany({
+    where: {
+      createdById: actors.board.personId,
+      status: { in: ["QUEUED", "APPLYING"] },
+    },
+    data: {
+      status: "FAILED",
+      failureReason: "apply-interrupted",
+      finishedAt: new Date(),
+    },
+  });
+});
+
 describe("who may import", () => {
   it("refuses a request with no session", async () => {
     const response = await inject({
@@ -643,6 +681,131 @@ describe("uploading a CSV", () => {
     expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
       "file-empty",
     );
+  });
+});
+
+describe("uploading a CSV saved by Swedish Excel", () => {
+  /**
+   * The fixture files byte for byte, previewed through the mapping the titles
+   * suggest. The preview is what the apply writes, so a name that reads right
+   * here is the name the register gets.
+   */
+  async function previewFixture(name: string): Promise<{
+    session: ImportSessionView;
+    value: ImportPreview;
+  }> {
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      name,
+      readFileSync(
+        join(process.cwd(), "src", "import", "fixtures", name),
+      ).toString("base64"),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: {
+        mapping: session.suggestedMapping,
+        defaultMovedInOn: "2021-04-01",
+      },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    return { session, value: JSON.parse(response.body) as ImportPreview };
+  }
+
+  it.each(["medlemmar-windows-1252.csv", "medlemmar-utf-8-bom.csv"])(
+    "reads Åsa Öberg out of %s",
+    async (name) => {
+      const { session, value } = await previewFixture(name);
+
+      // The titles decode too, which is what lets the mapping be guessed.
+      expect(session.columns).toEqual([
+        "Förnamn",
+        "Efternamn",
+        "Lägenhetsnummer",
+        "Roll",
+      ]);
+      expect(session.sample).toEqual([["Åsa", "Öberg", "1101", "Medlem"]]);
+      expect(value.rows[0]?.person).toMatchObject({
+        firstName: "Åsa",
+        lastName: "Öberg",
+      });
+      expect(value.rows[0]?.problems).not.toContainEqual(
+        expect.objectContaining({ reason: "garbled-characters" }),
+      );
+    },
+  );
+
+  it("refuses a row whose name already lost a letter, and says so in the preview", async () => {
+    // UTF-8 that holds U+FFFD itself: a file that went through a wrong decode
+    // before it got here. Nothing can recover the letter, so the row is not
+    // imported rather than written into the register as it stands.
+    const rows = fixtureRows();
+    rows[1] = rows[1]!.map((cell, index) =>
+      index === 2 ? "Bj\uFFFDrk" : cell,
+    );
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const value = JSON.parse(response.body) as ImportPreview;
+    const garbled = value.rows.find((row) => row.rowNumber === 1);
+
+    expect(garbled?.outcome).toBe("error");
+    expect(garbled?.problems).toContainEqual({
+      field: "firstName",
+      reason: "garbled-characters",
+    });
+  });
+});
+
+describe("holding an upload between its steps", () => {
+  it("gives back every letter, including those above U+00FF", async () => {
+    // The rows are encrypted into the import session on upload and decrypted
+    // for the preview, so a name that survives here survived the round trip
+    // through the database.
+    const rows = fixtureRows();
+    rows[1] = rows[1]!.map((cell, index) =>
+      index === 2 ? "Åsa" : index === 3 ? "Öberg-Żółkiewska" : cell,
+    );
+    rows[2] = rows[2]!.map((cell, index) => (index === 2 ? "Łukasz" : cell));
+    const cookie = await signIn(actors.board.email);
+    const session = await upload(
+      cookie,
+      "medlemmar.csv",
+      encode(writeCsv(rows)),
+    );
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const value = JSON.parse(response.body) as ImportPreview;
+
+    expect(value.rows.find((row) => row.rowNumber === 1)?.person).toMatchObject(
+      { firstName: "Åsa", lastName: "Öberg-Żółkiewska" },
+    );
+    expect(value.rows.find((row) => row.rowNumber === 2)?.person).toMatchObject(
+      { firstName: "Łukasz" },
+    );
+    for (const row of value.rows) {
+      expect(row.problems).not.toContainEqual(
+        expect.objectContaining({ reason: "garbled-characters" }),
+      );
+    }
   });
 });
 
@@ -978,6 +1141,10 @@ describe("two applies of one session", () => {
     ]);
     const codes = [first.statusCode, second.statusCode].sort((a, b) => a - b);
     expect(codes).toEqual([202, 409]);
+    // The other click's own session, not another import: the screen answers
+    // this reason by showing the import that did start.
+    const refused = first.statusCode === 409 ? first : second;
+    expect(reasonOf(refused)).toBe("session-already-applied");
 
     const run = await waitForRun(
       cookie,
@@ -1031,6 +1198,158 @@ describe("two applies of one session", () => {
     });
     expect(created).toHaveLength(1);
     expect(created[0]?.memberRegisterEntries).toHaveLength(1);
+  }, 60_000);
+});
+
+describe("two imports of two files", () => {
+  /**
+   * A file whose only row has a date nobody can read: it previews, applies and
+   * finishes like any other, and writes nothing into a register that cannot
+   * have rows removed.
+   */
+  function harmlessRows(firstName: string): string[][] {
+    return [
+      HEADERS,
+      [addressLabel, "2101", firstName, surname, "Medlem", "", "", "1/2/23"],
+    ];
+  }
+
+  it("refuses the second while the first is queued or applying, and runs it after", async () => {
+    // Two files applied side by side would each plan against a register the
+    // other is writing, and a person in both would be created twice, with an
+    // ENTRY row each. The second has to wait, and has to still be there to
+    // apply once the first is done.
+    const cookie = await signIn(actors.board.email);
+    const first = await uploadAndPreview(
+      cookie,
+      "forsta.csv",
+      harmlessRows("Forsta"),
+    );
+    const second = await uploadAndPreview(
+      cookie,
+      "andra.csv",
+      harmlessRows("Andra"),
+    );
+
+    // Claimed here rather than through the endpoint, so the worker does not
+    // finish the first import before the second asks: the case is about what
+    // the second finds while the first is still running.
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    const whileQueued = await applyImport(cookie, second.sessionId);
+    expect(whileQueued.statusCode).toBe(409);
+    expect(reasonOf(whileQueued)).toBe("another-import-running");
+    // Refused before anything is queued: still an upload, still applicable.
+    expect(await readRun(cookie, second.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { status: "APPLYING", startedAt: new Date() },
+    });
+
+    const whileApplying = await applyImport(cookie, second.sessionId);
+    expect(whileApplying.statusCode).toBe(409);
+    expect(reasonOf(whileApplying)).toBe("another-import-running");
+    expect((await readRun(cookie, second.sessionId)).status).toBe("MAPPING");
+
+    await applies.runApply(first.sessionId);
+    expect((await readRun(cookie, first.sessionId)).status).toBe("APPLIED");
+
+    const afterwards = await applyImport(cookie, second.sessionId);
+    expect(afterwards.statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      second.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result.errors).toBe(1);
+  }, 60_000);
+
+  it("starts exactly one when two are applied at once", async () => {
+    // The claim's row lock cannot settle this: the two requests claim
+    // different rows. Without the lock in front of the read, both would find
+    // nothing running and both would queue.
+    //
+    // The table is held here so that no claim can be written until both
+    // requests are waiting. With the lock, the first waits at its claim while
+    // holding the lock, and the second waits for the lock without having read.
+    // Without it, both have read "nothing running" and wait at their claims.
+    // Either way the race is decided the same way on every run, rather than
+    // whenever the scheduler happens to interleave the two.
+    const cookie = await signIn(actors.board.email);
+    const sessions = await Promise.all([
+      uploadAndPreview(cookie, "samtidig-1.csv", harmlessRows("SamtidigEtt")),
+      uploadAndPreview(cookie, "samtidig-2.csv", harmlessRows("SamtidigTva")),
+    ]);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding!: () => void;
+    const taken = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        // EXCLUSIVE lets the reads through and stops every write.
+        await tx.$executeRaw`LOCK TABLE import_session IN EXCLUSIVE MODE`;
+        holding();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await taken;
+
+    // A request that returns before it reaches a lock (a 4xx or a 500) counts
+    // as settled, so it fails at the status-code assertion below rather than as
+    // a timeout here.
+    let settled = 0;
+    const requests = sessions.map((session) =>
+      applyImport(cookie, session.sessionId).finally(() => (settled += 1)),
+    );
+    try {
+      await waitFor(
+        async () => settled === 2 || (await waitingLockCount(prisma)) === 2n,
+      );
+    } finally {
+      // The table lock blocks every write, so it must not outlive a failure.
+      release();
+    }
+    const [responses] = await Promise.all([Promise.all(requests), holder]);
+    const codes = responses.map((response) => response.statusCode);
+    expect([...codes].sort((a, b) => a - b)).toEqual([202, 409]);
+
+    const winner = codes.indexOf(202);
+    const loser = 1 - winner;
+    expect(reasonOf(responses[loser] as { body: string })).toBe(
+      "another-import-running",
+    );
+    const loserSession = sessions[loser] as ImportSessionView;
+    const winnerSession = sessions[winner] as ImportSessionView;
+    expect((await readRun(cookie, loserSession.sessionId)).status).toBe(
+      "MAPPING",
+    );
+
+    await waitForRun(
+      cookie,
+      winnerSession.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect((await applyImport(cookie, loserSession.sessionId)).statusCode).toBe(
+      202,
+    );
+    await waitForRun(
+      cookie,
+      loserSession.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
   }, 60_000);
 });
 

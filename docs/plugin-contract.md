@@ -504,6 +504,15 @@ An instance never contacts a package registry. The catalog lists direct
 tarball URLs with a sha512, and the install job downloads, verifies, and
 installs from the local file.
 
+The installer holds npm to that. npm runs offline, with a cache of its own that
+starts empty and none of the host's npm configuration or environment, so it
+has nothing to install but the verified archives. A package whose
+`dependencies`, `optionalDependencies`, `bundleDependencies` or
+`bundledDependencies` is anything but absent, an empty map or an empty list
+fails the manifest schema and is not loaded. The installer also checks that
+each installed package has the name and version the board consented to, and
+fails the install before it replaces the running installation otherwise.
+
 One index lists plugins and themes alike:
 
 ```jsonc
@@ -579,15 +588,38 @@ The curated catalog lists a package when:
 
 - its artifact is an asset of an immutable GitHub release of the repository its
   source lives in, at
-  `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>`, the
-  tag being `v` followed by the entry's version, not a pre-release;
+  `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>.tgz`,
+  the tag being `v` followed by the entry's version, and the release not a
+  draft or a pre-release;
 - the tarball carries a build attestation from that repository's release
-  workflow;
+  workflow, made by a run on a GitHub-hosted runner for the release's own tag,
+  `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal data categories, actions and protected
   resource; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
+- a theme that is not itself deprecated has no deprecated parent: neither its
+  parent nor any theme further up its `extends` chain is marked `deprecated`,
+  because `deprecated` is how the catalog stops offering an entry to new
+  installs while keeping the ones already made, and a theme should not be newly
+  offered on top of a parent that no longer is;
+- the tarball is a gzip archive that holds files and directories only, within
+  the limits an instance applies when it reads a theme package: at most 200
+  files and 200 directory entries, no file over 4 MiB and no more than 8 MiB
+  unpacked in all; every
+  file's path as stored in the archive, relative, at most 200 characters
+  (counting the `package/` directory `npm pack` adds, because the length is
+  checked before the common root is stripped), with no `..` or empty segment
+  and no backslash; and no symbolic or hard links, devices, FIFOs, or GNU
+  long-name or pax extension records. The catalog reads a plugin's tarball
+  with the same reader, so a plugin outside these limits is not listed,
+  although an instance never reads a plugin with it. The four limits are
+  `MAX_ARCHIVE_ENTRIES`, `MAX_DIRECTORY_RECORDS`, `MAX_ENTRY_BYTES` and
+  `MAX_TOTAL_BYTES` in
+  `@openbrf/theme-tools`; the 200 characters is a literal in its
+  `assertSafePath`, not one of those constants. An author can run
+  `readThemeArchive` on the packed tarball to check all of it;
 - a plugin declares no runtime dependencies and passes the package check below;
   a theme passes the install lint.
 
@@ -623,6 +655,42 @@ and so does switching one back on - a plugin's module has to be in the graph
 when the application is built, and NestJS cannot add one to a running
 application with its controllers. Switching a plugin **off** does not restart
 anything: it stops serving immediately.
+
+### The release workflow runs on the tag
+
+The catalog verifies the attestation against the repository and against the tag
+the run was made for (`gh attestation verify <file> --repo <owner>/<repo>
+--source-ref refs/tags/v<version> --deny-self-hosted-runners`). An attestation
+from a run on `main`, on any other branch, or on a self-hosted runner is
+refused, however correct the tarball is.
+
+A plugin's or theme's release workflow is therefore started by the push of the
+`v<version>` tag (`on.push.tags: ["v*"]`). A run started by hand is accepted
+only if it is dispatched on that tag's ref, and one on `main` never is, so the
+tag push is the one start that cannot go wrong. The workflow packs the tarball
+once, attests that file, and attaches that same file to the release before the
+release is published, since the assets of an immutable release cannot change
+afterwards. Its job needs the `id-token: write` and `attestations: write`
+permissions to attest and `contents: write` to create the release and upload
+the tarball; once a job has a `permissions:` block, every permission it leaves
+out is `none`. The `sha512` and `bytes` the entry states are those of that
+file.
+
+The workflow creates and publishes the release itself. Do not publish a
+release from the GitHub UI first: publishing a release with a new tag creates
+that tag, the tag push then starts the workflow after the release is already
+immutable, and the upload of the tarball fails. The repository also needs
+GitHub's immutable releases setting turned on before it publishes its first
+release, because the catalog refuses a release that is not immutable.
+
+The catalog passes `--repo` to `gh attestation verify` without `--signer-repo`,
+so the signing workflow must live in the package's own repository. A reusable
+workflow from another repository is refused.
+
+The core's own `.github/workflows/release.yml` is not a pattern for this. It
+publishes the npm packages a plugin or theme is built against, runs by hand on
+`main` and creates no tag, so an attestation made that way would be refused by
+the catalog.
 
 ## Operator configuration
 
@@ -670,7 +738,7 @@ lists everything on the data volume that is not running and why:
 | `action-refused`          | An action it declares could not be registered.                         |
 | `forbidden-injection`     | One of its providers reaches for a core service a plugin may not hold. |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
-| `not-consented`           | On the volume with no record of consent.                               |
+| `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |

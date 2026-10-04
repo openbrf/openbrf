@@ -184,16 +184,23 @@ export class AuditLogService {
    * Runs an audited read inside a transaction, so the returned data and its
    * log entry share a fate. Use this rather than calling record() next to a
    * read and hoping both succeed.
+   *
+   * `timeout` is the transaction's budget in milliseconds, read and entry
+   * together. Prisma's default of five seconds suits a lookup; a read whose
+   * size grows with what is held - a whole report rather than one row - states
+   * a budget of its own, because past it the transaction is aborted with
+   * P2028 and the reader gets nothing.
    */
   async withAuditedRead<T>(
     entry: AuditEntryInput,
     read: (client: Prisma.TransactionClient) => Promise<T>,
+    options: { timeout?: number } = {},
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       const result = await read(tx);
       await this.record(entry, tx);
       return result;
-    });
+    }, options);
   }
 }
 

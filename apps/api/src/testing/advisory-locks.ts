@@ -53,6 +53,40 @@ export function holdLockCount(
   return advisoryLockCount(prisma, `legal-hold:${personId}`, granted);
 }
 
+/**
+ * How many transactions hold, or are queued behind, this apartment's residency
+ * key: the key a purge and a writer of the apartment's residencies are ordered
+ * by.
+ */
+export function residencyApartmentLockCount(
+  prisma: PrismaService,
+  apartmentId: string,
+  granted: boolean,
+): Promise<bigint> {
+  return advisoryLockCount(
+    prisma,
+    `residency-apartment:${apartmentId}`,
+    granted,
+  );
+}
+
+/**
+ * How many lock requests in this database are waiting rather than granted.
+ *
+ * Unlike the counts above this one is not tied to a key: it counts every lock
+ * kind, relation locks such as `LOCK TABLE` as well as advisory ones. Use it
+ * when a test holds a table and only needs to know that a set number of
+ * requests are queued behind it.
+ */
+export async function waitingLockCount(prisma: PrismaService): Promise<bigint> {
+  const [row] = await prisma.$queryRaw<{ locks: bigint }[]>`
+    SELECT count(*) AS locks
+    FROM pg_locks
+    WHERE NOT granted
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
+  return row?.locks ?? 0n;
+}
+
 /** Polls until the condition holds, or gives up so a failure is a failure. */
 export async function waitFor(
   condition: () => Promise<boolean>,

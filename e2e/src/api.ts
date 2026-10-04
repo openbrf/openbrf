@@ -1020,7 +1020,15 @@ export async function recordPersonalDataBreach(
 export type ProcessorRow = {
   readonly processorKey: string;
   readonly processorKind:
-    "SMTP" | "SMS" | "STORAGE" | "HOSTING" | "MAILBOX" | "PLUGIN" | "EXTERNAL";
+    | "SMTP"
+    | "HOST_SMTP"
+    | "MAIL_API"
+    | "SMS"
+    | "STORAGE"
+    | "HOSTING"
+    | "MAILBOX"
+    | "PLUGIN"
+    | "EXTERNAL";
   /** Null where the instance has no name for it; the screen says its kind. */
   readonly identity: string | null;
   readonly state:

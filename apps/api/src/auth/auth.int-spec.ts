@@ -411,6 +411,71 @@ describe("rate limiting", () => {
   }, 60_000);
 });
 
+describe("the user-update surface", () => {
+  // A second person with different capabilities and no account.
+  const otherPerson = `auth-other-person-${suffix}`;
+
+  beforeAll(async () => {
+    await prisma.person.create({
+      data: {
+        id: otherPerson,
+        firstName: "Other",
+        lastName: "Person",
+        preferredLocale: "sv",
+        systemRoles: { create: { role: "ADMIN" } },
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.person.deleteMany({ where: { id: otherPerson } });
+  });
+
+  it("keeps an account's person link out of reach of the user-update surface", async () => {
+    const signIn = await inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      payload: { email: plain.email, password: PASSWORD },
+    });
+    expect(signIn.statusCode).toBe(200);
+    const cookie = extractCookie(signIn.headers["set-cookie"]);
+
+    const before = await inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { cookie },
+    });
+    expect(before.statusCode).toBe(200);
+
+    const update = await inject({
+      method: "POST",
+      url: "/api/auth/update-user",
+      payload: { personId: otherPerson },
+      headers: { cookie },
+    });
+
+    // 404 from the closed path, not the 400 that `input: false` would give.
+    expect(update.statusCode).toBe(404);
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email: plain.email },
+      select: { personId: true },
+    });
+    expect(user.personId).toBe(plain.personId);
+
+    const after = await inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { cookie },
+    });
+    expect(after.statusCode).toBe(200);
+    expect(after.json()).toMatchObject({
+      personId: plain.personId,
+      capabilities: (before.json() as { capabilities: string[] }).capabilities,
+    });
+  });
+});
+
 describe("account creation invariants", () => {
   it("refuses a second account for the same person", async () => {
     await expect(

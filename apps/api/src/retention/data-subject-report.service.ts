@@ -90,6 +90,24 @@ export class DataSubjectReportError extends DomainError {
 const SECTIONS = REPORTED_SECTIONS;
 
 /**
+ * How long the report's transaction may run, in milliseconds.
+ *
+ * The report is a query or more per section, in a row on one connection,
+ * unpaginated, with the decryption between them, and it grows with the person's
+ * history: every audit entry naming them and every letter to the board mailbox
+ * in full. Prisma's default of five seconds is reachable on a slow database for
+ * a person who has lived here long, and past it the report fails with a 500 -
+ * an access request the board cannot answer, under a one-month deadline (GDPR
+ * art. 12.3).
+ *
+ * The transaction only reads until the audit entry at its end, so a longer
+ * budget holds a connection and no row locks. Thirty seconds rather than more,
+ * so that a report that still does not finish fails here with a server error,
+ * before a reverse proxy in front of it (nginx waits sixty) gives up first.
+ */
+const REPORT_TRANSACTION_TIMEOUT_MS = 30_000;
+
+/**
  * The data subject access report (registerutdrag, GDPR art. 15).
  *
  * The most disclosure-heavy operation in the product, and deliberately the
@@ -209,6 +227,7 @@ export class DataSubjectReportService {
         context: { report: "dataSubjectAccess", sections: [...SECTIONS] },
       },
       async (tx) => this.build(tx, input.personId, now, retentionDays),
+      { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
     );
 
     // The person and the act, and nothing the report was carrying.
@@ -249,6 +268,7 @@ export class DataSubjectReportService {
         },
       },
       async (tx) => this.build(tx, personId, now, retentionDays),
+      { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
     );
 
     this.logger.log(`Data portability export produced for person ${personId}`);

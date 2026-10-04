@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { BoardMailboxCollectorService } from "../board-mailbox/board-mailbox-collector.service";
 import { BoardMailboxMailerService } from "../board-mailbox/board-mailbox-mailer.service";
+import { yesterdayDateHeader } from "../board-mailbox/testing/letter-date";
 import {
   startPop3TestServer,
   type Pop3TestServer,
@@ -188,7 +189,7 @@ function letter(options: {
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
     `Message-ID: <${options.messageId}>`,
-    "Date: Tue, 01 Sep 2026 09:15:00 +0200",
+    `Date: ${yesterdayDateHeader()}`,
     ...(options.inReplyTo === undefined
       ? []
       : [`In-Reply-To: <${options.inReplyTo}>`]),
@@ -637,14 +638,24 @@ describe("the recipients the instance names", () => {
     });
     expect(response.statusCode, response.body).toBe(200);
 
-    const smtp = (
-      response.json() as {
-        processorKey: string;
-        identity: string | null;
-        detail: string | null;
-      }[]
-    ).find((processor) => processor.processorKey === "smtp");
-    expect(smtp).toMatchObject({ identity: api.host, detail: SHARED_SENDER });
+    const processors = response.json() as {
+      processorKey: string;
+      processorKind: string;
+      identity: string | null;
+      detail: string | null;
+    }[];
+    expect(
+      processors.find((processor) => processor.processorKey === "mailApi"),
+    ).toMatchObject({
+      processorKind: "MAIL_API",
+      identity: api.host,
+      detail: SHARED_SENDER,
+    });
+    // The board's stored server is not a recipient while the host sends, so
+    // nothing the board recorded about it is listed against the host's API.
+    expect(processors.map((processor) => processor.processorKey)).not.toContain(
+      "smtp",
+    );
   });
 
   it("are the mail API's host in the record of processing activities", async () => {

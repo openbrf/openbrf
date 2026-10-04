@@ -7,7 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
-import { parseCsv, writeCsv } from "./csv";
+import { decodeCsv, parseCsv, writeCsv } from "./csv";
 import {
   type ImportDecisions,
   ImportApplyService,
@@ -18,6 +18,7 @@ import {
   suggestMapping,
 } from "./import-columns";
 import { ImportError } from "./import-errors";
+import { lockImportApply } from "./import-lock";
 import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
@@ -297,6 +298,18 @@ export class ImportService implements OnModuleInit {
    * UPDATE and DELETE, so a member listed twice could only be answered with a
    * further correction entry. The conditional update takes the row lock, so the
    * second request finds nothing to claim and nothing is queued for it.
+   *
+   * One import runs at a time across the whole instance, not just one per
+   * session. Two files applied side by side would each plan against a register
+   * the other is in the middle of writing, so a person listed in both is created
+   * twice with an ENTRY row each - the same uncorrectable duplicate, reached
+   * from two sessions instead of one. The screen hides the upload while an
+   * import runs, but a tab opened earlier, a second board member or a direct
+   * call does not see that, so the refusal is made here. A running session
+   * normally ends as APPLIED, or as FAILED on a refusal or through the dead
+   * letter once its retries run out. Until then every other apply is refused:
+   * for as long as a hung attempt takes to time out and be retried, and for a
+   * session whose job was lost, until the next start re-queues it.
    */
   async apply(
     sessionId: string,
@@ -335,7 +348,25 @@ export class ImportService implements OnModuleInit {
     // on its own connection and has no business inside this one.
     await this.applies.ensureQueues();
 
-    const claimed = await this.prisma.$transaction(async (tx) => {
+    // A refusal is thrown from inside the transaction, which rolls back and
+    // rethrows it. Neither refusal has written anything by then.
+    await this.prisma.$transaction(async (tx) => {
+      await lockImportApply(tx);
+
+      const running = await tx.importSession.findFirst({
+        where: {
+          id: { not: sessionId },
+          status: { in: ["QUEUED", "APPLYING"] },
+        },
+        select: { id: true },
+      });
+      if (running !== null) {
+        throw new ImportError(
+          "Another import is running. Apply this one when it has finished.",
+          "another-import-running",
+        );
+      }
+
       const claim = await tx.importSession.updateMany({
         where: { id: sessionId, status: "MAPPING" },
         data: {
@@ -344,20 +375,16 @@ export class ImportService implements OnModuleInit {
         },
       });
       if (claim.count === 0) {
-        return false;
+        throw new ImportError(
+          "That import has already been started.",
+          "session-already-applied",
+        );
       }
       // The job is written by this transaction too, so the claim and the work
       // it claims commit together. A session left claimed with no job behind it
       // is an import that never runs and never says so.
       await this.applies.enqueueInTransaction(tx, sessionId);
-      return true;
     });
-    if (!claimed) {
-      throw new ImportError(
-        "That import has already been started.",
-        "session-already-applied",
-      );
-    }
 
     this.logger.log(`Import session ${sessionId}: apply queued`);
     return this.run(sessionId);
@@ -417,7 +444,7 @@ export class ImportService implements OnModuleInit {
   ): Promise<string[][]> {
     try {
       if (format === "CSV") {
-        return parseCsv(bytes.toString("utf8")).rows;
+        return parseCsv(decodeCsv(bytes)).rows;
       }
       return await parseWorkbook(bytes);
     } catch {

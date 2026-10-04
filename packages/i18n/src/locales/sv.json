@@ -1235,7 +1235,9 @@
         "description": "Hämta det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke, i ett maskinläsbart format (GDPR art. 20). Det föreningen har om dig på annan grund finns inte i filen; styrelsen tar fram ett registerutdrag på begäran. Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
         "action": "Hämta mina uppgifter",
         "working": "Hämtar...",
-        "failed": "Uppgifterna kunde inte hämtas just nu."
+        "failed": "Uppgifterna kunde inte hämtas just nu.",
+        "rateLimited": "Du har hämtat dina uppgifter flera gånger den senaste minuten. Vänta en stund och försök igen.",
+        "busy": "Många hämtningar förbereds just nu. Vänta en stund och försök igen."
       },
       "exportFileName": "mina-uppgifter"
     },
@@ -2222,6 +2224,8 @@
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "dateNotACalendarDate": "Datumet finns inte i kalendern. Kontrollera dag och månad.",
       "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
+      "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
+      "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },
@@ -2327,6 +2331,7 @@
       "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
       "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
       "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
+      "garbled-characters": "Ett tecken har redan gått förlorat i filen (visas som �). Rätta det i filen och läs in den igen.",
       "unknown": "Raden kunde inte läsas."
     },
     "mappingProblem": {
@@ -2372,6 +2377,7 @@
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
+      "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
       "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
@@ -4582,6 +4588,8 @@
       "saving": "Sparar...",
       "kind": {
         "SMTP": "E-postserver",
+        "HOST_SMTP": "Driftens e-postserver",
+        "MAIL_API": "Driftens e-post-API",
         "SMS": "SMS-gateway",
         "STORAGE": "Fillagring",
         "HOSTING": "Drift",

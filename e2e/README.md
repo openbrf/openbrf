@@ -2,7 +2,8 @@
 
 The suite drives a browser against the production stack: the image built from
 this repository's `Dockerfile`, started through `docker-compose.prod.yml` with
-the overlay in `docker-compose.e2e.yml`, from empty volumes.
+the overlay in `docker-compose.e2e.yml`, from empty volumes. The production file
+runs a published release; the overlay is what builds this checkout instead.
 
 That is the point of it. Several of the properties under test only exist in the
 deployed artefact - the entrypoint provisioning the field encryption key, the
@@ -23,6 +24,10 @@ minutes; later runs reuse the layer cache. The stack listens on
 `localhost:3010`, its database on `5442` and its mail server on `8125`, so it
 never collides with a development database on 5432 or an application on 3000.
 
+The suite imports `@openbrf/shared`, so the package has to be built.
+`pnpm test:e2e` builds it first. To run `playwright test` directly from `e2e/`,
+build it once with `pnpm --filter @openbrf/shared build`.
+
 While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and
@@ -31,9 +36,13 @@ While writing a spec:
   `03-invitations` fails on a reused instance too, and has to: an invitation
   activates an account for a person who has none, and the two it invites got
   theirs on the run before. The rest re-runs without colliding, because a
-  person a spec makes for itself is named for the run that made them
-  (`src/identity.ts`), and an apartment a spec moves somebody into is claimed
-  for the run that claimed it (`src/apartments.ts`).
+  person a spec makes for itself takes their name and email address from the
+  run that made them (`src/identity.ts`), and an apartment a spec moves
+  somebody into is claimed for the run that claimed it (`src/apartments.ts`).
+  A personal identity number comes from the run only where the spec asks
+  `uniquePersonalIdentityNumber` for it: `06-protected-personal-data` and
+  `09-statutory-registers` still write a fixed one, so each reused run stores
+  another person holding the same number.
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 

@@ -3575,7 +3575,12 @@ enum ProcessingActivitySource {
 
 /// What kind of recipient a processor agreement row is about.
 enum ProcessorKind {
+  /// The SMTP server the board entered in the settings.
   SMTP
+  /// The SMTP relay whoever runs the instance sets in the environment.
+  HOST_SMTP
+  /// The HTTP mail API whoever runs the instance sets in the environment.
+  MAIL_API
   SMS
   STORAGE
   /// Whoever runs the instance.
@@ -3894,8 +3899,9 @@ model ProcessorAgreement {
 
   processorKind ProcessorKind
 
-  /// Stable identity of the recipient: "smtp", "sms", "storage", "hosting",
-  /// "plugin:<id>" or "external:<id>".
+  /// Stable identity of the recipient: "smtp", "hostSmtp", "mailApi", "sms",
+  /// "storage", "hosting", "mailbox", "plugin:<id>", "connectedApp:<id>" or
+  /// "external:<id>".
   processorKey String
 
   classification ProcessorClassification
@@ -6501,7 +6507,8 @@ model BoardMailboxAttachment {
   @@map("board_mailbox_attachment")
 }
 
-/// A message in the mailbox that was read and will never be stored.
+/// A message in the mailbox that will not be stored: one read and left, or one
+/// stored once and since erased with its thread.
 ///
 /// Nothing is deleted from the mailbox, so what this instance holds is decided
 /// by what it remembers having seen. A letter it stored is remembered by the
@@ -6510,6 +6517,11 @@ model BoardMailboxAttachment {
 /// bound counts fetches rather than rows, fifty of those at the head of the
 /// mailbox stop a collection before it reaches the mail behind them. This is the
 /// row that remembers one: the identifier, and why it was left.
+///
+/// The purge writes here too. Erasing a thread erases the rows that remembered
+/// its letters, and the letters are still in the mailbox, so the purge records
+/// each one's identifier in the same transaction or the next collection would
+/// store it again.
 ///
 /// Only for a letter that nothing will ever change about. A message too large to
 /// fetch is not here - it is never read, so it costs a listing line and no more -

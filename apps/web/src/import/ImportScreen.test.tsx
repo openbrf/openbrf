@@ -327,6 +327,31 @@ describe("the preview", () => {
     expect(screen.getByText(/ÅÅÅÅ-MM-DD/)).toBeTruthy();
   });
 
+  it("flags a name that already lost a letter before anything is written", async () => {
+    // The API refuses such a row; what the board has to see is why, next to
+    // the name it would otherwise have taken for a display glitch.
+    const garbled = PREVIEW.rows[2]!;
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        rows: [
+          {
+            ...garbled,
+            person: { ...garbled.person, firstName: "Bj\uFFFDrk" },
+            problems: [{ field: "firstName", reason: "garbled-characters" }],
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const row = screen.getByText(/Bj\uFFFDrk/).closest("tr");
+    expect(row?.textContent).toMatch(/Ett tecken har redan gått förlorat/);
+    expect(row?.textContent).toMatch(/Importeras inte/);
+  });
+
   it("refuses to apply while a row matches more than one person", async () => {
     const session = userEvent.setup();
     await reachPreview(session);
@@ -413,6 +438,37 @@ describe("after pressing apply", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText(/redan startad/)).toBeTruthy();
     expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
+  });
+
+  it("keeps the preview when another import is running", async () => {
+    // A different file is being imported - by another board member, or from a
+    // tab opened before it started. This upload was not started, so the
+    // preview the board member checked stays on the screen to run afterwards.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "another-import-running" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/En annan import pågår/)).toBeTruthy();
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    expect(fetchActiveImport).toHaveBeenCalledTimes(1);
   });
 
   it("follows the import to the end", async () => {

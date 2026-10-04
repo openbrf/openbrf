@@ -220,6 +220,31 @@ than like a mismatch.
 `BETTER_AUTH_SECRET` is not needed to read the data, but changing it signs
 everyone out, so restore the environment file too unless you mean to.
 
+## Before an upgrade
+
+Take the ordinary backup above immediately before every upgrade. It already
+stops the application for its length, which an upgrade needs anyway: the
+migrations of the new release must not run while the old one is still
+writing. That backup is the rollback.
+
+An upgrade that fails leaves the database between two releases, and a start
+of the new release can already have rewritten stored files on the data volume.
+Rolling back is therefore the restore above, both halves from that one backup,
+with `OPENBRF_VERSION` set to the exact version that was running before - not
+its release line, which by then names the newer release.
+Restoring the database alone, or starting the previous release against the
+newer database, is not a rollback ([deployment.md](deployment.md), "What
+happens on every start").
+
+**From 0.1.0 on, each start closes the instance's database to every role but
+its own two.** A database grants `CONNECT` to every role on the server when it
+is made, and the start that constrains the runtime role revokes that grant. A
+separate role that backs the database up or monitors it - anything but the
+owner and the runtime role - can no longer connect after the first start of
+such a release, until the owner grants it:
+`GRANT CONNECT ON DATABASE <database> TO <role>`. The backup above runs as the
+owner and is not affected.
+
 ## Moving between PostgreSQL major versions
 
 A PostgreSQL data directory is not portable across major versions, so a volume
