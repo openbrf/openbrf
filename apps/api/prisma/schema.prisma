@@ -2724,9 +2724,22 @@ model ImportSession {
   /// by the apply, which refuses to start while one of them has no decision.
   ambiguousRows Json?
 
+  /// A digest of what the preview planned for every row: its outcome, the
+  /// person it is written to and how it reached them, and the persons it could
+  /// equally well be. The apply plans the file again with the board's
+  /// decisions and refuses to start when that plan's digest differs, so a
+  /// decision cannot change what a row writes without the board seeing it.
+  previewDigest String?
+
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?
+
+  /// Rows the apply wrote to a person without writing the identity number the
+  /// row states, because the row reached them by email or by name: row number
+  /// to that person. A chunk reads the number back from the row, so a later
+  /// row stating it reaches the same person instead of creating them again.
+  unwrittenIdentityNumbers Json?
 
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,

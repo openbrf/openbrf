@@ -26,7 +26,13 @@ import {
   type ImportMapping,
 } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
-import type { ImportPlan, PlannedRow } from "./import-plan";
+import {
+  findUndecided,
+  type ImportDecision,
+  type ImportDecisions,
+  type ImportPlan,
+  type PlannedRow,
+} from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
@@ -107,13 +113,6 @@ interface ImportApplyJob {
   sessionId: string;
   [key: string]: unknown;
 }
-
-export type ImportDecision =
-  | { action: "use-person"; personId: string }
-  | { action: "create" }
-  | { action: "skip" };
-
-export type ImportDecisions = Record<string, ImportDecision>;
 
 @Injectable()
 export class ImportApplyService implements OnModuleInit {
@@ -282,6 +281,7 @@ export class ImportApplyService implements OnModuleInit {
         defaultRole: true,
         defaultMovedInOn: true,
         decisions: true,
+        unwrittenIdentityNumbers: true,
       },
     });
     if (session === null) {
@@ -306,6 +306,9 @@ export class ImportApplyService implements OnModuleInit {
     }
 
     const decisions = readDecisions(session.decisions);
+    const unwritten = readUnwrittenIdentityNumbers(
+      session.unwrittenIdentityNumbers,
+    );
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -319,6 +322,8 @@ export class ImportApplyService implements OnModuleInit {
       defaultRole: session.defaultRole,
       defaultMovedInOn: session.defaultMovedInOn,
       window: { from: cursor, count: IMPORT_CHUNK_ROWS },
+      decisions,
+      unwrittenIdentityNumbers: unwritten,
       // A person this chunk writes carries the index, so it is owed whatever
       // the register looks like.
       indexEveryIdentityNumber: true,
@@ -384,10 +389,17 @@ export class ImportApplyService implements OnModuleInit {
           existingTargets(plan, decisions),
         );
 
-        const written = await this.write(tx, plan, decisions, encrypted);
+        const written = await this.write(
+          tx,
+          plan,
+          decisions,
+          encrypted,
+          unwritten,
+        );
         await tx.importSession.update({
           where: { id: sessionId },
           data: {
+            unwrittenIdentityNumbers: Object.fromEntries(unwritten),
             personsCreated: { increment: written.personsCreated },
             personsUpdated: { increment: written.personsUpdated },
             residenciesCreated: { increment: written.residenciesCreated },
@@ -509,6 +521,7 @@ export class ImportApplyService implements OnModuleInit {
     plan: ImportPlan,
     decisions: ImportDecisions,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
+    unwritten: Map<number, string>,
   ): Promise<ImportApplyResult> {
     const result: ImportApplyResult = {
       personsCreated: 0,
@@ -546,6 +559,7 @@ export class ImportApplyService implements OnModuleInit {
         target.action === "update" ? target.personId : null,
         encrypted,
         createdByRow,
+        unwritten,
         result,
       );
       if (personId === null) {
@@ -576,6 +590,16 @@ export class ImportApplyService implements OnModuleInit {
    * does not have and never overwrites what it does: a spreadsheet is not a
    * more reliable source than the register it is being loaded into, and a bulk
    * overwrite is how a register stops being evidence.
+   *
+   * The identity number is the exception to filling in: it is written onto an
+   * existing person only when the row reached them, and only them, through that
+   * number. An email address or a name says who a row is probably about, and an
+   * identity number stored on the strength of a probably is one person's number
+   * in another person's record. A row the board decided is not written on the
+   * strength of its number either: the number matched more than one person, or
+   * the row reached the one it matched by another key. The row is remembered
+   * instead, so a row in a later chunk stating the same number reaches the same
+   * person rather than nobody.
    */
   private async upsertPerson(
     tx: Prisma.TransactionClient,
@@ -583,6 +607,7 @@ export class ImportApplyService implements OnModuleInit {
     target: string | null,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     createdByRow: Map<number, string>,
+    unwritten: Map<number, string>,
     result: ImportApplyResult,
   ): Promise<string | null> {
     const values = encrypted.get(row.rowNumber);
@@ -649,11 +674,18 @@ export class ImportApplyService implements OnModuleInit {
       data.phoneIndex = values.phone.index;
     }
     if (
+      row.outcome === "update" &&
+      row.matchedBy === "personalIdentityNumber" &&
       existing.personalIdentityNumberCipher === null &&
       values.personalIdentityNumber !== null
     ) {
       data.personalIdentityNumberCipher = values.personalIdentityNumber.cipher;
       data.personalIdentityNumberIndex = values.personalIdentityNumber.index;
+    } else if (
+      existing.personalIdentityNumberCipher === null &&
+      values.personalIdentityNumber !== null
+    ) {
+      unwritten.set(row.rowNumber, existing.id);
     }
 
     if (Object.keys(data).length > 0) {
@@ -726,33 +758,8 @@ interface EncryptedRowValues {
   personalIdentityNumber: { cipher: string; index: string | null } | null;
 }
 
-/** The first row of the chunk the board has not answered for, if there is one. */
-function findUndecided(
-  plan: ImportPlan,
-  decisions: ImportDecisions,
-): ImportErrorReason | null {
-  for (const row of plan.rows) {
-    if (row.outcome !== "ambiguous") {
-      continue;
-    }
-    const decision = decisions[String(row.rowNumber)];
-    if (decision === undefined) {
-      return "ambiguous-rows-undecided";
-    }
-    if (
-      decision.action === "use-person" &&
-      !row.candidates.some(
-        (candidate) => candidate.personId === decision.personId,
-      )
-    ) {
-      return "decision-not-a-candidate";
-    }
-  }
-  return null;
-}
-
 /** The stored mapping, read back. An empty entry is a column not imported. */
-function readMapping(stored: readonly string[]): ImportMapping {
+export function readMapping(stored: readonly string[]): ImportMapping {
   return stored.map((field) =>
     (IMPORT_FIELDS as readonly string[]).includes(field)
       ? (field as ImportField)
@@ -781,6 +788,25 @@ function readDecisions(value: unknown): ImportDecisions {
     }
   }
   return decisions;
+}
+
+/**
+ * The rows of earlier chunks whose identity number was not written, read back
+ * as row number to the person each was written to. Narrowed rather than cast,
+ * like the decisions.
+ */
+function readUnwrittenIdentityNumbers(value: unknown): Map<number, string> {
+  const unwritten = new Map<number, string>();
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return unwritten;
+  }
+  for (const [rowNumber, personId] of Object.entries(value)) {
+    const row = Number(rowNumber);
+    if (Number.isInteger(row) && row > 0 && typeof personId === "string") {
+      unwritten.set(row, personId);
+    }
+  }
+  return unwritten;
 }
 
 function readDecision(raw: unknown): ImportDecision | null {

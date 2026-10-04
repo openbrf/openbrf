@@ -34,6 +34,9 @@ export type ImportOutcome = "create" | "update" | "ambiguous" | "error";
 export type ImportMatchKey =
   "personalIdentityNumber" | "email" | "apartmentAndName" | "earlierRow";
 
+/** What a row states differently from the one person it matched. */
+export type ImportMismatch = "personalIdentityNumber" | "name";
+
 export interface ImportSessionView {
   sessionId: string;
   fileName: string;
@@ -63,7 +66,9 @@ export interface ImportPreviewRow {
   movedInOn: string | null;
   movedOutOn: string | null;
   matchedPersonId: string | null;
+  matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
+  mismatch: ImportMismatch | null;
   sameAsRowNumber: number | null;
   candidates: { personId: string; name: string }[];
   problems: { field: ImportField | null; reason: string }[];
@@ -146,9 +151,16 @@ export function uploadImport(input: {
   return apiRequest("POST", "/api/import/sessions", input);
 }
 
+/**
+ * What the mapping would do.
+ *
+ * The decisions are the ones made so far, sent when the preview is taken again
+ * because they change what later rows match: a person chosen for a row gets
+ * that row's email address, and a later row can contradict it.
+ */
 export function previewImport(
   sessionId: string,
-  input: ImportMappingInput,
+  input: ImportMappingInput & { decisions?: Record<string, ImportDecision> },
 ): Promise<ApiResult<ImportPreview>> {
   return apiRequest(
     "POST",

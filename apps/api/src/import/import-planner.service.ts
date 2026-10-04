@@ -8,12 +8,14 @@ import { type ImportMapping, validateMapping } from "./import-columns";
 import {
   apartmentNameKey,
   hasIndexableIdentityNumber,
+  type ImportDecisions,
   type ImportPlan,
   type ImportRole,
   planImport,
   type PreparedRow,
   readRow,
   type RegisterSnapshot,
+  type UnwrittenIdentityNumber,
 } from "./import-plan";
 
 /**
@@ -57,6 +59,17 @@ export interface ImportPlanRequest {
    * names a row of the file, not a row of a chunk.
    */
   window?: { from: number; count: number };
+  /**
+   * What the board decided for the rows that need it, so the rows after one
+   * are matched against what it writes. None when absent.
+   */
+  decisions?: ImportDecisions;
+  /**
+   * The rows of earlier chunks whose identity number the apply did not write,
+   * and the person it wrote each of them to. The number is read from the row
+   * again, so a later row stating it reaches that person. None when absent.
+   */
+  unwrittenIdentityNumbers?: ReadonlyMap<number, string>;
   /**
    * Whether every valid identity number is indexed.
    *
@@ -132,10 +145,16 @@ export class ImportPlannerService {
       });
     }
 
-    return planImport(prepared, snapshot, {
-      defaultRole: request.defaultRole,
-      defaultMovedInOn: request.defaultMovedInOn,
-    });
+    return planImport(
+      prepared,
+      snapshot,
+      {
+        defaultRole: request.defaultRole,
+        defaultMovedInOn: request.defaultMovedInOn,
+      },
+      request.decisions,
+      unwrittenIdentityNumbers(request),
+    );
   }
 
   /**
@@ -177,12 +196,14 @@ export class ImportPlannerService {
    * Read again for every chunk, and that is the point: a chunk plans against a
    * register that already holds what the chunk before it wrote, so a person
    * listed twice in one file is matched the second time rather than created
-   * twice.
+   * twice. The plan reproduces those writes for the rows of one pass, which is
+   * why the snapshot also carries what decides them: who has an email address
+   * and every apartment each person has lived in.
    */
   private async snapshot(): Promise<RegisterSnapshot> {
     const now = new Date();
 
-    const [apartments, persons] = await Promise.all([
+    const [apartments, persons, withEmail] = await Promise.all([
       this.prisma.apartment.findMany({
         select: {
           id: true,
@@ -198,11 +219,15 @@ export class ImportPlannerService {
           lastName: true,
           emailIndex: true,
           personalIdentityNumberIndex: true,
-          residencies: {
-            where: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
-            select: { apartmentId: true },
-          },
+          residencies: { select: { apartmentId: true, movedOutOn: true } },
         },
+      }),
+      // Whether a person has an address at all, which decides whether a row
+      // matched to them gives them one. Asked of the database rather than read
+      // off the ciphertext, which has no business in this process here.
+      this.prisma.person.findMany({
+        where: { emailCipher: { not: null } },
+        select: { id: true },
       }),
     ]);
 
@@ -210,6 +235,8 @@ export class ImportPlannerService {
     const personsByEmail = new Map<string, string[]>();
     const personsByApartmentAndName = new Map<string, string[]>();
     const personNames = new Map<string, string>();
+    const identityNumberIndexByPerson = new Map<string, string>();
+    const apartmentsByPerson = new Map<string, Set<string>>();
 
     for (const person of persons) {
       personNames.set(
@@ -217,6 +244,10 @@ export class ImportPlannerService {
         `${person.firstName} ${person.lastName}`.trim(),
       );
       if (person.personalIdentityNumberIndex !== null) {
+        identityNumberIndexByPerson.set(
+          person.id,
+          person.personalIdentityNumberIndex,
+        );
         push(
           personsByIdentityNumber,
           person.personalIdentityNumberIndex,
@@ -226,7 +257,14 @@ export class ImportPlannerService {
       if (person.emailIndex !== null) {
         push(personsByEmail, person.emailIndex, person.id);
       }
+      apartmentsByPerson.set(
+        person.id,
+        new Set(person.residencies.map((residency) => residency.apartmentId)),
+      );
       for (const residency of person.residencies) {
+        if (residency.movedOutOn !== null && residency.movedOutOn <= now) {
+          continue;
+        }
         push(
           personsByApartmentAndName,
           apartmentNameKey(
@@ -250,8 +288,32 @@ export class ImportPlannerService {
       personsByEmail,
       personsByApartmentAndName,
       personNames,
+      identityNumberIndexByPerson,
+      personsWithEmail: new Set(withEmail.map((person) => person.id)),
+      apartmentsByPerson,
+      takenAt: now,
     };
   }
+}
+
+/** The numbers earlier rows stated and the apply did not write, in file order. */
+function unwrittenIdentityNumbers(
+  request: ImportPlanRequest,
+): UnwrittenIdentityNumber[] {
+  const unwritten: UnwrittenIdentityNumber[] = [];
+  const earlier = [...(request.unwrittenIdentityNumbers ?? [])].sort(
+    ([a], [b]) => a - b,
+  );
+  for (const [rowNumber, personId] of earlier) {
+    const values = readRow(request.rows[rowNumber - 1] ?? [], request.mapping);
+    const identityNumber = hasIndexableIdentityNumber(values)
+      ? normalizePersonalIdentityNumber(values.personalIdentityNumber ?? "")
+      : null;
+    if (identityNumber !== null) {
+      unwritten.push({ rowNumber, identityNumber, personId });
+    }
+  }
+  return unwritten;
 }
 
 function push(map: Map<string, string[]>, key: string, value: string): void {

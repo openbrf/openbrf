@@ -24,6 +24,13 @@ export type ImportErrorReason =
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
+  | "preview-outdated"
+  /**
+   * Somebody previewed the session again while this apply was starting, so
+   * the preview it was checked against is no longer the one recorded. Answered
+   * with 409, and the session stays in MAPPING.
+   */
+  | "preview-replaced"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";
@@ -40,7 +47,8 @@ export class ImportError extends DomainError {
         ? 404
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
-            reason === "another-import-running"
+            reason === "another-import-running" ||
+            reason === "preview-replaced"
           ? 409
           : 400;
   }

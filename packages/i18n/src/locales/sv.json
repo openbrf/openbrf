@@ -2291,12 +2291,15 @@
       "apartment": "Lägenhet",
       "role": "Roll",
       "matchedBy": "Matchad på",
+      "matchedPerson": "Matchad person",
       "problems": "Problem",
       "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
+      "identityNumberNotAdded": "Personnumret läggs inte till på den här personen: raden matchades på något annat.",
       "decision": "Den här raden är",
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
-      "undecided": "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
+      "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
+      "replanned": "Dina val ändrar vad andra rader i filen matchar, så förhandsgranskningen har gjorts om med dem. Kontrollera den och välj för de rader som nu behöver det.",
       "apply": "Genomför importen",
       "applying": "Importerar",
       "back": "Ändra kolumnkopplingen",
@@ -2316,6 +2319,10 @@
       "email": "E-postadress",
       "apartmentAndName": "Lägenhet och namn",
       "earlierRow": "En tidigare rad i filen"
+    },
+    "mismatch": {
+      "personalIdentityNumber": "Filens personnummer skiljer sig från den här personens.",
+      "name": "Namnet i filen skiljer sig från den här personens."
     },
     "problem": {
       "name-missing": "Raden saknar namn.",
@@ -2373,11 +2380,13 @@
       "tooManyRows": "Filen har fler rader än en import klarar.",
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
       "previewRequired": "Förhandsgranska importen innan du genomför den.",
+      "previewOutdated": "Dina val ändrar vad andra rader matchar. Förhandsgranska importen igen.",
+      "previewReplaced": "Någon förhandsgranskade importen igen medan den startades, så den startades inte. Förhandsgranska den igen innan du importerar.",
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
       "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
-      "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
+      "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "unknown": "Importen gick inte just nu. Försök igen."

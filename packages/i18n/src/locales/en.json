@@ -2291,12 +2291,15 @@
       "apartment": "Apartment",
       "role": "Role",
       "matchedBy": "Matched on",
+      "matchedPerson": "Matched person",
       "problems": "Problem",
       "identityNumberOnFile": "The file has a personal identity number for this row.",
+      "identityNumberNotAdded": "The personal identity number will not be added to this person: the row was matched on something else.",
       "decision": "This row is",
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
-      "undecided": "Some rows match more than one person. Choose which one each is before applying.",
+      "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
+      "replanned": "Your choices change what other rows of the file match, so the preview has been taken again with them. Check it, and choose for any row that now needs it.",
       "apply": "Apply the import",
       "applying": "Importing",
       "back": "Change the mapping",
@@ -2316,6 +2319,10 @@
       "email": "Email address",
       "apartmentAndName": "Apartment and name",
       "earlierRow": "An earlier row of this file"
+    },
+    "mismatch": {
+      "personalIdentityNumber": "The file's personal identity number differs from this person's.",
+      "name": "The name in the file differs from this person's."
     },
     "problem": {
       "name-missing": "The row has no name.",
@@ -2373,11 +2380,13 @@
       "tooManyRows": "That file has more rows than one import can take.",
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",
+      "previewOutdated": "Your choices change what other rows match. Preview the import again.",
+      "previewReplaced": "Someone previewed this import again while it was being started, so it was not started. Preview it again before you import.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",
       "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
-      "ambiguousRowsUndecided": "Some rows still match more than one person.",
+      "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "unknown": "The import did not work just now. Please try again."
