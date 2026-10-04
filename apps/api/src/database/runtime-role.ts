@@ -78,10 +78,21 @@ export const ARCHIVE_REVOKES: readonly {
  * Built from the constants above, never from anything the database or the
  * configuration says, so the interpolation is not a way in. A table that does
  * not exist yet answers NULL, which counts as no privilege.
+ *
+ * UPDATE is also asked of every column: a grant on one column is a privilege of
+ * its own beside the table's, and has_table_privilege does not see it.
  */
 const REWRITABLE_ARCHIVE = `array_remove(ARRAY[${ARCHIVE_REVOKES.map(
-  ({ table, privileges }) =>
-    `CASE WHEN coalesce(has_table_privilege(to_regclass('public.${table}'), '${privileges.join(", ")}'), false) THEN '${table}' END`,
+  ({ table, privileges }) => {
+    const relation = `to_regclass('public.${table}')`;
+    const rewrites = [
+      `coalesce(has_table_privilege(${relation}, '${privileges.join(", ")}'), false)`,
+      ...(privileges.includes("UPDATE")
+        ? [`coalesce(has_any_column_privilege(${relation}, 'UPDATE'), false)`]
+        : []),
+    ];
+    return `CASE WHEN ${rewrites.join(" OR ")} THEN '${table}' END`;
+  },
 ).join(",\n    ")}], NULL)`;
 
 const ROLE_FACTS = `
@@ -112,7 +123,10 @@ SELECT
   ) AS "ownsRelation",
   -- A function's owner can drop it, and with CASCADE every trigger that runs
   -- it; a type's owner can drop the columns built on it. A table's row type is
-  -- left out, being the table's and already asked about above.
+  -- left out, being the table's and already asked about above. Array types are
+  -- kept, where the hardening script leaves them out: each belongs to the
+  -- owner of its element type or table, so whether to refuse comes out the
+  -- same either way.
   EXISTS (
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -140,7 +154,9 @@ SELECT
       AND has_schema_privilege(n.oid, 'CREATE')
   ) AS "createsInSchema",
   ${REWRITABLE_ARCHIVE} AS "rewritableArchive",
+  -- INSERT and UPDATE asked of the columns too, for the same reason.
   coalesce(has_table_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE, DELETE, TRUNCATE'), false)
+    OR coalesce(has_any_column_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE'), false)
     AS "writesMigrationHistory",
   -- The version column alone: the application stamps the row's other columns
   -- as pg-boss's maintenance runs. Asked of the column, so a grant on that one

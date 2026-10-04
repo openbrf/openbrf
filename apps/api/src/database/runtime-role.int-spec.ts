@@ -259,6 +259,47 @@ describe("a production start", () => {
       /can write the job schema's version/,
     );
   });
+
+  it.each(["INSERT (finished_at)", "UPDATE (finished_at)"])(
+    "refuses a role granted %s on the migration history",
+    async (privilege) => {
+      await refusedWith(
+        `GRANT ${privilege} ON public._prisma_migrations TO ${CONSTRAINED_ROLE}`,
+        `REVOKE ${privilege} ON public._prisma_migrations FROM ${CONSTRAINED_ROLE}`,
+        /can write the migration history/,
+      );
+    },
+  );
+
+  it.each(
+    ARCHIVE_REVOKES.filter(({ privileges }) =>
+      privileges.includes("UPDATE"),
+    ).map(({ table }) => table),
+  )("refuses a role granted UPDATE on one column of %s", async (table) => {
+    await refusedWith(
+      `GRANT UPDATE (id) ON public.${table} TO ${CONSTRAINED_ROLE}`,
+      `REVOKE UPDATE (id) ON public.${table} FROM ${CONSTRAINED_ROLE}`,
+      new RegExp(`can rewrite or delete statutory records in ${table}\\.`),
+    );
+  });
+
+  it("still serves a role granted UPDATE on one column of a transfer", async () => {
+    // A transfer keeps UPDATE on purpose, on a column as on the table.
+    await owner.$executeRawUnsafe(
+      `GRANT UPDATE (id) ON public.transfer TO ${CONSTRAINED_ROLE}`,
+    );
+    try {
+      await expect(
+        assertConstrainedRuntimeRole(
+          production(asRole(CONSTRAINED_ROLE, CONSTRAINED_PASSWORD)),
+        ),
+      ).resolves.toBeUndefined();
+    } finally {
+      await owner.$executeRawUnsafe(
+        `REVOKE UPDATE (id) ON public.transfer FROM ${CONSTRAINED_ROLE}`,
+      );
+    }
+  });
 });
 
 describe("outside production", () => {
