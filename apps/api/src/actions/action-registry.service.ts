@@ -454,7 +454,8 @@ export class ActionRegistryService {
     // administrator has switched the action on. Read here once and used again
     // at step 9, so one call costs one lookup. A plugin that is not serving is
     // answered with a 404 like an unknown name, so the refusal does not
-    // confirm that the action exists.
+    // confirm that the action exists to a caller whose surface lists it; one
+    // whose surface does not was answered `forbidden-surface` at step 3.
     const pluginState =
       held.owner.kind === "plugin"
         ? ((await this.liveness?.get(held.owner.pluginId)) ?? null)
