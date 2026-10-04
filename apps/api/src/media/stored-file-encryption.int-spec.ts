@@ -294,6 +294,7 @@ describe("the CHECK on a row's key and its encryption", () => {
           byteSize: 1,
           checksum: "0".repeat(64),
           fileName: "a.png",
+          visibility: "PUBLIC",
         },
       }),
     ).rejects.toThrow(/media_file_key_matches_encryption/);
@@ -310,6 +311,7 @@ describe("the CHECK on a row's key and its encryption", () => {
           byteSize: 1,
           checksum: "0".repeat(64),
           fileName: "b.png",
+          visibility: "PUBLIC",
         },
       }),
     ).rejects.toThrow(/media_file_key_matches_encryption/);
@@ -328,6 +330,7 @@ describe("the CHECK on an unencrypted object waiting to be removed", () => {
           byteSize: 1,
           checksum: "0".repeat(64),
           fileName: "c.png",
+          visibility: "PUBLIC",
         },
       }),
     ).rejects.toThrow(/media_file_unencrypted_key_only_when_replaced/);
@@ -345,6 +348,7 @@ describe("the CHECK on an unencrypted object waiting to be removed", () => {
           byteSize: 1,
           checksum: "0".repeat(64),
           fileName: "d.png",
+          visibility: "PUBLIC",
         },
       }),
     ).rejects.toThrow(/media_file_unencrypted_key_only_when_replaced/);

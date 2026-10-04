@@ -570,9 +570,9 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { heading: /^Lägenhet\s+1001$/ },
   },
   {
-    // Everybody the register fixture seeds is invited when the board approves
-    // their request, so the account field on a person view is in this state
-    // until somebody chooses a password.
+    // The capture invites the resident after the register fixture is seeded,
+    // so the account field on a person view is in this state until somebody
+    // chooses a password.
     name: "person-invitation",
     prepare: [
       { click: { button: "Stäng" } },
@@ -2024,5 +2024,47 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/"),
     prepare: [{ click: { button: "Meny" } }],
     waitFor: { link: "Dataskydd" },
+  },
+
+  // --- decisions that write ---------------------------------------------------
+  // Last, because the board's answer is the screen and the answer is a write:
+  // the approval below moves the applicant into the register, and the election
+  // is refused before anything is recorded.
+  {
+    /*
+     * The queue after the board has approved the request waiting in it: the
+     * notice that says the invitation is on its way. The other notice, for an
+     * approval whose invitation could not be sent, needs a mail server that
+     * refuses, which this stack does not have.
+     */
+    name: "settings-signup-queue-approved",
+    as: "administrator",
+    goto: appPath("/settings"),
+    prepare: [
+      { see: { text: APPLICANT.email } },
+      {
+        select: { combobox: "Lägenhet i registret" },
+        option: APPLICANT.claimedApartmentNumber,
+      },
+      { click: { button: "Godkänn" } },
+    ],
+    waitFor: { text: /Ansökan är godkänd\. En inbjudan är på väg till/ },
+    capture: { panel: "Väntande ansökningar" },
+  },
+  {
+    /*
+     * A person's view with the refusal an election to a position of trust gets
+     * when it is dated too far ahead: the reason the server names, where it used
+     * to be "your account may not do this".
+     */
+    name: "person-election-refused",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Öppna Astrid Lindqvist" } },
+      { see: { heading: "Astrid Lindqvist" } },
+      { fill: { label: "Vald den" }, value: "2099-01-01" },
+      { click: { button: "Anteckna valet" } },
+    ],
+    waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
   },
 ];

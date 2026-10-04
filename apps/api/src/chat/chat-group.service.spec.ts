@@ -295,7 +295,33 @@ function build(options: {
        * that does not exist, and a fake that answered otherwise would let that
        * refusal pass for the wrong reason.
        */
-      findFirst: vi.fn(async () => null),
+      findFirst: vi.fn(
+        async (args: {
+          where: {
+            id: string;
+            protectedPersonalData?: boolean;
+            residencies?: {
+              some: { OR: [unknown, { movedOutOn: { gt: Date } }] };
+            };
+          };
+        }) => {
+          // The seat query names no residencies; see above.
+          if (args.where.residencies === undefined) {
+            return null;
+          }
+          const [, future] = args.where.residencies.some.OR;
+          const person = persons.find(
+            (candidate) =>
+              candidate.id === args.where.id &&
+              !(
+                args.where.protectedPersonalData === false &&
+                candidate.protectedPersonalData
+              ) &&
+              livesHere(candidate.id, future.movedOutOn.gt),
+          );
+          return person === undefined ? null : { id: person.id };
+        },
+      ),
       findMany: vi.fn(
         async (args: {
           where: {
@@ -495,6 +521,32 @@ describe("who may put somebody into a group", () => {
     await expect(
       service.addMember(principal(NILS.id), GROUP_ID, EXTERNAL.id),
     ).rejects.toMatchObject({ reason: "not-a-resident" });
+    expect(members).toHaveLength(1);
+  });
+
+  it("refuses somebody with protected personal data exactly as a stranger", async () => {
+    /*
+     * The picker never offers them, so an identifier naming them is one the
+     * caller found elsewhere. The answer must not differ from the one a
+     * person who does not exist gets, or it tells the caller whether a
+     * protected person lives here.
+     */
+    const { service, members } = build({
+      chats: [GARDEN],
+      persons: [NILS, PROTECTED],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+    });
+
+    const refusal = (personId: string) =>
+      service.addMember(principal(NILS.id), GROUP_ID, personId).then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    const protectedRefusal = await refusal(PROTECTED.id);
+    const strangerRefusal = await refusal("person-nobody");
+
+    expect(protectedRefusal).toMatchObject({ reason: "not-a-resident" });
+    expect(protectedRefusal).toEqual(strangerRefusal);
     expect(members).toHaveLength(1);
   });
 
