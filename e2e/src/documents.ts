@@ -96,6 +96,9 @@ export async function fileDocument(
   input: DocumentFixture & { audience: "BOARD" | "MEMBER" | "PUBLIC" },
 ): Promise<ArchivedDocument> {
   const response = await request.post(`${stack.baseUrl}/api/documents`, {
+    // A form body names where it came from, as the archive screen's does, or
+    // the API takes it for a form posted from a sibling site.
+    headers: { origin: new URL(stack.baseUrl).origin },
     multipart: {
       title: input.title,
       category: input.category,
