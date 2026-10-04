@@ -68,6 +68,23 @@ describe("parseSha512", () => {
     expect(parseSha512(SRI_FORM.slice(0, -2))).toEqual(DIGEST);
   });
 
+  it("accepts a digest whose base64 padding is a single '='", () => {
+    // 64 bytes need "==", so one "=" is a half-trimmed spelling. Buffer reads
+    // it as the same digest, and so must the catalog's check.
+    const body = SRI_FORM.slice(0, -2);
+    expect(parseSha512(`${body}=`)).toEqual(DIGEST);
+    expect(Buffer.from(`${body.slice("sha512-".length)}=`, "base64")).toEqual(
+      Buffer.from(DIGEST),
+    );
+  });
+
+  it("rejects a digest with three '=' of padding", () => {
+    const body = SRI_FORM.slice(0, -2);
+    expect(refusalReason(() => parseSha512(`${body}===`))).toBe(
+      "malformed-digest",
+    );
+  });
+
   it("ignores non-zero bits after the last whole byte", () => {
     // 64 bytes leave four spare bits in the final base64 character. Buffer
     // discards them, so a spelling that sets them still names the same digest.

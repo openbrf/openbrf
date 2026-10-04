@@ -7,9 +7,10 @@
  * refuses. So the parsing lives here, in the contract both depend on, and
  * nowhere else.
  *
- * Written without `Buffer`, `atob` or `node:crypto`: this package is bundled
- * into places that have none of them (see package-check.ts), and hashing
- * itself stays with the caller.
+ * Written without `Buffer` or `node:crypto`: this package is also bundled into
+ * apps/web, a browser, where neither exists, and hashing itself stays with the
+ * caller. Base64 is decoded by hand rather than with `atob` so that padding and
+ * stray trailing bits are read as `Buffer` reads them, whatever the runtime.
  */
 
 const SRI_PATTERN = /^sha512-([A-Za-z0-9+/]+)={0,2}$/;
