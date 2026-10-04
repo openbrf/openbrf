@@ -111,7 +111,7 @@ const SESSION: ImportSessionView = {
 const PREVIEW: ImportPreview = {
   sessionId: "session-1",
   previewToken: "preview-1",
-  summary: { create: 1, update: 0, ambiguous: 1, error: 1 },
+  summary: { create: 1, update: 1, ambiguous: 1, error: 1 },
   rows: [
     {
       rowNumber: 1,
@@ -135,7 +135,9 @@ const PREVIEW: ImportPreview = {
       movedInOn: "2019-06-01",
       movedOutOn: null,
       matchedPersonId: null,
+      matchedPersonName: null,
       matchedBy: null,
+      mismatch: null,
       sameAsRowNumber: null,
       candidates: [],
       problems: [],
@@ -162,7 +164,9 @@ const PREVIEW: ImportPreview = {
       movedInOn: "2020-01-01",
       movedOutOn: null,
       matchedPersonId: null,
+      matchedPersonName: null,
       matchedBy: "apartmentAndName",
+      mismatch: null,
       sameAsRowNumber: null,
       candidates: [
         { personId: "person-bo-senior", name: "Bo Berg" },
@@ -188,10 +192,41 @@ const PREVIEW: ImportPreview = {
       movedInOn: null,
       movedOutOn: null,
       matchedPersonId: null,
+      matchedPersonName: null,
       matchedBy: null,
+      mismatch: null,
       sameAsRowNumber: null,
       candidates: [],
       problems: [{ field: "movedInOn", reason: "date-not-iso" }],
+    },
+    {
+      rowNumber: 4,
+      outcome: "update",
+      person: {
+        firstName: "Dag",
+        lastName: "Dahl",
+        email: "dag@exempel.se",
+        phone: null,
+        hasPersonalIdentityNumber: false,
+        postalStreet: null,
+        postalCode: null,
+        postalCity: null,
+      },
+      apartment: {
+        id: "apartment-1202",
+        number: "1202",
+        addressLabel: "Storgatan 12",
+      },
+      role: "RESIDENT",
+      movedInOn: "2020-01-01",
+      movedOutOn: null,
+      matchedPersonId: "person-dag",
+      matchedPersonName: "Dag Dahlström",
+      matchedBy: "email",
+      mismatch: null,
+      sameAsRowNumber: null,
+      candidates: [],
+      problems: [],
     },
   ],
 };
@@ -386,6 +421,69 @@ describe("while the preview is planned", () => {
     });
   }
 
+  it("keeps the preview on screen while it is taken again with the decisions", async () => {
+    // The apply found that the decisions change what other rows match. The
+    // preview they produce is planned by the job like any other, and until it
+    // is ready the board sees the one it was looking at and cannot apply it.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "preview-outdated" },
+    });
+    previewImport.mockResolvedValue({ ok: true, value: PLANNING });
+    fetchImportPreview
+      .mockResolvedValueOnce({
+        ok: true,
+        value: previewRun({ status: "PLANNING", rowsDone: 2, preview: null }),
+      })
+      .mockResolvedValue({ ok: true, value: previewRun() });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByText(/2 av 3 rader/)).toBeTruthy();
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(previewImport).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+        },
+      }),
+    );
+
+    await nextPoll();
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(
+      (
+        screen.getByRole("combobox", {
+          name: /Den här raden är/,
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("person-bo-senior");
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
   it("shows how far it has got, and the preview once it is ready", async () => {
     const session = userEvent.setup();
     previewImport.mockResolvedValue({ ok: true, value: PLANNING });
@@ -579,7 +677,7 @@ describe("while the preview is planned", () => {
     previewImport.mockResolvedValue({ ok: true, value: PLANNING });
     fetchImportPreview.mockResolvedValue({
       ok: false,
-      failure: { status: 409, reason: "preview-changed" },
+      failure: { status: 409, reason: "preview-replaced" },
     });
 
     await reachMapping(session);
@@ -728,11 +826,159 @@ describe("the preview", () => {
     expect(document.body.textContent).not.toMatch(/\d{6,8}[-+]\d{4}/);
   });
 
+  it("names the person a row was matched to", async () => {
+    // The board approves what is written to whom, so the person has to be on
+    // the screen and not only an identifier the board cannot read.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(screen.getByText("Matchad person: Dag Dahlström")).toBeTruthy();
+  });
+
+  it("says a row's identity number is not added to a person it matched on something else", async () => {
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          summary: { create: 1, update: 1, ambiguous: 0, error: 0 },
+          rows: [
+            created,
+            {
+              ...updated,
+              person: { ...updated.person, hasPersonalIdentityNumber: true },
+            },
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByText(/Personnumret läggs inte till på den här personen/),
+    ).toBeTruthy();
+  });
+
+  it("says why a row that matched one person still waits for a decision", async () => {
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          summary: { create: 1, update: 0, ambiguous: 1, error: 0 },
+          rows: [
+            created,
+            {
+              ...updated,
+              outcome: "ambiguous",
+              matchedPersonId: null,
+              matchedPersonName: null,
+              mismatch: "personalIdentityNumber",
+              candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+            },
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByText(
+        /Filens personnummer skiljer sig från den här personens/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Dag Dahlström" })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("says a row's identity number is not added to the person chosen for it", async () => {
+    // Matched by email and waiting because the name differs: choosing the
+    // person writes the row to them, but not its identity number.
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          summary: { create: 1, update: 0, ambiguous: 1, error: 0 },
+          rows: [
+            created,
+            {
+              ...updated,
+              outcome: "ambiguous",
+              person: { ...updated.person, hasPersonalIdentityNumber: true },
+              matchedPersonId: null,
+              matchedPersonName: null,
+              mismatch: "name",
+              candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+            },
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const notAdded = /Personnumret läggs inte till på den här personen/;
+    expect(screen.queryByText(notAdded)).toBeNull();
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-dag",
+    );
+
+    expect(screen.getByText(notAdded)).toBeTruthy();
+  });
+
   it("names what is wrong with a row rather than dropping it", async () => {
     const session = userEvent.setup();
     await reachPreview(session);
 
     expect(screen.getByText(/ÅÅÅÅ-MM-DD/)).toBeTruthy();
+  });
+
+  it("flags a name that already lost a letter before anything is written", async () => {
+    // The API refuses such a row; what the board has to see is why, next to
+    // the name it would otherwise have taken for a display glitch.
+    const garbled = PREVIEW.rows[2]!;
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          rows: [
+            {
+              ...garbled,
+              person: { ...garbled.person, firstName: "Bj\uFFFDrk" },
+              problems: [{ field: "firstName", reason: "garbled-characters" }],
+            },
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const row = screen.getByText(/Bj\uFFFDrk/).closest("tr");
+    expect(row?.textContent).toMatch(/Ett tecken har redan gått förlorat/);
+    expect(row?.textContent).toMatch(/Importeras inte/);
   });
 
   it("refuses to apply while a row matches more than one person", async () => {
@@ -824,38 +1070,6 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
   });
 
-  it("shows the other file's import when one is already being written", async () => {
-    // Only one import writes the register at a time. Two at once would each
-    // create the people the other was about to create.
-    const session = userEvent.setup();
-    await reachPreview(session);
-
-    applyImport.mockResolvedValue({
-      ok: false,
-      failure: { status: 409, reason: "another-import-running" },
-    });
-    fetchActiveImport.mockResolvedValue({
-      ok: true,
-      value: runView({
-        sessionId: "session-2",
-        fileName: "andra.csv",
-        status: "APPLYING",
-        rowsDone: 1,
-      }),
-    });
-
-    await session.selectOptions(
-      screen.getByRole("combobox", { name: /Den här raden är/ }),
-      "skip",
-    );
-    await session.click(
-      screen.getByRole("button", { name: /Genomför importen/ }),
-    );
-
-    expect(await screen.findByText(/En annan import skrivs/)).toBeTruthy();
-    expect(await screen.findByText(/andra\.csv/)).toBeTruthy();
-  });
-
   it("sends the board back to the mapping when the upload was previewed again", async () => {
     // Another tab, or another board member, previewed the same upload. The
     // decisions on this screen belong to a preview that no longer stands.
@@ -864,7 +1078,7 @@ describe("after pressing apply", () => {
 
     applyImport.mockResolvedValue({
       ok: false,
-      failure: { status: 409, reason: "preview-changed" },
+      failure: { status: 409, reason: "preview-replaced" },
     });
 
     await session.selectOptions(
@@ -880,6 +1094,190 @@ describe("after pressing apply", () => {
     ).toBeTruthy();
     expect(screen.getByText(/Kolumnerna/)).toBeTruthy();
     expect(screen.queryByText(/Vad detta skulle göra/)).toBeNull();
+  });
+
+  it("previews again when the decisions make another row need one", async () => {
+    // Bo senior gets row 2's details, and row 4 turns out to contradict him.
+    // The API refuses before writing anything, and the board is shown the
+    // preview the decision produces rather than a refusal it cannot act on.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "ambiguous-rows-undecided" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          summary: { create: 1, update: 0, ambiguous: 2, error: 1 },
+          rows: [
+            created,
+            ambiguous,
+            failed,
+            {
+              ...updated,
+              outcome: "ambiguous",
+              matchedPersonId: null,
+              matchedPersonName: null,
+              mismatch: "name",
+              candidates: [{ personId: "person-bo-senior", name: "Bo Berg" }],
+            },
+          ],
+        },
+      }),
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(previewImport).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+        },
+      }),
+    );
+    const choices = screen.getAllByRole("combobox", {
+      name: /Den här raden är/,
+    });
+    expect((choices[0] as HTMLSelectElement).value).toBe("person-bo-senior");
+    expect((choices[1] as HTMLSelectElement).value).toBe("");
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await session.selectOptions(choices[1] as HTMLSelectElement, "create");
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    await waitFor(() => {
+      expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+        previewToken: "preview-1",
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+          "4": { action: "create" },
+        },
+      });
+    });
+    expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
+  });
+
+  it("drops a chosen person the row no longer matches", async () => {
+    // The register changed after the preview, and row 2 now matches other
+    // people. Keeping Bo senior would send an answer the row no longer offers,
+    // and the apply would refuse it again with nothing for the board to change.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "decision-not-a-candidate" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          rows: [
+            created,
+            {
+              ...ambiguous,
+              candidates: [{ personId: "person-bo-other", name: "Bo Berg" }],
+            },
+            failed,
+            updated,
+          ],
+        },
+      }),
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("combobox", {
+          name: /Den här raden är/,
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("keeps the preview when another import is running", async () => {
+    // A different file is being imported - by another board member, or from a
+    // tab opened before it started. This upload was not started, so the
+    // preview the board member checked stays on the screen to run afterwards.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "another-import-running" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/En annan import pågår/)).toBeTruthy();
+    expect(screen.getByText(/Vad detta skulle göra/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Genomför importen/ })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    expect(fetchActiveImport).toHaveBeenCalledTimes(1);
   });
 
   it("follows the import to the end", async () => {

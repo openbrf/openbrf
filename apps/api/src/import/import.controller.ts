@@ -16,7 +16,7 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
-import { MAX_IMPORT_COLUMNS } from "./import-limits";
+import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from "./import-limits";
 import type { ImportPreviewRun } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
 import {
@@ -38,18 +38,32 @@ const uploadSchema = z.object({
   content: z.string().min(1).max(MAX_ENCODED_LENGTH),
 });
 
-const mappingSchema = z.object({
-  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(MAX_IMPORT_COLUMNS),
-  /** Used for rows with no role column. Never guessed. */
-  defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
-  defaultMovedInOn: calendarDateSchema.nullish(),
-});
-
 const decisionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("use-person"), personId: z.string().min(1) }),
   z.object({ action: z.literal("create") }),
   z.object({ action: z.literal("skip") }),
 ]);
+
+/**
+ * Keyed by a data row's number, which counts from 1. A file holds at most
+ * MAX_IMPORT_ROWS of them, so there are never more decisions than that.
+ */
+const decisionsSchema = z
+  .record(z.string().regex(/^[1-9]\d{0,5}$/), decisionSchema)
+  .refine((decisions) => Object.keys(decisions).length <= MAX_IMPORT_ROWS)
+  .default({});
+
+const previewSchema = z.object({
+  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(MAX_IMPORT_COLUMNS),
+  /** Used for rows with no role column. Never guessed. */
+  defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
+  defaultMovedInOn: calendarDateSchema.nullish(),
+  /**
+   * What the board has decided so far. Sent when the screen previews again
+   * because a decision changed what later rows match.
+   */
+  decisions: decisionsSchema,
+});
 
 /**
  * What the board answered for the rows the preview could not resolve.
@@ -60,7 +74,7 @@ const decisionSchema = z.discriminatedUnion("action", [
  */
 const applySchema = z.object({
   previewToken: z.string().min(1).max(100),
-  decisions: z.record(z.string(), decisionSchema).default({}),
+  decisions: decisionsSchema,
 });
 
 /**
@@ -137,11 +151,12 @@ export class ImportController {
     @Param("id") id: string,
     @Body() body: unknown,
   ): Promise<ImportPreviewRun> {
-    const input = mappingSchema.parse(body);
+    const input = previewSchema.parse(body);
     return this.imports.preview(id, {
       mapping: input.mapping,
       defaultRole: input.defaultRole ?? null,
       defaultMovedInOn: input.defaultMovedInOn ?? null,
+      decisions: input.decisions,
     });
   }
 

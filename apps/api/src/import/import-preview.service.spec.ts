@@ -118,7 +118,9 @@ function planned(
     movedInStated: true,
     movedOutOn: null,
     matchedPersonId: null,
+    matchedPersonName: null,
     matchedBy: null,
+    mismatch: null,
     sameAsRowNumber: null,
     candidates:
       outcome === "ambiguous"

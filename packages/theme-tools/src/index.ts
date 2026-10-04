@@ -7,6 +7,7 @@
 
 export {
   MAX_ARCHIVE_ENTRIES,
+  MAX_DIRECTORY_RECORDS,
   MAX_ENTRY_BYTES,
   MAX_TOTAL_BYTES,
   readThemeArchive,

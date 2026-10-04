@@ -2,7 +2,11 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { memberRegisterEntriesByRecordedName } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
-import { uniqueEmail, uniqueSurname } from "../src/identity";
+import {
+  uniqueEmail,
+  uniquePersonalIdentityNumber,
+  uniqueSurname,
+} from "../src/identity";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
 import { buildWorkbook } from "../src/xlsx";
 import * as api from "../src/api";
@@ -41,10 +45,11 @@ const GUNNAR = {
   lastName: uniqueSurname("Wikander"),
   email: uniqueEmail("gunnar"),
   /**
-   * Valid under the Luhn checksum the register enforces, and nobody's:
-   * 1970-12-31 with an invented suffix.
+   * This run's too. The import matches a row by its identity number before
+   * anything else, so a fixed one would preview Gunnar as an update of the
+   * Gunnar an earlier run wrote rather than as a new person.
    */
-  personalIdentityNumber: "19701231-1119",
+  personalIdentityNumber: uniquePersonalIdentityNumber("gunnar"),
 } as const;
 
 /** In the register already, with an email and nothing else, so the file updates her. */
@@ -162,10 +167,13 @@ async function openImport(page: Page): Promise<void> {
  * member who closed the tab finds it again rather than an empty form suggesting
  * nothing happened. That is also what greets a second run against a stack that
  * is already up, and starting another list is how the screen gets back to the
- * first step. Which of the two it will be is read from the API's answer, not
- * from the screen: the upload step is on screen until that answer arrives, so
- * waiting for either control can settle on the upload step a moment before the
- * screen moves to the last import.
+ * first step.
+ *
+ * The screen cannot say which of the two it is from what it shows: it renders
+ * the empty form at once and swaps the last import in when the API answers, so
+ * a file input seen early is no evidence that no import is coming. The branch
+ * is chosen from that answer instead. An import still running has no button to
+ * start another yet, and the wait for it covers the run finishing.
  */
 async function openUploadStep(page: Page): Promise<void> {
   // Armed before the navigation: a wait registered afterwards can miss a
@@ -179,19 +187,18 @@ async function openUploadStep(page: Page): Promise<void> {
   const response = await answered;
   expect(
     response.ok(),
-    `asking for the last import answered ${String(response.status())}`,
+    `the last import answered ${String(response.status())}`,
   ).toBe(true);
-  // A Nest handler returning null sends an empty body.
+  // An empty body is how a null can travel as well as the literal.
   const body = await response.text();
-  const ranBefore = body !== "" && body !== "null";
+  const lastImport: unknown = body === "" ? null : JSON.parse(body);
 
-  const file = page.getByLabel("Välj en fil");
-  if (ranBefore) {
+  if (lastImport !== null) {
     await page
       .getByRole("button", { name: "Importera en annan lista" })
       .click();
   }
-  await expect(file).toBeVisible();
+  await expect(page.getByLabel("Välj en fil")).toBeVisible();
 }
 
 /** The apartment the register holds under one address and number. */
@@ -347,7 +354,7 @@ test("a CSV is mapped, previewed and applied, and writes the register", async ({
   await expect(apply).toBeDisabled();
   await expect(
     page.getByText(
-      "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
+      "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
     ),
   ).toBeVisible();
 

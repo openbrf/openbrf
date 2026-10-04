@@ -9,8 +9,8 @@ import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
   apartmentNameKey,
-  type EarlierRow,
   hasIndexableIdentityNumber,
+  type ImportDecisions,
   type ImportPlan,
   type ImportRole,
   planImport,
@@ -18,6 +18,7 @@ import {
   readRow,
   type RegisterResidency,
   type RegisterSnapshot,
+  type UnwrittenIdentityNumber,
 } from "./import-plan";
 
 /**
@@ -62,6 +63,17 @@ export interface ImportPlanRequest {
    */
   window?: { from: number; count: number };
   /**
+   * What the board decided for the rows that need it, so the rows after one
+   * are matched against what it writes. None when absent.
+   */
+  decisions?: ImportDecisions;
+  /**
+   * The rows of earlier chunks whose identity number the apply did not write,
+   * and the person it wrote each of them to. The number is read from the row
+   * again, so a later row stating it reaches that person. None when absent.
+   */
+  unwrittenIdentityNumbers?: ReadonlyMap<number, string>;
+  /**
    * Whether every valid identity number is indexed.
    *
    * The apply sets this: a person it writes carries the index, so the cost is
@@ -73,13 +85,6 @@ export interface ImportPlanRequest {
    */
   indexEveryIdentityNumber: boolean;
   indexes: IdentityIndexCache;
-  /**
-   * Rows before the window that an earlier chunk wrote, by row number, to the
-   * person each was written to. Read back from the session, so a row the
-   * preview showed as the same person as one in an earlier chunk reaches that
-   * person.
-   */
-  earlier?: ReadonlyMap<number, string>;
   /**
    * Told how many rows of the window have been prepared, after each one. The
    * preview job reports its progress through this, and stops through it as
@@ -146,34 +151,6 @@ export class ImportPlannerService {
       await request.onRowPrepared?.(prepared.length);
     }
 
-    // No identity number is indexed for these: the file's own keys are its
-    // normalized numbers, and the register match has already been made.
-    const earlier: EarlierRow[] = [];
-    for (const [rowNumber, personId] of request.earlier ?? []) {
-      if (rowNumber > from) {
-        continue;
-      }
-      const values = readRow(
-        request.rows[rowNumber - 1] ?? [],
-        request.mapping,
-      );
-      earlier.push({
-        row: {
-          rowNumber,
-          values,
-          identityNumberIndex: null,
-          emailIndex:
-            values.email === undefined
-              ? null
-              : await this.encryption.computeIndex(
-                  "person.email",
-                  values.email,
-                ),
-        },
-        personId,
-      });
-    }
-
     return planImport(
       prepared,
       snapshot,
@@ -181,7 +158,8 @@ export class ImportPlannerService {
         defaultRole: request.defaultRole,
         defaultMovedInOn: request.defaultMovedInOn,
       },
-      earlier,
+      request.decisions,
+      unwrittenIdentityNumbers(request),
     );
   }
 
@@ -224,7 +202,9 @@ export class ImportPlannerService {
    * Read again for every chunk, and that is the point: a chunk plans against a
    * register that already holds what the chunk before it wrote, so a person
    * listed twice in one file is matched the second time rather than created
-   * twice.
+   * twice. The plan reproduces those writes for the rows of one pass, which is
+   * why the snapshot also carries what decides them: who has an email address
+   * and every residency each person has held.
    */
   private async snapshot(
     db: Prisma.TransactionClient,
@@ -260,6 +240,13 @@ export class ImportPlannerService {
         },
       },
     });
+    // Whether a person has an address at all, which decides whether a row
+    // matched to them gives them one. Asked of the database rather than read
+    // off the ciphertext, which has no business in this process here.
+    const withEmail = await db.person.findMany({
+      where: { emailCipher: { not: null } },
+      select: { id: true },
+    });
 
     const personsByIdentityNumber = new Map<string, string[]>();
     const personsByEmail = new Map<string, string[]>();
@@ -267,6 +254,7 @@ export class ImportPlannerService {
     const personsByApartmentAndNameEver = new Map<string, string[]>();
     const residenciesByPerson = new Map<string, RegisterResidency[]>();
     const personNames = new Map<string, string>();
+    const identityNumberIndexByPerson = new Map<string, string>();
 
     for (const person of persons) {
       personNames.set(
@@ -274,6 +262,10 @@ export class ImportPlannerService {
         `${person.firstName} ${person.lastName}`.trim(),
       );
       if (person.personalIdentityNumberIndex !== null) {
+        identityNumberIndexByPerson.set(
+          person.id,
+          person.personalIdentityNumberIndex,
+        );
         push(
           personsByIdentityNumber,
           person.personalIdentityNumberIndex,
@@ -319,10 +311,33 @@ export class ImportPlannerService {
       personsByEmail,
       personsByApartmentAndName,
       personsByApartmentAndNameEver,
-      residenciesByPerson,
       personNames,
+      identityNumberIndexByPerson,
+      personsWithEmail: new Set(withEmail.map((person) => person.id)),
+      residenciesByPerson,
+      takenAt: today,
     };
   }
+}
+
+/** The numbers earlier rows stated and the apply did not write, in file order. */
+function unwrittenIdentityNumbers(
+  request: ImportPlanRequest,
+): UnwrittenIdentityNumber[] {
+  const unwritten: UnwrittenIdentityNumber[] = [];
+  const earlier = [...(request.unwrittenIdentityNumbers ?? [])].sort(
+    ([a], [b]) => a - b,
+  );
+  for (const [rowNumber, personId] of earlier) {
+    const values = readRow(request.rows[rowNumber - 1] ?? [], request.mapping);
+    const identityNumber = hasIndexableIdentityNumber(values)
+      ? normalizePersonalIdentityNumber(values.personalIdentityNumber ?? "")
+      : null;
+    if (identityNumber !== null) {
+      unwritten.push({ rowNumber, identityNumber, personId });
+    }
+  }
+  return unwritten;
 }
 
 /**

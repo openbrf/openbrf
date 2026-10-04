@@ -236,12 +236,14 @@ export class ChatGroupService {
     const group = await this.requireGroupMembership(chatId, actor, now);
 
     /*
-     * The person being put in has to live here, and the refusal says so rather
-     * than answering "there is no such person": every candidate the room is
-     * offered comes from the resident directory, so a name that is not in it is
-     * somebody the caller went looking for.
+     * The person being put in has to be one the room would offer: somebody
+     * who lives here and whose personal data is not protected. Every other
+     * identifier gets the one refusal, whether it names nobody, somebody who
+     * has moved out or somebody protected, because an identifier outside the
+     * candidates is one the caller went looking for, and a different answer
+     * for each would tell them whether a protected person lives here.
      */
-    if (!(await livesHere(this.prisma, personId, now))) {
+    if (!(await this.isCandidate(personId, now))) {
       throw new ChatError(
         "Only somebody who lives here can be put into a group.",
         "not-a-resident",
@@ -478,6 +480,22 @@ export class ChatGroupService {
       joinedAt: member.joinedAt.toISOString(),
       createdTheGroup: member.personId === chat.createdByPersonId,
     }));
+  }
+
+  /**
+   * Whether this person is one {@link candidates} would offer, the
+   * membership of the room aside.
+   */
+  private async isCandidate(personId: string, now: Date): Promise<boolean> {
+    const person = await this.prisma.person.findFirst({
+      where: {
+        id: personId,
+        protectedPersonalData: false,
+        residencies: { some: residencyHeldOn(localDayOf(now)) },
+      },
+      select: { id: true },
+    });
+    return person !== null;
   }
 
   /** Refuses somebody who does not live here. */

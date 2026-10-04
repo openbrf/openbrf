@@ -58,7 +58,15 @@ import {
  * register does not have and never overwrites what it does. And a row matching
  * more than one person is not resolved by the import: it waits, because the two
  * candidates are usually a parent and a child of the same name in the same
- * apartment.
+ * apartment. So does a row whose identity number or name contradicts the one
+ * person it matched: an email address or a name reached them, and neither says
+ * the row is about them.
+ *
+ * A decision can change what the rows after it match: the person chosen for a
+ * row gets its email address, and a later row can contradict that. The API
+ * refuses such an apply before writing anything, and the screen then previews
+ * again with the decisions made so far, so the board sees the rows that now
+ * need one.
  *
  * Neither the preview nor the import is this screen's work. Matching a long
  * file against a register that holds identity numbers takes minutes, and
@@ -122,6 +130,8 @@ export function ImportScreen(): ReactElement {
   const [decisions, setDecisions] = useState<Record<string, ImportDecision>>(
     {},
   );
+  /** Whether the preview shown was taken again because of the decisions. */
+  const [replanned, setReplanned] = useState(false);
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
@@ -133,6 +143,14 @@ export function ImportScreen(): ReactElement {
    * be cancelled rather than followed: see `runPreview`.
    */
   const previewRequest = useRef(0);
+  /**
+   * What the preview asked for last keeps of the board's decisions, and
+   * whether it was asked for again because of them. Read when it is ready.
+   */
+  const pendingPreview = useRef<{
+    kept: Record<string, ImportDecision>;
+    replanned: boolean;
+  }>({ kept: {}, replanned: false });
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -190,9 +208,11 @@ export function ImportScreen(): ReactElement {
   /** Takes in what the API says about the preview being planned. */
   const receivePreview = useCallback((next: ImportPreviewRun): void => {
     if (next.status === "READY" && next.preview !== null) {
+      const { kept, replanned: again } = pendingPreview.current;
       setPlanning(null);
       setPreview(next.preview);
-      setDecisions({});
+      setDecisions(keptDecisions(next.preview, kept));
+      setReplanned(again);
       setStep("preview");
       return;
     }
@@ -314,46 +334,65 @@ export function ImportScreen(): ReactElement {
     }
   }, []);
 
-  const runPreview = useCallback(async (): Promise<void> => {
-    if (session === null) {
-      return;
-    }
-    setBusy(true);
-    setFailure(null);
-    previewRequest.current += 1;
-    const request = previewRequest.current;
-    const response = await previewImport(session.sessionId, {
-      mapping,
-      defaultRole: needsDefaultRole ? defaultRole : null,
-      defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
-    });
-    if (request !== previewRequest.current) {
-      // The board stepped back, or left, while this was asked. The preview it
-      // started is planned for nobody, and the poll that would have cancelled
-      // it when the wait ended never began.
-      if (response.ok && response.value.status === "PLANNING") {
-        void cancelImportPreview(
-          response.value.sessionId,
-          response.value.previewId,
-        );
+  /**
+   * Asks for the preview, planned with the decisions to keep.
+   *
+   * A decision is kept only for a row that still needs one: a row the kept
+   * decisions settle is no longer asked about, and an answer left behind for it
+   * would be sent with the apply for a question the board no longer sees. A
+   * person chosen for a row is kept only while the row still offers them. The
+   * preview is planned by a job, so what to keep travels with the request until
+   * its answer arrives: see `receivePreview`.
+   */
+  const runPreview = useCallback(
+    async (
+      kept: Record<string, ImportDecision> = {},
+      again = false,
+    ): Promise<void> => {
+      if (session === null) {
+        return;
       }
-      return;
-    }
-    setBusy(false);
-    if (!response.ok) {
-      setFailure(failureMessage(response.failure.reason));
-      return;
-    }
-    receivePreview(response.value);
-  }, [
-    session,
-    mapping,
-    needsDefaultRole,
-    defaultRole,
-    needsDefaultMovedIn,
-    defaultMovedInOn,
-    receivePreview,
-  ]);
+      setBusy(true);
+      setFailure(null);
+      setReplanned(false);
+      previewRequest.current += 1;
+      const request = previewRequest.current;
+      pendingPreview.current = { kept, replanned: again };
+      const response = await previewImport(session.sessionId, {
+        mapping,
+        defaultRole: needsDefaultRole ? defaultRole : null,
+        defaultMovedInOn: needsDefaultMovedIn ? defaultMovedInOn : null,
+        decisions: kept,
+      });
+      if (request !== previewRequest.current) {
+        // The board stepped back, or left, while this was asked. The preview it
+        // started is planned for nobody, and the poll that would have cancelled
+        // it when the wait ended never began.
+        if (response.ok && response.value.status === "PLANNING") {
+          void cancelImportPreview(
+            response.value.sessionId,
+            response.value.previewId,
+          );
+        }
+        return;
+      }
+      setBusy(false);
+      if (!response.ok) {
+        setFailure(failureMessage(response.failure.reason));
+        return;
+      }
+      receivePreview(response.value);
+    },
+    [
+      session,
+      mapping,
+      needsDefaultRole,
+      defaultRole,
+      needsDefaultMovedIn,
+      defaultMovedInOn,
+      receivePreview,
+    ],
+  );
 
   const apply = useCallback(async (): Promise<void> => {
     if (session === null || preview === null) {
@@ -367,34 +406,48 @@ export function ImportScreen(): ReactElement {
     });
     setBusy(false);
     if (!response.ok) {
-      setFailure(failureMessage(response.failure.reason));
-      if (response.failure.reason === "preview-changed") {
+      const reason = response.failure.reason;
+      if (
+        reason === "ambiguous-rows-undecided" ||
+        reason === "preview-outdated" ||
+        reason === "decision-not-a-candidate"
+      ) {
+        // The decisions made further rows need one, settled a row that needed
+        // one, or chose somebody a row no longer matches. Nothing was written;
+        // what the board needs is the preview those decisions produce.
+        await runPreview(decisions, true);
+        return;
+      }
+      setFailure(failureMessage(reason));
+      if (reason === "preview-replaced") {
         // Somebody previewed this upload again, perhaps with another mapping.
         // The decisions on this screen were made against rows that preview
-        // may not have, so they go, and the board previews again.
+        // may not have, so they go, and the board checks the columns and
+        // previews again. Not at once from here: that would replace the other
+        // board member's preview without either of them choosing that.
         setPreview(null);
         setDecisions({});
         setStep("mapping");
         return;
       }
-      if (
-        response.failure.reason === "session-already-applied" ||
-        response.failure.reason === "another-import-running"
-      ) {
-        // Somebody was quicker - the other tab, or the other board member - with
-        // this upload or another one. What this screen should show now is that
-        // import rather than a preview step it cannot finish.
+      if (reason === "session-already-applied") {
+        // Somebody was quicker - the other tab, or the other board member. What
+        // this screen should show now is that import rather than a preview step
+        // that is over.
         const started = await fetchActiveImport();
         if (started.ok && started.value !== null) {
           setRun(started.value);
           setStep("apply");
         }
       }
+      // "another-import-running" stays on the preview: it is a different
+      // file that is running, and this one is still waiting to be applied
+      // once that has finished.
       return;
     }
     setRun(response.value);
     setStep("apply");
-  }, [session, preview, decisions]);
+  }, [session, preview, decisions, runPreview]);
 
   const restart = useCallback((): void => {
     setRun(null);
@@ -402,6 +455,7 @@ export function ImportScreen(): ReactElement {
     setPreview(null);
     setPlanning(null);
     setDecisions({});
+    setReplanned(false);
     setMapping([]);
     setFailure(null);
     setStep("upload");
@@ -484,6 +538,8 @@ export function ImportScreen(): ReactElement {
             }));
           }}
           undecided={undecided}
+          replanned={replanned}
+          planning={planning}
           busy={busy}
           onBack={() => {
             setStep("mapping");
@@ -498,6 +554,31 @@ export function ImportScreen(): ReactElement {
         <ApplyStep run={{ ...run, status: run.status }} onRestart={restart} />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The decisions a preview keeps: those for rows it still asks about, and a
+ * person chosen for a row only while the row still offers them.
+ */
+function keptDecisions(
+  preview: ImportPreview,
+  kept: Record<string, ImportDecision>,
+): Record<string, ImportDecision> {
+  return Object.fromEntries(
+    preview.rows.flatMap((row) => {
+      const decision = kept[String(row.rowNumber)];
+      const stillOffered =
+        decision?.action !== "use-person" ||
+        row.candidates.some(
+          (candidate) => candidate.personId === decision.personId,
+        );
+      return row.outcome === "ambiguous" &&
+        decision !== undefined &&
+        stillOffered
+        ? [[String(row.rowNumber), decision]]
+        : [];
+    }),
   );
 }
 
@@ -807,6 +888,8 @@ function PreviewStep({
   decisions,
   onDecide,
   undecided,
+  replanned,
+  planning,
   busy,
   onBack,
   onApply,
@@ -815,6 +898,9 @@ function PreviewStep({
   decisions: Record<string, ImportDecision>;
   onDecide: (rowNumber: number, decision: ImportDecision) => void;
   undecided: boolean;
+  replanned: boolean;
+  /** The preview being taken again with the decisions, while it is. */
+  planning: ImportPreviewRun | null;
   busy: boolean;
   onBack: () => void;
   onApply: () => void;
@@ -842,6 +928,12 @@ function PreviewStep({
           ),
         )}
       </dl>
+
+      {replanned ? (
+        <Notice tone="warn" live>
+          {t("import.preview.replanned")}
+        </Notice>
+      ) : null}
 
       {undecided ? (
         <Notice tone="warn">{t("import.preview.undecided")}</Notice>
@@ -884,7 +976,7 @@ function PreviewStep({
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={busy || undecided}
+          disabled={busy || undecided || planning !== null}
           onClick={onApply}
           className={PRIMARY_BUTTON}
         >
@@ -894,6 +986,8 @@ function PreviewStep({
           {t("import.preview.back")}
         </button>
       </div>
+
+      {planning === null ? null : <PlanningProgress planning={planning} />}
     </section>
   );
 }
@@ -927,6 +1021,13 @@ function PreviewRow({
               {`${t("import.preview.matchedBy")}: ${t(`import.matchedBy.${row.matchedBy}`)}`}
             </span>
           )}
+          {row.matchedPersonName === null ? null : (
+            // Who the row will be written to, so the board can see the match
+            // is the person the row is about before anything is written.
+            <span className="text-chip text-ink-muted">
+              {`${t("import.preview.matchedPerson")}: ${row.matchedPersonName}`}
+            </span>
+          )}
         </span>
       </td>
       <td className={`${CELL} text-body text-ink`}>
@@ -936,6 +1037,16 @@ function PreviewRow({
             // Reported, never shown: a preview is not a register view.
             <span className="text-chip text-ink-muted uppercase">
               {t("import.preview.identityNumberOnFile")}
+            </span>
+          ) : null}
+          {row.person.hasPersonalIdentityNumber &&
+          (row.outcome === "update" || decision?.action === "use-person") &&
+          row.matchedBy !== "personalIdentityNumber" ? (
+            // The apply stores a number only on the person it identified, so
+            // the board is not left thinking this one will be filled in - nor
+            // the one it chose for a row that reached them some other way.
+            <span className="text-chip text-ink-muted">
+              {t("import.preview.identityNumberNotAdded")}
             </span>
           ) : null}
         </span>
@@ -949,37 +1060,42 @@ function PreviewRow({
       </td>
       <td className={`${CELL} text-small text-ink-muted`}>
         {row.outcome === "ambiguous" ? (
-          <label className="flex flex-col gap-1">
-            <span className="text-chip uppercase">
-              {t("import.preview.decision")}
-            </span>
-            <select
-              value={decisionValue}
-              onChange={(event) => {
-                const value = event.target.value;
-                onDecide(
-                  row.rowNumber,
-                  value === "create"
-                    ? { action: "create" }
-                    : value === "skip"
-                      ? { action: "skip" }
-                      : { action: "use-person", personId: value },
-                );
-              }}
-              className={FIELD}
-            >
-              <option value="" />
-              {row.candidates.map((candidate) => (
-                <option key={candidate.personId} value={candidate.personId}>
-                  {candidate.name}
+          <div className="flex flex-col gap-1">
+            {row.mismatch === null ? null : (
+              <span>{t(`import.mismatch.${row.mismatch}`)}</span>
+            )}
+            <label className="flex flex-col gap-1">
+              <span className="text-chip uppercase">
+                {t("import.preview.decision")}
+              </span>
+              <select
+                value={decisionValue}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  onDecide(
+                    row.rowNumber,
+                    value === "create"
+                      ? { action: "create" }
+                      : value === "skip"
+                        ? { action: "skip" }
+                        : { action: "use-person", personId: value },
+                  );
+                }}
+                className={FIELD}
+              >
+                <option value="" />
+                {row.candidates.map((candidate) => (
+                  <option key={candidate.personId} value={candidate.personId}>
+                    {candidate.name}
+                  </option>
+                ))}
+                <option value="create">
+                  {t("import.preview.decisionCreate")}
                 </option>
-              ))}
-              <option value="create">
-                {t("import.preview.decisionCreate")}
-              </option>
-              <option value="skip">{t("import.preview.decisionSkip")}</option>
-            </select>
-          </label>
+                <option value="skip">{t("import.preview.decisionSkip")}</option>
+              </select>
+            </label>
+          </div>
         ) : row.problems.length === 0 ? (
           <NotRecorded meaning={t("import.preview.noValue.problems")} />
         ) : (

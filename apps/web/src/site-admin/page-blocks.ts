@@ -276,6 +276,11 @@ export function blockText(block: PageBlock): string {
     case "documentList":
     case "boardRoster":
     case "associationFacts":
+    case "controllerContact":
+      return "";
+    // A block from a newer API: whatever it holds, the API scans it.
+    default:
+      block satisfies never;
       return "";
   }
 }
@@ -394,6 +399,15 @@ function worthSending(block: PageBlock): boolean {
     case "documentList":
     case "boardRoster":
     case "associationFacts":
+    case "controllerContact":
+      return true;
+    /*
+     * A block type this editor does not know, stored by a newer API or put
+     * there by another screen. A save carries the whole page, so leaving it out
+     * of the body would delete it, without anybody having asked for that.
+     */
+    default:
+      block satisfies never;
       return true;
   }
 }

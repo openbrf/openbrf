@@ -30,7 +30,8 @@ const FAILURES: Record<string, TranslationKey> = {
   "workbook-too-large": "import.errors.workbookTooLarge",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
-  "preview-changed": "import.errors.previewChanged",
+  "preview-outdated": "import.errors.previewOutdated",
+  "preview-replaced": "import.errors.previewReplaced",
   "preview-interrupted": "import.errors.previewInterrupted",
   "preview-cancelled": "import.errors.previewCancelled",
   "session-not-found": "import.errors.sessionNotFound",
@@ -71,6 +72,7 @@ const PROBLEMS: Record<string, TranslationKey> = {
   "invalid-personal-identity-number":
     "import.problem.invalid-personal-identity-number",
   "invalid-email": "import.problem.invalid-email",
+  "garbled-characters": "import.problem.garbled-characters",
 };
 
 export function problemMessage(reason: string): TranslationKey {

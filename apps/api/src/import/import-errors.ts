@@ -13,6 +13,11 @@ export type ImportErrorReason =
   | "session-not-found"
   | "session-expired"
   | "session-already-applied"
+  /**
+   * Another session is queued or applying. Answered with 409 and the session
+   * asked about is left in MAPPING, so it can be applied once the other has
+   * finished.
+   */
   | "another-import-running"
   | "file-empty"
   | "file-too-large"
@@ -21,7 +26,13 @@ export type ImportErrorReason =
   | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
-  | "preview-changed"
+  | "preview-outdated"
+  /**
+   * The preview this request holds is no longer the session's: somebody
+   * previewed it again - another tab, another board member - perhaps with
+   * other columns. Answered with 409, and the session stays in MAPPING.
+   */
+  | "preview-replaced"
   | "preview-interrupted"
   | "preview-cancelled"
   | "ambiguous-rows-undecided"
@@ -41,7 +52,7 @@ export class ImportError extends DomainError {
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
             reason === "another-import-running" ||
-            reason === "preview-changed"
+            reason === "preview-replaced"
           ? 409
           : 400;
   }

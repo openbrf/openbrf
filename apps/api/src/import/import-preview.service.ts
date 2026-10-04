@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
@@ -16,6 +16,7 @@ import {
 import { failureName } from "../logging/failure";
 import { type ImportField, readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
+import { readDecisions } from "./import-apply.service";
 import type { ImportOutcome, ImportPlan, PlannedRow } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 
@@ -303,6 +304,7 @@ export class ImportPreviewService implements OnModuleInit {
         mapping: true,
         defaultRole: true,
         defaultMovedInOn: true,
+        decisions: true,
         status: true,
         previewId: true,
         previewStatus: true,
@@ -333,6 +335,7 @@ export class ImportPreviewService implements OnModuleInit {
         mapping: readMapping(session.mapping),
         defaultRole: session.defaultRole,
         defaultMovedInOn: session.defaultMovedInOn,
+        decisions: readDecisions(session.decisions),
         // A preview matches; it writes nothing. An identity number is
         // therefore only worth its Argon2id hash when the register holds one
         // to match it against.
@@ -468,6 +471,7 @@ export class ImportPreviewService implements OnModuleInit {
         previewCipher: encrypted.cipher,
         previewRowsDone: plan.rows.length,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
+        previewDigest: planDigest(plan),
         previewedAt: new Date(),
       },
     });
@@ -492,6 +496,33 @@ export class ImportPreviewService implements OnModuleInit {
       );
     }
   }
+}
+
+/**
+ * What a plan does with every row, as one value to compare.
+ *
+ * The outcome, the person the row is written to and the key that reached
+ * them, which decides whether its identity number is written, the earlier row
+ * it follows, and the persons it could equally well be - sorted, because the
+ * register lists them in no fixed order. Hashed, because a file can have
+ * thousands of rows and the only question ever asked is whether two plans
+ * agree.
+ */
+export function planDigest(plan: ImportPlan): string {
+  const hash = createHash("sha256");
+  for (const row of plan.rows) {
+    hash.update(
+      `${JSON.stringify([
+        row.rowNumber,
+        row.outcome,
+        row.matchedPersonId,
+        row.matchedBy,
+        row.sameAsRowNumber,
+        row.candidates.map((candidate) => candidate.personId).sort(),
+      ])}\n`,
+    );
+  }
+  return hash.digest("hex");
 }
 
 /** Whether a screen has asked about the preview recently enough to go on. */

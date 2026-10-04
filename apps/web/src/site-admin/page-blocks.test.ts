@@ -180,6 +180,22 @@ describe("what is worth sending", () => {
     });
   });
 
+  it("keeps the blocks it has nothing to fill in on, known or not", () => {
+    // A save carries the whole page: a block left out of the body is deleted.
+    const unknown = { type: "mapEmbed", zoom: 12 } as unknown as PageBlock;
+    const blocks: PageBlock[] = [
+      { type: "controllerContact" },
+      { type: "paragraph", runs: [] },
+      unknown,
+      TEXT,
+    ];
+
+    expect(submittableBlocks(blocks)).toEqual({
+      blocks: [{ type: "controllerContact" }, unknown, TEXT],
+      positions: [0, 2, 3],
+    });
+  });
+
   it("reads a text block as one string and back", () => {
     expect(runsToText([{ text: "Sty" }, { text: "relsen", bold: true }])).toBe(
       "Styrelsen",

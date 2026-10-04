@@ -4,11 +4,13 @@
  *
  * Written here rather than taken from a package because the awkward parts are
  * not the ones a general CSV library solves. A Swedish board exports from Excel
- * with the system list separator, which is a semicolon; the file arrives with a
- * UTF-8 byte order mark that would otherwise become part of the first column
- * title; and the rows have to survive a quoted field containing the delimiter,
- * a line break or a doubled quote. That is a small, closed problem, and one
- * fewer dependency in the path that handles a whole cooperative's personal data.
+ * with the system list separator, which is a semicolon; the file is either
+ * UTF-8 with a byte order mark that would otherwise become part of the first
+ * column title, or, saved as "CSV (semikolonavgränsad)" on Swedish Windows,
+ * Windows-1252 rather than UTF-8 at all; and the rows have to survive a quoted
+ * field containing the delimiter, a line break or a doubled quote. That is a
+ * small, closed problem, and one fewer dependency in the path that handles a
+ * whole cooperative's personal data.
  */
 
 import { ImportShapeError } from "./import-limits";
@@ -46,6 +48,70 @@ export function detectDelimiter(text: string): CsvDelimiter {
     }
   }
   return best;
+}
+
+/**
+ * Turns the bytes of an uploaded CSV file into text.
+ *
+ * UTF-8 first, strictly, and Windows-1252 when the bytes are not UTF-8. Excel
+ * on Swedish Windows saves "CSV (semikolonavgränsad)" in Windows-1252, where
+ * å, ä and ö are single bytes that are never valid UTF-8. Read leniently as
+ * UTF-8 they become U+FFFD, and "Åsa Öberg" would be written into a member
+ * register nobody can edit as "\uFFFDsa \uFFFDberg".
+ *
+ * The guess is safe in that direction: a file that decodes as UTF-8 without a
+ * single error is, in practice, UTF-8, while a Windows-1252 file with even one
+ * Swedish letter in it fails the strict decode. Windows-1252 has no invalid
+ * byte sequences, so the fallback always produces text; the WHATWG decoder maps
+ * its five unassigned bytes to control characters rather than to U+FFFD.
+ *
+ * A byte order mark settles it the other way: the file says it is UTF-8, and
+ * Windows-1252 would turn every letter in it into mojibake that no check
+ * catches, starting with "ï»¿" in the first title. Such a file is read
+ * leniently, so a stray invalid byte becomes one U+FFFD that the preview
+ * refuses on its row. The decoder drops the mark itself.
+ *
+ * Without a mark the same danger remains, and nothing downstream sees it: a
+ * UTF-8 file with one stray byte fails the strict decode, and Windows-1252
+ * would read every correctly encoded letter in it as mojibake ("Ã…sa") that
+ * holds no U+FFFD. A file that fails the strict decode but still holds
+ * well-formed UTF-8 for a non-ASCII character is both encodings at once, and
+ * the board is asked to save it again instead of being guessed for. A real
+ * Windows-1252 file rarely matches: its letters sit next to letters, and a
+ * UTF-8 sequence needs a byte in 0x80-0xBF after its first. It does match when
+ * Windows-1252 punctuation (’ ” – … or a no-break space) follows a capital in
+ * C2-DF (Å Ä Ö É Ü), as in "RENÉ’S" or "BJÖRKÖ" plus a no-break space. Such a
+ * file is refused, which is safe: saving it again as UTF-8 fixes it.
+ *
+ * What stays open is a file that passes the strict decode and is Windows-1252
+ * all the same: the bytes C5 A0 are "Å" and a no-break space there and "Š" in
+ * UTF-8, and nothing in the bytes tells them apart. It needs a Windows-1252
+ * file whose only non-ASCII bytes all happen to form UTF-8, so a capital Å, Ä
+ * or Ö next to a symbol and no other Swedish letter anywhere. Guessing the
+ * other way would refuse every Polish or Czech name in a genuine UTF-8 file,
+ * so the board's check is the preview, which shows each name as it would be
+ * written before anything is applied.
+ */
+export function decodeCsv(bytes: Uint8Array): string {
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    if (holdsUtf8Sequence(bytes)) {
+      throw new Error("The file mixes UTF-8 and another encoding.");
+    }
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+
+/** A two-, three- or four-byte UTF-8 sequence, read off the bytes as latin1. */
+const UTF_8_SEQUENCE =
+  /[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF4][\x80-\xBF]{3}/;
+
+function holdsUtf8Sequence(bytes: Uint8Array): boolean {
+  return UTF_8_SEQUENCE.test(Buffer.from(bytes).toString("latin1"));
 }
 
 /**

@@ -118,6 +118,20 @@ describe("pluginPackageProblems", () => {
     ]);
   });
 
+  it("reports a dependency field that is not a map or a list", () => {
+    const problems = pluginPackageProblems(
+      withPackageJson((packageJson) => {
+        packageJson["dependencies"] = "left-pad";
+      }),
+    );
+
+    expect(problems).toEqual([
+      expect.stringMatching(
+        /^package\.json gives dependencies as something other than a map or a list of packages\./,
+      ),
+    ]);
+  });
+
   it("reports a host package declared as a runtime dependency, once", () => {
     const problems = pluginPackageProblems(
       withPackageJson((packageJson) => {
