@@ -49,10 +49,10 @@ export interface SubmitSignupRequestInput {
  *
  * The address and apartment are captured as free text on purpose. The form is
  * served before sign-in, and everything on this platform sits behind a login
- * (decision 28), so it must not offer a picker that enumerates the association's
- * addresses and apartments to anyone who loads the page. Matching the claim to a
- * real apartment is the board's job at approval time, where a human can see
- * whether the claim is plausible.
+ * (decision 28), so it must not offer a picker that enumerates the
+ * association's addresses and apartments to anyone who loads the page.
+ * Matching the claim to a real apartment is the board's job at approval time,
+ * where a human can see whether the claim is plausible.
  */
 @Injectable()
 export class SignupRequestService {

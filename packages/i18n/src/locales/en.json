@@ -2563,7 +2563,7 @@
     "submit": "Send the request",
     "working": "Sending...",
     "receivedTitle": "The request has been received",
-    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. While a request from an email address is waiting, the first one stands, and a later request from the same address is considered only after it has been decided.",
+    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. While a request from an email address is waiting, the first one stands and a later one from the same address is not kept, so send a new request once the first has been decided.",
     "closed": "This housing cooperative is not accepting account requests at the moment. Ask the board, who can invite you instead.",
     "errors": {
       "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",

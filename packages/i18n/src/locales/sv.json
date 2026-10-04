@@ -2563,7 +2563,7 @@
     "submit": "Skicka ansökan",
     "working": "Skickar...",
     "receivedTitle": "Ansökan är mottagen",
-    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan en ansökan från en e-postadress väntar gäller den första, och en senare ansökan från samma adress prövas först när den har avgjorts.",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan en ansökan från en e-postadress väntar gäller den första, och en senare från samma adress sparas inte. Skicka en ny ansökan när den första har avgjorts.",
     "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
     "errors": {
       "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",
