@@ -353,7 +353,27 @@ describe("recording the consent", () => {
     });
   });
 
-  it("never sends the browser to an address that is not a web address", async () => {
+  it("hands an app on the member's device its code at the app's own scheme", async () => {
+    // A scheme the instance registers a client with, so a member who said yes
+    // is not left with a connection the app never heard about.
+    grantConsent.mockResolvedValue({
+      ok: true,
+      value: { url: "se.exempel.app:/callback?code=abc" },
+    });
+    const onGranted = vi.fn();
+    show(request(), { onGranted });
+
+    await screen.findByRole("button", { name: "Koppla appen" });
+    await agree();
+
+    await waitFor(() => {
+      expect(onGranted).toHaveBeenCalledWith(
+        "se.exempel.app:/callback?code=abc",
+      );
+    });
+  });
+
+  it("never sends the browser to an address no client may be registered with", async () => {
     grantConsent.mockResolvedValue({
       ok: true,
       value: { url: "javascript:alert(document.cookie)" },

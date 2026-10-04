@@ -26,7 +26,9 @@ export type {
   PersonalDataCategory,
 } from "./data-protection.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
+export { isLoopbackHost } from "./loopback-host.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
+export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,

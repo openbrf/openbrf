@@ -5,6 +5,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { isAcceptableRedirectUri } from "@openbrf/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
@@ -459,6 +460,57 @@ describe("registering through the administrator's route", () => {
     });
   });
 
+  it("registers a client whose addresses mix the web and this machine", async () => {
+    const redirectUris = [
+      "https://app.exempel.se/cb",
+      "http://127.0.0.1:8123/cb",
+    ];
+    const response = await inject({
+      method: "POST",
+      url: "/api/oauth-clients",
+      payload: { clientName: `${NAME_PREFIX} mixed`, redirectUris },
+      headers: browserHeaders(adminCookie),
+    });
+
+    expect(response.statusCode).toBe(201);
+    const { clientId } = response.json<{ clientId: string }>();
+    expect(
+      await prisma.oauthClient.findUniqueOrThrow({ where: { clientId } }),
+    ).toMatchObject({ applicationType: "native", redirectUris });
+  });
+
+  // The consent screen sends the member's browser on by the shared rule, so
+  // an address registered here that the rule refused would leave a member who
+  // said yes with an app that never got its code.
+  it.each([
+    "https://app.exempel.se/cb",
+    "http://localhost:8123/cb",
+    "se.exempel.app:/callback",
+    "https://localhost:8123/cb",
+    "https://127.0.0.2/cb",
+    "http://app.exempel.se/cb",
+    "myapp:/callback",
+    "se.exempel.app://callback",
+    "javascript:alert(1)",
+  ])(
+    "registers %s exactly when the consent screen would go there",
+    async (uri) => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/oauth-clients",
+        payload: {
+          clientName: `${NAME_PREFIX} agreement`,
+          redirectUris: [uri],
+        },
+        headers: browserHeaders(adminCookie),
+      });
+
+      expect(response.statusCode).toBe(
+        isAcceptableRedirectUri(uri) ? 201 : 400,
+      );
+    },
+  );
+
   it("takes a client on this machine through authorization code and PKCE", async () => {
     const redirectUri = "http://127.0.0.1:8123/cb";
     const registered = await inject({
@@ -550,12 +602,13 @@ describe("registering through the administrator's route", () => {
   );
 
   it("answers 400 with a reason the form can translate when only the provider objects", async () => {
+    // This machine, in a spelling the shared rule does not list.
     const response = await inject({
       method: "POST",
       url: "/api/oauth-clients",
       payload: {
         clientName: `${NAME_PREFIX} refused by the provider`,
-        redirectUris: ["https://localhost:8123/cb"],
+        redirectUris: ["https://[::ffff:127.0.0.1]:8123/cb"],
       },
       headers: browserHeaders(adminCookie),
     });

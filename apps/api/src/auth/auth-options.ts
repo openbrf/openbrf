@@ -1,4 +1,4 @@
-import { cimd } from "@better-auth/cimd";
+import { cimd, type CimdMetadataValidationOptions } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
 import { passkey } from "@better-auth/passkey";
 import type { BetterAuthOptions } from "better-auth";
@@ -135,6 +135,29 @@ export const USER_UPDATE_PATH = "/update-user";
  * a plugin's field is named `<plugin id>.<field>`.
  */
 export const CALLER_SETTABLE_USER_FIELDS: readonly string[] = [];
+
+/**
+ * What a client's metadata document must say, beyond the draft itself: the
+ * fields the MCP revision requires, and the fields whose web addresses must be
+ * on the document's own origin.
+ *
+ * The consent screen names a client by the host of the document's address, so
+ * a member who says yes to `apps.exempel.se` has said yes to sending the code
+ * there, and nowhere else on the web. `redirect_uris` is the field the library
+ * leaves off by default, for a client that keeps its document on one origin
+ * and its callback on another; such a client is registered by an
+ * administrator instead. An app on the member's own device is not held to it:
+ * its loopback and reverse-domain addresses carry no origin to compare, and
+ * the provider checks them by the same rule as every other client.
+ */
+export const CIMD_METADATA_RULES = {
+  metadataProfile: "mcp-2026-07-28",
+  originBoundFields: [
+    "redirect_uris",
+    "post_logout_redirect_uris",
+    "client_uri",
+  ],
+} as const satisfies CimdMetadataValidationOptions;
 
 export interface AccountState {
   /** Whether the register holds an account for this address at all. */
@@ -492,7 +515,7 @@ export function buildAuthOptions(
       cimd({
         fetchClientMetadataResource: guardedMetadataFetch,
         isMetadataDocumentUrlAllowed,
-        metadataProfile: "mcp-2026-07-28",
+        ...CIMD_METADATA_RULES,
       }),
     ],
   } satisfies BetterAuthOptions;
