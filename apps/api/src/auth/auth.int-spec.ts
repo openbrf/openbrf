@@ -1,9 +1,12 @@
+import { request as httpRequest } from "node:http";
+
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import {
@@ -341,6 +344,118 @@ describe("magic link and the second-factor policy", () => {
     await closing.close();
 
     expect(sent).toBe(true);
+  }, 60_000);
+
+  it("lets a sign-in request accepted as the close begins still send its link", async () => {
+    // Nest runs every onModuleDestroy before it closes the HTTP server, so a
+    // request accepted in between starts its delivery after a hook that looked
+    // at the deliveries running and found none.
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.listen(0, "127.0.0.1");
+    const address = closing.getHttpServer().address() as { port: number };
+
+    const database = closing.get(PrismaService);
+    const mail = closing.get(MailService);
+    let sent = false;
+    mail.send = (async () => {
+      await database.$queryRaw`SELECT 1`;
+      sent = true;
+      return { messageId: null };
+    }) as MailService["send"];
+
+    // Holds the request inside the server, accepted but not yet answered and
+    // with no delivery started, while the close begins.
+    const closingAuth = closing.get(AuthService);
+    const handle = closingAuth.instance.handler;
+    let reached!: () => void;
+    const requestReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    (closingAuth.instance as { handler: typeof handle }).handler = async (
+      request,
+    ) => {
+      reached();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return handle(request);
+    };
+
+    // Over a socket of its own that is not kept alive: an idle keep-alive
+    // connection is not closed once the server is, which would hold the close
+    // for a reason that has nothing to do with the delivery.
+    const status = new Promise<number>((resolve, reject) => {
+      const body = JSON.stringify({ email: plain.email });
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: address.port,
+          path: "/api/auth/sign-in/magic-link",
+          method: "POST",
+          agent: false,
+          headers: {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+            connection: "close",
+          },
+        },
+        (reply) => {
+          reply.resume();
+          reply.on("end", () => resolve(reply.statusCode ?? 0));
+        },
+      );
+      request.on("error", reject);
+      request.end(body);
+    });
+    await requestReached;
+
+    await closing.close();
+
+    expect(await status).toBe(200);
+    expect(sent).toBe(true);
+  }, 60_000);
+
+  it("abandons a delivery that does not finish and says so", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.getHttpAdapter().getInstance().ready();
+    closing.get(MailService).send = (() =>
+      new Promise<never>(() => undefined)) as MailService["send"];
+    const warn = vi.spyOn(Logger.prototype, "warn");
+
+    try {
+      await closing
+        .getHttpAdapter()
+        .getInstance()
+        .inject({
+          method: "POST",
+          url: "/api/auth/sign-in/magic-link",
+          payload: { email: plain.email },
+        });
+      const started = Date.now();
+
+      await closing.close();
+
+      // The close came back, after the grace and well before a restart's drain.
+      expect(Date.now() - started).toBeGreaterThanOrEqual(
+        SHUTDOWN_GRACE_MS - 100,
+      );
+      expect(Date.now() - started).toBeLessThan(DRAIN_TIMEOUT_MS);
+      expect(
+        warn.mock.calls.map(([message]) => String(message)),
+      ).toContainEqual(expect.stringContaining("were still running"));
+    } finally {
+      warn.mockRestore();
+    }
   }, 60_000);
 
   it("waits for deliveries for less time than a restart allows the close", () => {

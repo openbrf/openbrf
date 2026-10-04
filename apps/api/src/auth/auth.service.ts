@@ -5,6 +5,7 @@ import {
   Logger,
   type OnModuleDestroy,
 } from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
 import { betterAuth } from "better-auth";
 
 import { principalCan } from "../authorization/capabilities";
@@ -64,6 +65,7 @@ export class AuthService implements OnModuleDestroy {
     private readonly mail: MailService,
     private readonly principals: PrincipalService,
     @Inject(PROTECTED_RESOURCE) resource: ProtectedResource,
+    private readonly httpAdapterHost: HttpAdapterHost,
   ) {
     this.instance = betterAuth(
       buildAuthOptions(
@@ -78,8 +80,7 @@ export class AuthService implements OnModuleDestroy {
 
   /**
    * Settles once no magic-link delivery is running, including one started
-   * while it waited: the HTTP server still answers until the application has
-   * closed.
+   * while it waited.
    */
   async magicLinksSettled(): Promise<void> {
     while (this.deliveries.size > 0) {
@@ -100,10 +101,18 @@ export class AuthService implements OnModuleDestroy {
    * DatabaseModule and JobsModule. The integration suite closes an application
    * to hold that.
    *
+   * Stops the HTTP server first. Nest closes it only after every module-destroy
+   * hook, so a sign-in request accepted while this hook runs would start a
+   * delivery after the check below found none, and the database would be gone
+   * before it read it. Once the server is closed no request is in flight and
+   * none can start, so what the deliveries set holds is final. Nest's own
+   * close of the adapter afterwards finds it already closed.
+   *
    * Bounded, because a mail server that never answers must not hold the
    * shutdown past the grace period the container is given.
    */
   async onModuleDestroy(): Promise<void> {
+    await this.httpAdapterHost.httpAdapter?.close();
     if (this.deliveries.size === 0) {
       return;
     }
