@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 
 import {
   databaseServer,
+  fail,
   passwordOf,
   withoutPassword,
 } from "./database-url.mjs";
@@ -33,11 +34,6 @@ const LOGIN_REFUSED =
   /password authentication failed|role "[^"]*" does not exist|no password supplied/;
 
 export class LoginRefusedError extends Error {}
-
-export function fail(message) {
-  console.error(`openbrf: ${message}`);
-  process.exit(1);
-}
 
 /**
  * A connection to the database DATABASE_URL names, as the schema owner. Stops
@@ -57,7 +53,7 @@ export function ownerConnection() {
     argument = withoutPassword(connectionString, "DATABASE_URL");
     password = passwordOf(connectionString, "DATABASE_URL");
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(error);
   }
 
   return connection({

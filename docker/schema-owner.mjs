@@ -18,8 +18,8 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { ownerRole, runtimeRole } from "./database-url.mjs";
-import { fail, superuserConnection } from "./psql.mjs";
+import { fail, ownerRole, runtimeRole } from "./database-url.mjs";
+import { superuserConnection } from "./psql.mjs";
 
 const SCHEMA_OWNER_SQL = "/app/docker/schema-owner.sql";
 
@@ -41,7 +41,7 @@ try {
   owner = ownerRole();
   runtime = runtimeRole();
 } catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+  fail(error);
 }
 
 // The first container of a deploy to connect, so the one that waits for the

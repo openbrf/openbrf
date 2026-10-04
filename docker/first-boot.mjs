@@ -16,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { fail } from "./database-url.mjs";
 import { ownerConnection } from "./psql.mjs";
 
 const KEY_LENGTH_BYTES = 32;
@@ -24,11 +25,6 @@ const KEY_FILE_NAME = "field-encryption.key";
 
 function log(message) {
   console.log(`openbrf: ${message}`);
-}
-
-function fail(message) {
-  console.error(`openbrf: ${message}`);
-  process.exit(1);
 }
 
 const dataDir = process.env.OPENBRF_DATA_DIR ?? "/data";

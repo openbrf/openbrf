@@ -13,11 +13,12 @@
 // Neither password reaches psql's arguments. An argument is in
 // /proc/<pid>/cmdline, which every process in the container can read; an
 // environment is not. The owner's password is split out of DATABASE_URL by
-// docker/psql.mjs and travels in PGPASSWORD, the argument carries the rest of the URL, and the
-// runtime role's password is read by the SQL itself with \getenv from
-// RUNTIME_DB_PASSWORD. Nothing is printed either way. The role's name travels
-// the same way, in RUNTIME_DB_ROLE, checked here and passed on with the default
-// already applied, so the script and this process cannot disagree about it.
+// docker/psql.mjs and travels in PGPASSWORD, the argument carries the rest of
+// the URL, and the runtime role's password is read by the SQL itself with
+// \getenv from RUNTIME_DB_PASSWORD. Nothing is printed either way. The role's
+// name travels the same way, in RUNTIME_DB_ROLE, checked here and passed on
+// with the default already applied, so the script and this process cannot
+// disagree about it.
 //
 // The role's connection limit is worked out here too, in
 // RUNTIME_DB_CONNECTION_LIMIT: the application's pool, the job queue's and a
@@ -27,8 +28,8 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { runtimeRole } from "./database-url.mjs";
-import { fail, ownerConnection } from "./psql.mjs";
+import { fail, runtimeRole } from "./database-url.mjs";
+import { ownerConnection } from "./psql.mjs";
 
 /** Relative to the working directory the image sets, /app/apps/api. */
 const HARDENING_SQL = "prisma/sql/harden-runtime-role.sql";
@@ -56,7 +57,7 @@ let role;
 try {
   role = runtimeRole();
 } catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+  fail(error);
 }
 
 // The application refuses a pool size outside these bounds when it starts, so

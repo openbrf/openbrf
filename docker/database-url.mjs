@@ -168,7 +168,13 @@ export function withoutPassword(url, variable) {
   return parsed.href;
 }
 
-function fail(message) {
+/**
+ * Ends the process with a message, or with an error's own message, on stderr.
+ * Every script in docker/ stops this way; this file imports nothing, so it is
+ * the one the others can all import it from.
+ */
+export function fail(reason) {
+  const message = reason instanceof Error ? reason.message : String(reason);
   console.error(`openbrf: ${message}`);
   process.exit(1);
 }
@@ -309,7 +315,7 @@ export function ownerUrl() {
   try {
     user = ownerRole();
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(error);
   }
   return assemble({ user, secret: "OWNER_DB_PASSWORD" });
 }
@@ -319,7 +325,7 @@ function checkedRuntimeRole() {
   try {
     return runtimeRole();
   } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error));
+    return fail(error);
   }
 }
 
@@ -363,7 +369,7 @@ function checkedRuntimeUrl() {
       );
     }
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(error);
   }
 }
 

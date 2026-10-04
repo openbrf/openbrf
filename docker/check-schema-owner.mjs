@@ -14,7 +14,8 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { fail, ownerConnection } from "./psql.mjs";
+import { fail } from "./database-url.mjs";
+import { ownerConnection } from "./psql.mjs";
 
 const { query, waitForDatabase } = ownerConnection();
 
@@ -26,7 +27,7 @@ try {
     "SELECT rolsuper FROM pg_roles WHERE rolname = current_user",
   );
 } catch (error) {
-  fail(error instanceof Error ? error.message : String(error));
+  fail(error);
 }
 
 if (superuser === "t") {
