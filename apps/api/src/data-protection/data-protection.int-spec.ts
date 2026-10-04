@@ -1582,9 +1582,20 @@ describe("processors", () => {
     expect(inPlace.statusCode).toBe(200);
     const agreementId =
       inPlace.json<ProcessorView>().agreement?.agreementId ?? "";
-    const auditBefore = await prisma.auditLogEntry.count({
-      where: { action: "PROCESSOR_AGREEMENT_RECORDED" },
-    });
+    /*
+     * Held to this recipient rather than to the kept row: an overwrite would
+     * log its entry against the new row it wrote, which a count of the kept
+     * row's entries cannot see.
+     */
+    const recordedForHosting = () =>
+      prisma.auditLogEntry.count({
+        where: {
+          action: "PROCESSOR_AGREEMENT_RECORDED",
+          targetKind: "processorAgreement",
+          context: { path: ["processorKey"], equals: "hosting" },
+        },
+      });
+    const auditBefore = await recordedForHosting();
 
     const kept = await app.get(ProcessorAgreementService).record(
       "hosting",
@@ -1614,11 +1625,7 @@ describe("processors", () => {
       },
     ]);
     // Nothing was recorded, so nothing is logged as recorded.
-    expect(
-      await prisma.auditLogEntry.count({
-        where: { action: "PROCESSOR_AGREEMENT_RECORDED" },
-      }),
-    ).toBe(auditBefore);
+    expect(await recordedForHosting()).toBe(auditBefore);
   });
 
   it("takes the recipient's key before it replaces the recipient's row", async () => {

@@ -18,7 +18,9 @@ import type { Prisma } from "../generated/prisma/client";
  *
  * Taken by `ProcessorAgreementService.record` and nothing else. The other
  * writers never leave a recipient with two open rows: `recordExternal` creates
- * a key of its own, `end` only closes, and `seed` runs at start-up.
+ * a key of its own and `end` only closes. `seed` reads a row and then writes
+ * it without this lock; nothing calls it today, and whatever wires it up has
+ * to take the lock first.
  *
  * Held here rather than beside the writer because a lock only works if every
  * writer takes the same key.
