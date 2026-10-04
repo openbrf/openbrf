@@ -168,10 +168,17 @@ export function appPath(path = ""): string {
  */
 const AUTH_SECRET = randomBytes(48).toString("base64");
 
+/**
+ * The environment of every `docker compose` call against the suite's stack.
+ * Each one interpolates the compose files again, `logs` and `exec` included, so
+ * a call without the secret fails on the required variable.
+ */
+const COMPOSE_ENV = { ...process.env, BETTER_AUTH_SECRET: AUTH_SECRET };
+
 function compose(args: readonly string[], timeoutMs: number): void {
   execFileSync("docker", [...COMPOSE_ARGS, ...args], {
     cwd: repositoryRoot,
-    env: { ...process.env, BETTER_AUTH_SECRET: AUTH_SECRET },
+    env: COMPOSE_ENV,
     stdio: "inherit",
     timeout: timeoutMs,
   });
@@ -219,6 +226,7 @@ export function runInAppContainer(
       [...COMPOSE_ARGS, "exec", "-T", ...overrides, "app", ...command],
       {
         cwd: repositoryRoot,
+        env: COMPOSE_ENV,
         encoding: "utf8",
         timeout: timeoutMs,
         stdio: ["ignore", "pipe", "pipe"],
@@ -316,6 +324,7 @@ export function appLogs(): string {
     [...COMPOSE_ARGS, "logs", "--no-color", "app"],
     {
       cwd: repositoryRoot,
+      env: COMPOSE_ENV,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 60_000,
