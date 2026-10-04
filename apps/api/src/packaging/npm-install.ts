@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -17,6 +18,14 @@ const run = promisify(execFile);
  * help because a sibling copy wins over NODE_PATH. The loader's module identity
  * assertion is the second half of that defence - either one alone is
  * insufficient.
+ *
+ * An instance never contacts a package registry: every package npm is given
+ * is an archive already on disk whose digest the catalog stated. That is
+ * enforced here rather than assumed. npm runs offline, against a cache of its
+ * own that starts empty, and reads no npm configuration from the host, so a
+ * package that names anything beyond itself fails to install instead of
+ * having it fetched. It also runs with an environment built from an allowlist:
+ * see npmEnvironment below.
  */
 
 export class NpmInstallError extends Error {
@@ -45,6 +54,10 @@ export async function npmInstall(options: NpmInstallOptions): Promise<void> {
     "install",
     // See the note above: this is why a plugin can share the host's NestJS.
     "--omit=peer",
+    // --omit=peer only leaves peers out of node_modules: npm still looks them
+    // up to build the tree, and offline that lookup fails for every plugin,
+    // since each names @nestjs/common as a peer. This skips the lookup too.
+    "--legacy-peer-deps",
     "--omit=dev",
     "--omit=optional",
     "--no-audit",
@@ -55,6 +68,8 @@ export async function npmInstall(options: NpmInstallOptions): Promise<void> {
     // going to be refused by the manifest gate, or abandoned halfway, has not
     // already run a postinstall script.
     "--ignore-scripts",
+    // Nothing is fetched from anywhere: see the note above.
+    "--offline",
     "--loglevel=error",
   ];
 
@@ -63,13 +78,7 @@ export async function npmInstall(options: NpmInstallOptions): Promise<void> {
       cwd: options.cwd,
       timeout: options.timeoutMilliseconds ?? DEFAULT_TIMEOUT,
       maxBuffer: 8 * 1024 * 1024,
-      env: {
-        ...process.env,
-        // The installer resolves nothing from a registry, so a stray NODE_PATH
-        // or npm config from the host process must not change what it does.
-        NODE_PATH: "",
-        npm_config_update_notifier: "false",
-      },
+      env: npmEnvironment(options.cwd),
     });
   } catch (cause) {
     const stderr =
@@ -81,6 +90,27 @@ export async function npmInstall(options: NpmInstallOptions): Promise<void> {
       stderr,
     );
   }
+}
+
+/**
+ * The whole environment npm runs with.
+ *
+ * Built from nothing, so no variable of this process reaches npm unless it is
+ * named here. PATH lets npm find node; everything else points into the
+ * directory being installed, which the installer removes afterwards. The
+ * configuration files are named but never written, so npm reads none: a
+ * registry, a token or a proxy configured on the host does not apply.
+ */
+function npmEnvironment(cwd: string): NodeJS.ProcessEnv {
+  return {
+    ...(process.env.PATH === undefined ? {} : { PATH: process.env.PATH }),
+    HOME: cwd,
+    npm_config_cache: join(cwd, ".npm-cache"),
+    // Two names: npm refuses to read one file as both.
+    npm_config_userconfig: join(cwd, ".npmrc-user-unused"),
+    npm_config_globalconfig: join(cwd, ".npmrc-global-unused"),
+    npm_config_update_notifier: "false",
+  };
 }
 
 /**
