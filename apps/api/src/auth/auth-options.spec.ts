@@ -1,5 +1,6 @@
 import { validateCimdMetadata } from "@better-auth/cimd";
 import { isAcceptableRedirectUri } from "@openbrf/shared";
+import type { BetterAuthOptions } from "better-auth";
 import { describe, expect, it } from "vitest";
 
 import type { Env } from "../config/env";
@@ -560,8 +561,9 @@ describe("the sign-in routes' own origin check", () => {
      * it names none. Off only under NODE_ENV=test or when one of these is set,
      * so neither may be.
      */
-    expect(options.advanced?.disableOriginCheck).toBeUndefined();
-    expect(options.advanced?.disableCSRFCheck).toBeUndefined();
-    expect(options.trustedOrigins).toBeUndefined();
+    const configured: BetterAuthOptions = options;
+    expect(configured.advanced?.disableOriginCheck).toBeUndefined();
+    expect(configured.advanced?.disableCSRFCheck).toBeUndefined();
+    expect(configured.trustedOrigins).toBeUndefined();
   });
 });
