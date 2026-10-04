@@ -29,9 +29,10 @@ if (superuserPassword === "") {
     "POSTGRES_PASSWORD is not set in the schema-owner container. It is the " +
       "database superuser's, which creates the schema owner. Set it in the env " +
       "file and run `up -d` again. An instance on a database server it does " +
-      "not administer does not run this service: that server's administrator " +
-      'creates the owner (docs/deployment.md, "Several instances on one ' +
-      'database server").',
+      "not administer does not run this service. For a new instance, the " +
+      "server's administrator creates the owner (docs/deployment.md, " +
+      '"Several instances on one database server"). An existing instance ' +
+      'keeps its owner and follows "An instance on a shared database server".',
   );
 }
 
