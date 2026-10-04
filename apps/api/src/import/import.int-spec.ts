@@ -1381,7 +1381,16 @@ describe("a preview another import has overtaken, afterwards", () => {
   function rowFor(firstName: string): string[][] {
     return [
       HEADERS,
-      [addressLabel, "2102", firstName, surname, "Boende", "", "", "1/2/23"],
+      [
+        addressLabel,
+        "2102",
+        firstName,
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
     ];
   }
 
