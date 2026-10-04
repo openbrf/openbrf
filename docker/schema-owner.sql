@@ -122,6 +122,23 @@ SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body
 WHERE :'owner_role' = :'app_role'
 \gexec
 
+-- A runtime role that another database grants CONNECT to is another
+-- instance's, which harden-runtime-role.sql refuses too. It is refused here as
+-- well, because by the time the migrate service runs that script the owner
+-- would already hold ADMIN OPTION on the role and its memberships would be
+-- gone. Only grants naming the role count, for the reason that script gives.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('RUNTIME_DB_ROLE names %I, which is granted CONNECT on %s as well, so it belongs to another instance on this server. Give this instance a runtime role of its own in RUNTIME_DB_ROLE.',
+    :'app_role', string_agg(format('%I', d.datname), ', ' ORDER BY d.datname)))
+FROM pg_database d
+CROSS JOIN LATERAL aclexplode(d.datacl) AS acl
+JOIN pg_roles r ON r.oid = acl.grantee
+WHERE r.rolname = :'app_role'
+  AND acl.privilege_type = 'CONNECT'
+  AND d.datname <> current_database()
+HAVING count(*) > 0
+\gexec
+
 SELECT format(
   CASE
     WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'owner_role')
