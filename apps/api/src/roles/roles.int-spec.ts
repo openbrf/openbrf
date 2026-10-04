@@ -68,12 +68,15 @@ const contractor = {
 const electee = { personId: `roles-electee-${suffix}` };
 /** Their own person, so a seat a date is corrected on starts uncontested. */
 const amender = { personId: `roles-amender-${suffix}` };
+/** Somebody whose election was recorded with a mistyped year. */
+const misdated = { personId: `roles-misdated-${suffix}` };
 
 const actors = [admin, spareAdmin, board, resident, contractor];
 const personIds = [
   ...actors.map((actor) => actor.personId),
   electee.personId,
   amender.personId,
+  misdated.personId,
 ];
 
 /*
@@ -223,6 +226,7 @@ beforeAll(async () => {
       },
       { id: electee.personId, firstName: "Elsa", lastName: `Roll${suffix}` },
       { id: amender.personId, firstName: "Ines", lastName: `Roll${suffix}` },
+      { id: misdated.personId, firstName: "Mats", lastName: `Roll${suffix}` },
     ],
   });
 
@@ -403,7 +407,7 @@ describe("who may confer what", () => {
 describe("recording an election", () => {
   it("records the act naming the seat and its date", async () => {
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       electee.personId,
       "CHAIR",
       "2026-04-14",
@@ -416,7 +420,7 @@ describe("recording an election", () => {
         targetId: seat.boardPositionId,
       },
     });
-    expect(entry.actorPersonId).toBe(admin.personId);
+    expect(entry.actorPersonId).toBe(board.personId);
     expect(entry.targetKind).toBe("boardPosition");
     expect(entry.context).toMatchObject({
       position: "CHAIR",
@@ -432,7 +436,7 @@ describe("recording an election", () => {
       method: "POST",
       url: `/api/board-positions/persons/${electee.personId}`,
       payload: { position: "CHAIR", electedOn: "2027-04-14" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(409);
@@ -443,7 +447,7 @@ describe("recording an election", () => {
     // The register's own answer: a deputy co-opted as a board member holds
     // both, and the roster prints them both.
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       board.personId,
       "CHAIR",
       "2026-04-14",
@@ -462,7 +466,7 @@ describe("recording an election", () => {
       method: "POST",
       url: `/api/board-positions/persons/nobody-${suffix}`,
       payload: { position: "BOARD_MEMBER", electedOn: "2026-04-14" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(404);
@@ -474,7 +478,7 @@ describe("recording an election", () => {
       method: "POST",
       url: `/api/board-positions/persons/${electee.personId}`,
       payload: { position: "BOARD_MEMBER", electedOn: "the spring meeting" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(400);
@@ -499,7 +503,7 @@ describe("a date the calendar does not have", () => {
         method: "POST",
         url: `/api/board-positions/persons/${electee.personId}`,
         payload: { position: "DEPUTY_BOARD_MEMBER", electedOn },
-        headers: { cookie: adminCookie },
+        headers: { cookie: boardCookie },
       });
 
       expect(response.statusCode).toBe(400);
@@ -519,7 +523,7 @@ describe("a date the calendar does not have", () => {
       method: "POST",
       url: `/api/board-positions/${seat.id}/end`,
       payload: { endedOn: "2027-04-31" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(400);
@@ -535,7 +539,7 @@ describe("a date the calendar does not have", () => {
 describe("ending a term", () => {
   it("writes the end date and keeps the row", async () => {
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       electee.personId,
       "BOARD_MEMBER",
       "2024-04-14",
@@ -545,7 +549,7 @@ describe("ending a term", () => {
       method: "POST",
       url: `/api/board-positions/${seat.boardPositionId}/end`,
       payload: { endedOn: "2026-04-14" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(200);
@@ -581,9 +585,11 @@ describe("ending a term", () => {
   });
 
   it("refuses ending a term twice", async () => {
+    // Somebody else's seat: the electee's term in this position ran from
+    // 2024, and an election from 2022 would overlap it.
     const seat = await elect(
-      adminCookie,
-      electee.personId,
+      boardCookie,
+      misdated.personId,
       "BOARD_MEMBER",
       "2022-04-14",
     );
@@ -592,7 +598,7 @@ describe("ending a term", () => {
         method: "POST",
         url: `/api/board-positions/${seat.boardPositionId}/end`,
         payload: { endedOn: "2023-04-14" },
-        headers: { cookie: adminCookie },
+        headers: { cookie: boardCookie },
       });
 
     expect((await end()).statusCode).toBe(200);
@@ -603,7 +609,7 @@ describe("ending a term", () => {
 
   it("refuses a term ending before the election that began it", async () => {
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       electee.personId,
       "BOARD_MEMBER",
       "2026-04-14",
@@ -613,7 +619,7 @@ describe("ending a term", () => {
       method: "POST",
       url: `/api/board-positions/${seat.boardPositionId}/end`,
       payload: { endedOn: "2025-04-14" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(409);
@@ -625,7 +631,7 @@ describe("ending a term", () => {
       method: "POST",
       url: `/api/board-positions/nothing-${suffix}/end`,
       payload: { endedOn: "2026-04-14" },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(404);
@@ -642,7 +648,7 @@ describe("ending a term", () => {
      * wrong date on a screen but a century and a half of access.
      */
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       amender.personId,
       "BOARD_MEMBER",
       daysFromToday(-30),
@@ -652,7 +658,7 @@ describe("ending a term", () => {
       method: "POST",
       url: `/api/board-positions/${seat.boardPositionId}/end`,
       payload: { endedOn: daysFromToday(365 * 20) },
-      headers: { cookie: adminCookie },
+      headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(409);
@@ -673,7 +679,7 @@ describe("ending a term", () => {
      * thing this feature exists to end.
      */
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       amender.personId,
       "CHAIR",
       daysFromToday(-30),
@@ -683,7 +689,7 @@ describe("ending a term", () => {
         method: "POST",
         url: `/api/board-positions/${seat.boardPositionId}/end`,
         payload: { endedOn },
-        headers: { cookie: adminCookie },
+        headers: { cookie: boardCookie },
       });
 
     expect((await end(daysFromToday(400))).statusCode).toBe(200);
@@ -734,7 +740,7 @@ describe("ending a term", () => {
     // and the period it covered is the answer to who answered for the
     // association while it ran.
     const seat = await elect(
-      adminCookie,
+      boardCookie,
       amender.personId,
       "DEPUTY_BOARD_MEMBER",
       daysFromToday(-60),
@@ -744,7 +750,7 @@ describe("ending a term", () => {
         method: "POST",
         url: `/api/board-positions/${seat.boardPositionId}/end`,
         payload: { endedOn },
-        headers: { cookie: adminCookie },
+        headers: { cookie: boardCookie },
       });
 
     expect((await end(daysFromToday(-10))).statusCode).toBe(200);
@@ -758,6 +764,187 @@ describe("ending a term", () => {
     expect(stored.endedOn?.toISOString()).toBe(
       `${daysFromToday(-10)}T00:00:00.000Z`,
     );
+  });
+});
+
+describe("a change from a page on another origin", () => {
+  it("is refused, and grants nothing", async () => {
+    // The session cookie is SameSite=Lax, which a sibling subdomain's page is
+    // not stopped by.
+    const response = await inject({
+      method: "PATCH",
+      url: `/api/system-roles/persons/${contractor.personId}`,
+      payload: { role: "ADMIN", granted: true },
+      headers: { cookie: adminCookie, origin: "https://annan.example.se" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    await expect(
+      prisma.systemRole.count({
+        where: { personId: contractor.personId, role: "ADMIN" },
+      }),
+    ).resolves.toBe(0);
+  });
+});
+
+describe("an administrator who holds no seat", () => {
+  /*
+   * A seat confers what no grant of capabilities carries (ADR 0017), so the
+   * administrator's grant must not be a way to one. The board in this suite
+   * holds a seat throughout, so the first-board case is the service spec's.
+   */
+  it("cannot seat themselves", async () => {
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/persons/${admin.personId}`,
+      payload: { position: "BOARD_MEMBER", electedOn: "2026-04-14" },
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ reason: "board-seat-required" });
+    await expect(
+      prisma.boardPosition.count({ where: { personId: admin.personId } }),
+    ).resolves.toBe(0);
+  });
+
+  it("cannot record somebody else's seat while a board is seated", async () => {
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/persons/${misdated.personId}`,
+      payload: { position: "BOARD_MEMBER", electedOn: "2026-04-14" },
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ reason: "board-seat-required" });
+  });
+
+  it("cannot end a board member's term while a board is seated", async () => {
+    const seat = await prisma.boardPosition.findFirstOrThrow({
+      where: { personId: board.personId, position: "BOARD_MEMBER" },
+      select: { id: true, endedOn: true },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/${seat.id}/end`,
+      payload: { endedOn: daysFromToday(1) },
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+    await expect(
+      prisma.boardPosition.findUniqueOrThrow({
+        where: { id: seat.id },
+        select: { endedOn: true },
+      }),
+    ).resolves.toEqual({ endedOn: seat.endedOn });
+  });
+});
+
+describe("an election dated in the wrong year", () => {
+  it("is refused when it lies more than a year ahead", async () => {
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/persons/${misdated.personId}`,
+      payload: { position: "CHAIR", electedOn: daysFromToday(365 * 36) },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "elected-too-far-ahead" });
+  });
+
+  it("can be withdrawn before it begins, and the position recorded again", async () => {
+    // Written as it was before the bound existed: every end date used to be
+    // either before the election or past the term horizon.
+    const typo = await prisma.boardPosition.create({
+      data: {
+        personId: misdated.personId,
+        position: "CHAIR",
+        electedOn: new Date(`${daysFromToday(365 * 36)}T00:00:00Z`),
+      },
+    });
+
+    const withdrawn = await inject({
+      method: "POST",
+      url: `/api/board-positions/${typo.id}/end`,
+      payload: { endedOn: daysFromToday(0) },
+      headers: { cookie: boardCookie },
+    });
+    expect(withdrawn.statusCode).toBe(200);
+
+    const seat = await elect(
+      boardCookie,
+      misdated.personId,
+      "CHAIR",
+      daysFromToday(-30),
+    );
+    expect(seat.endedOn).toBeNull();
+  });
+});
+
+describe("a withdrawn election", () => {
+  it("cannot have its end moved over the election that replaced it", async () => {
+    const withdrawn = await prisma.boardPosition.create({
+      data: {
+        personId: misdated.personId,
+        position: "BOARD_MEMBER",
+        electedOn: new Date(`${daysFromToday(60)}T00:00:00Z`),
+        endedOn: new Date(`${daysFromToday(30)}T00:00:00Z`),
+      },
+    });
+    await elect(
+      boardCookie,
+      misdated.personId,
+      "BOARD_MEMBER",
+      daysFromToday(75),
+    );
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/${withdrawn.id}/end`,
+      payload: { endedOn: daysFromToday(240) },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "term-already-ended" });
+    const stored = await prisma.boardPosition.findUniqueOrThrow({
+      where: { id: withdrawn.id },
+    });
+    expect(stored.endedOn?.toISOString()).toBe(
+      `${daysFromToday(30)}T00:00:00.000Z`,
+    );
+  });
+});
+
+describe("an election that overlaps an earlier term", () => {
+  it("is refused, and writes no seat", async () => {
+    await prisma.boardPosition.create({
+      data: {
+        personId: misdated.personId,
+        position: "DEPUTY_BOARD_MEMBER",
+        electedOn: new Date("2022-04-14"),
+        endedOn: new Date("2023-04-14"),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/persons/${misdated.personId}`,
+      payload: { position: "DEPUTY_BOARD_MEMBER", electedOn: "2022-06-01" },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "term-overlaps" });
+    await expect(
+      prisma.boardPosition.count({
+        where: { personId: misdated.personId, position: "DEPUTY_BOARD_MEMBER" },
+      }),
+    ).resolves.toBe(1);
   });
 });
 
@@ -971,6 +1158,36 @@ describe("the administrator grant", () => {
     expect((stillAdmin.json() as SystemRoleGrantsView).roles).toEqual([
       "ADMIN",
     ]);
+  });
+
+  it("does not count an administrator who cannot sign in", async () => {
+    // A grant on a person with no account keeps nobody able to reach the
+    // settings: the instance would be locked all the same.
+    const granted = await setSystemRole(
+      adminCookie,
+      electee.personId,
+      "ADMIN",
+      true,
+    );
+    expect(granted.statusCode).toBe(200);
+
+    const response = await setSystemRole(
+      adminCookie,
+      admin.personId,
+      "ADMIN",
+      false,
+    );
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "last-administrator" });
+
+    // Revoking the grant that could never be used is not a lockout.
+    const revoked = await setSystemRole(
+      adminCookie,
+      electee.personId,
+      "ADMIN",
+      false,
+    );
+    expect(revoked.statusCode).toBe(200);
   });
 
   it("lets go once somebody else holds the grant", async () => {

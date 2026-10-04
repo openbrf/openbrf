@@ -354,7 +354,7 @@ test("a CSV is mapped, previewed and applied, and writes the register", async ({
   await expect(apply).toBeDisabled();
   await expect(
     page.getByText(
-      "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
+      "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
     ),
   ).toBeVisible();
 

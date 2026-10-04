@@ -467,6 +467,8 @@ beforeAll(async () => {
         byteSize: 2048,
         checksum: `sha-photo-${suffix}`,
         fileName: "trapphus.jpg",
+        visibility: "INTERNAL",
+        requiredCapability: "issues:handle",
         showsIdentifiablePersons: true,
         uploadedByPersonId: people.referenced,
       },

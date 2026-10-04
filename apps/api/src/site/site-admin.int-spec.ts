@@ -922,6 +922,7 @@ describe("a picture on a page", () => {
         checksum: "0".repeat(64),
         fileName: "internt.png",
         visibility: "INTERNAL",
+        requiredCapability: "documents:manage",
         showsIdentifiablePersons: false,
         uploadedByPersonId: boardMember.personId,
       },

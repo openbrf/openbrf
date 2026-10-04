@@ -90,8 +90,9 @@ export interface UploadInput {
   accept?: "image" | "document";
   visibility: MediaVisibility;
   /**
-   * A capability the file names. Narrows an INTERNAL file to holders of it;
-   * widens a MEMBER one to them, beside the members themselves.
+   * A capability the file names. Narrows an INTERNAL file to holders of it,
+   * and is required there; widens a MEMBER one to them, beside the members
+   * themselves.
    */
   requiredCapability?: Capability;
   /**
@@ -295,6 +296,14 @@ export class MediaService {
         `A file held ${input.visibility} names an apartment, and no other file does.`,
       );
     }
+    // The same kind of mistake, and the same CHECK behind it: an INTERNAL file
+    // with no capability would be readable by every account holding its id.
+    if (
+      input.visibility === "INTERNAL" &&
+      input.requiredCapability === undefined
+    ) {
+      throw new Error("An INTERNAL file names the capability that reads it.");
+    }
 
     const sealed = await sealForStorage(this.encryption, input.bytes);
     const storageKey = generateStorageKey(
@@ -463,15 +472,33 @@ export class MediaService {
         });
       }
     } else if (visibility === "INTERNAL") {
-      if (viewer === null || (required !== null && !named)) {
+      if (viewer === null) {
         throw new MediaError("No such file.", "not-found");
       }
-      if (required !== null) {
+      /*
+       * The capability, or the one owner path there is: the person who
+       * reported an issue reads the photos on it, which they took. Asked of
+       * the issue rather than of the uploader column, so it reaches issue
+       * photos and nothing else. Not written to the log, since it is the
+       * reporter's own report.
+       */
+      if (!named) {
+        const reported = await this.prisma.issuePhoto.count({
+          where: {
+            fileId: file.id,
+            issue: { reporterPersonId: viewer.personId },
+          },
+        });
+        if (reported === 0) {
+          throw new MediaError("No such file.", "not-found");
+        }
+      } else {
         /*
-         * Written before the bytes leave, and only for the files whose access
-         * has to be accountable. Logging every serve would put one row in an
-         * append-only table per image on a page, and bury the accesses the law
-         * actually requires to be recorded.
+         * Written before the bytes leave. Every INTERNAL file is one whose
+         * reading by capability has to be accountable: the board's papers, its
+         * mail and the photos on a report. The public site's images and the
+         * members' shelf are the traffic that would bury these, and they are
+         * held PUBLIC and MEMBER.
          */
         await this.audit.record({
           action: "MEDIA_ACCESSED",

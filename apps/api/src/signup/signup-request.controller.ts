@@ -31,9 +31,13 @@ const submitSchema = z.object({
   claimedApartmentNumber: z.string().min(1).max(20),
 });
 
-const approveSchema = z.object({
+/*
+ * Strict, so a request that names a role is refused rather than read as a
+ * resident's: an approval never grants membership, and a caller asking for it
+ * should be told so instead of getting something else.
+ */
+const approveSchema = z.strictObject({
   apartmentId: z.string().min(1),
-  role: z.enum(["MEMBER", "RESIDENT"]).optional(),
 });
 
 const rejectSchema = z.object({
@@ -126,12 +130,11 @@ export class SignupRequestController {
     @Req() request: RequestWithPrincipal,
     @Param("id") id: string,
     @Body() body: unknown,
-  ): Promise<{ personId: string }> {
+  ): Promise<{ personId: string; invitationSent: boolean }> {
     const input = approveSchema.parse(body);
     return this.requests.approve({
       requestId: id,
       apartmentId: input.apartmentId,
-      role: input.role,
       decidedByPersonId: request.principal?.personId ?? "",
     });
   }

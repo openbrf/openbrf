@@ -309,6 +309,9 @@
         "systemWorking": "Saving",
         "errors": {
           "positionAlreadyHeld": "This person already holds that position. End the term before recording a new election to it.",
+          "termOverlaps": "An earlier term in that position runs past this election date. Check the date.",
+          "electedTooFarAhead": "An election cannot be dated that far into the future. Check the year.",
+          "boardSeatRequired": "The board records its own seats. Without a seat you can record only the first board, and never your own seat.",
           "termAlreadyEnded": "That term has already ended. Its dates are the record of a period that has run and they stand.",
           "endedBeforeElected": "A term cannot end before the election that began it.",
           "endedTooFarAhead": "A term cannot run that far into the future. Check the year.",
@@ -1318,15 +1321,17 @@
       "approve": "Approve",
       "approving": "Approving...",
       "approved": "The request is approved. An invitation is on its way to {{email}}.",
+      "approvedNotInvited": "The request is approved and the person is in the register, but the invitation to {{email}} could not be sent. Check the email settings and send the invitation from the person's own view.",
       "reject": "Reject",
       "rejecting": "Rejecting...",
       "rejected": "The request is rejected. Nothing was created.",
       "rejectReason": "Reason (optional)",
       "errors": {
         "alreadyDecided": "Somebody has already decided that request. The list has been read again.",
-        "notFound": "That request is gone - a newer one from the same email address replaces it. The list has been read again.",
+        "notFound": "That request is gone. The list has been read again.",
+        "alreadyResident": "That person already lives in that apartment according to the register. Reject the request, or choose another apartment.",
+        "emailShared": "More than one person in the register has that email address, so the request cannot be matched to one of them. Give each person their own address in the address book, then decide again.",
         "apartmentNotFound": "That apartment is no longer in the register. Reload the page and choose again.",
-        "mailNotConfigured": "The request is approved and the person is in the register, but the invitation could not be sent: this instance has no email server. Set one up under Email and send the invitation from the person's own view.",
         "unknown": "The request could not be decided just now. Please try again."
       }
     },
@@ -1559,7 +1564,8 @@
       "errors": {
         "failed": "The plugin could not be installed. The catalog entry may have changed since this screen was opened; read the catalog again and try once more.",
         "resourceConflict": "The plugin was not installed. Another installed plugin already serves the address that connected apps sign in to, and only one at a time can. Remove that plugin first, or every connection the members have already granted stops working.",
-        "reservedId": "The plugin was not installed. The plugin id mcp-connector is reserved: the instance points connected apps at that address to sign in, so only a plugin that serves it itself may take the id."
+        "reservedId": "The plugin was not installed. The plugin id mcp-connector is reserved: the instance points connected apps at that address to sign in, so only a plugin that serves it itself may take the id.",
+        "recipientRecorded": "The plugin was not installed. The data protection screen has recorded where this plugin sends personal data since this screen was opened, and installing does not change that record. Cancel and choose the plugin again to install it with the answer the record holds; change the answer on the data protection screen."
       }
     },
     "permissions": {
@@ -2291,12 +2297,15 @@
       "apartment": "Apartment",
       "role": "Role",
       "matchedBy": "Matched on",
+      "matchedPerson": "Matched person",
       "problems": "Problem",
       "identityNumberOnFile": "The file has a personal identity number for this row.",
+      "identityNumberNotAdded": "The personal identity number will not be added to this person: the row was matched on something else.",
       "decision": "This row is",
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
-      "undecided": "Some rows match more than one person. Choose which one each is before applying.",
+      "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
+      "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",
       "apply": "Apply the import",
       "applying": "Importing",
       "back": "Change the mapping",
@@ -2317,6 +2326,10 @@
       "apartmentAndName": "Apartment and name",
       "earlierRow": "An earlier row of this file"
     },
+    "mismatch": {
+      "personalIdentityNumber": "The file's personal identity number differs from this person's.",
+      "name": "The name in the file differs from this person's."
+    },
     "problem": {
       "name-missing": "The row has no name.",
       "name-not-splittable": "That name cannot be read as a first and a last name.",
@@ -2330,6 +2343,7 @@
       "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
       "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
       "invalid-email": "That is not an email address the register can store.",
+      "garbled-characters": "A character was already lost in the file (shown as �). Correct it in the file and upload it again.",
       "unknown": "The row could not be read."
     },
     "mappingProblem": {
@@ -2372,13 +2386,13 @@
       "tooManyRows": "That file has more rows than one import can take.",
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",
+      "previewOutdated": "Your choices change what other rows match. Preview the import again.",
+      "previewReplaced": "Someone previewed this import again while it was being started, so it was not started. Preview it again before you import.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",
       "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
-      "previewOutdated": "Another import changed the register after this preview was made. Check the new preview below, choose for the rows that need it, then apply.",
-      "previewOutdatedNotRefreshed": "Another import changed the register after this preview was made, and a new preview could not be made. Apply again to try once more.",
-      "ambiguousRowsUndecided": "Some rows still match more than one person.",
+      "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "unknown": "The import did not work just now. Please try again."
@@ -2547,7 +2561,7 @@
     "submit": "Send the request",
     "working": "Sending...",
     "receivedTitle": "The request has been received",
-    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. A new request from the same email address replaces this one.",
+    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. While a request from an email address is waiting, the first one stands, and a later request from the same address is considered only after it has been decided.",
     "closed": "This housing cooperative is not accepting account requests at the moment. Ask the board, who can invite you instead.",
     "errors": {
       "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",

@@ -41,6 +41,7 @@ import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
   PluginConsentMismatchError,
+  PluginRecipientAlreadyRecordedError,
   PluginRecipientRequiredError,
   PluginNotFoundError,
   PluginReservedIdError,
@@ -189,6 +190,9 @@ export interface InstallRequest {
    *
    * Omitted by the command-line tool, which records no classification: the
    * recipient reads as not recorded until the board answers on the screen.
+   *
+   * Only for a plugin the record does not yet classify; an answer for one it
+   * does is refused.
    */
   processorAgreement?: {
     sendsPersonalDataOutside: boolean;
@@ -545,7 +549,17 @@ export class PluginAdminService {
      * and no classification in the art. 28 one. The command-line tool sends no
      * recipient answer; a direct caller of the API, such as a script, can send
      * one without any screen's checks in front of it.
+     *
+     * Neither can change a classification the record already holds; see
+     * {@link PluginRecipientAlreadyRecordedError}.
      */
+    if (
+      request.processorAgreement !== undefined &&
+      (await this.processors.forPlugins()).has(entry.id)
+    ) {
+      throw new PluginRecipientAlreadyRecordedError(entry.id);
+    }
+
     const agreement =
       request.processorAgreement === undefined
         ? undefined
@@ -570,12 +584,18 @@ export class PluginAdminService {
      *
      * The recipient is keyed on the plugin id rather than on the installed row,
      * so it survives the reinstall that rewrites that row.
+     *
+     * Only where the record is still empty: the check above was taken before
+     * the consent row, so a classification written in between is kept and this
+     * install goes on without its answer rather than failing after the consent
+     * is already committed.
      */
     if (agreement !== undefined) {
       await this.processors.record(
         pluginProcessorKey(entry.id),
         { ...agreement, actorPersonId, channel },
         await this.facts.read(),
+        { onlyIfUnrecorded: true },
       );
     }
 

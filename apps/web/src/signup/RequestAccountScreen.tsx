@@ -191,8 +191,9 @@ export function RequestAccountScreen(): ReactElement {
         <section className="flex flex-col gap-3">
           <h2 className="text-title">{t("signup.receivedTitle")}</h2>
           {/* The whole point of the screen, in the one place a visitor will
-              read it: a request creates nothing, and a second one from the
-              same address replaces this one rather than queueing twice. */}
+              read it: a request creates nothing, and while one waits the
+              first from an address stands. The reply is the same for every
+              address, so it does not tell whether this request was stored. */}
           <Notice tone="ok" live>
             {t("signup.receivedBody")}
           </Notice>

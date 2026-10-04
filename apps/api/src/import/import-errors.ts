@@ -18,19 +18,19 @@ export type ImportErrorReason =
    * finished.
    */
   | "another-import-running"
-  /**
-   * Another import wrote to the register after this session was previewed, so
-   * the preview no longer describes what the apply would do. Answered with 409
-   * and the session is left in MAPPING: previewing it again makes it
-   * applicable.
-   */
-  | "preview-outdated"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
+  | "preview-outdated"
+  /**
+   * Somebody previewed the session again while this apply was starting, so
+   * the preview it was checked against is no longer the one recorded. Answered
+   * with 409, and the session stays in MAPPING.
+   */
+  | "preview-replaced"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";
@@ -48,7 +48,7 @@ export class ImportError extends DomainError {
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
             reason === "another-import-running" ||
-            reason === "preview-outdated"
+            reason === "preview-replaced"
           ? 409
           : 400;
   }

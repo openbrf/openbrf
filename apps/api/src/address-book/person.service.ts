@@ -23,6 +23,7 @@ import {
   isMasked,
   type MaskableField,
 } from "./address-book-view";
+import { lockPersonEmail } from "./person-email-lock";
 import {
   consentStateFor,
   type PublicationConsentView,
@@ -584,6 +585,12 @@ export class PersonService {
     const protectedData = input.protectedPersonalData ?? false;
 
     const person = await this.prisma.$transaction(async (tx) => {
+      // So a sign-up approval matching the same address either sees this
+      // person or finishes before it exists.
+      if (email !== null && email.index !== null) {
+        await lockPersonEmail(tx, email.index);
+      }
+
       const created = await tx.person.create({
         data: {
           firstName: input.firstName,

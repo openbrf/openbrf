@@ -6,7 +6,7 @@
 
 Ask for a fresh preview when another import has written to the register since.
 
-Applying an import is now refused with `preview-outdated` (409) when another
+Applying an import is now refused with `preview-outdated` (400) when another
 import finished writing after this one was previewed. The preview was taken
 against a register that has changed: its counts may no longer hold, and a row
 it matched to one person can match two now. Such a row used to stop the import
@@ -25,5 +25,6 @@ purge removes it, not a lifetime after it was uploaded. Without that, the purge
 could remove the import that made another session's preview out of date while
 that session was still valid, and the check would no longer see it.
 
-The import screen takes the preview again on its own, says why in Swedish and
-English, and asks again about every row that needs a decision.
+The import screen already takes the preview again when an apply is refused as
+outdated; its notice now names another import as a possible cause, in Swedish
+and English.
