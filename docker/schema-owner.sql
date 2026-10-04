@@ -98,6 +98,17 @@ WHERE rolname = :'owner_role'
   AND (rolsuper OR rolname = current_user)
 \gexec
 
+-- The same for the runtime role: further down the owner is given ADMIN OPTION
+-- on it and its memberships are revoked, neither of which belongs anywhere
+-- near a superuser, and the application must never connect as one.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('RUNTIME_DB_ROLE names %I, which is a superuser. The application needs a role of its own that is not one: leave RUNTIME_DB_ROLE empty for openbrf_app, or name a new role.',
+    rolname))
+FROM pg_roles
+WHERE rolname = :'app_role'
+  AND (rolsuper OR rolname = current_user)
+\gexec
+
 SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
   'OWNER_DB_USER and RUNTIME_DB_ROLE name the same role. The application needs a role of its own: the owner can disable the triggers that keep the member register and the audit log append-only.')
 WHERE :'owner_role' = :'app_role'
@@ -124,16 +135,24 @@ SELECT format('ALTER DATABASE %I OWNER TO %I', current_database(), :'owner_role'
 -- follow their table and cannot be moved on their own, and nothing an
 -- extension installed is touched.
 --
--- Anything the runtime role owns there is moved too. It should own nothing,
--- and harden-runtime-role.sql refuses to run while it does; an earlier release
--- let it create objects in pgboss, so this is where those are put right.
+-- Only what a superuser owns is moved: that is what migrations run as the
+-- superuser left behind. Anything another role owns there is not adopted
+-- unseen. The runtime role should own nothing, and an earlier release let it
+-- create objects in pgboss; whatever it or any other role made is for a human
+-- to look at before the owner takes it over, so the script stops and names
+-- it, and moves nothing until it is dealt with.
 DO $body$
 DECLARE
   owner_role text := current_setting('openbrf.owner_role');
   target record;
+  statement text;
+  statements text[] := '{}';
+  foreign_owned text[] := '{}';
 BEGIN
   FOR target IN
-    SELECT format('ALTER %s %s OWNER TO %I', owned.kind, owned.name, owner_role) AS statement
+    SELECT format('ALTER %s %s OWNER TO %I', owned.kind, owned.name, owner_role) AS statement,
+           format('%s %s, owned by %I', lower(owned.kind), owned.name, r.rolname) AS description,
+           r.rolsuper AS superuser
     FROM (
       SELECT 'SCHEMA' AS kind, quote_ident(n.nspname) AS name, n.nspowner AS owner,
              n.oid AS object, 'pg_namespace'::regclass AS catalog
@@ -194,8 +213,24 @@ BEGIN
           AND d.objid = owned.object
           AND d.deptype = 'e'
       )
+    ORDER BY 2
   LOOP
-    EXECUTE target.statement;
+    IF target.superuser THEN
+      statements := statements || target.statement;
+    ELSE
+      foreign_owned := foreign_owned || target.description;
+    END IF;
+  END LOOP;
+
+  IF cardinality(foreign_owned) > 0 THEN
+    RAISE EXCEPTION USING MESSAGE = format(
+      'The application''s schemas hold objects that belong to neither the database superuser nor the schema owner %I: %s. The schema owner takes over only what the superuser''s migrations created. Look at each of these: hand what you recognise to the owner with ALTER ... OWNER TO %I, drop what you do not, and run `up -d` again (docs/deployment.md, "Upgrading to a separate schema owner").',
+      owner_role, array_to_string(foreign_owned, '; '), owner_role);
+  END IF;
+
+  FOREACH statement IN ARRAY statements
+  LOOP
+    EXECUTE statement;
   END LOOP;
 END
 $body$;

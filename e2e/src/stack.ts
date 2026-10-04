@@ -242,16 +242,32 @@ export function runAsSuperuser(
 /**
  * Runs the schema-owner service once more, as `up` runs it before every deploy:
  * a container of its own, from the stack's env file, that applies
- * docker/schema-owner.sql as the superuser and exits.
+ * docker/schema-owner.sql as the superuser and exits. `environment` overrides
+ * what the env file gives the service.
  */
-export function runSchemaOwner(timeoutMs = 120_000): {
+export function runSchemaOwner(
+  environment: Readonly<Record<string, string>> = {},
+  timeoutMs = 120_000,
+): {
   status: number;
   output: string;
 } {
+  const overrides = Object.entries(environment).flatMap(([name, value]) => [
+    "--env",
+    `${name}=${value}`,
+  ]);
   try {
     const stdout = execFileSync(
       "docker",
-      [...COMPOSE_ARGS, "run", "--rm", "--no-deps", "-T", "schema-owner"],
+      [
+        ...COMPOSE_ARGS,
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        ...overrides,
+        "schema-owner",
+      ],
       {
         cwd: repositoryRoot,
         encoding: "utf8",

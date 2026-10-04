@@ -120,6 +120,16 @@ const REFUSED_STATEMENTS: [string, string][] = [
     "a termination cannot be deleted",
     `DELETE FROM public.termination WHERE id = 'no-such-termination'`,
   ],
+  // A reversal records that a transfer was undone, and like a termination has
+  // no later state to reach, so it keeps neither UPDATE nor DELETE.
+  [
+    "a transfer reversal cannot be rewritten",
+    `UPDATE public.transfer_reversal SET "reference" = 'Tampered' WHERE id = 'no-such-reversal'`,
+  ],
+  [
+    "a transfer reversal cannot be deleted",
+    `DELETE FROM public.transfer_reversal WHERE id = 'no-such-reversal'`,
+  ],
   // The obligation ledger takes termination's reading rather than transfer's: a
   // row states a statutory deadline, and neither the event it reports nor the
   // day the statute counts from can change, so it keeps neither UPDATE nor
@@ -143,6 +153,7 @@ const PERMITTED_READS: string[] = [
   "SELECT count(*) FROM public.transfer",
   "SELECT count(*) FROM public.lien_note",
   "SELECT count(*) FROM public.termination",
+  "SELECT count(*) FROM public.transfer_reversal",
   "SELECT count(*) FROM public.register_report_obligation",
 ];
 
@@ -153,6 +164,7 @@ const STATUTORY_TABLES = [
   "transfer",
   "lien_note",
   "termination",
+  "transfer_reversal",
   "register_report_obligation",
 ];
 
@@ -308,6 +320,68 @@ test("a membership the superuser granted is refused by the hardening and revoked
   } finally {
     runAsSuperuser(["--command", `DROP ROLE IF EXISTS ${probeRole}`]);
   }
+});
+
+test("the schema-owner service refuses a runtime role that is a superuser", () => {
+  test.setTimeout(180_000);
+
+  // Further on the service gives the owner ADMIN OPTION on the runtime role
+  // and revokes the runtime role's memberships, so pointed at the superuser it
+  // must stop before it changes anything.
+  const refused = runSchemaOwner({ RUNTIME_DB_ROLE: "openbrf" });
+  expect(refused.status, refused.output).toBe(1);
+  expect(refused.output).toContain(
+    "RUNTIME_DB_ROLE names openbrf, which is a superuser",
+  );
+
+  const granted = runAsSuperuser([
+    "--tuples-only",
+    "--no-align",
+    "--command",
+    `SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid = m.roleid WHERE granted.rolname = 'openbrf'`,
+  ]);
+  expect(
+    granted.output.trim(),
+    "nobody was made a member of the superuser",
+  ).toBe("0");
+});
+
+test("the schema-owner service hands the owner nothing the runtime role made", () => {
+  test.setTimeout(180_000);
+
+  // What an instance upgraded from an earlier release can carry: an object the
+  // runtime role made in pgboss, where it could once create. The owner takes
+  // over only what the superuser's migrations left, so the service must stop,
+  // name the object, and leave it where it was.
+  const probeFunction = `pgboss.runtime_role_probe_${suffix}()`;
+  const ownerOfProbe = () =>
+    runAsSuperuser([
+      "--tuples-only",
+      "--no-align",
+      "--command",
+      `SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid = '${probeFunction}'::regprocedure`,
+    ]).output.trim();
+
+  const made = runAsSuperuser([
+    "--command",
+    `CREATE FUNCTION ${probeFunction} RETURNS integer LANGUAGE sql AS 'SELECT 1'; ALTER FUNCTION ${probeFunction} OWNER TO openbrf_app`,
+  ]);
+  expect(made.status, made.output).toBe(0);
+  try {
+    const refused = runSchemaOwner();
+    expect(refused.status, "the service refuses").toBe(1);
+    expect(refused.output).toContain(
+      `function ${probeFunction}, owned by openbrf_app`,
+    );
+    expect(ownerOfProbe(), "the object stays the runtime role's").toBe(
+      "openbrf_app",
+    );
+  } finally {
+    runAsSuperuser(["--command", `DROP FUNCTION IF EXISTS ${probeFunction}`]);
+  }
+
+  const upgraded = runSchemaOwner();
+  expect(upgraded.status, upgraded.output).toBe(0);
 });
 
 test("the application's role still cannot rewrite the statutory archive", async () => {
