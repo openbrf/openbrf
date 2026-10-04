@@ -17,6 +17,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { EventView } from "./event.service";
+import { lockOccurrenceSignups } from "./event-signup-lock";
 
 /**
  * The event calendar against a real database.
@@ -1198,6 +1199,78 @@ describe("a date called off or put back while an edit drops it", () => {
     expect(answer.json<{ reason: string }>().reason).toBe(
       "occurrence-not-found",
     );
+  });
+});
+
+/**
+ * A date called off while somebody is signing up to it.
+ *
+ * A sign-up reads that the date stands and inserts its row behind the date's
+ * sign-up lock. A call-off that did not take the same lock could commit between
+ * the two, and a sign-up would be taken on a date already called off. The
+ * call-off takes the lock, so it waits for a sign-up in flight to finish, and a
+ * sign-up that begins after it reads the date as called off and is refused.
+ *
+ * Played out in that order: the test takes the lock in a transaction it holds
+ * open, as a claim does, sends the call-off, waits until the database says it is
+ * queued behind that transaction, and commits.
+ */
+describe("a date called off while a sign-up is in flight", () => {
+  it("waits for the sign-up's lock before it calls the date off", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Avbrutet under anmalan ${suffix}`,
+    });
+    const date = created.occurrences[2]?.id ?? "";
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await lockOccurrenceSignups(tx, date);
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    try {
+      const answering = inject({
+        method: "POST",
+        url: `/api/events/occurrences/${date}/cancel`,
+        headers: { cookie: boardCookie },
+      });
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+
+      // Queued, not yet through: the date still stands while the sign-up holds
+      // the lock.
+      const standing = await prisma.eventOccurrence.findUnique({
+        where: { id: date },
+        select: { cancelledAt: true },
+      });
+      expect(standing?.cancelledAt).toBeNull();
+
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      expect(answer.statusCode).toBe(201);
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+
+    const called = await prisma.eventOccurrence.findUnique({
+      where: { id: date },
+      select: { cancelledAt: true },
+    });
+    expect(called?.cancelledAt).not.toBeNull();
   });
 });
 

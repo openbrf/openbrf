@@ -44,9 +44,11 @@ Issues, events and actions:
 - The photo limit on an issue holds against uploads sent at once, and a
   refused upload leaves no stored file behind.
 - Removing an issue type while somebody files a report, two edits to one
-  event series at once, and calling a date off or back while an edit removes
-  it are answered with a reason instead of a server error.
-- A date in an event series that has begun can no longer be called off.
+  event series at once, and calling off or reinstating an occurrence while an
+  edit removes it are answered with a reason instead of a server error.
+- An occurrence that has begun can no longer be called off.
+- Calling off an occurrence waits for a sign-up to it that is in flight, so no
+  sign-up is taken on an occurrence that has already been called off.
 - The action catalogue leaves out plugin actions the caller would be refused.
   Looking one action up uses the same surface as the list, and a disabled
   plugin's action is answered as unknown.

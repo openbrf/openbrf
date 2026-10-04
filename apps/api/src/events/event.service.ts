@@ -26,7 +26,10 @@ import {
   EventError,
   type EventReason,
 } from "./event.error";
-import { lockOccurrencesSignups } from "./event-signup-lock";
+import {
+  lockOccurrenceSignups,
+  lockOccurrencesSignups,
+} from "./event-signup-lock";
 import {
   displacedBy,
   planOccurrences,
@@ -723,6 +726,15 @@ export class EventService {
   ): Promise<EventView> {
     const row = await this.prisma.$transaction(async (tx) => {
       await this.lockSeriesOf(tx, occurrenceId);
+      /*
+       * Behind the claim's own lock as well, after the series' row: the order
+       * an edit and a removal take them in, so none of the three waits for what
+       * another holds. A claim reads that the date is standing and inserts its
+       * sign-up behind this lock. Without it the call-off could commit between
+       * the claim's read and its insert, and a sign-up would be taken on a date
+       * that had already been called off.
+       */
+      await lockOccurrenceSignups(tx, occurrenceId);
       const occurrence = await tx.eventOccurrence.findUnique({
         where: { id: occurrenceId },
         select: { id: true, eventId: true, startsAt: true, cancelledAt: true },
