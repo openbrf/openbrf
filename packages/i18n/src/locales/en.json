@@ -2380,6 +2380,7 @@
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",
       "previewOutdated": "Your choices change what other rows match. Preview the import again.",
+      "previewReplaced": "Someone previewed this import again while it was being started, so it was not started. Preview it again before you import.",
       "sessionNotFound": "That upload is no longer there. Upload the file again.",
       "sessionExpired": "That upload has expired. Upload the file again.",
       "sessionAlreadyApplied": "An import has already been started for that upload.",

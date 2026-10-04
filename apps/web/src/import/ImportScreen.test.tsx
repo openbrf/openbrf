@@ -430,6 +430,46 @@ describe("the preview", () => {
     ).toBe(true);
   });
 
+  it("says a row's identity number is not added to the person chosen for it", async () => {
+    // Matched by email and waiting because the name differs: choosing the
+    // person writes the row to them, but not its identity number.
+    const [created, , , updated] = PREVIEW.rows;
+    if (created === undefined || updated === undefined) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 0, ambiguous: 1, error: 0 },
+        rows: [
+          created,
+          {
+            ...updated,
+            outcome: "ambiguous",
+            person: { ...updated.person, hasPersonalIdentityNumber: true },
+            matchedPersonId: null,
+            matchedPersonName: null,
+            mismatch: "name",
+            candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+          },
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    const notAdded = /Personnumret läggs inte till på den här personen/;
+    expect(screen.queryByText(notAdded)).toBeNull();
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-dag",
+    );
+
+    expect(screen.getByText(notAdded)).toBeTruthy();
+  });
+
   it("names what is wrong with a row rather than dropping it", async () => {
     const session = userEvent.setup();
     await reachPreview(session);
@@ -702,6 +742,34 @@ describe("after pressing apply", () => {
         .hasAttribute("disabled"),
     ).toBe(false);
     expect(fetchActiveImport).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the preview when somebody else previewed the file meanwhile", async () => {
+    // Another tab or board member previewed this upload while the apply was
+    // starting. Nothing this board member chose changed, and previewing again
+    // from here would quietly replace the other preview.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "preview-replaced" },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "skip",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(
+      screen.getByText(/Någon förhandsgranskade importen igen/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/förhandsgranskningen har gjorts om/)).toBeNull();
+    expect(previewImport).toHaveBeenCalledTimes(1);
   });
 
   it("follows the import to the end", async () => {

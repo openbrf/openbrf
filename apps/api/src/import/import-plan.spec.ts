@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import type { ImportField, ImportMapping } from "./import-columns";
 import {
   apartmentNameKey,
@@ -609,6 +610,159 @@ describe("one person appearing twice in the file", () => {
       matchedPersonId: null,
       sameAsRowNumber: 1,
     });
+  });
+});
+
+describe("an identity number an earlier row states without writing it", () => {
+  // Anna is in the register with an email address and no identity number. Row
+  // 1 reaches her by email, so its number is not written onto her. Row 2 is
+  // her second apartment, listed with her number and nothing else to know her
+  // by.
+  const anna = snapshot({
+    personsByEmail: new Map([["anna-index", ["person-anna"]]]),
+    personNames: new Map([["person-anna", "Anna Lindqvist"]]),
+    apartmentsByPerson: new Map([["person-anna", new Set(["apartment-1101"])]]),
+  });
+  const first = prepared(
+    { ...COMPLETE, personalIdentityNumber: PIN_ANNA },
+    { rowNumber: 1, emailIndex: "anna-index" },
+  );
+  const second = prepared(
+    {
+      ...COMPLETE,
+      apartmentNumber: "1102",
+      personalIdentityNumber: PIN_ANNA,
+    },
+    { rowNumber: 2 },
+  );
+
+  it("reaches the register person the earlier row reached, not a new one", () => {
+    const plan = planImport([first, second], anna, DEFAULTS);
+
+    expect(plan.rows[0]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: "person-anna",
+      matchedBy: "email",
+    });
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: "person-anna",
+      matchedPersonName: "Anna Lindqvist",
+      // Not "personalIdentityNumber": the apply writes the number only onto a
+      // person the row reached through it, and Anna does not hold it.
+      matchedBy: "earlierRow",
+      sameAsRowNumber: 1,
+    });
+    expect(plan.summary.create).toBe(0);
+  });
+
+  it("reaches the person an earlier row creates and a later one gives the number", () => {
+    // Row 1 creates Anna without a number. Row 2 reaches her by email with
+    // one, which is not written. Row 3 has only the number.
+    const plan = planImport(
+      [
+        prepared(COMPLETE, { rowNumber: 1, emailIndex: "anna-index" }),
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: PIN_ANNA },
+          { rowNumber: 2, emailIndex: "anna-index" },
+        ),
+        { ...second, rowNumber: 3 },
+      ],
+      snapshot(),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedBy: "earlierRow",
+      sameAsRowNumber: 1,
+    });
+    expect(plan.rows[2]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: null,
+      matchedBy: "earlierRow",
+      sameAsRowNumber: 1,
+    });
+  });
+
+  it("reaches the same person from a later chunk", () => {
+    // The apply plans the second row in a chunk of its own, against a register
+    // where Anna still has no number. What the first chunk did not write is
+    // passed in.
+    const chunk = planImport(
+      [{ ...second, rowNumber: 150, identityNumberIndex: "pin-anna-index" }],
+      anna,
+      DEFAULTS,
+      {},
+      [
+        {
+          rowNumber: 1,
+          identityNumber: normalizePersonalIdentityNumber(PIN_ANNA) ?? "",
+          personId: "person-anna",
+        },
+      ],
+    );
+
+    expect(chunk.rows[0]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: "person-anna",
+      matchedBy: "earlierRow",
+      sameAsRowNumber: 1,
+    });
+  });
+
+  it("waits for a decision when a later row gives the same person another number", () => {
+    const plan = planImport(
+      [
+        first,
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: PIN_OTHER },
+          { rowNumber: 2, emailIndex: "anna-index" },
+        ),
+      ],
+      anna,
+      DEFAULTS,
+    );
+
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+      mismatch: "personalIdentityNumber",
+      candidates: [{ personId: "person-anna", name: "Anna Lindqvist" }],
+    });
+  });
+
+  it("does not attach anyone through a number the register person already has another of", () => {
+    // Anna holds a number of her own. The board chose her for a row with a
+    // different one, and that number is still nobody's.
+    const plan = planImport(
+      [
+        prepared(
+          { ...COMPLETE, personalIdentityNumber: PIN_OTHER },
+          {
+            rowNumber: 1,
+            emailIndex: "anna-index",
+            identityNumberIndex: "pin-other-index",
+          },
+        ),
+        prepared(
+          { ...second.values, personalIdentityNumber: PIN_OTHER },
+          { rowNumber: 2, identityNumberIndex: "pin-other-index" },
+        ),
+      ],
+      snapshot({
+        ...anna,
+        personsByIdentityNumber: new Map([["pin-anna-index", ["person-anna"]]]),
+        identityNumberIndexByPerson: new Map([
+          ["person-anna", "pin-anna-index"],
+        ]),
+      }),
+      DEFAULTS,
+      { "1": { action: "use-person", personId: "person-anna" } },
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.rows[1]?.outcome).toBe("create");
   });
 });
 

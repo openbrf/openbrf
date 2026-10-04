@@ -14,7 +14,10 @@ does for a row that matches more than one person.
 
 An import no longer adds a personal identity number to a person it matched
 through an email address or a name. Such a match still fills in the other
-fields the register does not have.
+fields the register does not have. A later row of the file with the same
+identity number, such as a member's second apartment, is written to that same
+person without adding the number, however far down the file it is, rather than
+creating them a second time.
 
 The persons earlier rows of the same file create or fill in are held to the
 same rules. A row with the email address of an earlier row but another name or
@@ -24,4 +27,5 @@ so an import no longer stops partway through a long file at a row the preview
 showed as an update.
 
 The preview names the person each matched row will be written to, and says
-when a row's personal identity number will not be added to that person.
+when a row's personal identity number will not be added to that person,
+including the person the board chooses for a row.

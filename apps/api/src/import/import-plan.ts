@@ -148,7 +148,11 @@ export interface PlannedRow {
    * is ambiguous because it matched several, and on every other outcome.
    */
   mismatch: ImportMismatch | null;
-  /** The row this one shares a person with, when that person is new. */
+  /**
+   * The row this one shares a person with, when that person is new. For a
+   * person the register holds, the earlier row whose identity number this row
+   * reached them through.
+   */
   sameAsRowNumber: number | null;
   /** Persons the row could equally well be, when the match was ambiguous. */
   candidates: { personId: string; name: string }[];
@@ -168,6 +172,19 @@ export type ImportDecision =
 
 /** Keyed by the row's number in the file, as a string. */
 export type ImportDecisions = Record<string, ImportDecision>;
+
+/**
+ * An identity number a row of an earlier chunk stated, and the person the apply
+ * wrote that row to without writing the number: the row reached them by
+ * another key. Without it, a later row with the same number would find nobody
+ * in the register and create the person a second time.
+ */
+export interface UnwrittenIdentityNumber {
+  rowNumber: number;
+  /** Normalized. */
+  identityNumber: string;
+  personId: string;
+}
 
 /**
  * The key persons are indexed under for apartment-and-name matching.
@@ -220,12 +237,16 @@ export function hasIndexableIdentityNumber(
  * The decisions do not change any row's outcome: a row that needs one stays
  * ambiguous, so the board can still see and change what it chose. They decide
  * what that row writes, which later rows are matched against.
+ *
+ * The apply passes the identity numbers the rows of its earlier chunks stated
+ * without them being written, which only the rows themselves know.
  */
 export function planImport(
   rows: readonly PreparedRow[],
   snapshot: RegisterSnapshot,
   defaults: ImportDefaults,
   decisions: ImportDecisions = {},
+  unwritten: readonly UnwrittenIdentityNumber[] = [],
 ): ImportPlan {
   const written: FileWrites = {
     byIdentityNumber: new Map(),
@@ -233,6 +254,18 @@ export function planImport(
     byApartmentAndName: new Map(),
     registered: new Map(),
   };
+
+  for (const earlier of unwritten) {
+    if (snapshot.personNames.has(earlier.personId)) {
+      recordIdentityNumber(
+        written,
+        registeredPerson(earlier.personId, snapshot, written),
+        earlier.identityNumber,
+        earlier.rowNumber,
+        snapshot,
+      );
+    }
+  }
 
   const planned = rows.map((row) =>
     planRow(row, snapshot, defaults, decisions, written),
@@ -262,11 +295,17 @@ interface FilePerson {
   createdByRow: number | null;
   name: string;
   /**
-   * The normalized number of a person the file creates. A person the register
-   * already holds is compared through their blind index instead, and an import
-   * never gives them a number they did not have.
+   * The normalized number of a person the file creates, or one an earlier row
+   * stated for a person who has none. A number the register holds is compared
+   * through its blind index instead.
    */
   identityNumber: string | null;
+  /**
+   * The row that stated `identityNumber` when the apply does not write it: the
+   * row reached the person by another key, and an import never gives anyone a
+   * number on the strength of an email address or a name.
+   */
+  identityNumberFromRow: number | null;
   hasEmail: boolean;
   apartmentIds: Set<string>;
 }
@@ -288,6 +327,12 @@ interface FilePerson {
  * does not compute the index when the register holds no number to match, and
  * the index is a truncated hash, so two different numbers colliding in it would
  * fold two people into one.
+ *
+ * A row that reaches a person with no number by email or by name does not give
+ * them its number, but it does say whose number it is. A later row stating it
+ * reaches that person through the earlier row, and does not give it to them
+ * either - otherwise a member listed for two apartments, matched by email the
+ * first time and by number alone the second, would be created a second time.
  *
  * An ambiguous row writes what the board decided for it, and nothing while it
  * has no decision: the apply will not run until it has one.
@@ -396,7 +441,15 @@ function planRow(
         (candidate) => candidate.personId === decision.personId,
       );
       if (chosen !== undefined) {
-        recordWrites(written, chosen, row, apartment, movedOutOn, snapshot);
+        recordWrites(
+          written,
+          chosen,
+          row,
+          normalizedNumber,
+          apartment,
+          movedOutOn,
+          snapshot,
+        );
       }
     }
 
@@ -436,7 +489,21 @@ function planRow(
   // own resident row. The second occurrence reaches the same person through
   // what the first one wrote, whether that person already existed or was
   // created by the earlier row.
-  recordWrites(written, only, row, apartment, movedOutOn, snapshot);
+  recordWrites(
+    written,
+    only,
+    row,
+    normalizedNumber,
+    apartment,
+    movedOutOn,
+    snapshot,
+  );
+  // An identity number only an earlier row stated is not the person's in the
+  // register, so the row is named after that row and the apply does not write
+  // the number now either.
+  const throughUnwrittenNumber =
+    match.key === "personalIdentityNumber" &&
+    only.identityNumberFromRow !== null;
   return {
     ...base,
     outcome: "update",
@@ -445,10 +512,13 @@ function planRow(
     // Named by the key when it was the identity number, which the person an
     // earlier row creates carries: the row then adds nothing they lack.
     matchedBy:
-      only.personId === null && match.key !== "personalIdentityNumber"
+      throughUnwrittenNumber ||
+      (only.personId === null && match.key !== "personalIdentityNumber")
         ? "earlierRow"
         : match.key,
-    sameAsRowNumber: only.createdByRow,
+    sameAsRowNumber:
+      only.createdByRow ??
+      (throughUnwrittenNumber ? only.identityNumberFromRow : null),
   };
 }
 
@@ -535,6 +605,7 @@ function registeredPerson(
     createdByRow: null,
     name: snapshot.personNames.get(personId) ?? "",
     identityNumber: null,
+    identityNumberFromRow: null,
     hasEmail: snapshot.personsWithEmail.has(personId),
     apartmentIds: new Set(snapshot.apartmentsByPerson.get(personId)),
   };
@@ -557,13 +628,22 @@ function recordCreated(
     createdByRow: row.rowNumber,
     name: `${person.firstName} ${person.lastName}`,
     identityNumber,
+    identityNumberFromRow: null,
     hasEmail: false,
     apartmentIds: new Set(),
   };
   if (identityNumber !== null) {
     push(written.byIdentityNumber, identityNumber, created);
   }
-  recordWrites(written, created, row, apartment, movedOutOn, snapshot);
+  recordWrites(
+    written,
+    created,
+    row,
+    identityNumber,
+    apartment,
+    movedOutOn,
+    snapshot,
+  );
 }
 
 /**
@@ -573,16 +653,25 @@ function recordCreated(
  * person who has none, a residency only in an apartment the person has never
  * had one in, and no identity number onto anyone who already exists. The
  * residency is findable by apartment and name only while it is current, as the
- * register snapshot reads it.
+ * register snapshot reads it. The row's identity number is recorded too,
+ * although it is not written, for the rows after it that state it.
  */
 function recordWrites(
   written: FileWrites,
   target: FilePerson,
   row: PreparedRow,
+  identityNumber: string | null,
   apartment: RegisterApartment,
   movedOutOn: string | null,
   snapshot: RegisterSnapshot,
 ): void {
+  recordIdentityNumber(
+    written,
+    target,
+    identityNumber,
+    row.rowNumber,
+    snapshot,
+  );
   if (!target.hasEmail && row.emailIndex !== null) {
     target.hasEmail = true;
     push(written.byEmail, row.emailIndex, target);
@@ -603,6 +692,35 @@ function recordWrites(
 }
 
 /**
+ * Records the identity number a row states for a person who has none, so a
+ * later row stating it reaches them.
+ *
+ * Only the first number stated for a person counts, as it does for one the
+ * file creates: a later row stating another one contradicts them. A person who
+ * already has a number keeps it, and a row matched to them by another key with
+ * a different one waited for the board.
+ */
+function recordIdentityNumber(
+  written: FileWrites,
+  target: FilePerson,
+  identityNumber: string | null,
+  rowNumber: number,
+  snapshot: RegisterSnapshot,
+): void {
+  if (
+    identityNumber === null ||
+    target.identityNumber !== null ||
+    (target.personId !== null &&
+      snapshot.identityNumberIndexByPerson.has(target.personId))
+  ) {
+    return;
+  }
+  target.identityNumber = identityNumber;
+  target.identityNumberFromRow = rowNumber;
+  push(written.byIdentityNumber, identityNumber, target);
+}
+
+/**
  * What the row states that contradicts the one person it matched, if anything.
  *
  * An identity-number match is not second-guessed on the name: a person's name
@@ -613,8 +731,8 @@ function recordWrites(
  *
  * A register person's number is compared through its blind index. That index is
  * null on the row when the register holds no identity number at all, and then
- * there is nothing for the row to contradict. A person an earlier row creates is
- * compared by the number that row carries.
+ * there is nothing for the row to contradict. A person an earlier row creates,
+ * or states a number for, is compared by the number that row carries.
  */
 function findMismatch(
   match: PersonMatch,
@@ -633,14 +751,14 @@ function findMismatch(
   }
 
   const contradicted =
-    candidate.personId === null
-      ? identityNumber !== null &&
-        candidate.identityNumber !== null &&
-        candidate.identityNumber !== identityNumber
-      : differs(
-          row.identityNumberIndex,
-          snapshot.identityNumberIndexByPerson.get(candidate.personId),
-        );
+    (identityNumber !== null &&
+      candidate.identityNumber !== null &&
+      candidate.identityNumber !== identityNumber) ||
+    (candidate.personId !== null &&
+      differs(
+        row.identityNumberIndex,
+        snapshot.identityNumberIndexByPerson.get(candidate.personId),
+      ));
   if (contradicted) {
     return "personalIdentityNumber";
   }

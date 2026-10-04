@@ -15,6 +15,7 @@ import {
   type PreparedRow,
   readRow,
   type RegisterSnapshot,
+  type UnwrittenIdentityNumber,
 } from "./import-plan";
 
 /**
@@ -63,6 +64,12 @@ export interface ImportPlanRequest {
    * are matched against what it writes. None when absent.
    */
   decisions?: ImportDecisions;
+  /**
+   * The rows of earlier chunks whose identity number the apply did not write,
+   * and the person it wrote each of them to. The number is read from the row
+   * again, so a later row stating it reaches that person. None when absent.
+   */
+  unwrittenIdentityNumbers?: ReadonlyMap<number, string>;
   /**
    * Whether every valid identity number is indexed.
    *
@@ -146,6 +153,7 @@ export class ImportPlannerService {
         defaultMovedInOn: request.defaultMovedInOn,
       },
       request.decisions,
+      unwrittenIdentityNumbers(request),
     );
   }
 
@@ -286,6 +294,26 @@ export class ImportPlannerService {
       takenAt: now,
     };
   }
+}
+
+/** The numbers earlier rows stated and the apply did not write, in file order. */
+function unwrittenIdentityNumbers(
+  request: ImportPlanRequest,
+): UnwrittenIdentityNumber[] {
+  const unwritten: UnwrittenIdentityNumber[] = [];
+  const earlier = [...(request.unwrittenIdentityNumbers ?? [])].sort(
+    ([a], [b]) => a - b,
+  );
+  for (const [rowNumber, personId] of earlier) {
+    const values = readRow(request.rows[rowNumber - 1] ?? [], request.mapping);
+    const identityNumber = hasIndexableIdentityNumber(values)
+      ? normalizePersonalIdentityNumber(values.personalIdentityNumber ?? "")
+      : null;
+    if (identityNumber !== null) {
+      unwritten.push({ rowNumber, identityNumber, personId });
+    }
+  }
+  return unwritten;
 }
 
 function push(map: Map<string, string[]>, key: string, value: string): void {

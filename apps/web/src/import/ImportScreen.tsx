@@ -278,7 +278,9 @@ export function ImportScreen(): ReactElement {
       }
       // "another-import-running" stays on the preview: it is a different
       // file that is running, and this one is still waiting to be applied
-      // once that has finished.
+      // once that has finished. So does "preview-replaced": somebody else
+      // previewed this file meanwhile, and previewing it again from here would
+      // replace theirs without either of them choosing that.
       return;
     }
     setRun(response.value);
@@ -765,10 +767,11 @@ function PreviewRow({
             </span>
           ) : null}
           {row.person.hasPersonalIdentityNumber &&
-          row.outcome === "update" &&
+          (row.outcome === "update" || decision?.action === "use-person") &&
           row.matchedBy !== "personalIdentityNumber" ? (
             // The apply stores a number only on the person it identified, so
-            // the board is not left thinking this one will be filled in.
+            // the board is not left thinking this one will be filled in - nor
+            // the one it chose for a row that reached them some other way.
             <span className="text-chip text-ink-muted">
               {t("import.preview.identityNumberNotAdded")}
             </span>

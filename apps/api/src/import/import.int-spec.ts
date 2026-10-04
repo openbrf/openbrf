@@ -2138,6 +2138,103 @@ describe("a row that contradicts a person an earlier row writes", () => {
   }, 120_000);
 });
 
+describe("a person listed twice, the second time by identity number alone", () => {
+  it("is written to the person the first row reached, however far apart the rows are", async () => {
+    // Already in the register with an email address and no identity number.
+    // Row 1 reaches them by email, so its number is not written onto them.
+    // Row 150 is their second apartment with the number and nothing else to
+    // know them by, and it falls in the second chunk, which meets a register
+    // where nobody holds that number.
+    const cookie = await signIn(actors.board.email);
+    const [number] = identityNumbers(1, "680215");
+    const person = {
+      personId: `imp-twice-${suffix}`,
+      firstName: "Tvagang",
+      email: `imp-twice-${suffix}@exempel.se`,
+    };
+    await createPerson(person);
+    const total = IMPORT_CHUNK_ROWS + 60;
+    const row = (
+      apartment: string,
+      firstName: string,
+      email: string,
+      identityNumber: string,
+      movedInOn = "2021-04-01",
+    ) => [
+      addressLabel,
+      apartment,
+      firstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      movedInOn,
+      identityNumber,
+    ];
+
+    const rows: string[][] = [[...HEADERS, "Personnummer"]];
+    for (let rowNumber = 1; rowNumber <= total; rowNumber++) {
+      if (rowNumber === 1) {
+        rows.push(row("2113", person.firstName, person.email, number ?? ""));
+      } else if (rowNumber === 150) {
+        rows.push(row("2114", person.firstName, "", number ?? ""));
+      } else {
+        rows.push(row("2102", `Tva${String(rowNumber)}`, "", "", "01/03/2020"));
+      }
+    }
+
+    const session = await upload(
+      cookie,
+      "tva-lagenheter.csv",
+      encode(writeCsv(rows)),
+    );
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(200);
+    const planned = JSON.parse(previewed.body) as ImportPreview;
+    expect(planned.rows[149]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: person.personId,
+      matchedBy: "earlierRow",
+      sameAsRowNumber: 1,
+    });
+    expect(planned.summary.create).toBe(0);
+
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      90_000,
+    );
+    expect(run.status).toBe("APPLIED");
+    expect(run.result).toMatchObject({ personsCreated: 0, personsUpdated: 2 });
+
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: person.firstName },
+      }),
+    ).toBe(1);
+    const stored = await prisma.person.findUniqueOrThrow({
+      where: { id: person.personId },
+      select: {
+        personalIdentityNumberIndex: true,
+        residencies: { select: { apartmentId: true } },
+      },
+    });
+    // Both apartments, and still no number: neither row reached them by it.
+    expect(stored.personalIdentityNumberIndex).toBeNull();
+    expect(
+      stored.residencies.map((residency) => residency.apartmentId).sort(),
+    ).toEqual([apartments.m, apartments.n].sort());
+  }, 180_000);
+});
+
 describe("a row after one the board decided", () => {
   function reasonOf(response: { body: string }): string {
     return (JSON.parse(response.body) as { reason: string }).reason;
@@ -2531,6 +2628,69 @@ describe("a row after one the board decided", () => {
         select: { emailIndex: true },
       }),
     ).toEqual({ emailIndex: null });
+  });
+
+  it("is refused when a changed decision turns a row shown as an update into a new person", async () => {
+    // Previewed with row 1 given to a Dubbel, row 2 - the same name in another
+    // apartment, with the address row 1 gives that twin - is an update of
+    // them, and nothing asks about it. Changed to a skip, row 1 gives nobody
+    // that address, and row 2 would be created: a person the preview never
+    // showed.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-changed-${suffix}-decision@exempel.se`;
+    const row = (apartment: string) => [
+      addressLabel,
+      apartment,
+      twinFirstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      "2021-04-01",
+    ];
+    const session = await upload(
+      cookie,
+      "andrat-beslut.csv",
+      encode(writeCsv([HEADERS, row("2103"), row("2102")])),
+    );
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: {
+        mapping: session.suggestedMapping,
+        decisions: {
+          "1": { action: "use-person", personId: actors.twinB.personId },
+        },
+      },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(200);
+    expect(
+      (JSON.parse(previewed.body) as ImportPreview).rows.map(
+        ({ outcome, matchedPersonId }) => ({ outcome, matchedPersonId }),
+      ),
+    ).toEqual([
+      { outcome: "ambiguous", matchedPersonId: null },
+      { outcome: "update", matchedPersonId: actors.twinB.personId },
+    ]);
+
+    const dubbels = () =>
+      prisma.person.count({
+        where: { lastName: surname, firstName: twinFirstName },
+      });
+    const before = await dubbels();
+
+    const response = await applyImport(cookie, session.sessionId, {
+      "1": { action: "skip" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(await dubbels()).toBe(before);
   });
 });
 

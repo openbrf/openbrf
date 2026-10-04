@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
@@ -20,6 +22,7 @@ import {
   findUndecided,
   type ImportDecisions,
   type ImportOutcome,
+  type ImportPlan,
   type ImportRole,
   type PlannedRow,
 } from "./import-plan";
@@ -243,11 +246,11 @@ export class ImportService implements OnModuleInit {
   /**
    * Works out what the mapping would do, without doing any of it.
    *
-   * It also records what it showed: the mapping, the defaults, and which rows it
-   * could not resolve to one person. The apply reads that back rather than being
-   * told again, so the import that runs is the one the board looked at and a row
-   * needing a decision cannot be slipped past by applying a mapping nobody
-   * previewed.
+   * It also records what it showed: the mapping, the defaults, which rows it
+   * could not resolve to one person, and a digest of what it planned for every
+   * row. The apply reads that back rather than being told again, so the import
+   * that runs is the one the board looked at and a row needing a decision
+   * cannot be slipped past by applying a mapping nobody previewed.
    *
    * The decisions the board has made so far are planned with, because a
    * person chosen for a row, or created by it, is one the rows after it can
@@ -289,6 +292,7 @@ export class ImportService implements OnModuleInit {
         defaultRole: input.defaultRole,
         defaultMovedInOn: input.defaultMovedInOn,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
+        previewDigest: planDigest(plan),
         previewedAt: new Date(),
       },
     });
@@ -346,7 +350,8 @@ export class ImportService implements OnModuleInit {
       const decision = input.decisions[rowNumber];
       if (decision === undefined) {
         throw new ImportError(
-          "Some rows matched more than one person and have no decision.",
+          "Some rows match more than one person, or contradict the person " +
+            "they match, and have no decision.",
           "ambiguous-rows-undecided",
         );
       }
@@ -361,6 +366,13 @@ export class ImportService implements OnModuleInit {
       }
     }
 
+    // Asked once before the plan as well as under the lock. Planned against a
+    // register another import is halfway through writing, the decisions could
+    // look outdated, and the board would be sent back to a preview of that
+    // half-written register instead of being told to wait. The lock below is
+    // still what decides.
+    await refuseWhileAnotherRuns(this.prisma, sessionId);
+
     await this.checkDecidedPlan(session, input.decisions);
 
     // Before the transaction: creating a queue is the queue backend's own work
@@ -371,20 +383,7 @@ export class ImportService implements OnModuleInit {
     // rethrows it. None of the refusals has written anything by then.
     await this.prisma.$transaction(async (tx) => {
       await lockImportApply(tx);
-
-      const running = await tx.importSession.findFirst({
-        where: {
-          id: { not: sessionId },
-          status: { in: ["QUEUED", "APPLYING"] },
-        },
-        select: { id: true },
-      });
-      if (running !== null) {
-        throw new ImportError(
-          "Another import is running. Apply this one when it has finished.",
-          "another-import-running",
-        );
-      }
+      await refuseWhileAnotherRuns(tx, sessionId);
 
       const claim = await tx.importSession.updateMany({
         // The preview this apply was checked against. One taken meanwhile
@@ -406,9 +405,13 @@ export class ImportService implements OnModuleInit {
           select: { status: true },
         });
         if (current?.status === "MAPPING") {
+          // Not "preview-outdated": nothing this board member chose changed
+          // the plan. Somebody else's preview replaced the one checked here,
+          // and answering with a preview of this tab's own would replace theirs
+          // in turn.
           throw new ImportError(
             "The import was previewed again while it was being started.",
-            "preview-outdated",
+            "preview-replaced",
           );
         }
         throw new ImportError(
@@ -522,7 +525,10 @@ export class ImportService implements OnModuleInit {
    * The same goes for a row the preview showed as needing a decision that no
    * longer does, or that now matches other people: its decision would be
    * dropped, or name somebody the row no longer offers, without anyone seeing
-   * that.
+   * that. And for any other row the decisions write differently from the
+   * preview - a row shown as an update of the person an earlier decision chose
+   * becomes a new person when that decision is changed to a skip - which is
+   * why every row is compared, through the preview's digest.
    *
    * The preview may itself have been planned with decisions, so even a skip
    * can change what the rows after it match: skipping a row the preview had
@@ -539,6 +545,7 @@ export class ImportService implements OnModuleInit {
       defaultRole: ImportRole | null;
       defaultMovedInOn: string | null;
       ambiguousRows: Prisma.JsonValue;
+      previewDigest: string | null;
     },
     decisions: ImportDecisions,
   ): Promise<void> {
@@ -592,6 +599,16 @@ export class ImportService implements OnModuleInit {
         undecided,
       );
     }
+
+    // A session previewed before the digest was recorded has none, and is
+    // previewed again rather than trusted.
+    if (planDigest(plan) !== session.previewDigest) {
+      throw new ImportError(
+        "Given these decisions, a row would be written differently from " +
+          "the preview.",
+        "preview-outdated",
+      );
+    }
   }
 
   private async loadForApply(sessionId: string): Promise<{
@@ -602,6 +619,7 @@ export class ImportService implements OnModuleInit {
     defaultMovedInOn: string | null;
     previewedAt: Date | null;
     ambiguousRows: Prisma.JsonValue;
+    previewDigest: string | null;
   }> {
     // The uploaded rows are read, but only decrypted when the board has made
     // decisions to plan them with.
@@ -615,6 +633,7 @@ export class ImportService implements OnModuleInit {
         defaultMovedInOn: true,
         previewedAt: true,
         ambiguousRows: true,
+        previewDigest: true,
         status: true,
         expiresAt: true,
       },
@@ -640,6 +659,57 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
     throw new ImportError("That upload has expired.", "session-expired");
   }
   return session;
+}
+
+/**
+ * Refuses while another session is queued or applying.
+ *
+ * Asked under the import lock to decide, and once before it to answer early.
+ */
+async function refuseWhileAnotherRuns(
+  client: Pick<Prisma.TransactionClient, "importSession">,
+  sessionId: string,
+): Promise<void> {
+  const running = await client.importSession.findFirst({
+    where: {
+      id: { not: sessionId },
+      status: { in: ["QUEUED", "APPLYING"] },
+    },
+    select: { id: true },
+  });
+  if (running !== null) {
+    throw new ImportError(
+      "Another import is running. Apply this one when it has finished.",
+      "another-import-running",
+    );
+  }
+}
+
+/**
+ * What a plan does with every row, as one value to compare.
+ *
+ * The outcome, the person the row is written to and the key that reached
+ * them, which decides whether its identity number is written, the earlier row
+ * it follows, and the persons it could equally well be - sorted, because the
+ * register lists them in no fixed order. Hashed, because a file can have
+ * thousands of rows and the only question ever asked is whether two plans
+ * agree.
+ */
+function planDigest(plan: ImportPlan): string {
+  const hash = createHash("sha256");
+  for (const row of plan.rows) {
+    hash.update(
+      `${JSON.stringify([
+        row.rowNumber,
+        row.outcome,
+        row.matchedPersonId,
+        row.matchedBy,
+        row.sameAsRowNumber,
+        row.candidates.map((candidate) => candidate.personId).sort(),
+      ])}\n`,
+    );
+  }
+  return hash.digest("hex");
 }
 
 /** Whether two lists of person ids name the same people. */

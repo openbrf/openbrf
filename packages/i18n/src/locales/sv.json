@@ -2380,6 +2380,7 @@
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
       "previewRequired": "Förhandsgranska importen innan du genomför den.",
       "previewOutdated": "Dina val ändrar vad andra rader matchar. Förhandsgranska importen igen.",
+      "previewReplaced": "Någon förhandsgranskade importen igen medan den startades, så den startades inte. Förhandsgranska den igen innan du importerar.",
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",

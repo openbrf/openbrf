@@ -13,13 +13,19 @@ only while the import ran, and the import then stopped with part of the file
 already in the register.
 
 Starting an import now plans the whole file again with the decisions, and
-refuses before anything is written if a further row needs a decision, or if a
-row the preview asked about no longer does or now matches other people. That
-holds when every decision is to skip a row too, since skipping can undo what
-the preview was planned with. An import previewed again while it was being
-started is refused rather than started with the other preview's mapping. The
-import screen then previews the file again with the decisions made so far,
-keeps those that still apply, and shows the rows that now need one.
+refuses before anything is written if a further row needs a decision, or if
+any row would be written differently from the preview: a row the preview asked
+about that no longer needs a decision or now matches other people, or a row
+shown as an update that would now create a person. That holds when every
+decision is to skip a row too, since skipping can undo what the preview was
+planned with. The import screen then previews the file again with the
+decisions made so far, keeps those that still apply, and shows the rows that
+now need one.
+
+An import previewed again elsewhere while it was being started is refused
+rather than started with the other preview's mapping, and the screen says so
+instead of previewing over the other preview. An import started while another
+one is running is refused as such before its decisions are checked.
 
 The preview also names the person a row is folded into when an earlier row of
 the file creates them.
