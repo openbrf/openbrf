@@ -2362,6 +2362,10 @@ describe("a decision for a row that does not need one", () => {
       [addressLabel, "2102", "Nyckel", surname, "Boende", "", "", "2021-04-01"],
     ]);
 
+    // Asserted on the reason rather than the status alone: the apply also
+    // refuses a decision for a row that asked for none, as preview-outdated
+    // and with the same 400, so a status would pass with the key check gone.
+    // The preview shares the schema and has no such check of its own.
     for (const decisions of [
       { first: { action: "skip" } },
       { "0": { action: "skip" } },
@@ -2372,8 +2376,25 @@ describe("a decision for a row that does not need one", () => {
         ]),
       ),
     ]) {
-      const response = await applyImport(cookie, session.sessionId, decisions);
-      expect(response.statusCode).toBe(400);
+      for (const response of [
+        await applyImport(cookie, session.sessionId, decisions),
+        await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/preview`,
+          payload: { mapping: session.suggestedMapping, decisions },
+          headers: { cookie },
+        }),
+      ]) {
+        expect(response.statusCode).toBe(400);
+        expect(JSON.parse(response.body)).toMatchObject({
+          reason: "invalid-body",
+          issues: expect.arrayContaining([
+            expect.objectContaining({
+              path: expect.stringMatching(/^decisions(\.|$)/),
+            }),
+          ]),
+        });
+      }
     }
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
