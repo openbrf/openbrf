@@ -26,7 +26,13 @@ the old file; then it sets the new, required `OWNER_DB_PASSWORD`, and upgrades
 with `pull` and `up -d` (`docs/deployment.md`, "Upgrading to a separate schema
 owner"). An instance on a database server of its own
 has its owner created by that server's administrator, and runs the migrate
-service and then the application (`docs/deployment.md`). An operator who
+service and then the application (`docs/deployment.md`). One that already ran
+on such a server moves `POSTGRES_USER` and `POSTGRES_PASSWORD` to
+`OWNER_DB_USER` and `OWNER_DB_PASSWORD` with the same values, does not run the
+`schema-owner` service, and runs `run --rm --no-deps migrate` before
+`up -d --no-deps app` (`docs/deployment.md`, "An instance on a shared database
+server"). The `schema-owner` service refuses to run as a role that is not a
+superuser, and names that section. An operator who
 manages the runtime role themselves (`DATABASE_URL_RUNTIME`) constrains it
 once, as `docs/deployment.md`, "Upgrading to a separate schema owner",
 describes, since the start check below refuses a role that an earlier release

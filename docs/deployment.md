@@ -334,7 +334,11 @@ An instance installed before the schema owner existed ran its migrations as the
 superuser, which owns every table. The release that brings the owner also
 changes `docker-compose.prod.yml`: it adds the `schema-owner` and `migrate`
 services, and no longer gives the application the superuser's password. The new
-image refuses to start under the old file, so the upgrade replaces it first:
+image refuses to start under the old file, so the upgrade replaces it first.
+These steps are for an instance on the database `docker-compose.prod.yml`
+bundles; one on a server it shares with others follows
+[An instance on a shared database server](#an-instance-on-a-shared-database-server)
+instead.
 
 1. Back up ([backup-and-restore.md](backup-and-restore.md), "Before an
    upgrade").
@@ -424,6 +428,64 @@ SQL
 ```
 
 Run the `GRANT` again after an upgrade that adds a column to `pgboss.version`.
+
+### An instance on a shared database server
+
+An instance on a server it shares with others named its own owner in
+`POSTGRES_USER` and `POSTGRES_PASSWORD`, and started the application alone. That
+owner already owns the database and its tables, so nothing has to move to a new
+one, and the `schema-owner` service, which runs as the server's superuser, is
+not run: it refuses a `POSTGRES_USER` that is not one. The migrations now run in
+a service of their own, before the application starts:
+
+1. Back up ([backup-and-restore.md](backup-and-restore.md), "Before an
+   upgrade").
+2. Download the release's `docker-compose.prod.yml` and
+   `env.production.example`, as in step 2 above.
+3. In `.env.production`, rename `POSTGRES_USER` to `OWNER_DB_USER` and
+   `POSTGRES_PASSWORD` to `OWNER_DB_PASSWORD`, keeping their values: the owner
+   and its password stay as they are. Set `OPENBRF_VERSION` to the release line
+   you upgrade to.
+
+   ```sh
+   OWNER_DB_USER="brf_example_owner"
+   OWNER_DB_PASSWORD="..."
+   ```
+
+4. Have the server's administrator revoke any role the runtime role is a member
+   of: the `migrate` service refuses to harden the role while one is left, and
+   names each. The owner hands itself anything the runtime role owns in the
+   instance's database - an object in the job schema, where an earlier release
+   let it create - which the `migrate` service refuses as well:
+
+   ```sql
+   GRANT openbrf_app TO brf_example_owner;  -- PostgreSQL 16 asks for it first
+   REASSIGN OWNED BY openbrf_app TO brf_example_owner;
+   REVOKE openbrf_app FROM brf_example_owner;
+   ```
+
+5. Run the deploy steps, then the application:
+
+   ```sh
+   compose() {
+     docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+   }
+
+   compose pull migrate app
+   compose run --rm --no-deps migrate
+   compose up -d --no-deps app
+   ```
+
+An owner that was the server's superuser has to give way to one that is not,
+because the `migrate` service refuses to run as a superuser. Leave
+`POSTGRES_USER` and `POSTGRES_PASSWORD` naming the superuser for one run, name
+a new owner in `OWNER_DB_USER` and `OWNER_DB_PASSWORD`, and run
+`compose run --rm --no-deps schema-owner`: it creates the owner, hands it what
+the superuser owns and revokes the runtime role's memberships. Then remove
+`POSTGRES_PASSWORD` from the env file and go on from step 5. An
+override file that added `DATABASE_URL` to the `app` service adds it to the
+`migrate` service instead: the application refuses to start with the owner's
+connection in its environment.
 
 ## Several instances on one database server
 

@@ -82,6 +82,19 @@ BEGIN;
 SELECT set_config('openbrf.owner_role', :'owner_role', true) AS ignored
 \gset
 
+-- Everything below needs a superuser: taking over what the superuser owns,
+-- revoking the memberships it granted, and keeping the owner from being one.
+-- An instance on a shared server whose env file still names its own owner in
+-- POSTGRES_USER, as it did before the schema owner existed, stops here before
+-- anything changes.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('The schema-owner service runs as the database superuser, and POSTGRES_USER names %I, which is not one. An instance on a database server it does not administer does not run this service: docs/deployment.md, "Upgrading to a separate schema owner", under "An instance on a shared database server", says how it upgrades.',
+    current_user))
+FROM pg_roles
+WHERE rolname = current_user
+  AND NOT rolsuper
+\gexec
+
 SELECT $sql$DO $body$ BEGIN
   RAISE EXCEPTION 'OWNER_DB_PASSWORD is not set in the schema-owner container. Set it in the env file and run `up -d` again.';
 END $body$$sql$
