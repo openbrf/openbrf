@@ -131,6 +131,39 @@ describe("failureFrames", () => {
     expect(failureFrames(error)).toBeUndefined();
   });
 
+  it("keeps no line a message lost when it was cut down after the stack was read", () => {
+    // The head still matches, since the message kept its own beginning, so
+    // the lines it lost are left below the head. Only the frame shape - a
+    // location at the end - tells them from the frames.
+    const error = new Error("Recipient refused\n    at anna@example.se");
+    void error.stack;
+    error.message = "Recipient refused";
+
+    const frames = failureFrames(error) ?? "";
+
+    expect(frames).not.toContain("anna");
+    expect(frames).toContain("failure.spec.ts");
+  });
+
+  it("knows the places V8 names instead of a file", () => {
+    const cause = new Error("x");
+    cause.stack = [
+      "Error: x",
+      "    at Array.map (<anonymous>)",
+      "    at JSON.parse (native)",
+      "    at async Promise.all (index 0)",
+      "    at file:///app/dist/main.js:3:7",
+      "    at somebody@example.se",
+    ].join("\n");
+
+    expect(failureFrames(cause)?.split("\n")).toEqual([
+      "    at Array.map (<anonymous>)",
+      "    at JSON.parse (native)",
+      "    at async Promise.all (index 0)",
+      "    at file:///app/dist/main.js:3:7",
+    ]);
+  });
+
   it("keeps only the call frames", () => {
     const frames = failureFrames(new Error(REVEALING)) ?? "";
 
@@ -167,7 +200,7 @@ describe("failureFrames", () => {
     const deep = new Error("x");
     deep.stack = [
       "Error: x",
-      ...Array.from({ length: 500 }, () => "    at f"),
+      ...Array.from({ length: 500 }, () => "    at f (/app/f.js:1:1)"),
     ].join("\n");
 
     expect((failureFrames(deep) ?? "").split("\n")).toHaveLength(20);
