@@ -4320,8 +4320,8 @@
       },
       "print": "Print the notices",
       "close": "Close the notices",
-      "payToBankgiro": "Paid to bankgiro {{number}}.",
-      "payToPlusgiro": "Paid to plusgiro {{number}}.",
+      "payToBankgiro": "Pay to bankgiro {{number}}.",
+      "payToPlusgiro": "Pay to plusgiro {{number}}.",
       "noGiro": "No bankgiro or plusgiro is recorded in the settings."
     },
     "notice": {

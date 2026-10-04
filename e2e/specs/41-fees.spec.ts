@@ -580,6 +580,8 @@ test("the board issues the period's notices and takes them away", async ({
     page.getByRole("heading", { name: "Registrera en avgift" }),
   ).toBeHidden();
   await expect(notices).toBeVisible();
+  await expect(notices.locator("table")).toBeVisible();
+  await expect(notices.locator("tbody tr").first()).toBeVisible();
   await expect(register).toBeHidden();
 
   const pdf = await page.pdf({ format: "A4" });

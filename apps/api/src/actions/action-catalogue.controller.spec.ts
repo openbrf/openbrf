@@ -75,11 +75,28 @@ describe("looking up one action", () => {
   it("answers on the surface the list was read on", async () => {
     // An action offered on "mcp" alone is in `?surface=mcp`; looking it up by
     // name on the same surface must not answer that it does not exist.
+    const summary: ActionSummary = {
+      name: "news_list",
+      title: "List news",
+      description: "Lists the news items the caller may read.",
+      titleKey: "actions.news_list.title",
+      descriptionKey: "actions.news_list.description",
+      group: "news",
+      groupTitle: "News",
+      groupTitleKey: "actions.groups.news",
+      capability: "news:read",
+      effect: "read",
+      idempotent: true,
+      additive: false,
+      needsConfirmation: false,
+      openWorld: false,
+      personalData: [],
+      surfaces: ["mcp"],
+      errors: [],
+    };
     const registry = {
       list: async (_caller: unknown, filter?: ActionListFilter) =>
-        filter?.surface === "mcp"
-          ? [{ name: "news_list" } as ActionSummary]
-          : [],
+        filter?.surface === "mcp" ? [summary] : [],
       inputJsonSchema: () => ({}),
       outputJsonSchema: () => ({}),
     } as unknown as ActionRegistryService;
@@ -98,7 +115,7 @@ describe("looking up one action", () => {
         reply,
       ),
     ).resolves.toEqual({
-      name: "news_list",
+      ...summary,
       inputSchema: {},
       outputSchema: {},
       errorHandling: ACTION_ERROR_MCP,
