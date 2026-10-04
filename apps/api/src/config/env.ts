@@ -1,3 +1,4 @@
+import { isLoopbackHost } from "@openbrf/shared";
 import { z } from "zod";
 
 import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
@@ -79,22 +80,6 @@ function isHttpsOrLoopback(url: URL): boolean {
   if (url.protocol === "https:") return true;
   if (url.protocol !== "http:") return false;
   return isLoopbackHost(url.hostname);
-}
-
-/**
- * Whether a host names this machine: the one place a connection may go
- * unencrypted, because it never crosses a network.
- *
- * Both IPv6 forms, because a URL parser always returns the address bracketed
- * and an SMTP host is written as the operator typed it.
- */
-export function isLoopbackHost(host: string): boolean {
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "[::1]" ||
-    host === "::1"
-  );
 }
 
 /**
@@ -527,16 +512,30 @@ function checkMailDriver(value: Env, ctx: z.RefinementCtx): void {
 }
 
 /**
- * The development placeholder from `.env.example`. Published, so a copy of it
- * in production is a secret everybody has.
+ * Every sign-in secret written into this repository: the development
+ * placeholder from `.env.example` and the value the unit suites load with.
+ * Published, so a copy of one in production is a secret everybody has. The
+ * end-to-end stacks' secrets are refused by their variety below, and a suite
+ * holds every committed env file to that.
  */
-const PLACEHOLDER_AUTH_SECRETS = new Set(["dev-only-secret-change-me"]);
+const PUBLISHED_AUTH_SECRETS = new Set([
+  "dev-only-secret-change-me",
+  "0123456789abcdef0123456789abcdef",
+]);
 
 /** The fewest characters a production secret may have. */
 const PRODUCTION_AUTH_SECRET_MIN = 32;
 
 /**
- * A production secret that is long enough, and not the published placeholder.
+ * The fewest different characters a production secret may have. A generated
+ * one has far more - `openssl rand -base64 48` about forty, `openssl rand -hex
+ * 32` all sixteen - and one typed or padded out to the length has far fewer.
+ */
+const PRODUCTION_AUTH_SECRET_VARIETY = 8;
+
+/**
+ * A production secret that is long and varied enough, and not one published
+ * here.
  *
  * It signs sessions and encrypts the TOTP secrets and OAuth client secrets at
  * rest, so a guessable one lets anybody holding a database copy undo the
@@ -550,22 +549,24 @@ function checkAuthSecret(
   if (value.NODE_ENV !== "production") {
     return;
   }
-  if (PLACEHOLDER_AUTH_SECRETS.has(value.BETTER_AUTH_SECRET)) {
+  const secret = value.BETTER_AUTH_SECRET;
+  const refuse = (problem: string) => {
     ctx.addIssue({
       code: "custom",
       path: ["BETTER_AUTH_SECRET"],
-      message:
-        "is the development placeholder. Generate one with " +
-        "`openssl rand -base64 48`.",
+      message: `${problem}. Generate one with \`openssl rand -base64 48\`.`,
     });
-  } else if (value.BETTER_AUTH_SECRET.length < PRODUCTION_AUTH_SECRET_MIN) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["BETTER_AUTH_SECRET"],
-      message:
-        `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in ` +
-        "production. Generate one with `openssl rand -base64 48`.",
-    });
+  };
+  if (PUBLISHED_AUTH_SECRETS.has(secret)) {
+    refuse("is published in the OpenBRF repository");
+  } else if (secret.length < PRODUCTION_AUTH_SECRET_MIN) {
+    refuse(
+      `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in production`,
+    );
+  } else if (new Set(secret).size < PRODUCTION_AUTH_SECRET_VARIETY) {
+    refuse(
+      `needs at least ${String(PRODUCTION_AUTH_SECRET_VARIETY)} different characters in production`,
+    );
   }
 }
 

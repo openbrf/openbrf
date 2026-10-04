@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { EnvValidationError, loadEnv } from "./env";
@@ -468,6 +471,27 @@ describe("the connection pool's size", () => {
   });
 });
 
+/**
+ * Every sign-in secret in an env file committed to this repository, by file.
+ * Read from the files themselves, so a stack added later is held to the check
+ * without anybody remembering to list it.
+ */
+function committedSecrets(): [string, string][] {
+  const root = join(process.cwd(), "../..");
+  const files = [
+    ".env.example",
+    ...readdirSync(join(root, "e2e"))
+      .filter((name) => name.endsWith(".env"))
+      .map((name) => `e2e/${name}`),
+  ];
+  return files.flatMap((file): [string, string][] => {
+    const line = /^BETTER_AUTH_SECRET="?([^"\n]*)"?$/m.exec(
+      readFileSync(join(root, file), "utf8"),
+    );
+    return line?.[1] ? [[file, line[1]]] : [];
+  });
+}
+
 describe("the sign-in secret in production", () => {
   const production = (secret: string) =>
     loadEnv({
@@ -480,14 +504,25 @@ describe("the sign-in secret in production", () => {
   it.each([
     ["the published development placeholder", "dev-only-secret-change-me"],
     ["one of sixteen characters", "0123456789abcdef"],
-    ["one a character short of the floor", "k".repeat(31)],
+    ["one a character short of the floor", "k7Qx9mZ2".repeat(4).slice(1)],
+    ["the unit suites' own", REQUIRED.BETTER_AUTH_SECRET],
+    ["one of one character repeated", "k".repeat(48)],
+    ["one of seven different characters", "abcdefg".repeat(7)],
   ])("refuses %s, naming the variable", (_name, secret) => {
     expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
   });
 
+  it.each(committedSecrets())(
+    "refuses the secret committed in %s",
+    (_file, secret) => {
+      expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
+    },
+  );
+
   it.each([
-    ["one exactly at the floor", "k".repeat(32)],
-    ["a long one", "k".repeat(48)],
+    ["one exactly at the floor", "k7Qx9mZ2".repeat(4)],
+    ["one of eight different characters", "abcdefgh".repeat(6)],
+    ["a generated one", "pN3r+X0wq8Lc2VjH9sYbTt5aKfGm1eUd4zRiO7lW6nQyBhJk"],
   ])("takes %s", (_name, secret) => {
     expect(production(secret).BETTER_AUTH_SECRET).toBe(secret);
   });
