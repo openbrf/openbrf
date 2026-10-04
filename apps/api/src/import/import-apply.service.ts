@@ -20,11 +20,7 @@ import {
   lockApartmentResidenciesInOrder,
   lockResidencyTransitionsInOrder,
 } from "../registers/residency-lock";
-import {
-  type ImportField,
-  IMPORT_FIELDS,
-  type ImportMapping,
-} from "./import-columns";
+import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import {
   findUndecided,
@@ -756,15 +752,6 @@ interface EncryptedRowValues {
   email: { cipher: string; index: string | null } | null;
   phone: { cipher: string; index: string | null } | null;
   personalIdentityNumber: { cipher: string; index: string | null } | null;
-}
-
-/** The stored mapping, read back. An empty entry is a column not imported. */
-export function readMapping(stored: readonly string[]): ImportMapping {
-  return stored.map((field) =>
-    (IMPORT_FIELDS as readonly string[]).includes(field)
-      ? (field as ImportField)
-      : null,
-  );
 }
 
 /**
