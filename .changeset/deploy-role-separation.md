@@ -17,9 +17,14 @@ code in the image is owned by root, so the user they run as can write to
 Migrations now run as `openbrf_owner` (or the name `OWNER_DB_USER` gives), a
 schema owner that is not a superuser. A `schema-owner` service creates it as
 the superuser on every `up`, before the migrate service, and on an instance
-installed before it existed moves the superuser's tables to it. A new
-`OWNER_DB_PASSWORD` setting is required; with it, an existing instance upgrades
-with the usual `pull` and `up -d`. An instance on a database server of its own
+installed before it existed moves the superuser's tables to it; anything
+another role owns in the application's schemas it names and leaves for the
+operator to look at. An existing instance first replaces its
+`docker-compose.prod.yml` with the release's, and fetches the release's
+`env.production.example` to compare, since the new image does not start under
+the old file; then it sets the new, required `OWNER_DB_PASSWORD`, and upgrades
+with `pull` and `up -d` (`docs/deployment.md`, "Upgrading to a separate schema
+owner"). An instance on a database server of its own
 has its owner created by that server's administrator, and runs the migrate
 service and then the application (`docs/deployment.md`). An operator who
 manages the runtime role themselves (`DATABASE_URL_RUNTIME`) constrains it
@@ -31,7 +36,8 @@ The application's role can no longer write the migration history or the job
 schema's version, and no longer holds `CREATE` on the job schema, which no
 queue needed. And in production the application now asks the database, before
 it starts anything, whether the role it connected as is a constrained one, and
-refuses to serve as a superuser, an owner, a role that can create objects in
-the application's schemas, or one holding any privilege the hardening takes
+refuses to serve as a superuser, a role that owns anything in the
+application's schemas, a member of another role, a role that can create objects
+in those schemas, or one holding any privilege the hardening takes
 away on the statutory archive, the migration history or the job schema's
 version.

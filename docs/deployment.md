@@ -331,28 +331,54 @@ env file, is the error an operator who has set up neither will read.
 ## Upgrading to a separate schema owner
 
 An instance installed before the schema owner existed ran its migrations as the
-superuser, which owns every table. Its upgrade needs one more line in
-`.env.production`, the owner's password, generated like the others:
+superuser, which owns every table. The release that brings the owner also
+changes `docker-compose.prod.yml`: it adds the `schema-owner` and `migrate`
+services, and no longer gives the application the superuser's password. The new
+image refuses to start under the old file, so the upgrade replaces it first:
 
-```sh
-OWNER_DB_PASSWORD="..."
-```
+1. Back up ([backup-and-restore.md](backup-and-restore.md), "Before an
+   upgrade").
+2. Download the release's `docker-compose.prod.yml` over yours, and its
+   `env.production.example` beside it, naming the release you upgrade to as in
+   [Starting an instance](#starting-an-instance). Carry over anything you
+   changed in the old compose file. From a clone of the repository, check out
+   the release's tag instead, which brings both.
 
-Then it upgrades as any other: back up, `pull`, `up -d`. The `schema-owner`
-service creates the owner and moves to it everything the superuser owns in the
-application's schemas, so the `migrate` service after it runs as the owner. It
-also revokes any role the runtime role has been made a member of. Such a
-membership lends it privileges that no revoke on the runtime role reaches, and
-only the superuser can take back a membership the superuser granted, so the
-`migrate` service refuses to harden the role while one is left and names the
-`schema-owner` service.
+   ```sh
+   curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/docker-compose.prod.yml
+   curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/env.production.example
+   ```
+
+3. Add the owner's password to `.env.production`, generated like the others,
+   and set `OPENBRF_VERSION` to the release line you upgrade to.
+   `env.production.example` shows every variable the release reads.
+
+   ```sh
+   OWNER_DB_PASSWORD="..."
+   ```
+
+4. `pull`, then `up -d`.
+
+The `schema-owner` service creates the owner and moves to it everything the
+superuser owns in the application's schemas, so the `migrate` service after it
+runs as the owner. Anything another role owns there - an object the runtime
+role created in the job schema, where an earlier release let it - is not moved:
+the service stops and names it, so that you can look at it, hand it to the
+owner or drop it, and run `up -d` again.
+
+The `schema-owner` service also revokes any role the runtime role has been made
+a member of. Such a membership lends it privileges that no revoke on the
+runtime role reaches, and only the superuser can take back a membership the
+superuser granted, so the `migrate` service refuses to harden the role while one
+is left and names the `schema-owner` service.
 
 If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
 `RUNTIME_DB_PASSWORD` empty), the `migrate` service does not touch it, and a
 role that was granted every write in `public` by an earlier release can still
 write the migration history, or create objects in the job schema. The
-application refuses to start as such a role, so constrain it before the
-upgrade's `up -d`.
+application refuses to start as such a role, and as one that owns anything in
+the application's schemas or is a member of another role, so constrain it
+before the upgrade's `up -d`.
 
 If you have a checkout, apply
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
