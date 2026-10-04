@@ -1103,35 +1103,61 @@ function ApartmentEntry({
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {row.liens.map((lien) => (
-              <li
-                key={lien.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2"
-              >
-                <span className="text-body text-ink">{lien.creditor}</span>
-                <span className="font-data text-data text-ink-muted">
-                  {`${t("registers.apartment.liens.notedOn")} ${lien.notedOn}`}
-                </span>
-                {lien.amount === null ? null : (
+            {row.liens.map((lien) => {
+              /*
+               * The register allows two notes alike in creditor, day and
+               * amount, and nothing on screen would tell their release
+               * controls apart. Their place among the alike ones does.
+               */
+              const alike = row.liens.filter(
+                (other) =>
+                  other.creditor === lien.creditor &&
+                  other.notedOn === lien.notedOn &&
+                  other.amount === lien.amount,
+              );
+              const entry =
+                alike.length < 2
+                  ? null
+                  : t("registers.apartment.liens.entry", {
+                      position: alike.indexOf(lien) + 1,
+                      total: alike.length,
+                    });
+              return (
+                <li
+                  key={lien.id}
+                  className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2"
+                >
+                  <span className="text-body text-ink">{lien.creditor}</span>
                   <span className="font-data text-data text-ink-muted">
-                    {`${t("registers.apartment.liens.amount")} ${lien.amount}`}
+                    {`${t("registers.apartment.liens.notedOn")} ${lien.notedOn}`}
                   </span>
-                )}
-                {lien.releasedOn === null ? (
-                  canWrite ? (
-                    <LienReleaseControl
-                      lien={lien}
-                      onRelease={onRelease}
-                      onReread={onReread}
-                    />
-                  ) : null
-                ) : (
-                  <span className="font-data text-data text-ink-muted">
-                    {`${t("registers.apartment.liens.releasedOn")} ${lien.releasedOn}`}
-                  </span>
-                )}
-              </li>
-            ))}
+                  {lien.amount === null ? null : (
+                    <span className="font-data text-data text-ink-muted">
+                      {`${t("registers.apartment.liens.amount")} ${lien.amount}`}
+                    </span>
+                  )}
+                  {entry === null ? null : (
+                    <span className="font-data text-data text-ink-muted">
+                      {entry}
+                    </span>
+                  )}
+                  {lien.releasedOn === null ? (
+                    canWrite ? (
+                      <LienReleaseControl
+                        lien={lien}
+                        entry={entry}
+                        onRelease={onRelease}
+                        onReread={onReread}
+                      />
+                    ) : null
+                  ) : (
+                    <span className="font-data text-data text-ink-muted">
+                      {`${t("registers.apartment.liens.releasedOn")} ${lien.releasedOn}`}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -1654,10 +1680,13 @@ function ReportBasisControl({
  */
 function LienReleaseControl({
   lien,
+  entry,
   onRelease,
   onReread,
 }: {
   lien: ApartmentRegisterLien;
+  /** Which of several alike notes this is, or null when it is the only one. */
+  entry: string | null;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
   onReread: () => Promise<boolean>;
 }): ReactElement {
@@ -1667,20 +1696,21 @@ function LienReleaseControl({
   const [recordedUnread, setRecordedUnread] = useState(false);
   const [reading, setReading] = useState(false);
   /*
-   * Named by the creditor, the day it was noted and the amount. A creditor can
-   * hold several open notes on one apartment, and a control that said only who
-   * they are owed to would be the same control twice, for acts that cannot be
-   * taken back.
+   * Named by the creditor, the day it was noted and the amount, and by its place
+   * among the alike ones when there are several. A creditor can hold several
+   * open notes on one apartment, and a control that said only who they are owed
+   * to would be the same control twice, for acts that cannot be taken back.
    */
   const names = {
-    lien: [lien.creditor, lien.notedOn, lien.amount]
+    lien: [lien.creditor, lien.notedOn, lien.amount, entry]
       .filter((part): part is string => part !== null)
       .join(", "),
   };
 
   if (recordedUnread) {
     return (
-      <span className="flex flex-wrap items-center gap-2 print:hidden">
+      <span className="flex flex-wrap items-center gap-2">
+        {/* Printed too: the extract still shows this lien as open. */}
         <span role="status" className="text-small text-ink-muted">
           {t("registers.apartment.liens.releaseRecordedUnread")}
         </span>
@@ -1696,7 +1726,7 @@ function LienReleaseControl({
               }
             });
           }}
-          className={QUIET_BUTTON}
+          className={`${QUIET_BUTTON} print:hidden`}
         >
           {t("registers.apartment.liens.readAgain")}
         </button>

@@ -672,6 +672,71 @@ describe("releasing a lien when the register cannot be read back", () => {
     expect(names).toHaveLength(2);
     expect(new Set(names).size).toBe(2);
   });
+
+  it("tells two identical open liens apart by their place among them", async () => {
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [SPARBANKEN(null), { ...SPARBANKEN(null), id: "lien-2" }],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+
+    const buttons = await screen.findAllByRole("button", {
+      name: /^Avnotera panten från Sparbanken/,
+    });
+    const names = buttons.map((button) => button.getAttribute("aria-label"));
+
+    expect(new Set(names).size).toBe(2);
+    expect(screen.getByText("Notering 2 av 2")).toBeTruthy();
+  });
+
+  it("does not number a lien that has no twin", async () => {
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+
+    await screen.findByRole("button", { name: /^Avnotera panten från/ });
+
+    expect(screen.queryByText(/^Notering \d+ av/)).toBeNull();
+  });
+
+  it("keeps the warning that the lien looks open when the extract is printed", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    await session.click(
+      await screen.findByRole("button", { name: /^Avnotera panten från/ }),
+    );
+    fetchApartmentRegister.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(
+      screen.getByRole("button", { name: /^Registrera avnoteringen/ }),
+    );
+
+    const warning = await screen.findByText(
+      /Avnoteringen är registrerad, men registret/,
+    );
+
+    // jsdom applies no print stylesheet, so the class is what is checked.
+    expect(warning.closest(".print\\:hidden")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Läs om registret" })
+        .className.includes("print:hidden"),
+    ).toBe(true);
+  });
 });
 
 /**

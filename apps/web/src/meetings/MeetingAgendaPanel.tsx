@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -121,6 +121,11 @@ export function MeetingAgendaPanel({
     ),
   );
 
+  /*
+   * Counts the edits to the draft. A save is for the draft as it was when it
+   * was sent, so one that settles after an edit must not claim the edit.
+   */
+  const draftRevision = useRef(0);
   const save = useSaveAction(setMeetingAgenda);
 
   const stated = items
@@ -139,14 +144,19 @@ export function MeetingAgendaPanel({
     if (!sendable) {
       return;
     }
+    const sent = draftRevision.current;
     void save
       .submit({
         id: meeting.id,
         values: { items: stated.map((title) => ({ title })) },
       })
       .then((landed) => {
-        onSaved(landed);
-        onChanged();
+        // A save the draft has moved on from says nothing about what is on
+        // screen now, and the re-read would remount the panel over the edit.
+        if (draftRevision.current === sent) {
+          onSaved(landed);
+          onChanged();
+        }
       });
   };
 
@@ -156,7 +166,8 @@ export function MeetingAgendaPanel({
    * panel, by the screen's flag; both are let go on the first edit.
    */
   const edited = (): void => {
-    if (save.state.kind === "saved") {
+    draftRevision.current += 1;
+    if (save.state.kind === "saved" || save.state.kind === "saving") {
       save.reset();
     }
     if (saved) {

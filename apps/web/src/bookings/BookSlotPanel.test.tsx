@@ -561,6 +561,41 @@ describe("a stay of several nights", () => {
     expect(screen.queryByText(/^Ankomst/u)).toBeNull();
   });
 
+  it("keeps a stay chosen on returning to a window while an earlier booking settles", async () => {
+    // Coming back gives the window the same key, so the key alone cannot say
+    // the stay on screen is not the one that was sent.
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await claimed;
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+
+    release();
+    // The panel says nothing of a booking made from a window since left, so
+    // there is no confirmation to wait for.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
+  });
+
   it("cannot be made to span a night somebody else holds", async () => {
     /*
      * The night between is held, so it cannot be clicked - but clicking past it

@@ -176,6 +176,12 @@ export function BookSlotPanel({
   useEffect(() => {
     onScreen.current = key;
   }, [key]);
+  /*
+   * Counts every change to the stay being put together. A window can be left
+   * and come back to with the same key, so the key alone cannot tell a stay
+   * chosen before a booking was sent from one chosen while it was in flight.
+   */
+  const stayRevision = useRef(0);
 
   const read = useCallback(async (): Promise<Calendar> => {
     if (resourceId === "") {
@@ -239,6 +245,7 @@ export function BookSlotPanel({
    * the longest stay the server takes.
    */
   const leaveWindow = (): void => {
+    stayRevision.current += 1;
     setStay(null);
     claim.reset();
   };
@@ -256,12 +263,18 @@ export function BookSlotPanel({
     // accessible name says what the slot has become while the words in it still
     // say what is happening to it.
     const sentFor = key;
+    const sentStay = stayRevision.current;
     void claim
       .submit({ resourceId, apartmentId, startsAt, endsAt })
       .then((booked) => {
         // The stay belongs to the window it was chosen in; one chosen since,
-        // somewhere else, is not the one that was booked.
-        if (booked && onScreen.current === sentFor) {
+        // somewhere else or in the same window again, is not the one that was
+        // booked.
+        if (
+          booked &&
+          onScreen.current === sentFor &&
+          stayRevision.current === sentStay
+        ) {
           setStay(null);
         }
       })
@@ -287,6 +300,7 @@ export function BookSlotPanel({
    * the check-in, and said in the same sentence the panel was already showing.
    */
   const pickNight = (slot: BookableSlot): void => {
+    stayRevision.current += 1;
     setStay((current) => {
       const fresh: StayDraft = { startsAt: slot.startsAt, endsAt: null };
       if (current === null || slot.startsAt <= current.startsAt) {

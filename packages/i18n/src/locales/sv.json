@@ -1929,6 +1929,7 @@
         "cancel": "Avbryt",
         "submit": "Notera panten",
         "release": "Avnotera",
+        "entry": "Notering {{position}} av {{total}}",
         "releaseLabel": "Avnotera panten från {{lien}}",
         "releasedOnLabel": "Avnoterad den",
         "releasedOnLabelFor": "Avnoterad den, för panten från {{lien}}",

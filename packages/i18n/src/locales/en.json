@@ -1929,6 +1929,7 @@
         "cancel": "Cancel",
         "submit": "Note the lien",
         "release": "Release",
+        "entry": "Note {{position}} of {{total}}",
         "releaseLabel": "Release the lien from {{lien}}",
         "releasedOnLabel": "Released on",
         "releasedOnLabelFor": "Released on, for the lien from {{lien}}",

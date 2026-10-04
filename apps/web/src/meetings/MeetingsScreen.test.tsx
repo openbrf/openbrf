@@ -536,6 +536,37 @@ describe("the general meeting screen", () => {
     expect(screen.queryByText("Dagordningen är sparad.")).toBeNull();
   });
 
+  it("keeps an agenda edit made while the save is in flight", async () => {
+    // The answer to a save describes the draft that was sent. Taken as current,
+    // it would read the meeting again and remount the panel over the edit.
+    const user = userEvent.setup();
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    let landed: (value: unknown) => void = () => undefined;
+    setMeetingAgenda.mockReturnValue(
+      new Promise((resolve) => {
+        landed = resolve;
+      }),
+    );
+    const reads = fetchMeeting.mock.calls.length;
+
+    await user.click(
+      screen.getByRole("button", { name: "Spara dagordningen" }),
+    );
+    await user.type(screen.getByLabelText("Punkt 1"), " igen");
+    landed({ ok: true, value: ARRANGING });
+
+    await waitFor(() => {
+      expect(setMeetingAgenda).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText("Dagordningen är sparad.")).toBeNull();
+    expect(
+      (screen.getByLabelText("Punkt 1") as HTMLInputElement).value,
+    ).toMatch(/ igen$/);
+    expect(fetchMeeting.mock.calls.length).toBe(reads);
+  });
+
   it("does not say the agenda is saved on a meeting other than the one that was saved", async () => {
     /*
      * A save still in flight when another meeting is opened reports back after
@@ -620,6 +651,47 @@ describe("the general meeting screen", () => {
     await user.type(screen.getByLabelText("För"), "5");
 
     expect(screen.queryByText("Beslutet är antecknat.")).toBeNull();
+  });
+
+  it("keeps a figure changed while the decision is being recorded", async () => {
+    const user = userEvent.setup();
+    fetchMeeting.mockResolvedValue({ ok: true, value: HELD });
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    let landed: (value: unknown) => void = () => undefined;
+    recordDecision.mockReturnValue(
+      new Promise((resolve) => {
+        landed = resolve;
+      }),
+    );
+    const reads = fetchMeeting.mock.calls.length;
+
+    await user.type(screen.getByLabelText("För"), "4");
+    await user.type(screen.getByLabelText("Mot"), "1");
+    await user.type(screen.getByLabelText("Avstår"), "0");
+    await user.click(
+      screen.getByRole("button", {
+        name: "Anteckna beslutet om Val av styrelse",
+      }),
+    );
+    await user.type(screen.getByLabelText("För"), "5");
+    landed({
+      ok: true,
+      value: {
+        outcome: "CARRIED",
+        votesFor: 4,
+        votesAgainst: 1,
+        votesAbstaining: 0,
+        closedBallot: false,
+        recordedAt: "2027-05-21T09:00:00.000Z",
+        recordedByPersonId: "person-board",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByText("Beslutet är antecknat.")).toBeNull();
+    expect((screen.getByLabelText("För") as HTMLInputElement).value).toBe("45");
+    expect(fetchMeeting.mock.calls.length).toBe(reads);
   });
 
   it("still says the decision was recorded once the re-read has landed", async () => {
