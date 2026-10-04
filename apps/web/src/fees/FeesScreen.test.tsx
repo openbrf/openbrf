@@ -434,10 +434,12 @@ describe("recording a fee", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so
+      // it is awaited together with the enabled state.
       await waitFor(() => {
         expect(amount.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
       });
-      expect(refocus).toHaveBeenCalledTimes(1);
       expect(document.activeElement).toBe(amount);
     },
   );
