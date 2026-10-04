@@ -158,10 +158,12 @@ SELECT
   coalesce(has_table_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE, DELETE, TRUNCATE'), false)
     OR coalesce(has_any_column_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE'), false)
     AS "writesMigrationHistory",
-  -- The version column alone: the application stamps the row's other columns
-  -- as pg-boss's maintenance runs. Asked of the column, so a grant on that one
+  -- UPDATE on the version column alone: the application stamps the row's other
+  -- columns as pg-boss's maintenance runs. INSERT on any column, since that is
+  -- enough to add a second row. Asked of the columns too, so a grant on one
   -- column is found as well as one on the table.
   coalesce(has_table_privilege(to_regclass('pgboss.version'), 'INSERT, DELETE, TRUNCATE'), false)
+    OR coalesce(has_any_column_privilege(to_regclass('pgboss.version'), 'INSERT'), false)
     OR coalesce(has_column_privilege(to_regclass('pgboss.version'), 'version', 'UPDATE'), false)
     AS "writesJobSchemaVersion"
 FROM pg_roles r

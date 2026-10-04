@@ -250,15 +250,18 @@ describe("a production start", () => {
     );
   });
 
-  it("refuses a role granted UPDATE on the version column alone", async () => {
-    // A column grant is a privilege of its own beside the table's; asking only
-    // of the table would miss it.
-    await refusedWith(
-      `GRANT UPDATE (version) ON pgboss.version TO ${CONSTRAINED_ROLE}`,
-      `REVOKE UPDATE (version) ON pgboss.version FROM ${CONSTRAINED_ROLE}`,
-      /can write the job schema's version/,
-    );
-  });
+  it.each(["INSERT (version)", "UPDATE (version)"])(
+    "refuses a role granted %s on the job schema's version",
+    async (privilege) => {
+      // A column grant is a privilege of its own beside the table's; asking
+      // only of the table would miss it.
+      await refusedWith(
+        `GRANT ${privilege} ON pgboss.version TO ${CONSTRAINED_ROLE}`,
+        `REVOKE ${privilege} ON pgboss.version FROM ${CONSTRAINED_ROLE}`,
+        /can write the job schema's version/,
+      );
+    },
+  );
 
   it.each(["INSERT (finished_at)", "UPDATE (finished_at)"])(
     "refuses a role granted %s on the migration history",
