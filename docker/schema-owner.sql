@@ -41,8 +41,16 @@
 -- names come from OWNER_DB_USER and RUNTIME_DB_ROLE, which
 -- docker/schema-owner.mjs has already checked are plain identifiers, and are
 -- quoted wherever they are used.
+--
+-- The database belongs to the owner, which may set a search_path on it and
+-- create functions and operators in public. Every name below is meant as the
+-- built-in one, so the session looks in pg_catalog first and nowhere else but
+-- its own temporary schema. docker/psql.mjs connects with the same setting;
+-- this line holds for the file however it is run.
 
 \set ON_ERROR_STOP on
+
+SET search_path = pg_catalog, pg_temp;
 
 \getenv owner_password OWNER_DB_PASSWORD
 \if :{?owner_password}

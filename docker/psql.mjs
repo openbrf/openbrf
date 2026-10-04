@@ -82,6 +82,11 @@ export function ownerConnection() {
 /**
  * A connection to the bundled database as its superuser, from POSTGRES_USER and
  * POSTGRES_PASSWORD, for the schema-owner service and nothing else.
+ *
+ * The session's search_path is pinned to the built-in catalog. The database
+ * belongs to the schema owner, which can give it a search_path of its own and
+ * put functions and operators in public; a connection option outranks the
+ * database's setting, so a superuser session never looks there.
  */
 export function superuserConnection(password) {
   const { host, port, database } = databaseServer();
@@ -94,6 +99,7 @@ export function superuserConnection(password) {
       PGDATABASE: database,
       PGUSER: process.env.POSTGRES_USER || "openbrf",
       PGPASSWORD: password,
+      PGOPTIONS: "-c search_path=pg_catalog,pg_temp",
     },
     described: "as the database superuser",
     loginRefused:

@@ -384,6 +384,46 @@ test("the schema-owner service hands the owner nothing the runtime role made", (
   expect(upgraded.status, upgraded.output).toBe(0);
 });
 
+test("the schema-owner service uses the built-in functions whatever search_path the database sets", async () => {
+  test.setTimeout(180_000);
+
+  // The database is the owner's, so the owner can give it a search_path that
+  // puts public first and make functions there. The service runs as the
+  // superuser and means the built-in one by every name it uses, so a function
+  // of the owner's that shares a name and arguments with one it calls must
+  // never run in its place.
+  const MARKER = `search_path probe ${suffix}`;
+  const asOwner = async (statement: string) => {
+    const client = new pg.Client({ connectionString: stack.databaseUrl });
+    await client.connect();
+    try {
+      await client.query(statement);
+    } finally {
+      await client.end();
+    }
+  };
+
+  await asOwner(
+    `CREATE FUNCTION public.set_config(text, text, boolean) RETURNS text LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION '${MARKER}'; END$$`,
+  );
+  try {
+    await asOwner(
+      "ALTER DATABASE openbrf SET search_path = public, pg_catalog",
+    );
+
+    const upgraded = runSchemaOwner();
+    expect(upgraded.status, upgraded.output).toBe(0);
+    expect(upgraded.output.includes(MARKER), "the owner's function ran").toBe(
+      false,
+    );
+  } finally {
+    await asOwner("ALTER DATABASE openbrf RESET search_path");
+    await asOwner(
+      "DROP FUNCTION IF EXISTS public.set_config(text, text, boolean)",
+    );
+  }
+});
+
 test("the application's role still cannot rewrite the statutory archive", async () => {
   // Refused on the privilege rather than by the append-only trigger. Both
   // exist, and this is the one an owner could not switch off.
