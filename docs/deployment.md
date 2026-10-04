@@ -464,15 +464,21 @@ step 5.
 
 4. Have the server's administrator revoke any role the runtime role is a member
    of: the `migrate` service refuses to harden the role while one is left, and
-   names each. The owner hands itself anything the runtime role owns in the
-   instance's database - an object in the job schema, where an earlier release
-   let it create - which the `migrate` service refuses as well. Here
-   `brf_example_app` is the runtime role, the name in `RUNTIME_DB_ROLE`:
+   names each. Then the instance's owner, connected as itself, hands itself
+   anything the runtime role owns in the instance's database - an object in the
+   job schema, where an earlier release let it create - which the `migrate`
+   service refuses as well. The owner runs this rather than the administrator:
+   run by the superuser, the last `REVOKE` also takes the owner's ADMIN option
+   on the runtime role, and the `migrate` service then fails because it cannot
+   alter that role. Here `brf_example_app` is the runtime role, the name in
+   `RUNTIME_DB_ROLE`, and `db.example.se` is the server in `POSTGRES_HOST`:
 
-   ```sql
+   ```sh
+   psql -h db.example.se -U brf_example_owner -d brf_example -v ON_ERROR_STOP=1 <<'SQL'
    GRANT brf_example_app TO brf_example_owner;  -- PostgreSQL 16 asks for it first
    REASSIGN OWNED BY brf_example_app TO brf_example_owner;
    REVOKE brf_example_app FROM brf_example_owner;
+   SQL
    ```
 
 5. Run the deploy steps, then the application:
