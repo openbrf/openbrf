@@ -17,10 +17,12 @@ import { PrismaClient } from "../generated/prisma/client";
  *
  * The questions are the ones prisma/sql/harden-runtime-role.sql answers when it
  * constrains the runtime role, asked the other way round: attributes that
- * override every privilege, ownership (or membership of the owning role, which
- * confers the same), CREATE in the application's schemas, which is the way to
- * ownership, and every privilege that script revokes on the statutory archive,
- * the migration history and the job schema's version.
+ * override every privilege; ownership of anything in the application's
+ * schemas - a table, a function or a type - or membership of the owning role,
+ * which confers the same; membership of any role at all, whose privileges no
+ * revoke on the runtime role reaches; CREATE in the application's schemas,
+ * which is the way to ownership; and every privilege that script revokes on
+ * the statutory archive, the migration history and the job schema's version.
  */
 
 /** What a Prisma client, or a transaction on one, offers for a raw read. */
@@ -35,6 +37,8 @@ type RoleFacts = {
   ownsDatabase: boolean;
   ownsSchema: boolean;
   ownsRelation: boolean;
+  ownsRoutineOrType: boolean;
+  memberOf: string[];
   createsInSchema: boolean;
   rewritableArchive: string[];
   writesMigrationHistory: boolean;
@@ -106,6 +110,30 @@ SELECT
     WHERE n.nspname IN ('public', 'pgboss')
       AND pg_has_role(current_user, c.relowner, 'MEMBER')
   ) AS "ownsRelation",
+  -- A function's owner can drop it, and with CASCADE every trigger that runs
+  -- it; a type's owner can drop the columns built on it. A table's row type is
+  -- left out, being the table's and already asked about above.
+  EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname IN ('public', 'pgboss')
+      AND pg_has_role(current_user, p.proowner, 'MEMBER')
+  ) OR EXISTS (
+    SELECT 1 FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname IN ('public', 'pgboss')
+      AND t.typrelid = 0
+      AND pg_has_role(current_user, t.typowner, 'MEMBER')
+  ) AS "ownsRoutineOrType",
+  -- Every role granted to this one, whatever it is: its privileges are the
+  -- granted role's, so nothing the hardening revokes reaches them.
+  array(
+    SELECT granted.rolname::text
+    FROM pg_auth_members m
+    JOIN pg_roles granted ON granted.oid = m.roleid
+    WHERE m.member = r.oid
+    ORDER BY granted.rolname
+  ) AS "memberOf",
   EXISTS (
     SELECT 1 FROM pg_namespace n
     WHERE n.nspname IN ('public', 'pgboss')
@@ -154,6 +182,16 @@ export async function runtimeRoleProblems(
   }
   if (facts.ownsRelation) {
     problems.push(`${facts.role} owns tables in the application's schemas`);
+  }
+  if (facts.ownsRoutineOrType) {
+    problems.push(
+      `${facts.role} owns functions or types in the application's schemas`,
+    );
+  }
+  if (facts.memberOf.length > 0) {
+    problems.push(
+      `${facts.role} is a member of ${facts.memberOf.join(", ")}, whose privileges the hardening cannot take away`,
+    );
   }
   if (facts.createsInSchema) {
     problems.push(

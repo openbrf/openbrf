@@ -204,6 +204,52 @@ describe("a production start", () => {
     },
   );
 
+  it.each([
+    {
+      kind: "a function in public",
+      create: `CREATE FUNCTION public.${CONSTRAINED_ROLE}_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1'`,
+      object: `FUNCTION public.${CONSTRAINED_ROLE}_fn()`,
+    },
+    {
+      kind: "a function in pgboss",
+      create: `CREATE FUNCTION pgboss.${CONSTRAINED_ROLE}_fn() RETURNS integer LANGUAGE sql AS 'SELECT 1'`,
+      object: `FUNCTION pgboss.${CONSTRAINED_ROLE}_fn()`,
+    },
+    {
+      kind: "an enum in public",
+      create: `CREATE TYPE public.${CONSTRAINED_ROLE}_enum AS ENUM ('a')`,
+      object: `TYPE public.${CONSTRAINED_ROLE}_enum`,
+    },
+    {
+      kind: "a domain in pgboss",
+      create: `CREATE DOMAIN pgboss.${CONSTRAINED_ROLE}_domain AS integer`,
+      object: `DOMAIN pgboss.${CONSTRAINED_ROLE}_domain`,
+    },
+  ])("refuses a role that owns $kind", async ({ create, object }) => {
+    // Owning a function is enough to drop it, and with CASCADE every trigger
+    // that runs it, whatever the role may do to the tables themselves.
+    await owner.$executeRawUnsafe(create);
+    try {
+      await refusedWith(
+        `ALTER ${object} OWNER TO ${CONSTRAINED_ROLE}`,
+        `ALTER ${object} OWNER TO CURRENT_USER`,
+        /owns functions or types in the application's schemas/,
+      );
+    } finally {
+      await owner.$executeRawUnsafe(`DROP ${object}`);
+    }
+  });
+
+  it("refuses a role that is a member of another role", async () => {
+    // pg_execute_server_program lends COPY ... TO PROGRAM, which no revoke on
+    // the runtime role itself would reach.
+    await refusedWith(
+      `GRANT pg_execute_server_program TO ${CONSTRAINED_ROLE}`,
+      `REVOKE pg_execute_server_program FROM ${CONSTRAINED_ROLE}`,
+      /is a member of pg_execute_server_program/,
+    );
+  });
+
   it("refuses a role granted UPDATE on the version column alone", async () => {
     // A column grant is a privilege of its own beside the table's; asking only
     // of the table would miss it.

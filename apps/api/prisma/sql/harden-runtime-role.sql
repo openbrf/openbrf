@@ -139,19 +139,22 @@ WHERE r.rolname = :'app_role'
 HAVING count(*) > 0
 \gexec
 
--- Ownership outranks every privilege granted below, in two different ways.
+-- Ownership outranks every privilege granted below, in three different ways.
 -- The owner of a table can run ALTER TABLE ... DISABLE TRIGGER whatever its
--- ACL says, and the owner of a schema can run DROP SCHEMA ... CASCADE and take
--- the statutory archive with it. Neither is reachable by any revoke in this
--- file, so if the runtime role owns anything the script refuses rather than
--- reporting a hardening it did not achieve.
+-- ACL says, the owner of a schema can run DROP SCHEMA ... CASCADE and take
+-- the statutory archive with it, and the owner of a function or a type can
+-- drop it with CASCADE and take the triggers or the columns built on it. None
+-- is reachable by any revoke in this file, so if the runtime role owns
+-- anything the script refuses rather than reporting a hardening it did not
+-- achieve. A table's row type, and the array type PostgreSQL makes beside
+-- every type, are left out: they are reported through what they belong to.
 --
 -- The names are quoted as identifiers, not as literals, so the message is
 -- passed to RAISE as a parameter (%L) rather than as its format string: a
 -- name holding ' or % would otherwise end the literal or read as a placeholder.
 SELECT format($sql$DO $body$ BEGIN
   RAISE EXCEPTION '%%', %L;
-END $body$$sql$, format('Role %I owns %s in this database. An owner can disable the statutory triggers, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.',
+END $body$$sql$, format('Role %I owns %s in this database. An owner can disable the statutory triggers or drop what they are built on, and a schema owner can drop the archive outright, regardless of the privileges this script sets. Reassign them to the schema owner first.',
   :'app_role', string_agg(owned.description, ', ' ORDER BY owned.description)))
 FROM (
   SELECT format('relation %I.%I', n.nspname, c.relname) AS description
@@ -164,6 +167,19 @@ FROM (
   FROM pg_namespace n
   JOIN pg_roles r ON r.oid = n.nspowner
   WHERE r.rolname = :'app_role'
+  UNION ALL
+  SELECT format('function %s', p.oid::regprocedure)
+  FROM pg_proc p
+  JOIN pg_roles r ON r.oid = p.proowner
+  WHERE r.rolname = :'app_role'
+  UNION ALL
+  SELECT format('type %I.%I', n.nspname, t.typname)
+  FROM pg_type t
+  JOIN pg_roles r ON r.oid = t.typowner
+  JOIN pg_namespace n ON n.oid = t.typnamespace
+  WHERE r.rolname = :'app_role'
+    AND t.typrelid = 0
+    AND NOT EXISTS (SELECT 1 FROM pg_type e WHERE e.typarray = t.oid)
 ) AS owned
 HAVING count(*) > 0
 \gexec
