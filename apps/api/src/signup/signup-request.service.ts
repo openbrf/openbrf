@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
+import { lockPersonEmail } from "../address-book/person-email-lock";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -9,6 +10,7 @@ import { droppedSubmissionId } from "../http/honeypot";
 import { InvitationService } from "../invitations/invitation.service";
 import { failureName } from "../logging/failure";
 import { MoveService } from "../moves/move.service";
+import { lockApartmentResidencies } from "../registers/residency-lock";
 
 export class SignupRequestError extends Error {
   constructor(
@@ -207,7 +209,9 @@ export class SignupRequestService {
    * is computed from the plaintext against the person-scoped blind index. The
    * two stored indexes are not comparable directly: CipherSweet derives a
    * separate key per table and field, so the request's own index would never
-   * equal the person's.
+   * equal the person's. The match is made inside the approval's transaction,
+   * under the lock every writer of a person's address takes (see
+   * `person-email-lock.ts`).
    *
    * The invitation goes out after the commit. A mail server that refuses it
    * does not undo the approval, which has been recorded by then, so the answer
@@ -248,35 +252,6 @@ export class SignupRequestService {
       email,
     );
 
-    /*
-     * Every person on the address, not the first one. A household can share
-     * one, so the index is not unique: linking to whichever row came back
-     * first could attach the applicant to their partner's record, and miss
-     * the one that already has an account. Two is enough to tell.
-     */
-    const matches =
-      personEmailIndex === null
-        ? []
-        : await this.prisma.person.findMany({
-            where: { emailIndex: personEmailIndex },
-            select: { id: true, userAccount: { select: { id: true } } },
-            take: 2,
-          });
-
-    if (matches.some((match) => match.userAccount !== null)) {
-      throw new SignupRequestError(
-        "That address already has an account.",
-        "already-has-account",
-      );
-    }
-    if (matches.length > 1) {
-      throw new SignupRequestError(
-        "More than one person in the register has that address.",
-        "email-shared",
-      );
-    }
-    const existing = matches[0];
-
     const personId = await this.prisma.$transaction(async (tx) => {
       // The PENDING check above is only a fast path: two boards clicking
       // approve at the same moment both pass it. This conditional update is
@@ -299,6 +274,51 @@ export class SignupRequestService {
           "already-decided",
         );
       }
+
+      /*
+       * The match is made here, under the address's lock, and not before the
+       * transaction: a person the board adds with the same address while this
+       * runs would otherwise commit after the read, and the approval would
+       * enter the applicant a second time beside them. The apartment's lock
+       * comes first because the move-in below takes it, and every transaction
+       * takes it before any other key.
+       */
+      await lockApartmentResidencies(tx, apartment.id);
+      if (personEmailIndex !== null) {
+        await lockPersonEmail(tx, personEmailIndex);
+      }
+
+      /*
+       * Every person on the address, not the first one. A household can share
+       * one, so the index is not unique: linking to whichever row came back
+       * first could attach the applicant to their partner's record, and miss
+       * the one that already has an account. Two is enough to tell.
+       *
+       * A refusal here rolls the claim above back, so the request stays
+       * pending for the board to reject or approve against another person.
+       */
+      const matches =
+        personEmailIndex === null
+          ? []
+          : await tx.person.findMany({
+              where: { emailIndex: personEmailIndex },
+              select: { id: true, userAccount: { select: { id: true } } },
+              take: 2,
+            });
+
+      if (matches.some((match) => match.userAccount !== null)) {
+        throw new SignupRequestError(
+          "That address already has an account.",
+          "already-has-account",
+        );
+      }
+      if (matches.length > 1) {
+        throw new SignupRequestError(
+          "More than one person in the register has that address.",
+          "email-shared",
+        );
+      }
+      const existing = matches[0];
 
       let id = existing?.id;
 
@@ -324,9 +344,9 @@ export class SignupRequestService {
        * Through the move-in's own rules, in this transaction: the apartment's
        * lock and the person's transition lock, the refusal of a second
        * residency on the apartment for a person matched by email, and the
-       * close of an erasure request the move-in overtakes. Dated by the calendar day in Stockholm (ADR 0013),
-       * not by the UTC instant, which is the day before for the first hours
-       * after midnight in summer.
+       * close of an erasure request the move-in overtakes. Dated by the
+       * calendar day in Stockholm (ADR 0013), not by the UTC instant, which is
+       * the day before for the first hours after midnight in summer.
        */
       await this.moves.enterResidency(tx, {
         actorPersonId: input.decidedByPersonId,

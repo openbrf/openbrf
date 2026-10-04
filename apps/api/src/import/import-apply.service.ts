@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
+import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -371,6 +372,12 @@ export class ImportApplyService implements OnModuleInit {
           tx,
           residencyApartments(plan, decisions),
         );
+
+        // The addresses the chunk writes, so a sign-up approval matching one
+        // of them either sees the person this chunk writes or finishes before
+        // it does. After the apartments and before the transition locks, the
+        // order person-email-lock.ts gives.
+        await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -827,6 +834,22 @@ function residencyApartments(
     willWrite(row, decisions) && row.apartment !== null
       ? [row.apartment.id]
       : [],
+  );
+}
+
+/**
+ * The person-scoped address indexes a chunk may write.
+ *
+ * Read off the encrypted values, which hold exactly the rows that will write.
+ * A row updating a person who already has an address leaves it alone, and its
+ * lock is one nobody else was waiting for; one missed would be a person
+ * written past a sign-up approval that never saw it.
+ */
+function writtenEmailIndexes(
+  encrypted: ReadonlyMap<number, EncryptedRowValues>,
+): string[] {
+  return [...encrypted.values()].flatMap(({ email }) =>
+    email === null || email.index === null ? [] : [email.index],
   );
 }
 

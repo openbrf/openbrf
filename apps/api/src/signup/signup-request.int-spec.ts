@@ -5,11 +5,14 @@ import {
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { PersonService } from "../address-book/person.service";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { InvitationService } from "../invitations/invitation.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { SignupRequestService } from "./signup-request.service";
 
@@ -60,6 +63,8 @@ const extraEmails = [
   `unsent-${suffix}@exempel.se`,
   `member-${suffix}@exempel.se`,
   `audited-${suffix}@exempel.se`,
+  `racing-${suffix}@exempel.se`,
+  `added-${suffix}@exempel.se`,
 ];
 const otherClaim = `1107-${suffix}`;
 
@@ -100,6 +105,49 @@ async function registeredPerson(email: string, id: string): Promise<string> {
     },
   });
   return id;
+}
+
+/**
+ * Holds one address's lock in a transaction of its own, as a writer of a
+ * person's address does, running `inside` under it and committing on
+ * `release`. `locked` settles once the lock is held, so whatever the test
+ * starts next is certain to find it taken.
+ */
+function holdAddressLock(
+  emailIndex: string,
+  inside: (tx: Prisma.TransactionClient) => Promise<void> = async () => {},
+): {
+  locked: Promise<void>;
+  release: () => void;
+  committed: Promise<void>;
+} {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let locked!: () => void;
+  const lockTaken = new Promise<void>((resolve) => {
+    locked = resolve;
+  });
+  const committed = prisma.$transaction(
+    async (tx) => {
+      // Spelled out rather than imported, so a writer that quietly changed
+      // its key fails here instead of passing under a new name.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`person-email:${emailIndex}`}))`;
+      await inside(tx);
+      locked();
+      await held;
+    },
+    { timeout: 60_000, maxWait: 20_000 },
+  );
+  return { locked: lockTaken, release, committed };
+}
+
+/** True while a transaction is queued behind this one address's lock. */
+async function waitsForAddressLock(emailIndex: string): Promise<boolean> {
+  return (
+    (await advisoryLockCount(prisma, `person-email:${emailIndex}`, false)) > 0n
+  );
 }
 
 let ipCounter = 0;
@@ -565,6 +613,66 @@ describe("approval", () => {
 
     await requests.reject({ requestId, decidedByPersonId: board.personId });
   });
+
+  it("matches a person the board adds while the approval waits for the address", async () => {
+    const email = `racing-${suffix}@exempel.se`;
+    const requestId = await submitFor(email);
+    const encrypted = await encryption.encrypt("person.email", email);
+    const index = encrypted.index ?? "none";
+    const racingId = `su-racing-${suffix}`;
+
+    // The address book's write, held open after the person exists and before
+    // it commits: the moment the approval used to read the register in.
+    const writer = holdAddressLock(index, async (tx) => {
+      await tx.person.create({
+        data: {
+          id: racingId,
+          firstName: "Nora",
+          lastName: "Ny",
+          emailCipher: encrypted.cipher,
+          emailIndex: encrypted.index,
+        },
+      });
+    });
+    await writer.locked;
+
+    let settled = false;
+    const approval = requests
+      .approve({ requestId, apartmentId, decidedByPersonId: board.personId })
+      .finally(() => (settled = true));
+
+    // Released once the approval can make no progress on its own: waiting for
+    // the address, which is the fix, or finished without it, which is the
+    // defect and leaves a second person behind.
+    await waitFor(async () => settled || (await waitsForAddressLock(index)));
+    writer.release();
+    await writer.committed;
+
+    const approved = await approval;
+    expect(approved.personId).toBe(racingId);
+    expect(await prisma.person.count({ where: { emailIndex: index } })).toBe(1);
+  }, 60_000);
+
+  it("makes the address book wait for a writer holding the address", async () => {
+    const email = `added-${suffix}@exempel.se`;
+    const index =
+      (await encryption.computeIndex("person.email", email)) ?? "none";
+
+    const writer = holdAddressLock(index);
+    await writer.locked;
+
+    let settled = false;
+    const added = app
+      .get(PersonService)
+      .create({ firstName: "Adam", lastName: "Adress", email }, board.personId)
+      .finally(() => (settled = true));
+
+    await waitFor(async () => settled || (await waitsForAddressLock(index)));
+    expect(settled).toBe(false);
+    writer.release();
+    await writer.committed;
+    await added;
+  }, 60_000);
 
   it("follows the move-in's rules for a person already in the register", async () => {
     const email = `returning-${suffix}@exempel.se`;

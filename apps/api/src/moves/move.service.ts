@@ -252,7 +252,9 @@ export class MoveService implements OnModuleInit {
    *
    * The locks are taken here, so the caller must not hold another advisory
    * lock before calling it: lockApartmentResidencies gives the order every
-   * transaction keeps.
+   * transaction keeps. The two exceptions come before these in that order: the
+   * same apartment's key, which is taken again at no cost, and the address key
+   * from `person-email-lock.ts` that the sign-up approval takes after it.
    *
    * Public for the board's approval of a sign-up request, which creates a
    * residency in the transaction that claims the request. A second copy of
