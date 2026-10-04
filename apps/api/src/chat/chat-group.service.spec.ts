@@ -573,6 +573,34 @@ describe("who may put somebody into a group", () => {
     expect(audit.record).not.toHaveBeenCalled();
   });
 
+  it("answers a second press on somebody since protected as it answers anybody", async () => {
+    /*
+     * They are in the list the room already shows. Refused here instead, the
+     * caller would learn that this one person, among everybody pressed twice,
+     * has had their personal data protected since.
+     */
+    const { service, audit, members } = build({
+      chats: [GARDEN],
+      persons: [NILS, PROTECTED],
+      members: [
+        { chatId: GROUP_ID, personId: NILS.id },
+        { chatId: GROUP_ID, personId: PROTECTED.id },
+      ],
+    });
+
+    const after = await service.addMember(
+      principal(NILS.id),
+      GROUP_ID,
+      PROTECTED.id,
+    );
+
+    expect(after).toEqual(
+      await service.membersFor(GROUP_ID, principal(NILS.id)),
+    );
+    expect(members).toHaveLength(2);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it("takes the room's own lock, and counts the room under it", async () => {
     /*
      * The cap is over a set of rows and no row carries it, so two people put
