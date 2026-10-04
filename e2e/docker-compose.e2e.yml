@@ -4,6 +4,14 @@
 # passes here is the image the pilot installs. This file changes only what a
 # test needs and cannot get from outside the stack.
 #
+# One of those is the image itself. The production file runs the published
+# image a release tag names; the suite runs the one built from this checkout,
+# which is the image the next release will publish. So the build lives here,
+# and its context is the repository root, because Compose resolves every
+# relative path against the directory of the first file it is given.
+# stack.env sets OPENBRF_VERSION only so the production file's required
+# variable interpolates; the image named below is the one that runs.
+#
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
 #     --env-file e2e/stack.env up -d
@@ -48,6 +56,9 @@ services:
       retries: 12
 
   app:
+    build:
+      context: .
+    image: openbrf:local
     depends_on:
       db:
         condition: service_healthy

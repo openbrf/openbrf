@@ -6,6 +6,10 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  lockApartmentResidencies,
+  residentsOf,
+} from "../registers/residency-lock";
 import { FINANCIAL_YEAR_START_MONTHS } from "../retention/financial-year";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
@@ -150,7 +154,10 @@ type ChargedParty =
  * advisory lock in `retention/legal-hold-lock.ts`, which is what makes it a
  * decision rather than a race: a placement takes the same key, so it either
  * lands before the check and stops the run or waits for it and takes effect from
- * the moment it commits.
+ * the moment it commits. For an apartment, who has ever lived there is read in
+ * the same transaction under `lockApartmentResidencies`, which every writer of
+ * a residency takes too, so a residency added while the run was in flight is
+ * either among the people checked or written after the charges have gone.
  *
  * The scan's check is not a duplicate of it. Held parties are excluded by the
  * query rather than dropped from its answer, so they cannot spend a run's bound
@@ -333,10 +340,24 @@ export class MemberChargePurgeService implements OnModuleInit {
     retentionYears: number = MEMBER_CHARGE_RETENTION_YEARS,
   ): Promise<number> {
     const expired = fallenOut(now, retentionYears);
-    const holdOn =
-      party.kind === "person" ? [party.id] : await this.residentsOf(party.id);
 
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * An apartment's charges are held through everybody who has ever lived
+       * there, so who that is has to be read here, under the apartment's lock,
+       * and not before the transaction. A residency written in between - an
+       * import bringing in a held former resident - would
+       * otherwise add a person nobody checked, and the delete below is keyed
+       * on the apartment and would take that resident's charges with it.
+       * Every writer that adds a residency takes the same key, so it has
+       * either committed and is read here or waits for this to commit.
+       */
+      let holdOn = [party.id];
+      if (party.kind === "apartment") {
+        await lockApartmentResidencies(tx, party.id);
+        holdOn = await residentsOf(tx, party.id);
+      }
+
       /*
        * Before the holds are read, so that reading them settles the question.
        * Everything below runs at READ COMMITTED, where a placement committing
@@ -423,15 +444,5 @@ export class MemberChargePurgeService implements OnModuleInit {
       distinct: ["apartmentId"],
     });
     return residencies.map((residency) => residency.apartmentId);
-  }
-
-  /** Everybody who has ever held a residency on one apartment. */
-  private async residentsOf(apartmentId: string): Promise<string[]> {
-    const residencies = await this.prisma.residency.findMany({
-      where: { apartmentId },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    return residencies.map((residency) => residency.personId);
   }
 }

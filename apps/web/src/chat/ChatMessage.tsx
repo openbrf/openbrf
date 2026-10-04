@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatAuthor, ChatMessage as Message } from "../api/chat";
 import { ASSOCIATION_TIME_ZONE } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { FIELD, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
+import { FIELD_MULTILINE, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { NotRecorded } from "../ui/NotRecorded";
 
 /**
@@ -236,7 +236,7 @@ function ReportControl({
       <label className={LABEL}>
         {t("chat.reportNote")}
         <textarea
-          className={`${FIELD} min-h-16 py-2`}
+          className={`${FIELD_MULTILINE} min-h-16`}
           value={note}
           maxLength={REPORT_NOTE_MAX_LENGTH}
           onChange={(event) => {

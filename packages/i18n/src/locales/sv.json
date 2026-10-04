@@ -1235,7 +1235,9 @@
         "description": "Hämta det du har lämnat till föreningen inom medlemskapet eller med ditt samtycke, i ett maskinläsbart format (GDPR art. 20). Det föreningen har om dig på annan grund finns inte i filen; styrelsen tar fram ett registerutdrag på begäran. Filen är din att ta med dig; någon direkt överföring till en annan plattform finns inte, eftersom det saknas en mottagande standard.",
         "action": "Hämta mina uppgifter",
         "working": "Hämtar...",
-        "failed": "Uppgifterna kunde inte hämtas just nu."
+        "failed": "Uppgifterna kunde inte hämtas just nu.",
+        "rateLimited": "Du har hämtat dina uppgifter flera gånger den senaste minuten. Vänta en stund och försök igen.",
+        "busy": "Många hämtningar förbereds just nu. Vänta en stund och försök igen."
       },
       "exportFileName": "mina-uppgifter"
     },
@@ -1536,6 +1538,18 @@
         "serves": "Det här tillägget kommer att betjäna den adress som anslutna appar loggar in mot.",
         "onlyOne": "Bara ett installerat tillägg i taget kan göra det.",
         "session": "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar."
+      },
+      "recipient": {
+        "title": "Personuppgifter utanför instansen",
+        "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
+        "question": "Skickar tillägget personuppgifter utanför instansen?",
+        "no": "Nej, det skickar inga personuppgifter utanför instansen",
+        "yes": "Ja, det skickar personuppgifter till en mottagare utanför instansen",
+        "recipient": "Mottagare",
+        "recipientHint": "Företaget eller tjänsten som tar emot uppgifterna.",
+        "processorHint": "Behandlar uppgifterna för föreningens räkning och enligt dess instruktioner. Ett personuppgiftsbiträdesavtal behövs, och det förs in som att det tas fram tills styrelsen registrerar det på sidan Dataskydd.",
+        "independentControllerHint": "Bestämmer själv varför och hur uppgifterna behandlas, så inget personuppgiftsbiträdesavtal behövs.",
+        "recorded": "Det här står om tillägget på sidan Dataskydd: {{state}}. Installationen behåller det svaret; ändra det där om det inte längre stämmer."
       },
       "privacyNote": "Oavsett vad ett tillägg begär gäller alltid två gränser: en person med skyddade personuppgifter visas aldrig för ett tillägg, och inget tillägg får ut ett personnummer.",
       "acknowledge": "Jag har läst vad tillägget får göra och vilka personuppgifter det kommer att hantera.",
@@ -2209,6 +2223,8 @@
       "grantHasNoSeller": "En upplåtelse har ingen tidigare innehavare. Välj överlåtelse om bostadsrätten byter innehavare.",
       "dateNotACalendarDate": "Datumet finns inte i kalendern. Kontrollera dag och månad.",
       "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
+      "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
+      "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },
@@ -2367,6 +2383,7 @@
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
+      "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
       "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
@@ -3339,6 +3356,7 @@
       "addressMailed": "Adressen har mejlats till medlemmarna och kan inte ändras.",
       "notPlainText": "Nyheten innehåller formatering som den här redigeraren inte kan visa. Att redigera den här skulle ta bort den.",
       "notFound": "Nyheten finns inte längre. Listan har lästs om.",
+      "hasComments": "Boende har kommenterat nyheten, så den kan inte tas bort än. Tas den ned döljs den för läsarna; kommentarerna gallras enligt sin egen tidsplan, och nyheten kan tas bort när de är borta.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     },
     "site": {
@@ -4576,6 +4594,8 @@
       "saving": "Sparar...",
       "kind": {
         "SMTP": "E-postserver",
+        "HOST_SMTP": "Driftens e-postserver",
+        "MAIL_API": "Driftens e-post-API",
         "SMS": "SMS-gateway",
         "STORAGE": "Fillagring",
         "HOSTING": "Drift",
@@ -4765,7 +4785,7 @@
     },
     "news_delete": {
       "title": "Ta bort en nyhet",
-      "description": "Tar bort nyheten helt. Det går inte att ångra. Nyheten måste finnas, och en publicerad nyhet tas ned från webbplatsen av samma anrop."
+      "description": "Tar bort nyheten helt. Det går inte att ångra. Nyheten måste finnas och sakna kommentarer; en nyhet med kommentarer nekas och kan tas ned med news_unpublish i stället. En publicerad nyhet tas ned från webbplatsen av samma anrop."
     },
     "news_request_mailing": {
       "title": "Begär nyhetsutskick",

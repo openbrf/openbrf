@@ -16,7 +16,10 @@ import {
   type MemberResidencySpan,
   readMemberResidencies,
 } from "../registers/membership-transitions";
-import { lockResidencyTransitionsInOrder } from "../registers/residency-lock";
+import {
+  lockApartmentResidenciesInOrder,
+  lockResidencyTransitionsInOrder,
+} from "../registers/residency-lock";
 import {
   type ImportField,
   IMPORT_FIELDS,
@@ -358,6 +361,16 @@ export class ImportApplyService implements OnModuleInit {
         if (claimed.count === 0) {
           return null;
         }
+
+        // The apartments first, before the persons: the charge and fee purges
+        // decide from everybody who has ever lived in an apartment, and a
+        // historical residency this chunk adds has to be either seen by them
+        // or written after they finish. Ahead of the transition locks, in the
+        // order lockApartmentResidencies gives.
+        await lockApartmentResidenciesInOrder(
+          tx,
+          residencyApartments(plan, decisions),
+        );
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -779,19 +792,32 @@ function willWrite(row: PlannedRow, decisions: ImportDecisions): boolean {
   return decisions[String(row.rowNumber)]?.action !== "skip";
 }
 
+/**
+ * The apartments a chunk may write a residency on.
+ *
+ * Every row that will write and names one, whether or not it turns out to add
+ * anything: a row already present costs a lock nobody else was waiting for, and
+ * one missed would be a residency written past a purge that never saw it. A row
+ * the board decided to skip is left out, so the chunk does not hold up move-ins
+ * and purges on an apartment it never writes to.
+ */
+function residencyApartments(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): string[] {
+  return plan.rows.flatMap((row) =>
+    willWrite(row, decisions) && row.apartment !== null
+      ? [row.apartment.id]
+      : [],
+  );
+}
+
 /** Where a row's writes go, once the board's decisions are taken into account. */
 type RowTarget =
   | { action: "skip" }
   | { action: "create" }
   | { action: "update"; personId: string };
 
-/**
- * The person a row writes to.
- *
- * An ambiguous row is decided by the board and by nothing else - the apply
- * refuses to run at all while one is unanswered. A row that shares a new person
- * with an earlier row follows that row, and is skipped when the earlier one was.
- */
 /**
  * The persons a chunk will write to that the register already holds.
  *
@@ -826,6 +852,13 @@ function existingTargets(
   return ids;
 }
 
+/**
+ * The person a row writes to.
+ *
+ * An ambiguous row is decided by the board and by nothing else - the apply
+ * refuses to run at all while one is unanswered. A row that shares a new person
+ * with an earlier row follows that row, and is skipped when the earlier one was.
+ */
 function resolveTarget(
   row: PlannedRow,
   decisions: ImportDecisions,

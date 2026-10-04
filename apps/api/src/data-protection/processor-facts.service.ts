@@ -87,6 +87,12 @@ export class ProcessorFactsService {
     return {
       mailHost: mail?.host ?? null,
       mailFromAddress: mail?.fromAddress ?? null,
+      mailDriver:
+        mail === null
+          ? null
+          : mail.source === "settings"
+            ? "settings"
+            : mail.driver,
       smsDriver: association?.smsDriver ?? null,
       smsGatewayUrl: association?.smsGatewayUrl ?? null,
       storageDriver: this.env.OPENBRF_STORAGE_DRIVER,

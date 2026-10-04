@@ -114,6 +114,28 @@ export const CLIENT_MANAGEMENT_PATHS: readonly string[] = [
   "/oauth2/delete-client",
 ];
 
+/**
+ * Better Auth's own user-update endpoint, relative to `basePath` below, and
+ * closed over HTTP.
+ *
+ * A person sets their own preferences through `PUT /api/settings/profile`,
+ * which writes the person in the register, not the user row. This endpoint
+ * writes the user row directly and is not used by this product, so it is
+ * closed rather than left as a second way to change an account. Closed the
+ * same way as CLIENT_MANAGEMENT_PATHS above.
+ */
+export const USER_UPDATE_PATH = "/update-user";
+
+/**
+ * The user fields a caller may set through Better Auth's own endpoints.
+ *
+ * Empty, and meant to stay so: every field this application adds to the user
+ * is set by the application itself, never taken from a request body. A field
+ * belongs here only if a person may choose its value for their own account;
+ * a plugin's field is named `<plugin id>.<field>`.
+ */
+export const CALLER_SETTABLE_USER_FIELDS: readonly string[] = [];
+
 export interface AccountState {
   /** Whether the register holds an account for this address at all. */
   exists: boolean;
@@ -229,9 +251,9 @@ export function buildAuthOptions(
   clientManagement: ClientManagement,
 ) {
   // Deliberately `satisfies` rather than an annotated return type: the
-  // additionalFields declaration below only reaches the typed API surface
-  // (auth.api.signUpEmail and friends) if the literal type survives, and a
-  // BetterAuthOptions annotation widens it away.
+  // additionalFields declaration below only reaches the types the API returns
+  // (the user on a session, with its personId) if the literal type survives,
+  // and a BetterAuthOptions annotation widens it away.
   return {
     appName: "Open BRF",
     secret: env.BETTER_AUTH_SECRET,
@@ -240,8 +262,9 @@ export function buildAuthOptions(
 
     database: prismaAdapter(prisma, { provider: "postgresql" }),
 
-    // Answered 404 over HTTP; see CLIENT_MANAGEMENT_PATHS above.
-    disabledPaths: [...CLIENT_MANAGEMENT_PATHS],
+    // Answered 404 over HTTP; see CLIENT_MANAGEMENT_PATHS and
+    // USER_UPDATE_PATH above.
+    disabledPaths: [...CLIENT_MANAGEMENT_PATHS, USER_UPDATE_PATH],
 
     emailAndPassword: {
       enabled: true,
@@ -252,11 +275,16 @@ export function buildAuthOptions(
 
     user: {
       additionalFields: {
-        // Every account belongs to a person in the register.
+        // Every account belongs to a person in the register, and which person
+        // is decided by the application when it creates the account
+        // (AuthService.createAccountForPerson), never by a request body.
+        // `input: false` makes Better Auth refuse the field on its own
+        // endpoints; the internal adapter used for account creation does not
+        // read this flag.
         personId: {
           type: "string",
           required: true,
-          input: true,
+          input: false,
         },
       },
     },
