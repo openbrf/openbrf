@@ -43,16 +43,40 @@ const SCRATCH_TABLE = `runtime_role_${suffix}`;
  */
 const OWNER_URL_IN_NETWORK = `postgresql://openbrf_owner:${encodeURIComponent(stack.ownerPassword)}@db:5432/openbrf`;
 
-async function asRuntimeRole<T>(
+async function connectedAs<T>(
+  connectionString: string,
   use: (client: pg.Client) => Promise<T>,
 ): Promise<T> {
-  const client = new pg.Client({ connectionString: stack.runtimeDatabaseUrl });
+  const client = new pg.Client({ connectionString });
   await client.connect();
   try {
     return await use(client);
   } finally {
     await client.end();
   }
+}
+
+async function asRuntimeRole<T>(
+  use: (client: pg.Client) => Promise<T>,
+): Promise<T> {
+  return connectedAs(stack.runtimeDatabaseUrl, use);
+}
+
+/** Runs one statement as the schema owner, from the host. */
+async function asOwner(statement: string): Promise<void> {
+  await connectedAs(stack.databaseUrl, (client) => client.query(statement));
+}
+
+/** The single value a superuser query selects, trimmed. */
+function superuserValue(query: string): string {
+  const { status, output } = runAsSuperuser([
+    "--tuples-only",
+    "--no-align",
+    "--command",
+    query,
+  ]);
+  expect(status, output).toBe(0);
+  return output.trim();
 }
 
 /** The SQLSTATE a statement failed with, or undefined if it succeeded. */
@@ -346,6 +370,86 @@ test("the schema-owner service refuses a runtime role that is a superuser", () =
   ).toBe("0");
 });
 
+test("the schema-owner service refuses a runtime role another database grants CONNECT to", () => {
+  test.setTimeout(180_000);
+
+  // What a second instance on the same server looks like from this one: its
+  // runtime role may connect to its own database. Further on the service gives
+  // the owner ADMIN OPTION on the runtime role and revokes its memberships, so
+  // pointed at that role it must stop before it changes either. A role of the
+  // test's own, because the owner already holds ADMIN OPTION on openbrf_app.
+  const otherRole = `runtime_role_other_${suffix}`;
+  const otherDatabase = `runtime_role_other_${suffix}`;
+  const lentRole = `runtime_role_lent_${suffix}`;
+
+  const made = runAsSuperuser([
+    "--command",
+    `CREATE ROLE ${otherRole} LOGIN; CREATE ROLE ${lentRole} NOLOGIN; GRANT ${lentRole} TO ${otherRole}`,
+    // CREATE DATABASE cannot share a transaction with anything else.
+    "--command",
+    `CREATE DATABASE ${otherDatabase}`,
+    "--command",
+    `GRANT CONNECT ON DATABASE ${otherDatabase} TO ${otherRole}`,
+  ]);
+  expect(made.status, made.output).toBe(0);
+  try {
+    const refused = runSchemaOwner({ RUNTIME_DB_ROLE: otherRole });
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain(`RUNTIME_DB_ROLE names ${otherRole}`);
+    expect(refused.output).toContain("belongs to another instance");
+
+    expect(
+      superuserValue(
+        `SELECT count(*) FROM pg_auth_members m JOIN pg_roles granted ON granted.oid = m.roleid JOIN pg_roles member ON member.oid = m.member WHERE granted.rolname = '${otherRole}' AND member.rolname = 'openbrf_owner'`,
+      ),
+      "the owner was given nothing on the other instance's role",
+    ).toBe("0");
+    expect(
+      superuserValue(
+        `SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid = m.member WHERE member.rolname = '${otherRole}'`,
+      ),
+      "the other instance's role keeps its membership",
+    ).toBe("1");
+  } finally {
+    runAsSuperuser([
+      "--command",
+      `DROP DATABASE IF EXISTS ${otherDatabase}`,
+      "--command",
+      `DROP ROLE IF EXISTS ${otherRole}; DROP ROLE IF EXISTS ${lentRole}`,
+    ]);
+  }
+});
+
+test("the schema-owner service refuses to run as a role that is not the superuser", async () => {
+  test.setTimeout(180_000);
+
+  // What an instance on a shared server would do if its env file still named
+  // its own owner in POSTGRES_USER, as it did before the schema owner existed.
+  // Everything the service does needs a superuser, so it must stop before the
+  // first change: here, before it sets the owner's password to a new one.
+  const ownerState = () =>
+    superuserValue(
+      `SELECT r.rolsuper::text || ' ' || r.rolcreaterole::text || ' ' || pg_get_userbyid(d.datdba) FROM pg_roles r, pg_database d WHERE r.rolname = 'openbrf_owner' AND d.datname = 'openbrf'`,
+    );
+  const before = ownerState();
+
+  const refused = runSchemaOwner({
+    POSTGRES_USER: "openbrf_owner",
+    POSTGRES_PASSWORD: stack.ownerPassword,
+    OWNER_DB_PASSWORD: `not-the-owner-password-${suffix}`,
+  });
+  expect(refused.status, refused.output).toBe(1);
+  expect(refused.output).toContain(
+    "POSTGRES_USER names openbrf_owner, which is not one",
+  );
+
+  expect(ownerState(), "the owner and the database are as they were").toBe(
+    before,
+  );
+  // The owner's password is the one it had: this connects with it.
+  await asOwner("SELECT 1");
+});
+
 test("the schema-owner service hands the owner nothing the runtime role made", () => {
   test.setTimeout(180_000);
 
@@ -393,15 +497,6 @@ test("the schema-owner service uses the built-in functions whatever search_path 
   // of the owner's that shares a name and arguments with one it calls must
   // never run in its place.
   const MARKER = `search_path probe ${suffix}`;
-  const asOwner = async (statement: string) => {
-    const client = new pg.Client({ connectionString: stack.databaseUrl });
-    await client.connect();
-    try {
-      await client.query(statement);
-    } finally {
-      await client.end();
-    }
-  };
 
   await asOwner(
     `CREATE FUNCTION public.set_config(text, text, boolean) RETURNS text LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION '${MARKER}'; END$$`,
