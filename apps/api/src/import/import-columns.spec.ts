@@ -6,6 +6,7 @@ import {
   normalizeHeader,
   parseImportDate,
   parseRole,
+  readMapping,
   splitFullName,
   suggestMapping,
   validateMapping,
@@ -196,6 +197,14 @@ describe("checking a mapping before anything is read", () => {
         defaultMovedInOn: null,
       }),
     ).toContain("mapping-length-mismatch");
+  });
+});
+
+describe("reading a stored mapping back", () => {
+  it("leaves out a column stored empty or under a field that does not exist", () => {
+    expect(
+      readMapping(["apartmentNumber", "", "fullName", "shoeSize"]),
+    ).toEqual(["apartmentNumber", null, "fullName", null]);
   });
 });
 

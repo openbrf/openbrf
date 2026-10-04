@@ -10,10 +10,11 @@ import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { decodeCsv, parseCsv, writeCsv } from "./csv";
-import { ImportApplyService, readMapping } from "./import-apply.service";
+import { ImportApplyService } from "./import-apply.service";
 import {
   type ImportField,
   type ImportMapping,
+  readMapping,
   suggestMapping,
 } from "./import-columns";
 import { ImportError } from "./import-errors";
@@ -344,28 +345,6 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    for (const [rowNumber, candidates] of Object.entries(
-      readAmbiguousRows(session.ambiguousRows),
-    )) {
-      const decision = input.decisions[rowNumber];
-      if (decision === undefined) {
-        throw new ImportError(
-          "Some rows match more than one person, or contradict the person " +
-            "they match, and have no decision.",
-          "ambiguous-rows-undecided",
-        );
-      }
-      if (
-        decision.action === "use-person" &&
-        !candidates.includes(decision.personId)
-      ) {
-        throw new ImportError(
-          "A decision names a person that row did not match.",
-          "decision-not-a-candidate",
-        );
-      }
-    }
-
     // Asked once before the plan as well as under the lock. Planned against a
     // register another import is halfway through writing, the decisions could
     // look outdated, and the board would be sent back to a preview of that
@@ -373,7 +352,7 @@ export class ImportService implements OnModuleInit {
     // still what decides.
     await refuseWhileAnotherRuns(this.prisma, sessionId);
 
-    await this.checkDecidedPlan(session, input.decisions);
+    await this.checkDecidedPlan(sessionId, session, input.decisions);
 
     // Before the transaction: creating a queue is the queue backend's own work
     // on its own connection and has no business inside this one.
@@ -535,13 +514,15 @@ export class ImportService implements OnModuleInit {
    * can change what the rows after it match: skipping a row the preview had
    * written to a person takes that write away again. Only an apply with no
    * decisions at all plans exactly what was previewed, and is not planned
-   * again. Otherwise it costs what a preview costs, and indexes an identity
-   * number only when the register holds one to match it against.
+   * again: it is refused if the preview asked about any row, and otherwise
+   * neither decrypts a row nor computes an index. With decisions it costs what
+   * a preview costs, and indexes an identity number only when the register
+   * holds one to match it against.
    */
   private async checkDecidedPlan(
+    sessionId: string,
     session: {
       columns: string[];
-      rowsCipher: string;
       mapping: string[];
       defaultRole: ImportRole | null;
       defaultMovedInOn: string | null;
@@ -550,12 +531,20 @@ export class ImportService implements OnModuleInit {
     },
     decisions: ImportDecisions,
   ): Promise<void> {
+    const previewed = readAmbiguousRows(session.ambiguousRows);
     if (Object.keys(decisions).length === 0) {
+      if (Object.keys(previewed).length > 0) {
+        throw new ImportError(
+          "Some rows match more than one person, or contradict the person " +
+            "they match, and have no decision.",
+          "ambiguous-rows-undecided",
+        );
+      }
       return;
     }
 
     const plan = await this.planner.plan({
-      rows: await this.planner.decryptRows(session.rowsCipher),
+      rows: await this.loadRows(sessionId),
       columnCount: session.columns.length,
       mapping: readMapping(session.mapping),
       defaultRole: session.defaultRole,
@@ -565,7 +554,6 @@ export class ImportService implements OnModuleInit {
       indexes: new Map(),
     });
 
-    const previewed = readAmbiguousRows(session.ambiguousRows);
     if (
       plan.rows.some((row) => {
         const candidates = previewed[String(row.rowNumber)];
@@ -630,7 +618,6 @@ export class ImportService implements OnModuleInit {
 
   private async loadForApply(sessionId: string): Promise<{
     columns: string[];
-    rowsCipher: string;
     mapping: string[];
     defaultRole: ImportRole | null;
     defaultMovedInOn: string | null;
@@ -638,13 +625,12 @@ export class ImportService implements OnModuleInit {
     ambiguousRows: Prisma.JsonValue;
     previewDigest: string | null;
   }> {
-    // The uploaded rows are read, but only decrypted when the board has made
-    // decisions to plan them with.
+    // Not the uploaded rows: they are read by loadRows, and only when the
+    // board has made decisions to plan them with.
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
         columns: true,
-        rowsCipher: true,
         mapping: true,
         defaultRole: true,
         defaultMovedInOn: true,
@@ -656,6 +642,18 @@ export class ImportService implements OnModuleInit {
       },
     });
     return requireMapping(session);
+  }
+
+  /**
+   * The uploaded rows, decrypted. Read on their own because they are the
+   * whole member list, and an apply only needs them when it plans again.
+   */
+  private async loadRows(sessionId: string): Promise<string[][]> {
+    const session = await this.prisma.importSession.findUnique({
+      where: { id: sessionId },
+      select: { rowsCipher: true, status: true, expiresAt: true },
+    });
+    return this.planner.decryptRows(requireMapping(session).rowsCipher);
   }
 }
 
