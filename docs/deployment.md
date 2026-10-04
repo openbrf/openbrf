@@ -436,7 +436,17 @@ An instance on a server it shares with others named its own owner in
 owner already owns the database and its tables, so nothing has to move to a new
 one, and the `schema-owner` service, which runs as the server's superuser, is
 not run: it refuses a `POSTGRES_USER` that is not one. The migrations now run in
-a service of their own, before the application starts:
+a service of their own, before the application starts.
+
+An owner that was the server's superuser has to give way to one that is not,
+because the `migrate` service refuses to run as a superuser. Such an instance
+follows the steps below with two changes. In step 3, leave `POSTGRES_USER` and
+`POSTGRES_PASSWORD` naming the superuser for one run, and name a new owner in
+`OWNER_DB_USER` and `OWNER_DB_PASSWORD`. In place of step 4, run
+`compose run --rm --no-deps schema-owner` (`compose` as in step 5): it creates
+the owner, hands it what the superuser owns and revokes the runtime role's
+memberships. Then remove `POSTGRES_PASSWORD` from the env file and go on with
+step 5.
 
 1. Back up ([backup-and-restore.md](backup-and-restore.md), "Before an
    upgrade").
@@ -456,12 +466,13 @@ a service of their own, before the application starts:
    of: the `migrate` service refuses to harden the role while one is left, and
    names each. The owner hands itself anything the runtime role owns in the
    instance's database - an object in the job schema, where an earlier release
-   let it create - which the `migrate` service refuses as well:
+   let it create - which the `migrate` service refuses as well. Here
+   `brf_example_app` is the runtime role, the name in `RUNTIME_DB_ROLE`:
 
    ```sql
-   GRANT openbrf_app TO brf_example_owner;  -- PostgreSQL 16 asks for it first
-   REASSIGN OWNED BY openbrf_app TO brf_example_owner;
-   REVOKE openbrf_app FROM brf_example_owner;
+   GRANT brf_example_app TO brf_example_owner;  -- PostgreSQL 16 asks for it first
+   REASSIGN OWNED BY brf_example_app TO brf_example_owner;
+   REVOKE brf_example_app FROM brf_example_owner;
    ```
 
 5. Run the deploy steps, then the application:
@@ -476,14 +487,7 @@ a service of their own, before the application starts:
    compose up -d --no-deps app
    ```
 
-An owner that was the server's superuser has to give way to one that is not,
-because the `migrate` service refuses to run as a superuser. Leave
-`POSTGRES_USER` and `POSTGRES_PASSWORD` naming the superuser for one run, name
-a new owner in `OWNER_DB_USER` and `OWNER_DB_PASSWORD`, and run
-`compose run --rm --no-deps schema-owner`: it creates the owner, hands it what
-the superuser owns and revokes the runtime role's memberships. Then remove
-`POSTGRES_PASSWORD` from the env file and go on from step 5. An
-override file that added `DATABASE_URL` to the `app` service adds it to the
+An override file that added `DATABASE_URL` to the `app` service adds it to the
 `migrate` service instead: the application refuses to start with the owner's
 connection in its environment.
 
