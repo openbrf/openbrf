@@ -1220,6 +1220,102 @@ describe("two applies of one session", () => {
   }, 60_000);
 });
 
+describe("an apply and a preview of one session", () => {
+  it("does not start the import when a preview replaces the one the apply was checked against", async () => {
+    // A second board member, or a second tab, previews the session while an
+    // apply is between its checks and its claim. That preview may record
+    // another mapping, and the decisions the apply carries answer the old
+    // one, so the claim has to find nothing to claim.
+    //
+    // The apply is held where the gap is - it readies the queues after the
+    // plan is checked and before the claim - so the preview lands there on
+    // every run rather than whenever the scheduler happens to allow it.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "ersatt.csv", [
+      HEADERS,
+      [addressLabel, "2101", "Ersatt", surname, "Medlem", "", "", "1/2/23"],
+    ]);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const checked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const ensureQueues = applies.ensureQueues.bind(applies);
+    const paused = vi
+      .spyOn(applies, "ensureQueues")
+      .mockImplementationOnce(async () => {
+        reached();
+        await held;
+        await ensureQueues();
+      });
+    const enqueued = vi.spyOn(applies, "enqueueInTransaction");
+
+    let replacedAt: Date | null = null;
+    let queued: number;
+    let response: Awaited<ReturnType<typeof applyImport>>;
+    try {
+      const applying = applyImport(cookie, session.sessionId);
+      try {
+        // Raced with the apply itself, so one refused before the gap fails
+        // at the assertions below instead of as a timeout here.
+        await Promise.race([checked, applying]);
+        const replaced = await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/preview`,
+          payload: {
+            mapping: session.suggestedMapping,
+            defaultMovedInOn: "2023-02-01",
+          },
+          headers: { cookie },
+        });
+        expect(replaced.statusCode).toBe(200);
+        ({ previewedAt: replacedAt } =
+          await prisma.importSession.findUniqueOrThrow({
+            where: { id: session.sessionId },
+            select: { previewedAt: true },
+          }));
+      } finally {
+        release();
+      }
+      response = await applying;
+      // Counted before the spy is restored, which clears its calls.
+      queued = enqueued.mock.calls.length;
+    } finally {
+      paused.mockRestore();
+      enqueued.mockRestore();
+    }
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("preview-replaced");
+    expect(queued).toBe(0);
+    // The newer preview is what the session holds, ready to be applied.
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.sessionId },
+        select: {
+          status: true,
+          mapping: true,
+          defaultMovedInOn: true,
+          previewedAt: true,
+          decisions: true,
+          rowsDone: true,
+        },
+      }),
+    ).toEqual({
+      status: "MAPPING",
+      mapping: EXPECTED_MAPPING,
+      defaultMovedInOn: "2023-02-01",
+      previewedAt: replacedAt,
+      decisions: null,
+      rowsDone: 0,
+    });
+  }, 60_000);
+});
+
 describe("two imports of two files", () => {
   /**
    * A file whose only row has a date nobody can read: it previews, applies and
