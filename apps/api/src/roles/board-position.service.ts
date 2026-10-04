@@ -9,6 +9,7 @@ import { boardSeatHeldOn, boardSeatNotEndedOn } from "../registers/held-on";
 import {
   type BoardPositionView,
   hasTermEnded,
+  earliestElection,
   latestElection,
   overlapsRecordedTerm,
   parseCalendarDate,
@@ -115,6 +116,12 @@ export class BoardPositionService {
       throw new RoleChangeError(
         "An election cannot be dated that far into the future. Check the year.",
         "elected-too-far-ahead",
+      );
+    }
+    if (electedOn.getTime() < earliestElection(now).getTime()) {
+      throw new RoleChangeError(
+        "An election cannot be dated that far back. Check the year.",
+        "elected-too-far-back",
       );
     }
 

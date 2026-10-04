@@ -224,6 +224,7 @@ function invitationStatus(reason: InvitationError["reason"]): number {
       return HttpStatus.NOT_FOUND;
     case "already-has-account":
     case "already-accepted":
+    case "email-in-use":
       return HttpStatus.CONFLICT;
     case "expired":
       // Gone rather than Bad Request: the link was valid and no longer is,

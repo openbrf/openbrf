@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasTermEnded,
+  earliestElection,
   latestElection,
   latestTermEnd,
   overlapsRecordedTerm,
@@ -233,6 +234,16 @@ describe("the date a term is recorded as ending on", () => {
 describe("the date an election is recorded on", () => {
   it("reaches a year ahead and no further", () => {
     expect(formatDateColumn(latestElection(NOW))).toBe("2027-06-01");
+  });
+
+  it("reaches back as far as a term may run, and no further", () => {
+    expect(formatDateColumn(earliestElection(NOW))).toBe("2021-06-01");
+  });
+
+  it("reaches back to the last day of February from a leap day", () => {
+    expect(
+      formatDateColumn(earliestElection(new Date("2028-02-29T12:00:00Z"))),
+    ).toBe("2023-02-28");
   });
 });
 

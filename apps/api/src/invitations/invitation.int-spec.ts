@@ -44,6 +44,11 @@ const resident = {
   personId: `inv-resident-${suffix}`,
   email: `resident-${suffix}@exempel.se`,
 };
+/** Somebody in the resident's household, written down with their address. */
+const sharer = {
+  personId: `inv-sharer-${suffix}`,
+  email: resident.email,
+};
 
 let ipCounter = 0;
 function inject(options: {
@@ -114,6 +119,7 @@ beforeAll(async () => {
   await createPerson(invitee);
   await createPerson(board);
   await createPerson(resident);
+  await createPerson(sharer);
 
   // A board member may invite; a plain resident may not.
   await prisma.boardPosition.create({
@@ -162,7 +168,12 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
-  const personIds = [invitee.personId, board.personId, resident.personId];
+  const personIds = [
+    invitee.personId,
+    board.personId,
+    resident.personId,
+    sharer.personId,
+  ];
   await prisma.invitation.deleteMany({
     where: { personId: { in: personIds } },
   });
@@ -313,6 +324,44 @@ describe("accepting an invitation", () => {
         invitedByPersonId: board.personId,
       }),
     ).rejects.toMatchObject({ reason: "already-has-account" });
+  });
+});
+
+describe("an address another account already signs in with", () => {
+  it("is refused when the invitation is sent, naming why", async () => {
+    await expect(
+      invitations.invite({
+        personId: sharer.personId,
+        invitedByPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "email-in-use" });
+    expect(
+      await prisma.invitation.count({ where: { personId: sharer.personId } }),
+    ).toBe(0);
+  });
+
+  it("is refused at activation with a conflict rather than a fault", async () => {
+    // Sent before the other account took the address.
+    const token = `shared-address-token-${suffix}`;
+    await prisma.invitation.create({
+      data: {
+        personId: sharer.personId,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations/accept",
+      payload: { token, password: PASSWORD },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason?: string }>().reason).toBe("email-in-use");
+    expect(
+      await prisma.user.count({ where: { personId: sharer.personId } }),
+    ).toBe(0);
   });
 });
 

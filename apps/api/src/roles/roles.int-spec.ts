@@ -856,6 +856,23 @@ describe("an election dated in the wrong year", () => {
     expect(response.json()).toMatchObject({ reason: "elected-too-far-ahead" });
   });
 
+  it("is refused when it lies further back than a term may run", async () => {
+    const seats = () =>
+      prisma.boardPosition.count({ where: { personId: misdated.personId } });
+    const before = await seats();
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/persons/${misdated.personId}`,
+      payload: { position: "CHAIR", electedOn: daysFromToday(-365 * 6) },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "elected-too-far-back" });
+    expect(await seats()).toBe(before);
+  });
+
   it("can be withdrawn before it begins, and the position recorded again", async () => {
     // Written as it was before the bound existed: every end date used to be
     // either before the election or past the term horizon.

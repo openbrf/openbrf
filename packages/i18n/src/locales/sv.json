@@ -262,6 +262,7 @@
       "inviteFailed": "Inbjudan kunde inte skickas. Försök igen.",
       "inviteNoEmail": "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
       "inviteMailNotConfigured": "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
+      "inviteEmailInUse": "Ett annat konto loggar redan in med personens e-postadress. Ge personen en egen adress i registret och skicka sedan inbjudan.",
       "invitationExpiresAt": "Inbjudan giltig till",
       "invitationExpired": "Inbjudan har gått ut. Skicka en ny.",
       "publicationConsent": "Publiceringssamtycke",
@@ -311,6 +312,7 @@
           "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
           "termOverlaps": "Ett tidigare uppdrag på samma post löper förbi det här valdatumet. Kontrollera datumet.",
           "electedTooFarAhead": "Ett val kan inte dateras så långt fram i tiden. Kontrollera årtalet.",
+          "electedTooFarBack": "Ett val kan inte dateras mer än fem år bakåt i tiden. Kontrollera årtalet.",
           "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du bara anteckna den första styrelsen, och aldrig ditt eget uppdrag.",
           "termAlreadyEnded": "Uppdraget är redan avslutat. Datumen är beskrivningen av en period som har löpt och de står kvar.",
           "endedBeforeElected": "Ett uppdrag kan inte avslutas före valet som påbörjade det.",
@@ -2583,6 +2585,7 @@
       "alreadyHasAccount": "Du har redan ett konto i föreningen. Logga in i stället.",
       "expired": "Inbjudan har gått ut. Be styrelsen skicka en ny inbjudan.",
       "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
+      "emailInUse": "Ett annat konto loggar redan in med din e-postadress. Be styrelsen att lägga in en egen adress för dig och sedan skicka en ny inbjudan.",
       "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
     }
   },
