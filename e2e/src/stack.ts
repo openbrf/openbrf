@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -155,9 +156,22 @@ export function appPath(path = ""): string {
   return `${APP_BASE_PATH}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/**
+ * The sign-in secret of this run's stack.
+ *
+ * Generated rather than read from the env file: the application refuses a
+ * secret that is short, has too few different characters or is written into the
+ * repository, and the stack runs in production mode. The value lives only in
+ * this process and in the stack it starts, and the volumes it signed anything
+ * into are destroyed with it. Compose gives the environment precedence over
+ * `--env-file`, so no entry is needed there.
+ */
+const AUTH_SECRET = randomBytes(48).toString("base64");
+
 function compose(args: readonly string[], timeoutMs: number): void {
   execFileSync("docker", [...COMPOSE_ARGS, ...args], {
     cwd: repositoryRoot,
+    env: { ...process.env, BETTER_AUTH_SECRET: AUTH_SECRET },
     stdio: "inherit",
     timeout: timeoutMs,
   });

@@ -64,6 +64,9 @@ on the account the later specs sign in as.
 - `src/stack.ts` owns the compose invocation and reads `stack.env`, so the
   suite and the stack cannot drift apart. It knows two stacks: this one, and the
   screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`.
+  The sign-in secret is not in either env file: the application refuses a
+  published one in production, so `src/stack.ts` generates one for every run and
+  passes it to Compose in the environment.
 - `pg-boss` is a dependency here, pinned to the exact version the API uses.
   `90-runtime-role-privileges` drives the queue the way the application does,
   and a different version would prove something about a different client.

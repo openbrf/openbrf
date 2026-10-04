@@ -12,9 +12,13 @@
 # stack.env sets OPENBRF_VERSION only so the production file's required
 # variable interpolates; the image named below is the one that runs.
 #
+#   BETTER_AUTH_SECRET="$(openssl rand -base64 48)" \
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
 #     --env-file e2e/stack.env up -d
+#
+# The sign-in secret is not in stack.env: the application refuses a published
+# one in production, so the suite generates one for every run (src/stack.ts).
 #
 # The project name is always openbrf-e2e, so the suite can recreate its own
 # volumes without ever touching a development or production stack.
