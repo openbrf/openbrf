@@ -2383,6 +2383,7 @@
       "fileEmpty": "That file has no rows below its column titles.",
       "fileTooLarge": "That file is larger than 512 kB.",
       "fileUnreadable": "That file could not be read as a spreadsheet.",
+      "fileMixedEncoding": "That file mixes character encodings, so letters such as å, ä and ö would come out wrong. Save it again as UTF-8 or as “CSV (semikolonavgränsad)” and upload it again.",
       "tooManyRows": "That file has more rows than one import can take.",
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",

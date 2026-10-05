@@ -2383,6 +2383,7 @@
       "fileEmpty": "Filen har inga rader under kolumnrubrikerna.",
       "fileTooLarge": "Filen är större än 512 kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
+      "fileMixedEncoding": "Filen blandar teckenkodningar, så åäö hade blivit fel. Spara om filen som UTF-8 eller som ”CSV (semikolonavgränsad)” och ladda upp den igen.",
       "tooManyRows": "Filen har fler rader än en import klarar.",
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
       "previewRequired": "Förhandsgranska importen innan du genomför den.",

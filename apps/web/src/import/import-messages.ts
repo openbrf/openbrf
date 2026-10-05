@@ -17,6 +17,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "file-empty": "import.errors.fileEmpty",
   "file-too-large": "import.errors.fileTooLarge",
   "file-unreadable": "import.errors.fileUnreadable",
+  "file-mixed-encoding": "import.errors.fileMixedEncoding",
   "too-many-rows": "import.errors.tooManyRows",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",

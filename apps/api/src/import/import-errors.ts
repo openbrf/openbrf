@@ -21,6 +21,12 @@ export type ImportErrorReason =
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
+  /**
+   * A CSV without a byte order mark that is UTF-8 and another encoding at once.
+   * Its own code, because the board can fix it by saving the file again, and
+   * the generic "unreadable" message does not say how.
+   */
+  | "file-mixed-encoding"
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"

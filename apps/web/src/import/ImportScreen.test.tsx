@@ -906,4 +906,23 @@ describe("when the file cannot be read", () => {
       screen.getByText(/gick inte att läsa som ett kalkylblad/),
     ).toBeTruthy();
   });
+
+  it("tells the board how to fix a file that mixes encodings", async () => {
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "file-mixed-encoding" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(/Spara om filen som UTF-8 eller som/)).toBeTruthy();
+    expect(screen.getByText(/CSV \(semikolonavgränsad\)/)).toBeTruthy();
+    expect(
+      screen.queryByText(/gick inte att läsa som ett kalkylblad/),
+    ).toBeNull();
+  });
 });
