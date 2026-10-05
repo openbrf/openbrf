@@ -15,6 +15,7 @@ import {
   runIdentityNumber,
   runSuffix,
 } from "../testing/integration-env";
+import { erasureRemainder } from "../retention/erasure-domains";
 import { MotionPurgeService } from "./motion-purge.service";
 import type { MotionIntakeView, MotionQueueView } from "./motion.service";
 import { holdLockCount, waitFor } from "../testing/advisory-locks";
@@ -1055,6 +1056,87 @@ describe("the purge", () => {
       await expect(
         purge.purgePerson(member.personId, NOW, RETENTION_DAYS),
       ).resolves.toBe(1);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: member.personId },
+      });
+      await prisma.motion.deleteMany({ where: { id: pending } });
+      await prisma.meeting.deleteMany({ where: { id: meeting.id } });
+    }
+  });
+
+  it("does not schedule a person whose expired motion is on a meeting not yet held", async () => {
+    /*
+     * The same rule as above, asked of the nightly scan and of the count the
+     * erasure request is closed on, which are written separately from the
+     * delete: a scan that selected the person would spend a run, and a count
+     * that called the motion owed would keep the request open for a motion the
+     * job will not touch. Held motions are counted as kept instead.
+     */
+    const meeting = await prisma.meeting.create({
+      data: { kind: "ORDINARY", heldOn: new Date("2027-05-20T00:00:00.000Z") },
+      select: { id: true },
+    });
+    // What the member's other motions in this suite leave standing, so the
+    // count below is read as the one this motion adds.
+    const motionsOf = async () =>
+      (await erasureRemainder(prisma, member.personId, NOW)).find(
+        (domain) => domain.domain === "motions",
+      );
+    const keptBefore = (await motionsOf())?.kept ?? 0;
+    const pending = `mo-scan-pending-${suffix}`;
+    await seedMotion({
+      id: pending,
+      personId: member.personId,
+      closedAt: daysBefore(RETENTION_DAYS + 5),
+      status: "ACKNOWLEDGED",
+    });
+    await prisma.motion.update({
+      where: { id: pending },
+      data: { meetingId: meeting.id },
+    });
+
+    try {
+      // By the window.
+      await expect(purge.eligible(NOW, RETENTION_DAYS)).resolves.not.toContain(
+        member.personId,
+      );
+
+      // And by a granted request, which also reaches motions closed recently.
+      await prisma.dataSubjectRequest.create({
+        data: {
+          personId: member.personId,
+          kind: "ERASURE",
+          requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+          ground: "Jag vill inte finnas kvar hos foreningen.",
+          erasureGround: "NO_LONGER_NECESSARY",
+          decision: "GRANTED",
+          erasureException: "NONE",
+          decisionGround: "Inget lagligt krav hindrar radering.",
+          decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+          decidedByPersonId: board.personId,
+        },
+      });
+      await expect(purge.eligible(NOW, RETENTION_DAYS)).resolves.not.toContain(
+        member.personId,
+      );
+      expect(await motionsOf()).toMatchObject({
+        owed: 0,
+        kept: keptBefore + 1,
+      });
+
+      // Held, it is an ordinary expired motion again.
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: { concludedAt: new Date() },
+      });
+      await expect(purge.eligible(NOW, RETENTION_DAYS)).resolves.toContain(
+        member.personId,
+      );
+      expect(await motionsOf()).toMatchObject({
+        owed: 1,
+        kept: keptBefore,
+      });
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
         where: { personId: member.personId },

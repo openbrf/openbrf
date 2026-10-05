@@ -1727,6 +1727,53 @@ describe("what the report contains", () => {
     expect(open?.erasableFrom).toBeNull();
   });
 
+  it("states no erasure date for a closed motion on the agenda of a meeting not yet held, and the date once it is", async () => {
+    /*
+     * A motion closes when the board acknowledges it, ordinarily before the
+     * meeting that takes it up. The purge and an erasure keep it until that
+     * meeting has been held, so a date counted from the closing alone would
+     * name a day nothing is going to happen on.
+     */
+    const title = `Pa dagordningen ${suffix}`;
+    const onAgenda = await prisma.motion.create({
+      data: {
+        title,
+        body: "Foreningen bor se over sopsorteringen.",
+        submittedByPersonId: subject.personId,
+        submittedAt: motionSubmittedAt,
+        status: "ACKNOWLEDGED",
+        closedAt: motionClosedAt,
+        closedByPersonId: board.personId,
+        meetingId,
+      },
+      select: { id: true },
+    });
+    const motionOf = async () =>
+      (await reportFor(boardCookie)).motions.find(
+        (motion) => motion.title === title,
+      );
+
+    try {
+      expect((await motionOf())?.erasableFrom).toBeNull();
+
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: { concludedAt: new Date() },
+      });
+      expect((await motionOf())?.erasableFrom).toBe(
+        stockholmDayOf(
+          new Date(motionClosedAt.getTime() + 730 * 24 * 60 * 60 * 1000),
+        ),
+      );
+    } finally {
+      await prisma.meeting.update({
+        where: { id: meetingId },
+        data: { concludedAt: null },
+      });
+      await prisma.motion.delete({ where: { id: onAgenda.id } });
+    }
+  });
+
   it("lists both lines somebody was on a general meeting's list under", async () => {
     /*
      * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §
