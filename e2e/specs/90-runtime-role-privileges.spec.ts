@@ -707,7 +707,10 @@ const refusals = connections.map((url) => {
     return "accepted";
   } catch (failure) {
     const said = String(failure.stderr ?? "") + String(failure.stdout ?? "");
-    return said.includes("permission denied") ? "permission denied" : "refused for another reason";
+    // The refusal of this statement on this table, and nothing looser: a
+    // connection refused the database itself says "permission denied for
+    // database", and never ran the UPDATE at all.
+    return said.includes("permission denied for table member_register_entry") ? "permission denied" : "refused for another reason";
   }
 });
 
