@@ -2639,8 +2639,11 @@ model OauthConsent {
   createdAt DateTime
   updatedAt DateTime
 
+  /// One grant per member and app. The library finds the row and then updates
+  /// or inserts it, which two submissions racing each other could otherwise
+  /// turn into two rows granting different things.
+  @@unique([userId, clientId])
   @@index([clientId])
-  @@index([userId])
   @@map("auth_oauth_consent")
 }
 

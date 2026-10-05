@@ -214,8 +214,11 @@ async function grant(options: {
     update: {},
   });
 
-  await client.oauthConsent.create({
-    data: {
+  // One consent per member and app, so a later grant in this suite leaves the
+  // earlier one standing rather than adding a second.
+  await client.oauthConsent.upsert({
+    where: { userId_clientId: { userId: account.id, clientId: connectedApp } },
+    create: {
       clientId: connectedApp,
       userId: account.id,
       resources: audience,
@@ -224,6 +227,7 @@ async function grant(options: {
       createdAt: now,
       updatedAt: now,
     },
+    update: {},
   });
 
   await client.oauthAccessToken.create({

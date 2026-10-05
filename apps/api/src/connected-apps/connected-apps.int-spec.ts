@@ -22,7 +22,7 @@ import {
 /**
  * Connected apps against a real database.
  *
- * Four properties that only a real run can show, and each of them is a
+ * Five properties that only a real run can show, and each of them is a
  * statement the rest of the change rests on:
  *
  *   A token resolves to a person through the rows actually written, with the
@@ -39,9 +39,12 @@ import {
  *   Erasing a person takes their grants and tokens with them, through the
  *   cascade alone. The purge deletes one row; whether that is complete is a
  *   property of the schema, and the schema is only real here.
+ *
+ *   A member holds one grant per app. Consenting again changes it, and two
+ *   consents racing each other cannot leave two grants behind.
  */
 
-loadEnvForIntegrationTests();
+const env = loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
@@ -906,6 +909,139 @@ describe("what a token is worth when the person's standing narrows", () => {
       });
       await prisma.apartment.deleteMany({ where: { addressId: address.id } });
       await prisma.address.deleteMany({ where: { id: address.id } });
+    }
+  });
+});
+
+describe("consenting to the same app again", () => {
+  /*
+   * Through the provider's own consent step rather than rows written here,
+   * because what is in question is what the library does with a second
+   * consent: update the member's row, as the pinned version does, and never
+   * leave two of them granting different things.
+   */
+  const repeatClientId = `repeat-${suffix}`;
+  const redirectUri = "https://upprepa.exempel.se/cb";
+
+  beforeAll(async () => {
+    await prisma.oauthClient.create({
+      data: {
+        clientId: repeatClientId,
+        name: `Klient ${repeatClientId}`,
+        scopes: ["mcp:read", "mcp:write"],
+        contacts: [],
+        redirectUris: [redirectUri],
+        postLogoutRedirectUris: [],
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        tokenEndpointAuthMethod: "none",
+        requirePKCE: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    await prisma.oauthClientResource.create({
+      data: { clientId: repeatClientId, resourceId: resource.url },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.oauthClient.deleteMany({
+      where: { clientId: repeatClientId },
+    });
+  });
+
+  /** Asks to connect the app, as far as the consent screen; its query back. */
+  async function askToConnect(scope: string, prompt?: string): Promise<string> {
+    const response = await inject({
+      method: "GET",
+      url: `/api/auth/oauth2/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: repeatClientId,
+        redirect_uri: redirectUri,
+        scope,
+        state: "s",
+        // RFC 7636's own example. No code is exchanged here, so the verifier
+        // behind it is never needed.
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        resource: resource.url,
+        ...(prompt === undefined ? {} : { prompt }),
+      }).toString()}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(response.statusCode).toBe(302);
+    const consentUrl = new URL(String(response.headers.location), env.APP_URL);
+    expect(consentUrl.pathname).toBe("/app/oauth/consent");
+    return consentUrl.search.slice(1);
+  }
+
+  function consentTo(query: string) {
+    return inject({
+      method: "POST",
+      url: "/api/connected-apps/consent",
+      payload: { oauth_query: query },
+      headers: {
+        "content-type": "application/json",
+        origin: env.APP_URL,
+        cookie: memberCookie,
+      },
+    });
+  }
+
+  async function grantsHeld() {
+    return prisma.oauthConsent.findMany({
+      where: {
+        userId: await accountIdFor(member.personId),
+        clientId: repeatClientId,
+      },
+      select: { id: true, scopes: true, createdAt: true },
+    });
+  }
+
+  it("updates the member's grant in place rather than adding a second", async () => {
+    try {
+      const first = await consentTo(await askToConnect("mcp:read mcp:write"));
+      expect(first.statusCode).toBe(200);
+      const [before] = await grantsHeld();
+      expect(before?.scopes).toEqual(["mcp:read", "mcp:write"]);
+
+      // Asked again, for less: a member narrowing what the app may do.
+      const again = await consentTo(await askToConnect("mcp:read", "consent"));
+      expect(again.statusCode).toBe(200);
+
+      const after = await grantsHeld();
+      expect(after).toHaveLength(1);
+      expect(after[0]).toEqual({
+        id: before?.id,
+        scopes: ["mcp:read"],
+        // Kept: the tokens issued under the grant are still issued under it.
+        createdAt: before?.createdAt,
+      });
+    } finally {
+      await disconnectAll(member.personId);
+    }
+  });
+
+  it("keeps one grant when two consents arrive together", async () => {
+    try {
+      // Two tabs, each at the consent screen before either is submitted.
+      const broader = await askToConnect("mcp:read mcp:write");
+      const narrower = await askToConnect("mcp:read");
+
+      const answers = await Promise.all([
+        consentTo(broader),
+        consentTo(narrower),
+      ]);
+
+      // Whether the two actually interleave is up to the scheduler, so without
+      // the index this fails only on the runs where they do. On those, the
+      // index refuses the second insert and that submission fails, which the
+      // member answers by consenting again.
+      expect(answers.some((answer) => answer.statusCode === 200)).toBe(true);
+      expect(await grantsHeld()).toHaveLength(1);
+    } finally {
+      await disconnectAll(member.personId);
     }
   });
 });
