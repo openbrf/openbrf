@@ -328,6 +328,45 @@ export class ConnectedAppsService {
   }
 
   /**
+   * Withdraws a grant the provider stored but the audit log could not record.
+   *
+   * A disconnect by the person themself, so it writes no entry - the one write
+   * that failed is the reason this runs. Reported rather than thrown, for the
+   * reason {@link discardClient} gives.
+   */
+  async withdrawUnrecordedConsent(
+    actor: ActorContext,
+    personId: string,
+    clientId: string,
+  ): Promise<void> {
+    try {
+      const account = await this.prisma.user.findUnique({
+        where: { personId },
+        select: { id: true },
+      });
+      if (account !== null) {
+        await this.disconnect({
+          userId: account.id,
+          personId,
+          clientId,
+          actor,
+          onBehalf: false,
+        });
+      }
+    } catch (cause) {
+      if (cause instanceof NotFoundException) {
+        return; // No consent stood, so nothing is left to withdraw.
+      }
+      this.logger.error(
+        `Could not withdraw the unrecorded consent to the client ${clientId}: ` +
+          `${failureName(cause)}. Delete its auth_oauth_consent row for ` +
+          `person ${personId} by hand.`,
+        failureFrames(cause),
+      );
+    }
+  }
+
+  /**
    * The newest live access token per client, for one account.
    *
    * One grouped query rather than one per connection: a person with several
