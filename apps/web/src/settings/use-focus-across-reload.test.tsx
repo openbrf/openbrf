@@ -12,7 +12,7 @@ function Harness() {
         {applied > 0 && <input type="checkbox" name="clear" />}
         <input type="checkbox" name="secure" />
         <button type="button" onClick={() => undefined}>
-          Save
+          {"Save"}
         </button>
       </form>
       <button
@@ -23,7 +23,7 @@ function Harness() {
           setApplied(1);
         }}
       >
-        reload
+        {"reload"}
       </button>
     </div>
   );
