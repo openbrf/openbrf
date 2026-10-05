@@ -361,6 +361,34 @@ describe("pluginPackageProblems", () => {
       "a regular expression after a prefix decrement",
       'x = --/"/.lastIndex; require("lodash");',
     ],
+    [
+      "an increment on the next line",
+      'let a = 0; a\n++/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "a decrement on the next line",
+      'let a = 0; a\n--/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "an increment after a block comment holding a line break",
+      'let a = 0; a /*\n*/ ++/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "a decrement after a line comment",
+      'let a = 0; a // c\n--/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "an increment after a comment on the same line",
+      'a /* c */ ++ / b; const l = require("lodash");',
+    ],
+    [
+      "a division after a name escaped outside the Basic Multilingual Plane",
+      'const \\u{10400} = 1; \\u{10400} / 2; require("lodash");',
+    ],
+    [
+      "a division after a name outside the Basic Multilingual Plane",
+      'const \u{10400} = 1; \u{10400} / 2; require("lodash");',
+    ],
     ["a line comment ended by CR", '// note\rrequire("lodash");'],
     ["a line comment ended by U+2028", '// note\u2028require("lodash");'],
     ["a line comment ended by U+2029", '// note\u2029require("lodash");'],

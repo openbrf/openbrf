@@ -106,8 +106,8 @@ const KEYWORDS_BEFORE_EXPRESSION: ReadonlySet<string> = new Set([
 
 /**
  * Tokens after which a `/` divides. "postfix" stands for a `++` or `--` that
- * follows its operand; before its operand, as in `++/a/.lastIndex`, a `/`
- * opens a regular expression.
+ * follows its operand on the same line; before its operand, as in
+ * `++/a/.lastIndex`, a `/` opens a regular expression.
  */
 const TOKENS_BEFORE_DIVISION: ReadonlySet<string> = new Set([
   "literal",
@@ -351,9 +351,14 @@ function requireCalls(source: string): {
   /** How many `/` the scanner has read as a division or a regular expression. */
   let slashes = 0;
 
-  /** The last three words or punctuators seen, newest last. */
+  /**
+   * The last three words or punctuators seen, newest last, and whether a line
+   * has ended since the newest, in a comment or not.
+   */
   const recent: string[] = [];
+  let lineBreak = false;
   const remember = (token: string): void => {
+    lineBreak = false;
     recent.push(token);
     if (recent.length > 3) {
       recent.shift();
@@ -384,9 +389,12 @@ function requireCalls(source: string): {
     const next = source[index + 1];
 
     if (/\s/.test(char)) {
+      lineBreak ||= LINE_TERMINATOR.test(char);
       index += 1;
     } else if (char === "/" && (next === "/" || next === "*")) {
-      index = afterComment(source, index);
+      const end = afterComment(source, index);
+      lineBreak ||= LINE_TERMINATOR.test(source.slice(index, end));
+      index = end;
     } else if (char === '"' || char === "'") {
       index = afterString(source, index).end;
       remember("literal");
@@ -457,9 +465,11 @@ function requireCalls(source: string): {
       }
       const punctuator = longPunctuator(source, index) ?? char;
       // `a++ / b` divides, `++/a/.lastIndex` does not: a postfix operator
-      // follows what could end an expression.
+      // follows what could end an expression, on the same line. After a line
+      // break, `a\n++/a/.lastIndex` is two statements.
       const postfix =
         (punctuator === "++" || punctuator === "--") &&
+        !lineBreak &&
         !startsExpression(previous(1));
       remember(postfix ? "postfix" : punctuator);
       index += punctuator.length;
@@ -522,10 +532,19 @@ function startsExpression(token: string | undefined): boolean {
   if (TOKENS_BEFORE_DIVISION.has(token)) {
     return false;
   }
-  if (token.startsWith("#") || IDENTIFIER_START.test(token.charAt(0))) {
+  if (token.startsWith("#") || IDENTIFIER_START.test(characterAt(token, 0))) {
     return KEYWORDS_BEFORE_EXPRESSION.has(token);
   }
   return true;
+}
+
+/**
+ * The character at `from`, which is two UTF-16 code units when it lies outside
+ * the Basic Multilingual Plane, as `𐐀` does; empty past the end.
+ */
+function characterAt(source: string, from: number): string {
+  const code = source.codePointAt(from);
+  return code === undefined ? "" : String.fromCodePoint(code);
 }
 
 /**
@@ -533,10 +552,9 @@ function startsExpression(token: string | undefined): boolean {
  * Unicode escape: `requ\u0069re` is the same name as `require`.
  */
 function startsIdentifier(source: string, from: number): boolean {
-  const char = source[from];
   return (
-    char !== undefined &&
-    (IDENTIFIER_START.test(char) || unicodeEscape(source, from) !== null)
+    IDENTIFIER_START.test(characterAt(source, from)) ||
+    unicodeEscape(source, from) !== null
   );
 }
 
@@ -551,18 +569,17 @@ function afterIdentifier(
   let index = from;
   while (index < source.length) {
     const escape = unicodeEscape(source, index);
+    const char = characterAt(source, index);
     if (escape !== null) {
       name = (name ?? source.slice(from, index)) + escape.char;
       index = escape.end;
     } else if (
-      index === from
-        ? IDENTIFIER_START.test(source[index] as string)
-        : IDENTIFIER_PART.test(source[index] as string)
+      index === from ? IDENTIFIER_START.test(char) : IDENTIFIER_PART.test(char)
     ) {
       if (name !== undefined) {
-        name += source[index] as string;
+        name += char;
       }
-      index += 1;
+      index += char.length;
     } else {
       break;
     }
