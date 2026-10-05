@@ -230,6 +230,16 @@ describe("which page of the index a reader is shown", () => {
     ]);
   });
 
+  it("reads the count first for a page number far past the end", async () => {
+    const { service, news } = withItems(45);
+
+    await service.index(false, "5000");
+
+    expect(news.findMany.mock.calls.map(([args]) => args.skip)).toEqual([
+      2 * NEWS_INDEX_PAGE_SIZE,
+    ]);
+  });
+
   it("reads anything that is not a page number as the first page", async () => {
     for (const requested of ["0", "-1", "2.5", "abc", "01", "1e3"]) {
       const { service, news } = withItems(45);

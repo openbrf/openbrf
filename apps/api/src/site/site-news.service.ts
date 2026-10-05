@@ -92,6 +92,12 @@ function requestedPage(requested: string | undefined): number {
     : Number(requested);
 }
 
+/**
+ * The furthest page read alongside the count. Beyond it the count goes first,
+ * so a made-up page number cannot make the database skip rows for nothing.
+ */
+const SPECULATIVE_PAGE_LIMIT = 50;
+
 @Injectable()
 export class SiteNewsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -141,9 +147,9 @@ export class SiteNewsService {
    * The count and the page asked for are read side by side rather than one
    * after the other, because this answers every anonymous visit to /nyheter.
    * Only a number past the last page costs a second read, of the last page. A
-   * number too long to be a page is not read at all before the count says
-   * where the end is, so the database is never asked to skip further than six
-   * digits of pages.
+   * number past SPECULATIVE_PAGE_LIMIT (or too long to be a page) is not read
+   * at all before the count says where the end is, so the database is never
+   * asked to skip far into rows that may be discarded.
    */
   async index(
     hasSession: boolean,
@@ -158,7 +164,7 @@ export class SiteNewsService {
 
     const [total, read] = await Promise.all([
       this.prisma.news.count({ where: readableBy(hasSession) }),
-      Number.isFinite(asked) ? pageOf(asked) : null,
+      asked <= SPECULATIVE_PAGE_LIMIT ? pageOf(asked) : null,
     ]);
     const last = Math.max(1, Math.ceil(total / NEWS_INDEX_PAGE_SIZE));
     const page = Math.min(asked, last);
