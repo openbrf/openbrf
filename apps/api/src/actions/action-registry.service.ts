@@ -152,10 +152,17 @@ export class ActionRegistryService {
           `${definition.name}: "${definition.capability}" is a capability no action may hold.`,
         );
       }
-      if (DENIED_NAME_PATTERNS.test(definition.name)) {
-        throw new Error(
-          `${definition.name}: the name describes an act no action may perform.`,
-        );
+      // The aliases too: one resolves through get() to the same action, so a
+      // name refused here would otherwise be reachable under another.
+      for (const name of [
+        definition.name,
+        ...(definition.deprecatedAliases ?? []),
+      ]) {
+        if (DENIED_NAME_PATTERNS.test(name)) {
+          throw new Error(
+            `${definition.name}: the name "${name}" describes an act no action may perform.`,
+          );
+        }
       }
     }
 

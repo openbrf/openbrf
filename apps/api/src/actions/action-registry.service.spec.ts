@@ -141,6 +141,19 @@ describe("what may be registered", () => {
       }),
     ).toThrow(/residency_end/);
   });
+
+  it("refuses a core action whose alias describes an act no action may perform", () => {
+    // An alias resolves to the action through get(), so it is a second name
+    // for it and is held to the same rule.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ deprecatedAliases: ["residency_end"] }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).toThrow(/news_publish.*"residency_end"/);
+  });
 });
 
 /**
