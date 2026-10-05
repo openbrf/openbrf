@@ -283,6 +283,45 @@ export function runtimeRole() {
   return role;
 }
 
+/**
+ * Refuses an owner's connection to a server or database other than the one the
+ * application's own connection is built for. Nothing from the URL is repeated
+ * back.
+ *
+ * Without DATABASE_URL_RUNTIME the application's URL is assembled from
+ * POSTGRES_HOST, POSTGRES_PORT and POSTGRES_DB, never from DATABASE_URL, which
+ * its container is not given. A DATABASE_URL naming another server would have
+ * the runtime role created and constrained there while the application
+ * connects to the one those three name: a host that does not resolve, or a
+ * database that is not this instance's. Server and database are compared as
+ * the URL spells them, so one moved into a query parameter is refused too.
+ */
+export function checkRuntimeServer() {
+  const runtimeUrl = process.env.DATABASE_URL_RUNTIME;
+  if (runtimeUrl !== undefined && runtimeUrl !== "") {
+    return;
+  }
+  const parsed = parseUrl(process.env.DATABASE_URL ?? "", "DATABASE_URL");
+  const { host, port, database } = databaseServer();
+  const elsewhere =
+    ["host", "hostaddr", "port", "dbname"].some((name) =>
+      parsed.searchParams.has(name),
+    ) ||
+    parsed.hostname.toLowerCase() !== host.toLowerCase() ||
+    (parsed.port || "5432") !== port ||
+    decodeURIComponent(parsed.pathname.slice(1)) !== database;
+  if (elsewhere) {
+    throw new Error(
+      "DATABASE_URL names another server or database than POSTGRES_HOST, " +
+        "POSTGRES_PORT and POSTGRES_DB, which the application builds its own " +
+        "connection from, so the runtime role would be constrained on one and " +
+        "used on the other. Set those three to the server and database " +
+        "DATABASE_URL names, for this service and the application alike, or " +
+        "give both DATABASE_URL_RUNTIME.",
+    );
+  }
+}
+
 /** Every component that carries a value an operator chose is encoded. */
 function assemble(role) {
   const password = process.env[role.secret];

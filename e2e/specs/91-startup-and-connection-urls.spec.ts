@@ -712,6 +712,51 @@ test("the entrypoint refuses a runtime URL whose user query parameter overrides 
   expect(output.includes(DECOY_PASSWORD), "no password echoed").toBe(false);
 });
 
+test("the hardening refuses an owner's URL on another server than the application's own", () => {
+  test.setTimeout(180_000);
+
+  // Without DATABASE_URL_RUNTIME the application builds its connection from
+  // POSTGRES_HOST, POSTGRES_PORT and POSTGRES_DB, which here name the bundled
+  // database. Hardening the role on the server DATABASE_URL names instead
+  // would leave the application connecting to a role nobody constrained, or
+  // to none. Nothing answers on any of these, so a script that went on to
+  // psql would wait thirty seconds and say so.
+  for (const [what, url] of [
+    [
+      "another host",
+      `postgresql://openbrf_owner:${DECOY_PASSWORD}@elsewhere.invalid:5432/openbrf`,
+    ],
+    [
+      "another port",
+      `postgresql://openbrf_owner:${DECOY_PASSWORD}@db:6543/openbrf`,
+    ],
+    [
+      "another database",
+      `postgresql://openbrf_owner:${DECOY_PASSWORD}@db:5432/brf`,
+    ],
+  ] as const) {
+    const { status, output } = runInAppContainer(
+      ["node", "/app/docker/harden-runtime-role.mjs"],
+      {
+        DATABASE_URL: url,
+        DATABASE_URL_RUNTIME: "",
+        RUNTIME_DB_PASSWORD: DECOY_PASSWORD,
+      },
+      60_000,
+    );
+
+    expect(status, `${what}: refused: ${output}`).toBe(1);
+    expect(output, what).toContain(
+      "DATABASE_URL names another server or database",
+    );
+    expect(
+      output.includes(WAITED_FOR_A_DATABASE),
+      `${what}: psql never ran`,
+    ).toBe(false);
+    expect(output.includes(DECOY_PASSWORD), `${what}: not echoed`).toBe(false);
+  }
+});
+
 test("the entrypoint refuses a runtime URL that signs in as the owner when the operator manages the role", () => {
   test.setTimeout(120_000);
 

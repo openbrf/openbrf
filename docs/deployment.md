@@ -157,6 +157,9 @@ changes nothing but the owner's password, which it sets from
 The owner's URL is built separately for each of steps 2 to 6, inside the
 process that uses it, so it is never a shell variable and never written to a
 stream; a `DATABASE_URL` that is set on the `migrate` service is used as given.
+The application builds its own URL from `POSTGRES_HOST`, `POSTGRES_PORT` and
+`POSTGRES_DB` unless `DATABASE_URL_RUNTIME` is set, so step 6 refuses a
+`DATABASE_URL` that names another server or database than those three.
 
 The application's container assembles its own connection URL from the runtime
 role's password and starts. It is never given the owner's credentials or the
@@ -522,7 +525,9 @@ psql -h db.example.se -U brf_example_owner -d brf_example -c '\password brf_exam
 
 An override file that added `DATABASE_URL` to the `app` service adds it to the
 `migrate` service instead: the application refuses to start with the owner's
-connection in its environment.
+connection in its environment. `POSTGRES_HOST`, `POSTGRES_PORT` and
+`POSTGRES_DB` in the env file name the same server and database, because the
+application builds its connection from them.
 
 ## Several instances on one database server
 
