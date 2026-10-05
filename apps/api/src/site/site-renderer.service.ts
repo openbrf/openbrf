@@ -66,6 +66,11 @@ import { visitorLocale } from "./visitor-locale";
  * what somebody typed back to this instance - which is the promise the contact
  * form and the report form are making to the person filling them in.
  *
+ * `frame-ancestors 'self'` because a frame is not something `default-src`
+ * covers either: without it a page on another site could hold the contact
+ * form in a frame of its own. This origin may still frame it, as the
+ * X-Frame-Options sent beside it says (security-headers.ts).
+ *
  * `vary: cookie` because a member-only page answers differently to a visitor
  * carrying a session, and a cache that missed that would serve one visitor's
  * page to another. `no-cache` for the same reason, one layer down: the response
@@ -75,7 +80,7 @@ export const SITE_HTML_HEADERS: Readonly<Record<string, string>> = {
   "content-type": "text/html; charset=utf-8",
   "x-content-type-options": "nosniff",
   "content-security-policy":
-    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; form-action 'self'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'self'",
   "cache-control": "no-cache",
   vary: "cookie",
 };

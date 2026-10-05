@@ -236,7 +236,9 @@ describe("what an anonymous visitor gets", () => {
       "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
         // Where a form may submit to, which default-src 'none' does not cover:
         // without it a stored page could post somewhere else entirely.
-        "font-src 'self'; form-action 'self'",
+        "font-src 'self'; form-action 'self'; " +
+        // And who may frame it, which default-src does not cover either.
+        "frame-ancestors 'self'",
     );
     expect(response.headers["cache-control"]).toBe("no-cache");
     // A member page answers differently to a visitor with a session, so a cache

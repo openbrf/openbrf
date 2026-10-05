@@ -8,9 +8,10 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  APP_CONTENT_SECURITY_POLICY,
   isApiRequest,
   isAppRequest,
   serveSinglePageApp,
@@ -125,5 +126,59 @@ describe("a not-found page that cannot be rendered", () => {
       await app.close();
       rmSync(webRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the client's page", () => {
+  let app: NestFastifyApplication;
+  let webRoot: string;
+
+  beforeAll(async () => {
+    webRoot = mkdtempSync(join(tmpdir(), "openbrf-web-"));
+    writeFileSync(join(webRoot, "index.html"), "<!doctype html><div id=root>");
+    const moduleRef = await Test.createTestingModule({}).compile();
+    app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await serveSinglePageApp(app, webRoot);
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    rmSync(webRoot, { recursive: true, force: true });
+  });
+
+  it.each(["/app", "/app/settings/profile", "/app/index.html", "/app/x?y=1"])(
+    "carries the policy at %s",
+    async (url) => {
+      const response = await app
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-security-policy"]).toBe(
+        APP_CONTENT_SECURITY_POLICY,
+      );
+    },
+  );
+
+  it("runs only this origin's scripts and is framed by nobody", () => {
+    const directives = new Map(
+      APP_CONTENT_SECURITY_POLICY.split("; ").map((directive) => {
+        const [name = "", ...values] = directive.split(" ");
+        return [name, values.join(" ")] as const;
+      }),
+    );
+
+    expect(directives.get("script-src")).toBe("'self'");
+    expect(directives.get("object-src")).toBe("'none'");
+    expect(directives.get("frame-ancestors")).toBe("'none'");
+    // No way back to a script through an exemption.
+    expect(APP_CONTENT_SECURITY_POLICY).not.toMatch(
+      /unsafe-eval|script-src[^;]*unsafe-inline|\*/,
+    );
   });
 });

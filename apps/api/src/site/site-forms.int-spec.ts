@@ -278,7 +278,7 @@ describe("the forms on a public page", () => {
     // a stored page could post somewhere else entirely.
     expect(response.headers["content-security-policy"]).toBe(
       "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
-        "font-src 'self'; form-action 'self'",
+        "font-src 'self'; form-action 'self'; frame-ancestors 'self'",
     );
   });
 });
