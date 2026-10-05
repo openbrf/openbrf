@@ -166,11 +166,23 @@ describe("scanForPersonalIdentityNumbers", () => {
     expect(hit?.value).toBe("811228\u00AD-9874");
   });
 
-  it("keeps a line break a boundary: the end of one line is not the start of the next", () => {
-    expect(
-      scanForPersonalIdentityNumbers("Ring 811228\n9874", REFERENCE),
-    ).toEqual([]);
-  });
+  it.each([
+    ["spaces around the hyphen", "811228 - 9874"],
+    ["a space before the hyphen", "811228 -9874"],
+    ["a space after the hyphen", "811228- 9874"],
+    ["a space instead of the hyphen", "811228 9874"],
+    ["a plus between spaces", "811228 + 9874"],
+    ["the century and a space", "19811228 9874"],
+    ["the halves on two lines", "811228-\n9874"],
+    ["the halves on two lines, no hyphen", "811228\r\n9874"],
+  ])(
+    "finds a number written with %s, as the parser reads it",
+    (_name, written) => {
+      expect(
+        scanForPersonalIdentityNumbers(`Godkänd av ${written}.`, REFERENCE),
+      ).toEqual([{ value: written, index: "Godkänd av ".length }]);
+    },
+  );
 
   it("reports a number hidden behind a byte order mark where it sits in the text", () => {
     const text = "Nr 811228\uFEFF-9874 nu";
@@ -181,16 +193,26 @@ describe("scanForPersonalIdentityNumbers", () => {
   });
 
   it.each(["\t", "\r", "\u0085", "\u2028", "\u00A0", "\u3000"])(
-    "keeps %j a boundary, as a line break is",
+    "finds a number whose halves %j separates, as it does a space",
     (separator) => {
       expect(
         scanForPersonalIdentityNumbers(
           `Ring 811228${separator}9874`,
           REFERENCE,
         ),
-      ).toEqual([]);
+      ).toHaveLength(1);
     },
   );
+
+  it.each([
+    // A space inside the date or inside the last four is still a boundary.
+    "Ring 8112 28-9874 om du undrar.",
+    "Ring 811228-98 74 om du undrar.",
+    // A date and an unrelated figure after it fail the check digit.
+    "Stämman 811228 1234 kronor.",
+  ])("finds nothing in %s", (text) => {
+    expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toEqual([]);
+  });
 
   it("finds a number in the raw text whenever it finds one in the normalised text", () => {
     const number = "811228-9874";

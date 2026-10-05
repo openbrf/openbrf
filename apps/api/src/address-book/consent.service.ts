@@ -1,5 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  normalizeFreeText,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -85,11 +88,12 @@ export class ConsentService {
     now: Date = new Date(),
   ): Promise<PublicationConsentView> {
     // The note is shown on the person's page and printed on their access
-    // report, and a personal identity number has no business in either.
-    if (
-      input.note !== undefined &&
-      scanForPersonalIdentityNumbers(input.note).length > 0
-    ) {
+    // report, and a personal identity number has no business in either. It is
+    // folded once and that is what is both scanned and stored, so what is
+    // stored is what was checked.
+    const note =
+      input.note === undefined ? undefined : normalizeFreeText(input.note);
+    if (note !== undefined && scanForPersonalIdentityNumbers(note).length > 0) {
       throw new PersonError(
         "Write the note without a personal identity number in it.",
         "personal-identity-number",
@@ -130,7 +134,7 @@ export class ConsentService {
             scope: input.scope,
             grantedAt: now,
             recordedByPersonId: input.actorPersonId,
-            note: input.note ?? null,
+            note: note ?? null,
           },
           select: CONSENT_VIEW_COLUMNS,
         });
@@ -150,7 +154,7 @@ export class ConsentService {
              */
             context: {
               scope: input.scope,
-              ...(input.note === undefined ? {} : { hasNote: true }),
+              ...(note === undefined ? {} : { hasNote: true }),
             },
           },
           tx,

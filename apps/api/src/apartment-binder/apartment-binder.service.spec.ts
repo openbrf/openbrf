@@ -220,6 +220,10 @@ describe("filing as a tenant-owner", () => {
     ["a byte order mark", "Ritning 19811218\uFEFF-9876"],
     ["a combining grapheme joiner", "Ritning 19811218\u034F-9876"],
     ["a variation selector", "Ritning 19811218\uFE0F-9876"],
+    // Not hidden, only spaced: forms the identity-number parser accepts. The
+    // line break becomes a space before the scan, and would be stored as one.
+    ["spaces around the hyphen", "Ritning 19811218 - 9876"],
+    ["a line break", "Ritning 19811218\n9876"],
   ])(
     "refuses a title whose number is hidden behind %s",
     async (_name, title) => {
@@ -235,7 +239,7 @@ describe("filing as a tenant-owner", () => {
     },
   );
 
-  it("stores a title with a line break as one line, and does not join a number across it", async () => {
+  it("stores a title with a line break as one line", async () => {
     const fakes = build();
 
     await fakes.service.file(filing({ title: "Ritning\nbadrum" }));
@@ -245,9 +249,6 @@ describe("filing as a tenant-owner", () => {
         data: expect.objectContaining({ title: "Ritning badrum" }),
       }),
     );
-    await expect(
-      build().service.file(filing({ title: "Ritning 19811218\n9876" })),
-    ).resolves.toBeDefined();
   });
 
   it("refuses a title carrying a personal identity number, naming the field", async () => {

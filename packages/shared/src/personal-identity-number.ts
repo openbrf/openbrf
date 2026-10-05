@@ -243,7 +243,8 @@ interface FoldedText {
  * {@link normalizeFreeText} for a scan, keeping a way back to the original.
  *
  * A line break stays: whitespace is a boundary in free text, and dropping it
- * would let the end of one line join the start of the next into a number.
+ * would let any two runs of digits either side of it join. The candidate
+ * pattern decides the one place a separator may sit inside a number.
  * What is dropped is decided by the same rule as in `normalizeFreeText`.
  * Folded one code point at a time so every character of the result has a known
  * origin; a compatibility form that expands to several characters (a ligature,
@@ -279,12 +280,19 @@ function foldForScan(text: string): FoldedText {
  * number, a reference - from yielding a ten-digit window out of its middle:
  * a candidate must not touch a digit on either side.
  *
- * Whitespace inside a number is deliberately not accepted here, although the
- * parser tolerates it in a single value a person typed into a field. In free
- * text a space is a boundary, and honouring it inside a number would let a
- * phone number and the figure after it join into a false match.
+ * Whitespace is accepted in one place only: between the date and the last
+ * four, around the separator or instead of it (`811228 - 9874`, `811228 9874`,
+ * the two halves on two lines). The parser takes those forms as a number, and a
+ * reader does too, so a scan that let them through would let the number be
+ * published. The date and the last four must each still be one run of digits:
+ * accepting a space anywhere would let a phone number written in groups join
+ * the figure after it, and the calendar and the Luhn check are what keep the
+ * one place that is accepted from reporting a false match.
  */
-const CANDIDATE_PATTERN = /(?<!\d)(?:\d{2})?\d{6}[-+]?\d{4}(?!\d)/g;
+const CANDIDATE_PATTERN = new RegExp(
+  `(?<!\\d)(?:\\d{2})?\\d{6}${SEPARATOR.source}*[-+]?${SEPARATOR.source}*\\d{4}(?!\\d)`,
+  "gu",
+);
 
 /**
  * Finds the personal identity numbers in a piece of free text.
@@ -320,13 +328,16 @@ export function scanForPersonalIdentityNumbers(
   const found: PersonalIdentityNumberMatch[] = [];
   // A fresh regex per call: the global flag carries lastIndex, and a shared
   // instance would make one scan depend on the one before it.
-  const pattern = new RegExp(CANDIDATE_PATTERN.source, "g");
+  const pattern = new RegExp(CANDIDATE_PATTERN.source, CANDIDATE_PATTERN.flags);
 
   const folded = foldForScan(text);
   let match = pattern.exec(folded.text);
   while (match !== null) {
     const [candidate] = match;
-    if (isValidPersonalIdentityNumber(candidate, referenceDate)) {
+    // The parser drops what JavaScript calls whitespace, which a next-line
+    // character is not, so the separators the pattern let through go first.
+    const compact = candidate.replace(SEPARATOR_RUN, "");
+    if (isValidPersonalIdentityNumber(compact, referenceDate)) {
       const start = folded.starts[match.index] ?? 0;
       const end = folded.ends[match.index + candidate.length - 1] ?? start;
       found.push({ value: text.slice(start, end), index: start });

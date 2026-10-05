@@ -417,6 +417,13 @@ describe("breaches", () => {
       (n: string) =>
         Array.from(n, (d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
     ],
+    // Not hidden at all, only spaced or broken over two lines: the forms the
+    // identity-number parser itself accepts.
+    [
+      "spaces around a hyphen",
+      (n: string) => `${n.slice(0, 8)} - ${n.slice(8)}`,
+    ],
+    ["a line break", (n: string) => `${n.slice(0, 8)}\n${n.slice(8)}`],
   ])(
     "refuses an identity number hidden by %s in the reasons for a delay",
     async (_name, hide) => {

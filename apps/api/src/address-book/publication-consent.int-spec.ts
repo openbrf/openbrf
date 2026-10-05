@@ -288,7 +288,9 @@ describe("recording and withdrawing", () => {
     const response = await setConsent(cookie, {
       scope: "NAME_ON_SITE",
       granted: true,
-      note: "Sa ja på stämman",
+      // Stored as it was scanned: the zero-width space gone, the fullwidth
+      // letters in their ordinary shape.
+      note: "Sa ja på\u200B ｓｔämman",
     });
 
     expect(response.statusCode).toBe(200);
@@ -315,6 +317,7 @@ describe("recording and withdrawing", () => {
       where: { personId: subject.personId, scope: "NAME_ON_SITE" },
     });
     expect(row.recordedByPersonId).toBe(board.personId);
+    expect(row.note).toBe("Sa ja på stämman");
   });
 
   it("refuses a note sent with a withdrawal instead of dropping it", async () => {
@@ -371,6 +374,13 @@ describe("recording and withdrawing", () => {
       (n: string) =>
         Array.from(n, (d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
     ],
+    // Not hidden at all, only spaced or broken over two lines: the forms the
+    // identity-number parser itself accepts.
+    [
+      "spaces around a hyphen",
+      (n: string) => `${n.slice(0, 8)} - ${n.slice(8)}`,
+    ],
+    ["a line break", (n: string) => `${n.slice(0, 8)}\n${n.slice(8)}`],
   ])(
     "refuses a note whose identity number is hidden by %s",
     async (_name, hide) => {
