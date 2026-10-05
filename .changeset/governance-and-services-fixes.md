@@ -11,7 +11,8 @@ Bookings:
 
 - A booking can no longer be cancelled once it has been used. A resident
   cancels until it begins and the board until it ends, so a cancelled booking
-  no longer gives the week's allowance back.
+  no longer gives the week's allowance back. The screens offer Cancel only
+  while it can succeed.
 - A claim made while the board changes or withdraws the resource is refused,
   instead of landing on the old slot grid next to the new one.
 - A guest-apartment stay can be a single night: choose the check-in night
@@ -31,12 +32,13 @@ Meetings and motions:
   recorded for themselves, are refused with a reason instead of a server
   error.
 - Striking off a member or proxy holder also strikes off the assistant they
-  brought, including one being checked in at the same moment.
+  brought, including one being checked in at the same moment, and when a
+  person's member and proxy-holder lines are struck off at once.
 - A proxy holder registered as a member no longer votes for anybody after
   leaving the association. A proxy authorisation dated after today is
   refused.
 - Erasure and retention keep a motion while the meeting it is on has not
-  been held.
+  been held, and the access report states no erasure date for it until then.
 - A failed re-read on the motions screen keeps what the screen showed.
 
 Issues, events and actions:
@@ -44,23 +46,28 @@ Issues, events and actions:
 - The photo limit on an issue holds against uploads sent at once, and a
   refused upload leaves no stored file behind.
 - Removing an issue type while somebody files a report, two edits to one
-  event series at once, and calling off or reinstating an occurrence while an
-  edit removes it are answered with a reason instead of a server error.
+  event series at once, publishing a series while an edit or a removal writes
+  it, and calling off or reinstating an occurrence while an edit removes it
+  are answered with a reason instead of a server error. A series cannot be
+  published with a personal identity number added by an edit made at the same
+  moment.
 - An occurrence that has begun can no longer be called off.
 - Calling off an occurrence waits for a sign-up to it that is in flight, so no
   sign-up is taken on an occurrence that has already been called off.
 - The action catalogue leaves out plugin actions the caller would be refused.
   Looking one action up uses the same surface as the list, and a disabled
   plugin's action is answered as unknown.
-- A core action holding a capability or name that no action may have is
-  refused when it is registered.
+- A core action holding a capability that no action may hold, or a name or
+  alias describing an act no action may perform, is refused when it is
+  registered. A plugin's declaration was already refused by the gate.
 
 Charges, fees and other forms:
 
 - Amounts typed the Swedish way ("1 234,50") are accepted on the charges, fees
   and move screens.
-- The fee aid divides by the sum of the recorded participation shares, so
-  shares recorded as percentages or whole numbers give the right fees.
+- The fee aid reads each participation share as a part of the recorded shares'
+  sum, and never of less than one whole share, so shares recorded as
+  percentages or whole numbers give the right fees.
 - Charges and fees are removed only after a confirmation, and a charge can be
   corrected on the charges screen. A saved correction is confirmed, a charge
   half typed survives opening one, and the correction closes when its charge
