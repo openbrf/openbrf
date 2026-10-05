@@ -318,6 +318,95 @@ describe("writing a page", () => {
     expect(written.data.sortOrder).toBe(4);
   });
 
+  describe("beside a privacy notice the board's list has numbered", () => {
+    const NEW_PAGE = {
+      slug: "ny-sida",
+      title: "Ny sida",
+      content: paragraphsContent(["Hej."]),
+      visibility: "PUBLIC" as const,
+    };
+
+    /** A list whose last other page sits at `last` and notice at `notice`. */
+    function arranged(last: number | null, notice: number) {
+      const fakes = build();
+      fakes.page.aggregate.mockResolvedValue({ _max: { sortOrder: last } });
+      fakes.page.findUnique.mockImplementation(
+        async (args: { where: { slug?: string } }) =>
+          args.where.slug === PRIVACY_NOTICE_SLUG
+            ? { sortOrder: notice }
+            : null,
+      );
+      return fakes;
+    }
+
+    function writtenSortOrder(page: { create: ReturnType<typeof vi.fn> }) {
+      return (page.create.mock.calls[0]?.[0] as { data: { sortOrder: number } })
+        .data.sortOrder;
+    }
+
+    it("goes before the notice, moving the notice down, once a reorder has numbered them", async () => {
+      // Dragged once, the pages are numbered from nought and the notice with
+      // them: one page at 0 and the notice at 1. The next number after the
+      // last page is the notice's own, and the older notice sorted first.
+      const { service, page } = arranged(0, 1);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(1);
+      expect(page.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { slug: PRIVACY_NOTICE_SLUG },
+          data: { sortOrder: 2 },
+        }),
+      );
+    });
+
+    it("goes before a notice that is the only page", async () => {
+      const { service, page } = arranged(null, 0);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(1);
+      expect(page.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { sortOrder: 2 } }),
+      );
+    });
+
+    it("leaves a notice the board moved up the list where the board put it", async () => {
+      const { service, page } = arranged(1, 0);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(2);
+      expect(page.update).not.toHaveBeenCalled();
+    });
+
+    it("leaves a notice with room before it alone", async () => {
+      const { service, page } = arranged(3, 1000);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(4);
+      expect(page.update).not.toHaveBeenCalled();
+    });
+
+    it("decides under the page order lock", async () => {
+      // A rearrangement committing between the reads and the writes would be
+      // undone by them: the board drags the notice up, and the new page puts
+      // it back at the end.
+      const { service, page, txClient } = arranged(0, 1);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      const locked =
+        txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+      expect(page.aggregate.mock.invocationCallOrder[0]).toBeGreaterThan(
+        locked,
+      );
+      expect(page.update.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
+    });
+  });
+
   it("records the content change, saying how much page there is and never what it says", async () => {
     const { service, audit } = build();
 
@@ -813,6 +902,18 @@ describe("the order the pages sit in", () => {
       where: { id: "page-1" },
       data: { sortOrder: 1 },
     });
+  });
+
+  it("takes the page order lock before it writes a position", async () => {
+    const { service, page, txClient } = build();
+
+    await service.reorder(["page-2", "page-1"], {
+      personId: "person-1",
+      channel: "WEB",
+    });
+
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    expect(page.updateMany.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
   });
 
   it("ignores an id the instance does not have", async () => {

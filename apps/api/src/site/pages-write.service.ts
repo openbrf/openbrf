@@ -9,6 +9,7 @@ import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockMenu } from "./menu-lock";
+import { lockPageOrder } from "./page-order-lock";
 import {
   imageReferences,
   type PageContent,
@@ -389,16 +390,8 @@ export class PagesWriteService {
     await this.requireFreeSlug(input.slug, null);
 
     const row = await this.prisma.$transaction(async (tx) => {
-      /*
-       * After the last page, not counting the privacy notice, so the notice
-       * stays at the end of the board's list where it was seeded. The root's
-       * fallback leaves the notice out by its slug, so this placement is about
-       * the list and not about which page is the front page.
-       */
-      const highest = await tx.page.aggregate({
-        where: { slug: { not: PRIVACY_NOTICE_SLUG } },
-        _max: { sortOrder: true },
-      });
+      await lockPageOrder(tx);
+      const sortOrder = await placeNewPage(tx);
 
       const created = await tx.page
         .create({
@@ -408,7 +401,7 @@ export class PagesWriteService {
             content: asJson(input.content),
             visibility: input.visibility,
             published: false,
-            sortOrder: (highest._max.sortOrder ?? 0) + 1,
+            sortOrder,
           },
           select: PAGE_COLUMNS,
         })
@@ -786,6 +779,7 @@ export class PagesWriteService {
      */
     await this.prisma.$transaction(
       async (tx) => {
+        await lockPageOrder(tx);
         for (const [index, id] of ids.entries()) {
           await tx.page.updateMany({
             where: { id },
@@ -1128,6 +1122,47 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
     }
     throw cause;
   };
+}
+
+/**
+ * The sort order a new page is written with, after moving the privacy notice
+ * out of its way when it has to.
+ *
+ * After the last page, not counting the notice. When the notice is at the end
+ * of the board's list, where it is seeded, the new page goes directly before it
+ * and the notice moves one place down - otherwise a list the board has
+ * rearranged, which numbers every page from nought and the notice with them,
+ * would hand the new page the notice's own number and show it after the
+ * notice. When the board has moved the notice up the list, its arrangement is
+ * left alone and the new page goes at the end.
+ *
+ * The root's fallback leaves the notice out by its slug, so this placement is
+ * about the list and not about which page is the front page. Called under the
+ * page order lock, so nothing rearranges the list between the reads and the
+ * writes.
+ */
+async function placeNewPage(tx: Prisma.TransactionClient): Promise<number> {
+  const highest = await tx.page.aggregate({
+    where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+    _max: { sortOrder: true },
+  });
+  const notice = await tx.page.findUnique({
+    where: { slug: PRIVACY_NOTICE_SLUG },
+    select: { sortOrder: true },
+  });
+
+  const last = highest._max.sortOrder;
+  const placed = (last ?? 0) + 1;
+  const noticeAtTheEnd =
+    notice !== null && (last === null || notice.sortOrder >= last);
+  if (noticeAtTheEnd && notice.sortOrder <= placed) {
+    await tx.page.update({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      data: { sortOrder: placed + 1 },
+      select: { id: true },
+    });
+  }
+  return placed;
 }
 
 /** The range of PostgreSQL's `integer`, which `Page.sortOrder` is stored as. */
