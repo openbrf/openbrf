@@ -352,8 +352,15 @@ async function recordFee(
     .getByRole("combobox", { name: "Lägenhet", exact: true })
     .selectOption(fee.apartmentId);
   await page.getByLabel("Gäller från").fill(fee.appliesFrom);
-  await page.getByLabel("Belopp per månad i kronor").fill(fee.monthlyAmount);
+  const amount = page.getByLabel("Belopp per månad i kronor");
+  await amount.fill(fee.monthlyAmount);
   await page.getByRole("button", { name: "Registrera avgiften" }).click();
+  // The screen clears the amount once the server has accepted the rate, and
+  // only then: a refusal leaves it filled in beside the sentence saying why.
+  // Waited for here so that nothing after a call - another rate, the period's
+  // notices, an assertion that no refusal was shown - can run while the write
+  // is still in flight.
+  await expect(amount).toHaveValue("");
 }
 
 /** The register document's row for this apartment. */
