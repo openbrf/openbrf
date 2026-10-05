@@ -2100,6 +2100,73 @@ describe("collecting the mailbox", () => {
   });
 });
 
+describe("paging the inbox", () => {
+  it.each(["taken", "purged"])(
+    "lists every thread once when the one a page ended at is %s",
+    async (change) => {
+      /*
+       * A page ends at a thread, and the next is asked for from there. Threads
+       * move meanwhile - one taken goes to TAKEN, one purged is gone - and a
+       * cursor naming the row carried on from wherever it had gone: past every
+       * NEW thread behind it, or to an empty page that said there were no more.
+       */
+      const { cipher: correspondent } = await encryption.encrypt(
+        "boardMailboxThread.correspondentEmail",
+        `sida-${change}-${suffix}@utanfor.example`,
+      );
+      const created = await prisma.boardMailboxThread.createManyAndReturn({
+        // The oldest NEW threads in the inbox, so they fill the first page.
+        data: Array.from({ length: 205 }, (_unused, position) => ({
+          subject: `Sida ${change} ${String(position)} ${suffix}`,
+          correspondentEmailCipher: correspondent,
+          lastMessageAt: new Date(Date.UTC(2000, 0, 1, 0, 0, position)),
+        })),
+        select: { id: true },
+      });
+      const ids = created.map((row) => row.id);
+      try {
+        const page = async (after?: string) => {
+          const response = await inject({
+            method: "GET",
+            url:
+              after === undefined
+                ? "/api/board-mailbox/threads"
+                : `/api/board-mailbox/threads?after=${encodeURIComponent(after)}`,
+            headers: { cookie: boardCookie },
+          });
+          expect(response.statusCode, response.body).toBe(200);
+          return response.json() as {
+            threads: { id: string }[];
+            nextCursor: string | null;
+          };
+        };
+
+        const first = await page();
+        const endedAt = first.threads.at(-1)?.id ?? "";
+        expect(endedAt).toBe(ids[199]);
+
+        if (change === "taken") {
+          await prisma.boardMailboxThread.update({
+            where: { id: endedAt },
+            data: { status: "TAKEN" },
+          });
+        } else {
+          await prisma.boardMailboxThread.delete({ where: { id: endedAt } });
+        }
+
+        const second = await page(first.nextCursor ?? undefined);
+        expect(second.threads.slice(0, 5).map((thread) => thread.id)).toEqual(
+          ids.slice(200),
+        );
+      } finally {
+        await prisma.boardMailboxThread.deleteMany({
+          where: { id: { in: ids } },
+        });
+      }
+    },
+  );
+});
+
 describe("threading a follow-up", () => {
   /**
    * Answers the thread a subject opened, and returns the identifier the answer

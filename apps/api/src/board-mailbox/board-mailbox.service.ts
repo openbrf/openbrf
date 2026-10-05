@@ -169,6 +169,47 @@ export interface BoardMailboxThreadList {
 const MAX_THREADS_LISTED = 200;
 
 /**
+ * The statuses in the order the inbox lists them, which is the enumeration's
+ * declaration order: that is what PostgreSQL sorts an enum by.
+ */
+const INBOX_ORDER: readonly BoardMailboxThreadStatus[] = [
+  "NEW",
+  "TAKEN",
+  "ANSWERED",
+  "CLOSED",
+];
+
+/** Where a page of the inbox ended, as `STATUS-milliseconds-id`. */
+export const INBOX_CURSOR =
+  /^(NEW|TAKEN|ANSWERED|CLOSED)-(\d{1,15})-([a-z0-9]{1,40})$/;
+
+function encodeInboxCursor(row: {
+  status: BoardMailboxThreadStatus;
+  lastMessageAt: Date;
+  id: string;
+}): string {
+  return `${row.status}-${String(row.lastMessageAt.getTime())}-${row.id}`;
+}
+
+function decodeInboxCursor(cursor: string): {
+  status: BoardMailboxThreadStatus;
+  lastMessageAt: Date;
+  id: string;
+} {
+  const [, status, millis, id] = INBOX_CURSOR.exec(cursor) ?? [];
+  if (status === undefined || millis === undefined || id === undefined) {
+    // The controller refuses anything else, so this is a caller in this
+    // process passing a cursor it made up.
+    throw new Error("Not an inbox cursor.");
+  }
+  return {
+    status: status as BoardMailboxThreadStatus,
+    lastMessageAt: new Date(Number(millis)),
+    id,
+  };
+}
+
+/**
  * The most messages one thread shows.
  *
  * The newest of them, because a conversation is read at its end and answered
@@ -308,13 +349,43 @@ export class BoardMailboxService {
     // a status and a last-message time, and a page boundary that falls between
     // them has to fall in the same place every time it is asked for, or a thread
     // is listed twice or not at all.
+    //
+    // The cursor is the position the last row stood at, not the row. Threads
+    // move while somebody pages: one taken goes to TAKEN, one purged is gone. A
+    // cursor naming the row continued from wherever that row had gone, and
+    // skipped the threads in between or ended the list early.
+    const after =
+      filter?.after === undefined ? null : decodeInboxCursor(filter.after);
     const rows = await this.prisma.boardMailboxThread.findMany({
-      where: filter?.status === undefined ? {} : { status: filter.status },
+      where: {
+        AND: [
+          filter?.status === undefined ? {} : { status: filter.status },
+          after === null
+            ? {}
+            : {
+                OR: [
+                  {
+                    status: {
+                      in: INBOX_ORDER.slice(
+                        INBOX_ORDER.indexOf(after.status) + 1,
+                      ),
+                    },
+                  },
+                  {
+                    status: after.status,
+                    lastMessageAt: { gt: after.lastMessageAt },
+                  },
+                  {
+                    status: after.status,
+                    lastMessageAt: after.lastMessageAt,
+                    id: { gt: after.id },
+                  },
+                ],
+              },
+        ],
+      },
       orderBy: [{ status: "asc" }, { lastMessageAt: "asc" }, { id: "asc" }],
       take: MAX_THREADS_LISTED + 1,
-      ...(filter?.after === undefined
-        ? {}
-        : { cursor: { id: filter.after }, skip: 1 }),
       select: {
         ...THREAD_SELECT,
         _count: { select: { messages: true } },
@@ -323,6 +394,7 @@ export class BoardMailboxService {
 
     const more = rows.length > MAX_THREADS_LISTED;
     const threads = more ? rows.slice(0, MAX_THREADS_LISTED) : rows;
+    const last = threads.at(-1);
 
     const people = await this.peopleFor(
       threads.map((thread) => thread.takenByPersonId),
@@ -336,7 +408,7 @@ export class BoardMailboxService {
         })),
       ),
       more,
-      nextCursor: more ? (threads[threads.length - 1]?.id ?? null) : null,
+      nextCursor: more && last !== undefined ? encodeInboxCursor(last) : null,
     };
   }
 
