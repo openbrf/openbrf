@@ -1127,6 +1127,92 @@ describe("checking people in", () => {
     expect(entry?.targetPersonId).toBe(soloMember.personId);
   });
 
+  it("strikes the assistant off when both lines of whoever brought them are struck off at once", async () => {
+    /*
+     * One person holds a member line and a proxy-holder line, and the board
+     * strikes both off in the same moment. Each strike-off dates its own line
+     * and then asks whether the person is still present as the other kind.
+     * At READ COMMITTED each counts the other's line as standing, because that
+     * write is not committed yet, so neither takes the assistant off the list.
+     *
+     * Played out in that order rather than raced. The test holds the audit
+     * table against writes, which both strike-offs reach after dating their
+     * own line and before they count, sends both, and lets go once the
+     * database says both are queued. Without the lock on the person's lines,
+     * both have dated a line by then and the assistant stays on the list.
+     */
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await registerProxy(meetingId, {
+          memberPersonId: otherMember.personId,
+          proxyHolderPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    const lines: string[] = [];
+    for (const capacity of ["MEMBER", "PROXY_HOLDER"] as const) {
+      const created = await checkIn(meetingId, {
+        personId: twoHoldings.personId,
+        capacity,
+      });
+      expect(created.statusCode).toBe(201);
+      lines.push(created.json<{ id: string }>().id);
+    }
+    const assistant = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(assistant.statusCode).toBe(201);
+    const assistantId = assistant.json<{ id: string }>().id;
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        // Stops every write to the audit log and lets the reads through.
+        await tx.$executeRaw`LOCK TABLE audit_log_entry IN SHARE ROW EXCLUSIVE MODE`;
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    let striking!: Promise<Awaited<ReturnType<typeof inject>>[]>;
+    try {
+      striking = Promise.all(
+        lines.map((line) =>
+          inject({
+            method: "POST",
+            url: `/api/meetings/${meetingId}/attendances/${line}/withdrawal`,
+            headers: { cookie: boardCookie },
+          }),
+        ),
+      );
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 2);
+    } finally {
+      release();
+      await holding;
+    }
+
+    const struck = await striking;
+    expect(struck.map((response) => response.statusCode)).toEqual([201, 201]);
+    const meeting = await readMeeting(meetingId);
+    expect(meeting.votingRegister.assistantsPresent).toBe(0);
+    expect(
+      meeting.attendances.find((line) => line.id === assistantId)?.withdrawnAt,
+    ).not.toBeNull();
+  });
+
   it("strikes off an assistant checked in while the person who brought them was struck off", async () => {
     /*
      * The check-in reads that the principal is present and then writes; the

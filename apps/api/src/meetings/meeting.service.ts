@@ -365,19 +365,12 @@ export class MeetingService {
         );
       }
 
-      const { count } = await tx.meeting.updateMany({
-        where: { id: meetingId, concludedAt: null },
-        data: { concludedAt: new Date() },
-      });
-      if (count === 0) {
-        throw new MeetingError(
-          "This meeting has already been recorded as held.",
-          "meeting-already-held",
-        );
-      }
-
-      const meeting = await tx.meeting.findUniqueOrThrow({
+      // Not conditional on concludedAt: the agenda lock and the row lock
+      // above have made this the only writer, and the read after them has
+      // refused a meeting that was already held.
+      const meeting = await tx.meeting.update({
         where: { id: meetingId },
+        data: { concludedAt: new Date() },
         select: {
           ...MEETING_COLUMNS,
           _count: { select: { agendaItems: true } },
@@ -643,15 +636,38 @@ export class MeetingService {
       const meeting = await this.requireMeeting(tx, meetingId);
       this.refuseIfHeld(meeting);
 
-      const existing = await tx.meetingAttendance.findFirst({
-        where: { id: attendanceId, meetingId },
-        select: ATTENDANCE_COLUMNS,
-      });
+      const readLine = () =>
+        tx.meetingAttendance.findFirst({
+          where: { id: attendanceId, meetingId },
+          select: ATTENDANCE_COLUMNS,
+        });
+      let existing = await readLine();
       if (existing === null) {
         throw new MeetingError(
           "No such attendance line at this meeting.",
           "attendance-not-found",
         );
+      }
+      if (existing.capacity !== "ASSISTANT") {
+        /*
+         * Both of the person's principal lines, before this one is written
+         * and before anything is counted. One person can hold a member line
+         * and a proxy-holder line, and striking the two off at once would
+         * otherwise leave each transaction counting the other's line as still
+         * standing, so neither strikes off the assistant. Behind this lock the
+         * second sees the first's write, and it is the second that finds
+         * nobody left. The line is read again once the lock is held, because
+         * the first read may have been overtaken by another strike-off of the
+         * same line.
+         */
+        await this.lockPrincipalLines(tx, meetingId, existing.personId);
+        existing = await readLine();
+        if (existing === null) {
+          throw new MeetingError(
+            "No such attendance line at this meeting.",
+            "attendance-not-found",
+          );
+        }
       }
       if (existing.withdrawnAt !== null) {
         return toAttendanceView(existing);
@@ -1606,6 +1622,7 @@ export class MeetingService {
          AND "personId" = ${onBehalfOfPersonId}
          AND "capacity" IN ('MEMBER', 'PROXY_HOLDER')
          AND "withdrawnAt" IS NULL
+       ORDER BY "id"
          FOR SHARE`;
     if (lines.length === 0) {
       throw new MeetingError(
@@ -1613,6 +1630,28 @@ export class MeetingService {
         "assistant-principal-not-present",
       );
     }
+  }
+
+  /**
+   * Takes a person's member and proxy-holder lines at a meeting for update,
+   * the ones struck off included.
+   *
+   * In the order of their ids, as {@link requirePrincipalPresent} takes them
+   * for share: two transactions that take the same two rows in different
+   * orders wait for each other for ever.
+   */
+  private async lockPrincipalLines(
+    client: Prisma.TransactionClient,
+    meetingId: string,
+    personId: string,
+  ): Promise<void> {
+    await client.$queryRaw`
+      SELECT "id" FROM "meeting_attendance"
+       WHERE "meetingId" = ${meetingId}
+         AND "personId" = ${personId}
+         AND "capacity" IN ('MEMBER', 'PROXY_HOLDER')
+       ORDER BY "id"
+         FOR UPDATE`;
   }
 
   /** Whether somebody stands on the list as a member or a proxy holder. */
