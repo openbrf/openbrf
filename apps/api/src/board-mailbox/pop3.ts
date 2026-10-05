@@ -177,6 +177,12 @@ export interface Pop3Session {
    *   uses.
    */
   retrieve(number: number, maxBytes: number): Promise<Buffer>;
+  /**
+   * Whether the session can still be used. A refused command leaves it open;
+   * a response that ran over its bound or its deadline, or a connection that
+   * dropped, does not.
+   */
+  readonly open: boolean;
   /** Ends the session politely, and never throws. */
   close(): Promise<void>;
 }
@@ -250,6 +256,10 @@ export async function openPop3Session(
       return connection.multilineCommand(`RETR ${String(number)}`, maxBytes);
     },
 
+    get open(): boolean {
+      return connection.open;
+    },
+
     async close(): Promise<void> {
       await connection.quit();
     },
@@ -282,6 +292,7 @@ interface Connection {
   multilineCommand(text: string, maxBytes?: number): Promise<Buffer>;
   quit(): Promise<void>;
   destroy(): void;
+  readonly open: boolean;
 }
 
 async function openConnection(
@@ -527,6 +538,10 @@ async function openConnection(
 
     destroy(): void {
       socket.destroy();
+    },
+
+    get open(): boolean {
+      return !socket.destroyed;
     },
   };
 }

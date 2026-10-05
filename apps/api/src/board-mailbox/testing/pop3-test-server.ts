@@ -42,6 +42,11 @@ export interface Pop3TestServerOptions {
   floodStatusLine?: boolean;
   /** Refuses PASS with this response, whatever the password, as `-ERR <it>`. */
   refusePass?: string;
+  /**
+   * Fails RETR of these messages, by identifier: "refuse" answers `-ERR` and
+   * carries on, "drop" closes the connection.
+   */
+  failRetrieve?: Readonly<Record<string, "refuse" | "drop">>;
 }
 
 export interface Pop3TestServer {
@@ -165,8 +170,14 @@ export async function startPop3TestServer(
           );
         } else if (command === "RETR") {
           const message = options.messages[Number.parseInt(argument, 10) - 1];
-          if (message === undefined) {
+          const failure =
+            message === undefined
+              ? undefined
+              : options.failRetrieve?.[message.uid];
+          if (message === undefined || failure === "refuse") {
             write("-ERR no such message\r\n");
+          } else if (failure === "drop") {
+            socket.destroy();
           } else {
             write(
               `+OK ${String(Buffer.byteLength(message.raw, "latin1"))} octets\r\n`,

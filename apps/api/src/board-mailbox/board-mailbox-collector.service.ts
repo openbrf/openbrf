@@ -366,6 +366,12 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         } else {
           skipped += 1;
         }
+        // A failure that ended the session ends the run. Every letter behind
+        // it would fail for the session's sake rather than its own, and be
+        // counted towards being set aside for it.
+        if (!session.open) {
+          break;
+        }
       }
 
       if (collected > 0 || skipped > 0) {
@@ -752,10 +758,22 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       raw = await retrieve(listing.number, MAX_MESSAGE_BYTES);
     } catch (error) {
       // One message that cannot be fetched must not stop the ones behind it.
-      // It stays in the mailbox and the next run tries again.
+      // It stays in the mailbox and the next run tries again - up to the bound
+      // a letter that cannot be stored has, and for the same reason: one the
+      // mailbox refuses on every run would otherwise take one of the run's
+      // retrievals for as long as it sits there. Undated, because what carries
+      // the date is what could not be fetched.
       this.logger.error(
         `Board mailbox: a message could not be retrieved: ${failureName(error)}`,
       );
+      if (retrying || (await this.countFailure(uid, now))) {
+        await this.setAside(
+          uid,
+          COLLECTION_REFUSALS.unstorable,
+          null,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
+        );
+      }
       return "skipped";
     }
 

@@ -300,11 +300,13 @@ function pngBytes(): Buffer {
 /** Points the instance at a mailbox holding exactly these messages. */
 async function serveMailbox(
   messages: readonly { uid: string; raw: string }[],
+  failRetrieve?: Readonly<Record<string, "refuse" | "drop">>,
 ): Promise<Pop3TestServer> {
   const server = await startPop3TestServer({
     user: MAILBOX_USER,
     password: MAILBOX_PASSWORD,
     messages,
+    failRetrieve,
   });
 
   const saved = await inject({
@@ -1332,6 +1334,108 @@ describe("collecting the mailbox", () => {
       expect((await collector.collect(retried)).alreadyHeld).toBe(1);
     } finally {
       spy.mockRestore();
+      await server.close();
+    }
+  });
+
+  it("sets aside a letter the mailbox will not hand over, as one it cannot store", async () => {
+    /*
+     * Refused on every run, it took one of the run's retrievals for as long as
+     * it sat there, with nothing telling the board. Counted like a write that
+     * fails, it is set aside on the same bound - and the letter behind it is
+     * collected meanwhile, because a refusal leaves the session usable.
+     */
+    const refused = `uid-unretrievable-${suffix}`;
+    const behind = `uid-behind-unretrievable-${suffix}`;
+    const server = await serveMailbox(
+      [
+        {
+          uid: refused,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Ohamtbar ${suffix}`,
+            body: "Ett brev.",
+            messageId: `unretrievable-${suffix}@utanfor.example`,
+          }),
+        },
+        {
+          uid: behind,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Bakom ${suffix}`,
+            body: "Ett brev till.",
+            messageId: `behind-unretrievable-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+      { [refused]: "refuse" },
+    );
+    const setAside = () =>
+      prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${refused}` } },
+      });
+
+    const start = new Date();
+    try {
+      for (let attempt = 1; attempt <= 12; attempt += 1) {
+        await collector.collect(start);
+      }
+      expect(await setAside()).toBeNull();
+      await threadBySubject(`Bakom ${suffix}`);
+
+      await collector.collect(new Date(start.getTime() + 60 * 60 * 1000));
+      const row = await setAside();
+      expect(row?.reason).toBe("unstorable");
+      expect(row?.letterDate).toBeNull();
+      expect(row?.retryAfter).not.toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("stops a run whose session dropped, and counts nothing against the letters behind", async () => {
+    // Every letter after the drop would fail for the session's sake rather
+    // than its own.
+    const dropped = `uid-dropped-${suffix}`;
+    const behind = `uid-behind-dropped-${suffix}`;
+    const server = await serveMailbox(
+      [
+        {
+          uid: dropped,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Tappad ${suffix}`,
+            body: "Ett brev.",
+            messageId: `dropped-${suffix}@utanfor.example`,
+          }),
+        },
+        {
+          uid: behind,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Efter tappad ${suffix}`,
+            body: "Ett brev till.",
+            messageId: `behind-dropped-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+      { [dropped]: "drop" },
+    );
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.skipped).toBe(1);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${behind}` } },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${dropped}` } },
+        }),
+      ).toBe(1);
+    } finally {
       await server.close();
     }
   });
