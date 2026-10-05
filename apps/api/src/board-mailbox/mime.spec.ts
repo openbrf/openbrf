@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   addressFrom,
   decodeEncodedWords,
+  displayNameFrom,
   htmlToText,
   MAX_TEXT_CHARACTERS,
   readMessage,
@@ -253,6 +254,62 @@ describe("readMessage", () => {
     // is reduced to its last segment so it cannot read as a path anywhere it is
     // shown or offered as a download.
     expect(message.attachments[0]?.fileName).toBe("protokoll årsmöte.pdf");
+  });
+
+  it("joins an RFC 2231 filename sent in numbered segments", () => {
+    // How a long name arrives. Read segment by segment, it was two parameters
+    // nobody asked for and the file was called "bilaga-1".
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: application/pdf",
+        "Content-Transfer-Encoding: base64",
+        "Content-Disposition: attachment;",
+        // One character's two octets split across the segments.
+        "\tfilename*0*=utf-8''protokoll%20%C3;",
+        "\tfilename*1*=%A5rsm%C3%B6te;",
+        '\tfilename*2=".pdf"',
+        "",
+        Buffer.from("pdf bytes").toString("base64"),
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.attachments[0]?.fileName).toBe("protokoll årsmöte.pdf");
+  });
+
+  it("takes an inline part named only in segments for an attachment", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: application/pdf",
+        "Content-Transfer-Encoding: base64",
+        "Content-Disposition: inline; filename*0=protokoll; filename*1=.pdf",
+        "",
+        Buffer.from("pdf bytes").toString("base64"),
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.attachments.map((each) => each.fileName)).toEqual([
+      "protokoll.pdf",
+    ]);
   });
 
   it("strips the characters that reorder a file name from it", () => {
@@ -864,6 +921,64 @@ describe("readMessage", () => {
   });
 });
 
+describe("raw UTF-8 headers", () => {
+  it("are read as UTF-8, which is what SMTPUTF8 sends", () => {
+    const message = readMessage(
+      Buffer.from(
+        [
+          "From: Åsa Öberg <asa@example.test>",
+          "Subject: Fråga om källaren",
+          "",
+          "Hej",
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+
+    expect(message.subject).toBe("Fråga om källaren");
+    expect(message.fromName).toBe("Åsa Öberg");
+  });
+
+  it("are still read as latin1 when they are not UTF-8", () => {
+    // An older client's unencoded header. A lossy UTF-8 decode would replace
+    // these octets, and nothing could recover them afterwards.
+    const message = readMessage(raw("Subject: Fråga", "", "Hej"));
+
+    expect(message.subject).toBe("Fråga");
+  });
+});
+
+describe("invisible characters", () => {
+  it("are taken out of the subject and the sender's name", () => {
+    // A right-to-left override reorders what the board reads as who wrote and
+    // about what; a zero-width space or a C1 control is simply not seen.
+    const message = readMessage(
+      Buffer.from(
+        [
+          "From: Styrelsen\u202e\u200b <sender@example.test>",
+          "Subject: Faktura\u202egpj.exe\u0085",
+          "",
+          "Hej",
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+
+    expect(message.subject).toBe("Fakturagpj.exe");
+    expect(message.fromName).toBe("Styrelsen");
+  });
+
+  it.each([
+    ["a right-to-left override", "<bank\u202e@example.test>"],
+    ["a zero-width space", "<bank\u200b@example.test>"],
+    ["a C1 control", "<bank\u0085@example.test>"],
+  ])("make an address no address: %s", (_name, header) => {
+    // The address is what the board reads as who wrote, and one that hides or
+    // reorders part of itself can be made to read as somebody else.
+    expect(addressFrom(header)).toBeNull();
+  });
+});
+
 describe("addressFrom", () => {
   it("takes the address out of the angle brackets", () => {
     expect(addressFrom('"Lindqvist, Astrid" <astrid@example.test>')).toBe(
@@ -878,6 +993,15 @@ describe("addressFrom", () => {
   it("refuses something that is not an address", () => {
     expect(addressFrom("Astrid Lindqvist")).toBeNull();
     expect(addressFrom("<not an address>")).toBeNull();
+  });
+
+  it("takes the address after a display name that carries brackets", () => {
+    // The first pair is inside the quoted name. Taken for the address, the
+    // letter had no sender address and was set aside for good.
+    const header = '"Kalle <via Grupp>" <list@example.test>';
+
+    expect(addressFrom(header)).toBe("list@example.test");
+    expect(displayNameFrom(header)).toBe("Kalle <via Grupp>");
   });
 
   it("refuses an address that carries a control character", () => {
