@@ -18,7 +18,10 @@ instance has recovered.
 The board's mailbox screen now lists the letters the collection set aside, with
 why, the date the letter carried and when it is tried again, so a board member
 can find them in a mail client. They are still in the mailbox. A letter deleted
-from the mailbox leaves the list at the next collection.
+from the mailbox leaves the list at the next collection, and so does one that
+was stored after all, such as one two overlapping collections handled at once.
+A letter the purge erased, or one already past the retention window when it
+was read, is not listed: neither is the board's to go and read.
 
 A letter that was not stored no longer leaves its attachments behind in
 storage. A file is kept when a row names it, so a letter whose write landed

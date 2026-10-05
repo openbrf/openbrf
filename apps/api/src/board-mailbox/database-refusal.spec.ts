@@ -89,6 +89,13 @@ describe("isDataRefusal", () => {
       mapped("P2022", { kind: "ColumnNotFound", column: "body" }),
     ],
     [
+      "column data the client cannot read, a schema the client disagrees with",
+      mapped("P2023", {
+        kind: "InconsistentColumnData",
+        cause: "conversion failed",
+      }),
+    ],
+    [
       "a foreign key",
       mapped("P2003", {
         kind: "ForeignKeyConstraintViolation",

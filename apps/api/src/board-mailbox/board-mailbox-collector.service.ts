@@ -464,6 +464,18 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       }),
     ]);
 
+    const storedUids = new Set(
+      stored
+        .map((row) => row.sourceUid)
+        .filter((uid): uid is string => uid !== null),
+    );
+    const setAside = ignored.filter((row) => !storedUids.has(row.sourceUid));
+    await this.forgetStoredSetAside(
+      ignored
+        .filter((row) => storedUids.has(row.sourceUid))
+        .map((row) => row.sourceUid),
+    );
+
     // A letter set aside for failing, whose wait is over, is tried again by
     // this run rather than held.
     const due = (retryAfter: Date | null): boolean =>
@@ -471,19 +483,45 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
     return {
       held: new Set([
-        ...stored
-          .map((row) => row.sourceUid)
-          .filter((uid): uid is string => uid !== null),
-        ...ignored
+        ...storedUids,
+        ...setAside
           .filter((row) => !due(row.retryAfter))
           .map((row) => row.sourceUid),
       ]),
       retrying: new Set(
-        ignored
+        setAside
           .filter((row) => due(row.retryAfter))
           .map((row) => row.sourceUid),
       ),
     };
+  }
+
+  /**
+   * Takes stored letters off the set-aside list.
+   *
+   * A letter is one or the other, but two collections can each leave half of
+   * both: one fails to store a letter and finds it not stored, the other stores
+   * it, and the first then sets it aside. A stored letter is not fetched again,
+   * so nothing else would ever correct the row, and the board's screen would
+   * list a letter it has already received for as long as the mailbox keeps it.
+   * Repaired here, where every run reads both ledgers anyway.
+   *
+   * A failure is logged and the run goes on: the letter is held either way, and
+   * the next run tries again.
+   */
+  private async forgetStoredSetAside(uids: readonly string[]): Promise<void> {
+    if (uids.length === 0) {
+      return;
+    }
+    try {
+      await this.prisma.boardMailboxIgnoredMessage.deleteMany({
+        where: { sourceUid: { in: [...uids] } },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Board mailbox: a stored message could not be removed from the set-aside list: ${failureName(error)}`,
+      );
+    }
   }
 
   /**
@@ -866,16 +904,15 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           });
         }
 
-        // Stored, so whatever earlier runs counted against it no longer counts.
+        // Stored, so whatever earlier runs counted against it no longer counts,
+        // and a letter set aside earlier is no longer set aside - whether this
+        // run was retrying it or another collection set it aside meanwhile.
         await tx.boardMailboxCollectionFailure.deleteMany({
           where: { sourceUid: uid },
         });
-        if (retrying) {
-          // And a letter set aside earlier is no longer set aside.
-          await tx.boardMailboxIgnoredMessage.deleteMany({
-            where: { sourceUid: uid },
-          });
-        }
+        await tx.boardMailboxIgnoredMessage.deleteMany({
+          where: { sourceUid: uid },
+        });
       });
     } catch (error) {
       await this.discardUnnamedFiles(stored);
@@ -884,17 +921,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         // Another collection stored this letter between the query above and this
         // insert. The constraint is what makes that harmless rather than a race
         // the board would see as a duplicate.
-        if (retrying) {
-          // The other collection may not have known it was set aside, and a
-          // stored letter must not go on being listed as one.
-          await this.prisma.boardMailboxIgnoredMessage
-            .deleteMany({ where: { sourceUid: uid } })
-            .catch((cause: unknown) => {
-              this.logger.warn(
-                `Board mailbox: a stored message could not be removed from the set-aside list: ${failureName(cause)}`,
-              );
-            });
-        }
+        // The other collection may not have known it was set aside, and a
+        // stored letter must not go on being listed as one.
+        await this.forgetStoredSetAside([uid]);
         return "already-held";
       }
       if (isDataRefusal(error)) {

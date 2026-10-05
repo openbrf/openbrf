@@ -1626,6 +1626,92 @@ describe("collecting the mailbox", () => {
     }
   });
 
+  it("takes a letter off the set-aside list once another collection has stored it", async () => {
+    /*
+     * Two collections at once, in the order that leaves a letter as both: this
+     * one's write fails and it finds the letter not stored, the other stores
+     * it, and this one then sets it aside. Played by one collection whose write
+     * commits, as the other's would, while it is told the database refused the
+     * letter, and whose check for a stored letter is answered as if it ran
+     * before that commit.
+     */
+    const subject = `Samtidigt ${suffix}`;
+    const uid = `uid-overlap-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev.",
+          messageId: `overlap-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    const transaction = prisma.$transaction.bind(prisma);
+    const write = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+      ...args: unknown[]
+    ) =>
+      (
+        (transaction as (...rest: unknown[]) => Promise<unknown>)(
+          ...args,
+        ) as Promise<unknown>
+      ).then(() => {
+        throw new Prisma.PrismaClientKnownRequestError("value too long", {
+          code: "P2000",
+          clientVersion: Prisma.prismaVersion.client,
+          meta: {
+            driverAdapterError: new DriverAdapterError({
+              kind: "LengthMismatch",
+              column: "body",
+            }),
+          },
+        });
+      })) as typeof prisma.$transaction);
+    const findFirst = prisma.boardMailboxMessage.findFirst.bind(
+      prisma.boardMailboxMessage,
+    );
+    const check = vi
+      .spyOn(prisma.boardMailboxMessage, "findFirst")
+      .mockImplementation(((query: { where?: { sourceUid?: unknown } }) =>
+        query.where?.sourceUid === undefined
+          ? findFirst(query as Parameters<typeof findFirst>[0])
+          : Promise.resolve(
+              null,
+            )) as unknown as typeof prisma.boardMailboxMessage.findFirst);
+    const setAside = (): Promise<number> =>
+      prisma.boardMailboxIgnoredMessage.count({
+        where: { sourceUid: { endsWith: `:${uid}` } },
+      });
+
+    try {
+      await collector.collect();
+      // Both, which is what the overlap leaves.
+      await threadBySubject(subject);
+      expect(await setAside()).toBe(1);
+    } finally {
+      check.mockRestore();
+      write.mockRestore();
+    }
+
+    try {
+      const next = await collector.collect();
+      expect(next.alreadyHeld).toBe(1);
+      expect(next.collected).toBe(0);
+      // Stored, so no longer listed as a letter the board has not read.
+      expect(await setAside()).toBe(0);
+      expect((await mailboxStatus()).setAsideCount).toBe(0);
+      expect(
+        await prisma.boardMailboxMessage.count({
+          where: { sourceUid: { endsWith: `:${uid}` } },
+        }),
+      ).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("leaves the files in place when it cannot tell whether a stored row names them", async () => {
     const server = await serveMailbox([
       {

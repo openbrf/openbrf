@@ -18,15 +18,19 @@
 
 /**
  * Prisma's codes for a value a column will not hold: too long for it (P2000),
- * not valid for its type (P2007), a null where none is allowed (P2011), out of
- * range (P2020), and inconsistent column data (P2023).
+ * not valid for its type (P2007), a null where none is allowed (P2011), and out
+ * of range (P2020).
+ *
+ * Not inconsistent column data (P2023). Prisma raises it when what the database
+ * holds or returns does not convert to what the generated client expects, which
+ * is a client and a schema that disagree - a deploy ahead of its migration, or
+ * one behind it - and not a value the letter carries.
  */
 const DATA_REFUSAL_CODES: ReadonlySet<string> = new Set([
   "P2000",
   "P2007",
   "P2011",
   "P2020",
-  "P2023",
 ]);
 
 /**
