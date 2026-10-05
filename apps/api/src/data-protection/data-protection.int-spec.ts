@@ -11,6 +11,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
@@ -1561,6 +1562,116 @@ describe("processors", () => {
     expect(context).not.toContain("Driftleverantoren");
     expect(context).toContain("PROCESSOR");
   });
+
+  it("keeps an agreement in place when an install answers over it", async () => {
+    /*
+     * A plugin install writes through `record` with `onlyIfUnrecorded`: its
+     * permission is to install plugins, not to change this record, so a stale
+     * consent screen or a direct caller answering "being made" must leave an
+     * agreement the board recorded as in place exactly as it was. Asked of the
+     * write itself, against the real database, because that is where the check
+     * and a concurrent classification meet.
+     */
+    const inPlace = await classify("hosting", {
+      classification: "PROCESSOR",
+      status: "IN_PLACE",
+      counterparty: "Driftleverantoren AB",
+      signedOn: "2026-02-01",
+      termsConfirmed: true,
+    });
+    expect(inPlace.statusCode).toBe(200);
+    const agreementId =
+      inPlace.json<ProcessorView>().agreement?.agreementId ?? "";
+    /*
+     * Held to this recipient rather than to the kept row: an overwrite would
+     * log its entry against the new row it wrote, which a count of the kept
+     * row's entries cannot see.
+     */
+    const recordedForHosting = () =>
+      prisma.auditLogEntry.count({
+        where: {
+          action: "PROCESSOR_AGREEMENT_RECORDED",
+          targetKind: "processorAgreement",
+          context: { path: ["processorKey"], equals: "hosting" },
+        },
+      });
+    const auditBefore = await recordedForHosting();
+
+    const kept = await app.get(ProcessorAgreementService).record(
+      "hosting",
+      {
+        classification: "PROCESSOR",
+        status: "PENDING",
+        counterparty: "Nagon annan AB",
+        actorPersonId: null,
+        channel: "WEB",
+      },
+      await app.get(ProcessorFactsService).read(),
+      { onlyIfUnrecorded: true },
+    );
+
+    expect(kept.state).toBe("inPlace");
+    expect(kept.agreement?.agreementId).toBe(agreementId);
+
+    const open = await prisma.processorAgreement.findMany({
+      where: { processorKey: "hosting", endedAt: null },
+      select: { id: true, status: true, counterparty: true },
+    });
+    expect(open).toEqual([
+      {
+        id: agreementId,
+        status: "IN_PLACE",
+        counterparty: "Driftleverantoren AB",
+      },
+    ]);
+    // Nothing was recorded, so nothing is logged as recorded.
+    expect(await recordedForHosting()).toBe(auditBefore);
+  });
+
+  it("takes the recipient's key before it replaces the recipient's row", async () => {
+    /*
+     * One open row per recipient holds only while writers of one recipient are
+     * ordered: at READ COMMITTED two of them can both close the row and both
+     * insert. So a classification has to wait while somebody else holds the
+     * recipient's key - read out of `pg_locks`, not inferred from a delay. The
+     * key is spelled out here so that a writer which changed it fails this
+     * instead of passing under a new name.
+     */
+    const key = "processor-agreement:hosting";
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      const classifying = classify("hosting", {
+        classification: "PROCESSOR",
+        status: "PENDING",
+        counterparty: "Driftleverantoren AB",
+      });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+      expect((await classifying).statusCode).toBe(200);
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+    }
+  }, 60_000);
 
   it("answers the plugin views from the same rows", async () => {
     const states = await app.get(ProcessorAgreementService).forPlugins();

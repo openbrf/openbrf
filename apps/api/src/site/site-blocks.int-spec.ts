@@ -3,7 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -82,6 +82,8 @@ const personIds = [
 const addressId = `blocks-address-${suffix}`;
 const apartmentId = `blocks-apartment-${suffix}`;
 const pageSlug = `blocks-${suffix}`;
+/** A page whose one document list names a binder. */
+const binderPageSlug = `blocks-binder-${suffix}`;
 
 const PUBLIC_DOCUMENT = `Stadgar ${suffix}`;
 const MEMBER_DOCUMENT = `Protokoll ${suffix}`;
@@ -411,7 +413,10 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
-        () => prisma.page.deleteMany({ where: { slug: pageSlug } }),
+        () =>
+          prisma.page.deleteMany({
+            where: { slug: { in: [pageSlug, binderPageSlug] } },
+          }),
         () =>
           factsFound === null
             ? prisma.associationFacts.deleteMany({ where: { id: 1 } })
@@ -487,6 +492,47 @@ describe("a document list on a page anybody can open", () => {
     expect(html).toContain(PUBLIC_DOCUMENT);
     expect(html).toContain(MEMBER_DOCUMENT);
     expect(html).not.toContain(BOARD_DOCUMENT);
+  });
+});
+
+describe("what a document list reads to render", () => {
+  it("asks the database for the binder it names, off the board's shelf", async () => {
+    // Every visit to a page with a "Stadgar" block used to read the whole
+    // archive, the board's shelf included, and throw most of it away.
+    await prisma.page.create({
+      data: {
+        slug: binderPageSlug,
+        title: "Stadgarna",
+        content: {
+          version: 1,
+          blocks: [{ type: "documentList", category: BINDER }],
+        },
+        visibility: "PUBLIC",
+        published: true,
+        publishedAt: new Date(),
+        sortOrder: 901,
+      },
+    });
+    const read = vi.spyOn(prisma.document, "findMany");
+    try {
+      const response = await inject({
+        method: "GET",
+        url: `/${binderPageSlug}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain(PUBLIC_DOCUMENT);
+      expect(response.body).not.toContain(BOARD_DOCUMENT);
+
+      expect(read).toHaveBeenCalledTimes(1);
+      const [query] = read.mock.calls[0] as [
+        { where: { audience: { in: string[] }; category?: unknown } },
+      ];
+      expect(query.where.category).toEqual({ in: [BINDER] });
+      expect([...query.where.audience.in].sort()).toEqual(["MEMBER", "PUBLIC"]);
+    } finally {
+      read.mockRestore();
+    }
   });
 });
 

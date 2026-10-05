@@ -1,4 +1,9 @@
-import { parsePluginPackage } from "./manifest.ts";
+import {
+  dependencyNames,
+  isEmptyDependencyField,
+  parsePluginPackage,
+  RUNTIME_DEPENDENCY_FIELDS,
+} from "./manifest.ts";
 
 /**
  * The checks a plugin package passes before it is listed.
@@ -65,22 +70,6 @@ export interface PluginPackageContents {
 }
 
 /**
- * Dependency fields npm installs at install time.
- *
- * The installer omits peer, dev and optional dependencies and runs no scripts,
- * but it still hands npm the package: anything listed here would send that npm
- * to a registry, which an instance never contacts. optionalDependencies is
- * listed although it is omitted, because a package relying on one being
- * present works in development and quietly not on an instance.
- */
-const RUNTIME_DEPENDENCY_FIELDS = [
-  "dependencies",
-  "optionalDependencies",
-  "bundleDependencies",
-  "bundledDependencies",
-] as const;
-
-/**
  * Words after which a `/` opens a regular expression rather than dividing.
  *
  * After any other word, a number, a string or a closing bracket it divides.
@@ -117,7 +106,9 @@ export function pluginPackageProblems(
   const problems: string[] = [];
   const packageJson = asRecord(contents.packageJson);
 
-  const parsed = parsePluginPackage(contents.packageJson);
+  // The dependency fields get sentences of their own below, which name what to
+  // do instead, so the manifest is read without them rather than reported twice.
+  const parsed = parsePluginPackage(withoutRuntimeDependencies(packageJson));
   if (!parsed.ok) {
     for (const issue of parsed.issues) {
       problems.push(`The manifest in package.json is invalid at ${issue}.`);
@@ -159,6 +150,17 @@ function dependencyProblems(
 
   const problems: string[] = [];
   for (const field of RUNTIME_DEPENDENCY_FIELDS) {
+    const value = packageJson[field];
+    if (
+      value !== undefined &&
+      dependencyNames(value).length === 0 &&
+      !isEmptyDependencyField(value)
+    ) {
+      problems.push(
+        `package.json gives ${field} as something other than a map or a list of packages. A plugin declares no runtime dependencies: leave the field out, or leave it empty.`,
+      );
+      continue;
+    }
     // A host package gets its own sentence below, which says what to do
     // instead; naming it here as well would report one entry twice.
     const names = dependencyNames(packageJson[field]).filter(
@@ -182,15 +184,6 @@ function dependencyProblems(
   }
 
   return problems;
-}
-
-/** Package names in a dependency field, whether a map or npm's bundle list. */
-function dependencyNames(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((name): name is string => typeof name === "string");
-  }
-  const record = asRecord(value);
-  return record === null ? [] : Object.keys(record);
 }
 
 function serverBundleProblems(source: string): string[] {
@@ -602,6 +595,19 @@ function normalizedPath(path: string): string {
     .split("/")
     .filter((segment) => segment !== "" && segment !== ".")
     .join("/");
+}
+
+function withoutRuntimeDependencies(
+  packageJson: Record<string, unknown> | null,
+): unknown {
+  if (packageJson === null) {
+    return packageJson;
+  }
+  const rest = { ...packageJson };
+  for (const field of RUNTIME_DEPENDENCY_FIELDS) {
+    delete rest[field];
+  }
+  return rest;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -16,6 +16,8 @@ import { hashOpaqueToken } from "../auth/opaque-token";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
+import { ProcessorAgreementService } from "../data-protection/processor-agreement.service";
+import { ProcessorFactsService } from "../data-protection/processor-facts.service";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
@@ -902,6 +904,103 @@ describe("the plugin views endpoint", () => {
         },
       ],
     });
+  });
+});
+
+describe("an install that answers for a plugin the record already classifies", () => {
+  /*
+   * The permission this route needs is the one to install plugins, not the one
+   * to change the art. 28 record. A consent screen opened before somebody
+   * classified the plugin, or a script, sends an answer anyway; it must leave
+   * the agreement the board recorded exactly as it was, and write nothing
+   * else of the install either. Asked over HTTP against the real rows, since
+   * "nothing else" spans the consent row, the art. 30 record and the audit log.
+   */
+  const recipientKey = `plugin:${PLUGIN_ID}`;
+
+  afterAll(async () => {
+    await application()
+      .get(PrismaService)
+      .processorAgreement.deleteMany({
+        where: { processorKey: recipientKey },
+      });
+  });
+
+  it("refuses the answer with a reason of its own and changes nothing", async () => {
+    const client = application().get(PrismaService);
+    const entry = (await application()
+      .get(CatalogClient)
+      .entry(PLUGIN_ID)) as CatalogPluginEntry;
+
+    await application()
+      .get(ProcessorAgreementService)
+      .record(
+        recipientKey,
+        {
+          classification: "PROCESSOR",
+          status: "IN_PLACE",
+          counterparty: "Driftleverantoren AB",
+          signedOn: new Date("2026-02-01"),
+          termsConfirmed: true,
+          actorPersonId: admin.personId,
+          channel: "WEB",
+        },
+        await application().get(ProcessorFactsService).read(),
+      );
+
+    const openRows = () =>
+      client.processorAgreement.findMany({
+        where: { processorKey: recipientKey, endedAt: null },
+      });
+    const consentRow = () =>
+      client.installedPlugin.findUniqueOrThrow({ where: { id: PLUGIN_ID } });
+    const activities = () =>
+      client.processingActivity.findMany({
+        where: { sourceKey: recipientKey },
+      });
+    const installs = () =>
+      client.auditLogEntry.count({
+        where: { action: "PLUGIN_INSTALLED", targetId: PLUGIN_ID },
+      });
+
+    const rowsBefore = await openRows();
+    expect(rowsBefore).toHaveLength(1);
+    const consentBefore = await consentRow();
+    const activitiesBefore = await activities();
+    const installsBefore = await installs();
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/plugins",
+      headers: { cookie: adminCookie },
+      payload: {
+        id: PLUGIN_ID,
+        permissions: entry.permissions,
+        personalData: entry.personalData,
+        actions: entry.actions ?? [],
+        oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Nagon annan AB",
+          classification: "PROCESSOR",
+          status: "PENDING",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      reason: "recipient-already-recorded",
+    });
+
+    // The agreement in place is the same row, not a replacement.
+    expect(await openRows()).toEqual(rowsBefore);
+    // No consent row claiming an install that did not happen.
+    expect(await consentRow()).toEqual(consentBefore);
+    // No art. 30 activity seeded for it, and no install logged.
+    expect(await activities()).toEqual(activitiesBefore);
+    expect(activitiesBefore).toEqual([]);
+    expect(await installs()).toBe(installsBefore);
   });
 });
 

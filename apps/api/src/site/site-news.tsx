@@ -1,4 +1,9 @@
-import { type SiteNewsArticle, teaserOf } from "./site-news.service";
+import {
+  NEWS_PAGE_PARAM,
+  type SiteNewsArticle,
+  type SiteNewsIndexPage,
+  teaserOf,
+} from "./site-news.service";
 import {
   formatNewsDate,
   isoDate,
@@ -24,12 +29,23 @@ import {
  * only refusal the website has.
  */
 
-/** The index: every news item this reader may see, newest first. */
+/**
+ * The address of one page of the index. The first page is the index itself, so
+ * there is one address for it rather than two.
+ */
+function newsIndexPath(page: number): string {
+  return page === 1
+    ? NEWS_PATH
+    : `${NEWS_PATH}?${NEWS_PAGE_PARAM}=${String(page)}`;
+}
+
+/** The index: one page of the news this reader may see, newest first. */
 export function renderNewsIndex(
   chrome: SiteChrome,
-  items: readonly SiteNewsArticle[],
+  page: SiteNewsIndexPage,
 ): string {
   const { t } = chrome;
+  const { items } = page;
 
   return renderDocument(
     chrome,
@@ -60,6 +76,25 @@ export function renderNewsIndex(
             </li>
           ))}
         </ul>
+      )}
+      {/*
+       * The way to older and newer items, as the calendar's way between months
+       * is: two ordinary links, and no anchor at all where there is nothing
+       * further in that direction.
+       */}
+      {page.newer === null && page.older === null ? null : (
+        <nav className="site-news-nav" aria-label={t("news.site.pagination")}>
+          {page.newer === null ? null : (
+            <a href={newsIndexPath(page.newer)} rel="prev">
+              {t("news.site.newer")}
+            </a>
+          )}
+          {page.older === null ? null : (
+            <a href={newsIndexPath(page.older)} rel="next">
+              {t("news.site.older")}
+            </a>
+          )}
+        </nav>
       )}
     </>,
   );

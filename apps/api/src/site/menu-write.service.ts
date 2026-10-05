@@ -4,8 +4,10 @@ import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type { MenuItemKind, PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { lockMenu } from "./menu-lock";
 import { isMenuExternalUrl, isMenuGeneratedKey } from "./menu.service";
 
 /**
@@ -28,7 +30,10 @@ import { isMenuExternalUrl, isMenuGeneratedKey } from "./menu.service";
  *   association sending its readers somewhere over the open wire.
  *
  * Every write here is recorded in the audit log, in the same transaction as the
- * write itself.
+ * write itself. Every write also takes the menu lock first and reads what it
+ * decides on after it, inside that transaction: the two-level rule is about
+ * the set of entries, and a check read before the write would let two moves
+ * that are each allowed combine into a menu that is not (see `menu-lock.ts`).
  *
  * The argument for not recording them was about disclosure and it still holds:
  * the menu decides what is offered and never what may be read, an entry is
@@ -168,19 +173,14 @@ export class MenuWriteService {
     input: MenuItemInput,
     actor: ActorContext,
   ): Promise<MenuItemView> {
-    const parentId = await this.requirePlaceableParent(
-      input.parentId ?? null,
-      null,
-    );
-    const target = await this.resolveTarget(input);
-
     const row = await this.prisma.$transaction(async (tx) => {
-      // Read inside the transaction, with the insert it decides the position
-      // for: the two are one act, and the entry below records that act.
-      const highest = await tx.menuItem.aggregate({
-        where: { parentId },
-        _max: { sortOrder: true },
-      });
+      await lockMenu(tx);
+      const parentId = await this.requirePlaceableParent(
+        tx,
+        input.parentId ?? null,
+        null,
+      );
+      const target = await this.resolveTarget(tx, input);
 
       const created = await tx.menuItem.create({
         data: {
@@ -190,7 +190,7 @@ export class MenuWriteService {
           generatedKey: target.generatedKey,
           url: target.url,
           parentId,
-          sortOrder: (highest._max.sortOrder ?? -1) + 1,
+          sortOrder: await this.nextSortOrder(tx, parentId),
         },
         select: ITEM_COLUMNS,
       });
@@ -232,14 +232,16 @@ export class MenuWriteService {
     input: MenuItemInput,
     actor: ActorContext,
   ): Promise<MenuItemView> {
-    const existing = await this.require(id);
-    const parentId = await this.requirePlaceableParent(
-      input.parentId ?? null,
-      existing.id,
-    );
-    const target = await this.resolveTarget(input);
-
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockMenu(tx);
+      const existing = await this.require(tx, id);
+      const parentId = await this.requirePlaceableParent(
+        tx,
+        input.parentId ?? null,
+        existing.id,
+      );
+      const target = await this.resolveTarget(tx, input);
+
       const updated = await tx.menuItem.update({
         where: { id },
         data: {
@@ -255,7 +257,7 @@ export class MenuWriteService {
           // siblings for no reason the board could see.
           ...(parentId === existing.parentId
             ? {}
-            : { sortOrder: await this.nextSortOrder(parentId) }),
+            : { sortOrder: await this.nextSortOrder(tx, parentId) }),
         },
         select: ITEM_COLUMNS,
       });
@@ -298,6 +300,9 @@ export class MenuWriteService {
      * the ones before it.
      */
     await this.prisma.$transaction(async (tx) => {
+      // Under the lock like every other write here, so an entry cannot be
+      // moved out of this level between the arrangement and its record.
+      await lockMenu(tx);
       for (const [index, id] of ids.entries()) {
         await tx.menuItem.updateMany({
           where: { id, parentId },
@@ -337,6 +342,9 @@ export class MenuWriteService {
    */
   async remove(id: string, actor: ActorContext): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // So nothing can be hung under this entry between the count below and
+      // the delete, which would take it without the count saying so.
+      await lockMenu(tx);
       const existing = await tx.menuItem.findUnique({
         where: { id },
         select: { id: true, kind: true },
@@ -366,9 +374,17 @@ export class MenuWriteService {
     });
   }
 
-  /** The position at the end of one level. */
-  private async nextSortOrder(parentId: string | null): Promise<number> {
-    const highest = await this.prisma.menuItem.aggregate({
+  /**
+   * The position at the end of one level.
+   *
+   * Read through the transaction that writes it, under the menu lock, so two
+   * entries arriving in one level at once cannot both be given the same place.
+   */
+  private async nextSortOrder(
+    tx: Prisma.TransactionClient,
+    parentId: string | null,
+  ): Promise<number> {
+    const highest = await tx.menuItem.aggregate({
       where: { parentId },
       _max: { sortOrder: true },
     });
@@ -382,8 +398,13 @@ export class MenuWriteService {
    * different side: the parent has to exist, it may not already hang from
    * something itself, and an entry that has children of its own may not be
    * moved under another.
+   *
+   * Read through the caller's transaction, after it has taken the menu lock:
+   * each refusal is about other entries, and read any earlier it would be
+   * about entries that may have moved since.
    */
   private async requirePlaceableParent(
+    tx: Prisma.TransactionClient,
     parentId: string | null,
     movingId: string | null,
   ): Promise<string | null> {
@@ -398,7 +419,7 @@ export class MenuWriteService {
       );
     }
 
-    const parent = await this.prisma.menuItem.findUnique({
+    const parent = await tx.menuItem.findUnique({
       where: { id: parentId },
       select: { id: true, parentId: true },
     });
@@ -416,7 +437,7 @@ export class MenuWriteService {
     }
 
     if (movingId !== null) {
-      const children = await this.prisma.menuItem.count({
+      const children = await tx.menuItem.count({
         where: { parentId: movingId },
       });
       if (children > 0) {
@@ -439,7 +460,10 @@ export class MenuWriteService {
    * when they made the page; the two that have no title to borrow - a
    * generated page and an address elsewhere - have to be named.
    */
-  private async resolveTarget(input: MenuItemInput): Promise<{
+  private async resolveTarget(
+    tx: Prisma.TransactionClient,
+    input: MenuItemInput,
+  ): Promise<{
     label: string;
     pageId: string | null;
     generatedKey: string | null;
@@ -456,7 +480,10 @@ export class MenuWriteService {
             "target-required",
           );
         }
-        const page = await this.prisma.page.findUnique({
+        // Under the menu lock, which a page removal takes as well: the page
+        // found here cannot be removed before the entry pointing at it is
+        // written, so the foreign key never has to refuse it.
+        const page = await tx.page.findUnique({
           where: { id: pageId },
           select: { id: true, title: true },
         });
@@ -511,8 +538,8 @@ export class MenuWriteService {
     }
   }
 
-  private async require(id: string) {
-    const row = await this.prisma.menuItem.findUnique({
+  private async require(tx: Prisma.TransactionClient, id: string) {
+    const row = await tx.menuItem.findUnique({
       where: { id },
       select: { id: true, parentId: true },
     });

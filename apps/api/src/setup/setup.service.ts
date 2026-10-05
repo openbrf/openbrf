@@ -6,6 +6,7 @@ import {
   type OnModuleInit,
 } from "@nestjs/common";
 
+import { lockPersonEmail } from "../address-book/person-email-lock";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
@@ -195,7 +196,10 @@ export class SetupService implements OnModuleInit {
     const claimedWith = this.claims.source();
 
     const email = await this.encryption.encrypt("person.email", input.email);
-    if (email.index === null) {
+    // Bound to a local: narrowing on a property access does not survive into
+    // the transaction callback below.
+    const emailIndex = email.index;
+    if (emailIndex === null) {
       throw new SetupError(
         "That email address could not be read.",
         "invalid-email",
@@ -220,12 +224,16 @@ export class SetupService implements OnModuleInit {
         );
       }
 
+      // Taken like every other writer of a person's address takes it, though
+      // nothing else can write a person before the instance is claimed.
+      await lockPersonEmail(tx, emailIndex);
+
       const person = await tx.person.create({
         data: {
           firstName: input.firstName,
           lastName: input.lastName,
           emailCipher: email.cipher,
-          emailIndex: email.index,
+          emailIndex,
           preferredLocale: this.resolveLocale(input.preferredLocale),
         },
         select: { id: true },

@@ -373,14 +373,12 @@ export class IssueService {
    * from its own bytes, given a generated key and served from this instance's
    * origin. It is recorded INTERNAL, which means no session, no file.
    *
-   * It carries no capability narrowing, and that is a deliberate trade-off
-   * rather than an omission: the media layer narrows a file to exactly one
-   * capability, and the two people who have to see an issue photo - the
-   * resident who took it and the property manager who has to fix the thing -
-   * hold no capability in common. What actually keeps a photo private is that
-   * nothing hands out its identifier: it is reachable only through an issue
-   * payload, and those are filtered to the reporter and to whoever handles
-   * issues.
+   * It is narrowed to `issues:handle`, which the database requires of every
+   * INTERNAL file: whoever handles issues reads it with that capability, and
+   * the reporter, who holds none, reads it through the issue that links it
+   * (MediaService.open). What keeps a photo private beyond that is that nothing
+   * hands out its identifier: it is reachable only through an issue payload,
+   * and those are filtered to the reporter and to whoever handles issues.
    */
   async attachPhoto(input: {
     issueId: string;
@@ -409,6 +407,9 @@ export class IssueService {
       bytes: input.bytes,
       fileName: input.fileName,
       visibility: "INTERNAL",
+      // Whoever handles issues, and the reporter, through the issue: see
+      // MediaService.open.
+      requiredCapability: "issues:handle",
       /*
        * Declared true without asking, which is the safe direction.
        *

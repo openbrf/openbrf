@@ -65,7 +65,17 @@ const manager = {
   personId: `is-manager-${suffix}`,
   email: `is-manager-${suffix}@exempel.se`,
 };
-const personIds = [board.personId, resident.personId, manager.personId];
+/** Lives in the house and reported nothing: the photos are not theirs. */
+const neighbour = {
+  personId: `is-neighbour-${suffix}`,
+  email: `is-neighbour-${suffix}@exempel.se`,
+};
+const personIds = [
+  board.personId,
+  resident.personId,
+  manager.personId,
+  neighbour.personId,
+];
 
 const addressId = `is-address-${suffix}`;
 const ownApartmentId = `is-apartment-own-${suffix}`;
@@ -189,6 +199,7 @@ async function report(
 let boardCookie = "";
 let residentCookie = "";
 let managerCookie = "";
+let neighbourCookie = "";
 
 beforeAll(async () => {
   const env: Env = { ...baseEnv, OPENBRF_MAX_UPLOAD_BYTES: MAX_UPLOAD_BYTES };
@@ -241,6 +252,7 @@ beforeAll(async () => {
     { ...board, firstName: "Bea", lastName: "Ordforande" },
     { ...resident, firstName: "Rune", lastName: "Boende" },
     { ...manager, firstName: "Frida", lastName: "Forvaltare" },
+    { ...neighbour, firstName: "Nils", lastName: "Granne" },
   ]) {
     const email = await encryption.encrypt("person.email", person.email);
     await prisma.person.create({
@@ -283,6 +295,12 @@ beforeAll(async () => {
         role: "MEMBER",
         movedInOn: new Date("2024-01-01"),
       },
+      {
+        personId: neighbour.personId,
+        apartmentId: otherApartmentId,
+        role: "RESIDENT",
+        movedInOn: new Date("2024-01-01"),
+      },
     ],
   });
   await prisma.systemRole.create({
@@ -315,6 +333,7 @@ beforeAll(async () => {
   boardCookie = await signIn(board.email);
   residentCookie = await signIn(resident.email);
   managerCookie = await signIn(manager.email);
+  neighbourCookie = await signIn(neighbour.email);
 }, 180_000);
 
 afterAll(async () => {
@@ -608,6 +627,40 @@ describe("photographs", () => {
         where: { uploadedByPersonId: resident.personId },
       }),
     ).toBe(filesBefore + MAX_PHOTOS_PER_ISSUE);
+  });
+
+  it("serves a photograph to its reporter and to whoever handles issues, and to nobody else", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Fuktflack i taket.",
+    });
+    const body = multipart(pngBytes(24, 24), "tak.png", "image/png");
+    const attached = await inject({
+      method: "POST",
+      url: `/api/issues/${filed.id ?? ""}/photos`,
+      payload: body.payload,
+      headers: { ...body.headers, cookie: residentCookie },
+    });
+    const { url } = attached.json<{ url: string }>();
+    const fileId = url.slice("/api/media/".length);
+
+    const read = (cookie: string) =>
+      inject({ method: "GET", url, headers: { cookie } });
+
+    expect((await read(residentCookie)).statusCode).toBe(200);
+    // A photograph of somebody's home, possibly of people in it: a neighbour
+    // who came by its address reads nothing, and learns nothing either.
+    expect((await read(neighbourCookie)).statusCode).toBe(404);
+
+    expect((await read(managerCookie)).statusCode).toBe(200);
+    const accesses = await prisma.auditLogEntry.count({
+      where: {
+        action: "MEDIA_ACCESSED",
+        targetId: fileId,
+        actorPersonId: manager.personId,
+      },
+    });
+    expect(accesses).toBe(1);
   });
 });
 

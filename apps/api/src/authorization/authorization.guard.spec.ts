@@ -174,6 +174,41 @@ describe("the resource route is Bearer-only", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "/api/plugin/connector/%6Dcp",
+    "/api/plugin/connector/m%63p",
+    "/api/plugin/connector/%6D%63%70/messages",
+    "/api/plugin/connector%2Fmcp",
+  ])(
+    "reads %s as the router does, and refuses the session there",
+    async (url) => {
+      const { guard, personIdFromHeaders } = build({ resolved: null });
+      const request = requestAt(url, {
+        cookie: "better-auth.session_token=a-valid-session",
+      });
+
+      await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+        BearerUnauthorizedError,
+      );
+      expect(personIdFromHeaders).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reads the route the router matched as well as the path", async () => {
+    const { guard, personIdFromHeaders } = build({ resolved: null });
+    const request = {
+      ...requestAt("/api/plugin/connector/elsewhere", {
+        cookie: "better-auth.session_token=a-valid-session",
+      }),
+      routeOptions: { url: `${RESOURCE}/*` },
+    } as unknown as RequestWithPrincipal;
+
+    await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+      BearerUnauthorizedError,
+    );
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+
   it("matches on the path with the query string dropped", async () => {
     const { guard, personIdFromHeaders } = build({});
     const request = requestAt(`${RESOURCE}?sessionId=1`, {
@@ -451,5 +486,57 @@ describe("the per-token budget", () => {
     // listing, which is why it is charged in the guard and not at dispatch.
     await expect(send()).rejects.toThrow(ForbiddenException);
     await expect(send()).rejects.toThrow(TokenRateLimitedError);
+  });
+});
+
+describe("a change sent with the session cookie", () => {
+  const change = (headers: Record<string, unknown>, method = "POST") =>
+    ({
+      url: "/api/invitations",
+      method,
+      headers: {
+        cookie: "better-auth.session_token=a-valid-session",
+        ...headers,
+      },
+    }) as unknown as RequestWithPrincipal;
+
+  it.each([
+    ["another origin", { origin: "https://evil.example" }],
+    ["a sibling site", { "sec-fetch-site": "same-site" }],
+    ["another site", { "sec-fetch-site": "cross-site" }],
+  ])(
+    "is refused from %s, before the session is read",
+    async (_name, headers) => {
+      const { guard, personIdFromHeaders } = build({});
+
+      await expect(
+        guard.canActivate(contextFor(change(headers))),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(personIdFromHeaders).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "this application's own pages",
+      { origin: "https://brf.example", "sec-fetch-site": "same-origin" },
+    ],
+    ["a client that is not a browser", {}],
+  ])("is accepted from %s", async (_name, headers) => {
+    const { guard } = build({});
+
+    await expect(guard.canActivate(contextFor(change(headers)))).resolves.toBe(
+      true,
+    );
+  });
+
+  it("leaves a read from another origin alone", async () => {
+    const { guard } = build({});
+
+    await expect(
+      guard.canActivate(
+        contextFor(change({ origin: "https://evil.example" }, "GET")),
+      ),
+    ).resolves.toBe(true);
   });
 });
