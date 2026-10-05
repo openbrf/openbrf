@@ -11,11 +11,16 @@ import {
   isGroupMember,
   livesHere,
   roomFor,
+  type ChatDbClient,
   type ChatRoom,
 } from "./chat-membership";
-import { lockChat } from "./chat-lock";
+import { lockChat, lockChatPerson } from "./chat-lock";
 import { ChatError } from "./chat.error";
-import { authorViewOf, type ChatAuthorView } from "./chat.service";
+import {
+  authorViewOf,
+  refusePersonalIdentityNumbers,
+  type ChatAuthorView,
+} from "./chat.service";
 
 /**
  * The longest name a group may carry.
@@ -171,9 +176,16 @@ export class ChatGroupService {
   ): Promise<{ chatId: string; name: string }> {
     const now = new Date();
     await this.requireLivesHere(creator.personId, now);
-    await this.refuseTooManyGroups(creator.personId);
+    await refuseTooManyGroups(this.prisma, creator.personId);
+    // Shown to everybody put into the room, and to the board beside a report.
+    refusePersonalIdentityNumbers(name, "name");
 
     const chat = await this.prisma.$transaction(async (tx) => {
+      // Counted again under the person's own lock, so parallel creates cannot
+      // all pass the count above.
+      await lockChatPerson(tx, creator.personId);
+      await refuseTooManyGroups(tx, creator.personId);
+
       const created = await tx.chat.create({
         data: {
           kind: "GROUP",
@@ -254,9 +266,14 @@ export class ChatGroupService {
       return this.members(group.id);
     }
 
-    await this.refuseTooManyGroups(personId);
+    await refuseTooManyGroups(this.prisma, personId);
 
     const added = await this.prisma.$transaction(async (tx) => {
+      // The person's own lock first, as everywhere both are taken, and the
+      // rooms they are in counted again under it.
+      await lockChatPerson(tx, personId);
+      await refuseTooManyGroups(tx, personId);
+
       /*
        * The room's own lock, and the capacity counted under it. Two people put
        * into a full room at the same moment would otherwise both read a count
@@ -448,7 +465,13 @@ export class ChatGroupService {
     return chat;
   }
 
-  /** Who is in a room, once the caller has been shown to be in it. */
+  /**
+   * Who is in a room, once the caller has been shown to be in it.
+   *
+   * The people who live here. A membership ends the day its residency does,
+   * so somebody who has moved out is no longer in the room and is not listed
+   * as though they were.
+   */
   private async members(chatId: string): Promise<ChatGroupMemberView[]> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
@@ -465,7 +488,10 @@ export class ChatGroupService {
     }
 
     const persons = await this.prisma.person.findMany({
-      where: { id: { in: chat.members.map((member) => member.personId) } },
+      where: {
+        id: { in: chat.members.map((member) => member.personId) },
+        residencies: { some: residencyHeldOn(localDayOf(new Date())) },
+      },
       select: {
         id: true,
         firstName: true,
@@ -475,11 +501,13 @@ export class ChatGroupService {
     });
     const byId = new Map(persons.map((person) => [person.id, person]));
 
-    return chat.members.map((member) => ({
-      person: authorViewOf(member.personId, byId.get(member.personId)),
-      joinedAt: member.joinedAt.toISOString(),
-      createdTheGroup: member.personId === chat.createdByPersonId,
-    }));
+    return chat.members
+      .filter((member) => byId.has(member.personId))
+      .map((member) => ({
+        person: authorViewOf(member.personId, byId.get(member.personId)),
+        joinedAt: member.joinedAt.toISOString(),
+        createdTheGroup: member.personId === chat.createdByPersonId,
+      }));
   }
 
   /**
@@ -507,15 +535,18 @@ export class ChatGroupService {
       );
     }
   }
+}
 
-  /** Refuses a person already in as many rooms as one account may hold. */
-  private async refuseTooManyGroups(personId: string): Promise<void> {
-    const held = await groupsFor(this.prisma, personId, new Date());
-    if (held.length >= GROUPS_PER_PERSON) {
-      throw new ChatError(
-        "This account is already in as many groups as one account may be in.",
-        "too-many-groups",
-      );
-    }
+/** Refuses a person already in as many rooms as one account may hold. */
+async function refuseTooManyGroups(
+  db: ChatDbClient,
+  personId: string,
+): Promise<void> {
+  const held = await groupsFor(db, personId, new Date());
+  if (held.length >= GROUPS_PER_PERSON) {
+    throw new ChatError(
+      "This account is already in as many groups as one account may be in.",
+      "too-many-groups",
+    );
   }
 }

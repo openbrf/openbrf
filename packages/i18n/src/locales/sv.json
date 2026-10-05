@@ -2838,6 +2838,7 @@
       "alreadyReported": "Du har redan anmält det meddelandet. Styrelsen har det.",
       "tooManyGroups": "Kontot är redan med i så många grupper som ett konto får vara med i.",
       "groupFull": "Gruppen är redan så stor som en grupp får bli.",
+      "groupNamePersonalIdentityNumber": "Gruppens namn innehåller ett personnummer och kan inte användas. Ta bort det: alla i rummet läser namnet, och det gör styrelsen också när ett meddelande där anmäls.",
       "personalIdentityNumber": "Meddelandet innehåller ett personnummer och kan inte skickas. Ta bort det: ett nummer som skrivs här är en andra kopia som lägenhetsförteckningen inte kan svara för.",
       "tooManyMessages": "Du har skrivit väldigt många meddelanden på kort tid. Vänta några minuter och skicka det här igen.",
       "invalidBody": "Ett meddelande behöver text, och inte mer än formuläret tillåter.",

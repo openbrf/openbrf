@@ -453,6 +453,20 @@ describe("making a group", () => {
     );
   });
 
+  it("refuses a name carrying a personal identity number, naming the field", async () => {
+    // The name is shown to everybody in the room and to the board beside a
+    // report, so it is held to the rule a message is.
+    const { service, chats } = build({ persons: [NILS] });
+
+    await expect(
+      service.create(principal(NILS.id), "Gruppen 811228-9874"),
+    ).rejects.toMatchObject({
+      reason: "personal-identity-number",
+      found: [{ part: "name", offset: 8 }],
+    });
+    expect(chats).toHaveLength(0);
+  });
+
   it("keeps the name out of the audit entry", async () => {
     /*
      * The log is append-only and outside every purge, so a name copied into it
@@ -605,7 +619,9 @@ describe("who may put somebody into a group", () => {
       service.addMember(principal(NILS.id), GROUP_ID, ASTRID.id),
     ).rejects.toMatchObject({ reason: "group-full" });
 
-    expect(locks).toEqual([`chat:${GROUP_ID}`]);
+    // The person's own lock first, as everywhere both are taken, so two
+    // transactions never wait on each other in opposite orders.
+    expect(locks).toEqual([`chat-person:${ASTRID.id}`, `chat:${GROUP_ID}`]);
     expect(members).toHaveLength(MEMBERS_PER_GROUP);
     expect(members.map((member) => member.personId)).not.toContain(ASTRID.id);
   });
@@ -658,6 +674,32 @@ describe("who may put somebody into a group", () => {
     await expect(
       service.addMember(principal(NILS.id), BOARD_ID, ASTRID.id),
     ).rejects.toMatchObject({ reason: "chat-not-found" });
+  });
+});
+
+describe("who is in a room", () => {
+  it("is the people who live here, and not somebody who has moved out", async () => {
+    const MOVED: PersonFixture = {
+      id: "person-moa",
+      firstName: "Moa",
+      lastName: "Berg",
+      protectedPersonalData: false,
+      movedOutOn: new Date("2025-01-01T00:00:00.000Z"),
+      apartment: "1003",
+    };
+    const { service } = build({
+      chats: [GARDEN],
+      persons: [NILS, MOVED],
+      members: [
+        { chatId: GROUP_ID, personId: NILS.id },
+        { chatId: GROUP_ID, personId: MOVED.id },
+      ],
+    });
+
+    const listed = await service.membersFor(GROUP_ID, principal(NILS.id));
+
+    expect(listed).toHaveLength(1);
+    expect(JSON.stringify(listed)).not.toContain(MOVED.id);
   });
 });
 

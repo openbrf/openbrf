@@ -2838,6 +2838,7 @@
       "alreadyReported": "You have already reported that message. The board has it.",
       "tooManyGroups": "This account is already in as many groups as one account may be in.",
       "groupFull": "This group is already as large as a group may be.",
+      "groupNamePersonalIdentityNumber": "The group's name carries a personal identity number and cannot be used. Take it out: everybody in the room reads the name, and so does the board when a message in it is reported.",
       "personalIdentityNumber": "The message carries a personal identity number and cannot be sent. Take it out: a number written here is a second copy the apartment register cannot account for.",
       "tooManyMessages": "You have written a great many messages in a short while. Wait a few minutes and send this one again.",
       "invalidBody": "A message needs some text, and no more than the form allows.",
