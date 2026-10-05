@@ -38,6 +38,7 @@ import {
  * instance ignores.
  */
 
+/** Whether `declared` is a digest `parseSha512` can read. */
 function isReadableSha512(declared: string): boolean {
   try {
     parseSha512(declared);

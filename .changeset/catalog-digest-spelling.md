@@ -14,6 +14,8 @@ spelled digest is refused whole, naming the field, instead of being accepted and
 failing at install time. An index that parsed before and carries such a digest
 no longer does.
 
-An installation of a theme from an entry whose digest cannot be read is now
-reported as a malformed checksum in the catalog, rather than as a package that
-does not match its checksum, which suggested the download had been tampered with.
+A theme catalog with such an entry is therefore refused as unreadable. The theme
+source also keeps a separate `malformed-digest` refusal for an entry that did
+not come through the index parser, so a digest that is badly spelled is never
+reported as a package that does not match its checksum, which suggested the
+download had been tampered with.

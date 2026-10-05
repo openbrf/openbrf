@@ -128,7 +128,7 @@ export class CatalogThemeSource implements ThemeSource {
           // The entry is written wrongly; the bytes were never compared, so
           // they are not reported as tampered with.
           throw new ThemeSourceError(
-            `The catalog states a checksum for ${entry.id} that is not written as a sha512 digest.`,
+            `The catalog states a digest for ${entry.id} that is not written as sha512-<base64> or 128 hex characters.`,
             "malformed-digest",
           );
         }
