@@ -84,13 +84,18 @@ export function failureName(cause: unknown): string {
   return code === "" || code === name ? name : `${name} (${code})`;
 }
 
+/** A V8 call frame: `at ` indented by exactly four spaces. */
+const FRAME = /^ {4}at \S/;
+
 /**
  * The stack's call frames, without any of its message lines.
  *
  * A V8 stack begins with `Name: message` and a multi-line message runs on over
- * the lines below it, so the frames are selected rather than the first line
- * dropped: only a line beginning with `at ` is a frame, and no line a message
- * spans can be mistaken for one.
+ * the lines below it. That block is cut off first, since a message line can
+ * itself be indented like a frame - "    at anna@example.se" is one - and then
+ * only a line with the indentation of a V8 frame is kept. A stack whose head
+ * cannot be found gives no frames at all, because then no line of it can be
+ * told apart from the message.
  *
  * What survives is function names and file paths. Those are in the same
  * category as a class name - written into the source, not composed from the
@@ -103,12 +108,48 @@ export function failureFrames(cause: unknown): string | undefined {
     return undefined;
   }
 
-  const frames = cause.stack
+  const stack = afterHead(cause, cause.stack);
+  if (stack === undefined) {
+    return undefined;
+  }
+
+  const frames = stack
     .split("\n")
-    .filter((line) => line.trimStart().startsWith("at "))
+    .filter((line) => FRAME.test(line))
     .slice(0, MAX_FRAMES);
 
   return frames.length === 0 ? undefined : frames.join("\n");
+}
+
+/**
+ * The stack below its `Name: message` head, or undefined when the head cannot
+ * be found.
+ *
+ * V8 writes the head when the stack is first read, so it is the error's own
+ * text unless the error changed after that. A rename is the change that
+ * happens - a subclass naming itself, a library relabelling what it caught -
+ * so the head is also found by the message it still carries after a name on
+ * the first line. A message that changed leaves nothing to find the head by.
+ */
+function afterHead(cause: Error, stack: string): string | undefined {
+  const head = String(cause);
+  if (stack.startsWith(head)) {
+    return stack.slice(head.length);
+  }
+
+  const lineEnd = stack.indexOf("\n");
+  const firstLine = lineEnd === -1 ? stack : stack.slice(0, lineEnd);
+  if (cause.message === "") {
+    return firstLine.includes(": ") ? undefined : stack.slice(firstLine.length);
+  }
+
+  const said = `: ${cause.message}`;
+  const at = stack.indexOf(said);
+  if (at === -1 || at > firstLine.length) {
+    return undefined;
+  }
+  const rest = stack.slice(at + said.length);
+  return rest === "" || rest.startsWith("\n") ? rest : undefined;
 }
 
 /** A bounded, single-line token. Anything that is not one is not kept. */

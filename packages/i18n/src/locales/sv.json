@@ -309,6 +309,9 @@
         "systemWorking": "Sparar",
         "errors": {
           "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
+          "termOverlaps": "Ett tidigare uppdrag på samma post löper förbi det här valdatumet. Kontrollera datumet.",
+          "electedTooFarAhead": "Ett val kan inte dateras så långt fram i tiden. Kontrollera årtalet.",
+          "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du bara anteckna den första styrelsen, och aldrig ditt eget uppdrag.",
           "termAlreadyEnded": "Uppdraget är redan avslutat. Datumen är beskrivningen av en period som har löpt och de står kvar.",
           "endedBeforeElected": "Ett uppdrag kan inte avslutas före valet som påbörjade det.",
           "endedTooFarAhead": "Ett uppdrag kan inte löpa så långt fram i tiden. Kontrollera årtalet.",
@@ -1319,15 +1322,17 @@
       "approve": "Godkänn",
       "approving": "Godkänner...",
       "approved": "Ansökan är godkänd. En inbjudan är på väg till {{email}}.",
+      "approvedNotInvited": "Ansökan är godkänd och personen finns i registret, men inbjudan till {{email}} kunde inte skickas. Kontrollera e-postinställningarna och skicka inbjudan från personens egen vy.",
       "reject": "Avslå",
       "rejecting": "Avslår...",
       "rejected": "Ansökan är avslagen. Ingenting skapades.",
       "rejectReason": "Skäl (frivilligt)",
       "errors": {
         "alreadyDecided": "Någon har redan avgjort den ansökan. Listan är hämtad på nytt.",
-        "notFound": "Ansökan finns inte kvar - en nyare från samma e-postadress har ersatt den. Listan är hämtad på nytt.",
+        "notFound": "Ansökan finns inte kvar. Listan är hämtad på nytt.",
+        "alreadyResident": "Personen bor redan i den lägenheten enligt registret. Avslå ansökan eller välj en annan lägenhet.",
+        "emailShared": "Fler än en person i registret har den e-postadressen, så ansökan kan inte kopplas till en av dem. Ge var och en en egen adress i adressboken och avgör sedan på nytt.",
         "apartmentNotFound": "Lägenheten finns inte kvar i registret. Ladda om sidan och välj på nytt.",
-        "mailNotConfigured": "Ansökan är godkänd och personen finns i registret, men inbjudan kunde inte skickas: instansen har ingen e-postserver. Ställ in en under E-post och skicka inbjudan från personens egen vy.",
         "unknown": "Ansökan kunde inte behandlas just nu. Försök igen."
       }
     },
@@ -1560,7 +1565,8 @@
       "errors": {
         "failed": "Tillägget kunde inte installeras. Katalogposten kan ha ändrats sedan den här sidan öppnades. Läs katalogen igen och försök en gång till.",
         "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
-        "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t."
+        "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t.",
+        "recipientRecorded": "Tillägget installerades inte. Sedan den här sidan öppnades har det registrerats på sidan Dataskydd vart tillägget skickar personuppgifter, och en installation ändrar inte det. Avbryt och välj tillägget igen för att installera det med det svar som står där; ändra svaret på sidan Dataskydd."
       }
     },
     "permissions": {
@@ -2292,12 +2298,15 @@
       "apartment": "Lägenhet",
       "role": "Roll",
       "matchedBy": "Matchad på",
+      "matchedPerson": "Matchad person",
       "problems": "Problem",
       "identityNumberOnFile": "Filen innehåller ett personnummer för den här raden.",
+      "identityNumberNotAdded": "Personnumret läggs inte till på den här personen: raden matchades på något annat.",
       "decision": "Den här raden är",
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
-      "undecided": "Vissa rader matchar fler än en person. Välj vilken var och en är innan du importerar.",
+      "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
+      "replanned": "Dina val ändrar vad andra rader i filen matchar, så förhandsgranskningen har gjorts om med dem. Kontrollera den och välj för de rader som nu behöver det.",
       "apply": "Genomför importen",
       "applying": "Importerar",
       "back": "Ändra kolumnkopplingen",
@@ -2318,6 +2327,10 @@
       "apartmentAndName": "Lägenhet och namn",
       "earlierRow": "En tidigare rad i filen"
     },
+    "mismatch": {
+      "personalIdentityNumber": "Filens personnummer skiljer sig från den här personens.",
+      "name": "Namnet i filen skiljer sig från den här personens."
+    },
     "problem": {
       "name-missing": "Raden saknar namn.",
       "name-not-splittable": "Namnet går inte att läsa som ett för- och ett efternamn.",
@@ -2331,6 +2344,7 @@
       "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
       "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
       "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
+      "garbled-characters": "Ett tecken har redan gått förlorat i filen (visas som �). Rätta det i filen och läs in den igen.",
       "unknown": "Raden kunde inte läsas."
     },
     "mappingProblem": {
@@ -2381,11 +2395,13 @@
       "tooManyRows": "Filen har fler rader än en import klarar.",
       "mappingInvalid": "Kopplingen går inte att använda ännu.",
       "previewRequired": "Förhandsgranska importen innan du genomför den.",
+      "previewOutdated": "Dina val ändrar vad andra rader matchar. Förhandsgranska importen igen.",
+      "previewReplaced": "Någon förhandsgranskade importen igen medan den startades, så den startades inte. Förhandsgranska den igen innan du importerar.",
       "sessionNotFound": "Uppladdningen finns inte längre. Ladda upp filen igen.",
       "sessionExpired": "Uppladdningen har gått ut. Ladda upp filen igen.",
       "sessionAlreadyApplied": "En import är redan startad för den uppladdningen.",
       "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
-      "ambiguousRowsUndecided": "Vissa rader matchar fortfarande fler än en person.",
+      "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
@@ -2556,7 +2572,7 @@
     "submit": "Skicka ansökan",
     "working": "Skickar...",
     "receivedTitle": "Ansökan är mottagen",
-    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. En ny ansökan från samma e-postadress ersätter den här.",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan en ansökan från en e-postadress väntar gäller den första, och en senare ansökan från samma adress prövas först när den har avgjorts.",
     "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
     "errors": {
       "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",

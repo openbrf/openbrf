@@ -756,6 +756,9 @@ model SignupRequest {
   createdAt DateTime @default(now())
 
   @@index([status])
+  /// At most one PENDING request per address is a partial unique index written
+  /// by hand in the migration, with no @@unique counterpart here: a decided
+  /// request is history, and the address may ask again after a rejection.
   @@index([emailIndex])
   @@map("signup_request")
 }
@@ -2730,9 +2733,22 @@ model ImportSession {
   /// by the apply, which refuses to start while one of them has no decision.
   ambiguousRows Json?
 
+  /// A digest of what the preview planned for every row: its outcome, the
+  /// person it is written to and how it reached them, and the persons it could
+  /// equally well be. The apply plans the file again with the board's
+  /// decisions and refuses to start when that plan's digest differs, so a
+  /// decision cannot change what a row writes without the board seeing it.
+  previewDigest String?
+
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?
+
+  /// Rows the apply wrote to a person without writing the identity number the
+  /// row states, because the row reached them by email or by name: row number
+  /// to that person. A chunk reads the number back from the row, so a later
+  /// row stating it reaches the same person instead of creating them again.
+  unwrittenIdentityNumbers Json?
 
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
@@ -2778,9 +2794,9 @@ enum MediaVisibility {
   /// an email client renders it with no cookie to send, and the public website
   /// will serve it to visitors who have no account at all.
   PUBLIC
-  /// Anyone signed in. A file that additionally names a required capability is
-  /// narrowed to holders of it, and every serve of one is written to the audit
-  /// log.
+  /// Holders of the capability the file names, which a CHECK requires it to
+  /// name, and every serve to one is written to the audit log. The reporter of
+  /// an issue also reads the photos on it.
   INTERNAL
   /// A member of the housing cooperative, or a holder of the capability the
   /// file names.
@@ -2893,7 +2909,9 @@ model MediaFile {
   /// declared cannot be checked against that rule.
   showsIdentifiablePersons Boolean?
 
-  visibility MediaVisibility @default(INTERNAL)
+  /// No default: every caller states it, and an INTERNAL file with no
+  /// capability is a state the CHECK below refuses.
+  visibility MediaVisibility
 
   /// A capability this file names, by its name in the capability model.
   ///
@@ -2902,8 +2920,9 @@ model MediaFile {
   /// every serve is written to the audit log. On a MEMBER file it widens: it
   /// names who may read the file besides the members themselves, which is how
   /// the board and an administrator reach the members' shelf without holding a
-  /// residency of their own. Null on a PUBLIC file, and on an INTERNAL one
-  /// that anyone signed in may read.
+  /// residency of their own. Null on a PUBLIC file; never null on an INTERNAL
+  /// one, which a CHECK enforces, since an INTERNAL file with no capability
+  /// would be readable by every account that held its id.
   requiredCapability String?
 
   /// Who uploaded it.

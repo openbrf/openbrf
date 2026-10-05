@@ -25,11 +25,10 @@ import { appPath } from "../src/stack";
  *
  * The voting register asks the member register (medlemsforteckning) about the
  * day the meeting is held, and nothing else. That register is written by a
- * move-in with a tenant-ownership rather than by a residency, so the shared
- * fixture's people - who are put on their apartments through sign-up approval -
- * hold no entry in it and have no vote at a meeting. This spec therefore moves
- * three members of its own in, which is the act that writes the register, and
- * reads the voting register against them.
+ * move-in with a tenant-ownership rather than by a residency. The shared
+ * fixture's members are moved in on the day it first runs, and other specs
+ * read them too, so this spec moves three members of its own in, which is the
+ * act that writes the register, and reads the voting register against them.
  *
  * That distinction is the module's central fact rather than a detail of the
  * fixture: a residency says somebody lives here, and only the member register
@@ -84,8 +83,9 @@ const PASSWORD = "granngarden-kastanj-2026";
  * From the shared fixture: a MEMBER-role residency at 12/1001, and an account.
  *
  * She is here for the motion she puts to a meeting, which is a right the
- * residency's role carries (EFL 6 kap. 15 §). She holds no member register entry
- * and therefore no vote, which is why she is not one of the members below.
+ * residency's role carries (EFL 6 kap. 15 §). The members below are the
+ * spec's own, so what it reads of the voting register does not depend on the
+ * day the shared fixture was first written.
  */
 const SUBMITTER = {
   name: "Astrid Lindqvist",

@@ -280,6 +280,25 @@ function fail(
   log = describe(reason, detail),
 ): void {
   boot.dormant.set(discovered.id, discovered.manifest);
+  refuse(boot, logger, discovered, reason, detail, log);
+}
+
+/**
+ * Records a refusal without keeping the package's manifest.
+ *
+ * For a package that is not the one consented to under its id: the admin
+ * screen reads a dormant manifest as that plugin's, and would draw the
+ * plugin's settings form, and validate what the board saves, against a
+ * schema the board never agreed to.
+ */
+function refuse(
+  boot: PluginBoot,
+  logger: Logger,
+  discovered: DiscoveredPlugin,
+  reason: PluginFindingReason,
+  detail: PluginFindingDetail = {},
+  log = describe(reason, detail),
+): void {
   boot.findings.push({
     id: discovered.id,
     directory: discovered.directory,
@@ -333,6 +352,27 @@ async function register(
     // reconciled away, not a plugin to load.
     boot.reconcileNeeded = true;
     fail(boot, logger, discovered, "not-consented");
+    return;
+  }
+
+  if (
+    record.packageName !== discovered.packageName ||
+    record.version !== discovered.version
+  ) {
+    // The board consented to one package at one version, and the id is only
+    // what that package claims to be. Another package, or another release of
+    // this one, under the same id is not what it agreed to run; the reconcile
+    // puts the consented one back.
+    boot.reconcileNeeded = true;
+    refuse(
+      boot,
+      logger,
+      discovered,
+      "not-consented",
+      {},
+      `the volume holds ${discovered.packageName}@${discovered.version}, ` +
+        `and consent is for ${record.packageName}@${record.version}`,
+    );
     return;
   }
 

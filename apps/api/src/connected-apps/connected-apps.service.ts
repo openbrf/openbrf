@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { ActorContext } from "../audit/actor-context";
@@ -6,6 +6,7 @@ import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
+import { connectedAppHost } from "./client-host";
 
 /**
  * What a person, or a board member, can see and do about connected apps.
@@ -104,7 +105,14 @@ export class ConnectedAppsService {
         clientId: true,
         scopes: true,
         createdAt: true,
-        client: { select: { name: true, clientDiscoveryId: true, uri: true } },
+        client: {
+          select: {
+            clientId: true,
+            name: true,
+            clientDiscoveryId: true,
+            uri: true,
+          },
+        },
       },
     });
 
@@ -116,9 +124,7 @@ export class ConnectedAppsService {
     return consents.map((consent) => ({
       clientId: consent.clientId,
       clientName: consent.client.name,
-      clientHost: hostOf(
-        consent.client.clientDiscoveryId ?? consent.client.uri ?? null,
-      ),
+      clientHost: connectedAppHost(consent.client),
       scopes: consent.scopes,
       connectedAt: consent.createdAt,
       lastTokenIssuedAt: issued.get(consent.clientId) ?? null,
@@ -142,7 +148,14 @@ export class ConnectedAppsService {
         userId: true,
         scopes: true,
         createdAt: true,
-        client: { select: { name: true, clientDiscoveryId: true, uri: true } },
+        client: {
+          select: {
+            clientId: true,
+            name: true,
+            clientDiscoveryId: true,
+            uri: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -191,9 +204,7 @@ export class ConnectedAppsService {
         userId: consent.userId ?? consent.user?.id ?? "",
         clientId: consent.clientId,
         clientName: consent.client.name,
-        clientHost: hostOf(
-          consent.client.clientDiscoveryId ?? consent.client.uri ?? null,
-        ),
+        clientHost: connectedAppHost(consent.client),
         scopes: consent.scopes,
         connectedAt: consent.createdAt,
         lastTokenIssuedAt:
@@ -225,6 +236,13 @@ export class ConnectedAppsService {
    *
    * The audit entry is written inside the same transaction, so a connection
    * cannot be cut without a record of who cut it.
+   *
+   * The tokens are cut whether or not a consent row was there. A refresh or a
+   * code exchange racing a disconnect can mint a token after the consent went,
+   * and a second disconnect is the only thing that can clean it up: answering
+   * "no such connection" from inside the transaction would roll that cleanup
+   * back. So the 404 is thrown once the cut has committed, and it says only
+   * that there was no consent to remove.
    */
   async disconnect(input: {
     /** The account holding the grant. */
@@ -236,7 +254,7 @@ export class ConnectedAppsService {
     /** True when somebody other than the grantor is doing this. */
     onBehalf: boolean;
   }): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const removed = await this.prisma.$transaction(async (tx) => {
       await tx.oauthAccessToken.deleteMany({
         where: { userId: input.userId, clientId: input.clientId },
       });
@@ -248,9 +266,14 @@ export class ConnectedAppsService {
         },
         data: { revoked: new Date() },
       });
-      await tx.oauthConsent.deleteMany({
+      const consents = await tx.oauthConsent.deleteMany({
         where: { userId: input.userId, clientId: input.clientId },
       });
+      // Nothing to record when there was no connection: an entry for one that
+      // never existed would stand in the log for good.
+      if (consents.count === 0) {
+        return false;
+      }
 
       /*
        * A person disconnecting their own app writes no entry, the way removing
@@ -271,7 +294,12 @@ export class ConnectedAppsService {
           tx,
         );
       }
+      return true;
     });
+
+    if (!removed) {
+      throw new NotFoundException("No such connection.");
+    }
   }
 
   /**
@@ -361,13 +389,4 @@ function isDormant(principal: Principal | null): boolean {
     }
   }
   return true;
-}
-
-function hostOf(value: string | null): string | null {
-  if (value === null) return null;
-  try {
-    return new URL(value).host;
-  } catch {
-    return null;
-  }
 }
