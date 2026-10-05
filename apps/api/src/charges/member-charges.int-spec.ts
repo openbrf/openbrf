@@ -756,6 +756,9 @@ describe("the export", () => {
       select: { context: true },
     });
     expect(entry?.context).toMatchObject({ from: PERIOD.from, to: PERIOD.to });
+    // How many rows the copy held, which is what says how much left.
+    expect(file.list.rows.length).toBeGreaterThan(0);
+    expect(entry?.context).toMatchObject({ rowCount: file.list.rows.length });
     // No name and no figure: the copy is the file, not the log.
     expect(JSON.stringify(entry?.context)).not.toContain("Astrid");
 

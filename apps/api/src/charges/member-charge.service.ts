@@ -515,7 +515,7 @@ export class MemberChargeService {
     const period = this.readPeriod(input.from, input.to);
 
     const list = await this.audit.withAuditedRead<DebitingList>(
-      {
+      (answered) => ({
         action: "DEBITING_LIST_EXPORTED",
         channel: "WEB",
         actorPersonId: input.actorPersonId,
@@ -523,8 +523,12 @@ export class MemberChargeService {
         // no figure: this entry says who took a copy of what, which is the
         // question a supervisory authority asks, and the copy itself is the
         // file rather than the log.
-        context: { from: period.from, to: period.to },
-      },
+        context: {
+          from: period.from,
+          to: period.to,
+          rowCount: answered.rows.length,
+        },
+      }),
       async (tx) => this.build(tx, period, now),
     );
 
