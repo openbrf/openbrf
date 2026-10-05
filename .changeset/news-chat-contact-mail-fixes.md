@@ -27,6 +27,13 @@ Fix a set of defects in news, chat, the contact form and mail delivery.
   waiting, so a burst of messages no longer hides the ones after it. Several
   messages can be selected and deleted together. Handling or deleting a
   message another board member just deleted says so rather than failing.
+- `GET /api/contact-submissions` changes shape: it answers one page,
+  `{ submissions, unhandled, total, nextCursor }`, instead of an array of every
+  message, and takes the `cursor` it answered to read the next page. The web
+  app that ships with this release reads the new shape, and the new
+  `POST /api/contact-submissions/remove` deletes up to 200 messages at once.
+  The endpoint belongs to the board's own screen rather than to the management
+  API, and nothing an operator runs has to change, so this is a patch.
 - Chat write limits (messages, groups) and the news comment limit hold under
   many requests sent at once. A report sent while the board strikes the
   message through is refused. A chat message written in the same millisecond
@@ -36,5 +43,6 @@ Fix a set of defects in news, chat, the contact form and mail delivery.
 - With no mail configured, an instance outside production no longer prints
   messages, sign-in links included, to its log. A developer who wants that
   sets `OPENBRF_MAIL_LOG_BODY=true`. Dates such as a move-in day are written
-  in mail as the day they are, and the stored SMTP password is decrypted once
-  rather than for every message.
+  in mail as the day they are. A message reads the association's settings once
+  rather than twice, and the stored SMTP password is decrypted once rather than
+  for every message.
