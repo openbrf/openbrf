@@ -4,12 +4,18 @@ import { useTranslation } from "react-i18next";
 import type { ContactSubmission } from "../api/contact";
 import {
   deleteContactSubmission,
+  deleteContactSubmissions,
   fetchContactSubmissions,
   setContactSubmissionHandled,
 } from "../api/contact";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { HINT, QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import {
+  CAUTION_BUTTON,
+  HINT,
+  QUIET_BUTTON,
+  SECONDARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { PlaceOnPage } from "../site-admin/PlaceOnPage";
 import { Panel } from "../ui/Panel";
@@ -19,10 +25,21 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
 interface Loaded {
   ready: boolean;
   submissions: readonly ContactSubmission[];
+  unhandled: number;
+  total: number;
+  /** Where the next page starts, or null when everything is shown. */
+  nextCursor: string | null;
   loadFailed: boolean;
 }
 
-const EMPTY: Loaded = { ready: false, submissions: [], loadFailed: false };
+const EMPTY: Loaded = {
+  ready: false,
+  submissions: [],
+  unhandled: 0,
+  total: 0,
+  nextCursor: null,
+  loadFailed: false,
+};
 
 const UPDATE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // Reachable without anybody doing anything wrong: service-tier data is
@@ -30,11 +47,25 @@ const UPDATE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-found": "settings.contactInbox.errors.notFound",
 };
 
-async function read(): Promise<Loaded> {
-  const result = await fetchContactSubmissions();
+/**
+ * The first page, or the next one appended to what is already shown.
+ *
+ * Paged, and counted, so a burst of messages cannot hide the ones behind it:
+ * the board sees how many are waiting and can read on past any number of them.
+ */
+async function read(shown?: Loaded): Promise<Loaded> {
+  const result = await fetchContactSubmissions(shown?.nextCursor ?? undefined);
+  if (!result.ok && shown !== undefined) {
+    return { ...shown, loadFailed: true };
+  }
   return {
     ready: true,
-    submissions: result.ok ? result.value : [],
+    submissions: result.ok
+      ? [...(shown?.submissions ?? []), ...result.value.submissions]
+      : [],
+    unhandled: result.ok ? result.value.unhandled : 0,
+    total: result.ok ? result.value.total : 0,
+    nextCursor: result.ok ? result.value.nextCursor : null,
     /*
      * Named rather than rendered as an empty inbox. The two look identical and
      * mean opposite things: "nobody has written" invites the board to close the
@@ -73,9 +104,13 @@ export function ContactInboxPanel({
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [confirmingMany, setConfirmingMany] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const update = useSaveAction(setContactSubmissionHandled);
   const remove = useSaveAction(deleteContactSubmission);
+  const removeMany = useSaveAction(deleteContactSubmissions);
 
   useEffect(() => {
     // The effect owns its own call and drops an answer that arrives after the
@@ -99,17 +134,56 @@ export function ContactInboxPanel({
    */
   const settle = (): void => {
     setPendingId(null);
+    setSelected(new Set());
+    setConfirmingMany(false);
     void read().then(setLoaded);
+  };
+
+  const onShowMore = (): void => {
+    setLoadingMore(true);
+    void read(loaded).then((next) => {
+      setLoaded(next);
+      setLoadingMore(false);
+    });
+  };
+
+  const onSelect = (id: string, on: boolean): void => {
+    const next = new Set(selected);
+    if (on) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+    setSelected(next);
+    setConfirmingMany(false);
+  };
+
+  /*
+   * The selection is deleted on a second press, like a single row: there is
+   * nothing to recover the messages from, and a selection is easier to get
+   * wrong than one row.
+   */
+  const onRemoveSelected = (): void => {
+    if (!confirmingMany) {
+      setConfirmingMany(true);
+      return;
+    }
+    update.reset();
+    remove.reset();
+    setPendingId("selection");
+    void removeMany.submit([...selected]).then(settle);
   };
 
   const onToggle = (submission: ContactSubmission): void => {
     remove.reset();
+    removeMany.reset();
     setPendingId(submission.id);
     void update.submit(submission.id, !submission.handled).then(settle);
   };
 
   const onRemove = (submission: ContactSubmission): void => {
     update.reset();
+    removeMany.reset();
     setPendingId(submission.id);
     void remove.submit(submission.id).then(settle);
   };
@@ -119,8 +193,13 @@ export function ContactInboxPanel({
       ? update.state.failure
       : remove.state.kind === "failed"
         ? remove.state.failure
-        : null;
-  const { ready, submissions, loadFailed } = loaded;
+        : removeMany.state.kind === "failed"
+          ? removeMany.state.failure
+          : null;
+  const { ready, submissions, unhandled, total, nextCursor, loadFailed } =
+    loaded;
+  const allSelected =
+    submissions.length > 0 && submissions.every((one) => selected.has(one.id));
 
   /*
    * Four states, and the third one renders nothing on purpose: the notice above
@@ -136,22 +215,87 @@ export function ContactInboxPanel({
       {t("settings.contactInbox.empty")}
     </p>
   ) : (
-    <ul className="flex flex-col gap-5">
-      {submissions.map((submission) => (
-        <MessageRow
-          key={submission.id}
-          submission={submission}
-          busy={pendingId !== null}
-          saving={pendingId === submission.id}
-          onToggle={() => {
-            onToggle(submission);
-          }}
-          onRemove={() => {
-            onRemove(submission);
-          }}
-        />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-5">
+      <p className="font-data text-data text-ink-muted">
+        {t("settings.contactInbox.counts", { unhandled, total })}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex min-h-11 items-center gap-2 text-small">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            disabled={pendingId !== null}
+            onChange={(event) => {
+              setSelected(
+                new Set(
+                  event.target.checked ? submissions.map((one) => one.id) : [],
+                ),
+              );
+              setConfirmingMany(false);
+            }}
+            className="size-4"
+          />
+          {t("settings.contactInbox.selectAll")}
+        </label>
+
+        {selected.size === 0 ? null : (
+          <>
+            <button
+              type="button"
+              disabled={pendingId !== null}
+              onClick={onRemoveSelected}
+              className={CAUTION_BUTTON}
+            >
+              {pendingId === "selection"
+                ? t("settings.contactInbox.deleting")
+                : t("settings.contactInbox.deleteSelected", {
+                    count: selected.size,
+                  })}
+            </button>
+            {confirmingMany ? (
+              <span className={HINT} role="status">
+                {t("settings.contactInbox.deleteSelectedHint")}
+              </span>
+            ) : null}
+          </>
+        )}
+      </div>
+
+      <ul className="flex flex-col gap-5">
+        {submissions.map((submission) => (
+          <MessageRow
+            key={submission.id}
+            submission={submission}
+            busy={pendingId !== null}
+            saving={pendingId === submission.id}
+            selected={selected.has(submission.id)}
+            onSelect={(on) => {
+              onSelect(submission.id, on);
+            }}
+            onToggle={() => {
+              onToggle(submission);
+            }}
+            onRemove={() => {
+              onRemove(submission);
+            }}
+          />
+        ))}
+      </ul>
+
+      {nextCursor === null ? null : (
+        <button
+          type="button"
+          disabled={loadingMore || pendingId !== null}
+          onClick={onShowMore}
+          className={`${SECONDARY_BUTTON} self-start`}
+        >
+          {loadingMore
+            ? t("settings.contactInbox.loadingMore")
+            : t("settings.contactInbox.showMore")}
+        </button>
+      )}
+    </div>
   );
 
   return (
@@ -199,6 +343,8 @@ function MessageRow({
   submission,
   busy,
   saving,
+  selected,
+  onSelect,
   onToggle,
   onRemove,
 }: {
@@ -207,6 +353,9 @@ function MessageRow({
   busy: boolean;
   /** This row is the one being updated. */
   saving: boolean;
+  /** This row is among those picked for removal together. */
+  selected: boolean;
+  onSelect: (selected: boolean) => void;
   onToggle: () => void;
   onRemove: () => void;
 }): ReactElement {
@@ -222,6 +371,18 @@ function MessageRow({
 
   return (
     <li className="flex flex-col gap-3 border-t border-line pt-5 first:border-t-0 first:pt-0">
+      <label className="flex min-h-11 items-center gap-2 text-small">
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={busy}
+          onChange={(event) => {
+            onSelect(event.target.checked);
+          }}
+          className="size-4"
+        />
+        {t("settings.contactInbox.select")}
+      </label>
       <div className="flex flex-col gap-1">
         <h3 className="text-title">
           {submission.name ?? t("settings.contactInbox.anonymous")}

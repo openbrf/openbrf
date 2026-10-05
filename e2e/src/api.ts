@@ -840,14 +840,17 @@ export type ContactSubmissionRow = {
   readonly handled: boolean;
 };
 
-/** The board's inbox for the website's contact form. */
+/** The first page of the board's inbox for the website's contact form. */
 export async function listContactSubmissions(
   request: APIRequestContext,
   baseUrl: string,
 ): Promise<readonly ContactSubmissionRow[]> {
   const response = await request.get(`${baseUrl}/api/contact-submissions`);
   await expectOk(response, "GET /api/contact-submissions");
-  return (await response.json()) as readonly ContactSubmissionRow[];
+  const page = (await response.json()) as {
+    readonly submissions: readonly ContactSubmissionRow[];
+  };
+  return page.submissions;
 }
 
 /**

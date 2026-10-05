@@ -6,7 +6,14 @@ import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
-import { ContactService } from "../contact/contact.service";
+import {
+  CONTACT_ABANDONED_QUEUE,
+  CONTACT_FANOUT_QUEUE,
+  CONTACT_NOTICE_QUEUE,
+  ContactService,
+  INBOX_PAGE_SIZE,
+  NOTIFIED_SUBMISSIONS_PER_HOUR,
+} from "../contact/contact.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { HONEYPOT_FIELD } from "../http/honeypot";
@@ -124,6 +131,26 @@ function submit(
       ...headers,
     },
   });
+}
+
+interface QueuedJob {
+  data: { submissionId: string; personId?: string };
+  retry_limit: number;
+  retry_delay: number;
+  retry_backoff: boolean;
+  dead_letter: string | null;
+}
+
+/** The jobs queued on one queue for one stored message. */
+async function queuedFor(
+  queue: string,
+  submissionId: string,
+): Promise<QueuedJob[]> {
+  return prisma.$queryRawUnsafe<QueuedJob[]>(
+    "SELECT data, retry_limit, retry_delay, retry_backoff, dead_letter FROM pgboss.job WHERE name = $1 AND data->>'submissionId' = $2",
+    queue,
+    submissionId,
+  );
 }
 
 const CONTACT_AND_REPORT = {
@@ -703,6 +730,14 @@ describe("the board's switch for public reports", () => {
 });
 
 describe("telling the board", () => {
+  beforeAll(async () => {
+    // The hourly bound counts every message stored, and the limiter's test
+    // above stored a minute's worth. Those have been asserted on already.
+    await prisma.contactSubmission.deleteMany({
+      where: { message: { contains: suffix } },
+    });
+  });
+
   it("sends each board member exactly one message, from its own job", async () => {
     const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
     try {
@@ -716,29 +751,107 @@ describe("telling the board", () => {
         where: { message },
         select: { id: true },
       });
+      const submissionId = stored?.id ?? "";
 
       /*
-       * The two halves driven explicitly, because that is what the queue does:
-       * the first job reads who the board is, the second sends one message. A
-       * retry of the second therefore cannot send anybody a second copy.
+       * The two halves driven as the queue drives them: the first job reads who
+       * the board is and queues one job per member, and each of those sends one
+       * message. A retry of one of them can repeat that member's message and
+       * nobody else's.
        *
-       * At least one rather than exactly one: this suite adds a chair to a
+       * Counted from the jobs rather than fixed: this suite adds a chair to a
        * database other suites have also elected people into, and how many that
        * is is not this test's subject.
        */
-      expect(
-        await contact.fanOutToBoard(stored?.id ?? ""),
-      ).toBeGreaterThanOrEqual(1);
-      expect(
-        await contact.notifyBoardMember(stored?.id ?? "", boardMember.personId),
-      ).toBe(true);
+      const queued = await contact.fanOutToBoard(submissionId);
+      const jobs = await queuedFor(CONTACT_NOTICE_QUEUE, submissionId);
+      expect(jobs).toHaveLength(queued);
+      const recipients = jobs.map((job) => job.data.personId);
+      expect(new Set(recipients).size).toBe(jobs.length);
+      expect(recipients).toContain(boardMember.personId);
 
-      expect(send).toHaveBeenCalledTimes(1);
-      const sent = send.mock.calls[0]?.[0];
-      expect(sent?.to).toBe(boardMember.email);
-      expect(sent?.template.id).toBe("contact-submission");
+      for (const job of jobs) {
+        await contact.notifyBoardMember(
+          job.data.submissionId,
+          job.data.personId ?? "",
+        );
+      }
+
+      expect(send).toHaveBeenCalledTimes(jobs.length);
+      const sentTo = send.mock.calls.map((call) => call[0].to);
+      expect(new Set(sentTo).size).toBe(jobs.length);
+      expect(sentTo).toContain(boardMember.email);
+      expect(send.mock.calls[0]?.[0].template.id).toBe("contact-submission");
     } finally {
       send.mockRestore();
+    }
+  });
+
+  it("queues both jobs to be retried over time and then given up on visibly", async () => {
+    const message = `Försök igen ${suffix}.`;
+    await submit(`/${publicSlug}/kontakt`, { email: "bo@exempel.se", message });
+    const stored = await prisma.contactSubmission.findFirst({
+      where: { message },
+      select: { id: true },
+    });
+    const submissionId = stored?.id ?? "";
+    await contact.fanOutToBoard(submissionId);
+
+    const jobs = [
+      ...(await queuedFor(CONTACT_FANOUT_QUEUE, submissionId)),
+      ...(await queuedFor(CONTACT_NOTICE_QUEUE, submissionId)),
+    ];
+    expect(jobs.length).toBeGreaterThanOrEqual(2);
+    for (const job of jobs) {
+      expect(job).toMatchObject({
+        retry_limit: 5,
+        retry_delay: 60,
+        retry_backoff: true,
+        dead_letter: CONTACT_ABANDONED_QUEUE,
+      });
+    }
+  });
+
+  it("stops mailing the board past the hourly bound, and still keeps the message", async () => {
+    const filler = Array.from(
+      { length: NOTIFIED_SUBMISSIONS_PER_HOUR },
+      (_, index) => `Utfyllnad ${String(index)} ${suffix}.`,
+    );
+    const email = await encryption.encrypt(
+      "contactSubmission.email",
+      "bo@exempel.se",
+    );
+    await prisma.contactSubmission.createMany({
+      data: filler.map((message) => ({
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+        message,
+        createdAt: new Date(Date.now() - 5 * 60 * 1000),
+      })),
+    });
+
+    try {
+      const message = `Över gränsen ${suffix}.`;
+      await submit(`/${publicSlug}/kontakt`, {
+        email: "bo@exempel.se",
+        message,
+      });
+      const stored = await prisma.contactSubmission.findFirst({
+        where: { message },
+        select: { id: true },
+      });
+
+      expect(await contact.fanOutToBoard(stored?.id ?? "")).toBe(0);
+      expect(
+        await queuedFor(CONTACT_NOTICE_QUEUE, stored?.id ?? ""),
+      ).toHaveLength(0);
+      expect(await prisma.contactSubmission.count({ where: { message } })).toBe(
+        1,
+      );
+    } finally {
+      await prisma.contactSubmission.deleteMany({
+        where: { message: { in: filler } },
+      });
     }
   });
 
@@ -791,7 +904,7 @@ describe("the board's inbox", () => {
     });
 
     const inbox = await contact.list();
-    const entry = inbox.find((row) => row.message === message);
+    const entry = inbox.submissions.find((row) => row.message === message);
     expect(entry?.email).toBe("bo@exempel.se");
     expect(entry?.handled).toBe(false);
 
@@ -815,6 +928,93 @@ describe("the board's inbox", () => {
         byPersonId: boardMember.personId,
       }),
     ).rejects.toMatchObject({ reason: "not-found", status: 404 });
+  });
+
+  it("refuses a message removed between reading it and acting on it", async () => {
+    // Another board member's removal landing just after this call's own read:
+    // the read says the row is there, and the write must not then fail on the
+    // database.
+    const gone = "contact-submission-removed-in-between";
+    const read = vi
+      .spyOn(prisma.contactSubmission, "findUnique")
+      .mockResolvedValueOnce({ id: gone } as never);
+    try {
+      await expect(
+        contact.setHandled({
+          id: gone,
+          handled: true,
+          byPersonId: boardMember.personId,
+        }),
+      ).rejects.toMatchObject({ reason: "not-found" });
+    } finally {
+      read.mockRestore();
+    }
+
+    const readAgain = vi
+      .spyOn(prisma.contactSubmission, "findUnique")
+      .mockResolvedValueOnce({ id: gone } as never);
+    try {
+      await expect(contact.remove(gone)).rejects.toMatchObject({
+        reason: "not-found",
+      });
+    } finally {
+      readAgain.mockRestore();
+    }
+  });
+
+  it("reads on past a page, counts what waits, and removes many at once", async () => {
+    const burst = Array.from(
+      { length: INBOX_PAGE_SIZE + 5 },
+      (_, index) => `Skräp ${String(index).padStart(3, "0")} ${suffix}.`,
+    );
+    const email = await encryption.encrypt(
+      "contactSubmission.email",
+      "skrap@exempel.se",
+    );
+    await prisma.contactSubmission.createMany({
+      data: burst.map((message) => ({
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+        message,
+      })),
+    });
+    const genuine = `Läs mig ${suffix}.`;
+    await submit(`/${publicSlug}/kontakt`, {
+      email: "bo@exempel.se",
+      message: genuine,
+    });
+
+    const seen: string[] = [];
+    let page = await contact.list();
+    expect(page.submissions).toHaveLength(INBOX_PAGE_SIZE);
+    expect(page.unhandled).toBeGreaterThanOrEqual(burst.length + 1);
+    expect(page.total).toBeGreaterThanOrEqual(page.unhandled);
+    seen.push(...page.submissions.map((row) => row.id));
+    while (page.nextCursor !== null) {
+      page = await contact.list(page.nextCursor);
+      seen.push(...page.submissions.map((row) => row.id));
+    }
+    expect(new Set(seen).size).toBe(seen.length);
+    const genuineRow = await prisma.contactSubmission.findFirst({
+      where: { message: genuine },
+      select: { id: true },
+    });
+    expect(seen).toContain(genuineRow?.id);
+
+    const junk = await prisma.contactSubmission.findMany({
+      where: { message: { in: burst } },
+      select: { id: true },
+    });
+    expect(await contact.removeMany(junk.map((row) => row.id))).toBe(
+      burst.length,
+    );
+    expect(
+      await prisma.contactSubmission.count({ where: { message: genuine } }),
+    ).toBe(1);
+
+    await expect(contact.list("not-a-cursor")).rejects.toMatchObject({
+      reason: "not-found",
+    });
   });
 
   it("lets the board remove a message for good", async () => {

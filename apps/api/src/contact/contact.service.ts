@@ -4,7 +4,10 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { JobQueueService } from "../jobs/job-queue.service";
+import {
+  type JobSendOptions,
+  JobQueueService,
+} from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { activeBoardRecipientsWhere } from "../mail/board-recipients";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -39,6 +42,39 @@ export const CONTACT_FANOUT_QUEUE = "contact-submission-fanout";
 /** Sends one board member one message. Payload: submission and person. */
 export const CONTACT_NOTICE_QUEUE = "contact-submission-notice";
 
+/**
+ * Where either job lands once its retries are spent. Nothing is lost there -
+ * the message is in the inbox whatever happens to the mail about it - but a
+ * board that was never told has to be findable in the log.
+ */
+export const CONTACT_ABANDONED_QUEUE = "contact-submission-abandoned";
+
+/**
+ * Retries spread over about half an hour, because what a second attempt can
+ * change here is a mail server that greylisted the first one or was briefly
+ * away, and three attempts in the same second change neither.
+ */
+const NOTICE_JOB_OPTIONS = {
+  retryLimit: 5,
+  retryDelay: 60,
+  retryBackoff: true,
+  deadLetter: CONTACT_ABANDONED_QUEUE,
+} satisfies JobSendOptions;
+
+/**
+ * How many messages in an hour the board is mailed about, whoever sent them.
+ *
+ * The form's own limit is per client address, and every stored message mails
+ * every board member, so many senders together could otherwise spend the
+ * association's mail account - the account its sign-in links and invitations
+ * go out through. Past this, a message is stored and shown in the inbox as
+ * always, and only the mail about it is left out. A board that has had this
+ * many notices in an hour has reason to look at the inbox already.
+ */
+export const NOTIFIED_SUBMISSIONS_PER_HOUR = 10;
+
+const HOUR_MS = 60 * 60 * 1000;
+
 export interface ContactFanoutJob {
   submissionId: string;
   [key: string]: unknown;
@@ -69,14 +105,22 @@ export interface ContactSubmissionView {
   createdAt: string;
 }
 
-/**
- * How many messages the inbox hands over at once.
- *
- * A bound rather than paging: the queue this drains is a board's correspondence
- * with the street, and a cooperative that has more than this waiting has a
- * problem no second page would solve.
- */
-const INBOX_LIMIT = 200;
+/** One page of the inbox, and what is behind it. */
+export interface ContactInboxPage {
+  submissions: ContactSubmissionView[];
+  /** Every unhandled message, on this page or not. */
+  unhandled: number;
+  /** Every message the inbox holds. */
+  total: number;
+  /** Where the next page starts, or null when this is the last one. */
+  nextCursor: string | null;
+}
+
+/** How many messages the inbox hands over at once. */
+export const INBOX_PAGE_SIZE = 50;
+
+/** How many messages one bulk removal may name. */
+export const REMOVE_AT_ONCE = 200;
 
 @Injectable()
 export class ContactService implements OnModuleInit {
@@ -113,6 +157,24 @@ export class ContactService implements OnModuleInit {
         await this.notifyBoardMember(data.submissionId, data.personId);
       },
     );
+    await this.jobs.work<ContactFanoutJob>(CONTACT_ABANDONED_QUEUE, (data) => {
+      // The identifiers only, as everywhere else in this file.
+      this.logger.error(
+        `Gave up telling the board about contact submission ${data.submissionId}; it is in the inbox.`,
+      );
+    });
+  }
+
+  /**
+   * Creates the queues these jobs use, the dead letter among them.
+   *
+   * Before any transaction: creating a queue is the queue backend's own work
+   * on its own connection and has no business inside somebody else's.
+   */
+  private async ensureQueues(): Promise<void> {
+    await this.jobs.ensureQueue(CONTACT_ABANDONED_QUEUE);
+    await this.jobs.ensureQueue(CONTACT_FANOUT_QUEUE);
+    await this.jobs.ensureQueue(CONTACT_NOTICE_QUEUE);
   }
 
   /**
@@ -136,10 +198,7 @@ export class ContactService implements OnModuleInit {
       input.email,
     );
 
-    // Before the transaction: creating a queue is the queue backend's own work
-    // on its own connection and has no business inside somebody else's.
-    await this.jobs.ensureQueue(CONTACT_FANOUT_QUEUE);
-    await this.jobs.ensureQueue(CONTACT_NOTICE_QUEUE);
+    await this.ensureQueues();
 
     const submission = await this.prisma.$transaction(async (tx) => {
       const row = await tx.contactSubmission.create({
@@ -156,6 +215,7 @@ export class ContactService implements OnModuleInit {
         tx,
         CONTACT_FANOUT_QUEUE,
         { submissionId: row.id },
+        NOTICE_JOB_OPTIONS,
       );
 
       return row;
@@ -167,27 +227,40 @@ export class ContactService implements OnModuleInit {
     return submission;
   }
 
-  /** The board's inbox, unhandled first and oldest first within each half. */
-  async list(): Promise<ContactSubmissionView[]> {
-    const rows = await this.prisma.contactSubmission.findMany({
-      orderBy: [{ handled: "asc" }, { createdAt: "asc" }],
-      take: INBOX_LIMIT,
-    });
+  /**
+   * The board's inbox, unhandled first and oldest first within each half, a
+   * page at a time.
+   *
+   * Paged rather than cut off, and counted, so a burst of messages cannot hide
+   * the ones behind it: the board is told how many are waiting and can read on
+   * past any number of them. The cursor is the last row's own sort key rather
+   * than its identifier, so a row handled or removed since the last page moves
+   * nothing and loses nothing.
+   */
+  async list(cursor?: string): Promise<ContactInboxPage> {
+    const after = cursor === undefined ? null : readInboxCursor(cursor);
 
-    return Promise.all(
-      rows.map(async (row) => ({
-        id: row.id,
-        name: row.name,
-        email: await this.encryption.decrypt(
-          "contactSubmission.email",
-          row.emailCipher,
-        ),
-        message: row.message,
-        handled: row.handled,
-        handledAt: row.handledAt?.toISOString() ?? null,
-        createdAt: row.createdAt.toISOString(),
-      })),
-    );
+    const [rows, unhandled, total] = await Promise.all([
+      this.prisma.contactSubmission.findMany({
+        where: after === null ? {} : afterCursor(after),
+        orderBy: [{ handled: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+        take: INBOX_PAGE_SIZE + 1,
+      }),
+      this.prisma.contactSubmission.count({ where: { handled: false } }),
+      this.prisma.contactSubmission.count(),
+    ]);
+
+    const page = rows.slice(0, INBOX_PAGE_SIZE);
+    const last = page.at(-1);
+    return {
+      submissions: await Promise.all(page.map((row) => this.viewOf(row))),
+      unhandled,
+      total,
+      nextCursor:
+        rows.length > INBOX_PAGE_SIZE && last !== undefined
+          ? inboxCursor(last)
+          : null,
+    };
   }
 
   /**
@@ -203,23 +276,16 @@ export class ContactService implements OnModuleInit {
     byPersonId: string;
   }): Promise<ContactSubmissionView> {
     /*
-     * Read before the write, so a message that is gone is a refusal this board
-     * can be told about rather than the database's own failure.
+     * Conditional on the row, so a message that is gone is a refusal this board
+     * can be told about rather than the database's own failure - including one
+     * removed between this call's read and its write.
      *
      * Reachable without anybody doing anything wrong: the inbox in front of the
      * board was read a moment ago, and these rows are service tier - removable
      * by another board member in the meantime. IssueService.setStatus answers
      * the same situation the same way.
      */
-    const existing = await this.prisma.contactSubmission.findUnique({
-      where: { id: input.id },
-      select: { id: true },
-    });
-    if (existing === null) {
-      throw new ContactError("No such message.", "not-found");
-    }
-
-    const updated = await this.prisma.contactSubmission.update({
+    const { count } = await this.prisma.contactSubmission.updateMany({
       where: { id: input.id },
       data: {
         handled: input.handled,
@@ -227,19 +293,17 @@ export class ContactService implements OnModuleInit {
         handledByPersonId: input.handled ? input.byPersonId : null,
       },
     });
+    const updated =
+      count === 0
+        ? null
+        : await this.prisma.contactSubmission.findUnique({
+            where: { id: input.id },
+          });
+    if (updated === null) {
+      throw new ContactError("No such message.", "not-found");
+    }
 
-    return {
-      id: updated.id,
-      name: updated.name,
-      email: await this.encryption.decrypt(
-        "contactSubmission.email",
-        updated.emailCipher,
-      ),
-      message: updated.message,
-      handled: updated.handled,
-      handledAt: updated.handledAt?.toISOString() ?? null,
-      createdAt: updated.createdAt.toISOString(),
-    };
+    return this.viewOf(updated);
   }
 
   /**
@@ -258,18 +322,26 @@ export class ContactService implements OnModuleInit {
    * statutory, and nothing downstream refers to these rows.
    */
   async remove(id: string): Promise<void> {
-    const existing = await this.prisma.contactSubmission.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    if (existing === null) {
+    if ((await this.removeMany([id])) === 0) {
       throw new ContactError("No such message.", "not-found");
     }
+  }
 
-    await this.prisma.contactSubmission.delete({ where: { id } });
-    // The identifier only. What was written to the board has no business in a
-    // log line, on the way in or on the way out.
-    this.logger.log(`Removed contact submission ${id}`);
+  /**
+   * Removes several messages at once, and answers how many were there.
+   *
+   * What a board clearing a burst of junk out of the inbox needs, rather than
+   * one confirmation per row. A message already gone is not an error here: the
+   * board asked for it not to be in the inbox, and it is not.
+   */
+  async removeMany(ids: readonly string[]): Promise<number> {
+    const { count } = await this.prisma.contactSubmission.deleteMany({
+      where: { id: { in: [...ids] } },
+    });
+    // How many and nothing else. What was written to the board has no business
+    // in a log line, on the way in or on the way out.
+    this.logger.log(`Removed ${String(count)} contact submissions`);
+    return count;
   }
 
   /**
@@ -282,7 +354,7 @@ export class ContactService implements OnModuleInit {
   async fanOutToBoard(submissionId: string): Promise<number> {
     const submission = await this.prisma.contactSubmission.findUnique({
       where: { id: submissionId },
-      select: { id: true },
+      select: { id: true, createdAt: true },
     });
     if (submission === null) {
       // Nothing to tell anybody about. A submission can be gone by the time
@@ -290,6 +362,25 @@ export class ContactService implements OnModuleInit {
       // to retry.
       this.logger.warn(
         `Contact fan-out skipped: submission ${submissionId} is gone.`,
+      );
+      return 0;
+    }
+
+    /*
+     * Counted from the stored messages rather than from mail sent, so a retry
+     * of this job reaches the same answer as the first attempt did.
+     */
+    const earlier = await this.prisma.contactSubmission.count({
+      where: {
+        createdAt: {
+          gte: new Date(submission.createdAt.getTime() - HOUR_MS),
+          lt: submission.createdAt,
+        },
+      },
+    });
+    if (earlier >= NOTIFIED_SUBMISSIONS_PER_HOUR) {
+      this.logger.warn(
+        `Contact submission ${submissionId} is stored but the board was not mailed: ${String(NOTIFIED_SUBMISSIONS_PER_HOUR)} messages in an hour have been.`,
       );
       return 0;
     }
@@ -319,13 +410,14 @@ export class ContactService implements OnModuleInit {
      * would need a delivery record per recipient, which is a heavier thing
      * than the failure it would prevent.
      */
-    await this.jobs.ensureQueue(CONTACT_NOTICE_QUEUE);
+    await this.ensureQueues();
     await this.prisma.$transaction(async (tx) => {
       for (const personId of board) {
         await this.jobs.sendInTransaction<ContactNoticeJob>(
           tx,
           CONTACT_NOTICE_QUEUE,
           { submissionId, personId },
+          NOTICE_JOB_OPTIONS,
         );
       }
     });
@@ -425,6 +517,29 @@ export class ContactService implements OnModuleInit {
     return true;
   }
 
+  private async viewOf(row: {
+    id: string;
+    name: string | null;
+    emailCipher: string;
+    message: string;
+    handled: boolean;
+    handledAt: Date | null;
+    createdAt: Date;
+  }): Promise<ContactSubmissionView> {
+    return {
+      id: row.id,
+      name: row.name,
+      email: await this.encryption.decrypt(
+        "contactSubmission.email",
+        row.emailCipher,
+      ),
+      message: row.message,
+      handled: row.handled,
+      handledAt: row.handledAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   /** Everyone holding a board seat today, with an address to reach them at. */
   private async activeBoardMemberIds(): Promise<string[]> {
     const board = await this.prisma.person.findMany({
@@ -434,4 +549,61 @@ export class ContactService implements OnModuleInit {
     });
     return board.map((member) => member.id);
   }
+}
+
+/** Where one page of the inbox ended: the last row's sort key. */
+interface InboxCursor {
+  handled: boolean;
+  createdAt: Date;
+  id: string;
+}
+
+/**
+ * The cursor for the page ending at this row. Every part is something the
+ * board was just shown, so it travels legibly rather than encoded.
+ */
+function inboxCursor(row: InboxCursor): string {
+  return [
+    row.handled ? "handled" : "open",
+    row.createdAt.toISOString(),
+    row.id,
+  ].join("|");
+}
+
+/**
+ * The cursor a reader handed back, refused as a place in the inbox that is not
+ * there when this service did not write it - rather than read as the first
+ * page, which would hand a board reading on the messages already in front of
+ * it.
+ */
+function readInboxCursor(value: string): InboxCursor {
+  const [state, instant = "", id = "", ...rest] = value.split("|");
+  const createdAt = new Date(instant);
+  if (
+    rest.length > 0 ||
+    (state !== "open" && state !== "handled") ||
+    id === "" ||
+    Number.isNaN(createdAt.getTime()) ||
+    createdAt.toISOString() !== instant
+  ) {
+    throw new ContactError(
+      "There is no such place in the inbox. Read it again from the start.",
+      "not-found",
+    );
+  }
+  return { handled: state === "handled", createdAt, id };
+}
+
+/** Every row the inbox order puts after the cursor. */
+function afterCursor(after: InboxCursor) {
+  const laterInItsHalf = {
+    handled: after.handled,
+    OR: [
+      { createdAt: { gt: after.createdAt } },
+      { createdAt: after.createdAt, id: { gt: after.id } },
+    ],
+  };
+  return after.handled
+    ? laterInItsHalf
+    : { OR: [laterInItsHalf, { handled: true }] };
 }

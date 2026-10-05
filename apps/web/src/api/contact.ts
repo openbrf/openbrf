@@ -25,10 +25,27 @@ export interface ContactSubmission {
   createdAt: string;
 }
 
-export function fetchContactSubmissions(): Promise<
-  ApiResult<ContactSubmission[]>
-> {
-  return apiRequest("GET", "/api/contact-submissions");
+/** One page of the inbox, and what is behind it. */
+export interface ContactInboxPage {
+  submissions: ContactSubmission[];
+  /** Every unhandled message, on this page or not. */
+  unhandled: number;
+  /** Every message the inbox holds. */
+  total: number;
+  /** Where the next page starts, or null when this is the last one. */
+  nextCursor: string | null;
+}
+
+/** A page of the inbox: the first, or the one after the cursor. */
+export function fetchContactSubmissions(
+  cursor?: string,
+): Promise<ApiResult<ContactInboxPage>> {
+  return apiRequest(
+    "GET",
+    cursor === undefined
+      ? "/api/contact-submissions"
+      : `/api/contact-submissions?cursor=${encodeURIComponent(cursor)}`,
+  );
 }
 
 /**
@@ -53,6 +70,13 @@ export function deleteContactSubmission(
     "DELETE",
     `/api/contact-submissions/${encodeURIComponent(id)}`,
   );
+}
+
+/** Removes several messages for good, and answers how many were there. */
+export function deleteContactSubmissions(
+  ids: readonly string[],
+): Promise<ApiResult<{ removed: number }>> {
+  return apiRequest("POST", "/api/contact-submissions/remove", { ids });
 }
 
 export function setContactSubmissionHandled(

@@ -1381,6 +1381,13 @@
       "delete": "Radera",
       "deleting": "Raderar...",
       "deleteHint": "Tar bort meddelandet från instansen. Det går inte att ångra.",
+      "counts": "Väntar: {{unhandled}}. Totalt: {{total}}.",
+      "showMore": "Visa fler meddelanden",
+      "loadingMore": "Hämtar...",
+      "select": "Välj meddelandet",
+      "selectAll": "Välj alla meddelanden som visas",
+      "deleteSelected": "Radera markerade ({{count}})",
+      "deleteSelectedHint": "Tar bort de markerade meddelandena från instansen. Det går inte att ångra.",
       "errors": {
         "notFound": "Meddelandet finns inte kvar. Listan är hämtad på nytt.",
         "unknown": "Meddelandet kunde inte uppdateras just nu. Försök igen."

@@ -1381,6 +1381,13 @@
       "delete": "Delete",
       "deleting": "Deleting...",
       "deleteHint": "Removes the message from the instance. There is no undoing it.",
+      "counts": "Waiting: {{unhandled}}. In all: {{total}}.",
+      "showMore": "Show more messages",
+      "loadingMore": "Loading...",
+      "select": "Select this message",
+      "selectAll": "Select every message shown",
+      "deleteSelected": "Delete selected ({{count}})",
+      "deleteSelectedHint": "Removes the selected messages from the instance. There is no undoing it.",
       "errors": {
         "notFound": "That message is gone. The list has been read again.",
         "unknown": "The message could not be updated just now. Please try again."

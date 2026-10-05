@@ -18,13 +18,16 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 const fetchContactSubmissions = vi.fn();
 const setContactSubmissionHandled = vi.fn();
 const deleteContactSubmission = vi.fn();
+const deleteContactSubmissions = vi.fn();
 
 vi.mock("../api/contact", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/contact")>()),
-  fetchContactSubmissions: () => fetchContactSubmissions(),
+  fetchContactSubmissions: (cursor?: string) => fetchContactSubmissions(cursor),
   setContactSubmissionHandled: (id: string, handled: boolean) =>
     setContactSubmissionHandled(id, handled),
   deleteContactSubmission: (id: string) => deleteContactSubmission(id),
+  deleteContactSubmissions: (ids: readonly string[]) =>
+    deleteContactSubmissions(ids),
 }));
 
 const MESSAGE = {
@@ -37,16 +40,36 @@ const MESSAGE = {
   createdAt: "2026-08-27T09:30:00.000Z",
 };
 
+/** One page of the inbox as the API answers it. */
+function page(
+  submissions: readonly (typeof MESSAGE)[],
+  nextCursor: string | null = null,
+) {
+  return {
+    ok: true,
+    value: {
+      submissions,
+      unhandled: submissions.filter((one) => !one.handled).length,
+      total: submissions.length,
+      nextCursor,
+    },
+  };
+}
+
 const row = () => screen.getByRole("listitem");
 
 beforeEach(() => {
   vi.clearAllMocks();
-  fetchContactSubmissions.mockResolvedValue({ ok: true, value: [MESSAGE] });
+  fetchContactSubmissions.mockResolvedValue(page([MESSAGE]));
   setContactSubmissionHandled.mockResolvedValue({
     ok: true,
     value: { ...MESSAGE, handled: true, handledAt: "2026-08-28T08:00:00.000Z" },
   });
   deleteContactSubmission.mockResolvedValue({ ok: true, value: undefined });
+  deleteContactSubmissions.mockResolvedValue({
+    ok: true,
+    value: { removed: 2 },
+  });
 });
 
 describe("the contact inbox", () => {
@@ -71,10 +94,9 @@ describe("the contact inbox", () => {
   });
 
   it("names the sender who left no name", async () => {
-    fetchContactSubmissions.mockResolvedValue({
-      ok: true,
-      value: [{ ...MESSAGE, name: null }],
-    });
+    fetchContactSubmissions.mockResolvedValue(
+      page([{ ...MESSAGE, name: null }]),
+    );
 
     render(<ContactInboxPanel />);
 
@@ -89,12 +111,11 @@ describe("the contact inbox", () => {
       expect(row()).toBeTruthy();
     });
 
-    fetchContactSubmissions.mockResolvedValue({
-      ok: true,
-      value: [
+    fetchContactSubmissions.mockResolvedValue(
+      page([
         { ...MESSAGE, handled: true, handledAt: "2026-08-28T08:00:00.000Z" },
-      ],
-    });
+      ]),
+    );
 
     await userEvent.click(
       screen.getByRole("button", { name: "Markera som hanterat" }),
@@ -126,7 +147,7 @@ describe("the contact inbox", () => {
       ),
     ).toBeTruthy();
 
-    fetchContactSubmissions.mockResolvedValue({ ok: true, value: [] });
+    fetchContactSubmissions.mockResolvedValue(page([]));
     await userEvent.click(screen.getByRole("button", { name: "Radera" }));
 
     expect(deleteContactSubmission).toHaveBeenCalledWith("message-1");
@@ -195,6 +216,78 @@ describe("the contact inbox", () => {
           "Meddelandet finns inte kvar. Listan är hämtad på nytt.",
         ),
       ).toBeTruthy();
+    });
+  });
+
+  it("says how many are waiting and reads on past the first page", async () => {
+    const later = { ...MESSAGE, id: "message-2", name: "Ada Al" };
+    fetchContactSubmissions.mockImplementation((cursor?: string) =>
+      Promise.resolve(
+        cursor === undefined
+          ? {
+              ok: true,
+              value: {
+                submissions: [MESSAGE],
+                unhandled: 2,
+                total: 2,
+                nextCursor: "after-1",
+              },
+            }
+          : page([later]),
+      ),
+    );
+
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(screen.getByText("Väntar: 2. Totalt: 2.")).toBeTruthy();
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa fler meddelanden" }),
+    );
+
+    expect(fetchContactSubmissions).toHaveBeenLastCalledWith("after-1");
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    });
+    expect(
+      screen.queryByRole("button", { name: "Visa fler meddelanden" }),
+    ).toBeNull();
+  });
+
+  it("removes the selected messages together, once asked twice", async () => {
+    const other = { ...MESSAGE, id: "message-2", name: "Ada Al" };
+    fetchContactSubmissions.mockResolvedValue(page([MESSAGE, other]));
+
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    });
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Välj alla meddelanden som visas" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Radera markerade (2)" }),
+    );
+    expect(deleteContactSubmissions).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "Tar bort de markerade meddelandena från instansen. Det går inte att ångra.",
+      ),
+    ).toBeTruthy();
+
+    fetchContactSubmissions.mockResolvedValue(page([]));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Radera markerade (2)" }),
+    );
+
+    expect(deleteContactSubmissions).toHaveBeenCalledWith([
+      "message-1",
+      "message-2",
+    ]);
+    await waitFor(() => {
+      expect(screen.getByText("Inga meddelanden har kommit in.")).toBeTruthy();
     });
   });
 });
