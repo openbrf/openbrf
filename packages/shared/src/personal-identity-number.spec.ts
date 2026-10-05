@@ -252,6 +252,23 @@ describe("scanForPersonalIdentityNumbers", () => {
     expect(scanForPersonalIdentityNumbers("", REFERENCE)).toEqual([]);
   });
 
+  it("gives up on a date followed by a long run of spaces in linear time", () => {
+    /*
+     * A page block is scanned as one text, and can be a megabyte. A pattern
+     * whose whitespace runs overlap takes about n²/2 steps on this input: some
+     * sixteen seconds at this length, with the API's event loop stopped for
+     * all of it.
+     */
+    const text = `19811228${" ".repeat(200_000)}`;
+
+    const started = performance.now();
+    const found = scanForPersonalIdentityNumbers(text, REFERENCE);
+    const elapsed = performance.now() - started;
+
+    expect(found).toEqual([]);
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
   it("does not carry a match from one scan into the next", () => {
     const text = "Ring Anna på 811228-9874.";
 

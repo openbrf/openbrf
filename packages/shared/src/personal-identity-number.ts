@@ -288,9 +288,14 @@ function foldForScan(text: string): FoldedText {
  * accepting a space anywhere would let a phone number written in groups join
  * the figure after it, and the calendar and the Luhn check are what keep the
  * one place that is accepted from reporting a false match.
+ *
+ * The whitespace after the sign belongs to the sign. Two runs that could both
+ * take the same whitespace, as `\s*[-+]?\s*` would, make a date followed by a
+ * long run of spaces cost quadratic time before the match fails, and the text
+ * scanned is a whole page block, which can be a megabyte.
  */
 const CANDIDATE_PATTERN = new RegExp(
-  `(?<!\\d)(?:\\d{2})?\\d{6}${SEPARATOR.source}*[-+]?${SEPARATOR.source}*\\d{4}(?!\\d)`,
+  `(?<!\\d)(?:\\d{2})?\\d{6}${SEPARATOR.source}*(?:[-+]${SEPARATOR.source}*)?\\d{4}(?!\\d)`,
   "gu",
 );
 
