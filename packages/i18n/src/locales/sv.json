@@ -3384,6 +3384,9 @@
       "indexTitle": "Nyheter",
       "heading": "Senaste nytt",
       "allNews": "Alla nyheter",
+      "newer": "Nyare nyheter",
+      "older": "Äldre nyheter",
+      "pagination": "Nyhetssidor",
       "empty": "Inget är skrivet än."
     }
   },

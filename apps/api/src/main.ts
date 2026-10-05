@@ -8,6 +8,7 @@ import {
 } from "./bootstrap";
 import { ENV } from "./config/config.module";
 import type { Env } from "./config/env";
+import { assertConstrainedRuntimeRole } from "./database/runtime-role";
 import { registerMultipart } from "./http/multipart";
 import { registerSecurityHeaders } from "./http/security-headers";
 import { serveSinglePageApp } from "./http/serve-single-page-app";
@@ -27,6 +28,13 @@ async function bootstrap(): Promise<void> {
   bridgeHostResolution();
 
   const env = loadBootEnv();
+
+  // Before a plugin is loaded or a module is built, because both start using
+  // the database as they come up: a DATABASE_URL_RUNTIME written by hand can
+  // name the schema owner, which could switch off the triggers that keep the
+  // member register and the audit log append-only. See database/runtime-role.
+  await assertConstrainedRuntimeRole(env);
+
   const app = await createApplication(await loadPluginsAtBoot(env));
 
   // On the built application rather than inside createApplication, which is

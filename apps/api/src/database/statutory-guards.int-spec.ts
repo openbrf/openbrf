@@ -1509,8 +1509,9 @@ describe("association", () => {
  * reaches the server at the address DATABASE_URL gives.
  *
  * Each database holds only what the script has to find: the statutory tables
- * its REVOKE lines name, and the job queue's schema. Who may connect where is
- * under test here, not the tables, which the suites above cover.
+ * its REVOKE lines name, the migration history, and the job queue's schema
+ * with its version table. Who may connect where is under test here, not the
+ * tables, which the suites above cover.
  */
 describe("two instances sharing one database server", () => {
   /** PostgreSQL's insufficient_privilege, which a refused CONNECT raises. */
@@ -1694,6 +1695,12 @@ describe("two instances sharing one database server", () => {
       await owner.connect();
       try {
         await owner.query("CREATE SCHEMA pgboss");
+        await owner.query(
+          "CREATE TABLE pgboss.version (version integer, cron_on timestamptz)",
+        );
+        await owner.query(
+          "CREATE TABLE public._prisma_migrations (id text, migration_name text)",
+        );
         for (const { table } of scriptRevokes()) {
           await owner.query(
             `CREATE TABLE public.${quoteIdentifier(table)} (id integer)`,
@@ -1791,9 +1798,10 @@ describe("two instances sharing one database server", () => {
   });
 
   it("refuses a runtime role another instance's database already grants", async () => {
-    // A superuser owner is what the bundled database makes of POSTGRES_USER,
-    // and PostgreSQL lets it alter any role. Only the script stands between it
-    // and the first instance's runtime role when the two names collide.
+    // PostgreSQL lets a superuser alter any role. The deploy steps refuse to
+    // run as one, but the script can still be applied by hand from a
+    // checkout, and then only the script stands between that superuser and
+    // the first instance's runtime role when the two names collide.
     const third: Instance = { ...instance("c"), role: first.role };
     await createOwner(third, "SUPERUSER");
     await prisma.$executeRawUnsafe(
@@ -1854,6 +1862,50 @@ describe("two instances sharing one database server", () => {
         fourth.role,
       ),
     ).toEqual([]);
+  }, 120_000);
+
+  it("takes back a column grant on the job schema's version and the migration history", async () => {
+    // A table-level REVOKE also revokes the matching privilege on every
+    // column, so a role an earlier tool granted UPDATE (version) - which would
+    // decide what the owner's next pg-boss install believes is installed -
+    // loses it on the next start, and so does one granted a column of the
+    // migration history. What pg-boss's maintenance stamps stays writable.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT UPDATE (version) ON pgboss.version TO ${first.role}`,
+      );
+      await owner.query(
+        `GRANT UPDATE (migration_name), INSERT (id) ON public._prisma_migrations TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{
+        version: boolean;
+        stamp: boolean;
+        history: boolean;
+      }>(
+        `SELECT
+           has_column_privilege($1, 'pgboss.version', 'version', 'UPDATE') AS version,
+           has_column_privilege($1, 'pgboss.version', 'cron_on', 'UPDATE') AS stamp,
+           has_any_column_privilege($1, 'public._prisma_migrations', 'INSERT, UPDATE') AS history`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({
+        version: false,
+        stamp: true,
+        history: false,
+      });
+    } finally {
+      await owner.end();
+    }
   }, 120_000);
 
   it("keeps each instance's owner away from the other's runtime role", async () => {

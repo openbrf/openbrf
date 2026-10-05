@@ -191,7 +191,10 @@ export class PagesService {
    * be a second way for the two to disagree.
    *
    * An instance whose menu names no page it could serve falls back to the
-   * lowest sort order among published public pages, oldest first on a tie.
+   * lowest sort order among published public pages, oldest first on a tie,
+   * leaving out the privacy notice. An instance whose only public page is the
+   * notice answers not-found at the root rather than serve it as the front
+   * page.
    * That is not a second answer to the same question but the answer to a
    * different one: it is what the root serves for a cooperative that has
    * emptied its menu, and without it the front door would close the moment the
@@ -226,8 +229,19 @@ export class PagesService {
       }
     }
 
+    /*
+     * Never the privacy notice. Its seeded sort order keeps it last only until
+     * the board first drags the pages, which numbers every page afresh from
+     * nought - the notice included - and a page created after that can tie
+     * with it and lose the tie to the older row. Asking by slug holds for any
+     * order the pages are in.
+     */
     const row = await this.prisma.page.findFirst({
-      where: { published: true, visibility: "PUBLIC" },
+      where: {
+        published: true,
+        visibility: "PUBLIC",
+        slug: { not: PRIVACY_NOTICE_SLUG },
+      },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { slug: true, title: true, content: true, visibility: true },
     });
