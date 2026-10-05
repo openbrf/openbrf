@@ -1,4 +1,8 @@
-import { PAGE_CONTENT_LIMITS, scannableRunsText } from "@openbrf/shared";
+import {
+  PAGE_CONTENT_LIMITS,
+  scannableRuns,
+  type ScannableText,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 /**
@@ -585,10 +589,17 @@ export function readPageContent(value: unknown): PageContent {
   return { version: PAGE_CONTENT_VERSION, blocks };
 }
 
-/** A block's own text, and where the block sits in the body. */
+/**
+ * A block's own text, and where the block sits in the body.
+ *
+ * The words and the addresses apart, so a refusal can say where in the words a
+ * number starts and place one in an address by its block alone.
+ */
 export interface PageTextPart {
   index: number;
   text: string;
+  /** Every address the block links to, each as written and decoded. */
+  addresses: string[];
 }
 
 /**
@@ -602,10 +613,10 @@ export interface PageTextPart {
  * page's HTML even though no reader sees it as text.
  */
 export function pageTextParts(content: PageContent): PageTextPart[] {
-  return content.blocks.map((block, index) => ({
-    index,
-    text: blockText(block),
-  }));
+  return content.blocks.map((block, index) => {
+    const { words, addresses } = blockText(block);
+    return { index, text: words, addresses };
+  });
 }
 
 /**
@@ -636,34 +647,41 @@ export function imageReferences(
   return references;
 }
 
-function blockText(block: PageBlock): string {
+function blockText(block: PageBlock): ScannableText {
   switch (block.type) {
     case "paragraph":
     case "heading":
-      return scannableRunsText(block.runs);
+      return scannableRuns(block.runs);
     case "image":
-      return [block.alt, block.caption ?? ""].join(" ").trim();
+      return wordsOnly([block.alt, block.caption ?? ""].join(" ").trim());
     case "contactForm":
     case "issueReportForm":
       // The intro only. The labels and the button are chrome, translated
       // rather than written by the board, so they are not the board's text to
       // be scanned or held against them.
-      return scannableRunsText(block.intro ?? []);
-    case "faq":
+      return scannableRuns(block.intro ?? []);
+    case "faq": {
       // Both halves, because both are the board's own writing published on the
       // page. A question is as good a place to paste a personal identity
-      // number into as an answer.
-      return block.items
-        .map((item) =>
-          [item.question, scannableRunsText(item.answer)].join(" "),
-        )
-        .join(" ")
-        .trim();
+      // number into as an answer. Every item's words come before any address,
+      // so an offset into a later item is not moved by a link in an earlier one.
+      const items = block.items.map((item) => ({
+        question: item.question,
+        answer: scannableRuns(item.answer),
+      }));
+      return {
+        words: items
+          .map((item) => [item.question, item.answer.words].join(" "))
+          .join(" ")
+          .trim(),
+        addresses: items.flatMap((item) => item.answer.addresses),
+      };
+    }
     case "documentList":
       // The binder is the board's own writing: the page prints it as the
       // block's heading, and the editor accepts any text there, not only a
       // category the archive holds.
-      return block.category ?? "";
+      return wordsOnly(block.category ?? "");
     case "newsTeaser":
     case "eventCalendar":
     case "boardRoster":
@@ -673,8 +691,13 @@ function blockText(block: PageBlock): string {
       // item's title, an event's, a document's, a board member's name, a
       // recorded fact - is scanned where it is written rather than again on
       // every page that names it.
-      return "";
+      return wordsOnly("");
   }
+}
+
+/** Text with no address in it. */
+function wordsOnly(words: string): ScannableText {
+  return { words, addresses: [] };
 }
 
 /**

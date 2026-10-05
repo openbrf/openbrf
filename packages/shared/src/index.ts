@@ -37,8 +37,8 @@ export type {
   PersonalIdentityNumberMatch,
   PersonalIdentityNumberParts,
 } from "./personal-identity-number.ts";
-export { scannableRunsText } from "./scannable-text.ts";
-export type { ScannableRun } from "./scannable-text.ts";
+export { scannableRuns } from "./scannable-text.ts";
+export type { ScannableRun, ScannableText } from "./scannable-text.ts";
 export {
   addLocalDays,
   ASSOCIATION_TIME_ZONE,

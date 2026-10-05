@@ -32,10 +32,37 @@ export interface PageTextLocation {
   /** The block's position in the body. Zero for the title. */
   index: number;
   /**
-   * Where in that text the refused value starts. Absent when the whole block is
-   * what was refused rather than something inside it, as for a picture.
+   * Where in the block's words the refused value starts. Absent when it is not
+   * in the words - a link's address, which the page's HTML carries and no
+   * reader sees - or when the whole block is what was refused, as for a picture.
    */
   offset?: number;
+}
+
+/**
+ * Where a body carries a personal identity number.
+ *
+ * One in the words is placed by block and offset. One in an address is placed
+ * by its block alone, once however many of the block's addresses carry it: an
+ * offset into the words would point at whatever happens to stand there.
+ */
+export function identityNumbersInBody(
+  content: PageContent,
+): PageTextLocation[] {
+  return pageTextParts(content).flatMap((part) => [
+    ...scanForPersonalIdentityNumbers(part.text).map(
+      (hit): PageTextLocation => ({
+        part: "block",
+        index: part.index,
+        offset: hit.index,
+      }),
+    ),
+    ...(part.addresses.some(
+      (address) => scanForPersonalIdentityNumbers(address).length > 0,
+    )
+      ? [{ part: "block" as const, index: part.index }]
+      : []),
+  ]);
 }
 
 export type PageWriteReason =
@@ -943,15 +970,7 @@ export class PagesWriteService {
         index: 0,
         offset: hit.index,
       })),
-      ...pageTextParts(content).flatMap((part) =>
-        scanForPersonalIdentityNumbers(part.text).map(
-          (hit): PageTextLocation => ({
-            part: "block",
-            index: part.index,
-            offset: hit.index,
-          }),
-        ),
-      ),
+      ...identityNumbersInBody(content),
     ];
 
     if (locations.length > 0) {

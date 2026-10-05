@@ -12,12 +12,14 @@ import { residencyHeldOn } from "../registers/held-on";
 import {
   isTextBlock,
   type PageContent,
-  pageTextParts,
   readPageContent,
   textBlocksOnly,
 } from "../site/page-content";
 import { isSlugShaped } from "../site/pages.service";
-import type { PageTextLocation } from "../site/pages-write.service";
+import {
+  identityNumbersInBody,
+  type PageTextLocation,
+} from "../site/pages-write.service";
 import {
   olderThan,
   parseThreadCursor,
@@ -945,15 +947,7 @@ export class NewsWriteService {
         index: 0,
         offset: hit.index,
       })),
-      ...pageTextParts(content).flatMap((part) =>
-        scanForPersonalIdentityNumbers(part.text).map(
-          (hit): NewsTextLocation => ({
-            part: "block",
-            index: part.index,
-            offset: hit.index,
-          }),
-        ),
-      ),
+      ...identityNumbersInBody(content),
     ];
 
     if (locations.length > 0) {

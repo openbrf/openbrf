@@ -305,7 +305,10 @@ describe("questions and answers", () => {
   });
 
   it("scan the binder a document list prints as its heading", () => {
-    expect(blockText({ type: "documentList" })).toBe("");
+    expect(blockText({ type: "documentList" })).toEqual({
+      words: "",
+      addresses: [],
+    });
     expect(
       scanPage({
         title: "Handlingar",
@@ -324,7 +327,7 @@ describe("questions and answers", () => {
         type: "faq",
         items: [{ question: "Vem?", answer: [{ text: "Anna." }] }],
       }),
-    ).toBe("Vem? Anna.");
+    ).toEqual({ words: "Vem? Anna.", addresses: [] });
     expect(
       scanPage({
         title: "Vanliga fragor",

@@ -477,8 +477,49 @@ describe("writing a page", () => {
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
+    // Placed by its block alone, once for the address as written and decoded:
+    // the number is not in the words, so no offset into them can point at it.
     expect(refusal.details()["locations"]).toEqual([
-      { part: "block", index: 0, offset: 47 },
+      { part: "block", index: 0 },
+    ]);
+  });
+
+  it("places a number in a later FAQ item where it is, whatever an earlier item links to", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: {
+            version: 1,
+            blocks: [
+              {
+                type: "faq",
+                items: [
+                  {
+                    question: "Vem?",
+                    answer: [{ text: "Anna", link: "/styrelsen" }],
+                  },
+                  {
+                    question: "19811218-9876?",
+                    answer: [{ text: "Nej." }],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    // "Vem? Anna " is ten characters, and the address is not among them.
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 0, offset: 10 },
     ]);
   });
 
