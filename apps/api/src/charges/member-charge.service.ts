@@ -354,9 +354,15 @@ export class MemberChargeService {
       const reason =
         input.reason === undefined ? undefined : readReason(input.reason);
       const vatTreatment = input.vatTreatment ?? charge.vatTreatment;
+      /*
+       * A rate left out is a rate left alone, also when the treatment is sent
+       * again unchanged: a form that re-sends every field it shows must not be
+       * told the rate it never touched is missing. Only a treatment that moves to
+       * RATE from something else has no stored rate to carry over.
+       */
       const vatRatePercent = readVatRate(
         vatTreatment,
-        input.vatTreatment === undefined && input.vatRatePercent === undefined
+        input.vatRatePercent === undefined && vatTreatment === charge.vatTreatment
           ? charge.vatRatePercent
           : (input.vatRatePercent ?? null),
       );

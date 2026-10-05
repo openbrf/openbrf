@@ -784,6 +784,36 @@ describe("correcting and removing", () => {
     await prisma.memberCharge.delete({ where: { id: chargeId } });
   });
 
+  it("keeps the stored VAT rate when the treatment is sent again without it", async () => {
+    const created = await recordCharge(
+      chargeOn({
+        reason: `Garage ${suffix}`,
+        vatTreatment: "RATE",
+        vatRatePercent: 25,
+      }),
+    );
+    const chargeId = created.json<DebitingListRow>().chargeId;
+
+    // The treatment re-sent unchanged and the rate left out: a field left out
+    // is a field left alone, so the stored 25 stands.
+    const corrected = await inject({
+      method: "POST",
+      url: `/api/member-charges/${chargeId}/correct`,
+      payload: { vatTreatment: "RATE", amount: "500.00" },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(corrected.statusCode).toBe(200);
+    const stored = await prisma.memberCharge.findUniqueOrThrow({
+      where: { id: chargeId },
+      select: { vatRatePercent: true, amount: true },
+    });
+    expect(stored.vatRatePercent).toBe(25);
+    expect(stored.amount.toFixed(2)).toBe("500.00");
+
+    await prisma.memberCharge.delete({ where: { id: chargeId } });
+  });
+
   it("does not name the amount when only how it was written changed", async () => {
     const created = await recordCharge(
       chargeOn({ amount: "450.00", reason: `Tvattstuga ${suffix}` }),
