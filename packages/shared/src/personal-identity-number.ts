@@ -70,25 +70,34 @@ export function parsePersonalIdentityNumber(
   const monthNumber = Number(month);
   const dayNumber = Number(day);
 
+  const isCoordinationNumber = dayNumber > 60;
+  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
+
   let fullYear: number;
   if (century !== undefined) {
     // Written with the century, so take it at face value.
     fullYear = Number(century) * 100 + twoDigitYear;
   } else {
-    // Without a century, the most recent year that is not in the future wins,
-    // and a plus separator means the person has turned 100.
+    /*
+     * Without a century, the most recent birth date that is not in the future
+     * wins, and a plus separator means the person has turned 100. The whole
+     * date and not the year alone: on 27 September 2026, 261215 is a person
+     * born on 15 December 1926, since 15 December 2026 has not come.
+     */
     const referenceYear = referenceDate.getFullYear();
     fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
-    if (fullYear > referenceYear) {
+    const birthday = fullYear * 10000 + monthNumber * 100 + actualDay;
+    const reference =
+      referenceYear * 10000 +
+      (referenceDate.getMonth() + 1) * 100 +
+      referenceDate.getDate();
+    if (birthday > reference) {
       fullYear -= 100;
     }
     if (separator === "+") {
       fullYear -= 100;
     }
   }
-
-  const isCoordinationNumber = dayNumber > 60;
-  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
 
   if (monthNumber < 1 || monthNumber > 12 || actualDay < 1) {
     return null;
