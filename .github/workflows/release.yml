@@ -10,6 +10,9 @@
 # creates no git tags: the provenance statement names the commit each version
 # was built from, and that is the record.
 #
+# Not a template for a plugin's or theme's release: see "The release workflow
+# runs on the tag" in docs/plugin-contract.md.
+#
 # It runs by hand only. A publish cannot be taken back, and nothing about a
 # merge to main says that it is time for one.
 #

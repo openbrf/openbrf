@@ -48,3 +48,19 @@ export async function lockSystemRole(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`system-role:${role}`}))`;
 }
+
+/**
+ * Held while the board's seats are counted to decide who may write them.
+ *
+ * The rule that keeps an administrator with no seat out of the register is
+ * decided from every seat there is, and a person's lock does not serialise two
+ * writes to two different people: two seats recorded together would each find
+ * the register unseated, and one recorded beside another's withdrawal would see
+ * a board that is already gone. Taken before {@link lockBoardPositions}, always
+ * in that order, so two writers cannot each hold one and wait for the other.
+ */
+export async function lockBoardRegister(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('board-register'))`;
+}

@@ -26,8 +26,8 @@ import {
  * that check is not having the parameter.
  *
  * Rate-limited per person and over the whole instance, and only a few prepared
- * at once, because gathering the report holds a connection for the length of
- * its transaction.
+ * at once - one for each person - because gathering the report holds a
+ * connection for the length of its transaction.
  *
  * A POST although it reads. It writes an audit entry, and the response carries
  * the person's own contact details - the same two reasons the board's access

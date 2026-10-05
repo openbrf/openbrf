@@ -10,3 +10,10 @@ trim_trailing_whitespace = true
 
 [*.md]
 trim_trailing_whitespace = false
+
+# Byte for byte what Excel saves: one is Windows-1252 and both end in CRLF.
+[apps/api/src/import/fixtures/*.csv]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

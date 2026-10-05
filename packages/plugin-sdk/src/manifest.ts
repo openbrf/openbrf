@@ -261,13 +261,80 @@ export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 
 /**
+ * Dependency fields npm installs at install time.
+ *
+ * The installer omits peer, dev and optional dependencies and runs no scripts,
+ * but it still hands npm the package: anything listed here would send that npm
+ * to a registry, which an instance never contacts. optionalDependencies is
+ * listed although it is omitted, because a package relying on one being
+ * present works in development and quietly not on an instance.
+ */
+export const RUNTIME_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+  "bundleDependencies",
+  "bundledDependencies",
+] as const;
+
+/** Package names in a dependency field, whether a map or npm's bundle list. */
+export function dependencyNames(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((name): name is string => typeof name === "string");
+  }
+  return typeof value === "object" && value !== null ? Object.keys(value) : [];
+}
+
+/** Whether a dependency field is an empty map or an empty list. */
+export function isEmptyDependencyField(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.keys(value).length === 0
+  );
+}
+
+/**
+ * A dependency field that names nothing: absent, an empty map or an empty
+ * list. Anything else is refused, a string included, since npm reads even
+ * that as something to install. See RUNTIME_DEPENDENCY_FIELDS for why.
+ *
+ * Part of the schema rather than a check beside it, so the loader refuses such
+ * a package at boot as well as the catalog refusing to list it.
+ */
+const noRuntimeDependencies = z
+  .unknown()
+  .superRefine((value, ctx) => {
+    const names = dependencyNames(value);
+    if (names.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: `names ${names.join(", ")}; a plugin declares no runtime dependencies, because the installer resolves nothing from a registry`,
+      });
+    } else if (!isEmptyDependencyField(value)) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "is neither an empty map nor an empty list; a plugin declares no runtime dependencies, because the installer resolves nothing from a registry",
+      });
+    }
+  })
+  .optional();
+
+/**
  * The subset of package.json the loader reads. Everything else in the file is
- * npm's business.
+ * npm's business, apart from the dependency fields, which must name nothing.
  */
 export const pluginPackageSchema = z.object({
   name: z.string().min(1),
   version: z.string().min(1),
   openbrf: pluginManifestSchema,
+  dependencies: noRuntimeDependencies,
+  optionalDependencies: noRuntimeDependencies,
+  bundleDependencies: noRuntimeDependencies,
+  bundledDependencies: noRuntimeDependencies,
 });
 
 export type PluginPackage = z.infer<typeof pluginPackageSchema>;

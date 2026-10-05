@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
@@ -7,18 +9,24 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
-import { parseCsv, writeCsv } from "./csv";
-import {
-  type ImportDecisions,
-  ImportApplyService,
-} from "./import-apply.service";
+import { decodeCsv, parseCsv, writeCsv } from "./csv";
+import { ImportApplyService } from "./import-apply.service";
 import {
   type ImportField,
   type ImportMapping,
+  readMapping,
   suggestMapping,
 } from "./import-columns";
 import { ImportError } from "./import-errors";
-import type { ImportOutcome, ImportRole, PlannedRow } from "./import-plan";
+import { lockImportApply } from "./import-lock";
+import {
+  findUndecided,
+  type ImportDecisions,
+  type ImportOutcome,
+  type ImportPlan,
+  type ImportRole,
+  type PlannedRow,
+} from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
 import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
@@ -41,8 +49,10 @@ import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
  * the register is minutes of Argon2id on a real member list, so it is a chunked
  * background job (ADR 0002) and this service only claims the session and queues
  * it. What the board previewed is recorded on the session, and the apply runs
- * that - so what is written is what was looked at, and the request that starts
- * it neither decrypts a row nor computes an index.
+ * that - so what is written is what was looked at. The request that starts it
+ * plans the file once more when the board has made any decision, which costs
+ * what a preview costs, and otherwise neither decrypts a row nor computes an
+ * index.
  */
 
 /** The largest upload accepted, decoded. A member list is far below this. */
@@ -106,6 +116,11 @@ export interface ImportMappingInput {
   mapping: ImportMapping;
   defaultRole: ImportRole | null;
   defaultMovedInOn: string | null;
+}
+
+export interface ImportPreviewInput extends ImportMappingInput {
+  /** What the board has decided so far, for the rows after those to see. */
+  decisions: ImportDecisions;
 }
 
 @Injectable()
@@ -232,15 +247,20 @@ export class ImportService implements OnModuleInit {
   /**
    * Works out what the mapping would do, without doing any of it.
    *
-   * It also records what it showed: the mapping, the defaults, and which rows it
-   * could not resolve to one person. The apply reads that back rather than being
-   * told again, so the import that runs is the one the board looked at and a row
-   * needing a decision cannot be slipped past by applying a mapping nobody
-   * previewed.
+   * It also records what it showed: the mapping, the defaults, which rows it
+   * could not resolve to one person, and a digest of what it planned for every
+   * row. The apply reads that back rather than being told again, so the import
+   * that runs is the one the board looked at and a row needing a decision
+   * cannot be slipped past by applying a mapping nobody previewed.
+   *
+   * The decisions the board has made so far are planned with, because a
+   * person chosen for a row, or created by it, is one the rows after it can
+   * match or contradict. The rows that need a decision are then the ones that
+   * need it given those decisions.
    */
   async preview(
     sessionId: string,
-    input: ImportMappingInput,
+    input: ImportPreviewInput,
   ): Promise<ImportPreview> {
     const session = await this.loadForPreview(sessionId);
 
@@ -250,6 +270,7 @@ export class ImportService implements OnModuleInit {
       mapping: input.mapping,
       defaultRole: input.defaultRole,
       defaultMovedInOn: input.defaultMovedInOn,
+      decisions: input.decisions,
       // A preview matches; it writes nothing. An identity number is therefore
       // only worth its 43.8 ms when the register holds one to match it against.
       indexEveryIdentityNumber: false,
@@ -272,6 +293,7 @@ export class ImportService implements OnModuleInit {
         defaultRole: input.defaultRole,
         defaultMovedInOn: input.defaultMovedInOn,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
+        previewDigest: planDigest(plan),
         previewedAt: new Date(),
       },
     });
@@ -288,7 +310,8 @@ export class ImportService implements OnModuleInit {
    *
    * Every ambiguous row needs a decision, and the rows that need one are the
    * ones the preview found: applying with one unanswered would mean the import
-   * quietly decided something the preview said it could not.
+   * quietly decided something the preview said it could not. What those
+   * decisions write can make further rows need one, which is checked too.
    *
    * Then the session is claimed and the job is queued, and that claim is the
    * whole concurrency guard. Two applies of one session overlap easily - a
@@ -297,6 +320,18 @@ export class ImportService implements OnModuleInit {
    * UPDATE and DELETE, so a member listed twice could only be answered with a
    * further correction entry. The conditional update takes the row lock, so the
    * second request finds nothing to claim and nothing is queued for it.
+   *
+   * One import runs at a time across the whole instance, not just one per
+   * session. Two files applied side by side would each plan against a register
+   * the other is in the middle of writing, so a person listed in both is created
+   * twice with an ENTRY row each - the same uncorrectable duplicate, reached
+   * from two sessions instead of one. The screen hides the upload while an
+   * import runs, but a tab opened earlier, a second board member or a direct
+   * call does not see that, so the refusal is made here. A running session
+   * normally ends as APPLIED, or as FAILED on a refusal or through the dead
+   * letter once its retries run out. Until then every other apply is refused:
+   * for as long as a hung attempt takes to time out and be retried, and for a
+   * session whose job was lost, until the next start re-queues it.
    */
   async apply(
     sessionId: string,
@@ -310,54 +345,64 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    for (const [rowNumber, candidates] of Object.entries(
-      readAmbiguousRows(session.ambiguousRows),
-    )) {
-      const decision = input.decisions[rowNumber];
-      if (decision === undefined) {
-        throw new ImportError(
-          "Some rows matched more than one person and have no decision.",
-          "ambiguous-rows-undecided",
-        );
-      }
-      if (
-        decision.action === "use-person" &&
-        !candidates.includes(decision.personId)
-      ) {
-        throw new ImportError(
-          "A decision names a person that row did not match.",
-          "decision-not-a-candidate",
-        );
-      }
-    }
+    // Asked once before the plan as well as under the lock. Planned against a
+    // register another import is halfway through writing, the decisions could
+    // look outdated, and the board would be sent back to a preview of that
+    // half-written register instead of being told to wait. The lock below is
+    // still what decides.
+    await refuseWhileAnotherRuns(this.prisma, sessionId);
+
+    await this.checkDecidedPlan(sessionId, session, input.decisions);
 
     // Before the transaction: creating a queue is the queue backend's own work
     // on its own connection and has no business inside this one.
     await this.applies.ensureQueues();
 
-    const claimed = await this.prisma.$transaction(async (tx) => {
+    // A refusal is thrown from inside the transaction, which rolls back and
+    // rethrows it. None of the refusals has written anything by then.
+    await this.prisma.$transaction(async (tx) => {
+      await lockImportApply(tx);
+      await refuseWhileAnotherRuns(tx, sessionId);
+
       const claim = await tx.importSession.updateMany({
-        where: { id: sessionId, status: "MAPPING" },
+        // The preview this apply was checked against. One taken meanwhile
+        // may have recorded another mapping, and its rows are not the ones
+        // these decisions answer.
+        where: {
+          id: sessionId,
+          status: "MAPPING",
+          previewedAt: session.previewedAt,
+        },
         data: {
           status: "QUEUED",
           decisions: input.decisions as Prisma.InputJsonValue,
         },
       });
       if (claim.count === 0) {
-        return false;
+        const current = await tx.importSession.findUnique({
+          where: { id: sessionId },
+          select: { status: true },
+        });
+        if (current?.status === "MAPPING") {
+          // Not "preview-outdated": nothing this board member chose changed
+          // the plan. Somebody else's preview replaced the one checked here,
+          // and answering with a preview of this tab's own would replace theirs
+          // in turn.
+          throw new ImportError(
+            "The import was previewed again while it was being started.",
+            "preview-replaced",
+          );
+        }
+        throw new ImportError(
+          "That import has already been started.",
+          "session-already-applied",
+        );
       }
       // The job is written by this transaction too, so the claim and the work
       // it claims commit together. A session left claimed with no job behind it
       // is an import that never runs and never says so.
       await this.applies.enqueueInTransaction(tx, sessionId);
-      return true;
     });
-    if (!claimed) {
-      throw new ImportError(
-        "That import has already been started.",
-        "session-already-applied",
-      );
-    }
 
     this.logger.log(`Import session ${sessionId}: apply queued`);
     return this.run(sessionId);
@@ -417,7 +462,7 @@ export class ImportService implements OnModuleInit {
   ): Promise<string[][]> {
     try {
       if (format === "CSV") {
-        return parseCsv(bytes.toString("utf8")).rows;
+        return parseCsv(decodeCsv(bytes)).rows;
       }
       return await parseWorkbook(bytes);
     } catch {
@@ -444,22 +489,171 @@ export class ImportService implements OnModuleInit {
     return requireMapping(session);
   }
 
+  /**
+   * Plans the whole file again with the board's decisions, and refuses the
+   * import if that plan is not the one the board looked at.
+   *
+   * A decision writes things the preview it answered could not know: the
+   * person chosen for a row gets the row's email address and apartment, and a
+   * new person gets its identity number too. A later row can contradict what
+   * that wrote, and the chunk that meets it would stop the import with the
+   * chunks before it already committed to a register that cannot be corrected
+   * by editing. Found here, the import is refused before anything is written,
+   * and the screen previews again with the decisions so the board sees why.
+   *
+   * The same goes for a row the preview showed as needing a decision that no
+   * longer does, or that now matches other people: its decision would be
+   * dropped, or name somebody the row no longer offers, without anyone seeing
+   * that. A decision for a row that needs none is refused for the same reason.
+   * And for any other row the decisions write differently from the
+   * preview - a row shown as an update of the person an earlier decision chose
+   * becomes a new person when that decision is changed to a skip - which is
+   * why every row is compared, through the preview's digest.
+   *
+   * The preview may itself have been planned with decisions, so even a skip
+   * can change what the rows after it match: skipping a row the preview had
+   * written to a person takes that write away again. Only an apply with no
+   * decisions at all plans exactly what was previewed, and is not planned
+   * again: it is refused if the preview asked about any row, and otherwise
+   * neither decrypts a row nor computes an index. With decisions it costs what
+   * a preview costs, and indexes an identity number only when the register
+   * holds one to match it against.
+   */
+  private async checkDecidedPlan(
+    sessionId: string,
+    session: {
+      columns: string[];
+      mapping: string[];
+      defaultRole: ImportRole | null;
+      defaultMovedInOn: string | null;
+      ambiguousRows: Prisma.JsonValue;
+      previewDigest: string | null;
+    },
+    decisions: ImportDecisions,
+  ): Promise<void> {
+    const previewed = readAmbiguousRows(session.ambiguousRows);
+    if (Object.keys(decisions).length === 0) {
+      if (Object.keys(previewed).length > 0) {
+        throw new ImportError(
+          "Some rows match more than one person, or contradict the person " +
+            "they match, and have no decision.",
+          "ambiguous-rows-undecided",
+        );
+      }
+      return;
+    }
+
+    const plan = await this.planner.plan({
+      rows: await this.loadRows(sessionId),
+      columnCount: session.columns.length,
+      mapping: readMapping(session.mapping),
+      defaultRole: session.defaultRole,
+      defaultMovedInOn: session.defaultMovedInOn,
+      decisions,
+      indexEveryIdentityNumber: false,
+      indexes: new Map(),
+    });
+
+    if (
+      plan.rows.some((row) => {
+        const candidates = previewed[String(row.rowNumber)];
+        return (
+          candidates !== undefined &&
+          (row.outcome !== "ambiguous" ||
+            !samePeople(
+              candidates,
+              row.candidates.map((candidate) => candidate.personId),
+            ))
+        );
+      })
+    ) {
+      throw new ImportError(
+        "Given these decisions, a row the preview showed as needing a " +
+          "decision no longer does, or matches other people.",
+        "preview-outdated",
+      );
+    }
+
+    // A decision is an answer to a row that asks for one, and to nothing else.
+    // One kept for a row that needs none would be carried into the job, where
+    // a register that changed between chunks could make that row need it, and
+    // the worker would then write what nobody was shown.
+    const decidable = new Set(
+      plan.rows
+        .filter((row) => row.outcome === "ambiguous")
+        .map((row) => String(row.rowNumber)),
+    );
+    if (Object.keys(decisions).some((rowNumber) => !decidable.has(rowNumber))) {
+      throw new ImportError(
+        "Given these decisions, a decision answers a row that does not need one.",
+        "preview-outdated",
+      );
+    }
+
+    const undecided = findUndecided(plan, decisions);
+    if (undecided === "ambiguous-rows-undecided") {
+      throw new ImportError(
+        "Given these decisions, more rows match more than one person or " +
+          "contradict the person they match, and have no decision.",
+        undecided,
+      );
+    }
+    if (undecided === "decision-not-a-candidate") {
+      throw new ImportError(
+        "A decision names a person that row did not match.",
+        undecided,
+      );
+    }
+
+    // A session previewed before the digest was recorded has none, and is
+    // previewed again rather than trusted.
+    if (planDigest(plan) !== session.previewDigest) {
+      throw new ImportError(
+        "Given these decisions, a row would be written differently from " +
+          "the preview.",
+        "preview-outdated",
+      );
+    }
+  }
+
   private async loadForApply(sessionId: string): Promise<{
+    columns: string[];
+    mapping: string[];
+    defaultRole: ImportRole | null;
+    defaultMovedInOn: string | null;
     previewedAt: Date | null;
     ambiguousRows: Prisma.JsonValue;
+    previewDigest: string | null;
   }> {
-    // The uploaded rows are deliberately not read here. Starting an import
-    // decrypts nothing and indexes nothing: that is the job's work.
+    // Not the uploaded rows: they are read by loadRows, and only when the
+    // board has made decisions to plan them with.
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
+        columns: true,
+        mapping: true,
+        defaultRole: true,
+        defaultMovedInOn: true,
         previewedAt: true,
         ambiguousRows: true,
+        previewDigest: true,
         status: true,
         expiresAt: true,
       },
     });
     return requireMapping(session);
+  }
+
+  /**
+   * The uploaded rows, decrypted. Read on their own because they are the
+   * whole member list, and an apply only needs them when it plans again.
+   */
+  private async loadRows(sessionId: string): Promise<string[][]> {
+    const session = await this.prisma.importSession.findUnique({
+      where: { id: sessionId },
+      select: { rowsCipher: true, status: true, expiresAt: true },
+    });
+    return this.planner.decryptRows(requireMapping(session).rowsCipher);
   }
 }
 
@@ -480,6 +674,62 @@ function requireMapping<T extends { status: string; expiresAt: Date } | null>(
     throw new ImportError("That upload has expired.", "session-expired");
   }
   return session;
+}
+
+/**
+ * Refuses while another session is queued or applying.
+ *
+ * Asked under the import lock to decide, and once before it to answer early.
+ */
+async function refuseWhileAnotherRuns(
+  client: Pick<Prisma.TransactionClient, "importSession">,
+  sessionId: string,
+): Promise<void> {
+  const running = await client.importSession.findFirst({
+    where: {
+      id: { not: sessionId },
+      status: { in: ["QUEUED", "APPLYING"] },
+    },
+    select: { id: true },
+  });
+  if (running !== null) {
+    throw new ImportError(
+      "Another import is running. Apply this one when it has finished.",
+      "another-import-running",
+    );
+  }
+}
+
+/**
+ * What a plan does with every row, as one value to compare.
+ *
+ * The outcome, the person the row is written to and the key that reached
+ * them, which decides whether its identity number is written, the earlier row
+ * it follows, and the persons it could equally well be - sorted, because the
+ * register lists them in no fixed order. Hashed, because a file can have
+ * thousands of rows and the only question ever asked is whether two plans
+ * agree.
+ */
+function planDigest(plan: ImportPlan): string {
+  const hash = createHash("sha256");
+  for (const row of plan.rows) {
+    hash.update(
+      `${JSON.stringify([
+        row.rowNumber,
+        row.outcome,
+        row.matchedPersonId,
+        row.matchedBy,
+        row.sameAsRowNumber,
+        row.candidates.map((candidate) => candidate.personId).sort(),
+      ])}\n`,
+    );
+  }
+  return hash.digest("hex");
+}
+
+/** Whether two lists of person ids name the same people. */
+function samePeople(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((personId) => b.includes(personId));
 }
 
 /** The rows the preview could not resolve, read back from the session. */

@@ -118,6 +118,59 @@ describe("parsePluginPackage", () => {
     }
     expect(result.value.openbrf.view?.module).toBe("./View");
   });
+
+  // The installer resolves nothing from a registry, so a package that names a
+  // runtime dependency is refused rather than handed to npm to fetch.
+  it.each([
+    ["dependencies", { "date-fns": "^4.0.0" }],
+    ["optionalDependencies", { "date-fns": "^4.0.0" }],
+    ["bundleDependencies", ["date-fns"]],
+    ["bundledDependencies", ["date-fns"]],
+  ])("refuses a package that lists a package under %s", (field, value) => {
+    const result = parsePluginPackage({
+      ...(manifest() as Record<string, unknown>),
+      [field]: value,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.issues).toEqual([
+      `${field}: names date-fns; a plugin declares no runtime dependencies, because the installer resolves nothing from a registry`,
+    ]);
+  });
+
+  // npm reads a string as a list of names and goes looking for them, so a
+  // field that is not a map or a list is refused however it is spelled.
+  it.each([
+    ["a string", "left-pad"],
+    ["null", null],
+    ["a list of something other than names", [1]],
+  ])("refuses a dependencies field given as %s", (_, value) => {
+    const result = parsePluginPackage({
+      ...(manifest() as Record<string, unknown>),
+      dependencies: value,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.issues).toEqual([
+      "dependencies: is neither an empty map nor an empty list; a plugin declares no runtime dependencies, because the installer resolves nothing from a registry",
+    ]);
+  });
+
+  it("accepts an empty dependencies block and peer dependencies", () => {
+    const result = parsePluginPackage({
+      ...(manifest() as Record<string, unknown>),
+      dependencies: {},
+      peerDependencies: { "@nestjs/common": "^12.0.0" },
+    });
+
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("assertPluginPackage", () => {

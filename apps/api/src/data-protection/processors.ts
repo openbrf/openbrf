@@ -80,7 +80,7 @@ export interface ProcessorFacts {
     id: string;
     /** As the client declared itself, or null where it declared no name. */
     name: string | null;
-    /** Where it is reached: see {@link connectedAppHost}. */
+    /** Where it is reached: see connectedAppHost in connected-apps. */
     host: string | null;
   }[];
   /**
@@ -177,34 +177,6 @@ export function stateOf(
 }
 
 /**
- * The host a connected app is reached at: the client-id URL it presented, or
- * failing that the client URI it registered.
- *
- * Null rather than the value as written, which is where this differs from
- * {@link hostOf} below. A gateway address is configured by an administrator and
- * is what the instance posts to whatever it says; a client id is chosen by the
- * app itself, and one that will not parse is not a host - so the record and the
- * report name nothing rather than something untrue.
- *
- * One definition because the record of processing, the art. 28 list and the
- * access report all have to call the same client the same thing.
- */
-export function connectedAppHost(client: {
-  clientDiscoveryId: string | null;
-  uri: string | null;
-}): string | null {
-  const url = client.clientDiscoveryId ?? client.uri;
-  if (url === null) {
-    return null;
-  }
-  try {
-    return new URL(url).host;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * The recipient each mail driver hands the mail to.
  *
  * Three, because they are three parties: the provider the board chose, and the
@@ -221,8 +193,15 @@ const MAIL_RECIPIENTS: Record<
   "http-api": ["mailApi", "MAIL_API"],
 };
 
-/** The host part of a URL, for naming a gateway without repeating its path. */
-function hostOf(url: string): string {
+/**
+ * The host part of a URL, for naming a gateway without repeating its path.
+ *
+ * Unlike a connected app's host (connected-apps/client-host.ts), an address
+ * that will not parse is named as written: a gateway is configured by an
+ * administrator and is what the instance posts to, while a client id is the
+ * app's own choice.
+ */
+function gatewayHostOf(url: string): string {
   try {
     return new URL(url).host;
   } catch {
@@ -285,7 +264,7 @@ export function currentProcessors(
       gatewayUrl: facts.smsGatewayUrl,
     }) !== "none"
   ) {
-    fixed("sms", "SMS", hostOf(facts.smsGatewayUrl ?? ""));
+    fixed("sms", "SMS", gatewayHostOf(facts.smsGatewayUrl ?? ""));
   }
 
   if (facts.storageDriver === "s3") {

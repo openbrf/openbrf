@@ -247,6 +247,7 @@ function signupStatus(reason: SignupRequestError["reason"]): number {
       return HttpStatus.NOT_FOUND;
     case "already-decided":
     case "already-has-account":
+    case "email-shared":
       return HttpStatus.CONFLICT;
   }
 }

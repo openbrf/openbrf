@@ -17,8 +17,8 @@ import { gunzipSync, gzipSync } from "node:zlib";
  *   segment, no backslash. Extraction never joins a path this reader has not
  *   already accepted.
  *
- *   Entry count, per-entry size and total size are capped, so a small download
- *   cannot expand into an unbounded write.
+ *   File count, directory count, per-entry size and total size are capped, so
+ *   a small download cannot expand into an unbounded write.
  *
  *   Where tar implementations read the same bytes differently, the archive is
  *   refused rather than read one way. Otherwise `tar -tzf` or Python's tarfile
@@ -33,6 +33,31 @@ const BLOCK_SIZE = 512;
 export const MAX_ARCHIVE_ENTRIES = 200;
 export const MAX_ENTRY_BYTES = 4 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
+/**
+ * Directory records are capped apart from files: `tar` writes one for every
+ * folder it packs, so counting them as files would refuse a theme of 200 files
+ * packed from a folder. Without a cap of their own they would be the one part
+ * of an archive with no bound, and the ceiling below could not cover them.
+ */
+export const MAX_DIRECTORY_RECORDS = 200;
+
+/**
+ * Ceiling on the size of the unzipped tarball, handed to the decompressor so a
+ * small gzip cannot inflate past it before any entry is looked at.
+ *
+ * It is the most a package `tar` writes within the limits above can occupy:
+ * the content, a header block and up to a block's worth of padding for each of
+ * the allowed files, a header block for each of the allowed directories, the
+ * two zero blocks that end the archive, and one record of the zero padding
+ * `tar` writes after them.
+ */
+const TAR_RECORD_SIZE = 20 * BLOCK_SIZE;
+export const MAX_TARBALL_BYTES =
+  MAX_TOTAL_BYTES +
+  MAX_ARCHIVE_ENTRIES * (2 * BLOCK_SIZE - 1) +
+  MAX_DIRECTORY_RECORDS * BLOCK_SIZE +
+  2 * BLOCK_SIZE +
+  TAR_RECORD_SIZE;
 
 export class ThemeArchiveError extends Error {
   constructor(message: string) {
@@ -171,8 +196,14 @@ function stripCommonRoot(paths: readonly string[]): string | null {
 export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
   let tarball: Buffer;
   try {
-    tarball = gunzipSync(archive);
+    tarball = gunzipSync(archive, { maxOutputLength: MAX_TARBALL_BYTES });
   } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
+      throw new ThemeArchiveError(
+        `The package unpacks to more than ${String(MAX_TARBALL_BYTES)} bytes, ` +
+          "more than a theme package may hold. It was not unpacked.",
+      );
+    }
     throw new ThemeArchiveError(
       `The package is not a gzip archive: ${(cause as Error).message}`,
     );
@@ -183,6 +214,7 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
   // Counts every regular-file record, not distinct paths: an archive that
   // repeats one path would otherwise never reach the cap.
   let fileRecords = 0;
+  let directoryRecords = 0;
   let offset = 0;
 
   while (offset + BLOCK_SIZE <= tarball.length) {
@@ -220,6 +252,12 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
           "The archive has a directory entry that states a size.",
         );
       }
+      if (directoryRecords >= MAX_DIRECTORY_RECORDS) {
+        throw new ThemeArchiveError(
+          `The archive contains more than ${String(MAX_DIRECTORY_RECORDS)} directory entries.`,
+        );
+      }
+      directoryRecords += 1;
       // The path is not used, but a prefix without the ustar magic is read
       // differently by different tools here too.
       headerPath(header);

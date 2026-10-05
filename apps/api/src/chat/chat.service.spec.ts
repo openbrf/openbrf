@@ -1438,6 +1438,7 @@ describe("a message the board struck through", () => {
       ],
       persons: [
         { ...NO_SEAT, movedOutOn: null },
+        { ...SEATED, movedOutOn: null },
         {
           id: "person-bo",
           firstName: "Bo",
@@ -1448,6 +1449,7 @@ describe("a message the board struck through", () => {
       ],
       groupMembers: [
         { chatId: GROUP_CHAT_ID, personId: NO_SEAT.id },
+        { chatId: GROUP_CHAT_ID, personId: SEATED.id },
         { chatId: GROUP_CHAT_ID, personId: "person-bo" },
       ],
     });
@@ -1479,7 +1481,7 @@ describe("a message the board struck through", () => {
     expect(page.messages[0]?.body).toBe("Det har borde ingen lasa.");
   });
 
-  it("shows the text to whoever moderates", async () => {
+  it("shows the text to a board member who moderates", async () => {
     /*
      * The board reads the message in the queue it was reported into, and reads
      * it here too - a board member who is in the room would otherwise be shown
@@ -1489,9 +1491,22 @@ describe("a message the board struck through", () => {
 
     const page = await service.readChat(
       GROUP_CHAT_ID,
-      principal(NO_SEAT.id, ["chat:participate", "chat:moderate"]),
+      principal(SEATED.id, ["chat:participate", "chat:moderate"]),
     );
 
     expect(page.messages[0]?.body).toBe("Det har borde ingen lasa.");
+  });
+
+  it("withholds the text from the capability without a seat", async () => {
+    // An administrator holds every capability, and one who lives here and
+    // sits in the room is not the board (ADR 0012).
+    const { service } = room();
+
+    const page = await service.readChat(
+      GROUP_CHAT_ID,
+      principal(NO_SEAT.id, ["chat:participate", "chat:moderate"]),
+    );
+
+    expect(page.messages[0]?.body).toBeNull();
   });
 });
