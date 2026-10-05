@@ -81,6 +81,13 @@ const MENU_LABEL_LIMIT = 60;
 const idSchema = z.string().min(1).max(64);
 
 /*
+ * A page_list cursor: a sort order, a colon and the id of the last page read.
+ * Bounded on its own rather than as an id, because it is longer than one - a
+ * sign and ten digits of sort order in front of an id of the longest length.
+ */
+const pageCursorSchema = z.string().min(1).max(80);
+
+/*
  * The page parser's own shape rule for an address, published rather than left
  * for the service to refuse: a caller building a slug has to be able to see
  * what one may look like. Which slugs are RESERVED stays where it is answered -
@@ -428,7 +435,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
             .max(50)
             .default(20)
             .describe("How many pages to return at once."),
-          cursor: idSchema
+          cursor: pageCursorSchema
             .optional()
             .describe(
               "The nextCursor from the previous call. Absent starts at the first page of the list. A cursor from an earlier release of OpenBRF answers not-found; start the list again without one.",
