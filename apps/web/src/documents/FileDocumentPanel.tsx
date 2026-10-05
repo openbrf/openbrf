@@ -49,6 +49,7 @@ const FILING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "too-large": "documents.errors.tooLarge",
   "empty-file": "documents.errors.empty",
   "no-file": "documents.errors.noFile",
+  "personal-identity-number": "documents.errors.personalIdentityNumber",
   "invalid-body": "documents.errors.unknown",
 };
 

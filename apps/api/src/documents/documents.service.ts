@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 
 import type { Capability, Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
@@ -10,15 +11,37 @@ import {
   mediaUrl,
 } from "../media/media.service";
 
+/**
+ * Where in a document's printed text a refused value sits.
+ *
+ * A field name and a position, never the value that was found: the thing the
+ * scan caught is precisely the thing that must not travel back in a response
+ * body, into a log, or onto a screen.
+ */
+export interface DocumentTextLocation {
+  field: "title" | "category" | "fileName";
+  /** Where in that field's text the refused value starts. */
+  offset: number;
+}
+
 export class DocumentError extends DomainError {
   readonly status: number;
 
   constructor(
     message: string,
-    readonly reason: "not-found",
+    readonly reason: "not-found" | "personal-identity-number",
+    private readonly found: readonly DocumentTextLocation[] = [],
   ) {
     super(message);
-    this.status = HttpStatus.NOT_FOUND;
+    this.status =
+      reason === "not-found"
+        ? HttpStatus.NOT_FOUND
+        : HttpStatus.UNPROCESSABLE_ENTITY;
+  }
+
+  /** The fields a `personal-identity-number` refusal found one in. */
+  override details(): Record<string, readonly unknown[]> {
+    return { locations: this.found };
   }
 }
 
@@ -94,6 +117,42 @@ function transportFor(audience: DocumentAudience): {
         visibility: "INTERNAL",
         requiredCapability: "documents:manage",
       };
+  }
+}
+
+/**
+ * Refuses a document for the members or the public whose printed text carries
+ * a Swedish personal identity number.
+ *
+ * A document list on the association's website prints the title, the binder
+ * and the file name of every document on those two shelves, so they are
+ * published text like a page's own, and the page guardrail leaves them to be
+ * scanned here, where they are written. A board document is never listed on
+ * the website: what the board files for itself is not refused for naming
+ * somebody. Changing a document's audience is a write like any other, so a
+ * board document moved to a shelf the website lists is scanned on the way.
+ */
+function refusePersonalIdentityNumbers(document: {
+  title: string;
+  category: string;
+  fileName: string;
+  audience: DocumentAudience;
+}): void {
+  if (document.audience === "BOARD") {
+    return;
+  }
+  const fields = ["title", "category", "fileName"] as const;
+  const locations = fields.flatMap((field) =>
+    scanForPersonalIdentityNumbers(document[field]).map(
+      (hit): DocumentTextLocation => ({ field, offset: hit.index }),
+    ),
+  );
+  if (locations.length > 0) {
+    throw new DocumentError(
+      "The document carries a personal identity number and cannot be filed for the members or the public.",
+      "personal-identity-number",
+      locations,
+    );
   }
 }
 
@@ -202,6 +261,8 @@ export class DocumentsService {
    * would leave a document pointing at nothing.
    */
   async add(input: AddDocumentInput): Promise<DocumentView> {
+    // Before the upload, so a refused document leaves no file behind.
+    refusePersonalIdentityNumbers(input);
     const transport = transportFor(input.audience);
 
     const file = await this.media.upload({
@@ -263,11 +324,18 @@ export class DocumentsService {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.document.findUnique({
         where: { id },
-        select: { mediaFileId: true },
+        select: {
+          mediaFileId: true,
+          mediaFile: { select: { fileName: true } },
+        },
       });
       if (existing === null) {
         throw new DocumentError("No such document.", "not-found");
       }
+      refusePersonalIdentityNumbers({
+        ...input,
+        fileName: existing.mediaFile.fileName,
+      });
 
       await tx.mediaFile.update({
         where: { id: existing.mediaFileId },
