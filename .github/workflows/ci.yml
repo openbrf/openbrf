@@ -46,6 +46,13 @@ jobs:
       - name: Theme stylesheet is current
         run: pnpm --filter @openbrf/web theme:check
 
+      # CodeRabbit ignores a configuration it cannot parse rather than saying
+      # so, and the review rules in it go with it. Checked against the published
+      # schema; if the schema cannot be fetched, the YAML syntax is still
+      # checked and the step passes.
+      - name: CodeRabbit configuration is valid
+        run: pnpm lint:coderabbit
+
       # The statutory tables are append-only by trigger, and two test suites are
       # allowed to switch a guard off to clear their own rows. This refuses a
       # third: the pattern is a line long and reads as ordinary cleanup.
