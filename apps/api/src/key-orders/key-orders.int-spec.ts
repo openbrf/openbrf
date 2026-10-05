@@ -769,22 +769,42 @@ describe("the board's answer", () => {
     const created = await order(memberCookie);
     const id = created.json<{ id: string }>().id;
 
-    const first = await inject({
-      method: "POST",
-      url: `/api/key-order-queue/${id}/answer`,
-      payload: { handedOver: true, note: null },
-      headers: { cookie: boardCookie },
-    });
-    expect(first.statusCode).toBe(201);
+    // Both answers at once, so the conditional update is what decides between
+    // them rather than the read before it.
+    const answers = await Promise.all(
+      [true, false].map((handedOver) =>
+        inject({
+          method: "POST",
+          url: `/api/key-order-queue/${id}/answer`,
+          payload: { handedOver, note: null },
+          headers: { cookie: boardCookie },
+        }),
+      ),
+    );
+    expect(answers.map((answer) => answer.statusCode).sort()).toEqual([
+      201, 409,
+    ]);
+    const refused = answers.find((answer) => answer.statusCode === 409);
+    expect(refused?.json<{ reason: string }>().reason).toBe("already-closed");
 
-    const second = await inject({
-      method: "POST",
-      url: `/api/key-order-queue/${id}/answer`,
-      payload: { handedOver: false, note: null },
-      headers: { cookie: boardCookie },
+    // One answer on the row and one in the log, and they agree.
+    const stored = await prisma.keyOrder.findUniqueOrThrow({
+      where: { id },
+      select: { status: true },
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.json<{ reason: string }>().reason).toBe("already-closed");
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        targetId: id,
+        action: { in: ["KEY_ORDER_HANDED_OVER", "KEY_ORDER_DECLINED"] },
+      },
+      select: { action: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe(
+      stored.status === "HANDED_OVER"
+        ? "KEY_ORDER_HANDED_OVER"
+        : "KEY_ORDER_DECLINED",
+    );
   });
 
   it("refuses a withdrawal once the board has answered", async () => {

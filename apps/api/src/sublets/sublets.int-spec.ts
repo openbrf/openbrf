@@ -813,22 +813,44 @@ describe("the board's answer", () => {
     const created = await apply(memberCookie);
     const id = created.json<{ id: string }>().id;
 
-    const first = await inject({
-      method: "POST",
-      url: `/api/sublet-queue/${id}/decision`,
-      payload: { consent: false, note: null },
-      headers: { cookie: boardCookie },
-    });
-    expect(first.statusCode).toBe(201);
+    // Both answers at once, so the conditional update is what decides between
+    // them rather than the read before it.
+    const answers = await Promise.all(
+      [false, true].map((consent) =>
+        inject({
+          method: "POST",
+          url: `/api/sublet-queue/${id}/decision`,
+          payload: { consent, note: null },
+          headers: { cookie: boardCookie },
+        }),
+      ),
+    );
+    expect(answers.map((answer) => answer.statusCode).sort()).toEqual([
+      201, 409,
+    ]);
+    const refused = answers.find((answer) => answer.statusCode === 409);
+    expect(refused?.json<{ reason: string }>().reason).toBe("already-closed");
 
-    const second = await inject({
-      method: "POST",
-      url: `/api/sublet-queue/${id}/decision`,
-      payload: { consent: true, note: null },
-      headers: { cookie: boardCookie },
+    // One answer on the row and one in the log, and they agree.
+    const stored = await prisma.subletApplication.findUniqueOrThrow({
+      where: { id },
+      select: { status: true },
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.json<{ reason: string }>().reason).toBe("already-closed");
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        targetId: id,
+        action: {
+          in: ["SUBLET_APPLICATION_CONSENTED", "SUBLET_APPLICATION_REFUSED"],
+        },
+      },
+      select: { action: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe(
+      stored.status === "CONSENTED"
+        ? "SUBLET_APPLICATION_CONSENTED"
+        : "SUBLET_APPLICATION_REFUSED",
+    );
   });
 
   it("refuses a withdrawal once the board has answered", async () => {

@@ -1484,6 +1484,37 @@ describe("the purge", () => {
 });
 
 describe("the list itself", () => {
+  it("totals in ore, where floating point would come out short", async () => {
+    /*
+     * Ninety-one of the largest amount a charge may carry, on a day of their
+     * own. The exact total ends in .09; added as numbers it ends in .02, and
+     * this figure is what the bookkeeper reconciles against. Smaller sums
+     * round back to the right figure either way, so they prove nothing.
+     */
+    const day = "2026-03-09";
+    await prisma.memberCharge.createMany({
+      data: Array.from({ length: 91 }, (_, index) => ({
+        personId: member.personId,
+        chargedOn: new Date(`${day}T00:00:00.000Z`),
+        financialYearStartMonth: 1,
+        amount: "999999999999.99",
+        reason: `Stor summa ${index} ${suffix}`,
+        vatTreatment: "EXEMPT" as const,
+        recordedByPersonId: board.personId,
+      })),
+    });
+
+    try {
+      const list = await readList({ from: day, to: day });
+      expect(ownRows(list)).toHaveLength(91);
+      expect(list.total).toBe("90999999999999.09");
+    } finally {
+      await prisma.memberCharge.deleteMany({
+        where: { reason: { startsWith: "Stor summa ", endsWith: suffix } },
+      });
+    }
+  });
+
   it("totals what was charged, and carries no payment anywhere", async () => {
     const first = await recordCharge(
       chargeOn({ amount: "1570.10", reason: `Summa ett ${suffix}` }),
@@ -1498,8 +1529,6 @@ describe("the list itself", () => {
     const list = await readList({ from: "2026-03-05", to: "2026-03-05" });
     const rows = ownRows(list);
     expect(rows).toHaveLength(3);
-    // Added in ore. As numbers with a decimal point these three come to one ore
-    // short, and this figure is what the bookkeeper reconciles against.
     expect(list.total).toBe("4713.00");
 
     /*
