@@ -12,7 +12,10 @@ review:
   registration and the consent screen: https off this machine, plain http on a
   loopback host, or an app's own reverse-domain scheme. A client that
   identifies itself by its metadata document must keep its web redirect
-  addresses on that document's origin.
+  addresses on that document's origin, and every address in the document
+  must meet the shared rule. No name under `localhost` is taken for https.
+- The consent screen names the app when the code goes to an app's own scheme,
+  and says that any app on the device can claim that name.
 - A connected app's token carries only the scopes the member's consent grants
   now.
 - In production, a `BETTER_AUTH_SECRET` committed to the repository or with

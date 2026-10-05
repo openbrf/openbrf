@@ -48,23 +48,26 @@ describe("a metadata document's redirect addresses", () => {
     "https://brf.localhost/cb",
     "https://brf.localhost./cb",
     "https://127.0.0.2/cb",
-  ])("refuses a document naming %s, which the plugin alone takes", async (uri) => {
-    // The plugin counts every name under localhost as loopback and skips its
-    // origin check for it; the screen refuses https on this machine.
-    expect(
-      validateCimdMetadata(CLIENT_ID, document([uri]), CIMD_METADATA_RULES)
-        .valid,
-    ).toBe(true);
+  ])(
+    "refuses a document naming %s, which the plugin alone takes",
+    async (uri) => {
+      // The plugin counts every name under localhost as loopback and skips its
+      // origin check for it; the screen refuses https on this machine.
+      expect(
+        validateCimdMetadata(CLIENT_ID, document([uri]), CIMD_METADATA_RULES)
+          .valid,
+      ).toBe(true);
 
-    const cause = await refusal(
-      answering(JSON.stringify(document(["https://apps.exempel.se/cb", uri])))(
-        CLIENT_ID,
-      ),
-    );
+      const cause = await refusal(
+        answering(
+          JSON.stringify(document(["https://apps.exempel.se/cb", uri])),
+        )(CLIENT_ID),
+      );
 
-    expect(cause).toBeInstanceOf(MetadataFetchError);
-    expect((cause as MetadataFetchError).code).toBe("redirect-uri-refused");
-  });
+      expect(cause).toBeInstanceOf(MetadataFetchError);
+      expect((cause as MetadataFetchError).code).toBe("redirect-uri-refused");
+    },
+  );
 
   it("refuses an entry that is not an address at all", async () => {
     const cause = await refusal(
