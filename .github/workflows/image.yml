@@ -227,8 +227,9 @@ jobs:
           postgres="$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
           # Generated for this run, as an operator is told to: the image runs
           # in production mode, which refuses a short or published secret.
+          # Nothing prints it, and it signs nothing beyond this throwaway
+          # container.
           auth_secret="$(openssl rand -base64 48)"
-          echo "::add-mask::${auth_secret}"
           docker network create openbrf-smoke
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \
             --network-alias db \
