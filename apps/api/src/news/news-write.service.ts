@@ -18,6 +18,7 @@ import {
 } from "../site/page-content";
 import { isSlugShaped } from "../site/pages.service";
 import type { PageTextLocation } from "../site/pages-write.service";
+import { parseThreadCursor, threadCursor } from "./news-comment.service";
 import { DELIVERY_FAILURES } from "./news-delivery";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
@@ -281,9 +282,13 @@ export class NewsWriteService {
   async list(): Promise<NewsAdminView[]> {
     const rows = await this.prisma.news.findMany({
       orderBy: [{ createdAt: "desc" }],
-      select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+      select: NEWS_COLUMNS,
     });
-    return rows.map((row) => toAdminView(row));
+    const reports = await deliveryReports(
+      this.prisma,
+      rows.map((row) => row.id),
+    );
+    return rows.map((row) => toAdminView(row, reports.get(row.id)));
   }
 
   /**
@@ -299,15 +304,37 @@ export class NewsWriteService {
     cursor?: string | undefined;
     publishedOnly?: boolean | undefined;
   }): Promise<{ news: NewsSummary[]; nextCursor: string | null }> {
+    /*
+     * The cursor is the last row's own sort key rather than its identifier, so
+     * an item removed since the last page leaves the list where it was instead
+     * of ending it.
+     */
+    const after =
+      options.cursor === undefined ? null : parseThreadCursor(options.cursor);
+    if (options.cursor !== undefined && after === null) {
+      throw new NewsWriteError(
+        "There is no such place in the list of news. Start it again without a cursor.",
+        "not-found",
+      );
+    }
+
     const rows = await this.prisma.news.findMany({
-      where: options.publishedOnly === true ? { published: true } : {},
+      where: {
+        ...(options.publishedOnly === true ? { published: true } : {}),
+        ...(after === null
+          ? {}
+          : {
+              OR: [
+                { createdAt: { lt: after.createdAt } },
+                { createdAt: after.createdAt, id: { gt: after.id } },
+              ],
+            }),
+      },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: options.limit + 1,
-      ...(options.cursor === undefined
-        ? {}
-        : { cursor: { id: options.cursor }, skip: 1 }),
       select: {
         id: true,
+        createdAt: true,
         slug: true,
         title: true,
         published: true,
@@ -319,6 +346,7 @@ export class NewsWriteService {
     });
 
     const page = rows.slice(0, options.limit);
+    const last = page.at(-1);
     return {
       news: page.map((row) => ({
         id: row.id,
@@ -331,12 +359,14 @@ export class NewsWriteService {
         mailingRequested: row.mailingRequestedAt !== null,
       })),
       nextCursor:
-        rows.length > options.limit ? (page.at(-1)?.id ?? null) : null,
+        rows.length > options.limit && last !== undefined
+          ? threadCursor(last)
+          : null,
     };
   }
 
   async byId(id: string): Promise<NewsAdminView> {
-    return toAdminView(await this.require(id));
+    return this.viewOf(await this.require(id));
   }
 
   /**
@@ -376,16 +406,18 @@ export class NewsWriteService {
     await this.requireFreeSlug(input.slug, null);
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.news.create({
-        data: {
-          slug: input.slug,
-          title: input.title,
-          content: asJson(onlyProse(input.content)),
-          published: false,
-          authorPersonId: input.authorPersonId,
-        },
-        select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
-      });
+      const created = await tx.news
+        .create({
+          data: {
+            slug: input.slug,
+            title: input.title,
+            content: asJson(onlyProse(input.content)),
+            published: false,
+            authorPersonId: input.authorPersonId,
+          },
+          select: NEWS_COLUMNS,
+        })
+        .catch(refuseTakenSlug(input.slug));
 
       await this.audit.record(
         {
@@ -406,7 +438,7 @@ export class NewsWriteService {
       return created;
     });
 
-    return toAdminView(row);
+    return toAdminView(row, undefined);
   }
 
   /**
@@ -430,32 +462,40 @@ export class NewsWriteService {
     input: NewsInput,
     actor: ActorContext,
   ): Promise<NewsAdminView> {
-    const news = await this.require(id);
-    const addressSent =
-      news.emailQueuedAt !== null || news.smsQueuedAt !== null;
-    if (addressSent && input.slug !== news.slug) {
-      throw new NewsWriteError(
-        "The address was sent to the members and cannot be changed.",
-        "address-mailed",
-      );
-    }
     await this.requireFreeSlug(input.slug, id);
-
     const content = onlyProse(input.content);
-    if (news.published) {
-      this.refusePersonalIdentityNumbers(input.title, content);
-    }
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.news.update({
-        where: { id },
-        data: {
-          slug: input.slug,
-          title: input.title,
-          content: asJson(content),
-        },
-        select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
-      });
+      /*
+       * Decided on the row as it stands under this transaction's lock, not on
+       * a read taken before it. A publish committing in between could
+       * otherwise put the old address in the members' mail and then have this
+       * rename it, or put this unscanned body on the website.
+       */
+      const news = await lockedNews(tx, id);
+      const addressSent =
+        news.emailQueuedAt !== null || news.smsQueuedAt !== null;
+      if (addressSent && input.slug !== news.slug) {
+        throw new NewsWriteError(
+          "The address was sent to the members and cannot be changed.",
+          "address-mailed",
+        );
+      }
+      if (news.published) {
+        this.refusePersonalIdentityNumbers(input.title, content);
+      }
+
+      const updated = await tx.news
+        .update({
+          where: { id },
+          data: {
+            slug: input.slug,
+            title: input.title,
+            content: asJson(content),
+          },
+          select: NEWS_COLUMNS,
+        })
+        .catch(refuseTakenSlug(input.slug));
 
       await this.audit.record(
         {
@@ -475,7 +515,7 @@ export class NewsWriteService {
       return updated;
     });
 
-    return toAdminView(row);
+    return this.viewOf(row);
   }
 
   /**
@@ -617,10 +657,12 @@ export class NewsWriteService {
   ): Promise<PublishNewsResult> {
     const news = await this.require(id);
     const visibility = input.visibility ?? news.visibility;
-    const content = readNewsContent(news.content);
 
     if (input.published) {
-      this.refusePersonalIdentityNumbers(news.title, content);
+      this.refusePersonalIdentityNumbers(
+        news.title,
+        readNewsContent(news.content),
+      );
     }
 
     /*
@@ -671,7 +713,7 @@ export class NewsWriteService {
       !mailing &&
       !texting
     ) {
-      return { ...toAdminView(news), mailedTo: null, textedTo: null };
+      return { ...(await this.viewOf(news)), mailedTo: null, textedTo: null };
     }
 
     // Before the transaction opens: creating a queue is the queue backend's own
@@ -688,6 +730,19 @@ export class NewsWriteService {
 
     const { row, mailedTo, textedTo } = await this.prisma.$transaction(
       async (tx) => {
+        /*
+         * Scanned again on the row as it stands under this transaction's lock:
+         * the scan above read it before the transaction, and a draft saved in
+         * between would otherwise be published without having been scanned.
+         */
+        const current = await lockedNews(tx, id);
+        if (input.published) {
+          this.refusePersonalIdentityNumbers(
+            current.title,
+            readNewsContent(current.content),
+          );
+        }
+
         /*
          * The claims, and the only writers of these two columns in the codebase.
          *
@@ -745,7 +800,7 @@ export class NewsWriteService {
               ? { mailingRequestedAt: null, mailingRequestedByPersonId: null }
               : {}),
           },
-          select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+          select: NEWS_COLUMNS,
         });
 
         await this.audit.record(
@@ -862,7 +917,7 @@ export class NewsWriteService {
       );
     }
 
-    return { ...toAdminView(row), mailedTo, textedTo };
+    return { ...(await this.viewOf(row)), mailedTo, textedTo };
   }
 
   /**
@@ -978,12 +1033,18 @@ export class NewsWriteService {
   private async require(id: string) {
     const row = await this.prisma.news.findUnique({
       where: { id },
-      select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+      select: NEWS_COLUMNS,
     });
     if (row === null) {
       throw new NewsWriteError("There is no such news item.", "not-found");
     }
     return row;
+  }
+
+  /** One item as the board's screen shows it, with its mailing counted. */
+  private async viewOf(row: NewsRow): Promise<NewsAdminView> {
+    const reports = await deliveryReports(this.prisma, [row.id]);
+    return toAdminView(row, reports.get(row.id));
   }
 
   /**
@@ -1064,11 +1125,103 @@ export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
   };
 }
 
-const DELIVERY_COLUMNS = {
-  channel: true,
-  status: true,
-  failureReason: true,
-} as const;
+/** A news item's columns as NEWS_COLUMNS selects them. */
+type NewsRow = Prisma.NewsGetPayload<{ select: typeof NEWS_COLUMNS }>;
+
+/**
+ * The item, read under a lock on its row that holds until the transaction
+ * ends. The claims in `publish` update the same row, so a check made on what
+ * this returns cannot be overtaken by a mailing claimed in between.
+ */
+async function lockedNews(
+  tx: Prisma.TransactionClient,
+  id: string,
+): Promise<NewsRow> {
+  await tx.$queryRaw`SELECT id FROM news WHERE id = ${id} FOR UPDATE`;
+  const row = await tx.news.findUnique({ where: { id }, select: NEWS_COLUMNS });
+  if (row === null) {
+    throw new NewsWriteError("There is no such news item.", "not-found");
+  }
+  return row;
+}
+
+/**
+ * A unique-key conflict on the address as the refusal the board already knows.
+ *
+ * The free-address check runs before the write, so two writes naming the same
+ * address at once both pass it, and the second meets the database's own unique
+ * index - which, unanswered, reaches the board as a server error.
+ */
+function refuseTakenSlug(slug: string): (cause: unknown) => never {
+  return (cause) => {
+    if (
+      cause instanceof Prisma.PrismaClientKnownRequestError &&
+      cause.code === "P2002"
+    ) {
+      throw new NewsWriteError(
+        `The address /nyheter/${slug} is already a news item.`,
+        "slug-taken",
+      );
+    }
+    throw cause;
+  };
+}
+
+/**
+ * How each item's mailing is going, per channel, counted by the database.
+ *
+ * Counted rather than read row by row: a mailing writes one row per member per
+ * channel, and the board's list would otherwise read every one of them on every
+ * visit only to count them.
+ */
+async function deliveryReports(
+  prisma: Pick<PrismaService, "newsDelivery">,
+  newsIds: readonly string[],
+): Promise<Map<string, NewsMailingReport>> {
+  const groups = await prisma.newsDelivery.groupBy({
+    by: ["newsId", "channel", "status", "failureReason"],
+    where: { newsId: { in: [...newsIds] } },
+    _count: { _all: true },
+  });
+
+  const reports = new Map<string, NewsMailingReport>();
+  for (const group of groups) {
+    const report = reports.get(group.newsId) ?? emptyMailingReport();
+    const channel = group.channel === "SMS" ? report.sms : report.email;
+    const count = group._count._all;
+    if (group.status === "PENDING") {
+      channel.pending += count;
+    } else if (group.status === "SENT") {
+      channel.sent += count;
+    } else {
+      channel.failed += count;
+    }
+    /*
+     * One flag per channel, so a board with no SMS provider is not told its
+     * email mailing failed for that reason.
+     */
+    if (
+      group.failureReason ===
+      (group.channel === "SMS"
+        ? DELIVERY_FAILURES.smsNotConfigured
+        : DELIVERY_FAILURES.mailNotConfigured)
+    ) {
+      channel.notConfigured = true;
+    }
+    reports.set(group.newsId, report);
+  }
+  return reports;
+}
+
+function emptyMailingReport(): NewsMailingReport {
+  const none = (): NewsDeliveryReport => ({
+    pending: 0,
+    sent: 0,
+    failed: 0,
+    notConfigured: false,
+  });
+  return { email: none(), sms: none() };
+}
 
 /**
  * A body narrowed to what a news item may hold, refusing the rest.
@@ -1098,24 +1251,10 @@ function readNewsContent(value: unknown): PageContent {
   return textBlocksOnly(readPageContent(value));
 }
 
-function toAdminView(row: {
-  id: string;
-  slug: string;
-  title: string;
-  content: unknown;
-  visibility: PageVisibility;
-  published: boolean;
-  publishedAt: Date | null;
-  emailQueuedAt: Date | null;
-  smsQueuedAt: Date | null;
-  mailingRequestedAt: Date | null;
-  updatedAt: Date;
-  deliveries: readonly {
-    channel: string;
-    status: string;
-    failureReason: string | null;
-  }[];
-}): NewsAdminView {
+function toAdminView(
+  row: NewsRow,
+  report: NewsMailingReport | undefined,
+): NewsAdminView {
   return {
     id: row.id,
     slug: row.slug,
@@ -1129,46 +1268,8 @@ function toAdminView(row: {
     emailQueuedAt: row.emailQueuedAt?.toISOString() ?? null,
     smsQueuedAt: row.smsQueuedAt?.toISOString() ?? null,
     mailingRequested: row.mailingRequestedAt !== null,
-    delivery: {
-      email: channelReport(
-        row.deliveries,
-        "EMAIL",
-        DELIVERY_FAILURES.mailNotConfigured,
-      ),
-      sms: channelReport(
-        row.deliveries,
-        "SMS",
-        DELIVERY_FAILURES.smsNotConfigured,
-      ),
-    },
+    delivery: report ?? emptyMailingReport(),
     updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-/**
- * One channel's counts, from the rows that belong to it.
- *
- * Filtered by channel rather than counted over the whole ledger, because the
- * two are reported side by side: a total that mixed them would tell a board
- * with no SMS provider that its email mailing had failures in it.
- */
-function channelReport(
-  deliveries: readonly {
-    channel: string;
-    status: string;
-    failureReason: string | null;
-  }[],
-  channel: "EMAIL" | "SMS",
-  notConfiguredReason: string,
-): NewsDeliveryReport {
-  const rows = deliveries.filter((one) => one.channel === channel);
-  return {
-    pending: rows.filter((one) => one.status === "PENDING").length,
-    sent: rows.filter((one) => one.status === "SENT").length,
-    failed: rows.filter((one) => one.status === "FAILED").length,
-    notConfigured: rows.some(
-      (one) => one.failureReason === notConfiguredReason,
-    ),
   };
 }
 

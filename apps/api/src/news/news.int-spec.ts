@@ -104,6 +104,8 @@ const slugs = {
   raced: `news-raced-${suffix}`,
   abandoned: `news-abandoned-${suffix}`,
   takenDown: `news-taken-down-${suffix}`,
+  pagedOlder: `news-paged-older-${suffix}`,
+  pagedNewer: `news-paged-newer-${suffix}`,
   texted: `news-texted-${suffix}`,
   smsUnconfigured: `news-sms-unconfigured-${suffix}`,
   smsAbandoned: `news-sms-abandoned-${suffix}`,
@@ -1123,6 +1125,29 @@ describe("the worker that texts it", () => {
           one.failureReason === "mailing-interrupted",
       ),
     ).toBe(true);
+  });
+});
+
+describe("the list a connected app pages through", () => {
+  it("carries on past an item removed since the last page", async () => {
+    const older = await createNews(boardCookie, slugs.pagedOlder);
+    const newer = await createNews(boardCookie, slugs.pagedNewer);
+
+    const first = await writes.listSummaries({ limit: 1 });
+    expect(first.news[0]?.id).toBe(newer.id);
+    expect(first.nextCursor).not.toBeNull();
+
+    await removeNews(boardCookie, newer.id);
+
+    const second = await writes.listSummaries({
+      limit: 1,
+      cursor: first.nextCursor ?? "",
+    });
+    expect(second.news[0]?.id).toBe(older.id);
+
+    await expect(
+      writes.listSummaries({ limit: 1, cursor: newer.id }),
+    ).rejects.toMatchObject({ reason: "not-found" });
   });
 });
 

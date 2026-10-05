@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "../site/page-content";
 import type { NewsMailerService } from "./news-mailer.service";
+import { DELIVERY_FAILURES } from "./news-delivery";
 import type { NewsSmsService } from "./news-sms.service";
 import { NewsWriteError, NewsWriteService } from "./news-write.service";
 
@@ -31,11 +32,6 @@ const ITEM = {
   mailingRequestedAt: null as Date | null,
   mailingRequestedByPersonId: null as string | null,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
-  deliveries: [] as {
-    channel: string;
-    status: string;
-    failureReason: string | null;
-  }[],
 };
 
 interface Fakes {
@@ -53,8 +49,14 @@ interface Fakes {
     findMany: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
   };
-  newsDelivery: { createMany: ReturnType<typeof vi.fn> };
+  newsDelivery: {
+    createMany: ReturnType<typeof vi.fn>;
+    count: ReturnType<typeof vi.fn>;
+    groupBy: ReturnType<typeof vi.fn>;
+  };
   newsComment: { count: ReturnType<typeof vi.fn> };
+  /** The row lock a write takes before it reads the row it decides on. */
+  lock: ReturnType<typeof vi.fn>;
   audit: { record: ReturnType<typeof vi.fn> };
   mailer: {
     ensureQueues: ReturnType<typeof vi.fn>;
@@ -111,7 +113,12 @@ function build(
       ),
     count: vi.fn().mockResolvedValue(2),
   };
-  const newsDelivery = { createMany: vi.fn().mockResolvedValue({ count: 2 }) };
+  const newsDelivery = {
+    createMany: vi.fn().mockResolvedValue({ count: 2 }),
+    // Rows of an earlier mailing still waiting, which a republish resumes.
+    count: vi.fn().mockResolvedValue(0),
+    groupBy: vi.fn().mockResolvedValue([]),
+  };
   const newsComment = {
     count: vi.fn().mockResolvedValue(options.comments ?? 0),
   };
@@ -134,11 +141,13 @@ function build(
     }),
   };
 
+  const lock = vi.fn().mockResolvedValue([]);
   const prisma = {
     news,
     person,
     newsDelivery,
     newsComment,
+    $queryRaw: lock,
     // The transaction client is the same fake: what these tests check is that
     // the claim, the ledger, the audit entries and the job are written by one
     // call, not that Postgres isolates them.
@@ -159,11 +168,39 @@ function build(
     person,
     newsDelivery,
     newsComment,
+    lock,
     audit,
     mailer,
     texter,
     order,
   };
+}
+
+/**
+ * Stands up a write that commits between this call's first read and its lock:
+ * the row reads as `before` until the lock is taken, and as `after` from then on.
+ */
+function changedOnceLocked(
+  fakes: Fakes,
+  before: Partial<typeof ITEM>,
+  after: Partial<typeof ITEM>,
+): void {
+  let locked = false;
+  (fakes.lock as Mock<() => Promise<unknown[]>>).mockImplementation(() => {
+    locked = true;
+    return Promise.resolve([]);
+  });
+  (
+    fakes.news.findUnique as Mock<
+      (args: { where: { id?: string } }) => Promise<typeof ITEM | null>
+    >
+  ).mockImplementation((args) =>
+    Promise.resolve(
+      args.where.id === undefined
+        ? null
+        : { ...ITEM, ...(locked ? after : before) },
+    ),
+  );
 }
 
 async function refusalOf(run: Promise<unknown>): Promise<NewsWriteError> {
@@ -325,6 +362,88 @@ describe("writing a news item", () => {
   });
 });
 
+describe("two writes naming one address at once", () => {
+  it("answer the second with the address being taken, not a server error", async () => {
+    const { service, news } = build();
+    news.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.create(
+        { slug: "hej", title: "Hej", content: PLAIN, authorPersonId: AUTHOR },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("slug-taken");
+  });
+
+  it("answer a rename the same way", async () => {
+    const { service, news } = build();
+    news.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.update(
+        "news-1",
+        { slug: "ny-adress", title: "Hej", content: PLAIN },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("slug-taken");
+  });
+});
+
+describe("the board's list", () => {
+  it("counts each mailing in the database rather than reading its rows", async () => {
+    const { service, news, newsDelivery } = build();
+    newsDelivery.groupBy.mockResolvedValue([
+      {
+        newsId: "news-1",
+        channel: "EMAIL",
+        status: "SENT",
+        failureReason: null,
+        _count: { _all: 2 },
+      },
+      {
+        newsId: "news-1",
+        channel: "EMAIL",
+        status: "FAILED",
+        failureReason: DELIVERY_FAILURES.mailNotConfigured,
+        _count: { _all: 3 },
+      },
+      {
+        newsId: "news-1",
+        channel: "SMS",
+        status: "PENDING",
+        failureReason: null,
+        _count: { _all: 4 },
+      },
+    ]);
+
+    const [view] = await service.list();
+
+    expect(news.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.not.objectContaining({ deliveries: expect.anything() }),
+      }),
+    );
+    expect(view?.delivery).toEqual({
+      email: { pending: 0, sent: 2, failed: 3, notConfigured: true },
+      sms: { pending: 4, sent: 0, failed: 0, notConfigured: false },
+    });
+  });
+});
+
 describe("the personal identity number guardrail", () => {
   it("refuses a published item that carries one, naming where", async () => {
     const { service } = build({ published: true });
@@ -361,6 +480,50 @@ describe("the personal identity number guardrail", () => {
     );
 
     expect(news.update).toHaveBeenCalled();
+  });
+
+  it("refuses a rename once a mailing claimed before the lock has committed", async () => {
+    const fakes = build();
+    changedOnceLocked(
+      fakes,
+      { emailQueuedAt: null },
+      { emailQueuedAt: new Date("2026-09-01T09:00:00.000Z") },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "news-1",
+        {
+          slug: "tvattstugan-nya-tider",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Nya tider gäller från måndag."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("address-mailed");
+    expect(fakes.news.update).not.toHaveBeenCalled();
+  });
+
+  it("scans what a draft save put there before the publish took its lock", async () => {
+    const fakes = build();
+    changedOnceLocked(
+      fakes,
+      {},
+      { content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]) },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.publish(
+        "news-1",
+        { published: true },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(fakes.news.update).not.toHaveBeenCalled();
   });
 
   it("refuses to move an item the members have already been mailed", async () => {
