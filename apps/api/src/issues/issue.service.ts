@@ -453,11 +453,18 @@ export class IssueService {
     } catch (cause) {
       // The upload is already in the audit log, and so is this removal. That
       // pair is the honest record of what happened.
+      //
+      // The media service logs a failure to remove the stored file, but not
+      // one of its own database transaction, which would leave the file behind
+      // with nothing in the logs to say so. The original failure is still the
+      // one raised.
       await this.media
         .remove(file.id, input.reporterPersonId, "WEB")
-        .catch(() => {
-          /* Reported by the media service; the original failure is the one to
-             raise. */
+        .catch((removal: unknown) => {
+          this.logger.error(
+            `Could not remove file ${file.id} after its photograph was refused`,
+            removal instanceof Error ? removal.stack : String(removal),
+          );
         });
       throw cause;
     }
