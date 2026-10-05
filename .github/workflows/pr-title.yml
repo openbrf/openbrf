@@ -1,0 +1,63 @@
+name: PR title
+
+# A workflow of its own, because a title is edited without a push. The default
+# pull_request activity types are opened, synchronize and reopened, so in ci.yml
+# a renamed pull request kept the verdict on its old title: a valid title
+# renamed to an invalid one stayed green and landed as the squash commit's
+# message, and a contributor who fixed a red one had to push an empty commit to
+# clear it. Here `edited` re-runs this check and nothing else - the build, the
+# integration tests and the two image builds have no reason to repeat because
+# a title changed.
+#
+# `edited` also fires when the description or the base branch is edited. A
+# description edit costs one install and a commitlint run, which is cheaper
+# than telling the two apart.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+# One verdict per pull request: a run started for a title that has since been
+# edited again, or for a commit that has since been pushed over, says nothing
+# about what will merge. Keyed on this workflow alone, so it never cancels a CI
+# run.
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Least privilege rather than whatever the repository default happens to be.
+# Checkout and dependency caching need nothing beyond reading the contents.
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    # This job name is what the main ruleset requires. Renaming it detaches
+    # the required check, and every pull request then waits on a status that is
+    # never reported - change the ruleset in the same breath or not at all.
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token has no reason to sit in the
+          # runner's git config where later steps and scripts can read it.
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Squash merge is the only merge method, so the PR title becomes the
+      # commit message on main and must follow Conventional Commits. The title
+      # reaches the shell through the environment and never through the
+      # script's text, where a title holding a quote or `$(...)` would run.
+      - name: Lint PR title with commitlint
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf "%s\n" "$PR_TITLE" | pnpm exec commitlint
