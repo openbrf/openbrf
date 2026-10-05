@@ -57,6 +57,8 @@ interface Fakes {
   newsDelivery: { createMany: ReturnType<typeof vi.fn> };
   newsComment: { count: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
+  /** The row lock a write takes before it reads the item it decides on. */
+  lock: ReturnType<typeof vi.fn>;
   mailer: {
     ensureQueues: ReturnType<typeof vi.fn>;
     enqueueInTransaction: ReturnType<typeof vi.fn>;
@@ -71,7 +73,16 @@ interface Fakes {
 
 function build(
   overrides: Partial<typeof ITEM> = {},
-  options: { claims?: boolean; members?: string[]; comments?: number } = {},
+  options: {
+    claims?: boolean;
+    members?: string[];
+    comments?: number;
+    /*
+     * What another write committed while this one waited for the row: the
+     * item answers as before until the lock is taken and with this after it.
+     */
+    underTheLock?: Partial<typeof ITEM>;
+  } = {},
 ): Fakes {
   const stored = { ...ITEM, ...overrides };
 
@@ -117,6 +128,10 @@ function build(
     count: vi.fn().mockResolvedValue(options.comments ?? 0),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
+  const lock = vi.fn(async () => {
+    Object.assign(stored, options.underTheLock ?? {});
+    return 1;
+  });
   const order: string[] = [];
   const mailer = {
     ensureQueues: vi.fn(async () => {
@@ -140,6 +155,7 @@ function build(
     person,
     newsDelivery,
     newsComment,
+    $executeRaw: lock,
     // The transaction client is the same fake: what these tests check is that
     // the claim, the ledger, the audit entries and the job are written by one
     // call, not that Postgres isolates them.
@@ -161,6 +177,7 @@ function build(
     newsDelivery,
     newsComment,
     audit,
+    lock,
     mailer,
     texter,
     order,
@@ -676,6 +693,81 @@ describe("two board members editing the same item", () => {
         data: expect.objectContaining({ revision: { increment: 1 } }),
       }),
     );
+  });
+});
+
+describe("a save or a publish landing beside another one", () => {
+  /*
+   * Each case has another write commit while this one waits for the row,
+   * which is what a publish, a mailing or an edit landing in between looks
+   * like from inside the transaction. A decision taken on what the item was
+   * before the lock is the bug.
+   */
+
+  it("scans an edit against an item a publish has just made readable", async () => {
+    const fakes = build({}, { underTheLock: { published: true } });
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "news-1",
+        {
+          slug: "tvattstugan",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(fakes.news.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a rename of an item whose address a mailing has just sent", async () => {
+    const fakes = build(
+      {},
+      {
+        underTheLock: { emailQueuedAt: new Date("2026-09-01T09:00:00.000Z") },
+      },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "news-1",
+        {
+          slug: "tvattstugan-nya-tider",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Nya tider gäller från måndag."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("address-mailed");
+    expect(fakes.news.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("scans a publish against the words an edit has just saved", async () => {
+    const fakes = build(
+      {},
+      {
+        underTheLock: {
+          content: paragraphsContent(["Ring 811228-9874."]) as unknown,
+        },
+      },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.publish(
+        "news-1",
+        { published: true, sendEmail: true },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(fakes.news.updateMany).not.toHaveBeenCalled();
+    expect(fakes.news.update).not.toHaveBeenCalled();
   });
 });
 

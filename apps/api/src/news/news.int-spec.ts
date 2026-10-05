@@ -21,6 +21,7 @@ import {
 } from "../testing/integration-env";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
+import { paragraphsContent } from "../site/page-content";
 import { NewsWriteService } from "./news-write.service";
 
 /**
@@ -112,6 +113,11 @@ const slugs = {
   draft: `news-draft-${suffix}`,
   objected: `news-objected-${suffix}`,
   edited: `news-edited-${suffix}`,
+  editedUnderPublish: `news-edited-under-publish-${suffix}`,
+  publishedUnderEdit: `news-published-under-edit-${suffix}`,
+  renamedUnderMailing: `news-renamed-under-mailing-${suffix}`,
+  /** The address the rename above asks for, and must not get. */
+  renamedTo: `news-renamed-to-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -1185,6 +1191,155 @@ describe("two board members editing the same item", () => {
     });
     expect(JSON.stringify(stored.content)).toContain("Den första versionen.");
     expect(stored.revision).toBe(item.revision + 1);
+  });
+});
+
+/**
+ * Holds an item's row the way a publish or a save in flight does, writes
+ * `change` under it, and commits when `release` is called.
+ *
+ * Resolves once the change is written and the lock is held, so whatever the
+ * test starts next reads the item before the change is committed - which is
+ * the window a decision taken outside the lock would be taken in.
+ */
+async function holdingTheRow(
+  id: string,
+  change: { published?: boolean; emailQueuedAt?: Date; content?: object },
+): Promise<{ release: () => void; committed: Promise<unknown> }> {
+  let release = (): void => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = (): void => undefined;
+  const holding = new Promise<void>((resolve) => {
+    held = resolve;
+  });
+  const committed = prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
+      await tx.news.update({ where: { id }, data: change });
+      held();
+      await released;
+    },
+    { timeout: 20_000 },
+  );
+  await holding;
+  return { release, committed };
+}
+
+/**
+ * Waits until another session in this database is blocked on a lock.
+ *
+ * That is the write under test reaching the row the holder has, and only
+ * then is the holder released: releasing earlier would let the write read the
+ * committed change and pass for a reason that has nothing to do with the
+ * lock.
+ */
+async function untilSomebodyWaits(): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+    if (row !== undefined && row.waiting > 0n) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Nothing came to wait on the held row.");
+}
+
+describe("a save and a publish racing each other", () => {
+  const actor = { personId: boardMember.personId, channel: "WEB" as const };
+
+  it("scans the save against an item the publish made readable", async () => {
+    const item = await createNews(boardCookie, slugs.editedUnderPublish);
+    const holder = await holdingTheRow(item.id, { published: true });
+
+    const outcome = writes
+      .update(
+        item.id,
+        {
+          slug: slugs.editedUnderPublish,
+          title: `Nyhet ${slugs.editedUnderPublish}`,
+          content: paragraphsContent([SENTENCE_WITH_A_NUMBER]),
+        },
+        actor,
+      )
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    await untilSomebodyWaits();
+    holder.release();
+    await holder.committed;
+
+    expect(await outcome).toMatchObject({
+      reason: "personal-identity-number",
+    });
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { content: true },
+    });
+    expect(JSON.stringify(stored.content)).not.toContain(
+      LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER,
+    );
+  });
+
+  it("scans the publish against the words the save wrote", async () => {
+    const item = await createNews(boardCookie, slugs.publishedUnderEdit);
+    const holder = await holdingTheRow(item.id, {
+      content: paragraphsContent([SENTENCE_WITH_A_NUMBER]),
+    });
+
+    const outcome = writes.publish(item.id, { published: true }, actor).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    await untilSomebodyWaits();
+    holder.release();
+    await holder.committed;
+
+    expect(await outcome).toMatchObject({
+      reason: "personal-identity-number",
+    });
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { published: true },
+    });
+    expect(stored.published).toBe(false);
+  });
+
+  it("refuses the rename of an item whose address the mailing sent", async () => {
+    const item = await createNews(boardCookie, slugs.renamedUnderMailing);
+    const holder = await holdingTheRow(item.id, {
+      published: true,
+      emailQueuedAt: new Date(),
+    });
+
+    const outcome = writes
+      .update(
+        item.id,
+        {
+          slug: slugs.renamedTo,
+          title: `Nyhet ${slugs.renamedUnderMailing}`,
+          content: paragraphsContent(["Hej."]),
+        },
+        actor,
+      )
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    await untilSomebodyWaits();
+    holder.release();
+    await holder.committed;
+
+    expect(await outcome).toMatchObject({ reason: "address-mailed" });
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { slug: true },
+    });
+    expect(stored.slug).toBe(slugs.renamedUnderMailing);
   });
 });
 
