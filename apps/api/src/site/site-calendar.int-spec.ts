@@ -445,7 +445,8 @@ describe("what an anonymous visitor gets from the calendar", () => {
         "font-src 'self'; form-action 'self'; frame-ancestors 'self'",
     );
     expect(response.headers["cache-control"]).toBe("no-cache");
-    expect(response.headers["vary"]).toBe("cookie");
+    expect(response.headers["vary"]).toBe("cookie, accept-language");
+    expect(response.headers["referrer-policy"]).toBe("same-origin");
   });
 
   it("runs no script, sets no cookie and names no host but this one", async () => {

@@ -147,6 +147,25 @@ describe("a rendered page", () => {
     );
   });
 
+  it("treats a link's scheme case-blind when deciding it leaves the site", () => {
+    // The write path accepts an address written in capitals, and a link the
+    // check missed would tell the other host where the visitor came from.
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "paragraph",
+          runs: [{ text: "Boverket", link: "HTTPS://boverket.invalid" }],
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain(
+      '<a href="HTTPS://boverket.invalid" rel="noopener noreferrer">Boverket</a>',
+    );
+  });
+
   it("marks the runs a paragraph is written in", () => {
     const html = renderPage(
       chrome,
