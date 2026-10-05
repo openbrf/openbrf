@@ -1151,7 +1151,7 @@ describe("the resident-facing directory", () => {
       const { rows } = await boardRows(board);
       expect(
         rows.find((candidate) => candidate.key === leaving.id)?.movedOutOn,
-      ).not.toBeNull();
+      ).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     } finally {
       await prisma.residency.delete({ where: { id: leaving.id } });
     }

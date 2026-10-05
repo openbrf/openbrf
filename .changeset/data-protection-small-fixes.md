@@ -15,7 +15,7 @@ Smaller data protection fixes:
   refused.
 - The person page promises an erasure only where the nightly jobs will carry it
   out, not for a sitting board member, a resident or a system-role holder.
-- A board member no longer sees "Ta ut" on an entry they filed for the board into
-  their own apartment, which the take-out refused.
+- A board member no longer sees "Take out" on an entry they filed for the board
+  into their own apartment, which the take-out refused.
 - A file that a failed filing could not remove is logged, in the binder and the
   archive.
