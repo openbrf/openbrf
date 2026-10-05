@@ -5,9 +5,38 @@ const CONTROLS = "input, select, textarea, button, a[href]";
 
 interface Held {
   element: HTMLElement;
-  /** Which of the root's children held it, and which control inside that. */
+  /** Which of the root's children held it, and the identity of the control inside that. */
   child: number;
-  control: number;
+  identity: string;
+}
+
+/**
+ * What names a control across a rebuild: its tag, type and the first of id,
+ * name, aria-label, wrapping label text or own text. A control with none of
+ * these has no identity, and focus is not restored to it.
+ */
+function identify(control: Element): string | null {
+  const label =
+    control.id ||
+    control.getAttribute("name") ||
+    control.getAttribute("aria-label") ||
+    control.closest("label")?.textContent?.trim() ||
+    control.textContent?.trim();
+  if (!label) {
+    return null;
+  }
+  return `${control.tagName}:${control.getAttribute("type") ?? ""}:${label}`;
+}
+
+function find(
+  container: Element | undefined,
+  identity: string,
+): HTMLElement | null {
+  const matches = Array.from(
+    container?.querySelectorAll(CONTROLS) ?? [],
+  ).filter((each) => identify(each) === identity);
+  const only = matches.length === 1 ? matches[0] : undefined;
+  return only instanceof HTMLElement ? only : null;
 }
 
 /**
@@ -17,8 +46,9 @@ interface Held {
  * changes them, and the control that had focus goes with the old one. Call the
  * returned function just before the reloaded data is applied: it remembers
  * where focus is within the root. Once `applied` changes, focus goes to the
- * control in the same place of the new panel - unless the old one is still on
- * the page, or the user has moved focus elsewhere meanwhile.
+ * control of the new panel with the same identity (not the same position, as
+ * a save can add or remove controls) - unless there is none, the old one is
+ * still on the page, or the user has moved focus elsewhere meanwhile.
  */
 export function useFocusAcrossReload(applied: unknown): {
   rootRef: RefObject<HTMLDivElement | null>;
@@ -39,11 +69,9 @@ export function useFocusAcrossReload(applied: unknown): {
     if (child === -1) {
       return;
     }
-    const control = Array.from(
-      children[child]?.querySelectorAll(CONTROLS) ?? [],
-    ).indexOf(active);
-    if (control !== -1) {
-      held.current = { element: active, child, control };
+    const identity = active.matches(CONTROLS) ? identify(active) : null;
+    if (identity !== null) {
+      held.current = { element: active, child, identity };
     }
   }, []);
 
@@ -58,9 +86,8 @@ export function useFocusAcrossReload(applied: unknown): {
     if (active !== null && active !== document.body) {
       return;
     }
-    const controls = root.children[was.child]?.querySelectorAll(CONTROLS);
-    const target = controls?.[was.control];
-    if (target instanceof HTMLElement && !target.matches(":disabled")) {
+    const target = find(root.children[was.child], was.identity);
+    if (target !== null && !target.matches(":disabled")) {
       target.focus();
     }
   }, [applied]);
