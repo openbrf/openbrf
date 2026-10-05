@@ -112,6 +112,25 @@ describe("the news index", () => {
     const only = renderNewsIndex(chrome, onePage([ARTICLE]));
     expect(only).not.toContain("site-news-nav");
   });
+
+  it("names the pagination, so it is told apart from the main menu", () => {
+    const paged = {
+      items: [ARTICLE],
+      page: 2,
+      newer: 1,
+      older: 3,
+    };
+
+    expect(renderNewsIndex(chrome, paged)).toContain(
+      '<nav class="site-news-nav" aria-label="Nyhetssidor">',
+    );
+    expect(
+      renderNewsIndex(
+        { ...chrome, t: i18n.translatorFor("en"), locale: "en" },
+        paged,
+      ),
+    ).toContain('<nav class="site-news-nav" aria-label="News pages">');
+  });
 });
 
 describe("which page of the index a reader is shown", () => {

@@ -1019,6 +1019,8 @@ describe("reading the pages a few at a time", () => {
     // Sorted in front of every other page on the instance, so the first call
     // from the start of the list reads them in this order.
     const listed = [slugs.firstListed, slugs.secondListed, slugs.thirdListed];
+    const { _min } = await prisma.page.aggregate({ _min: { sortOrder: true } });
+    const lowest = (_min.sortOrder ?? 0) - listed.length;
     await prisma.page.createMany({
       data: listed.map((slug, index) => ({
         slug,
@@ -1026,7 +1028,7 @@ describe("reading the pages a few at a time", () => {
         content: { version: 1, blocks: [] },
         visibility: "PUBLIC" as const,
         published: false,
-        sortOrder: -1000 + index,
+        sortOrder: lowest + index,
       })),
     });
     const pages = app.get(PagesWriteService);

@@ -83,7 +83,7 @@ export function renderNewsIndex(
        * further in that direction.
        */}
       {page.newer === null && page.older === null ? null : (
-        <nav className="site-news-nav">
+        <nav className="site-news-nav" aria-label={t("news.site.pagination")}>
           {page.newer === null ? null : (
             <a href={newsIndexPath(page.newer)} rel="prev">
               {t("news.site.newer")}

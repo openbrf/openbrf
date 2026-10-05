@@ -3352,6 +3352,7 @@
       "allNews": "All news",
       "newer": "Newer news",
       "older": "Older news",
+      "pagination": "News pages",
       "empty": "Nothing has been written yet."
     }
   },
