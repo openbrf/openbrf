@@ -512,11 +512,12 @@ function checkMailDriver(value: Env, ctx: z.RefinementCtx): void {
 }
 
 /**
- * Every sign-in secret written into this repository: the development
+ * The sign-in secrets written into this repository that the length and
+ * variety floors below would not refuse on their own: the development
  * placeholder from `.env.example` and the value the unit suites load with.
- * Published, so a copy of one in production is a secret everybody has. The
- * end-to-end stacks' secrets are refused by their variety below, and a suite
- * holds every committed env file to that.
+ * Published, so a copy of one in production is a secret everybody has. Every
+ * other value written down is too short or too uniform, and a suite reads
+ * every tracked file to hold each of them to that.
  */
 const PUBLISHED_AUTH_SECRETS = new Set([
   "dev-only-secret-change-me",
@@ -558,7 +559,7 @@ function checkAuthSecret(
     });
   };
   if (PUBLISHED_AUTH_SECRETS.has(secret)) {
-    refuse("is published in the OpenBRF repository");
+    refuse("is published in the Open BRF repository");
   } else if (secret.length < PRODUCTION_AUTH_SECRET_MIN) {
     refuse(
       `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in production`,

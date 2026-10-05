@@ -1,4 +1,6 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -472,23 +474,44 @@ describe("the connection pool's size", () => {
 });
 
 /**
- * Every sign-in secret in an env file committed to this repository, by file.
- * Read from the files themselves, so a stack added later is held to the check
- * without anybody remembering to list it.
+ * A value written after the variable's name: quoted, or bare up to the end of
+ * the word in an env file, a workflow or a shell line. Not after `.`, `$` or
+ * `{`, which read the variable rather than set it.
+ */
+const SECRET_ASSIGNMENT =
+  /(?<![\w.${])BETTER_AUTH_SECRET\s*[:=]\s*(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'#,;)}]+))/g;
+
+/** Source files, where a bare word after the name is code rather than a value. */
+const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
+
+/**
+ * Every sign-in secret written into a file this repository tracks, as
+ * `file:line` and the value. Read from git's own list of files, so a value
+ * added anywhere - an env file, a workflow, a test fixture - is held to the
+ * check without anybody remembering to list it. A value that expands
+ * something (`$(openssl rand ...)`, `${{ ... }}`) is generated, not written.
  */
 function committedSecrets(): [string, string][] {
-  const root = join(process.cwd(), "../..");
-  const files = [
-    ".env.example",
-    ...readdirSync(join(root, "e2e"))
-      .filter((name) => name.endsWith(".env"))
-      .map((name) => `e2e/${name}`),
-  ];
-  return files.flatMap((file): [string, string][] => {
-    const line = /^BETTER_AUTH_SECRET="?([^"\n]*)"?$/m.exec(
-      readFileSync(join(root, file), "utf8"),
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" });
+  const root = git(process.cwd(), "rev-parse", "--show-toplevel").trim();
+  const files = git(root, "grep", "-l", "-I", "-z", "BETTER_AUTH_SECRET")
+    .split("\0")
+    .filter((file) => file !== "");
+
+  return files.flatMap((file) => {
+    const text = readFileSync(join(root, file), "utf8");
+    return [...text.matchAll(SECRET_ASSIGNMENT)].flatMap(
+      (match): [string, string][] => {
+        const value =
+          match[1] ?? match[2] ?? (SOURCE_FILE.test(file) ? "" : match[3]);
+        if (value === undefined || value === "" || value.startsWith("$")) {
+          return [];
+        }
+        const line = text.slice(0, match.index).split("\n").length;
+        return [[`${file}:${String(line)}`, value]];
+      },
     );
-    return line?.[1] ? [[file, line[1]]] : [];
   });
 }
 
@@ -512,6 +535,14 @@ describe("the sign-in secret in production", () => {
     expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
   });
 
+  it("finds the secrets written into the env example and the CI workflow", () => {
+    // A scan that matched nothing would leave the case below with nothing to
+    // check, and pass.
+    const files = committedSecrets().map(([where]) => where.split(":")[0]);
+    expect(files).toContain(".env.example");
+    expect(files).toContain(".github/workflows/ci.yml");
+  });
+
   it.each(committedSecrets())(
     "refuses the secret committed in %s",
     (_file, secret) => {
@@ -522,7 +553,9 @@ describe("the sign-in secret in production", () => {
   it.each([
     ["one exactly at the floor", "k7Qx9mZ2".repeat(4)],
     ["one of eight different characters", "abcdefgh".repeat(6)],
-    ["a generated one", "pN3r+X0wq8Lc2VjH9sYbTt5aKfGm1eUd4zRiO7lW6nQyBhJk"],
+    // Generated here rather than written down, so this file holds no secret
+    // production would take.
+    ["a generated one", randomBytes(36).toString("base64")],
   ])("takes %s", (_name, secret) => {
     expect(production(secret).BETTER_AUTH_SECRET).toBe(secret);
   });
