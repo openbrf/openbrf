@@ -8,6 +8,7 @@ import { PrismaService } from "../database/prisma.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
   groupsFor,
+  isWrittenIntoGroup,
   livesHere,
   roomFor,
   type ChatRoom,
@@ -241,7 +242,7 @@ export class ChatGroupService {
      * where everybody else gets the list, and that difference is the one the
      * check is there to hide.
      */
-    if (await this.isWrittenIn(group.id, personId)) {
+    if (await isWrittenIntoGroup(this.prisma, group.id, personId)) {
       return this.members(group.id);
     }
 
@@ -286,11 +287,7 @@ export class ChatGroupService {
         );
       }
 
-      const standing = await tx.chatGroupMember.findUnique({
-        where: { chatId_personId: { chatId: group.id, personId } },
-        select: { chatId: true },
-      });
-      if (standing !== null) {
+      if (await isWrittenIntoGroup(tx, group.id, personId)) {
         return false;
       }
 
@@ -492,18 +489,6 @@ export class ChatGroupService {
    * Whether this person is one {@link candidates} would offer, the
    * membership of the room aside.
    */
-  /** Whether the room has a row for this person, whether or not they still live here. */
-  private async isWrittenIn(
-    chatId: string,
-    personId: string,
-  ): Promise<boolean> {
-    const row = await this.prisma.chatGroupMember.findUnique({
-      where: { chatId_personId: { chatId, personId } },
-      select: { chatId: true },
-    });
-    return row !== null;
-  }
-
   private async isCandidate(personId: string, now: Date): Promise<boolean> {
     const person = await this.prisma.person.findFirst({
       where: {

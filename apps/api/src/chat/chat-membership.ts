@@ -144,14 +144,28 @@ export async function isGroupMember(
   personId: string,
   now: Date,
 ): Promise<boolean> {
+  return (
+    (await isWrittenIntoGroup(db, chatId, personId)) &&
+    livesHere(db, personId, now)
+  );
+}
+
+/**
+ * Whether the group has a row for this person, whether or not they still live
+ * here. Not an answer to whether they are in it, which is
+ * {@link isGroupMember}: for the acts that put somebody into a group, where a
+ * row a moved-out person left behind is still the row that is there.
+ */
+export async function isWrittenIntoGroup(
+  db: ChatDbClient,
+  chatId: string,
+  personId: string,
+): Promise<boolean> {
   const row = await db.chatGroupMember.findUnique({
     where: { chatId_personId: { chatId, personId } },
     select: { chatId: true },
   });
-  if (row === null) {
-    return false;
-  }
-  return livesHere(db, personId, now);
+  return row !== null;
 }
 
 /**
