@@ -162,7 +162,9 @@ The application's container assembles its own connection URL from the runtime
 role's password and starts. It is never given the owner's credentials or the
 superuser's, and it refuses to start if it is: a `POSTGRES_PASSWORD`, an
 `OWNER_DB_PASSWORD`, or a `DATABASE_URL` beside the runtime connection stops it
-with a message that says which. Once started, it asks the database whether the
+with a message that says which. The application asks the same again before it
+connects, for a platform that starts it without the image's entrypoint. Once
+started, it asks the database whether the
 role it connected as is a constrained one, and refuses to serve if the answer
 is no - a superuser, a role that owns the database or its tables or can create
 objects in its schemas, or one that holds any privilege the hardening takes
