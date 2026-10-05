@@ -1188,9 +1188,7 @@ describe("the initial supply", () => {
 
     // A tenant-ownership that has ceased appears with no HOLDER row.
     const holders = rowsOf(supply, "HOLDER");
-    expect(holders.filter((row) => row.apartmentKey === ceasedKey)).toEqual(
-      [],
-    );
+    expect(holders.filter((row) => row.apartmentKey === ceasedKey)).toEqual([]);
 
     // The decision from 2014 admitted a membership that has ended; this
     // holding had none, so the cell is empty.

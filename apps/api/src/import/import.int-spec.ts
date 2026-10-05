@@ -739,9 +739,7 @@ describe("uploading a CSV", () => {
     };
     // The header is row 1 and row 3 is blank, so the two people are on rows
     // 2 and 4 of the sheet - and still the first and second data rows.
-    expect(
-      preview.rows.map((row) => [row.rowNumber, row.sourceRow]),
-    ).toEqual([
+    expect(preview.rows.map((row) => [row.rowNumber, row.sourceRow])).toEqual([
       [1, 2],
       [2, 4],
     ]);

@@ -375,7 +375,8 @@ export class MemberChargeService {
        */
       const vatRatePercent = readVatRate(
         vatTreatment,
-        input.vatRatePercent === undefined && vatTreatment === charge.vatTreatment
+        input.vatRatePercent === undefined &&
+          vatTreatment === charge.vatTreatment
           ? charge.vatRatePercent
           : (input.vatRatePercent ?? null),
       );

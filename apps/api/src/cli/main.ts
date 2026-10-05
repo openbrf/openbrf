@@ -147,7 +147,9 @@ async function runMemberRegister(
       ...(personIds.length === 0 ? {} : { personIds }),
     });
 
-  console.log(`Checked the member register of ${String(report.checked)} people.`);
+  console.log(
+    `Checked the member register of ${String(report.checked)} people.`,
+  );
   for (const person of report.disagreements) {
     console.log(
       `${person.personId}: ${report.applied ? "appended" : "would append"} ` +
@@ -163,7 +165,9 @@ async function runMemberRegister(
   if (report.disagreements.length === 0) {
     console.log("The register agrees with the tenant-ownerships held.");
   } else if (!report.applied) {
-    console.log("Nothing was written. Run again with --apply to append these rows.");
+    console.log(
+      "Nothing was written. Run again with --apply to append these rows.",
+    );
   }
   return 0;
 }

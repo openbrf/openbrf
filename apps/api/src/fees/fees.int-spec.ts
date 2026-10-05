@@ -1160,9 +1160,7 @@ describe("rates and the runs that billed them", () => {
 
     const response = await issue("2026-01-01", "2026-02-28");
     expect(response.statusCode).toBe(422);
-    expect(response.json<{ reason: string }>().reason).toBe(
-      "amount-too-large",
-    );
+    expect(response.json<{ reason: string }>().reason).toBe("amount-too-large");
 
     await clearFees();
   });
