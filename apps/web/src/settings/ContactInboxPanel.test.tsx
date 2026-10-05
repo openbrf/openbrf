@@ -291,4 +291,165 @@ describe("the contact inbox", () => {
       expect(screen.getByText("Inga meddelanden har kommit in.")).toBeTruthy();
     });
   });
+
+  it("removes a selection larger than one request may name in parts", async () => {
+    // Five pages of fifty, all on screen: more than the server takes at once.
+    const many = Array.from({ length: 250 }, (_, index) => ({
+      ...MESSAGE,
+      id: `message-${String(index + 1)}`,
+    }));
+    fetchContactSubmissions.mockResolvedValue(page(many));
+    deleteContactSubmissions.mockImplementation((ids: readonly string[]) =>
+      Promise.resolve({ ok: true, value: { removed: ids.length } }),
+    );
+
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")).toHaveLength(250);
+    });
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Välj alla meddelanden som visas" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Radera markerade (250)" }),
+    );
+    fetchContactSubmissions.mockResolvedValue(page([]));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Radera markerade (250)" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Inga meddelanden har kommit in.")).toBeTruthy();
+    });
+    expect(deleteContactSubmissions).toHaveBeenCalledTimes(2);
+    expect(deleteContactSubmissions.mock.calls[0]?.[0]).toEqual(
+      many.slice(0, 200).map((one) => one.id),
+    );
+    expect(deleteContactSubmissions.mock.calls[1]?.[0]).toEqual(
+      many.slice(200).map((one) => one.id),
+    );
+  });
+
+  it("keeps what is shown when the next page cannot be read, and tries again", async () => {
+    const later = { ...MESSAGE, id: "message-2", name: "Ada Al" };
+    let failNext = true;
+    fetchContactSubmissions.mockImplementation((cursor?: string) => {
+      if (cursor === undefined) {
+        return Promise.resolve(page([MESSAGE], "after-1"));
+      }
+      if (failNext) {
+        failNext = false;
+        return Promise.resolve({
+          ok: false,
+          failure: { status: 500, reason: "unexpected" },
+        });
+      }
+      return Promise.resolve(page([later]));
+    });
+
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(row()).toBeTruthy();
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa fler meddelanden" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Fler meddelanden kunde inte hämtas just nu. De som visas är kvar, och du kan försöka igen.",
+        ),
+      ).toBeTruthy();
+    });
+    expect(within(row()).getByText("Bo Ek")).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Meddelandena kunde inte hämtas just nu. Ladda om sidan.",
+      ),
+    ).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa fler meddelanden" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    });
+    expect(
+      screen.queryByText(
+        "Fler meddelanden kunde inte hämtas just nu. De som visas är kvar, och du kan försöka igen.",
+      ),
+    ).toBeNull();
+  });
+
+  it("shows a message once when it comes round again on the next page", async () => {
+    // Handled by somebody else since the first page, so it now sorts after
+    // the cursor as well as having been shown before it.
+    const later = { ...MESSAGE, id: "message-2", name: "Ada Al" };
+    fetchContactSubmissions.mockImplementation((cursor?: string) =>
+      Promise.resolve(
+        cursor === undefined
+          ? page([MESSAGE], "after-1")
+          : page([later, { ...MESSAGE, handled: true }]),
+      ),
+    );
+
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(row()).toBeTruthy();
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa fler meddelanden" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    });
+    expect(screen.getAllByText("Bo Ek")).toHaveLength(1);
+  });
+
+  it("stays busy until the list is read again after an action", async () => {
+    fetchContactSubmissions.mockResolvedValue(page([MESSAGE], "after-1"));
+    let answer: (value: unknown) => void = () => undefined;
+
+    render(<ContactInboxPanel />);
+    await waitFor(() => {
+      expect(row()).toBeTruthy();
+    });
+
+    fetchContactSubmissions.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Markera som hanterat" }),
+    );
+
+    // Saved, and the list not back yet: reading on now would append to a list
+    // about to be replaced.
+    await waitFor(() => {
+      expect(fetchContactSubmissions).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      screen
+        .getByRole("button", { name: "Visa fler meddelanden" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    answer(page([{ ...MESSAGE, handled: true }], "after-1"));
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: "Visa fler meddelanden" })
+          .hasAttribute("disabled"),
+      ).toBe(false);
+    });
+  });
 });

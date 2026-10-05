@@ -1384,6 +1384,7 @@
       "counts": "Waiting: {{unhandled}}. In all: {{total}}.",
       "showMore": "Show more messages",
       "loadingMore": "Loading...",
+      "moreFailed": "More messages could not be read just now. The ones shown are still here, and you can try again.",
       "select": "Select this message",
       "selectAll": "Select every message shown",
       "deleteSelected": "Delete selected ({{count}})",

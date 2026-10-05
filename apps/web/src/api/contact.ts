@@ -49,13 +49,6 @@ export function fetchContactSubmissions(
 }
 
 /**
- * Marks a message dealt with, or puts it back.
- *
- * Both directions, because a board member who ticks the wrong row has to be
- * able to untick it: the flag is the board's note to itself about its own
- * inbox, not a record of anything that happened.
- */
-/**
  * Removes a message for good.
  *
  * The one way these rows leave the instance, and the only bounded retention
@@ -72,13 +65,23 @@ export function deleteContactSubmission(
   );
 }
 
-/** Removes several messages for good, and answers how many were there. */
+/**
+ * Removes several messages for good, and answers how many were there. The
+ * server takes at most `MAX_CONTACT_SUBMISSIONS_PER_REMOVAL` at a time.
+ */
 export function deleteContactSubmissions(
   ids: readonly string[],
 ): Promise<ApiResult<{ removed: number }>> {
   return apiRequest("POST", "/api/contact-submissions/remove", { ids });
 }
 
+/**
+ * Marks a message dealt with, or puts it back.
+ *
+ * Both directions, because a board member who ticks the wrong row has to be
+ * able to untick it: the flag is the board's note to itself about its own
+ * inbox, not a record of anything that happened.
+ */
 export function setContactSubmissionHandled(
   id: string,
   handled: boolean,

@@ -119,9 +119,6 @@ export interface ContactInboxPage {
 /** How many messages the inbox hands over at once. */
 export const INBOX_PAGE_SIZE = 50;
 
-/** How many messages one bulk removal may name. */
-export const REMOVE_AT_ONCE = 200;
-
 @Injectable()
 export class ContactService implements OnModuleInit {
   private readonly logger = new Logger(ContactService.name);
@@ -157,12 +154,16 @@ export class ContactService implements OnModuleInit {
         await this.notifyBoardMember(data.submissionId, data.personId);
       },
     );
-    await this.jobs.work<ContactFanoutJob>(CONTACT_ABANDONED_QUEUE, (data) => {
-      // The identifiers only, as everywhere else in this file.
-      this.logger.error(
-        `Gave up telling the board about contact submission ${data.submissionId}; it is in the inbox.`,
-      );
-    });
+    // Both queues give up into this one, and both payloads name the message.
+    await this.jobs.work<ContactFanoutJob | ContactNoticeJob>(
+      CONTACT_ABANDONED_QUEUE,
+      (data) => {
+        // The identifiers only, as everywhere else in this file.
+        this.logger.error(
+          `Gave up telling the board about contact submission ${data.submissionId}; it is in the inbox.`,
+        );
+      },
+    );
   }
 
   /**
@@ -234,8 +235,13 @@ export class ContactService implements OnModuleInit {
    * Paged rather than cut off, and counted, so a burst of messages cannot hide
    * the ones behind it: the board is told how many are waiting and can read on
    * past any number of them. The cursor is the last row's own sort key rather
-   * than its identifier, so a row handled or removed since the last page moves
-   * nothing and loses nothing.
+   * than its identifier, so a row removed since the last page loses nothing.
+   *
+   * A row handled or reopened since then does move, because whether it is
+   * handled is part of the order: one marked handled comes round again further
+   * on, and one reopened lands before the cursor and is not shown until the
+   * inbox is read from the start. The screen drops a row it already shows, and
+   * the counts above the list are always current.
    */
   async list(cursor?: string): Promise<ContactInboxPage> {
     const after = cursor === undefined ? null : readInboxCursor(cursor);

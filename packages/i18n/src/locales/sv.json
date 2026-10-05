@@ -1384,6 +1384,7 @@
       "counts": "Väntar: {{unhandled}}. Totalt: {{total}}.",
       "showMore": "Visa fler meddelanden",
       "loadingMore": "Hämtar...",
+      "moreFailed": "Fler meddelanden kunde inte hämtas just nu. De som visas är kvar, och du kan försöka igen.",
       "select": "Välj meddelandet",
       "selectAll": "Välj alla meddelanden som visas",
       "deleteSelected": "Radera markerade ({{count}})",

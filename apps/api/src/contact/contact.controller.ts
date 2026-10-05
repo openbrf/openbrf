@@ -10,6 +10,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -18,13 +19,15 @@ import {
   type ContactInboxPage,
   ContactService,
   type ContactSubmissionView,
-  REMOVE_AT_ONCE,
 } from "./contact.service";
 
 const handledSchema = z.object({ handled: z.boolean() });
 
 const removeSchema = z.object({
-  ids: z.array(z.string().min(1).max(64)).min(1).max(REMOVE_AT_ONCE),
+  ids: z
+    .array(z.string().min(1).max(64))
+    .min(1)
+    .max(MAX_CONTACT_SUBMISSIONS_PER_REMOVAL),
 });
 
 const listQuerySchema = z.object({

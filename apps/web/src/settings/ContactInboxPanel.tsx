@@ -1,6 +1,8 @@
+import { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "@openbrf/shared";
 import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiResult } from "../api/client";
 import type { ContactSubmission } from "../api/contact";
 import {
   deleteContactSubmission,
@@ -29,7 +31,10 @@ interface Loaded {
   total: number;
   /** Where the next page starts, or null when everything is shown. */
   nextCursor: string | null;
+  /** The first page could not be read, so there is nothing to show. */
   loadFailed: boolean;
+  /** A later page could not be read. What is shown stays, and can be read on. */
+  moreFailed: boolean;
 }
 
 const EMPTY: Loaded = {
@@ -39,6 +44,7 @@ const EMPTY: Loaded = {
   total: 0,
   nextCursor: null,
   loadFailed: false,
+  moreFailed: false,
 };
 
 const UPDATE_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -55,25 +61,68 @@ const UPDATE_FAILURES: Readonly<Record<string, TranslationKey>> = {
  */
 async function read(shown?: Loaded): Promise<Loaded> {
   const result = await fetchContactSubmissions(shown?.nextCursor ?? undefined);
-  if (!result.ok && shown !== undefined) {
-    return { ...shown, loadFailed: true };
+  if (!result.ok) {
+    /*
+     * The first page is named rather than rendered as an empty inbox. The two
+     * look identical and mean opposite things: "nobody has written" invites the
+     * board to close the screen, while a failed read means somebody may have
+     * been waiting for days behind an error nobody was shown.
+     *
+     * A later page keeps what is already on screen, and the way to try again.
+     */
+    return shown === undefined
+      ? { ...EMPTY, ready: true, loadFailed: true }
+      : { ...shown, moreFailed: true };
   }
+
+  /*
+   * Marking a message handled moves it in the inbox order, so a message another
+   * board member handled since the last page can come round again on this one.
+   * It is shown once.
+   */
+  const earlier = shown?.submissions ?? [];
+  const known = new Set(earlier.map((one) => one.id));
   return {
     ready: true,
-    submissions: result.ok
-      ? [...(shown?.submissions ?? []), ...result.value.submissions]
-      : [],
-    unhandled: result.ok ? result.value.unhandled : 0,
-    total: result.ok ? result.value.total : 0,
-    nextCursor: result.ok ? result.value.nextCursor : null,
-    /*
-     * Named rather than rendered as an empty inbox. The two look identical and
-     * mean opposite things: "nobody has written" invites the board to close the
-     * screen, while a failed read means somebody may have been waiting for days
-     * behind an error nobody was shown.
-     */
-    loadFailed: !result.ok,
+    submissions: [
+      ...earlier,
+      ...result.value.submissions.filter((one) => !known.has(one.id)),
+    ],
+    unhandled: result.value.unhandled,
+    total: result.value.total,
+    nextCursor: result.value.nextCursor,
+    loadFailed: false,
+    moreFailed: false,
   };
+}
+
+/**
+ * Removes the selection in parts the server accepts, and answers how many were
+ * there.
+ *
+ * Reading on page after page can put more messages on screen than one removal
+ * may name, and "select every message shown" means every one of them. A part
+ * that fails stops the rest: the list is read again either way, so the board
+ * sees which messages are left.
+ */
+async function removeInParts(
+  ids: readonly string[],
+): Promise<ApiResult<{ removed: number }>> {
+  let removed = 0;
+  for (
+    let start = 0;
+    start < ids.length;
+    start += MAX_CONTACT_SUBMISSIONS_PER_REMOVAL
+  ) {
+    const result = await deleteContactSubmissions(
+      ids.slice(start, start + MAX_CONTACT_SUBMISSIONS_PER_REMOVAL),
+    );
+    if (!result.ok) {
+      return result;
+    }
+    removed += result.value.removed;
+  }
+  return { ok: true, value: { removed } };
 }
 
 /**
@@ -110,7 +159,7 @@ export function ContactInboxPanel({
 
   const update = useSaveAction(setContactSubmissionHandled);
   const remove = useSaveAction(deleteContactSubmission);
-  const removeMany = useSaveAction(deleteContactSubmissions);
+  const removeMany = useSaveAction(removeInParts);
 
   useEffect(() => {
     // The effect owns its own call and drops an answer that arrives after the
@@ -131,12 +180,17 @@ export function ContactInboxPanel({
    * list in front of the board is out of date - somebody else has already dealt
    * with the message, or removed it - and leaving the old row on screen would
    * invite them to press the same button again.
+   *
+   * The panel stays busy until the list is back, so nothing is pressed against
+   * a list about to be replaced.
    */
   const settle = (): void => {
-    setPendingId(null);
     setSelected(new Set());
     setConfirmingMany(false);
-    void read().then(setLoaded);
+    void read().then((next) => {
+      setLoaded(next);
+      setPendingId(null);
+    });
   };
 
   const onShowMore = (): void => {
@@ -196,8 +250,17 @@ export function ContactInboxPanel({
         : removeMany.state.kind === "failed"
           ? removeMany.state.failure
           : null;
-  const { ready, submissions, unhandled, total, nextCursor, loadFailed } =
-    loaded;
+  const {
+    ready,
+    submissions,
+    unhandled,
+    total,
+    nextCursor,
+    loadFailed,
+    moreFailed,
+  } = loaded;
+  /** Something is on its way that the list in front of the board would miss. */
+  const busy = pendingId !== null || loadingMore;
   const allSelected =
     submissions.length > 0 && submissions.every((one) => selected.has(one.id));
 
@@ -225,7 +288,7 @@ export function ContactInboxPanel({
           <input
             type="checkbox"
             checked={allSelected}
-            disabled={pendingId !== null}
+            disabled={busy}
             onChange={(event) => {
               setSelected(
                 new Set(
@@ -243,7 +306,7 @@ export function ContactInboxPanel({
           <>
             <button
               type="button"
-              disabled={pendingId !== null}
+              disabled={busy}
               onClick={onRemoveSelected}
               className={CAUTION_BUTTON}
             >
@@ -267,7 +330,7 @@ export function ContactInboxPanel({
           <MessageRow
             key={submission.id}
             submission={submission}
-            busy={pendingId !== null}
+            busy={busy}
             saving={pendingId === submission.id}
             selected={selected.has(submission.id)}
             onSelect={(on) => {
@@ -284,16 +347,23 @@ export function ContactInboxPanel({
       </ul>
 
       {nextCursor === null ? null : (
-        <button
-          type="button"
-          disabled={loadingMore || pendingId !== null}
-          onClick={onShowMore}
-          className={`${SECONDARY_BUTTON} self-start`}
-        >
-          {loadingMore
-            ? t("settings.contactInbox.loadingMore")
-            : t("settings.contactInbox.showMore")}
-        </button>
+        <div className="flex flex-col items-start gap-2">
+          {moreFailed ? (
+            <Notice tone="danger" live>
+              {t("settings.contactInbox.moreFailed")}
+            </Notice>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onShowMore}
+            className={SECONDARY_BUTTON}
+          >
+            {loadingMore
+              ? t("settings.contactInbox.loadingMore")
+              : t("settings.contactInbox.showMore")}
+          </button>
+        </div>
       )}
     </div>
   );
