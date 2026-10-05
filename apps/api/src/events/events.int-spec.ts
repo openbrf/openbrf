@@ -1203,6 +1203,112 @@ describe("a date called off or put back while an edit drops it", () => {
 });
 
 /**
+ * A series published while an edit or a removal of it is writing.
+ *
+ * Publication reads the series, checks it for a personal identity number, and
+ * writes `published`. An edit that committed between the read and the write put
+ * a number into text the check had passed, and published it. A removal that did
+ * the same left the write matching no row, and the caller was answered with a
+ * 500.
+ *
+ * Played out in that order, as above: the test takes the series' row in a
+ * transaction it holds open and writes what the edit or the removal would,
+ * sends the publication, waits until the database says it is queued behind that
+ * transaction, and commits.
+ */
+describe("a series published while it is being edited or removed", () => {
+  async function whileHeld<T>(
+    eventId: string,
+    write: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    request: () => Promise<T>,
+  ): Promise<T> {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await tx.$queryRaw`SELECT id FROM event WHERE id = ${eventId} FOR UPDATE`;
+        await write(tx);
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    try {
+      const answering = request();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      return answer;
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+  }
+
+  function publish(eventId: string) {
+    return inject({
+      method: "POST",
+      url: `/api/events/${eventId}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("refuses a personal identity number an edit put in while it was queued", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Publicerad under redigering ${suffix}`,
+    });
+
+    const answer = await whileHeld(
+      created.id,
+      (tx) =>
+        tx.event.update({
+          where: { id: created.id },
+          data: { description: "Kontakta Anna, 811228-9874, om du undrar." },
+        }),
+      () => publish(created.id),
+    );
+
+    expect(answer.statusCode).toBe(422);
+    expect(answer.json<{ reason: string }>().reason).toBe(
+      "personal-identity-number",
+    );
+    expect(answer.body).not.toContain("811228");
+    const row = await prisma.event.findUnique({
+      where: { id: created.id },
+      select: { published: true },
+    });
+    expect(row?.published).toBe(false);
+  });
+
+  it("answers a publication of a series removed while it was queued as not found", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Publicerad och borttagen ${suffix}`,
+    });
+
+    const answer = await whileHeld(
+      created.id,
+      (tx) => tx.event.delete({ where: { id: created.id } }),
+      () => publish(created.id),
+    );
+
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe("not-found");
+  });
+});
+
+/**
  * A date called off while somebody is signing up to it.
  *
  * A sign-up reads that the date stands and inserts its row behind the date's
