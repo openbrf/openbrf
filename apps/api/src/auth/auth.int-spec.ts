@@ -350,6 +350,60 @@ describe("magic link and the second-factor policy", () => {
     expect(sent).toBe(true);
   }, 60_000);
 
+  it("still waits for a delivery when the HTTP server cannot be closed", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.getHttpAdapter().getInstance().ready();
+
+    const database = closing.get(PrismaService);
+    let sent = false;
+    closing.get(MailService).send = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await database.$queryRaw`SELECT 1`;
+      sent = true;
+      return { messageId: null };
+    }) as MailService["send"];
+
+    // The first close is the auth hook's; Nest's own afterwards goes through.
+    const adapter = closing.getHttpAdapter();
+    const close = adapter.close.bind(adapter);
+    let refused = false;
+    adapter.close = () => {
+      if (refused) {
+        return close();
+      }
+      refused = true;
+      return Promise.reject(
+        Object.assign(new Error("Server is not running."), {
+          code: "ERR_SERVER_NOT_RUNNING",
+        }),
+      );
+    };
+    const warn = vi.spyOn(Logger.prototype, "warn");
+
+    try {
+      await adapter.getInstance().inject({
+        method: "POST",
+        url: "/api/auth/sign-in/magic-link",
+        payload: { email: plain.email },
+      });
+
+      await closing.close();
+
+      expect(sent).toBe(true);
+      expect(
+        warn.mock.calls.map(([message]) => String(message)),
+      ).toContainEqual(expect.stringContaining("could not be closed"));
+    } finally {
+      warn.mockRestore();
+    }
+  }, 60_000);
+
   /**
    * Starts an application, holds a sign-in request inside the server (accepted
    * but not yet answered, with no delivery started) and closes the application

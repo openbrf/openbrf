@@ -15,7 +15,7 @@ import { PrincipalService } from "../authorization/principal.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
-import { failureName } from "../logging/failure";
+import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
 import {
@@ -153,6 +153,9 @@ export class AuthService implements OnModuleDestroy {
    * the close until the keep-alive timeout, so idle connections are reaped
    * again while the close runs. What is still open after HTTP_CLOSE_GRACE_MS
    * is dropped.
+   *
+   * A close that fails is logged and not raised: the deliveries are waited for
+   * all the same, since that is what this hook is for.
    */
   private async closeHttpServer(): Promise<void> {
     const adapter = this.httpAdapterHost.httpAdapter;
@@ -173,6 +176,11 @@ export class AuthService implements OnModuleDestroy {
     }, HTTP_CLOSE_GRACE_MS);
     try {
       await closed;
+    } catch (cause) {
+      this.logger.warn(
+        `The HTTP server could not be closed at shutdown: ${failureName(cause)}`,
+        failureFrames(cause),
+      );
     } finally {
       clearInterval(reaper);
       clearTimeout(deadline);
