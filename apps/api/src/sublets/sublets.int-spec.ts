@@ -517,6 +517,27 @@ describe("who may ask for the board's consent", () => {
     expect(response.statusCode).toBe(422);
     expect(response.json<{ reason: string }>().reason).toBe("invalid-period");
   });
+
+  it("refuses a period whose end is a mistyped year", async () => {
+    // The end the application is erased after, so an end in 9999 would keep
+    // the applicant's reason for good.
+    const response = await apply(memberCookie, {
+      periodFrom: dayText(30),
+      periodTo: "9999-12-31",
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "period-too-far-ahead",
+    );
+
+    // Four years out is a letting somebody may plan, and is taken.
+    const planned = await apply(memberCookie, {
+      periodFrom: dayText(30),
+      periodTo: dayText(4 * 365),
+    });
+    expect(planned.statusCode).toBe(201);
+  });
 });
 
 describe("who may read which half", () => {

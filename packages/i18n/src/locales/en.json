@@ -3610,6 +3610,7 @@
       "alreadyClosed": "The board has answered this application, so there is nothing to change.",
       "notRefused": "A rent tribunal decision can be recorded only against an application the board has refused.",
       "invalidPeriod": "The period ends before it begins.",
+      "periodTooFarAhead": "The period may end at most five years from today.",
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."

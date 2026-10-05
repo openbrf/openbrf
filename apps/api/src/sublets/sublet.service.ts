@@ -791,6 +791,23 @@ export class SubletService {
         "invalid-period",
       );
     }
+    /*
+     * Bounded, because the period's end is what the application is erased
+     * after: a letting "until 9999-12-31", withdrawn the next day, would keep
+     * the applicant's own reason for the rest of the instance's life. Five years
+     * is generous rather than tight - consent is given for a letting of a year
+     * or two at a time - and the number is not a rule about subletting: it is
+     * the distance past which a date is a mistyped year far more often than a
+     * plan.
+     */
+    const today = localDayOf(new Date());
+    const horizon = { ...today, year: today.year + SUBLET_HORIZON_YEARS };
+    if (compareLocalDays(parsedTo, horizon) > 0) {
+      throw new SubletError(
+        "The period ends too far ahead.",
+        "period-too-far-ahead",
+      );
+    }
     return { from: parsedFrom, to: parsedTo };
   }
 
@@ -892,6 +909,9 @@ export class SubletService {
     }
   }
 }
+
+/** How far past today a period applied for may end. See `requirePeriod`. */
+const SUBLET_HORIZON_YEARS = 5;
 
 const APARTMENT_SELECT = {
   id: true,

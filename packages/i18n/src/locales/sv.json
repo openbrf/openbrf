@@ -3610,6 +3610,7 @@
       "alreadyClosed": "Styrelsen har svarat på den här ansökan, så det finns inget att ändra.",
       "notRefused": "Ett beslut från hyresnämnden kan bara antecknas på en ansökan som styrelsen har vägrat.",
       "invalidPeriod": "Perioden slutar innan den börjar.",
+      "periodTooFarAhead": "Perioden får sluta högst fem år från i dag.",
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
