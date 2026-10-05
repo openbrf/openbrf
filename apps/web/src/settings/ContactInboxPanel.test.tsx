@@ -412,6 +412,114 @@ describe("the contact inbox", () => {
     expect(screen.getAllByText("Bo Ek")).toHaveLength(1);
   });
 
+  describe("on a page past the first", () => {
+    const later = { ...MESSAGE, id: "message-2", name: "Ada Al" };
+
+    /** Two pages, the second one shown, and the calls so far forgotten. */
+    async function showSecondPage(): Promise<void> {
+      fetchContactSubmissions.mockImplementation((cursor?: string) =>
+        Promise.resolve(
+          cursor === undefined ? page([MESSAGE], "after-1") : page([later]),
+        ),
+      );
+      render(<ContactInboxPanel />);
+      await waitFor(() => {
+        expect(row()).toBeTruthy();
+      });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Visa fler meddelanden" }),
+      );
+      await waitFor(() => {
+        expect(screen.getAllByRole("listitem")).toHaveLength(2);
+      });
+      fetchContactSubmissions.mockClear();
+    }
+
+    it("stays on it after a message is marked handled", async () => {
+      await showSecondPage();
+      setContactSubmissionHandled.mockResolvedValue({
+        ok: true,
+        value: { ...later, handled: true },
+      });
+
+      await userEvent.click(
+        within(screen.getAllByRole("listitem")[1] as HTMLElement).getByRole(
+          "button",
+          { name: "Markera som hanterat" },
+        ),
+      );
+
+      expect(setContactSubmissionHandled).toHaveBeenCalledWith(
+        "message-2",
+        true,
+      );
+      // Both pages are read again, the second from where the first ended.
+      await waitFor(() => {
+        expect(fetchContactSubmissions.mock.calls).toEqual([
+          [undefined],
+          ["after-1"],
+        ]);
+      });
+      await waitFor(() => {
+        expect(screen.getAllByRole("listitem")).toHaveLength(2);
+      });
+      expect(screen.getByText("Ada Al")).toBeTruthy();
+    });
+
+    it("stays on it after a message is removed", async () => {
+      await showSecondPage();
+
+      const second = (): HTMLElement =>
+        screen.getAllByRole("listitem")[1] as HTMLElement;
+      await userEvent.click(
+        within(second()).getByRole("button", { name: "Radera" }),
+      );
+      fetchContactSubmissions.mockImplementation((cursor?: string) =>
+        Promise.resolve(
+          cursor === undefined
+            ? page([MESSAGE], "after-1")
+            : page([{ ...MESSAGE, id: "message-3", name: "Cia Dal" }]),
+        ),
+      );
+      await userEvent.click(
+        within(second()).getByRole("button", { name: "Radera" }),
+      );
+
+      expect(deleteContactSubmission).toHaveBeenCalledWith("message-2");
+      await waitFor(() => {
+        expect(screen.getByText("Cia Dal")).toBeTruthy();
+      });
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+      expect(fetchContactSubmissions.mock.calls).toEqual([
+        [undefined],
+        ["after-1"],
+      ]);
+    });
+
+    it("stops reading when the inbox has got shorter than it was shown", async () => {
+      await showSecondPage();
+
+      // The second message was removed by somebody else: the first page is now
+      // the last, and there is nothing to read on to.
+      fetchContactSubmissions.mockImplementation(() =>
+        Promise.resolve(page([MESSAGE])),
+      );
+      await userEvent.click(
+        within(screen.getAllByRole("listitem")[0] as HTMLElement).getByRole(
+          "button",
+          { name: "Markera som hanterat" },
+        ),
+      );
+
+      await waitFor(() => {
+        expect(fetchContactSubmissions).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.getAllByRole("listitem")).toHaveLength(1);
+      });
+    });
+  });
+
   it("stays busy until the list is read again after an action", async () => {
     fetchContactSubmissions.mockResolvedValue(page([MESSAGE], "after-1"));
     let answer: (value: unknown) => void = () => undefined;

@@ -35,6 +35,8 @@ interface Loaded {
   loadFailed: boolean;
   /** A later page could not be read. What is shown stays, and can be read on. */
   moreFailed: boolean;
+  /** How many pages are shown, so a reload can read as many again. */
+  pages: number;
 }
 
 const EMPTY: Loaded = {
@@ -45,6 +47,7 @@ const EMPTY: Loaded = {
   nextCursor: null,
   loadFailed: false,
   moreFailed: false,
+  pages: 0,
 };
 
 const UPDATE_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -93,7 +96,28 @@ async function read(shown?: Loaded): Promise<Loaded> {
     nextCursor: result.value.nextCursor,
     loadFailed: false,
     moreFailed: false,
+    pages: (shown?.pages ?? 0) + 1,
   };
+}
+
+/**
+ * The inbox read again as far as it was shown, so a board member working on the
+ * third page is still on it after marking or deleting a message.
+ *
+ * Each page starts where the last one ended, so the pages are read one after
+ * the other. The reading stops early when the inbox has got shorter, and when a
+ * page cannot be read: what was read stays, with the way to read on.
+ */
+async function readAgain(pages: number): Promise<Loaded> {
+  let loaded = await read();
+  while (
+    loaded.pages < pages &&
+    loaded.nextCursor !== null &&
+    !loaded.moreFailed
+  ) {
+    loaded = await read(loaded);
+  }
+  return loaded;
 }
 
 /**
@@ -182,12 +206,13 @@ export function ContactInboxPanel({
    * invite them to press the same button again.
    *
    * The panel stays busy until the list is back, so nothing is pressed against
-   * a list about to be replaced.
+   * a list about to be replaced. It is read as far as it was shown, so the
+   * board is not sent back to the top of the inbox by every action.
    */
   const settle = (): void => {
     setSelected(new Set());
     setConfirmingMany(false);
-    void read().then((next) => {
+    void readAgain(loaded.pages).then((next) => {
       setLoaded(next);
       setPendingId(null);
     });
