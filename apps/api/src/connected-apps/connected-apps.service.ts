@@ -306,6 +306,51 @@ export class ConnectedAppsService {
   }
 
   /**
+   * Turns a client away for the whole instance.
+   *
+   * For an app the board no longer wants anybody to connect, where cutting it
+   * member by member would leave every new member free to connect it again.
+   * One transaction, the way {@link disconnect} is one, for every account at
+   * once: every access token goes, every refresh token is marked revoked, every
+   * consent is deleted, and the client is disabled, which the provider refuses
+   * at the authorization and token endpoints.
+   *
+   * Disabled rather than deleted. A client that identifies itself by the URL
+   * of its own metadata document would come straight back on its next
+   * authorization if its row were gone, while a disabled row is kept disabled
+   * when the provider fetches that document again.
+   */
+  async revokeClient(clientId: string, actor: ActorContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const disabled = await tx.oauthClient.updateMany({
+        where: { clientId },
+        data: { disabled: true },
+      });
+      if (disabled.count === 0) {
+        throw new NotFoundException("No such client.");
+      }
+      await tx.oauthAccessToken.deleteMany({ where: { clientId } });
+      await tx.oauthRefreshToken.updateMany({
+        where: { clientId, revoked: null },
+        data: { revoked: new Date() },
+      });
+      const consents = await tx.oauthConsent.deleteMany({
+        where: { clientId },
+      });
+      await this.audit.record(
+        {
+          action: "OAUTH_CLIENT_REVOKED",
+          ...auditActor(actor),
+          targetKind: "oauthClient",
+          targetId: clientId,
+          context: { connectionsCut: consents.count },
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
    * Removes a client whose registration by hand did not finish.
    *
    * Only for a client created moments ago in the same request: nobody can have

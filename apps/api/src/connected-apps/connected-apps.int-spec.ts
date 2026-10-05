@@ -437,6 +437,26 @@ describe("resolving a token", () => {
     });
   });
 
+  it("refuses a token for a client the instance has turned away, consent or not", async () => {
+    // What an exchange racing the revoke could leave: a token and a consent
+    // under a client that is already disabled.
+    const token = `token-disabled-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    await prisma.oauthClient.update({
+      where: { clientId },
+      data: { disabled: true },
+    });
+    try {
+      expect(await bearer.resolve(token)).toBeNull();
+    } finally {
+      await prisma.oauthClient.update({
+        where: { clientId },
+        data: { disabled: false },
+      });
+      await disconnectAll(member.personId);
+    }
+  });
+
   it("keeps refusing a token minted while the connection was cut, after the member reconnects", async () => {
     // The token was written after the consent went, so it names no grant. The
     // member then connects the same app again: the new consent is newer than

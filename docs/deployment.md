@@ -970,3 +970,11 @@ against.
 Every connection is visible to the board under Connected apps, and the board can
 cut one off; a member can see and cut their own. A disconnect takes effect on
 the next call the app makes, not when its token would have expired.
+
+An app the association does not want anybody to connect can be turned away for
+the whole instance by somebody who may manage the association:
+`DELETE /api/oauth-clients/<client id>`, with the client id as
+`GET /api/connected-apps` lists it, cuts every member's connection to it and
+refuses it at sign-in from then on, and the audit log records who did it. There is no screen
+for it yet, and no way back short of the database: a client registered by hand
+can be registered again under a new id.
