@@ -42,6 +42,9 @@ jobs:
           # Nothing here pushes, so the token has no reason to sit in the
           # runner's git config where later steps and scripts can read it.
           persist-credentials: false
+          # The whole history, because the last step reads every commit
+          # between the base and the head and both have to be in the clone.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -53,11 +56,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Squash merge is the only merge method, so the PR title becomes the
-      # commit message on main and must follow Conventional Commits. The title
+      # A pull request squashed onto main lands with its title as the commit
+      # message, so the title must follow Conventional Commits. The title
       # reaches the shell through the environment and never through the
       # script's text, where a title holding a quote or `$(...)` would run.
       - name: Lint PR title with commitlint
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: printf "%s\n" "$PR_TITLE" | pnpm exec commitlint
+
+      # A pull request rebased onto main lands as its commits instead, each
+      # one a message on main that changelog tooling reads, and nothing here
+      # can know which of the two a pull request will be merged by. So every
+      # commit is linted as well, in this job rather than one of its own,
+      # because this is the one the ruleset requires.
+      - name: Lint every commit with commitlint
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: pnpm exec commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
