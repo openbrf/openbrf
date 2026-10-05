@@ -717,6 +717,36 @@ describe("uploading a CSV", () => {
     ]);
   });
 
+  it("names each previewed row by its row in the sheet, blank rows counted", async () => {
+    const cookie = await signIn(actors.board.email);
+    // Raw text rather than through the writer, so the blank line is in the
+    // file exactly as a board's spreadsheet would leave it.
+    const [header, first, second] = fixtureRows();
+    const file = [header, first, [], second]
+      .map((row) => (row ?? []).join(";"))
+      .join("\r\n");
+    const session = await upload(cookie, "med-tomrad.csv", encode(file));
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const preview = JSON.parse(response.body) as {
+      rows: { rowNumber: number; sourceRow: number }[];
+    };
+    // The header is row 1 and row 3 is blank, so the two people are on rows
+    // 2 and 4 of the sheet - and still the first and second data rows.
+    expect(
+      preview.rows.map((row) => [row.rowNumber, row.sourceRow]),
+    ).toEqual([
+      [1, 2],
+      [2, 4],
+    ]);
+  });
+
   it("refuses a file with nothing under its column titles", async () => {
     const response = await inject({
       method: "POST",

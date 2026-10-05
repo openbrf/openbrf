@@ -24,6 +24,12 @@ export interface ParsedCsv {
   delimiter: CsvDelimiter;
   /** Every row, header included, padded to the widest row. */
   rows: string[][];
+  /**
+   * The row each of `rows` is on in the spreadsheet the file came from,
+   * counting from 1 at the header and counting the blank rows left out of
+   * `rows`, so a row the preview names is the row the board finds.
+   */
+  sourceRows: number[];
 }
 
 /**
@@ -173,9 +179,14 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
     rows.push(row);
   }
 
-  const populated = rows.filter((candidate) =>
-    candidate.some((value) => value.trim() !== ""),
-  );
+  const sourceRows: number[] = [];
+  const populated = rows.filter((candidate, index) => {
+    const kept = candidate.some((value) => value.trim() !== "");
+    if (kept) {
+      sourceRows.push(index + 1);
+    }
+    return kept;
+  });
   const width = populated.reduce(
     (widest, candidate) => Math.max(widest, candidate.length),
     0,
@@ -190,6 +201,7 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
       ...candidate.map((value) => value.trim()),
       ...Array.from({ length: width - candidate.length }, () => ""),
     ]),
+    sourceRows,
   };
 }
 

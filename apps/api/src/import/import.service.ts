@@ -105,6 +105,13 @@ export interface ImportPreviewRow extends Omit<
     postalCity: string | null;
   };
   problems: { field: ImportField | null; reason: string }[];
+  /**
+   * The row in the uploaded sheet, as the board sees it in the margin: the
+   * header is row 1, and blank rows the import left out are counted.
+   * `rowNumber` is the row's place among the data rows, which is what a
+   * decision is keyed on.
+   */
+  sourceRow: number;
 }
 
 export interface ImportPreview {
@@ -196,7 +203,7 @@ export class ImportService implements OnModuleInit {
     }
 
     const format = detectFormat(bytes, input.fileName);
-    const rows = await this.parse(bytes, format);
+    const { rows, sourceRows } = await this.parse(bytes, format);
 
     const header = rows[0];
     if (header === undefined || rows.length < 2) {
@@ -223,6 +230,7 @@ export class ImportService implements OnModuleInit {
         columns: header,
         rowsCipher: encrypted.cipher,
         rowCount: data.length,
+        sourceRows: sourceRows.slice(1),
         createdById: input.actorPersonId,
         expiresAt,
       },
@@ -303,7 +311,7 @@ export class ImportService implements OnModuleInit {
     return {
       sessionId,
       summary: plan.summary,
-      rows: plan.rows.map(toPreviewRow),
+      rows: plan.rows.map((row) => toPreviewRow(row, session.sourceRows)),
     };
   }
 
@@ -461,10 +469,10 @@ export class ImportService implements OnModuleInit {
   private async parse(
     bytes: Buffer,
     format: "CSV" | "XLSX",
-  ): Promise<string[][]> {
+  ): Promise<{ rows: string[][]; sourceRows: number[] }> {
     try {
       if (format === "CSV") {
-        return parseCsv(decodeCsv(bytes)).rows;
+        return parseCsv(decodeCsv(bytes));
       }
       return await parseWorkbook(bytes);
     } catch {
@@ -478,12 +486,14 @@ export class ImportService implements OnModuleInit {
   private async loadForPreview(sessionId: string): Promise<{
     columns: string[];
     rowsCipher: string;
+    sourceRows: number[];
   }> {
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
         columns: true,
         rowsCipher: true,
+        sourceRows: true,
         status: true,
         expiresAt: true,
       },
@@ -846,10 +856,16 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
   return fileName.toLowerCase().endsWith(".xlsx") ? "XLSX" : "CSV";
 }
 
-function toPreviewRow(row: PlannedRow): ImportPreviewRow {
+function toPreviewRow(
+  row: PlannedRow,
+  sourceRows: readonly number[],
+): ImportPreviewRow {
   const { person, ...rest } = row;
   return {
     ...rest,
+    // The header is the sheet's first row, so without blank rows recorded a
+    // data row's sheet row is one past its number.
+    sourceRow: sourceRows[row.rowNumber - 1] ?? row.rowNumber + 1,
     person: {
       firstName: person.firstName,
       lastName: person.lastName,

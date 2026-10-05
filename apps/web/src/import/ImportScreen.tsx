@@ -739,7 +739,7 @@ function PreviewRow({
 
   return (
     <tr className="border-t border-line">
-      <td className={DATA_CELL}>{row.rowNumber}</td>
+      <td className={DATA_CELL}>{row.sourceRow}</td>
       <td className={`${CELL} text-small ${OUTCOME_TONE[row.outcome]}`}>
         <span className="flex flex-col gap-1">
           {t(OUTCOME_LABEL[row.outcome])}

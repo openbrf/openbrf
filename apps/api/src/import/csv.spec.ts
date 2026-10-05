@@ -171,9 +171,12 @@ describe("parsing", () => {
   });
 
   it("skips a blank line rather than importing an empty person", () => {
-    const { rows } = parseCsv("Namn;Lgh\nAnna;1101\n\nBo;1102\n");
+    const { rows, sourceRows } = parseCsv("Namn;Lgh\nAnna;1101\n\nBo;1102\n");
 
     expect(rows).toHaveLength(3);
+    // Bo is still on the fourth row of the sheet, which is the number the
+    // preview names him by.
+    expect(sourceRows).toEqual([1, 2, 4]);
   });
 
   it("pads a short row so the mapping cannot read the wrong field", () => {

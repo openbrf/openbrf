@@ -2709,6 +2709,12 @@ model ImportSession {
   rowsCipher String
   rowCount   Int
 
+  /// The sheet row each data row was read from, in order: the header is row
+  /// 1, and blank rows the import leaves out are counted, so the preview names
+  /// a row by the number the board sees in the sheet. Empty for a session
+  /// uploaded before this was recorded.
+  sourceRows Int[] @default([])
+
   status ImportSessionStatus @default(MAPPING)
 
   /// The mapping the preview was taken with, one entry per column of the file,
