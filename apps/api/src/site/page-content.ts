@@ -659,18 +659,20 @@ function blockText(block: PageBlock): string {
         )
         .join(" ")
         .trim();
+    case "documentList":
+      // The binder is the board's own writing: the page prints it as the
+      // block's heading, and the editor accepts any text there, not only a
+      // category the archive holds.
+      return block.category ?? "";
     case "newsTeaser":
     case "eventCalendar":
-    case "documentList":
     case "boardRoster":
     case "associationFacts":
     case "controllerContact":
       // Nothing of the board's own writing. What these blocks show - a news
       // item's title, an event's, a document's, a board member's name, a
       // recorded fact - is scanned where it is written rather than again on
-      // every page that names it. The binder on a document list is the
-      // exception in shape only: it selects rows rather than being published as
-      // prose, and it is bounded to the archive's own category.
+      // every page that names it.
       return "";
   }
 }

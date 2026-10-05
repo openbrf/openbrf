@@ -984,7 +984,7 @@ describe("the blocks that name what the instance already holds", () => {
       pageTextParts(
         readPageContent({
           blocks: [
-            { type: "documentList", category: "Protokoll" },
+            { type: "documentList" },
             { type: "boardRoster" },
             { type: "associationFacts" },
           ],
@@ -995,6 +995,19 @@ describe("the blocks that name what the instance already holds", () => {
       { index: 1, text: "" },
       { index: 2, text: "" },
     ]);
+  });
+
+  it("scan the binder a document list prints as its heading", () => {
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          { type: "documentList", category: "Handlingar 19811218-9876" },
+        ],
+      }),
+    );
+
+    expect(part?.text).toBe("Handlingar 19811218-9876");
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
   });
 });
 

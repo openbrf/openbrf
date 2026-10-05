@@ -274,9 +274,10 @@ export function blockText(block: PageBlock): string {
         )
         .join(" ")
         .trim();
+    case "documentList":
+      return block.category ?? "";
     case "newsTeaser":
     case "eventCalendar":
-    case "documentList":
     case "boardRoster":
     case "associationFacts":
       return "";
