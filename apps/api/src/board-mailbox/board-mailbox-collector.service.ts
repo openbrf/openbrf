@@ -12,6 +12,7 @@ import { BoardMailboxError } from "./board-mailbox.error";
 import {
   COLLECTION_REFUSALS,
   type CollectionRefusal,
+  LISTED_REFUSALS,
 } from "./board-mailbox-delivery";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
@@ -460,7 +461,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       }),
       this.prisma.boardMailboxIgnoredMessage.findMany({
         where: { sourceUid: { in: uids } },
-        select: { sourceUid: true, retryAfter: true },
+        select: { sourceUid: true, reason: true, retryAfter: true },
       }),
     ]);
 
@@ -472,7 +473,11 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     const setAside = ignored.filter((row) => !storedUids.has(row.sourceUid));
     await this.forgetStoredSetAside(
       ignored
-        .filter((row) => storedUids.has(row.sourceUid))
+        .filter(
+          (row) =>
+            storedUids.has(row.sourceUid) &&
+            (LISTED_REFUSALS as readonly string[]).includes(row.reason),
+        )
         .map((row) => row.sourceUid),
     );
 
@@ -506,6 +511,14 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * list a letter it has already received for as long as the mailbox keeps it.
    * Repaired here, where every run reads both ledgers anyway.
    *
+   * Only the rows the screen lists. A letter can also be stored and recorded as
+   * purged at once: the purge deletes a thread and records its letters in one
+   * transaction, and a collection that read the messages before it committed
+   * and the ledger after sees both. That row is what keeps an erased letter
+   * erased, and the stored copy goes the next night with the rest of what is
+   * past the window, so the row has to outlive it. The same for a letter
+   * recorded as past retention when it was first read.
+   *
    * A failure is logged and the run goes on: the letter is held either way, and
    * the next run tries again.
    */
@@ -515,7 +528,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
     try {
       await this.prisma.boardMailboxIgnoredMessage.deleteMany({
-        where: { sourceUid: { in: [...uids] } },
+        where: {
+          sourceUid: { in: [...uids] },
+          reason: { in: [...LISTED_REFUSALS] },
+        },
       });
     } catch (error) {
       this.logger.warn(
@@ -907,11 +923,13 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         // Stored, so whatever earlier runs counted against it no longer counts,
         // and a letter set aside earlier is no longer set aside - whether this
         // run was retrying it or another collection set it aside meanwhile.
+        // Not a row the purge or the retention window wrote: see
+        // forgetStoredSetAside.
         await tx.boardMailboxCollectionFailure.deleteMany({
           where: { sourceUid: uid },
         });
         await tx.boardMailboxIgnoredMessage.deleteMany({
-          where: { sourceUid: uid },
+          where: { sourceUid: uid, reason: { in: [...LISTED_REFUSALS] } },
         });
       });
     } catch (error) {

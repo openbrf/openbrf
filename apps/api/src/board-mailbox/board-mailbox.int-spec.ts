@@ -1081,6 +1081,7 @@ describe("collecting the mailbox", () => {
     const before = `Fore ${suffix}`;
     const refused = `Vagrad ${suffix}`;
     const after = `Efter ${suffix}`;
+    const dated = yesterdayDateHeader();
     const server = await serveMailbox(
       [before, refused, after].map((subject, position) => ({
         uid: `uid-unstorable-${String(position)}-${suffix}`,
@@ -1089,6 +1090,7 @@ describe("collecting the mailbox", () => {
           subject,
           body: "Ett brev.",
           messageId: `unstorable-${String(position)}-${suffix}@utanfor.example`,
+          date: dated,
         }),
       })),
     );
@@ -1131,7 +1133,7 @@ describe("collecting the mailbox", () => {
       });
       expect(ignored?.reason).toBe("unstorable");
       expect(ignored?.letterDate?.toISOString()).toBe(
-        "2026-09-01T07:15:00.000Z",
+        new Date(dated).toISOString(),
       );
 
       // The board is told there is a letter it has not read, and when it was
@@ -1140,7 +1142,7 @@ describe("collecting the mailbox", () => {
       expect(status.setAsideCount).toBe(1);
       expect(status.setAside[0]).toMatchObject({
         reason: "unstorable",
-        letterDate: "2026-09-01T07:15:00.000Z",
+        letterDate: new Date(dated).toISOString(),
         // Refused for its own values, so never tried again.
         retryAt: null,
       });
@@ -1707,6 +1709,54 @@ describe("collecting the mailbox", () => {
           where: { sourceUid: { endsWith: `:${uid}` } },
         }),
       ).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps the record of a purged letter that a collection also finds stored", async () => {
+    /*
+     * The purge deletes a thread and records its letters as purged in one
+     * transaction, and a collection that read the messages before that
+     * committed and the ledger after sees the letter as both. The row is what
+     * keeps the erased letter erased, so the collection must not take it as a
+     * stored letter's stale set-aside entry. Played by recording the row
+     * beside a letter that is still stored.
+     */
+    const subject = `Rensad ${suffix}`;
+    const uid = `uid-stored-purged-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev.",
+          messageId: `stored-purged-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    try {
+      expect((await collector.collect()).collected).toBe(1);
+      const stored = await prisma.boardMailboxMessage.findFirstOrThrow({
+        where: { sourceUid: { endsWith: `:${uid}` } },
+        select: { sourceUid: true },
+      });
+      const sourceUid = stored.sourceUid as string;
+      await prisma.boardMailboxIgnoredMessage.create({
+        data: { sourceUid, reason: "purged" },
+      });
+
+      const next = await collector.collect();
+      expect(next.alreadyHeld).toBe(1);
+      expect(next.collected).toBe(0);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.findUnique({
+          where: { sourceUid },
+          select: { reason: true },
+        }),
+      ).toEqual({ reason: "purged" });
     } finally {
       await server.close();
     }
