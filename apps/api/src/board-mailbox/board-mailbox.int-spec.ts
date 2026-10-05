@@ -1903,6 +1903,26 @@ describe("collecting the mailbox", () => {
 });
 
 describe("threading a follow-up", () => {
+  /**
+   * Answers the thread a subject opened, and returns the identifier the answer
+   * went out under: the one a follow-up names to join the conversation.
+   */
+  async function answer(subject: string): Promise<string> {
+    const thread = await threadBySubject(subject);
+    const replied = await inject({
+      method: "POST",
+      url: `/api/board-mailbox/threads/${thread.id}/reply`,
+      payload: { body: "Tack, vi tittar pa det." },
+      headers: { cookie: boardCookie },
+    });
+    expect(replied.statusCode, replied.body).toBe(201);
+    const outbound = await prisma.boardMailboxMessage.findFirstOrThrow({
+      where: { threadId: thread.id, direction: "OUTBOUND" },
+      select: { messageId: true },
+    });
+    return outbound.messageId ?? "";
+  }
+
   it("joins the conversation it answers", async () => {
     const subject = `Uppfoljning ${suffix}`;
     const opening = `opening-${suffix}@utanfor.example`;
@@ -1920,6 +1940,7 @@ describe("threading a follow-up", () => {
     ]);
     await collector.collect();
     await first.close();
+    const answered = await answer(subject);
 
     const second = await serveMailbox([
       {
@@ -1929,7 +1950,7 @@ describe("threading a follow-up", () => {
           subject: `Re: ${subject}`,
           body: "Och en pafyllning.",
           messageId: `follow-${suffix}@utanfor.example`,
-          inReplyTo: opening,
+          inReplyTo: answered,
         }),
       },
     ]);
@@ -1937,12 +1958,17 @@ describe("threading a follow-up", () => {
     try {
       await collector.collect();
 
-      // One thread, two messages: the subject line is not what decides this, so
-      // the "Re:" prefix produced no second conversation.
+      // One thread: the letter, the board's answer and the follow-up. The
+      // subject line is not what decides this, so the "Re:" prefix produced no
+      // second conversation.
       const thread = await threadBySubject(subject);
-      expect(thread.messageCount).toBe(2);
+      expect(thread.messageCount).toBe(3);
       const full = await readThread(boardCookie, thread.id);
-      expect(full.messages?.[1]?.body).toContain("Och en pafyllning.");
+      expect(
+        full.messages?.some((message) =>
+          message.body.includes("Och en pafyllning."),
+        ),
+      ).toBe(true);
     } finally {
       await second.close();
     }
@@ -1971,6 +1997,12 @@ describe("threading a follow-up", () => {
     ]);
     await collector.collect();
     await first.close();
+    const answered = await answer(subject);
+    const thread = await threadBySubject(subject);
+    const before = await prisma.boardMailboxThread.findUniqueOrThrow({
+      where: { id: thread.id },
+      select: { lastMessageAt: true },
+    });
 
     const second = await serveMailbox([
       {
@@ -1980,7 +2012,7 @@ describe("threading a follow-up", () => {
           subject: `Re: ${subject}`,
           body: "Ett svar som blev liggande.",
           messageId: `late-reply-${suffix}@utanfor.example`,
-          inReplyTo: opening,
+          inReplyTo: answered,
           // A reply whose Date header says it was written almost two years ago:
           // a client with a wrong clock, or a letter held up somewhere.
           date: longAgo.toUTCString(),
@@ -1991,15 +2023,13 @@ describe("threading a follow-up", () => {
     try {
       await collector.collect();
 
-      const thread = await threadBySubject(subject);
-      expect(thread.messageCount).toBe(2);
+      expect((await threadBySubject(subject)).messageCount).toBe(3);
       const stored = await prisma.boardMailboxThread.findUniqueOrThrow({
         where: { id: thread.id },
         select: { lastMessageAt: true },
       });
-      // Header dates carry whole seconds.
       expect(stored.lastMessageAt.getTime()).toBe(
-        Math.floor(recent.getTime() / 1000) * 1000,
+        before.lastMessageAt.getTime(),
       );
 
       // The first run after the older reply's own window has closed. Had its
@@ -2032,6 +2062,7 @@ describe("threading a follow-up", () => {
     ]);
     await collector.collect();
     await first.close();
+    const answered = await answer(subject);
 
     const strangerSubject = `Insprutad ${suffix}`;
     const second = await serveMailbox([
@@ -2046,6 +2077,60 @@ describe("threading a follow-up", () => {
           subject: strangerSubject,
           body: "Jag later som om jag ar nagon annan.",
           messageId: `injected-${suffix}@annanstans.example`,
+          inReplyTo: answered,
+        }),
+      },
+    ]);
+
+    try {
+      await collector.collect();
+
+      const original = await threadBySubject(subject);
+      expect(original.messageCount).toBe(2);
+
+      const stranger = await threadBySubject(strangerSubject);
+      expect(stranger.id).not.toBe(original.id);
+      expect(stranger.correspondent.email).toBe(
+        `okand-${suffix}@annanstans.example`,
+      );
+    } finally {
+      await second.close();
+    }
+  });
+
+  it("joins a thread only by an identifier this instance issued", async () => {
+    /*
+     * The letter that opened the thread was sent to whoever else the sender
+     * addressed, and its Message-ID with it. Anybody holding a copy can put the
+     * correspondent's address on an envelope and cite it; only the board's own
+     * answers carry an identifier nobody outside the thread was given.
+     */
+    const subject = `Kopia ${suffix}`;
+    const opening = `copied-open-${suffix}@utanfor.example`;
+
+    const first = await serveMailbox([
+      {
+        uid: `uid-copied-open-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Forsta brevet.",
+          messageId: opening,
+        }),
+      },
+    ]);
+    await collector.collect();
+    await first.close();
+
+    const citingSubject = `Citerar ${suffix}`;
+    const second = await serveMailbox([
+      {
+        uid: `uid-copied-cite-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: citingSubject,
+          body: "Ett brev som citerar det forsta.",
+          messageId: `copied-cite-${suffix}@annanstans.example`,
           inReplyTo: opening,
         }),
       },
@@ -2056,12 +2141,8 @@ describe("threading a follow-up", () => {
 
       const original = await threadBySubject(subject);
       expect(original.messageCount).toBe(1);
-
-      const stranger = await threadBySubject(strangerSubject);
-      expect(stranger.id).not.toBe(original.id);
-      expect(stranger.correspondent.email).toBe(
-        `okand-${suffix}@annanstans.example`,
-      );
+      const citing = await threadBySubject(citingSubject);
+      expect(citing.id).not.toBe(original.id);
     } finally {
       await second.close();
     }
@@ -2734,7 +2815,7 @@ describe("the purge", () => {
           subject: `Sv: ${subject}`,
           body: "Och en fraga till.",
           messageId: `samtal-foljd-${suffix}@utanfor.example`,
-          inReplyTo: openingId,
+          inReplyTo: answer?.messageId ?? "",
         }),
       },
       {
@@ -3109,6 +3190,18 @@ describe("the purge", () => {
           await first.close();
         }
         const thread = await threadBySubject(subject);
+        // The board answers, and the old-dated letter is a reply to that.
+        const replied = await inject({
+          method: "POST",
+          url: `/api/board-mailbox/threads/${thread.id}/reply`,
+          payload: { body: "Tack, vi tittar pa det." },
+          headers: { cookie: boardCookie },
+        });
+        expect(replied.statusCode, replied.body).toBe(201);
+        const answer = await prisma.boardMailboxMessage.findFirstOrThrow({
+          where: { threadId: thread.id, direction: "OUTBOUND" },
+          select: { messageId: true },
+        });
         const before = await prisma.boardMailboxThread.findUnique({
           where: { id: thread.id },
           select: { lastMessageAt: true },
@@ -3122,7 +3215,7 @@ describe("the purge", () => {
               subject: `Re: ${subject}`,
               body: "Ett svar fran for lange sedan.",
               messageId: `${slug}-reply-${suffix}@utanfor.example`,
-              inReplyTo: opening,
+              inReplyTo: answer.messageId ?? "",
               date: "Wed, 01 Jan 2020 09:15:00 +0100",
             }),
           },
@@ -3135,7 +3228,7 @@ describe("the purge", () => {
           await second.close();
         }
 
-        expect((await threadBySubject(subject)).messageCount).toBe(2);
+        expect((await threadBySubject(subject)).messageCount).toBe(3);
         // And the thread's clock stays on its newest letter, or the old date
         // would hand the recent one to the purge the night the restriction lifts.
         const after = await prisma.boardMailboxThread.findUnique({

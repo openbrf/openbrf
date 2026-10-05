@@ -1002,9 +1002,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * The thread this message belongs on, creating one when it opens a
    * conversation.
    *
-   * A message joins an existing thread only when BOTH its In-Reply-To names a
-   * message already on that thread AND it comes from the address the thread is
-   * with. The second condition is the one that matters: a Message-ID travels in
+   * A message joins an existing thread only when BOTH its In-Reply-To names
+   * one of the board's own answers on that thread AND it comes from the address
+   * the thread is with (GLOSSARY, tråd). The second condition is the one that matters: a Message-ID travels in
    * every copy of a letter and in every reply to it, so anybody who has ever
    * been on one of these conversations - or who guesses one - could otherwise
    * post into a thread the board is having with somebody else, and the board
@@ -1030,6 +1030,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       const answered = await tx.boardMailboxMessage.findFirst({
         where: {
           messageId: input.inReplyTo,
+          // One of the board's own answers. Every other identifier on a thread
+          // was written by somebody outside the association, and a letter's
+          // own Message-ID travels to everyone it was sent to.
+          direction: "OUTBOUND",
           thread: { correspondentEmailIndex: input.emailIndex },
         },
         select: { threadId: true },
