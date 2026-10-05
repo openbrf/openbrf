@@ -20,6 +20,54 @@ export interface SeedResult {
   memberRegisterEntries: number;
 }
 
+/** The argument that asks for the demo data, on the command line every time. */
+export const DEMO_SEED_FLAG = "--demo-data";
+
+/** The id prefix every person the seed writes carries. */
+const SEED_PERSON_PREFIX = "seed-person-";
+
+/**
+ * Why the demo data must not be written here, or null when it may.
+ *
+ * The seed renames association 1, adds a hundred people and writes member
+ * register entries that can never be deleted (EFL 5 kap., by trigger), so it
+ * runs only where every one of these holds. Asked for in this invocation, by an
+ * argument rather than a variable: an .env line would ask on every later run as
+ * well, from whichever checkout it sits in. Not production. And a database that
+ * holds nothing but the seed's own rows - no association under another name, no
+ * person and no member register entry the seed did not write - because
+ * NODE_ENV defaults to development, and a checkout whose DATABASE_URL points at
+ * a real instance is exactly where the first two would not stop it.
+ */
+export async function demoSeedRefusal(
+  prisma: PrismaClient,
+  invocation: { nodeEnv: string; argv: readonly string[] },
+): Promise<string | null> {
+  if (!invocation.argv.includes(DEMO_SEED_FLAG)) {
+    return `Seeding writes demo data that cannot all be removed again; pass ${DEMO_SEED_FLAG} to ask for it.`;
+  }
+  if (invocation.nodeEnv === "production") {
+    return "Refusing to seed demo data in production: the member register entries it creates are append-only and could not be removed.";
+  }
+  const [association, people, entries] = await Promise.all([
+    prisma.association.findUnique({ where: { id: 1 }, select: { name: true } }),
+    prisma.person.count({
+      where: { NOT: { id: { startsWith: SEED_PERSON_PREFIX } } },
+    }),
+    prisma.memberRegisterEntry.count({
+      where: { NOT: { personId: { startsWith: SEED_PERSON_PREFIX } } },
+    }),
+  ]);
+  if (
+    (association !== null && association.name !== DEMO_ASSOCIATION.name) ||
+    people > 0 ||
+    entries > 0
+  ) {
+    return "Refusing to seed demo data: this database already holds an association, people or member register entries of its own.";
+  }
+  return null;
+}
+
 /**
  * Populates an instance with the Brf Eksemplet demo association.
  *

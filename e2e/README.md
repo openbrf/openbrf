@@ -511,8 +511,9 @@ tenant-owner, so that the two statutory registers have an entry to show, and
 she carries neither a number nor a phone number either: everybody the capture
 invents is declared in `screenshots/people.ts` under that one rule. It never
 runs `db:seed`, whose demo data carries a plausible-looking personal identity
-number and Swedish mobile numbers, and which refuses to run against a
-production image in any case.
+number and Swedish mobile numbers, and which refuses to run without
+`--demo-data`, in production, or against a database holding anything but its
+own demo rows in any case.
 
 That is checked rather than trusted. Before each image is written, the capture
 reads the rendered text, every filled-in field and every embedded frame, and
