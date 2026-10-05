@@ -1,9 +1,11 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import type { Viewer } from "../api/instance";
 import { localDayNow } from "../bookings/booking-calendar";
 import { exportOwnData, saveOwnProfile } from "../api/instance";
+import type { TranslationKey } from "../i18n/translation-key";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import {
   FIELD,
@@ -15,6 +17,18 @@ import {
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+
+/**
+ * What the export route says when it turns a request away for asking too often.
+ *
+ * Two sentences because the person can do something about only one of them: the
+ * first is their own budget, the second the instance's. Anything else the route
+ * answers falls back to the general sentence.
+ */
+const EXPORT_FAILURES = {
+  "export-rate-limited": "settings.profile.portability.rateLimited",
+  "export-busy": "settings.profile.portability.busy",
+} as const satisfies Record<string, TranslationKey>;
 
 export interface ProfilePanelProps {
   viewer: Viewer;
@@ -43,7 +57,7 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
   });
 
   const [downloading, setDownloading] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [exportFailure, setExportFailure] = useState<ApiFailure | null>(null);
 
   /**
    * Writes the person's own data to a file their browser saves.
@@ -54,11 +68,11 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
    */
   const download = async (): Promise<void> => {
     setDownloading(true);
-    setFailed(false);
+    setExportFailure(null);
 
     const result = await exportOwnData();
     if (!result.ok) {
-      setFailed(true);
+      setExportFailure(result.failure);
       setDownloading(false);
       return;
     }
@@ -173,9 +187,15 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
               : t("settings.profile.portability.action")}
           </button>
         </div>
-        {failed ? (
+        {exportFailure !== null ? (
           <Notice tone="danger" live>
-            {t("settings.profile.portability.failed")}
+            {t(
+              failureMessageKey(
+                exportFailure,
+                EXPORT_FAILURES,
+                "settings.profile.portability.failed",
+              ),
+            )}
           </Notice>
         ) : null}
       </div>

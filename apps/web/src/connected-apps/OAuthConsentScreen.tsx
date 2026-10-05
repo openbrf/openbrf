@@ -219,7 +219,7 @@ export function OAuthConsentScreen({
     const result = await grantConsent(authorizationRequest);
     if (result.ok) {
       const url = result.value.url;
-      if (typeof url === "string" && url !== "") {
+      if (typeof url === "string" && isWebAddress(url)) {
         onGranted(url);
         return;
       }
@@ -559,6 +559,22 @@ function clientName(client: OAuthClientDetails): string | null {
  */
 function clientHost(client: OAuthClientDetails): string | null {
   return hostOf(client.client_id) ?? hostOf(client.client_uri ?? null);
+}
+
+/**
+ * Whether the browser may be sent to this address with the code in it.
+ *
+ * Web addresses only. The instance refuses any other redirect scheme when a
+ * client is registered, and this is the same rule where the navigation
+ * happens: a script or data address would run in this application's origin.
+ */
+function isWebAddress(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 /** The host of an address. Null rather than a placeholder when it is not one. */

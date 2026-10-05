@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_ARCHIVE_ENTRIES,
+  MAX_DIRECTORY_RECORDS,
+  MAX_TARBALL_BYTES,
+  MAX_TOTAL_BYTES,
   readThemeArchive,
   ThemeArchiveError,
   writeThemeArchive,
@@ -171,6 +174,81 @@ describe("readThemeArchive refusals", () => {
     expect(() => readThemeArchive(writeThemeArchive(files))).toThrow(
       /more than/,
     );
+  });
+
+  it("counts every file record toward the cap, repeated paths included", () => {
+    const records = (count: number): Uint8Array =>
+      rawArchive(
+        Array.from({ length: count }, () =>
+          rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+        ),
+      );
+
+    expect(() => readThemeArchive(records(MAX_ARCHIVE_ENTRIES + 1))).toThrow(
+      `The archive contains more than ${String(MAX_ARCHIVE_ENTRIES)} files.`,
+    );
+    expect([...readThemeArchive(records(MAX_ARCHIVE_ENTRIES)).keys()]).toEqual([
+      "theme.json",
+    ]);
+  });
+
+  it("caps directory records apart from files", () => {
+    const directories = (count: number): Uint8Array =>
+      rawArchive(
+        Array.from({ length: count }, (_, index) =>
+          rawHeader({ name: `d-${String(index)}`, size: 0, typeFlag: "5" }),
+        ),
+      );
+
+    expect(() =>
+      readThemeArchive(directories(MAX_DIRECTORY_RECORDS + 1)),
+    ).toThrow(
+      `The archive contains more than ${String(MAX_DIRECTORY_RECORDS)} directory entries.`,
+    );
+    expect(readThemeArchive(directories(MAX_DIRECTORY_RECORDS)).size).toBe(0);
+  });
+
+  it("unzips the largest package tar writes within the limits", () => {
+    // Every file and directory the limits allow, each file in its own folder,
+    // content adding up to the total cap with as much block padding as the
+    // sizes allow, and the tarball padded out to a whole tar record.
+    const blocks: Uint8Array[] = [];
+    let remaining = MAX_TOTAL_BYTES;
+    for (let index = 0; index < MAX_ARCHIVE_ENTRIES; index += 1) {
+      const size = index === MAX_ARCHIVE_ENTRIES - 1 ? remaining : 81 * 512 + 1;
+      remaining -= size;
+      blocks.push(
+        rawHeader({ name: `d-${String(index)}`, size: 0, typeFlag: "5" }),
+        rawHeader({ name: `d-${String(index)}/f`, size, typeFlag: "0" }),
+        new Uint8Array(Math.ceil(size / 512) * 512),
+      );
+    }
+    blocks.push(new Uint8Array(1024));
+    const length = blocks.reduce((sum, block) => sum + block.length, 0);
+    const tarball = new Uint8Array(Math.ceil(length / 10240) * 10240);
+    let offset = 0;
+    for (const block of blocks) {
+      tarball.set(block, offset);
+      offset += block.length;
+    }
+
+    expect(tarball.length).toBeLessThanOrEqual(MAX_TARBALL_BYTES);
+    // Past what the files alone could occupy, so the directories' share of
+    // the ceiling is what lets it through.
+    expect(tarball.length).toBeGreaterThan(
+      MAX_TARBALL_BYTES - MAX_DIRECTORY_RECORDS * 512,
+    );
+    const files = readThemeArchive(new Uint8Array(gzipSync(tarball)));
+    expect(files.size).toBe(MAX_ARCHIVE_ENTRIES);
+  });
+
+  it("refuses a small gzip that inflates past the cap", () => {
+    const bomb = new Uint8Array(
+      gzipSync(new Uint8Array(MAX_TARBALL_BYTES + 1)),
+    );
+    expect(bomb.length).toBeLessThan(MAX_TARBALL_BYTES / 100);
+    expect(() => readThemeArchive(bomb)).toThrow(ThemeArchiveError);
+    expect(() => readThemeArchive(bomb)).toThrow(/It was not unpacked/);
   });
 
   it("refuses something that is not a gzip archive", () => {

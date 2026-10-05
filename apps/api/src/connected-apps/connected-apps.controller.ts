@@ -27,6 +27,7 @@ import {
   ConnectedAppsService,
   type ConnectedAppView,
 } from "./connected-apps.service";
+import { hostOf } from "./client-host";
 
 /**
  * A person's own connected apps.
@@ -282,14 +283,4 @@ function withJsonBody(headers: Headers): Headers {
   headers.set("content-type", "application/json");
   headers.delete("content-length");
   return headers;
-}
-
-/** The host of a redirect URI, for the audit entry. Never the whole URI. */
-function hostOf(value: string | null): string | null {
-  if (value === null) return null;
-  try {
-    return new URL(value).host;
-  } catch {
-    return null;
-  }
 }

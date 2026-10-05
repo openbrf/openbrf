@@ -40,11 +40,13 @@
       ]
     },
     "test:e2e": {
+      "dependsOn": ["^build"],
       "outputs": [],
       "cache": false,
       "passThroughEnv": ["CI", "DOCKER_*", "OPENBRF_E2E_*"]
     },
     "screenshots": {
+      "dependsOn": ["^build"],
       "outputs": [],
       "cache": false,
       "passThroughEnv": ["CI", "DOCKER_*", "OPENBRF_E2E_*"]

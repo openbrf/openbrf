@@ -11,6 +11,7 @@ import { failureName } from "../logging/failure";
 import { MediaService } from "../media/media.service";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
+import { COLLECTION_REFUSALS } from "./board-mailbox-delivery";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -314,6 +315,22 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         return false;
       }
 
+      /*
+       * The mailbox identifiers of what was collected onto this thread, read
+       * before the cascade takes them.
+       *
+       * The collector never deletes from the mailbox, and what it holds is
+       * decided by the identifiers it remembers. Once the messages go, nothing
+       * remembers these, so the next collection would store every letter on the
+       * thread again under its old date and this purge would erase it again the
+       * next night. Recording them as ignored, in this transaction, is what
+       * keeps an erased letter erased.
+       */
+      const collected = await tx.boardMailboxMessage.findMany({
+        where: { threadId, sourceUid: { not: null } },
+        select: { sourceUid: true },
+      });
+
       const { count } = await tx.boardMailboxThread.deleteMany({
         where: { id: threadId, lastMessageAt: { lte: cutoff } },
       });
@@ -322,6 +339,19 @@ export class BoardMailboxPurgeService implements OnModuleInit {
         // gained a message, while this ran. An entry for an erasure that erased
         // nothing would be a false record in a table that cannot be corrected.
         return false;
+      }
+
+      const sourceUids = collected
+        .map((row) => row.sourceUid)
+        .filter((uid): uid is string => uid !== null);
+      if (sourceUids.length > 0) {
+        await tx.boardMailboxIgnoredMessage.createMany({
+          data: sourceUids.map((sourceUid) => ({
+            sourceUid,
+            reason: COLLECTION_REFUSALS.purged,
+          })),
+          skipDuplicates: true,
+        });
       }
 
       await this.audit.record(
@@ -422,6 +452,22 @@ export class BoardMailboxPurgeService implements OnModuleInit {
    */
   private async heldAddressIndexes(): Promise<string[]> {
     return [...(await this.withheldAddresses(this.prisma)).keys()];
+  }
+
+  /**
+   * Whether a legal hold or a restriction of processing stands against this
+   * address, given as this table's blind index.
+   *
+   * Asked by the collector about a letter already past the window, which it
+   * would otherwise leave in the mailbox for good. A thread with a withheld
+   * person is exactly what this purge keeps, so a letter to or from one is kept
+   * too, and answered by the same match the purge makes.
+   */
+  async withholds(correspondentEmailIndex: string | null): Promise<boolean> {
+    if (correspondentEmailIndex === null) {
+      return false;
+    }
+    return (await this.heldPersonFor(correspondentEmailIndex)) !== null;
   }
 
   /** The withheld person whose address this thread is with, if any. */

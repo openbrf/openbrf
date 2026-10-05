@@ -3,6 +3,7 @@ import type {
   ProcessorClassification,
   ProcessorKind,
 } from "../generated/prisma/enums";
+import type { Env } from "../config/env";
 import { selectedDriverKind } from "../sms/sms.service";
 import {
   connectedAppProcessorKey,
@@ -47,6 +48,12 @@ export interface ProcessorFacts {
    */
   mailHost: string | null;
   mailFromAddress: string | null;
+  /**
+   * Which mail that is, as `OPENBRF_MAIL_DRIVER` names it: the board's own
+   * settings, or the SMTP relay or HTTP mail API the environment sets. Null
+   * while the instance cannot send.
+   */
+  mailDriver: Env["OPENBRF_MAIL_DRIVER"] | null;
   smsDriver: string | null;
   smsGatewayUrl: string | null;
   storageDriver: "local" | "s3";
@@ -73,7 +80,7 @@ export interface ProcessorFacts {
     id: string;
     /** As the client declared itself, or null where it declared no name. */
     name: string | null;
-    /** Where it is reached: see {@link connectedAppHost}. */
+    /** Where it is reached: see connectedAppHost in connected-apps. */
     host: string | null;
   }[];
   /**
@@ -170,35 +177,31 @@ export function stateOf(
 }
 
 /**
- * The host a connected app is reached at: the client-id URL it presented, or
- * failing that the client URI it registered.
+ * The recipient each mail driver hands the mail to.
  *
- * Null rather than the value as written, which is where this differs from
- * {@link hostOf} below. A gateway address is configured by an administrator and
- * is what the instance posts to whatever it says; a client id is chosen by the
- * app itself, and one that will not parse is not a host - so the record and the
- * report name nothing rather than something untrue.
- *
- * One definition because the record of processing, the art. 28 list and the
- * access report all have to call the same client the same thing.
+ * Three, because they are three parties: the provider the board chose, and the
+ * relay or the API the host sends through. Keyed apart, an agreement the board
+ * recorded with its own provider stays with that provider while the host's
+ * mail is in use, and applies again once the board's settings do.
  */
-export function connectedAppHost(client: {
-  clientDiscoveryId: string | null;
-  uri: string | null;
-}): string | null {
-  const url = client.clientDiscoveryId ?? client.uri;
-  if (url === null) {
-    return null;
-  }
-  try {
-    return new URL(url).host;
-  } catch {
-    return null;
-  }
-}
+const MAIL_RECIPIENTS: Record<
+  Env["OPENBRF_MAIL_DRIVER"],
+  readonly [FixedProcessorKey, ProcessorKind]
+> = {
+  settings: ["smtp", "SMTP"],
+  smtp: ["hostSmtp", "HOST_SMTP"],
+  "http-api": ["mailApi", "MAIL_API"],
+};
 
-/** The host part of a URL, for naming a gateway without repeating its path. */
-function hostOf(url: string): string {
+/**
+ * The host part of a URL, for naming a gateway without repeating its path.
+ *
+ * Unlike a connected app's host (connected-apps/client-host.ts), an address
+ * that will not parse is named as written: a gateway is configured by an
+ * administrator and is what the instance posts to, while a client id is the
+ * app's own choice.
+ */
+function gatewayHostOf(url: string): string {
   try {
     return new URL(url).host;
   } catch {
@@ -243,8 +246,13 @@ export function currentProcessors(
   // Mail. Both halves, because the settings screen reports an instance that
   // cannot send as exactly that, and a host with no sender address sends
   // nothing.
-  if (facts.mailHost !== null && facts.mailFromAddress !== null) {
-    fixed("smtp", "SMTP", facts.mailHost, facts.mailFromAddress);
+  if (
+    facts.mailDriver !== null &&
+    facts.mailHost !== null &&
+    facts.mailFromAddress !== null
+  ) {
+    const [key, kind] = MAIL_RECIPIENTS[facts.mailDriver];
+    fixed(key, kind, facts.mailHost, facts.mailFromAddress);
   }
 
   // SMS only where a provider is actually configured. An instance with none
@@ -256,7 +264,7 @@ export function currentProcessors(
       gatewayUrl: facts.smsGatewayUrl,
     }) !== "none"
   ) {
-    fixed("sms", "SMS", hostOf(facts.smsGatewayUrl ?? ""));
+    fixed("sms", "SMS", gatewayHostOf(facts.smsGatewayUrl ?? ""));
   }
 
   if (facts.storageDriver === "s3") {

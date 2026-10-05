@@ -22,6 +22,7 @@ import {
   ImportService,
   MAX_UPLOAD_BYTES,
 } from "./import.service";
+import { MAX_IMPORT_ROWS } from "./workbook";
 
 /**
  * Base64 grows by four bytes for every three, so the encoded ceiling is a third
@@ -36,18 +37,32 @@ const uploadSchema = z.object({
   content: z.string().min(1).max(MAX_ENCODED_LENGTH),
 });
 
-const mappingSchema = z.object({
-  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
-  /** Used for rows with no role column. Never guessed. */
-  defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
-  defaultMovedInOn: calendarDateSchema.nullish(),
-});
-
 const decisionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("use-person"), personId: z.string().min(1) }),
   z.object({ action: z.literal("create") }),
   z.object({ action: z.literal("skip") }),
 ]);
+
+/**
+ * Keyed by a data row's number, which counts from 1. A file holds at most
+ * MAX_IMPORT_ROWS of them, so there are never more decisions than that.
+ */
+const decisionsSchema = z
+  .record(z.string().regex(/^[1-9]\d{0,5}$/), decisionSchema)
+  .refine((decisions) => Object.keys(decisions).length <= MAX_IMPORT_ROWS)
+  .default({});
+
+const previewSchema = z.object({
+  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
+  /** Used for rows with no role column. Never guessed. */
+  defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
+  defaultMovedInOn: calendarDateSchema.nullish(),
+  /**
+   * What the board has decided so far. Sent when the screen previews again
+   * because a decision changed what later rows match.
+   */
+  decisions: decisionsSchema,
+});
 
 /**
  * What the board answered for the rows the preview could not resolve.
@@ -56,7 +71,7 @@ const decisionSchema = z.discriminatedUnion("action", [
  * preview was taken with, which is the one the board looked at.
  */
 const applySchema = z.object({
-  decisions: z.record(z.string(), decisionSchema).default({}),
+  decisions: decisionsSchema,
 });
 
 /**
@@ -131,11 +146,12 @@ export class ImportController {
     @Param("id") id: string,
     @Body() body: unknown,
   ): Promise<ImportPreview> {
-    const input = mappingSchema.parse(body);
+    const input = previewSchema.parse(body);
     return this.imports.preview(id, {
       mapping: input.mapping,
       defaultRole: input.defaultRole ?? null,
       defaultMovedInOn: input.defaultMovedInOn ?? null,
+      decisions: input.decisions,
     });
   }
 

@@ -53,6 +53,17 @@ interface Bucket {
   filledAt: number;
 }
 
+/** The refusal for a bucket holding `tokens`, with the wait until it holds one. */
+function refusedFor(tokens: number, perMinute: number): RateLimitDecision {
+  const wait = ((1 - tokens) * WINDOW_MS) / perMinute;
+  // Rounded up and never below a second: a Retry-After of 0 invites an
+  // immediate retry that would be refused again.
+  return {
+    allowed: false,
+    retryAfterSeconds: Math.max(1, Math.ceil(wait / 1000)),
+  };
+}
+
 /**
  * The client address a request came from.
  *
@@ -115,30 +126,58 @@ export class TokenBuckets {
   ): RateLimitDecision {
     this.sweep(now);
 
-    const bucket = this.buckets.get(key);
-    const tokens =
-      bucket === undefined
-        ? perMinute
-        : Math.min(
-            perMinute,
-            bucket.tokens + ((now - bucket.filledAt) / WINDOW_MS) * perMinute,
-          );
-
+    const tokens = this.tokensAt(key, perMinute, now);
     if (tokens < 1) {
       // Banked, not spent: a request the budget itself turned away takes
       // nothing further, so being refused does not push the next attempt out.
       this.buckets.set(key, { tokens, filledAt: now });
-      const wait = ((1 - tokens) * WINDOW_MS) / perMinute;
-      // Rounded up and never below a second: a Retry-After of 0 invites an
-      // immediate retry that would be refused again.
-      return {
-        allowed: false,
-        retryAfterSeconds: Math.max(1, Math.ceil(wait / 1000)),
-      };
+      return refusedFor(tokens, perMinute);
     }
 
     this.buckets.set(key, { tokens: tokens - 1, filledAt: now });
     return { allowed: true };
+  }
+
+  /**
+   * What `take` would answer for `key` now, without spending or banking.
+   *
+   * For a caller refused by something else first, who still needs to be told
+   * the longer of the two waits: a request turned away for one reason and
+   * retried after that reason's delay should not then meet this budget spent.
+   */
+  peek(
+    key: string,
+    perMinute: number,
+    now: number = Date.now(),
+  ): RateLimitDecision {
+    const tokens = this.tokensAt(key, perMinute, now);
+    return tokens < 1 ? refusedFor(tokens, perMinute) : { allowed: true };
+  }
+
+  /**
+   * Gives back a token `take` spent for `key`, for a request that was let
+   * through one budget and then refused by another.
+   *
+   * Capped at `perMinute` like a refill, and a no-op for a key no longer
+   * tracked: a bucket the sweep has dropped is full, which is what a refund
+   * would have restored it to.
+   */
+  refund(key: string, perMinute: number): void {
+    const bucket = this.buckets.get(key);
+    if (bucket !== undefined) {
+      bucket.tokens = Math.min(perMinute, bucket.tokens + 1);
+    }
+  }
+
+  /** The tokens `key` holds at `now`, with the refill since it was last set. */
+  private tokensAt(key: string, perMinute: number, now: number): number {
+    const bucket = this.buckets.get(key);
+    return bucket === undefined
+      ? perMinute
+      : Math.min(
+          perMinute,
+          bucket.tokens + ((now - bucket.filledAt) / WINDOW_MS) * perMinute,
+        );
   }
 
   /** How many buckets are being tracked. Exists for the tests of the sweep. */

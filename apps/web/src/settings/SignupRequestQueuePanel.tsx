@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AddressView, ApartmentView } from "../api/instance";
@@ -41,22 +47,20 @@ interface Pending {
   kind: "approve" | "reject";
 }
 
-type Outcome = { kind: "approved"; email: string } | { kind: "rejected" };
+type Outcome =
+  | { kind: "approved"; email: string; invitationSent: boolean }
+  | { kind: "rejected" };
 
 const DECISION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "already-decided": "settings.signupQueue.errors.alreadyDecided",
-  // Reachable without anybody doing anything wrong: a second request from the
-  // same address replaces the first, so the id the board is looking at can be
-  // gone by the time they decide it.
   "not-found": "settings.signupQueue.errors.notFound",
   "apartment-not-found": "settings.signupQueue.errors.apartmentNotFound",
   // Refused on every retry: the person can sign in already, so the request is
   // one to reject.
   "already-has-account": "settings.signupQueue.errors.alreadyHasAccount",
-  // Not a failed approval. The person, the residency and the invitation are
-  // written before the email is sent, so this says the account exists and the
-  // letter did not go out.
-  "mail-not-configured": "settings.signupQueue.errors.mailNotConfigured",
+  // The applicant matched a person by email who already lives there.
+  "already-resident": "settings.signupQueue.errors.alreadyResident",
+  "email-shared": "settings.signupQueue.errors.emailShared",
 };
 
 const EMPTY: Loaded = { ready: false, requests: [], loadFailed: false };
@@ -98,7 +102,15 @@ export function SignupRequestQueuePanel({
   const [pending, setPending] = useState<Pending | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
-  const approve = useSaveAction(approveSignupRequest);
+  /*
+   * Whether the last approval's invitation went out. An approval commits
+   * before the letter is sent, so a mail server that refuses it is not a
+   * failed approval: the answer says so, and the notice has to as well.
+   */
+  const invitationSent = useRef(true);
+  const approve = useSaveAction(approveSignupRequest, (value) => {
+    invitationSent.current = value.invitationSent;
+  });
   const reject = useSaveAction(rejectSignupRequest);
 
   useEffect(() => {
@@ -122,10 +134,8 @@ export function SignupRequestQueuePanel({
   /*
    * The queue is read again after every decision, refused ones included, and
    * that is not tidiness. A refusal here usually means the list in front of the
-   * board is out of date - somebody else decided the request, or the applicant
-   * resubmitted and replaced it - and a refused approval that reports
-   * mail-not-configured has already created the person, the residency and the
-   * invitation. Leaving the row on screen after any of those would invite the
+   * board is out of date - somebody else decided the request, or the register
+   * changed under it. Leaving the row on screen after either would invite the
    * board to decide it a second time.
    */
   const settle = (decided: boolean, next: Outcome): void => {
@@ -140,11 +150,13 @@ export function SignupRequestQueuePanel({
     reject.reset();
     setOutcome(null);
     setPending({ id: request.id, kind: "approve" });
-    void approve
-      .submit(request.id, { apartmentId })
-      .then((decided) =>
-        settle(decided, { kind: "approved", email: request.email }),
-      );
+    void approve.submit(request.id, { apartmentId }).then((decided) =>
+      settle(decided, {
+        kind: "approved",
+        email: request.email,
+        invitationSent: invitationSent.current,
+      }),
+    );
   };
 
   const onReject = (request: PendingSignupRequest, reason: string) => {
@@ -190,9 +202,13 @@ export function SignupRequestQueuePanel({
             </Notice>
           ) : outcome === null ? null : (
             <Notice tone="ok" live>
-              {outcome.kind === "approved"
-                ? t("settings.signupQueue.approved", { email: outcome.email })
-                : t("settings.signupQueue.rejected")}
+              {outcome.kind === "rejected"
+                ? t("settings.signupQueue.rejected")
+                : outcome.invitationSent
+                  ? t("settings.signupQueue.approved", { email: outcome.email })
+                  : t("settings.signupQueue.approvedNotInvited", {
+                      email: outcome.email,
+                    })}
             </Notice>
           )}
         </>

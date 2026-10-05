@@ -160,11 +160,11 @@ for (const invitee of INVITED) {
     ).toBeVisible();
 
     /*
-     * Matched from the start of the label rather than in full: the shared
-     * register people reached the register through sign-up approval, which
-     * already emailed them an invitation, so the panel offers to send it
-     * again - and the button says so. Both wordings are correct states of this
-     * screen, and both send the same email.
+     * Matched from the start of the label rather than in full: on a reused
+     * stack an earlier run has already emailed the shared register people an
+     * invitation, so the panel offers to send it again - and the button says
+     * so. Both wordings are correct states of this screen, and both send the
+     * same email.
      */
     await page.getByRole("button", { name: /^Skicka inbjudan/ }).click();
     await expect(

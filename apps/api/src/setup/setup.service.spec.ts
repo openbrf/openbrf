@@ -127,6 +127,8 @@ function build(
   // sequence of writes, not that Postgres isolates them.
   const client = {
     ...prisma,
+    // The address lock: a lock statement, with no row to answer.
+    $executeRaw: vi.fn().mockResolvedValue(0),
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
       run(client),
     ),

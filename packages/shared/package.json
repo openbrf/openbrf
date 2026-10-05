@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
     }
   },
   "scripts": {
@@ -17,10 +21,10 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "oxlint": "^1.85.0",
+    "oxlint": "^1.86.0",
     "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   },
   "dependencies": {
     "zod": "^4.6.5"

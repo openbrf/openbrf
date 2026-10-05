@@ -177,6 +177,65 @@ describe("a token bucket", () => {
     expect(buckets.take("form 203.0.113.9", 3, now).allowed).toBe(true);
   });
 
+  it("gives back a spent token, and never more than the budget", () => {
+    const buckets = new TokenBuckets();
+    const now = 1_000_000;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      buckets.take("form some-address", 3, now);
+    }
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(false);
+
+    buckets.refund("form some-address", 3);
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(true);
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(false);
+
+    // A refund past full changes nothing, and an unknown key is left alone.
+    buckets.refund("form other-address", 3);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      buckets.refund("form some-address", 3);
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(buckets.take("form some-address", 3, now).allowed).toBe(true);
+    }
+    expect(buckets.take("form some-address", 3, now).allowed).toBe(false);
+    expect(buckets.size).toBe(1);
+  });
+
+  it("tells what a take would answer without spending anything", () => {
+    const buckets = new TokenBuckets();
+    const now = 1_000_000;
+    expect(buckets.peek("form some-address", 3, now)).toEqual({
+      allowed: true,
+    });
+    // An unknown key stays unknown, so a peek alone never grows the map.
+    expect(buckets.size).toBe(0);
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(buckets.peek("form some-address", 3, now).allowed).toBe(true);
+      buckets.take("form some-address", 3, now);
+    }
+
+    // The same wait the take reports: a token every twenty seconds.
+    expect(buckets.peek("form some-address", 3, now)).toEqual({
+      allowed: false,
+      retryAfterSeconds: 20,
+    });
+    expect(buckets.take("form some-address", 3, now)).toEqual({
+      allowed: false,
+      retryAfterSeconds: 20,
+    });
+    expect(buckets.peek("form some-address", 3, now + 15_000)).toEqual({
+      allowed: false,
+      retryAfterSeconds: 5,
+    });
+    expect(buckets.peek("form some-address", 3, now + 20_000).allowed).toBe(
+      true,
+    );
+    expect(buckets.take("form some-address", 3, now + 20_000).allowed).toBe(
+      true,
+    );
+  });
+
   it("forgets an address that has stopped spending", () => {
     const buckets = new TokenBuckets();
     const start = 1_000_000;

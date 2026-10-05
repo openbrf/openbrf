@@ -16,9 +16,14 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import { BoardMailboxCollectorService } from "./board-mailbox-collector.service";
+import {
+  BoardMailboxCollectorService,
+  type CollectionSummary,
+} from "./board-mailbox-collector.service";
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
+import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
+import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
   type Pop3TestServer,
@@ -233,7 +238,7 @@ function letter(options: {
   messageId: string;
   inReplyTo?: string;
   attachment?: boolean;
-  /** The Date header, where a test needs a particular one. */
+  /** The Date header. Yesterday unless a test needs another. */
   date?: string;
 }): string {
   const headers = [
@@ -241,7 +246,7 @@ function letter(options: {
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
     `Message-ID: <${options.messageId}>`,
-    `Date: ${options.date ?? "Tue, 01 Sep 2026 09:15:00 +0200"}`,
+    `Date: ${options.date ?? yesterdayDateHeader()}`,
     ...(options.inReplyTo === undefined
       ? []
       : [`In-Reply-To: <${options.inReplyTo}>`]),
@@ -810,6 +815,18 @@ describe("collecting the mailbox", () => {
       const attachment = full.messages?.[0]?.attachments[0];
       expect(attachment?.fileName).toBe("tak.png");
       expect(attachment?.url).toMatch(/^\/api\/media\//);
+
+      // A letter to the board is read by whoever handles its mail: a
+      // resident or the property manager holding the address reads nothing.
+      const read = (cookie: string) =>
+        inject({
+          method: "GET",
+          url: attachment?.url ?? "",
+          headers: { cookie },
+        });
+      expect((await read(residentCookie)).statusCode).toBe(404);
+      expect((await read(managerCookie)).statusCode).toBe(404);
+      expect((await read(boardCookie)).statusCode).toBe(200);
     } finally {
       await server.close();
     }
@@ -883,6 +900,91 @@ describe("collecting the mailbox", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("does not store a letter already past the retention window", async () => {
+    const subject = `Forntida ${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid: `uid-ancient-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev fran for lange sedan.",
+          messageId: `ancient-${suffix}@utanfor.example`,
+          date: "Wed, 01 Jan 2020 09:15:00 +0100",
+        }),
+      },
+    ]);
+
+    try {
+      // Stored, it would be a thread the purge erases the same night: the date
+      // it is anchored on is already more than two years before now.
+      const summary = await collector.collect(
+        new Date("2026-09-28T12:00:00.000Z"),
+      );
+      expect(summary.collected).toBe(0);
+      expect(summary.skipped).toBe(1);
+
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((thread) => thread.subject === subject)).toBe(false);
+
+      // And recorded as read, so the next run does not fetch it again.
+      const again = await collector.collect(
+        new Date("2026-09-28T12:05:00.000Z"),
+      );
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("draws the retention line where the purge draws it", async () => {
+    // A thread is erasable when its last message is on or before the cutoff, so
+    // a letter dated exactly on it is left and one a millisecond after is kept.
+    // A Date header has whole seconds, so the clock moves rather than the letter.
+    const sentAt = new Date("2024-09-28T12:00:00.000Z");
+    const retention = BOARD_MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const onTheCutoff = new Date(sentAt.getTime() + retention);
+    const justInside = new Date(onTheCutoff.getTime() - 1);
+
+    const collectAt = async (
+      name: string,
+      now: Date,
+    ): Promise<CollectionSummary> => {
+      const server = await serveMailbox([
+        {
+          uid: `uid-${name}-${suffix}`,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `${name} ${suffix}`,
+            body: "Ett brev vid gransen.",
+            messageId: `${name}-${suffix}@utanfor.example`,
+            date: sentAt.toUTCString(),
+          }),
+        },
+      ]);
+      try {
+        return await collector.collect(now);
+      } finally {
+        await server.close();
+      }
+    };
+
+    const skipped = await collectAt("Pa-gransen", onTheCutoff);
+    expect(skipped.collected).toBe(0);
+    expect(skipped.skipped).toBe(1);
+
+    const kept = await collectAt("Innanfor", justInside);
+    expect(kept.collected).toBe(1);
+    expect(kept.skipped).toBe(0);
+    const thread = await threadBySubject(`Innanfor ${suffix}`);
+    const stored = await prisma.boardMailboxThread.findUnique({
+      where: { id: thread.id },
+      select: { lastMessageAt: true },
+    });
+    expect(stored?.lastMessageAt).toEqual(sentAt);
   });
 
   it("stores a letter whose body carries control characters", async () => {
@@ -1748,6 +1850,160 @@ describe("the purge", () => {
     expect(JSON.stringify(entries[0]?.context)).not.toContain("@");
   });
 
+  it("does not collect a purged letter again from the mailbox", async () => {
+    const subject = `Utgallrad ${suffix}`;
+    const messageId = `purged-${suffix}@utanfor.example`;
+    // The same mailbox before and after the purge: nothing is ever deleted from
+    // it, so the letter is still there once its thread is gone.
+    const server = await serveMailbox([
+      {
+        uid: `uid-purged-${suffix}`,
+        raw: letter({
+          from: `utgallrad-${suffix}@utanfor.example`,
+          subject,
+          body: "Ett brev som ska gallras.",
+          messageId,
+        }),
+      },
+    ]);
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(1);
+
+      const thread = await threadBySubject(subject);
+      await prisma.boardMailboxThread.update({
+        where: { id: thread.id },
+        data: { lastMessageAt: new Date("2020-01-01T00:00:00.000Z") },
+      });
+      expect(
+        await purge.purgeThread(
+          thread.id,
+          new Date("2026-01-01T00:00:00.000Z"),
+        ),
+      ).toBe(true);
+
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+
+      // Nothing of the letter is stored again, under any thread.
+      expect(
+        await prisma.boardMailboxMessage.count({ where: { messageId } }),
+      ).toBe(0);
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((listed) => listed.subject === subject)).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps every letter of a purged conversation out of the mailbox's next collection", async () => {
+    const subject = `Samtal ${suffix}`;
+    const from = `samtal-${suffix}@utanfor.example`;
+    const openingId = `samtal-${suffix}@utanfor.example`;
+    const opening = {
+      uid: `uid-samtal-${suffix}`,
+      raw: letter({
+        from,
+        subject,
+        body: "En fraga.",
+        messageId: openingId,
+      }),
+    };
+
+    const first = await serveMailbox([opening]);
+    try {
+      expect((await collector.collect()).collected).toBe(1);
+    } finally {
+      await first.close();
+    }
+
+    const thread = await threadBySubject(subject);
+    const replied = await inject({
+      method: "POST",
+      url: `/api/board-mailbox/threads/${thread.id}/reply`,
+      payload: { body: "Tack, vi tittar pa det." },
+      headers: { cookie: boardCookie },
+    });
+    expect(replied.statusCode, replied.body).toBe(201);
+    const answer = await prisma.boardMailboxMessage.findFirst({
+      where: { threadId: thread.id, direction: "OUTBOUND" },
+      select: { messageId: true },
+    });
+    expect(answer?.messageId).toBeTruthy();
+
+    // The whole conversation as a mailbox holds it: the opening letter, the
+    // correspondent's follow-up, and the board's own answer filed back into the
+    // same mailbox, which the collector recognises and marks as held.
+    const mailbox = [
+      opening,
+      {
+        uid: `uid-samtal-foljd-${suffix}`,
+        raw: letter({
+          from,
+          subject: `Sv: ${subject}`,
+          body: "Och en fraga till.",
+          messageId: `samtal-foljd-${suffix}@utanfor.example`,
+          inReplyTo: openingId,
+        }),
+      },
+      {
+        uid: `uid-samtal-svar-${suffix}`,
+        raw: letter({
+          from: BOARD_ADDRESS,
+          subject: `Sv: ${subject}`,
+          body: "Tack, vi tittar pa det.",
+          messageId: answer?.messageId ?? "",
+        }),
+      },
+    ];
+
+    const server = await serveMailbox(mailbox);
+    try {
+      expect((await collector.collect()).collected).toBe(1);
+      const held = await prisma.boardMailboxMessage.findMany({
+        where: { threadId: thread.id, sourceUid: { not: null } },
+        select: { sourceUid: true },
+      });
+      expect(held).toHaveLength(3);
+      const heldUids = held.map((row) => row.sourceUid ?? "");
+
+      await prisma.boardMailboxThread.update({
+        where: { id: thread.id },
+        data: { lastMessageAt: new Date("2020-01-01T00:00:00.000Z") },
+      });
+      expect(
+        await purge.purgeThread(
+          thread.id,
+          new Date("2026-01-01T00:00:00.000Z"),
+        ),
+      ).toBe(true);
+
+      // Each of the three is remembered as purged, the board's answer included,
+      // so none of them is read again.
+      const ignored = await prisma.boardMailboxIgnoredMessage.findMany({
+        where: { sourceUid: { in: heldUids } },
+        select: { reason: true },
+      });
+      expect(ignored.map((row) => row.reason)).toStrictEqual([
+        "purged",
+        "purged",
+        "purged",
+      ]);
+
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(3);
+      const threads = await listThreads(boardCookie);
+      expect(threads.some((listed) => listed.subject.includes(subject))).toBe(
+        false,
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
   it("takes an attachment's file and its bytes with the thread", async () => {
     const correspondent = `bilaga-${suffix}@utanfor.example`;
     const collectorServer = await serveMailbox([
@@ -1906,6 +2162,117 @@ describe("the purge", () => {
       await registerAddress(resident.personId, null);
     }
   });
+
+  it.each([
+    {
+      cause: "restricted person's",
+      slug: "restricted",
+      subjectWord: "Begransad",
+      protect: async () => {
+        await prisma.person.update({
+          where: { id: resident.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        return async () => {
+          await prisma.person.update({
+            where: { id: resident.personId },
+            data: { processingRestrictedAt: null },
+          });
+        };
+      },
+    },
+    {
+      cause: "held person's",
+      slug: "held",
+      subjectWord: "Spaerrad",
+      protect: async () => {
+        const hold = await prisma.legalHold.create({
+          data: {
+            personId: resident.personId,
+            reason: `Tvist ${suffix}`,
+            placedByPersonId: administrator.personId,
+          },
+          select: { id: true },
+        });
+        return async () => {
+          await prisma.legalHold.delete({ where: { id: hold.id } });
+        };
+      },
+    },
+  ])(
+    "collects an old-dated reply to a $cause thread rather than leaving it",
+    async ({ slug, subjectWord, protect }) => {
+      /*
+       * A letter past the window is left in the mailbox for good, which is right
+       * for correspondence the purge would erase that night and wrong for one it
+       * keeps. Under a restriction or a legal hold the association may not erase
+       * this person's data, so leaving the letter loses it from the record that
+       * is being preserved.
+       */
+      const address = `mailbox-${slug}-reply-${suffix}@exempel.se`;
+      const subject = `${subjectWord} ${suffix}`;
+      const opening = `${slug}-opening-${suffix}@utanfor.example`;
+      await registerAddress(resident.personId, address);
+      const release = await protect();
+
+      try {
+        const first = await serveMailbox([
+          {
+            uid: `uid-${slug}-opening-${suffix}`,
+            raw: letter({
+              from: address,
+              subject,
+              body: "Forsta brevet.",
+              messageId: opening,
+            }),
+          },
+        ]);
+        try {
+          await collector.collect();
+        } finally {
+          await first.close();
+        }
+        const thread = await threadBySubject(subject);
+        const before = await prisma.boardMailboxThread.findUnique({
+          where: { id: thread.id },
+          select: { lastMessageAt: true },
+        });
+
+        const second = await serveMailbox([
+          {
+            uid: `uid-${slug}-reply-${suffix}`,
+            raw: letter({
+              from: address,
+              subject: `Re: ${subject}`,
+              body: "Ett svar fran for lange sedan.",
+              messageId: `${slug}-reply-${suffix}@utanfor.example`,
+              inReplyTo: opening,
+              date: "Wed, 01 Jan 2020 09:15:00 +0100",
+            }),
+          },
+        ]);
+        try {
+          const summary = await collector.collect();
+          expect(summary.collected).toBe(1);
+          expect(summary.skipped).toBe(0);
+        } finally {
+          await second.close();
+        }
+
+        expect((await threadBySubject(subject)).messageCount).toBe(2);
+        // And the thread's clock stays on its newest letter, or the old date
+        // would hand the recent one to the purge the night the restriction lifts.
+        const after = await prisma.boardMailboxThread.findUnique({
+          where: { id: thread.id },
+          select: { lastMessageAt: true },
+        });
+        expect(after?.lastMessageAt).toEqual(before?.lastMessageAt);
+      } finally {
+        await release();
+        await registerAddress(resident.personId, null);
+      }
+    },
+  );
 
   it("is stopped by a restriction granted while the run is already in flight", async () => {
     /*

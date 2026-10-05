@@ -76,14 +76,17 @@ export function fetchSignupRequests(): Promise<
 /**
  * Approves a request against one apartment.
  *
- * No role travels with it. The API defaults to a resident, and a self-signup
- * never grants membership: holding a tenant-ownership is a matter of record,
- * written by the move-in and register flows, not something granted by asking.
+ * No role travels with it, and the API refuses one. An approval records a
+ * resident: holding a tenant-ownership is a matter of record, written by the
+ * move-in and register flows, not something granted by asking.
+ *
+ * `invitationSent` is false when the approval committed and the invitation
+ * could not be sent afterwards.
  */
 export function approveSignupRequest(
   id: string,
   input: { apartmentId: string },
-): Promise<ApiResult<{ personId: string }>> {
+): Promise<ApiResult<{ personId: string; invitationSent: boolean }>> {
   return apiRequest(
     "POST",
     `/api/signup-requests/${encodeURIComponent(id)}/approve`,
