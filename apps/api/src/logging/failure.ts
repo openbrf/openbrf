@@ -47,6 +47,13 @@ const MAX_IDENTIFIER = 60;
 const MAX_FRAMES = 20;
 
 /**
+ * The longest line taken as a call frame. A frame is a function name and a
+ * path, a few hundred characters at the most; a longer line is message text,
+ * and is not worth matching.
+ */
+const MAX_FRAME_LINE = 1000;
+
+/**
  * The class of the failure, with the runtime's code where it carries one.
  *
  * `name` and `code` are identifiers rather than prose - `TypeError`,
@@ -86,16 +93,21 @@ export function failureName(cause: unknown): string {
 
 /**
  * Where a V8 call frame says it ran: `file:line:column`, or one of the places
- * V8 names instead of a file.
+ * V8 names instead of a file. The file begins as a path or a URL does, so a
+ * message line that merely ends in two numbers - a clock time, `12:30:45` -
+ * is not one.
  */
-const LOCATION = String.raw`(?:.+:\d+:\d+|native|<anonymous>|index \d+)`;
+const LOCATION = String.raw`(?:(?:\/|[A-Za-z]:\\|file:\/\/|node:|https?:\/\/|webpack:)[^()]*:\d+:\d+|native|<anonymous>|index \d+)`;
 
 /**
  * A V8 call frame: `at ` indented by exactly four spaces, then a location,
- * bare or in parentheses after the function's name.
+ * bare or in parentheses after the function's name. Neither the name nor the
+ * path may hold a parenthesis, which keeps the match linear in the line's
+ * length: with `.+` in both places a long line that is not a frame took time
+ * in its square.
  */
 const FRAME = new RegExp(
-  String.raw`^ {4}at (?:${LOCATION}|.+ \(${LOCATION}\))$`,
+  String.raw`^ {4}at (?:${LOCATION}|[^()]+ \(${LOCATION}\))$`,
 );
 
 /**
@@ -129,7 +141,7 @@ export function failureFrames(cause: unknown): string | undefined {
 
   const frames = stack
     .split("\n")
-    .filter((line) => FRAME.test(line))
+    .filter((line) => line.length <= MAX_FRAME_LINE && FRAME.test(line))
     .slice(0, MAX_FRAMES);
 
   return frames.length === 0 ? undefined : frames.join("\n");
