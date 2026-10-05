@@ -829,6 +829,12 @@ export class NewsWriteService {
           tx,
         );
 
+        /** The channel's own job, in this transaction. */
+        const enqueue = (channel: "EMAIL" | "SMS"): Promise<void> =>
+          channel === "SMS"
+            ? this.texter.enqueueInTransaction(tx, id)
+            : this.mailer.enqueueInTransaction(tx, id);
+
         /**
          * One channel's recipients, as they stand at this instant, written down.
          *
@@ -875,11 +881,7 @@ export class NewsWriteService {
           // In this transaction, so the job row commits with the ledger it works
           // through or with neither. A job sent after the commit could fail on
           // its own and leave a mailing claimed with nothing coming for it.
-          if (channel === "SMS") {
-            await this.texter.enqueueInTransaction(tx, id);
-          } else {
-            await this.mailer.enqueueInTransaction(tx, id);
-          }
+          await enqueue(channel);
 
           return recipients.length;
         };
@@ -896,11 +898,7 @@ export class NewsWriteService {
           if (waiting === 0) {
             return;
           }
-          if (channel === "SMS") {
-            await this.texter.enqueueInTransaction(tx, id);
-          } else {
-            await this.mailer.enqueueInTransaction(tx, id);
-          }
+          await enqueue(channel);
         };
         if (mayResumeEmail) {
           await resume("EMAIL");
