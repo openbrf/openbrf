@@ -426,6 +426,41 @@ describe("recording a charge", () => {
     );
   });
 
+  it("refuses a charge dated before the period charges are kept for", async () => {
+    /*
+     * Eight years back is past the seven the purge keeps a charge for on any
+     * financial year, so the night's run would erase it within hours of being
+     * shown and exported. Six years back is still inside, and is taken.
+     */
+    const today = localDayOf(new Date());
+    const tooOld = formatLocalDay({ ...today, year: today.year - 8, day: 1 });
+    const response = await recordCharge(chargeOn({ chargedOn: tooOld }));
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "date-beyond-retention",
+    );
+
+    const kept = formatLocalDay({ ...today, year: today.year - 6, day: 1 });
+    const recorded = await recordCharge(chargeOn({ chargedOn: kept }));
+    expect(recorded.statusCode).toBe(201);
+    const chargeId = recorded.json<DebitingListRow>().chargeId;
+
+    // A correction moving the date out of the window is refused the same way.
+    const corrected = await inject({
+      method: "POST",
+      url: `/api/member-charges/${chargeId}/correct`,
+      payload: { chargedOn: tooOld },
+      headers: { cookie: boardCookie },
+    });
+    expect(corrected.statusCode).toBe(422);
+    expect(corrected.json<{ reason: string }>().reason).toBe(
+      "date-beyond-retention",
+    );
+
+    await prisma.memberCharge.delete({ where: { id: chargeId } });
+  });
+
   it("refuses a rate on an exempt charge and a rated charge with no rate", async () => {
     const withRate = await recordCharge(chargeOn({ vatRatePercent: 25 }));
     expect(withRate.statusCode).toBe(422);

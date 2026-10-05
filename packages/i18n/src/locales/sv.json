@@ -4189,6 +4189,7 @@
       "personalIdentityNumberCount_other": "{{count}} nummer hittades i texten.",
       "dateNotACalendarDate": "Det är inget datum.",
       "dateInTheFuture": "En debitering kan inte dateras framåt i tiden.",
+      "dateBeyondRetention": "En debitering kan inte dateras före de sju år som föreningen sparar debiteringar.",
       "amountNotASum": "Ange beloppet i kronor, med högst två decimaler och utan tusentalsavgränsare.",
       "amountNotPositive": "En debitering är ett positivt belopp. En kreditering görs i bokföringssystemet.",
       "reasonRequired": "Ange vad debiteringen avser.",

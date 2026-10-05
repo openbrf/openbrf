@@ -31,6 +31,7 @@ export type ChargeReason =
   | "personal-identity-number"
   | "date-not-a-calendar-date"
   | "date-in-the-future"
+  | "date-beyond-retention"
   | "amount-not-a-sum"
   | "amount-not-positive"
   | "reason-required"
@@ -70,6 +71,7 @@ const CHARGE_FAILURES: Readonly<
 
   "date-not-a-calendar-date": "charges.errors.dateNotACalendarDate",
   "date-in-the-future": "charges.errors.dateInTheFuture",
+  "date-beyond-retention": "charges.errors.dateBeyondRetention",
   "amount-not-a-sum": "charges.errors.amountNotASum",
   "amount-not-positive": "charges.errors.amountNotPositive",
   "reason-required": "charges.errors.reasonRequired",

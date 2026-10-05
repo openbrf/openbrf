@@ -4189,6 +4189,7 @@
       "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
       "dateNotACalendarDate": "That is not a date.",
       "dateInTheFuture": "A charge cannot be dated ahead of today.",
+      "dateBeyondRetention": "A charge cannot be dated before the seven years the association keeps charges for.",
       "amountNotASum": "State the amount in kronor, with at most two decimal places and no thousands separator.",
       "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
       "reasonRequired": "State what the charge is for.",
