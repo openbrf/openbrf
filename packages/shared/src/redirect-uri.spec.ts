@@ -11,6 +11,9 @@ describe("isAcceptableRedirectUri", () => {
   it.each([
     "https://app.exempel.se/cb",
     "https://app.exempel.se:8443/cb?from=brf",
+    // Names that only start or end like this machine's.
+    "https://localhost.exempel.se/cb",
+    "https://mylocalhost/cb",
     "http://localhost:8123/callback",
     "http://127.0.0.1:8123/callback",
     "http://[::1]:8123/callback",
@@ -37,6 +40,9 @@ describe("isAcceptableRedirectUri", () => {
     "https://127.0.0.2/cb",
     "https://[::1]:8123/cb",
     "https://localhost./cb",
+    "https://app.localhost/cb",
+    "https://app.localhost./cb",
+    "https://brf.app.LOCALHOST:8443/cb",
     "http://127.0.0.2:8123/cb",
     // An app scheme that is not a reversed domain name, or that names a host.
     "myapp:/callback",

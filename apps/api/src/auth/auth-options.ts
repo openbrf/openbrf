@@ -9,10 +9,8 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
-import {
-  guardedMetadataFetch,
-  isMetadataDocumentUrlAllowed,
-} from "./cimd-fetch";
+import { isMetadataDocumentUrlAllowed } from "./cimd-fetch";
+import { cimdMetadataFetch } from "./cimd-redirects";
 import { hashOpaqueToken } from "./opaque-token";
 import type { ProtectedResource } from "./protected-resource";
 
@@ -148,7 +146,8 @@ export const CALLER_SETTABLE_USER_FIELDS: readonly string[] = [];
  * and its callback on another; such a client is registered by an
  * administrator instead. An app on the member's own device is not held to it:
  * its loopback and reverse-domain addresses carry no origin to compare, and
- * the provider checks them by the same rule as every other client.
+ * every address in the list meets the rule the consent screen applies before
+ * the client is registered at all (`./cimd-redirects`).
  */
 export const CIMD_METADATA_RULES = {
   metadataProfile: "mcp-2026-07-28",
@@ -513,7 +512,7 @@ export function buildAuthOptions(
       // place an unauthenticated party chooses a URL this server fetches, so
       // the fetch is bounded by us rather than left to the library's defaults.
       cimd({
-        fetchClientMetadataResource: guardedMetadataFetch,
+        fetchClientMetadataResource: cimdMetadataFetch,
         isMetadataDocumentUrlAllowed,
         ...CIMD_METADATA_RULES,
       }),

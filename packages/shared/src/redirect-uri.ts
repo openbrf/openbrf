@@ -73,13 +73,15 @@ export function isAcceptableRedirectUri(value: string): boolean {
 /**
  * Whether an https host is this machine, in any of the spellings the OAuth
  * provider refuses there: an app on this machine listens on plain http, and
- * nothing on it holds a certificate for these names (RFC 8252 8.3). Wider than
- * the hosts plain http is taken on, which are the three exact ones.
+ * nothing on it holds a certificate for these names (RFC 8252 8.3). Every name
+ * under `localhost` counts, as RFC 6761 6.3 reserves them for this machine and
+ * the sign-in library's own loopback test takes them. Wider than the hosts
+ * plain http is taken on, which are the three exact ones.
  */
 function namesThisMachine(hostname: string): boolean {
   return (
     isLoopbackHost(hostname) ||
-    /^localhost\.+$/i.test(hostname) ||
+    /(^|\.)localhost\.*$/i.test(hostname) ||
     /^127\.\d+\.\d+\.\d+$/.test(hostname)
   );
 }

@@ -291,7 +291,8 @@ export type MetadataFetchCode =
   | "response-too-large"
   | "timed-out"
   | "aborted"
-  | "transport-failed";
+  | "transport-failed"
+  | "redirect-uri-refused";
 
 /**
  * What every refusal says, whatever it refused.
@@ -525,7 +526,8 @@ export function createGuardedMetadataFetch(
 }
 
 /**
- * The transport the auth options hand to the discovery plugin.
+ * The transport the auth options hand to the discovery plugin, by way of the
+ * redirect rule in `./cimd-redirects`.
  */
 export const guardedMetadataFetch: MetadataResourceFetch =
   createGuardedMetadataFetch();
