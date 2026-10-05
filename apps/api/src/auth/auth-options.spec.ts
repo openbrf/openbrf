@@ -30,6 +30,7 @@ const options = buildAuthOptions(
     NODE_ENV: "test",
     APP_URL: "https://brf.example",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+    TRUSTED_PROXIES: ["172.16.0.0/12"],
   } as Env,
   {} as PrismaService,
   {
@@ -506,5 +507,16 @@ describe("who may manage an OAuth client", () => {
       "authorization_code",
       "refresh_token",
     ]);
+  });
+});
+
+describe("the client address the sign-in limiter counts", () => {
+  it("is read past the proxies the operator named, as the public forms read it", () => {
+    // Without the list a header holding more than one address resolves to
+    // nobody, and every client behind an appending proxy shares one bucket.
+    expect(options.advanced.ipAddress).toEqual({
+      ipAddressHeaders: ["x-forwarded-for"],
+      trustedProxies: ["172.16.0.0/12"],
+    });
   });
 });

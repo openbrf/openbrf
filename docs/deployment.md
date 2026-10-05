@@ -626,10 +626,25 @@ reading before the first member is added rather than after.
 ## Behind a reverse proxy
 
 Bind the application to loopback - the default - and terminate TLS in front of
-it. The proxy must set `X-Forwarded-For` itself rather than passing through
-whatever a client sends: the header identifies the client for rate limiting on
-the authentication endpoints and on the forms an anonymous visitor can submit,
-and a client that can set it can spoof its way around both.
+it, and name the proxy in `TRUSTED_PROXIES`. The client's address identifies it
+for rate limiting on the authentication endpoints and on the forms an anonymous
+visitor can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
+
+`TRUSTED_PROXIES` lists the addresses or CIDR ranges the proxy connects to the
+application from, separated by commas. A proxy on the host that reaches the
+port bound to loopback arrives from the gateway of the stack's Docker network,
+which `docker network inspect openbrf-prod_default` shows; a proxy in a
+container on that network arrives from its own address. The application reads
+the header only on a request from one of these, and then only from the right,
+past the hops the named proxies wrote: everything to the left of them is what
+the client sent. So a proxy that appends to the header, as nginx's
+`$proxy_add_x_forwarded_for` does, is as safe as one that overwrites it.
+
+Left empty, the header is not read for the forms at all, and every visitor
+behind the proxy shares its budget: a busy afternoon can then refuse a contact
+form to somebody who never sent one. The sign-in endpoints keep taking a header
+that holds exactly one address, so they rely on the proxy overwriting it until
+the proxy is named.
 
 The limits on a member exporting their own data - three a minute and one at a
 time each, twelve a minute and three at once for the whole instance - are

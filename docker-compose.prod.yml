@@ -169,6 +169,12 @@ services:
       # produces links that go nowhere.
       APP_URL: ${APP_URL:?set APP_URL to the address this instance is reached at}
 
+      # The reverse proxy in front, as the addresses it connects from. Only its
+      # X-Forwarded-For is believed; empty, the header is not read and every
+      # visitor behind the proxy shares its rate limits (docs/deployment.md,
+      # "Behind a reverse proxy").
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+
       # The application connects as the runtime role, never as the schema
       # owner: a table owner can disable the triggers that keep the member
       # register and the audit log append-only. No owner credential is given to

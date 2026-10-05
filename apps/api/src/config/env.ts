@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 import { z } from "zod";
 
 import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
@@ -94,6 +96,19 @@ export function isLoopbackHost(host: string): boolean {
     host === "127.0.0.1" ||
     host === "[::1]" ||
     host === "::1"
+  );
+}
+
+/** An IP address, or a CIDR range such as `172.16.0.0/12`. */
+function isAddressOrRange(entry: string): boolean {
+  const [address = "", prefix, ...rest] = entry.split("/");
+  const family = isIP(address);
+  if (family === 0 || rest.length > 0) {
+    return false;
+  }
+  return (
+    prefix === undefined ||
+    (/^\d+$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128))
   );
 }
 
@@ -292,6 +307,31 @@ export const envSchema = z.object({
     .int()
     .positive()
     .default(60),
+
+  /**
+   * The reverse proxies in front of this instance, as addresses or CIDR ranges
+   * separated by commas, as the application sees them connect.
+   *
+   * Only a request arriving from one of these has its X-Forwarded-For read, and
+   * then only the hops these proxies wrote, from the right: the rest of the
+   * header is whatever the client sent. Empty, the header is not read and the
+   * rate limits on the public forms count every request by the address it came
+   * from, which behind an unnamed proxy is the proxy's. Better Auth is given the
+   * same list for its own limiter.
+   */
+  TRUSTED_PROXIES: z
+    .string()
+    .transform((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ""),
+    )
+    .refine(
+      (entries) => entries.every(isAddressOrRange),
+      "must be IP addresses or CIDR ranges, separated by commas",
+    )
+    .default([]),
 
   OPENBRF_PLUGINS_ENABLED: envBoolean(true),
   OPENBRF_CATALOG_URL: z.string().min(1).optional(),
