@@ -383,10 +383,20 @@ test.describe("the action registry", () => {
       });
       expect(delivered.text).toContain(ITEM.paragraph);
 
-      const hers = (await mailingsAbout(ITEM.title)).filter((message) =>
-        message.To.some((to) => to.Address.toLowerCase() === MEMBER_EMAIL),
-      );
-      expect(hers).toHaveLength(1);
+      // Counted over a window rather than when the first one lands: the worker
+      // polls every two seconds, so a duplicate would arrive a poll or two
+      // after the message above, and a count taken at once would miss it.
+      const deadline = Date.now() + 4000;
+      for (;;) {
+        const hers = (await mailingsAbout(ITEM.title)).filter((message) =>
+          message.To.some((to) => to.Address.toLowerCase() === MEMBER_EMAIL),
+        );
+        expect(hers).toHaveLength(1);
+        if (Date.now() > deadline) {
+          break;
+        }
+        await new Promise((done) => setTimeout(done, 500));
+      }
     } finally {
       // The notice leaves the website with the row, and the instance is left as
       // the specs before this one wrote it.
