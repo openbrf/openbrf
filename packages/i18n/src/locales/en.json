@@ -2758,7 +2758,6 @@
       "sent": "The answer was accepted by the mail server.",
       "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
       "refused": "The answer did not go out: the mail server refused it.",
-      "threadGone": "The answer did not go out: the thread was erased first.",
       "interrupted": "The answer was given up on before it went out.",
       "unknown": "The answer did not go out."
     },

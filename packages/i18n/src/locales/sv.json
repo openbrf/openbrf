@@ -2758,7 +2758,6 @@
       "sent": "Svaret togs emot av e-postservern.",
       "mailNotConfigured": "Svaret gick inte i väg: den här instansen har ingen e-postserver inställd.",
       "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
-      "threadGone": "Svaret gick inte i väg: tråden hann gallras.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
       "unknown": "Svaret gick inte i väg."
     },

@@ -26,16 +26,6 @@ export const REPLY_DELIVERY_FAILURES = {
   /** The mail server refused the message. */
   refused: "send-failed",
 
-  /**
-   * The thread the reply belonged to is gone.
-   *
-   * Reachable because the sending is a background job and the purge is another:
-   * a thread whose retention ran out between the board pressing send and the
-   * worker reaching it has taken the reply with it, and the job says so rather
-   * than failing.
-   */
-  threadGone: "thread-gone",
-
   /** The sending was given up on before it reached this reply. */
   interrupted: "reply-sending-interrupted",
 } as const;
