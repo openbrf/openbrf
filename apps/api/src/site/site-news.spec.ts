@@ -144,8 +144,12 @@ describe("which page of the index a reader is shown", () => {
     return { service, news };
   }
 
+  /** The window of the read that answered: the last one made. */
   function window(news: { findMany: ReturnType<typeof vi.fn> }) {
-    return news.findMany.mock.calls[0]?.[0] as { take: number; skip: number };
+    return news.findMany.mock.calls.at(-1)?.[0] as {
+      take: number;
+      skip: number;
+    };
   }
 
   it("never reads more than one page of items", async () => {
@@ -179,6 +183,51 @@ describe("which page of the index a reader is shown", () => {
       expect(window(news).skip, requested).toBe(2 * NEWS_INDEX_PAGE_SIZE);
       expect(page.page, requested).toBe(3);
     }
+  });
+
+  it("reads the count and the page side by side, and once each", async () => {
+    // Every anonymous visit to /nyheter runs this, so the two reads are not
+    // made one after the other.
+    let releaseCount: (total: number) => void = () => undefined;
+    const news = {
+      count: vi.fn(
+        async () =>
+          await new Promise<number>((resolve) => {
+            releaseCount = resolve;
+          }),
+      ),
+      findMany: vi.fn().mockResolvedValue([]),
+    };
+    const service = new SiteNewsService({ news } as unknown as PrismaService);
+
+    const pending = service.index(false, "2");
+    await Promise.resolve();
+    expect(news.findMany).toHaveBeenCalledTimes(1);
+    releaseCount(45);
+
+    expect(await pending).toMatchObject({ page: 2 });
+    expect(news.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the last page again only when the number asked for was past it", async () => {
+    const { service, news } = withItems(45);
+
+    await service.index(false, "7");
+
+    expect(news.findMany.mock.calls.map(([args]) => args.skip)).toEqual([
+      6 * NEWS_INDEX_PAGE_SIZE,
+      2 * NEWS_INDEX_PAGE_SIZE,
+    ]);
+  });
+
+  it("does not skip at all for a number too long to be a page before the count", async () => {
+    const { service, news } = withItems(45);
+
+    await service.index(false, "9".repeat(400));
+
+    expect(news.findMany.mock.calls.map(([args]) => args.skip)).toEqual([
+      2 * NEWS_INDEX_PAGE_SIZE,
+    ]);
   });
 
   it("reads anything that is not a page number as the first page", async () => {

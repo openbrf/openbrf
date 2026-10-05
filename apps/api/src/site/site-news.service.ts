@@ -136,24 +136,35 @@ export class SiteNewsService {
    * is decided in one place - the calendar's rule for its month. Anything that
    * is not a page number reads as the first page, and a number past the last
    * page reads as the last: nothing a visitor puts in the address bar is an
-   * error, and no request can make the database skip further than there are
-   * items.
+   * error.
+   *
+   * The count and the page asked for are read side by side rather than one
+   * after the other, because this answers every anonymous visit to /nyheter.
+   * Only a number past the last page costs a second read, of the last page. A
+   * number too long to be a page is not read at all before the count says
+   * where the end is, so the database is never asked to skip further than six
+   * digits of pages.
    */
   async index(
     hasSession: boolean,
     requested: string | undefined,
   ): Promise<SiteNewsIndexPage> {
-    const total = await this.prisma.news.count({
-      where: readableBy(hasSession),
-    });
-    const last = Math.max(1, Math.ceil(total / NEWS_INDEX_PAGE_SIZE));
-    const page = Math.min(requestedPage(requested), last);
-
-    return {
-      items: await this.list(hasSession, {
+    const asked = requestedPage(requested);
+    const pageOf = async (page: number) =>
+      this.list(hasSession, {
         take: NEWS_INDEX_PAGE_SIZE,
         skip: (page - 1) * NEWS_INDEX_PAGE_SIZE,
-      }),
+      });
+
+    const [total, read] = await Promise.all([
+      this.prisma.news.count({ where: readableBy(hasSession) }),
+      Number.isFinite(asked) ? pageOf(asked) : null,
+    ]);
+    const last = Math.max(1, Math.ceil(total / NEWS_INDEX_PAGE_SIZE));
+    const page = Math.min(asked, last);
+
+    return {
+      items: read !== null && page === asked ? read : await pageOf(page),
       page,
       newer: page > 1 ? page - 1 : null,
       older: page < last ? page + 1 : null,
