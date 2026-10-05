@@ -4,6 +4,7 @@ import { ENV } from "../config/config.module";
 import { type Env, isLoopbackHost } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type { MailApiConfig } from "./http-api-mail.driver";
 import type { MailDriverKind } from "./mail-driver";
 import { defaultPortFor, type SmtpServer } from "./smtp-mail.driver";
@@ -63,6 +64,21 @@ export interface MailDescription {
   host: string;
   fromAddress: string;
 }
+
+/** The association's columns the board's own mail is read from. */
+export const STORED_MAIL_COLUMNS = {
+  smtpHost: true,
+  smtpPort: true,
+  smtpSecure: true,
+  smtpUser: true,
+  smtpPasswordCipher: true,
+  smtpFromAddress: true,
+} as const;
+
+/** The board's own mail as the association row holds it. */
+export type StoredMail = Prisma.AssociationGetPayload<{
+  select: typeof STORED_MAIL_COLUMNS;
+}>;
 
 @Injectable()
 export class MailSettingsResolver implements OnModuleInit {
@@ -141,17 +157,29 @@ export class MailSettingsResolver implements OnModuleInit {
       return fromEnvironment;
     }
 
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: {
-        smtpHost: true,
-        smtpPort: true,
-        smtpSecure: true,
-        smtpUser: true,
-        smtpPasswordCipher: true,
-        smtpFromAddress: true,
-      },
-    });
+    return this.currentFrom(
+      await this.prisma.association.findUnique({
+        where: { id: 1 },
+        select: STORED_MAIL_COLUMNS,
+      }),
+    );
+  }
+
+  /**
+   * The same answer from an association row the caller has already read.
+   *
+   * What a send uses: it reads the row for the association's name and colours
+   * anyway, and a mailing sends once per recipient, so reading it a second time
+   * here would be one query more for every message.
+   */
+  async currentFrom(
+    association: StoredMail | null,
+  ): Promise<EffectiveMail | null> {
+    const fromEnvironment = this.fromEnvironment();
+    if (fromEnvironment !== null) {
+      return fromEnvironment;
+    }
+
     if (
       association === null ||
       association.smtpHost === null ||

@@ -12,7 +12,11 @@ import { mediaUrl } from "../media/media.service";
 import { MAX_DISPLAY_NAME, oneLine } from "./header-text";
 import { HttpApiMailDriver } from "./http-api-mail.driver";
 import type { MailDriver, SentMail } from "./mail-driver";
-import { type EffectiveMail, MailSettingsResolver } from "./mail-settings";
+import {
+  type EffectiveMail,
+  MailSettingsResolver,
+  STORED_MAIL_COLUMNS,
+} from "./mail-settings";
 import type {
   MailBrand,
   MailTemplate,
@@ -135,7 +139,7 @@ export class MailService {
   async send<Props>(input: SendMailInput<Props>): Promise<SentMail> {
     const association = await this.loadAssociation();
     const rendered = await this.renderWith(input, this.brandOf(association));
-    const mail = await this.mailSettings.current();
+    const mail = await this.mailSettings.currentFrom(association);
 
     if (mail === null) {
       if (this.env.NODE_ENV === "production") {
@@ -309,9 +313,9 @@ export class MailService {
   }
 
   /**
-   * The columns a message is branded and addressed from, and no others: a
-   * mailing reads this once per recipient, and the row holds every setting the
-   * association has.
+   * The columns a message is branded, addressed and sent from, and no others:
+   * a mailing reads this once per recipient, and the row holds every setting
+   * the association has.
    */
   private async loadAssociation(): Promise<MailAssociation | null> {
     return this.prisma.association.findUnique({
@@ -356,6 +360,9 @@ const MAIL_ASSOCIATION_COLUMNS = {
   boardMailboxPop3Host: true,
   boardMailboxPop3User: true,
   boardMailboxPop3PasswordCipher: true,
+  // The board's own mail server, read here rather than by the resolver so a
+  // send reads the row once.
+  ...STORED_MAIL_COLUMNS,
 } as const;
 
 type MailAssociation = Prisma.AssociationGetPayload<{

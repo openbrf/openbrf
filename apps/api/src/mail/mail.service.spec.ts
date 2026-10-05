@@ -530,6 +530,31 @@ describe("the driver", () => {
     // The transport built for the old settings is closed as it is replaced.
     expect(transport.close).toHaveBeenCalledTimes(1);
   });
+
+  it("reads the association once for each message, for its brand and its server", async () => {
+    const findUnique = vi.fn(async () => STORED);
+    const prisma = {
+      association: { findUnique },
+    } as unknown as PrismaService;
+    const encryption = {
+      decrypt: vi.fn().mockResolvedValue("stored-password"),
+    } as unknown as FieldEncryptionService;
+    const service = new MailService(
+      TEST_ENV,
+      prisma,
+      i18n,
+      new MailSettingsResolver(TEST_ENV, prisma, encryption),
+    );
+
+    await invitation(service);
+
+    // A mailing sends once per recipient, so a second read here is a query
+    // more for every member.
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(transport.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "smtp.stored.example" }),
+    );
+  });
 });
 
 describe("the subject", () => {
