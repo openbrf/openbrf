@@ -49,9 +49,11 @@ import { appPath } from "../src/stack";
  * resident who holds no board seat, which is the persona the refusals are made
  * against.
  *
- * Every count asserted below moves relative to this spec's own rows: the period
- * is a year no other spec records anything in, and every reason it writes carries
- * a surname unique to the run.
+ * Every assertion below is about this spec's own rows: every reason it writes
+ * carries a surname unique to the run, and the one figure for the whole list -
+ * its total - is asserted as the amount it moved by, since a reused stack keeps
+ * the charges of the runs before and spec 42 dates one of its own in the same
+ * year.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -115,9 +117,8 @@ const HELD_FROM = "2026-01-15";
 /**
  * The period every charge here is dated in, and the one the screen is read for.
  *
- * A year of its own so the list this spec reads is this spec's own. Nothing else
- * in the suite records a charge at all, and the period controls make the
- * assertion a statement about a window rather than about the instance.
+ * Stated on the controls rather than left to the screen's default, so the list
+ * read is the one these charges are dated in whatever day the suite runs.
  */
 const PERIOD = { from: "2026-01-01", to: "2026-12-31" } as const;
 
@@ -358,6 +359,25 @@ async function recordCharge(
   await page.getByRole("button", { name: "Registrera debiteringen" }).click();
 }
 
+/**
+ * The list's total as the document states it, in öre.
+ *
+ * Read rather than written down, because nothing removes a charge: a run
+ * against a reused stack finds the last run's charges in the same period, and
+ * a fixed figure would be a statement about how many runs came before.
+ *
+ * Parsed from the sentence rather than from a cell, which is also what refuses
+ * an interpolation that never arrived: "Summa {{total}} kr" holds no figure.
+ */
+async function totalInOre(page: Page): Promise<number> {
+  const text = await page.locator("[data-print='document']").innerText();
+  const match = /Summa (\d+)\.(\d{2}) kr/.exec(text);
+  if (match === null) {
+    throw new Error(`the list states no total: ${text}`);
+  }
+  return Number(match[1]) * 100 + Number(match[2]);
+}
+
 /** The document's row carrying this reason. */
 function rowFor(page: Page, reason: string) {
   return page.locator("[data-print='document'] tbody tr", {
@@ -378,6 +398,7 @@ test("the board records a charge on a member and on an apartment", async ({
     ADMINISTRATOR.password,
   );
   await openCharges(page);
+  const before = await totalInOre(page);
 
   const keyReason = `Nyckel till cykelrummet ${CHARGED.lastName}`;
   await recordCharge(page, {
@@ -411,14 +432,15 @@ test("the board records a charge on a member and on an apartment", async ({
 
   /*
    * The two together, added up, which is what whoever keeps the books checks the
-   * file against. On the figure and not on the word: "Summa {{total}} kr" is an
-   * interpolated string, and a variable that never arrives renders its
-   * placeholder verbatim - which an assertion on the word alone would pass
-   * straight through. The stamp below is asserted for the same reason, and the
-   * last line refuses a placeholder anywhere on the document.
+   * file against: the total has moved by exactly these two. On the figure and
+   * not on the word: "Summa {{total}} kr" is an interpolated string, and a
+   * variable that never arrives renders its placeholder verbatim - which an
+   * assertion on the word alone would pass straight through. The stamp below is
+   * asserted for the same reason, and the last line refuses a placeholder
+   * anywhere on the document.
    */
   const document = page.locator("[data-print='document']");
-  await expect(document).toContainText("Summa 1650.00 kr");
+  await expect.poll(() => totalInOre(page)).toBe(before + 165_000);
   await expect(document).toContainText(
     `Debiteringslängd - ${PERIOD.from} till ${PERIOD.to} - framställd`,
   );
