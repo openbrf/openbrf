@@ -107,7 +107,10 @@ interface Fakes {
     findUnique: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
   };
-  transactionMediaFile: { delete: ReturnType<typeof vi.fn> };
+  transactionMediaFile: {
+    create: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+  };
 }
 
 function build(
@@ -150,22 +153,24 @@ function build(
     }),
   };
 
+  const createRow = async ({ data }: { data: Omit<Row, "id"> }) => {
+    if (options.createFails === true) {
+      throw new Error("the row could not be written");
+    }
+    nextId += 1;
+    // A nullable column the write leaves out is null, as in the database.
+    const row: Row = {
+      id: `file-${String(nextId)}`,
+      ...data,
+      unencryptedStorageKey: data.unencryptedStorageKey ?? null,
+      apartmentId: data.apartmentId ?? null,
+    };
+    rows.set(row.id, row);
+    return row;
+  };
+
   const mediaFile = {
-    create: vi.fn(async ({ data }: { data: Omit<Row, "id"> }) => {
-      if (options.createFails === true) {
-        throw new Error("the row could not be written");
-      }
-      nextId += 1;
-      // A nullable column the write leaves out is null, as in the database.
-      const row: Row = {
-        id: `file-${String(nextId)}`,
-        ...data,
-        unencryptedStorageKey: data.unencryptedStorageKey ?? null,
-        apartmentId: data.apartmentId ?? null,
-      };
-      rows.set(row.id, row);
-      return row;
-    }),
+    create: vi.fn(createRow),
     findUnique: vi.fn(
       async ({ where }: { where: { id: string } }) =>
         rows.get(where.id) ?? null,
@@ -178,11 +183,13 @@ function build(
   /*
    * A delegate of its own, not the root one under another name. Both write to
    * the same rows, so the service behaves identically either way and only the
-   * spy tells them apart: a delete issued on the root client outside the
-   * transaction would leave the row gone with no audit entry, and sharing one
+   * spy tells them apart: a write issued on the root client outside the
+   * transaction would survive the audit entry failing - a deleted row with no
+   * entry, or an uploaded one nobody was told the id of - and sharing one
    * delegate would let that pass.
    */
   const transactionMediaFile = {
+    create: vi.fn(createRow),
     delete: vi.fn(async ({ where }: { where: { id: string } }) => {
       rows.delete(where.id);
     }),
@@ -624,7 +631,7 @@ describe("uploading", () => {
     expect(fakes.rows.size).toBe(0);
   });
 
-  it("writes the upload to the audit log", async () => {
+  it("writes the upload to the audit log, on the transaction that writes the row", async () => {
     const file = await fakes.service.upload({
       bytes: pngBytes(10, 10),
       fileName: "logotyp.png",
@@ -634,9 +641,41 @@ describe("uploading", () => {
       channel: "WEB",
     });
 
+    expect(fakes.transactionMediaFile.create).toHaveBeenCalledTimes(1);
+    expect(fakes.mediaFile.create).not.toHaveBeenCalled();
     expect(fakes.audited).toContainEqual(
-      expect.objectContaining({ action: "MEDIA_UPLOADED", targetId: file.id }),
+      expect.objectContaining({
+        action: "MEDIA_UPLOADED",
+        targetId: file.id,
+        inTransaction: true,
+      }),
     );
+  });
+
+  it("keeps neither the row nor the object when the upload cannot be recorded", async () => {
+    /*
+     * The caller is never told the id of a file whose upload threw, so a row
+     * and an object left behind here would be held for nobody and reachable by
+     * nothing. The board mailbox's collector, for one, discards the files it
+     * was given ids for and tries the letter again, which would store this one
+     * a second time and leave the first copy behind.
+     */
+    const failing = build({ auditFailsOn: "MEDIA_UPLOADED" });
+
+    await expect(
+      failing.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "logotyp.png",
+        visibility: "PUBLIC",
+        showsIdentifiablePersons: false,
+        channel: "WEB",
+      }),
+    ).rejects.toThrow("the audit entry could not be written");
+
+    expect(failing.rows.size).toBe(0);
+    expect(failing.mediaFile.create).not.toHaveBeenCalled();
+    expect(failing.objects.size).toBe(0);
+    expect(failing.storage.remove).toHaveBeenCalledTimes(1);
   });
 
   it("removes the object again when its row cannot be written", async () => {

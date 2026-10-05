@@ -313,58 +313,74 @@ export class MediaService {
 
     await this.storage.put(storageKey, sealed.body, SEALED_FILE_CONTENT_TYPE);
 
+    /*
+     * The row and its entry share a transaction, as a deletion and its entry
+     * do. An upload whose entry failed has thrown, so its caller never learns
+     * the id: a row committed ahead of the entry would be a file held for
+     * nobody, unlisted in the log and never removed. The object goes with the
+     * row for the same reason, whichever of the two writes failed.
+     */
     let file;
     try {
-      file = await this.prisma.mediaFile.create({
-        data: {
-          storageKey,
-          encryption: "SECRETSTREAM_64K",
-          dataKeyCipher: sealed.dataKeyCipher,
-          contentType: identified.contentType,
-          byteSize: input.bytes.length,
-          checksum: sealed.checksum,
-          fileName: safeFileName(input.fileName),
-          width: identified.width,
-          height: identified.height,
-          // Null for anything that is not an image, whatever the caller
-          // passed: the column records a declaration about a picture, and a
-          // PDF has nobody's face in it to declare.
-          showsIdentifiablePersons: identified.isImage
-            ? (input.showsIdentifiablePersons ?? null)
-            : null,
-          visibility: input.visibility,
-          requiredCapability: input.requiredCapability ?? null,
-          apartmentId,
-          uploadedByPersonId: input.uploadedByPersonId ?? null,
-        },
+      file = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.mediaFile.create({
+          data: {
+            storageKey,
+            encryption: "SECRETSTREAM_64K",
+            dataKeyCipher: sealed.dataKeyCipher,
+            contentType: identified.contentType,
+            byteSize: input.bytes.length,
+            checksum: sealed.checksum,
+            fileName: safeFileName(input.fileName),
+            width: identified.width,
+            height: identified.height,
+            // Null for anything that is not an image, whatever the caller
+            // passed: the column records a declaration about a picture, and a
+            // PDF has nobody's face in it to declare.
+            showsIdentifiablePersons: identified.isImage
+              ? (input.showsIdentifiablePersons ?? null)
+              : null,
+            visibility: input.visibility,
+            requiredCapability: input.requiredCapability ?? null,
+            apartmentId,
+            uploadedByPersonId: input.uploadedByPersonId ?? null,
+          },
+        });
+
+        await this.audit.record(
+          {
+            action: "MEDIA_UPLOADED",
+            channel: input.channel,
+            actorPersonId: input.uploadedByPersonId ?? null,
+            targetKind: "media",
+            targetId: created.id,
+            // The name is the uploader's own text and the type is the
+            // identified one, so the log says what was accepted rather than
+            // what was claimed. The name is left out where the caller asked
+            // for that, which the apartment binder does and nothing else does.
+            context: {
+              ...((input.recordFileName ?? true)
+                ? { fileName: created.fileName }
+                : {}),
+              contentType: created.contentType,
+              byteSize: created.byteSize,
+              visibility: created.visibility,
+              showsIdentifiablePersons: created.showsIdentifiablePersons,
+            },
+          },
+          tx,
+        );
+
+        return created;
       });
     } catch (cause) {
       await this.storage.remove(storageKey).catch(() => {
         this.logger.warn(
-          `Left an unreferenced object at ${storageKey}: its row could not be written and it could not be removed.`,
+          `Left an unreferenced object at ${storageKey}: its row or its audit entry could not be written and it could not be removed.`,
         );
       });
       throw cause;
     }
-
-    await this.audit.record({
-      action: "MEDIA_UPLOADED",
-      channel: input.channel,
-      actorPersonId: input.uploadedByPersonId ?? null,
-      targetKind: "media",
-      targetId: file.id,
-      // The name is the uploader's own text and the type is the identified
-      // one, so the log says what was accepted rather than what was claimed.
-      // The name is left out where the caller asked for that, which the
-      // apartment binder does and nothing else does.
-      context: {
-        ...((input.recordFileName ?? true) ? { fileName: file.fileName } : {}),
-        contentType: file.contentType,
-        byteSize: file.byteSize,
-        visibility: file.visibility,
-        showsIdentifiablePersons: file.showsIdentifiablePersons,
-      },
-    });
 
     return toView(file);
   }
