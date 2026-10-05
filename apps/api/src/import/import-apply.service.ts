@@ -23,6 +23,7 @@ import {
 } from "../registers/residency-lock";
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
+import { advanceImportRevision } from "./import-revision";
 import {
   findUndecided,
   type ImportDecision,
@@ -413,6 +414,19 @@ export class ImportApplyService implements OnModuleInit {
             rowsWithProblems: { increment: written.errors },
           },
         });
+        // Every preview taken before this is out of date now, unless the chunk
+        // wrote nothing: rows skipped or in error leave the register as it was.
+        // A row counted as an update may have found nothing to fill in; that
+        // costs at most a preview the board did not need.
+        if (
+          written.personsCreated +
+            written.personsUpdated +
+            written.residenciesCreated +
+            written.memberRegisterEntriesCreated >
+          0
+        ) {
+          await advanceImportRevision(tx);
+        }
         return written;
       },
       { timeout: 120_000, maxWait: 20_000 },

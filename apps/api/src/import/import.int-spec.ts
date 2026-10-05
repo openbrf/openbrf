@@ -1390,13 +1390,9 @@ describe("two imports of two files", () => {
     await applies.runApply(first.sessionId);
     expect((await readRun(cookie, first.sessionId)).status).toBe("APPLIED");
 
-    // The first finished after the second was previewed, so the second is
-    // previewed again before it runs.
-    const outdated = await applyImport(cookie, second.sessionId);
-    expect(outdated.statusCode).toBe(400);
-    expect(reasonOf(outdated)).toBe("preview-outdated");
-    await previewAgain(cookie, second);
-
+    // The first finished after the second was previewed, but its only row was
+    // in error and it wrote nothing, so the second's preview still holds and
+    // it applies without being previewed again.
     const afterwards = await applyImport(cookie, second.sessionId);
     expect(afterwards.statusCode).toBe(202);
     const run = await waitForRun(
@@ -1478,7 +1474,6 @@ describe("two imports of two files", () => {
       winnerSession.sessionId,
       (candidate) => candidate.status === "APPLIED",
     );
-    await previewAgain(cookie, loserSession);
     expect((await applyImport(cookie, loserSession.sessionId)).statusCode).toBe(
       202,
     );
@@ -1567,18 +1562,29 @@ describe("a preview another import has overtaken", () => {
     const cookie = await signIn(actors.board.email);
     const earlier = await uploadAndPreview(cookie, "tidigare.csv", [
       HEADERS,
-      [addressLabel, "2102", "Tidigare", surname, "Boende", "", "", "1/2/23"],
+      [
+        addressLabel,
+        "2102",
+        "Tidigare",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
     ]);
     expect((await applyImport(cookie, earlier.sessionId)).statusCode).toBe(202);
-    await waitForRun(
+    const written = await waitForRun(
       cookie,
       earlier.sessionId,
       (candidate) => candidate.status === "APPLIED",
     );
+    // It wrote to the register, so this is about when it did, not whether.
+    expect(written.result.personsCreated).toBe(1);
 
     const later = await uploadAndPreview(cookie, "senare.csv", [
       HEADERS,
-      [addressLabel, "2102", "Senare", surname, "Boende", "", "", "1/2/23"],
+      [addressLabel, "2102", "Senare", surname, "Boende", "", "", "2023-02-01"],
     ]);
     expect((await applyImport(cookie, later.sessionId)).statusCode).toBe(202);
     await waitForRun(
@@ -1594,11 +1600,29 @@ describe("a preview another import has overtaken", () => {
     const cookie = await signIn(actors.board.email);
     const waiting = await uploadAndPreview(cookie, "vantande.csv", [
       HEADERS,
-      [addressLabel, "2102", "Vantande", surname, "Boende", "", "", "1/2/23"],
+      [
+        addressLabel,
+        "2102",
+        "Vantande",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
     ]);
     const stopped = await uploadAndPreview(cookie, "stoppad.csv", [
       HEADERS,
-      [addressLabel, "2102", "Stoppad", surname, "Boende", "", "", "1/2/23"],
+      [
+        addressLabel,
+        "2102",
+        "Stoppad",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
     ]);
     await prisma.importSession.update({
       where: { id: stopped.sessionId },
@@ -1636,11 +1660,12 @@ describe("a preview another import has overtaken, afterwards", () => {
     ];
   }
 
-  it("still sees an import that finished after it was previewed once the purge has run", async () => {
-    // The first file was uploaded long enough ago to have expired, but it
-    // finished after the second was previewed. The purge removes uploads that
-    // have expired, and with the first one gone nothing would tell the second
-    // that the register changed under its preview.
+  it("sees the write itself, not what the other session records about it", async () => {
+    // What the other session says is the wrong thing to ask. Its finishing
+    // time is written after its last chunk commits, by whichever process ran
+    // it, so a clock behind the preview's makes it look finished before the
+    // preview was taken. And the purge deletes it once its upload expires,
+    // which can be long before this upload does.
     const imports = app.get(ImportService);
     const cookie = await signIn(actors.board.email);
     const first = await uploadAndPreview(
@@ -1660,32 +1685,63 @@ describe("a preview another import has overtaken, afterwards", () => {
       first.sessionId,
       (candidate) => candidate.status === "APPLIED",
     );
-    // Its upload has expired by now; it finished a moment ago.
+
+    // Recorded as finished an hour before the second was previewed.
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { finishedAt: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    const behindTheClock = await applyImport(cookie, second.sessionId);
+    expect(behindTheClock.statusCode).toBe(400);
+    expect(reasonOf(behindTheClock)).toBe("preview-outdated");
+
+    // And gone altogether.
     await prisma.importSession.update({
       where: { id: first.sessionId },
       data: { expiresAt: new Date(Date.now() - 60_000) },
     });
-
-    // Half a lifetime on: the second upload is still valid and the first
-    // finished inside its own lifetime.
-    const later = new Date(Date.now() + 12 * 60 * 60 * 1000);
-    await imports.purgeExpiredSessions(later);
-    expect(
-      await prisma.importSession.findUnique({ where: { id: first.sessionId } }),
-    ).not.toBeNull();
-
-    const refused = await applyImport(cookie, second.sessionId);
-    expect(refused.statusCode).toBe(400);
-    expect(reasonOf(refused)).toBe("preview-outdated");
-
-    // A lifetime after it finished, nothing previewed before then can still be
-    // applied, so it goes.
-    await imports.purgeExpiredSessions(
-      new Date(Date.now() + 25 * 60 * 60 * 1000),
-    );
+    await imports.purgeExpiredSessions();
     expect(
       await prisma.importSession.findUnique({ where: { id: first.sessionId } }),
     ).toBeNull();
+    const afterThePurge = await applyImport(cookie, second.sessionId);
+    expect(afterThePurge.statusCode).toBe(400);
+    expect(reasonOf(afterThePurge)).toBe("preview-outdated");
+
+    await previewAgain(cookie, second);
+    expect((await applyImport(cookie, second.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      second.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+
+  it("is refused when it was previewed before previews recorded what they read", async () => {
+    // A session previewed before the migration that added the count has none,
+    // and nothing says whether an import wrote after it.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(
+      cookie,
+      "fran-fore-uppgraderingen.csv",
+      rowFor("Uppgraderad"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { previewedRevision: null },
+    });
+
+    const refused = await applyImport(cookie, session.sessionId);
+    expect(refused.statusCode).toBe(400);
+    expect(reasonOf(refused)).toBe("preview-outdated");
+
+    await previewAgain(cookie, session);
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
   }, 60_000);
 
   it("asks about a row that has become ambiguous since, instead of failing the job", async () => {
