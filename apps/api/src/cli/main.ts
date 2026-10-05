@@ -13,6 +13,10 @@ import {
   personalDataLabelKey,
 } from "../plugins/plugin-labels";
 import { PluginRegistryService } from "../plugins/plugin-registry.service";
+import {
+  describeOwed,
+  MemberRegisterReconciliationService,
+} from "../registers/member-register-reconciliation";
 
 /**
  * `openbrf` - the command-line half of plugin management.
@@ -44,9 +48,13 @@ Usage:
   openbrf plugin add <id>             Install a plugin from the catalog
   openbrf plugin remove <id>          Remove an installed plugin
   openbrf plugin catalog              List what the catalog offers
+  openbrf member-register reconcile [<person id>...]
+                                      Check the member register against the
+                                      tenant-ownerships held, and report
 
 Options:
   --dry-run    For "add": show what would be installed and stop
+  --apply      For "reconcile": append the rows the register is missing
   --help       Show this message
 `;
 
@@ -65,7 +73,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return flags.has("--help") ? 0 : 1;
   }
 
-  if (args[0] !== "plugin") {
+  if (args[0] !== "plugin" && args[0] !== "member-register") {
     console.error(`Unknown command "${args[0]}".\n\n${USAGE}`);
     return 1;
   }
@@ -77,7 +85,9 @@ async function main(argv: readonly string[]): Promise<number> {
   });
 
   try {
-    return await run(application, args.slice(1), flags);
+    return args[0] === "member-register"
+      ? await runMemberRegister(application, args.slice(1), flags)
+      : await run(application, args.slice(1), flags);
   } finally {
     await application.close();
   }
@@ -106,6 +116,56 @@ async function run(
       console.error(`Unknown plugin command "${args[0] ?? ""}".\n\n${USAGE}`);
       return 1;
   }
+}
+
+/**
+ * `openbrf member-register reconcile [--apply]`.
+ *
+ * A report by default and a write only when asked, because what it writes is
+ * rows in a statutory register nobody can take back. See
+ * `docs/member-register-reconciliation.md` for when an operator runs it.
+ */
+async function runMemberRegister(
+  application: INestApplicationContext,
+  args: readonly string[],
+  flags: ReadonlySet<string>,
+): Promise<number> {
+  if (args[0] !== "reconcile") {
+    console.error(
+      `Unknown member-register command "${args[0] ?? ""}".\n\n${USAGE}`,
+    );
+    return 1;
+  }
+
+  // Any further arguments are the people to check, for a look at one person
+  // before the whole register is run.
+  const personIds = args.slice(1);
+  const report = await application
+    .get(MemberRegisterReconciliationService)
+    .reconcile({
+      apply: flags.has("--apply"),
+      ...(personIds.length === 0 ? {} : { personIds }),
+    });
+
+  console.log(`Checked the member register of ${String(report.checked)} people.`);
+  for (const person of report.disagreements) {
+    console.log(
+      `${person.personId}: ${report.applied ? "appended" : "would append"} ` +
+        person.owed.map(describeOwed).join("; "),
+    );
+  }
+  for (const person of report.unverifiable) {
+    console.log(
+      `${person.personId}: ${String(person.rows)} register rows before any ` +
+        "tenant-ownership on record, left as they stand",
+    );
+  }
+  if (report.disagreements.length === 0) {
+    console.log("The register agrees with the tenant-ownerships held.");
+  } else if (!report.applied) {
+    console.log("Nothing was written. Run again with --apply to append these rows.");
+  }
+  return 0;
 }
 
 async function listInstalled(registry: PluginRegistryService): Promise<number> {
