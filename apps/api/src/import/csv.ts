@@ -140,8 +140,13 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
       continue;
     }
 
-    if (character === '"' && cell === "") {
+    // A quote opens a field where nothing but blanks precede it, so a space
+    // after the delimiter - `1; "x;y"` - does not turn the quote into text and
+    // split the field at the delimiter inside it. The blanks are dropped, as
+    // every cell is trimmed below.
+    if (character === '"' && cell.trim() === "") {
       quoted = true;
+      cell = "";
       continue;
     }
     if (character === separator) {
@@ -261,16 +266,40 @@ function neutralise(value: string): string {
   return `'${value}`;
 }
 
+/**
+ * Quotes a cell that holds a character some reader splits or ends a field on.
+ *
+ * The semicolon this writer delimits with, and also a comma and a tab: a
+ * spreadsheet set up for another list separator, or an import dialog someone
+ * picked the wrong one in, splits on those instead. Quoted, the cell stays one
+ * field whichever separator the reader chose, so what the neutralisation above
+ * decided about the cell's first character holds for all of it.
+ */
 function quoteCell(value: string): string {
-  if (!/[";\r\n]/.test(value)) {
+  if (!/[";,\t\r\n]/.test(value)) {
     return value;
   }
   return `"${value.replaceAll('"', '""')}"`;
 }
 
+/**
+ * The first record, which may span lines: a header title with a line break
+ * typed into it (Alt-Enter in Excel) is quoted, and cutting at the break would
+ * leave the delimiters after it uncounted.
+ */
 function readFirstLine(text: string): string {
-  const end = text.search(/\r|\n/);
-  return end === -1 ? text : text.slice(0, end);
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted && (character === "\n" || character === "\r")) {
+      return text.slice(0, index);
+    }
+  }
+  return text;
 }
 
 function countOutsideQuotes(line: string, delimiter: string): number {
