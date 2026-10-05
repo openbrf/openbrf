@@ -432,10 +432,76 @@ describe("the plugin install flow", () => {
     const record = await registry.find(PLUGIN_ID);
     expect(record?.status).toBe("FAILED");
     expect(record?.lastError).toContain("Digest mismatch");
+    expect(record?.failure).toEqual({
+      reason: "checksum-mismatch",
+      detail: {},
+    });
 
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
   }, 120_000);
+
+  /**
+   * A failure is cleared by the run that gets past it, all three columns of
+   * it: a reason left behind on an installed row would tell the board a plugin
+   * that is running had failed.
+   */
+  it("clears the reason once a later run converges", async () => {
+    await registry.consent({
+      id: PLUGIN_ID,
+      packageName: PACKAGE_NAME,
+      version: VERSION,
+      tarballUrl: pathToFileURL(tarball).href,
+      checksum: formatSha512(sha512(Buffer.from("not this archive"))),
+      permissions: ["addressBook:read"],
+      personalData: ["name", "apartment"],
+      actions: [],
+    });
+    await installer.reconcile();
+    expect((await registry.find(PLUGIN_ID))?.failure?.reason).toBe(
+      "checksum-mismatch",
+    );
+
+    // The catalog corrected, without a new consent that would clear the row
+    // by itself.
+    await prisma.installedPlugin.update({
+      where: { id: PLUGIN_ID },
+      data: { checksum: digest },
+    });
+    await installer.reconcile();
+
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: PLUGIN_ID },
+    });
+    expect(row.status).toBe("INSTALLED");
+    expect(row.lastError).toBeNull();
+    expect(row.lastErrorReason).toBeNull();
+    expect(row.lastErrorDetail).toBeNull();
+  }, 180_000);
+
+  /**
+   * Rows that failed before the reason was recorded hold their English in
+   * lastError and nothing else, and the migration leaves them so. They read
+   * back with no reason, which is what tells the screen to show the text as
+   * it stands.
+   */
+  it("reads a failure recorded before reasons existed as its text", async () => {
+    await consent(digest, tarball);
+    await prisma.installedPlugin.update({
+      where: { id: PLUGIN_ID },
+      data: {
+        status: "FAILED",
+        lastError: "Error: Digest mismatch: the catalog declares sha512-...",
+      },
+    });
+
+    const record = await registry.find(PLUGIN_ID);
+
+    expect(record?.failure).toBeNull();
+    expect(record?.lastError).toBe(
+      "Error: Digest mismatch: the catalog declares sha512-...",
+    );
+  });
 
   /**
    * The digest pins the bytes, not what they say they are. An archive whose
@@ -460,6 +526,15 @@ describe("the plugin install flow", () => {
     expect(record?.lastError).toContain(
       `The archive for ${PACKAGE_NAME}@9.9.9 holds ${PACKAGE_NAME}@${VERSION}.`,
     );
+    expect(record?.failure).toEqual({
+      reason: "archive-package-mismatch",
+      detail: {
+        packageName: PACKAGE_NAME,
+        version: "9.9.9",
+        heldName: PACKAGE_NAME,
+        heldVersion: VERSION,
+      },
+    });
 
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
     expect(

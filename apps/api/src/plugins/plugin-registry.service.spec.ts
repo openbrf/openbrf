@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -21,7 +22,9 @@ const ROW = {
   checksum: "sha512-x",
   enabled: true,
   status: "READY",
-  lastError: null,
+  lastError: null as string | null,
+  lastErrorReason: null as string | null,
+  lastErrorDetail: null as unknown,
   consentedPermissions: ["addressBook:read"],
   declaredPersonalData: ["name"],
   consentedActions: ["summary:self:manage:name:mcp"],
@@ -119,5 +122,94 @@ describe("switching one of a plugin's actions on", () => {
     );
 
     expect(tx.installedPlugin.updateMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Why an install failed, as the row holds it.
+ *
+ * Three columns rather than one: a code and its values for the board, and the
+ * English that was thrown for the operator. A row written before the code
+ * existed has only the last, and has to keep reading as it always did.
+ */
+describe("a failed install", () => {
+  it("writes the code, its values and what was thrown", async () => {
+    const { service, installedPlugin } = build();
+
+    await service.markFailed("occupancy", {
+      reason: "source-answered-error",
+      detail: { status: 404 },
+      cause:
+        "ResourceFetchError: https://example.test/occupancy.tgz answered 404.",
+    });
+
+    expect(installedPlugin.updateMany).toHaveBeenCalledWith({
+      where: { id: "occupancy" },
+      data: {
+        status: "FAILED",
+        lastError:
+          "ResourceFetchError: https://example.test/occupancy.tgz answered 404.",
+        lastErrorReason: "source-answered-error",
+        lastErrorDetail: { status: 404 },
+      },
+    });
+  });
+
+  it("clears all three once the install converges", async () => {
+    const { service, installedPlugin } = build();
+
+    await service.markInstalled("occupancy");
+
+    expect(installedPlugin.updateMany).toHaveBeenCalledWith({
+      where: { id: "occupancy" },
+      data: {
+        status: "INSTALLED",
+        lastError: null,
+        lastErrorReason: null,
+        lastErrorDetail: Prisma.DbNull,
+      },
+    });
+  });
+
+  it("reads the code and its values back", async () => {
+    const { service } = build({
+      lastError: "ResourceFetchError: ... answered 404.",
+      lastErrorReason: "source-answered-error",
+      lastErrorDetail: { status: 404 },
+    });
+
+    const record = await service.find("occupancy");
+
+    expect(record?.failure).toEqual({
+      reason: "source-answered-error",
+      detail: { status: 404 },
+    });
+    expect(record?.lastError).toBe("ResourceFetchError: ... answered 404.");
+  });
+
+  it("reads a row from before codes as its text alone", async () => {
+    const { service } = build({
+      lastError: "Error: Digest mismatch: the catalog declares ...",
+    });
+
+    const record = await service.find("occupancy");
+
+    expect(record?.failure).toBeNull();
+    expect(record?.lastError).toBe(
+      "Error: Digest mismatch: the catalog declares ...",
+    );
+  });
+
+  it("drops a stored value no sentence can be completed with", async () => {
+    // The column is JSON. An object handed to a translation would read as
+    // "[object Object]" in the middle of the board's sentence.
+    const { service } = build({
+      lastErrorReason: "archive-too-large",
+      lastErrorDetail: { maxBytes: 67_108_864, nested: { no: true } },
+    });
+
+    const record = await service.find("occupancy");
+
+    expect(record?.failure?.detail).toEqual({ maxBytes: 67_108_864 });
   });
 });

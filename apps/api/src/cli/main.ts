@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
 import { AppModule } from "../app.module";
@@ -13,6 +14,7 @@ import {
   personalDataLabelKey,
 } from "../plugins/plugin-labels";
 import { PluginRegistryService } from "../plugins/plugin-registry.service";
+import { failureLines } from "./failure-lines";
 
 /**
  * `openbrf` - the command-line half of plugin management.
@@ -30,11 +32,14 @@ import { PluginRegistryService } from "../plugins/plugin-registry.service";
  *
  * Output is plain English on stdout. This is an operator tool, not a screen:
  * it is read in a terminal by whoever is administering the instance, and its
- * own prose is not translated. The one exception is the declaration printed
- * before an install, which is read from the application's own translations in
- * the fallback locale: that text is what is being consented to, and it has to
- * be the same statement the consent screen makes rather than a second wording
- * that could drift from it.
+ * own prose is not translated. Two things are read from the application's own
+ * translations in the fallback locale instead. The declaration printed before
+ * an install is what is being consented to, and it has to be the same
+ * statement the consent screen makes rather than a second wording that could
+ * drift from it. And why an install failed is the sentence the admin screen
+ * shows, so an operator and a board reading the same row read the same reason;
+ * what was actually thrown is printed beneath it, because that is the line an
+ * operator debugs from.
  */
 
 const USAGE = `openbrf - Open BRF instance administration
@@ -95,7 +100,7 @@ async function run(
 
   switch (args[0]) {
     case "list":
-      return listInstalled(registry);
+      return listInstalled(registry, i18n.translatorFor(FALLBACK_LOCALE));
     case "catalog":
       return listCatalog(admin);
     case "add":
@@ -108,7 +113,10 @@ async function run(
   }
 }
 
-async function listInstalled(registry: PluginRegistryService): Promise<number> {
+async function listInstalled(
+  registry: PluginRegistryService,
+  t: TFunction,
+): Promise<number> {
   const records = await registry.list();
   if (records.length === 0) {
     console.log("No plugins are installed.");
@@ -125,8 +133,8 @@ async function listInstalled(registry: PluginRegistryService): Promise<number> {
     console.log(
       `  personal data ${record.declaredPersonalData.join(", ") || "none"}`,
     );
-    if (record.lastError !== null) {
-      console.log(`  last error   ${record.lastError}`);
+    for (const line of failureLines(record, t)) {
+      console.log(line);
     }
   }
   return 0;
