@@ -609,7 +609,15 @@ test("a tenant-owner reads their own entry and not the member register", async (
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.
+  // The refusal is read off the endpoint's answer: the screen says the same
+  // sentence for a refusal, a crash and a dropped connection.
+  const answered = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/member-register",
+  );
   await openMemberRegister(page);
+  expect((await answered).status()).toBe(403);
   await expect(
     page.getByText("Förteckningen kunde inte läsas just nu."),
   ).toBeVisible();

@@ -496,12 +496,40 @@ test("the list leaves as a CSV file and as a printed PDF", async ({
   const csv = decodeURIComponent(
     (href ?? "").replace("data:text/csv;charset=utf-8,", ""),
   );
-  expect(csv).toContain("chargedOn;party;name;apartment;apartmentWithheld");
   expect(csv).toContain(`Nyckel till cykelrummet ${CHARGED.lastName}`);
-  // The masking holds in the file as well as on the screen, and the word is
-  // what tells a bookkeeper the empty cell is deliberate.
-  expect(csv).toContain(PROTECTED.name);
-  expect(csv).toContain("protected");
+
+  /*
+   * The masking holds in the file as well as on the screen, cell by cell: her
+   * row names her, leaves the apartment empty, and says in the next column that
+   * the emptiness is deliberate. Read by column, because a file that filled
+   * both cells would still contain her name and the word somewhere.
+   *
+   * Semicolons and CRLF behind a byte order mark, as `writeCsv` writes every
+   * file that leaves the association. None of the cells read here carries a
+   * semicolon, so no quoting has to be undone.
+   */
+  const rows = csv
+    .replace(/^\uFEFF/u, "")
+    .trimEnd()
+    .split("\r\n")
+    .map((line) => line.split(";"));
+  const header = rows[0] ?? [];
+  expect(header.slice(0, 5)).toEqual([
+    "chargedOn",
+    "party",
+    "name",
+    "apartment",
+    "apartmentWithheld",
+  ]);
+  const cell = (cells: readonly string[], name: string): string | undefined =>
+    cells[header.indexOf(name)];
+  const hers = rows.find(
+    (cells) => cell(cells, "reason") === `Andrahandsavgift ${CHARGED.lastName}`,
+  );
+  expect(hers, "her charge is not in the file").toBeDefined();
+  expect(cell(hers ?? [], "name")).toBe(PROTECTED.name);
+  expect(cell(hers ?? [], "apartment")).toBe("");
+  expect(cell(hers ?? [], "apartmentWithheld")).toBe("protected");
 
   /*
    * The PDF is the browser's own print of the document, which is what the screen
