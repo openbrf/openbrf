@@ -134,6 +134,8 @@ function preferInterfaceWording(
 interface AuthorizationRequest {
   clientId: string;
   redirectHost: string | null;
+  /** The scheme of the app on this device the answer goes to, when it names no host. */
+  redirectApp: string | null;
   redirectIsLoopback: boolean;
   /** When the request expires, in milliseconds, or null when it says nothing. */
   expiresAt: number | null;
@@ -355,7 +357,14 @@ export function OAuthConsentScreen({
         />
         <Fact
           label={t("connectedApps.consent.redirectHost")}
-          value={request?.redirectHost ?? null}
+          value={
+            request?.redirectHost ??
+            (request?.redirectApp == null
+              ? null
+              : t("connectedApps.consent.redirectApp", {
+                  scheme: request.redirectApp,
+                }))
+          }
         />
       </dl>
 
@@ -364,6 +373,19 @@ export function OAuthConsentScreen({
           {t("connectedApps.consent.loopbackWarning")}
         </Notice>
       ) : null}
+
+      {/*
+        An app's own scheme is not owned the way a host is: the device hands the
+        answer to whichever installed app claimed the name, so the member is the
+        one who can tell whether that is the app they meant.
+      */}
+      {request?.redirectApp == null ? null : (
+        <Notice tone="warn">
+          {t("connectedApps.consent.appSchemeWarning", {
+            scheme: request.redirectApp,
+          })}
+        </Notice>
+      )}
 
       {showing.groups.length === 0 ? (
         <Declaration
@@ -542,6 +564,7 @@ function readRequest(search: string): AuthorizationRequest | null {
   return {
     clientId,
     redirectHost: hostOf(redirectUri),
+    redirectApp: appSchemeOf(redirectUri),
     redirectIsLoopback: isLoopback(redirectUri),
     expiresAt: Number.isFinite(expiry) && expiry > 0 ? expiry * 1000 : null,
   };
@@ -565,16 +588,33 @@ function clientHost(client: OAuthClientDetails): string | null {
   return hostOf(client.client_id) ?? hostOf(client.client_uri ?? null);
 }
 
-/** The host of an address. Null rather than a placeholder when it is not one. */
+/**
+ * The host of an address. Null rather than a placeholder when it is not one,
+ * and when it names no host, as an app's own scheme does.
+ */
 function hostOf(value: string | null): string | null {
   if (value === null || value === "") {
     return null;
   }
   try {
-    return new URL(value).host;
+    return new URL(value).host || null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The scheme of an address that goes to an app on this device rather than to a
+ * host, such as `se.exempel.app` for `se.exempel.app:/callback`. Only for an
+ * address a client may be registered with, so no other scheme is ever named
+ * as an app.
+ */
+function appSchemeOf(value: string | null): string | null {
+  if (value === null || !isAcceptableRedirectUri(value)) {
+    return null;
+  }
+  const url = new URL(value);
+  return url.host === "" ? url.protocol.slice(0, -1) : null;
 }
 
 /**
