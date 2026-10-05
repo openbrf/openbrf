@@ -24,6 +24,7 @@ import {
   SETUP_CLAIM_LINK,
   type Action,
   type Actor,
+  type ContactMessage,
   type Screen,
   type Target,
 } from "./screens";
@@ -308,6 +309,11 @@ async function perform(page: Page, action: Action): Promise<void> {
     await page.reload();
     return;
   }
+  if ("postContactMessages" in action) {
+    await postContactMessages(page.request, action.postContactMessages);
+    await page.reload();
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.
@@ -319,6 +325,47 @@ async function perform(page: Page, action: Action): Promise<void> {
     return;
   }
   await expect(locate(page, action.see)).toBeVisible();
+}
+
+/**
+ * Writes a page carrying the contact form, posts the messages through it as a
+ * visitor would, and removes the page again.
+ *
+ * The page is written and removed by whoever the walk is signed in as. The form
+ * answers a redirect and sets no cookie, so it is posted without following it;
+ * the messages stay in the inbox when the page goes, because the inbox is the
+ * record and the page is only where the form was.
+ */
+async function postContactMessages(
+  request: APIRequestContext,
+  messages: readonly ContactMessage[],
+): Promise<void> {
+  const slug = "kontakta-oss-skarmbilder";
+  const form = await api.createSitePage(request, stack.baseUrl, {
+    slug,
+    title: "Kontakta oss",
+    blocks: [{ type: "contactForm" }],
+    visibility: "PUBLIC",
+  });
+  try {
+    await api.publishSitePage(request, stack.baseUrl, form.id);
+    for (const sent of messages) {
+      await api.postContactForm(request, stack.baseUrl, slug, sent);
+    }
+    const inbox = await api.listContactSubmissions(request, stack.baseUrl);
+    for (const sent of messages) {
+      if (sent.handled !== true) {
+        continue;
+      }
+      const stored = inbox.find((row) => row.message === sent.message);
+      if (stored === undefined) {
+        throw new Error(`the message "${sent.message}" never reached the inbox`);
+      }
+      await api.markContactSubmissionHandled(request, stack.baseUrl, stored.id);
+    }
+  } finally {
+    await api.deleteSitePage(request, stack.baseUrl, form.id);
+  }
 }
 
 // --- reaching a screen --------------------------------------------------------

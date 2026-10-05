@@ -854,6 +854,44 @@ export async function listContactSubmissions(
 }
 
 /**
+ * Posts a message through the contact form on a published page, as a visitor
+ * would: a plain form post, answered with a redirect back to the page.
+ */
+export async function postContactForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { name?: string; email: string; message: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/kontakt`, {
+    form: {
+      ...(input.name === undefined ? {} : { name: input.name }),
+      email: input.email,
+      message: input.message,
+    },
+    maxRedirects: 0,
+  });
+  if (response.status() !== 303) {
+    throw new Error(
+      `POST /${slug}/kontakt answered ${String(response.status())}, not the redirect a stored message gets`,
+    );
+  }
+}
+
+/** Ticks a message in the board's inbox off as dealt with. */
+export async function markContactSubmissionHandled(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/contact-submissions/${id}/handled`,
+    { data: { handled: true } },
+  );
+  await expectOk(response, "PUT /api/contact-submissions/:id/handled");
+}
+
+/**
  * The facts a broker asks the association about.
  *
  * Every field optional and nullable, because that is what the endpoint takes:
