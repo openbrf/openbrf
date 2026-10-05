@@ -243,7 +243,20 @@ async function add(
     return 0;
   }
 
-  await admin.install({ id }, null, "SYSTEM");
+  // The install reads the catalog afresh, so an entry a curator changed since
+  // it was listed above is refused rather than installed on a consent that
+  // described the older text.
+  await admin.install(
+    {
+      id,
+      permissions: entry.permissions,
+      personalData: entry.personalData,
+      actions: entry.actions,
+      oauthProtectedResource: entry.oauthProtectedResource,
+    },
+    null,
+    "SYSTEM",
+  );
   const outcome = await installer.reconcile();
 
   const failure = outcome.failed.find((entryFailed) => entryFailed.id === id);

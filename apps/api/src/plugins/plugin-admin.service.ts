@@ -166,16 +166,16 @@ export interface InstallRequest {
    * between browsing and confirming is refused rather than installed on
    * consent the board never gave.
    *
-   * Omitted by the command-line tool, where running the command is itself the
-   * consent and there is no earlier screen for the catalog to have changed
-   * since. The tool prints the declaration before it acts.
+   * The command-line tool echoes the declaration it printed before it acts,
+   * so an entry that changed in between is refused there as well. A caller
+   * that omits it - a script - is consenting to whatever the catalog says now.
    */
   permissions?: readonly PluginPermission[];
   personalData?: readonly PluginPersonalDataCategory[];
   /**
    * The actions the consent screen showed, echoed back on the same terms.
    *
-   * Omitted by the command-line tool, like the two above it.
+   * Echoed by the command-line tool, like the two above it.
    */
   actions?: readonly PluginActionDeclaration[];
   /**
@@ -562,9 +562,8 @@ export class PluginAdminService {
      * row is the snapshot the loader enforces against the installed manifest
      * at every later boot, so it has to assert exactly what the board was
      * shown and agreed to; recording anything wider would make the row
-     * evidence of a consent nobody gave. With no echo - the command-line tool,
-     * where running the command is the consent and the declaration was printed
-     * first - the catalog entry is what was shown.
+     * evidence of a consent nobody gave. With no echo - a script calling the
+     * API - the catalog entry is what was shown.
      */
     /*
      * Before the first write, and it writes nothing. The recipient answer used
