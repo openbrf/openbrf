@@ -1656,9 +1656,17 @@ describe("moving out", () => {
       select: { id: true },
     });
 
+    // Refused by the statutory guard itself, and for an edit as well as a
+    // removal: a bare rejection would pass on any error at all.
+    await expect(
+      prisma.memberRegisterEntry.update({
+        where: { id: exit.id },
+        data: { eventOn: new Date("2030-01-01T00:00:00.000Z") },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
     await expect(
       prisma.memberRegisterEntry.delete({ where: { id: exit.id } }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
   });
 });
 
