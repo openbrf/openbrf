@@ -46,15 +46,43 @@ export function scannableRuns(runs: readonly ScannableRun[]): ScannableText {
   };
 }
 
-/** An address as written, and decoded when decoding changes it. */
+/**
+ * An address as written, and every reading decoding it gives.
+ *
+ * Decoded again until nothing changes, so a hyphen escaped twice (%252D) is
+ * read as the hyphen it ends up as. Each pass ends shorter than it began, so
+ * the loop ends.
+ */
 function addressForms(link: string): string[] {
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(link);
-  } catch {
-    // A stray % that begins no escape. The address is scanned as written,
-    // which is also how the browser will print it.
-    return [link];
+  const forms = [link];
+  let current = link;
+  for (;;) {
+    const decoded = decodeEscapes(current);
+    if (decoded === current) {
+      return forms;
+    }
+    forms.push(decoded);
+    current = decoded;
   }
-  return decoded === link ? [link] : [link, decoded];
+}
+
+/**
+ * Every well-formed escape in a text decoded, and everything else left alone.
+ *
+ * Not decodeURIComponent over the whole address, which refuses all of it for
+ * one % that begins no escape - so a stray % anywhere in a link hid a number
+ * spelled with %2D elsewhere in it. Each run of escapes is decoded on its own.
+ * A run that is not well-formed UTF-8 has its ASCII escapes decoded one by one,
+ * which is all the digits and separators of a number need.
+ */
+function decodeEscapes(text: string): string {
+  return text.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run.replace(/%[0-7][0-9A-Fa-f]/g, (escape) =>
+        String.fromCharCode(Number.parseInt(escape.slice(1), 16)),
+      );
+    }
+  });
 }

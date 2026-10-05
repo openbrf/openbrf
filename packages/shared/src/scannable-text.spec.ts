@@ -37,9 +37,45 @@ describe("scannableRuns", () => {
     ]);
   });
 
-  it("reads an address that cannot be decoded as written", () => {
+  it("reads an address with nothing to decode as written", () => {
     expect(
       scannableRuns([{ text: "Se", link: "/sida?rabatt=50%" }]).addresses,
     ).toEqual(["/sida?rabatt=50%"]);
+  });
+
+  it("decodes the escapes it can when a stray % stands beside them", () => {
+    // One % that begins no escape used to stop the whole address from being
+    // decoded, and the number spelled with %2D went unread.
+    expect(
+      scannableRuns([
+        {
+          text: "Skriv",
+          link: "mailto:a@exempel.se?subject=50%&body=19811218%2D9876",
+        },
+      ]).addresses,
+    ).toEqual([
+      "mailto:a@exempel.se?subject=50%&body=19811218%2D9876",
+      "mailto:a@exempel.se?subject=50%&body=19811218-9876",
+    ]);
+  });
+
+  it("decodes an address escaped twice down to what it says", () => {
+    expect(
+      scannableRuns([
+        { text: "Skriv", link: "mailto:a@exempel.se?body=19811218%252D9876" },
+      ]).addresses,
+    ).toEqual([
+      "mailto:a@exempel.se?body=19811218%252D9876",
+      "mailto:a@exempel.se?body=19811218%2D9876",
+      "mailto:a@exempel.se?body=19811218-9876",
+    ]);
+  });
+
+  it("decodes the plain escapes beside a broken multi-byte one", () => {
+    // %E4 alone is not UTF-8, which made the run beside it undecodable too.
+    expect(
+      scannableRuns([{ text: "Se", link: "/s?q=19811218%E4%2D9876" }])
+        .addresses,
+    ).toEqual(["/s?q=19811218%E4%2D9876", "/s?q=19811218%E4-9876"]);
   });
 });

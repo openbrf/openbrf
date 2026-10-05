@@ -993,6 +993,30 @@ describe("the addresses a body links to", () => {
     ).toHaveLength(1);
   });
 
+  it("reads an escaped hyphen even beside a % that begins no escape", () => {
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv",
+                link: "mailto:anna@exempel.se?subject=50%&body=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      (part?.addresses ?? []).flatMap((address) =>
+        scanForPersonalIdentityNumbers(address),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("leaves a paragraph with no links scanned exactly as before", () => {
     // The offsets a refusal names are into the words, so a body with no links
     // must not gain so much as a trailing space.
