@@ -2776,6 +2776,93 @@ describe("the purge", () => {
     ).toBeNull();
   });
 
+  it("takes the files of a letter stored onto the thread while it runs", async () => {
+    /*
+     * A letter dated on or before the cutoff can join an aged thread without
+     * moving its clock past it, so the delete still matches and cascades to that
+     * letter too. Its files have to be among the ones the purge removes, or its
+     * bytes outlive it with nothing pointing at them.
+     */
+    const correspondent = `samtidig-${suffix}@utanfor.example`;
+    const collectorServer = await serveMailbox([
+      {
+        uid: `uid-concurrent-attachment-${suffix}`,
+        raw: letter({
+          from: correspondent,
+          subject: `Samtidig bilaga ${suffix}`,
+          body: "Ett gammalt brev med bilaga.",
+          messageId: `concurrent-attachment-${suffix}@utanfor.example`,
+          attachment: true,
+        }),
+      },
+    ]);
+    try {
+      await collector.collect();
+    } finally {
+      await collectorServer.close();
+    }
+    const thread = await threadBySubject(`Samtidig bilaga ${suffix}`);
+    await prisma.boardMailboxThread.update({
+      where: { id: thread.id },
+      data: { lastMessageAt: new Date("2020-01-01T00:00:00.000Z") },
+    });
+
+    // The letter lands once the purge has begun its transaction, from a
+    // connection of its own, as the collector's store would.
+    let landed: string | null = null;
+    const original = (
+      purge as unknown as {
+        heldPersonFor: (...args: unknown[]) => Promise<string | null>;
+      }
+    ).heldPersonFor.bind(purge);
+    const spy = vi
+      .spyOn(
+        purge as unknown as {
+          heldPersonFor: (...args: unknown[]) => Promise<string | null>;
+        },
+        "heldPersonFor",
+      )
+      .mockImplementation(async (...args: unknown[]) => {
+        if (landed === null && args[1] !== undefined) {
+          const file = await media.upload({
+            bytes: pngBytes(),
+            fileName: "sen.png",
+            accept: "image",
+            visibility: "INTERNAL",
+            requiredCapability: "boardMailbox:handle",
+            showsIdentifiablePersons: true,
+            uploadedByPersonId: null,
+            channel: "SYSTEM",
+            recordFileName: false,
+          });
+          landed = file.id;
+          await prisma.boardMailboxMessage.create({
+            data: {
+              threadId: thread.id,
+              direction: "INBOUND",
+              body: "Ett lika gammalt brev till.",
+              occurredAt: new Date("2019-12-01T00:00:00.000Z"),
+              attachments: { create: { fileId: file.id } },
+            },
+          });
+        }
+        return original(...args);
+      });
+    try {
+      await purge.run(new Date("2026-01-01T00:00:00.000Z"));
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(landed).not.toBeNull();
+    expect(
+      await prisma.boardMailboxThread.findUnique({ where: { id: thread.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: landed ?? "" } }),
+    ).toBeNull();
+  });
+
   it("erases a thread carrying no correspondent index while a hold stands", async () => {
     const threadId = await agedThread(
       `oindexerad-${suffix}@utanfor.example`,
