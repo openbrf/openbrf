@@ -88,8 +88,11 @@ export interface RegisterSnapshot {
   personsWithEmail: ReadonlySet<string>;
   /** Every apartment each person has a residency in, past ones included. */
   apartmentsByPerson: ReadonlyMap<string, ReadonlySet<string>>;
-  /** When the snapshot was read: a residency counts as current until then. */
-  takenAt: Date;
+  /**
+   * The association's calendar day the snapshot was read on, as a date column:
+   * a residency counts as current while its move-out is later than this.
+   */
+  takenOn: Date;
 }
 
 /** A row after the mapping has been read, with its blind indexes computed. */
@@ -696,7 +699,7 @@ function recordWrites(
     target.apartmentIds.add(apartment.id);
     if (
       movedOutOn === null ||
-      new Date(`${movedOutOn}T00:00:00.000Z`) > snapshot.takenAt
+      new Date(`${movedOutOn}T00:00:00.000Z`) > snapshot.takenOn
     ) {
       push(
         written.byApartmentAndName,

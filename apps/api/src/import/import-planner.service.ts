@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
@@ -201,7 +202,13 @@ export class ImportPlannerService {
    * and every apartment each person has lived in.
    */
   private async snapshot(): Promise<RegisterSnapshot> {
-    const now = new Date();
+    /*
+     * Today on the association's own calendar, as a date column (ADR 0014):
+     * at half past midnight in Stockholm it is already the next day, and a
+     * residency whose move-out is dated today has ended, although the instant
+     * is still the evening before in UTC.
+     */
+    const today = dateColumnOf(localDayOf(new Date()));
 
     const [apartments, persons, withEmail] = await Promise.all([
       this.prisma.apartment.findMany({
@@ -262,7 +269,7 @@ export class ImportPlannerService {
         new Set(person.residencies.map((residency) => residency.apartmentId)),
       );
       for (const residency of person.residencies) {
-        if (residency.movedOutOn !== null && residency.movedOutOn <= now) {
+        if (residency.movedOutOn !== null && residency.movedOutOn <= today) {
           continue;
         }
         push(
@@ -291,7 +298,7 @@ export class ImportPlannerService {
       identityNumberIndexByPerson,
       personsWithEmail: new Set(withEmail.map((person) => person.id)),
       apartmentsByPerson,
-      takenAt: now,
+      takenOn: today,
     };
   }
 }

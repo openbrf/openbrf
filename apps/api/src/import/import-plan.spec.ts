@@ -56,7 +56,7 @@ function snapshot(overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot {
     // Everyone found by an address has one, unless a case says otherwise.
     personsWithEmail: new Set([...personsByEmail.values()].flat()),
     apartmentsByPerson: new Map(),
-    takenAt: new Date("2026-01-01T00:00:00.000Z"),
+    takenOn: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
