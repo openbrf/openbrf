@@ -182,7 +182,22 @@ export class AddressService {
       );
     }
 
-    await this.prisma.address.delete({ where: { id } });
+    try {
+      await this.prisma.address.delete({ where: { id } });
+    } catch (cause) {
+      // An apartment added between the count and the delete makes the delete
+      // raise P2003 against the restrictive key: the same refusal, not a 500.
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2003"
+      ) {
+        throw new AddressError(
+          `${address.street} ${address.number} still has apartments. Remove them first.`,
+          "has-apartments",
+        );
+      }
+      throw cause;
+    }
     this.logger.log(`Removed address ${address.street} ${address.number}`);
   }
 
