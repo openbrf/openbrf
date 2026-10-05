@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -468,14 +474,30 @@ export function claimTokenOf(link: string): string {
   return token;
 }
 
-/** Prints the instance's logs. Called when the suite fails, not otherwise. */
-export function printAppLogs(): void {
+/**
+ * Where teardown leaves the stack's logs: `test-results/app.log` at the
+ * repository root, beside what Playwright writes there for a failed test, so
+ * CI can keep the whole directory.
+ */
+export const STACK_LOG_FILE = resolve(repositoryRoot, "test-results/app.log");
+
+/**
+ * Writes the deploy steps' and the application's logs to STACK_LOG_FILE.
+ *
+ * Called before the stack is removed, because removing it removes them: a
+ * failure caused by an exception on the server would otherwise leave only the
+ * browser's half of the story, and the stack trace that explains it would have
+ * to be reproduced locally.
+ */
+export function saveStackLogs(): void {
   try {
-    compose(
-      ["logs", "--no-color", "--tail", "200", "schema-owner", "migrate", "app"],
-      60_000,
-    );
-  } catch {
+    const logs = (["schema-owner", "migrate", "app"] as const)
+      .map((service) => `=== ${service}\n${serviceLogs(service)}`)
+      .join("\n");
+    mkdirSync(dirname(STACK_LOG_FILE), { recursive: true });
+    writeFileSync(STACK_LOG_FILE, logs);
+  } catch (failure) {
     // Best effort: a missing container must not mask the real failure.
+    console.warn(`could not save the stack's logs: ${String(failure)}`);
   }
 }

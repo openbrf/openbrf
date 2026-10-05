@@ -46,6 +46,11 @@ While writing a spec:
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
+Whichever way it ends, a run writes the deploy steps' and the application's
+logs to `test-results/app.log` at the repository root before the stack is
+removed, so a failure the server caused can be read after the containers are
+gone. The screenshot task does the same.
+
 Re-running is not the same as leaving nothing behind. Nothing here deletes a
 person, an account, a member-register entry or an audit entry: the register and
 the log are append-only by design, and no endpoint removes an account. Every
