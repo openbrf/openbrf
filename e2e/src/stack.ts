@@ -332,6 +332,7 @@ export function runSchemaOwner(
       ],
       {
         cwd: repositoryRoot,
+        env: COMPOSE_ENV,
         encoding: "utf8",
         timeout: timeoutMs,
         stdio: ["ignore", "pipe", "pipe"],
