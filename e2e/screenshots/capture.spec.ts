@@ -359,7 +359,9 @@ async function postContactMessages(
       }
       const stored = inbox.find((row) => row.message === sent.message);
       if (stored === undefined) {
-        throw new Error(`the message "${sent.message}" never reached the inbox`);
+        throw new Error(
+          `the message "${sent.message}" never reached the inbox`,
+        );
       }
       await api.markContactSubmissionHandled(request, stack.baseUrl, stored.id);
     }
