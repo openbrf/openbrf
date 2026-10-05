@@ -171,17 +171,18 @@ describe("which page of the index a reader is shown", () => {
   });
 
   it("reads a page past the last as the last", async () => {
-    // So no address can make the database skip further than there are items.
-    const { service, news } = withItems(45);
+    for (const requested of ["999999", "9999999", "9".repeat(400)]) {
+      const { service, news } = withItems(45);
 
-    const page = await service.index(false, "999999");
+      const page = await service.index(false, requested);
 
-    expect(window(news).skip).toBe(2 * NEWS_INDEX_PAGE_SIZE);
-    expect(page.page).toBe(3);
+      expect(window(news).skip, requested).toBe(2 * NEWS_INDEX_PAGE_SIZE);
+      expect(page.page, requested).toBe(3);
+    }
   });
 
   it("reads anything that is not a page number as the first page", async () => {
-    for (const requested of ["0", "-1", "2.5", "abc", "01", "9999999"]) {
+    for (const requested of ["0", "-1", "2.5", "abc", "01", "1e3"]) {
       const { service, news } = withItems(45);
 
       const page = await service.index(false, requested);

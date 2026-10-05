@@ -70,7 +70,27 @@ export interface SiteNewsIndexPage {
   older: number | null;
 }
 
-const PAGE_NUMBER_PATTERN = /^[1-9]\d{0,5}$/;
+const PAGE_NUMBER_PATTERN = /^[1-9]\d*$/;
+
+/**
+ * The most digits a page number is read as written with. A longer one is past
+ * the end of any archive, and is read as that rather than as a number the
+ * database would be asked to skip to.
+ */
+const PAGE_NUMBER_DIGITS = 6;
+
+/**
+ * The page an address asks for: its number, past every end when it is longer
+ * than any page number, and the first page when it is not a number at all.
+ */
+function requestedPage(requested: string | undefined): number {
+  if (requested === undefined || !PAGE_NUMBER_PATTERN.test(requested)) {
+    return 1;
+  }
+  return requested.length > PAGE_NUMBER_DIGITS
+    ? Number.POSITIVE_INFINITY
+    : Number(requested);
+}
 
 @Injectable()
 export class SiteNewsService {
@@ -127,11 +147,7 @@ export class SiteNewsService {
       where: readableBy(hasSession),
     });
     const last = Math.max(1, Math.ceil(total / NEWS_INDEX_PAGE_SIZE));
-    const asked =
-      requested !== undefined && PAGE_NUMBER_PATTERN.test(requested)
-        ? Number(requested)
-        : 1;
-    const page = Math.min(asked, last);
+    const page = Math.min(requestedPage(requested), last);
 
     return {
       items: await this.list(hasSession, {
