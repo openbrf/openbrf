@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { ActorContext } from "../audit/actor-context";
@@ -6,6 +6,7 @@ import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
+import { failureFrames, failureName } from "../logging/failure";
 import { connectedAppHost } from "./client-host";
 
 /**
@@ -79,6 +80,8 @@ export interface ConnectedAppGrantView extends ConnectedAppView {
 
 @Injectable()
 export class ConnectedAppsService {
+  private readonly logger = new Logger(ConnectedAppsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
@@ -299,6 +302,28 @@ export class ConnectedAppsService {
 
     if (!removed) {
       throw new NotFoundException("No such connection.");
+    }
+  }
+
+  /**
+   * Removes a client whose registration by hand did not finish.
+   *
+   * Only for a client created moments ago in the same request: nobody can have
+   * consented to it yet, so the consents, tokens and resource link the delete
+   * cascades to are at most the link that request made. Reported rather than
+   * thrown, because the caller is already passing on the failure that matters
+   * and this one needs a human rather than to replace it.
+   */
+  async discardClient(clientId: string): Promise<void> {
+    try {
+      await this.prisma.oauthClient.deleteMany({ where: { clientId } });
+    } catch (cause) {
+      this.logger.error(
+        `Could not remove the client ${clientId}, whose registration failed: ` +
+          `${failureName(cause)}. It has no audit entry; delete its ` +
+          "auth_oauth_client row by hand.",
+        failureFrames(cause),
+      );
     }
   }
 
