@@ -9,10 +9,7 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
-import {
-  guardedMetadataFetch,
-  isMetadataDocumentUrlAllowed,
-} from "./cimd-fetch";
+import { guardedMetadataFetch, metadataDocumentPolicy } from "./cimd-fetch";
 import { hashOpaqueToken } from "./opaque-token";
 import type { ProtectedResource } from "./protected-resource";
 
@@ -494,7 +491,9 @@ export function buildAuthOptions(
       // the fetch is bounded by us rather than left to the library's defaults.
       cimd({
         fetchClientMetadataResource: guardedMetadataFetch,
-        isMetadataDocumentUrlAllowed,
+        isMetadataDocumentUrlAllowed: metadataDocumentPolicy(
+          env.OPENBRF_OAUTH_CLIENT_METADATA_HOSTS,
+        ),
         metadataProfile: "mcp-2026-07-28",
       }),
     ],

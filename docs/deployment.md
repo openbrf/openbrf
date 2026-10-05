@@ -978,3 +978,12 @@ the whole instance by somebody who may manage the association:
 refuses it at sign-in from then on, and the audit log records who did it. There is no screen
 for it yet, and no way back short of the database: a client registered by hand
 can be registered again under a new id.
+
+`OPENBRF_OAUTH_CLIENT_METADATA_HOSTS` narrows which programs can be connected in
+the first place. A program usually identifies itself by the https address of
+its own metadata document, and by default any public host may serve one. Listing
+hosts, separated by commas, allows only those, matched exactly; it is checked
+when a document is fetched, on a program's first connection and when its
+document is refreshed, so a program already connected is turned away by
+revoking it as above. A client an administrator registered by hand is not
+affected.

@@ -107,6 +107,9 @@ export function isLoopbackHost(host: string): boolean {
   );
 }
 
+/** A DNS name of at least two labels, with no scheme, port or path. */
+const HOST_NAME = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
 /** An IP address, or a CIDR range such as `172.16.0.0/12`. */
 function isAddressOrRange(entry: string): boolean {
   const [address = "", prefix, ...rest] = entry.split("/");
@@ -338,6 +341,26 @@ export const envSchema = z.object({
     .refine(
       (entries) => entries.every(isAddressOrRange),
       "must be IP addresses or CIDR ranges, separated by commas",
+    )
+    .default([]),
+
+  /**
+   * The hosts a connected app may identify itself from, by the URL of its own
+   * metadata document, separated by commas. Empty, any public https host may,
+   * which is how a member connects a program of their own choosing; listed,
+   * only those (auth/cimd-fetch.ts, metadataDocumentPolicy).
+   */
+  OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: z
+    .string()
+    .transform((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter((entry) => entry !== ""),
+    )
+    .refine(
+      (hosts) => hosts.every((host) => HOST_NAME.test(host)),
+      "must be host names, such as app.example.org, separated by commas",
     )
     .default([]),
 
