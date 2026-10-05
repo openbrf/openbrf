@@ -113,6 +113,8 @@ function build(
   let row: Association | null = exists ? { ...STORED, ...overrides } : null;
 
   const prisma = {
+    // The advisory lock a retention change takes.
+    $executeRaw: vi.fn(async () => 0),
     association: {
       findUnique: vi.fn(async () => row),
       findUniqueOrThrow: vi.fn(async () => {

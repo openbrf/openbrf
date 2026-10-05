@@ -104,6 +104,9 @@ function makeFakes(): Fakes {
   };
 
   const client = (inTransaction: boolean) => ({
+    // The advisory lock an edit takes; the order it is taken in is asserted
+    // against a real database.
+    $executeRaw: vi.fn(() => Promise.resolve(0)),
     document: {
       findMany: vi.fn(
         ({ where }: { where: { audience: { in: DocumentAudience[] } } }) =>

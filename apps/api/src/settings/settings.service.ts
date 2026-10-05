@@ -29,6 +29,7 @@ import {
 } from "../motions/motion-deadline";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
 import { selectedDriverKind, SmsService } from "../sms/sms.service";
+import { lockRetentionPolicy } from "./retention-lock";
 
 /**
  * A contrast pair that stopped a colour from being saved, in the shape the
@@ -1095,9 +1096,11 @@ export class SettingsService {
      * Audited, for the reason the finances are: it moves every pending purge
      * date at once, and who shortened the time a former resident's data is
      * kept, and from what, is a question the log has to answer. Read in the
-     * transaction that writes, so the entry names the value it replaced.
+     * transaction that writes and after the lock, so the entry names the value
+     * it replaced even when two saves arrive together.
      */
     const association = await this.prisma.$transaction(async (tx) => {
+      await lockRetentionPolicy(tx);
       const before = await tx.association.findUniqueOrThrow({
         where: { id: 1 },
         select: { retentionDaysAfterMoveOut: true },

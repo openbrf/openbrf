@@ -11,6 +11,7 @@ import {
   type MediaVisibility,
   mediaUrl,
 } from "../media/media.service";
+import { lockDocument } from "./document-lock";
 
 export class DocumentError extends DomainError {
   readonly status: number;
@@ -272,6 +273,9 @@ export class DocumentsService {
     const transport = transportFor(input.audience);
 
     return this.prisma.$transaction(async (tx) => {
+      // Before the read, so the fields the entry names are the ones this
+      // write changes rather than ones a concurrent save already changed.
+      await lockDocument(tx, id);
       const existing = await tx.document.findUnique({
         where: { id },
         select: {
