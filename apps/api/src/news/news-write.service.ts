@@ -687,18 +687,6 @@ export class NewsWriteService {
       input.published && input.sendSms === true && news.smsQueuedAt === null;
 
     /*
-     * Whether this call puts back up an item whose mailing was claimed while it
-     * was up. The workers leave a taken-down item's rows waiting rather than
-     * sending them or failing them, so this is where they are picked up again:
-     * the claim and the snapshot stand, and the job is queued once more. The
-     * rows are claimed one at a time by the worker, so a second job for the
-     * same mailing reaches nobody twice.
-     */
-    const resuming = input.published && !news.published;
-    const mayResumeEmail = resuming && news.emailQueuedAt !== null;
-    const mayResumeSms = resuming && news.smsQueuedAt !== null;
-
-    /*
      * A write that changes nothing writes nothing.
      *
      * Pressing publish on an item that is already published to the same people,
@@ -716,13 +704,21 @@ export class NewsWriteService {
       return { ...(await this.viewOf(news)), mailedTo: null, textedTo: null };
     }
 
-    // Before the transaction opens: creating a queue is the queue backend's own
-    // work on its own connection, and it has no business inside somebody else's
-    // transaction.
-    if (mailing || mayResumeEmail) {
+    /*
+     * Before the transaction opens: creating a queue is the queue backend's own
+     * work on its own connection, and it has no business inside somebody else's
+     * transaction.
+     *
+     * Also for any publish of an item whose mailing is claimed, whether or not
+     * the item reads as up here. Queuing a held mailing again is decided under
+     * the lock, and the item may be taken down between this read and that one.
+     * A claim taken after this read was taken by a publish that created the
+     * queues itself.
+     */
+    if (mailing || (input.published && news.emailQueuedAt !== null)) {
       await this.mailer.ensureQueues();
     }
-    if (texting || mayResumeSms) {
+    if (texting || (input.published && news.smsQueuedAt !== null)) {
       await this.texter.ensureQueues();
     }
 
@@ -742,6 +738,22 @@ export class NewsWriteService {
             readNewsContent(current.content),
           );
         }
+
+        /*
+         * Whether this call puts back up an item whose mailing was claimed while
+         * it was up. The workers leave a taken-down item's rows waiting rather
+         * than sending them or failing them, so this is where they are picked up
+         * again: the claim and the snapshot stand, and the job is queued once
+         * more. The rows are claimed one at a time by the worker, so a second
+         * job for the same mailing reaches nobody twice.
+         *
+         * Decided on the locked row. A take-down that commits after the read
+         * above leaves rows waiting that only this publish can queue again, and
+         * a publish that commits in between has queued them already.
+         */
+        const resuming = input.published && !current.published;
+        const mayResumeEmail = resuming && current.emailQueuedAt !== null;
+        const mayResumeSms = resuming && current.smsQueuedAt !== null;
 
         /*
          * The claims, and the only writers of these two columns in the codebase.
@@ -783,9 +795,9 @@ export class NewsWriteService {
             // Kept once set. It is when the item was first published, and a
             // republish after a correction does not make it newer news.
             publishedAt:
-              input.published && news.publishedAt === null
+              input.published && current.publishedAt === null
                 ? now
-                : news.publishedAt,
+                : current.publishedAt,
             /*
              * A standing request is answered by the email mailing and by
              * nothing else.

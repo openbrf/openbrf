@@ -713,6 +713,50 @@ describe("the mailing, which happens once", () => {
 
     expect(news.updateMany).not.toHaveBeenCalled();
   });
+
+  it("queues a held mailing again when the item was taken down after it was read", async () => {
+    const mailed = new Date("2026-09-01T09:00:00.000Z");
+    const fakes = build();
+    // Another board member takes the item down between this publish's read and
+    // its lock, and the worker holds the rows that were still waiting.
+    changedOnceLocked(
+      fakes,
+      { published: true, emailQueuedAt: mailed },
+      { published: false, emailQueuedAt: mailed },
+    );
+    fakes.newsDelivery.count.mockResolvedValue(3);
+
+    await fakes.service.publish(
+      "news-1",
+      { published: true, visibility: "PUBLIC" },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(fakes.order).toEqual(["ensureQueues", "enqueue"]);
+    expect(fakes.newsDelivery.count).toHaveBeenCalledWith({
+      where: { newsId: "news-1", channel: "EMAIL", status: "PENDING" },
+    });
+  });
+
+  it("leaves a held mailing to the publish that put the item back up first", async () => {
+    const mailed = new Date("2026-09-01T09:00:00.000Z");
+    const fakes = build();
+    changedOnceLocked(
+      fakes,
+      { published: false, emailQueuedAt: mailed },
+      { published: true, emailQueuedAt: mailed },
+    );
+    fakes.newsDelivery.count.mockResolvedValue(3);
+
+    await fakes.service.publish(
+      "news-1",
+      { published: true, visibility: "PUBLIC" },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(fakes.newsDelivery.count).not.toHaveBeenCalled();
+    expect(fakes.mailer.enqueueInTransaction).not.toHaveBeenCalled();
+  });
 });
 
 describe("editing a published item", () => {
