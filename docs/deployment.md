@@ -364,6 +364,20 @@ instead.
    ```
 
 4. `pull`, then `up -d`.
+5. Change the superuser's password. Until this release the application's
+   container held it, and the superuser still signs in with a password over the
+   compose network, because the `schema-owner` service connects that way on
+   every `up`. Set a new one, generated like the others; psql asks for it and
+   sends only its hash, so it reaches neither a process argument nor a log:
+
+   ```sh
+   docker compose -f docker-compose.prod.yml --env-file .env.production \
+     exec db psql -U openbrf -d openbrf -c '\password openbrf'
+   ```
+
+   Then put the same password in `POSTGRES_PASSWORD` in `.env.production`,
+   before the next `up`, which would otherwise stop at the `schema-owner`
+   service.
 
 The `schema-owner` service creates the owner and moves to it everything the
 superuser owns in the application's schemas, so the `migrate` service after it
@@ -495,6 +509,14 @@ step 5.
    compose run --rm --no-deps migrate
    compose up -d --no-deps app
    ```
+
+Until this release the application's container held the owner's password as
+well, in `POSTGRES_PASSWORD`. Once the instance runs, change it as the owner,
+and then in `OWNER_DB_PASSWORD`:
+
+```sh
+psql -h db.example.se -U brf_example_owner -d brf_example -c '\password brf_example_owner'
+```
 
 An override file that added `DATABASE_URL` to the `app` service adds it to the
 `migrate` service instead: the application refuses to start with the owner's
