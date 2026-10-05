@@ -862,6 +862,104 @@ describe("readMessage", () => {
     // Null rather than an invalid date, so the caller never stores one.
     expect(message.date).toBeNull();
   });
+
+  it("reads when the mailbox received a letter from the topmost Received header", () => {
+    const message = readMessage(
+      raw(
+        "Received: from mx.example.test (mx.example.test [192.0.2.1])",
+        "\tby pop.example.test; Mon, 05 Oct 2026 10:00:00 +0200 (CEST)",
+        // Written by the sender, below the one their mailbox's server added.
+        "Received: from client; Sat, 01 Jan 2005 00:00:00 +0000",
+        "From: <sender@example.test>",
+        "Date: Sat, 01 Jan 2005 00:00:00 +0000",
+        "",
+        "Hej",
+        "",
+      ),
+    );
+
+    expect(message.receivedAt?.toISOString()).toBe("2026-10-05T08:00:00.000Z");
+    // The sender's own clock is still read, for the caller to weigh.
+    expect(message.date?.toISOString()).toBe("2005-01-01T00:00:00.000Z");
+  });
+
+  it("answers null for a letter with no Received header, or none that has a date", () => {
+    const without = readMessage(
+      raw("From: <sender@example.test>", "", "Hej", ""),
+    );
+    const undated = readMessage(
+      raw(
+        "Received: from mx.example.test by pop.example.test",
+        "From: <sender@example.test>",
+        "",
+        "Hej",
+        "",
+      ),
+    );
+
+    expect(without.receivedAt).toBeNull();
+    expect(undated.receivedAt).toBeNull();
+  });
+
+  it("counts no part unread in a letter written as text and HTML", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=ALT",
+        "",
+        "--ALT",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Hej",
+        "--ALT",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Hej</p>",
+        "--ALT--",
+        "",
+      ),
+    );
+
+    // The HTML is the same letter written again, and an attachment is kept.
+    expect(message.unreadParts).toBe(0);
+  });
+
+  it("counts an inline part beside the body as unread", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: multipart/alternative; boundary=ALT",
+        "",
+        "--ALT",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--ALT",
+        "Content-Type: text/html",
+        "",
+        "<p>Hej</p>",
+        "--ALT--",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Och det har ser ingen",
+        "--SEP",
+        "Content-Type: image/png",
+        'Content-Disposition: attachment; filename="tak.png"',
+        "",
+        "AAAA",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Hej");
+    expect(message.attachments).toHaveLength(1);
+    expect(message.unreadParts).toBe(1);
+  });
 });
 
 describe("addressFrom", () => {

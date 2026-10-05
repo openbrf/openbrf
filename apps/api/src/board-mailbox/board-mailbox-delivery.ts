@@ -87,7 +87,9 @@ export const COLLECTION_REFUSALS = {
    * read.
    *
    * Storing it would keep a letter the purge is due to erase that night, and
-   * time only moves one way, so no later run would decide differently.
+   * time only moves one way, so no later run would decide differently. The
+   * date is held to when the mailbox received the letter, so a sender cannot
+   * put a letter here by dating it in the past.
    */
   pastRetention: "past-retention",
 

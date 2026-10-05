@@ -11,8 +11,12 @@ import {
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import type { SentMail } from "../mail/mail-driver";
+import type { RenderedMail } from "../mail/mail-template";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
-import { boardMailboxReplyMail } from "../mail/templates";
+import {
+  boardMailboxReplyMail,
+  type BoardMailboxReplyMailProps,
+} from "../mail/templates";
 import { REPLY_DELIVERY_FAILURES } from "./board-mailbox-delivery";
 import { loadBoardMailboxSettings } from "./board-mailbox-settings";
 
@@ -229,26 +233,10 @@ export class BoardMailboxMailerService implements OnModuleInit {
         "boardMailboxThread.correspondentEmail",
         message.thread.correspondentEmailCipher,
       );
-      const name =
-        message.thread.correspondentNameCipher === null
-          ? null
-          : await this.encryption.decrypt(
-              "boardMailboxThread.correspondentName",
-              message.thread.correspondentNameCipher,
-            );
 
       sent = await this.mail.send({
         to,
-        // The association's default. See the note at the top of this file: there
-        // is no recipient record here to hold a preference.
-        locale: null,
-        template: boardMailboxReplyMail,
-        props: {
-          recipientName: name,
-          subject: message.thread.subject,
-          body: message.body,
-          boardAddress: settings.address,
-        },
+        ...(await this.replyMail(message, settings.address)),
         replyTo: settings.address,
         messageId: message.messageId,
         inReplyTo: message.inReplyTo,
@@ -311,6 +299,65 @@ export class BoardMailboxMailerService implements OnModuleInit {
       );
     }
     return "sent";
+  }
+
+  /**
+   * A reply as this instance renders it, or null when the row is not a reply.
+   *
+   * For the collector, which recognises a copy of the board's own answer by
+   * what it says: see `ownAnswerId` there. Rendered by the same code that
+   * sends it, so the two cannot drift apart.
+   *
+   * @param boardAddress The address the board publishes, which the reply
+   *   states in its closing line.
+   */
+  async renderReply(
+    messageId: string,
+    boardAddress: string,
+  ): Promise<RenderedMail | null> {
+    const message = await this.prisma.boardMailboxMessage.findFirst({
+      where: { id: messageId, direction: "OUTBOUND" },
+      select: {
+        body: true,
+        thread: { select: { subject: true, correspondentNameCipher: true } },
+      },
+    });
+    if (message === null) {
+      return null;
+    }
+    return this.mail.renderMail(await this.replyMail(message, boardAddress));
+  }
+
+  /** The template a reply is sent with, and what fills it in. */
+  private async replyMail(
+    message: {
+      body: string;
+      thread: { subject: string; correspondentNameCipher: string | null };
+    },
+    boardAddress: string,
+  ): Promise<{
+    locale: null;
+    template: typeof boardMailboxReplyMail;
+    props: BoardMailboxReplyMailProps;
+  }> {
+    return {
+      // The association's default. See the note at the top of this file: there
+      // is no recipient record here to hold a preference.
+      locale: null,
+      template: boardMailboxReplyMail,
+      props: {
+        recipientName:
+          message.thread.correspondentNameCipher === null
+            ? null
+            : await this.encryption.decrypt(
+                "boardMailboxThread.correspondentName",
+                message.thread.correspondentNameCipher,
+              ),
+        subject: message.thread.subject,
+        body: message.body,
+        boardAddress,
+      },
+    };
   }
 
   /**

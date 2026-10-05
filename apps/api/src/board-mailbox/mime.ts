@@ -120,6 +120,19 @@ export interface ParsedMessage {
    */
   readonly date: Date | null;
   /**
+   * When the last mail server on the way says it took the message in: the date
+   * on the topmost Received header.
+   *
+   * Every SMTP server that accepts a message has to put one at the top of it
+   * (RFC 5321 section 4.4), so on a letter delivered to the board's mailbox
+   * the topmost is written by the mailbox's own provider. A sender can write
+   * Received headers of their own, but only below that one. Null when the
+   * message carries none or its date cannot be read, which is a message that
+   * did not arrive through a mail server. It is still a clock somebody else
+   * keeps, so the caller decides how far to trust it.
+   */
+  readonly receivedAt: Date | null;
+  /**
    * The message as text, with newlines normalised, and at most
    * {@link MAX_TEXT_CHARACTERS} of it.
    */
@@ -132,6 +145,15 @@ export interface ParsedMessage {
   /** Whether {@link text} was derived from an HTML part rather than sent as text. */
   readonly textFromHtml: boolean;
   readonly attachments: readonly MimeAttachment[];
+  /**
+   * How many parts the message holds that are neither its body, nor another
+   * form of the body, nor an attachment - inline content this reader does not
+   * read.
+   *
+   * Counted so a caller that judges a letter by its text can tell when the
+   * text is not all the letter says.
+   */
+  readonly unreadParts: number;
 }
 
 /** A parsed content type: "text/plain; charset=utf-8" and its parameters. */
@@ -177,10 +199,13 @@ export function readMessage(raw: Buffer): ParsedMessage {
       identifierFrom(part.headers.get("in-reply-to") ?? "") ??
       lastIdentifierFrom(part.headers.get("references") ?? ""),
     date: dateFrom(part.headers.get("date") ?? ""),
+    // The first occurrence is the topmost, which is what the header map keeps.
+    receivedAt: receivedDateFrom(part.headers.get("received") ?? ""),
     text: body?.text ?? "",
     textTruncated: body?.truncated ?? false,
     textFromHtml: body?.fromHtml ?? false,
     attachments: collectAttachments(part, body?.part ?? null),
+    unreadParts: countUnreadParts(part, body?.part ?? null),
   };
 }
 
@@ -672,6 +697,56 @@ function collectAttachments(
   return attachments;
 }
 
+/**
+ * The leaves that are neither the body, nor another form of it, nor a file.
+ *
+ * The other forms of the body are every leaf under the outermost
+ * `multipart/alternative` that holds it: the same message written again, which
+ * is not read because the body already says it. Anything else that is not an
+ * attachment - a second text part beside the body, which some clients write
+ * around an inline picture - is content this reader leaves unread. An empty
+ * part says nothing and is not counted.
+ */
+function countUnreadParts(part: MimePart, body: MimePart | null): number {
+  const forms = new Set<MimePart>(
+    body === null ? [] : leavesOf(alternativeHolding(part, body) ?? body),
+  );
+  return leavesOf(part).filter(
+    (leaf) => !forms.has(leaf) && !isAttachment(leaf) && leaf.body.length > 0,
+  ).length;
+}
+
+/** Every leaf under a part, the part itself when it is one. */
+function leavesOf(part: MimePart): MimePart[] {
+  return part.children === null ? [part] : part.children.flatMap(leavesOf);
+}
+
+/**
+ * The outermost `multipart/alternative` on the way down to the body, or null
+ * when the body is not one of several forms.
+ */
+function alternativeHolding(
+  part: MimePart,
+  body: MimePart,
+  outermost: MimePart | null = null,
+): MimePart | null {
+  if (part === body) {
+    return outermost;
+  }
+  if (part.children === null) {
+    return null;
+  }
+  const holding =
+    outermost ?? (part.contentType.subtype === "alternative" ? part : null);
+  for (const child of part.children) {
+    const found = alternativeHolding(child, body, holding);
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
+
 function isAttachment(part: MimePart): boolean {
   return (
     part.disposition === "attachment" ||
@@ -930,6 +1005,18 @@ function dateFrom(raw: string): Date | null {
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * The date on a Received header, or null.
+ *
+ * It follows the last semicolon (RFC 5322 section 3.6.7): what comes before it
+ * names the servers and the connection, and may hold semicolons of its own in
+ * a comment, while a date-time never does.
+ */
+function receivedDateFrom(raw: string): Date | null {
+  const semicolon = raw.lastIndexOf(";");
+  return semicolon === -1 ? null : dateFrom(raw.slice(semicolon + 1));
 }
 
 // ---------------------------------------------------------------------------

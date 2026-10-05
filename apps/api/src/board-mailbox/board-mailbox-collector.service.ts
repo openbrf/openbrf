@@ -7,6 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import type { RenderedMail } from "../mail/mail-template";
 import { MediaError, MediaService } from "../media/media.service";
 import { BoardMailboxError } from "./board-mailbox.error";
 import {
@@ -14,6 +15,7 @@ import {
   type CollectionRefusal,
   LISTED_REFUSALS,
 } from "./board-mailbox-delivery";
+import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
@@ -21,7 +23,12 @@ import {
   mailboxFingerprint,
 } from "./board-mailbox-settings";
 import { isDataRefusal, isUniqueViolation } from "./database-refusal";
-import { type MimeAttachment, readMessage } from "./mime";
+import {
+  htmlToText,
+  type MimeAttachment,
+  type ParsedMessage,
+  readMessage,
+} from "./mime";
 import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
 
 /**
@@ -171,12 +178,17 @@ const MIN_RETRY_WINDOW_MS = 60 * 60 * 1000;
 const SET_ASIDE_RETRY_MS = 6 * 60 * 60 * 1000;
 
 /**
- * How far ahead of this instance's clock a sender's Date header may be.
+ * How far a sender's Date header may be from the clocks this module checks it
+ * against.
  *
  * The header is the sender's own clock and this module orders a thread by it, so
  * a message dated next year would sit at the top of the board's inbox for a year
- * and a thread's retention would not start running. A date outside the window is
- * replaced by the moment of collection, which is a fact this instance owns.
+ * and a thread's retention would not start running. A date further ahead of
+ * this instance's clock than this is replaced by the moment of collection, which
+ * is a fact this instance owns.
+ *
+ * The same distance either side of the moment the mailbox received the letter,
+ * where that is known - see {@link trustedDate}.
  */
 const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 
@@ -216,6 +228,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     private readonly media: MediaService,
     private readonly jobs: JobQueueService,
     private readonly purge: BoardMailboxPurgeService,
+    private readonly mailer: BoardMailboxMailerService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -357,6 +370,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           uid,
           now,
           retrying.has(uid),
+          settings.address,
         );
         if (stored === "collected") {
           collected += 1;
@@ -394,16 +408,58 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * A message with no identifier is never ours: every reply this instance writes
    * is given one before it is handed to a mail server, precisely so that it can
    * be recognised again - on the way back into a thread, and here.
+   *
+   * The identifier is not enough on its own, because it is not a secret: it
+   * travels in the answer to the correspondent, and in every reply they make.
+   * Taken alone it would let anybody who was ever answered write to the board
+   * again under it, and have the letter set aside here as the board's own
+   * words - never stored, and never shown. So the letter has to say what the
+   * board said as well. Its text is held to the answer as this instance
+   * renders it, and it may carry nothing the answer did not: no file, no part
+   * the reader leaves unread, and no more text than the reader keeps. A sender who copies all of that has sent
+   * the board its own answer, and nothing is lost by not storing it twice.
+   *
+   * A copy that does not match - a list that adds a footer, an association
+   * renamed between the answer and its copy - is collected as a letter. That
+   * is the failure this can afford: the board sees its own words once more,
+   * rather than not seeing somebody else's at all.
    */
-  private async ownAnswerId(messageId: string | null): Promise<string | null> {
-    if (messageId === null) {
+  private async ownAnswerId(
+    parsed: ParsedMessage,
+    boardAddress: string,
+  ): Promise<string | null> {
+    if (
+      parsed.messageId === null ||
+      parsed.attachments.length > 0 ||
+      parsed.unreadParts > 0 ||
+      parsed.textTruncated
+    ) {
       return null;
     }
-    const own = await this.prisma.boardMailboxMessage.findFirst({
-      where: { messageId, direction: "OUTBOUND" },
+    const candidates = await this.prisma.boardMailboxMessage.findMany({
+      where: { messageId: parsed.messageId, direction: "OUTBOUND" },
       select: { id: true },
+      // An identifier this instance minted or a mail service reported names one
+      // answer. A bound all the same, since each candidate is rendered.
+      take: 3,
     });
-    return own?.id ?? null;
+    for (const candidate of candidates) {
+      let rendered: RenderedMail | null;
+      try {
+        rendered = await this.mailer.renderReply(candidate.id, boardAddress);
+      } catch (error) {
+        // Not recognised, so collected: the board's own words on the screen
+        // again is the outcome this can afford, as above.
+        this.logger.warn(
+          `Board mailbox: an answer of this instance's own could not be rendered to compare: ${failureName(error)}`,
+        );
+        continue;
+      }
+      if (rendered !== null && saysTheSame(parsed.text, rendered)) {
+        return candidate.id;
+      }
+    }
+    return null;
   }
 
   /**
@@ -745,6 +801,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     uid: string,
     now: Date,
     retrying: boolean,
+    boardAddress: string,
   ): Promise<"collected" | "already-held" | "skipped"> {
     let raw: Buffer;
     try {
@@ -761,7 +818,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     const parsed = readMessage(raw);
     const letterDate = believedDate(parsed.date, now);
 
-    const own = await this.ownAnswerId(parsed.messageId);
+    const own = await this.ownAnswerId(parsed, boardAddress);
     if (own !== null) {
       /*
        * The board's own reply, come back round.
@@ -774,11 +831,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
        * itself, and would put its own words back on the screen as a fresh
        * question.
        *
-       * Recognised by the identifier this instance generated when it wrote the
-       * reply, which is the only part of the message that is certainly ours -
-       * the envelope sender is the mail server's and the body has been through a
-       * relay. Anything we did not send is not matched by this and is collected
-       * normally.
+       * Recognised by the identifier this instance gave the reply, and by
+       * saying what the reply said - the identifier alone is known to everybody
+       * the board has answered. Anything we did not send is not matched by this
+       * and is collected normally.
        */
       await this.holdOwnAnswer(own, uid);
       return "already-held";
@@ -826,7 +882,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       parsed.fromAddress,
     );
 
-    const occurredAt = trustedDate(parsed.date, now);
+    const occurredAt = trustedDate(parsed.date, parsed.receivedAt, now);
     if (
       occurredAt.getTime() <= boardMailboxPurgeCutoff(now).getTime() &&
       !(await this.purge.withholds(address.index))
@@ -838,6 +894,12 @@ export class BoardMailboxCollectorService implements OnModuleInit {
        * would keep a letter the purge is due to erase that night. Not stored,
        * and recorded as read: time only moves one way, so no later run will
        * judge it differently.
+       *
+       * Which is a letter the mailbox received before the window, and not one
+       * its sender only dated so: the date is held to the mailbox's own record
+       * of receiving it (see trustedDate). That is what makes it safe to leave
+       * these off the board's screen - they are a mailbox's old mail, read for
+       * the first time, and not something sent to the board this week.
        *
        * Unless a legal hold or a restriction of processing stands against the
        * address. The purge keeps that person's correspondence past its window,
@@ -1256,9 +1318,40 @@ const MAX_SUBJECT_CHARACTERS = 300;
  * the inbox and anchors the retention window: a letter dated next year would sit
  * at the top of the board's screen until next year, and one dated 1970 would be
  * erasable the moment it arrived.
+ *
+ * Bounded on both sides by the moment the mailbox received the letter, where
+ * its Received header says. That is the mailbox provider's clock rather than
+ * the sender's, and it is what decides whether a letter is already past the
+ * retention window: without it, a letter from a device whose clock is years
+ * behind - or from somebody who set the header so - would be read as one the
+ * window had already closed on, and never reach the board. A letter that sat
+ * in an outbox for a week is dated by its arrival, which is when the board
+ * could first have read it.
+ *
+ * A message with no Received header did not reach the mailbox through a mail
+ * server - it was filed or imported there by whoever holds the mailbox - so a
+ * stranger did not put it there, and its own date stands.
+ *
+ * @param received When the mailbox received the letter, by its Received
+ *   header, or null.
  */
-function trustedDate(claimed: Date | null, now: Date): Date {
-  return believedDate(claimed, now) ?? now;
+function trustedDate(
+  claimed: Date | null,
+  received: Date | null,
+  now: Date,
+): Date {
+  const written = believedDate(claimed, now);
+  const receipt = believedDate(received, now);
+  if (receipt === null) {
+    return written ?? now;
+  }
+  if (
+    written === null ||
+    Math.abs(written.getTime() - receipt.getTime()) > MAX_CLOCK_SKEW_MS
+  ) {
+    return receipt;
+  }
+  return written;
 }
 
 /** The sender's date where it is believed, and null where it is not. */
@@ -1271,6 +1364,23 @@ function believedDate(claimed: Date | null, now: Date): Date | null {
     return null;
   }
   return claimed;
+}
+
+/**
+ * Whether a letter's text is an answer's, as this instance renders it.
+ *
+ * Either of the answer's two forms, because a copy that kept only its HTML is
+ * read from that: both are the board's words. Compared with the whitespace
+ * folded, which is what a transfer encoding and a client's line wrapping
+ * change, and nothing else is forgiven: a word added anywhere is a letter.
+ */
+function saysTheSame(text: string, answer: RenderedMail): boolean {
+  const folded = (value: string): string =>
+    value.replaceAll(/\s+/g, " ").trim();
+  const letter = folded(text);
+  return (
+    letter === folded(answer.text) || letter === folded(htmlToText(answer.html))
+  );
 }
 
 /**
