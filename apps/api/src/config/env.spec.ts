@@ -538,3 +538,32 @@ describe("the trusted proxies", () => {
     }
   });
 });
+
+describe("the hosts a connected app may identify itself from", () => {
+  function withHosts(value: string | undefined): string[] {
+    return loadEnv({ ...REQUIRED, OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: value })
+      .OPENBRF_OAUTH_CLIENT_METADATA_HOSTS;
+  }
+
+  it("lists none when nothing is set", () => {
+    expect(withHosts(undefined)).toEqual([]);
+    expect(withHosts("")).toEqual([]);
+  });
+
+  it("takes host names separated by commas, in lower case", () => {
+    expect(withHosts(" Apps.Example.se, claude.ai ")).toEqual([
+      "apps.example.se",
+      "claude.ai",
+    ]);
+  });
+
+  it("refuses a URL, a port and a single label", () => {
+    for (const value of [
+      "https://apps.example.se",
+      "apps.example.se:443",
+      "localhost",
+    ]) {
+      expect(() => withHosts(value), value).toThrow(EnvValidationError);
+    }
+  });
+});

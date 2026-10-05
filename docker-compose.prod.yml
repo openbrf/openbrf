@@ -216,6 +216,9 @@ services:
       OPENBRF_DATABASE_POOL_SIZE: ${OPENBRF_DATABASE_POOL_SIZE:-}
 
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in the env file}
+      # Empty: any public https host may present a connected app's metadata
+      # document. Listed: only these (docs/deployment.md, "Connected apps").
+      OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: ${OPENBRF_OAUTH_CLIENT_METADATA_HOSTS:-}
 
       # The digest of a setup link minted for this instance, set by a host that
       # hands the link to the board. Left empty, an unclaimed instance prints a
