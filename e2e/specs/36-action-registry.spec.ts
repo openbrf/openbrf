@@ -310,8 +310,11 @@ test.describe("the action registry", () => {
       await expect(panel.getByText(MAILING_REQUESTED)).toHaveCount(0);
 
       // On the server rather than on the screen: the notice is still gone when
-      // the list is read again.
+      // the list is read again. The item's panel is waited for first, because
+      // it renders from the same row the notice does: before the list has
+      // answered there is no panel, and no notice in it either way.
       await page.reload();
+      await expect(panel).toBeVisible();
       await expect(panel.getByText(MAILING_REQUESTED)).toHaveCount(0);
 
       // --- and it is asked for again -----------------------------------------
@@ -347,6 +350,7 @@ test.describe("the action registry", () => {
       // the screen reads the item again.
       await expect(panel.getByText(MAILING_REQUESTED)).toHaveCount(0);
       await page.reload();
+      await expect(panel).toBeVisible();
       await expect(panel.getByText(MAILING_REQUESTED)).toHaveCount(0);
 
       /*

@@ -624,6 +624,15 @@ test.describe("the general meeting", () => {
     await expect(
       page.getByRole("heading", { name: "Föreningsstämmor" }),
     ).toBeVisible();
+    /*
+     * The list's own heading arrives only after its read answers, so its
+     * absence alone would hold on a screen still reading. For an account
+     * holding the capability the screen puts up its loading status in the same
+     * render as the title, and for one without it reads nothing at all - so the
+     * status being absent beside a rendered title is the screen having decided
+     * there is nothing here for him, rather than not having got that far.
+     */
+    await expect(page.getByText("Läser stämmorna...")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Föreningens stämmor" }),
     ).toHaveCount(0);
