@@ -512,8 +512,9 @@ export class ImportService implements OnModuleInit {
       },
       // Longer than the budget a chunk's own transaction has, so an abandon
       // that arrives while a chunk holds the session row waits for it to commit
-      // or roll back instead of failing first.
-      { timeout: ABANDON_TIMEOUT_MS, maxWait: 20_000 },
+      // or roll back instead of failing first. The same for getting a
+      // connection: with a pool of one, the chunk holds the only one.
+      { timeout: ABANDON_TIMEOUT_MS, maxWait: ABANDON_TIMEOUT_MS },
     );
     if (session === null) {
       throw new ImportError(
