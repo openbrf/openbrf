@@ -27,7 +27,10 @@ import {
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
-import { mailboxFingerprint } from "./board-mailbox-settings";
+import {
+  legacyMailboxFingerprint,
+  mailboxFingerprint,
+} from "./board-mailbox-settings";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
@@ -2094,6 +2097,70 @@ describe("collecting the mailbox", () => {
       expect((response.json() as { reason: string }).reason).toBe(
         "mailbox-sign-in-refused",
       );
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("a mailbox whose settings are not in lowercase", () => {
+  it("still holds what was collected under the fingerprint taken as typed", async () => {
+    /*
+     * Before the fingerprint read the host and user as a mail server does,
+     * this mailbox's letters were recorded under a hash of the user exactly as
+     * typed. The first run after must recognise them rather than store every
+     * one a second time.
+     */
+    const user = `Styrelsen-${suffix}`;
+    const uid = `uid-capital-${suffix}`;
+    const server = await startPop3TestServer({
+      user,
+      password: MAILBOX_PASSWORD,
+      messages: [
+        {
+          uid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Versal ${suffix}`,
+            body: "Ett brev.",
+            messageId: `capital-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+    });
+    const credentials = {
+      host: "127.0.0.1",
+      port: server.port,
+      secure: false,
+      user,
+      password: MAILBOX_PASSWORD,
+    };
+    try {
+      const saved = await inject({
+        method: "PUT",
+        url: "/api/settings/board-mailbox",
+        payload: { address: BOARD_ADDRESS, ...credentials },
+        headers: { cookie: administratorCookie },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect((await collector.collect()).collected).toBe(1);
+
+      // As a run before the change would have left it.
+      const legacy = `${legacyMailboxFingerprint(credentials)}:${uid}`;
+      expect(legacy).not.toBe(`${mailboxFingerprint(credentials)}:${uid}`);
+      await prisma.boardMailboxMessage.updateMany({
+        where: { sourceUid: { endsWith: `:${uid}` } },
+        data: { sourceUid: legacy },
+      });
+
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+      expect(
+        await prisma.boardMailboxMessage.count({
+          where: { sourceUid: `${mailboxFingerprint(credentials)}:${uid}` },
+        }),
+      ).toBe(1);
     } finally {
       await server.close();
     }

@@ -18,11 +18,17 @@ import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
+  legacyMailboxFingerprint,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
 import { isDataRefusal, isUniqueViolation } from "./database-refusal";
 import { type MimeAttachment, readMessage } from "./mime";
-import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
+import {
+  openPop3Session,
+  type Pop3Credentials,
+  Pop3Error,
+  type Pop3Listing,
+} from "./pop3";
 import { lockThread } from "./thread-lock";
 
 /**
@@ -290,6 +296,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
 
     const prefix = mailboxFingerprint(settings.credentials);
+    await this.adoptLegacyPrefix(settings.credentials, prefix);
     const session = await openPop3Session(settings.credentials).catch(
       (error: unknown) => {
         // The class of the failure, never the mailbox's own words: a POP3 error
@@ -529,6 +536,35 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * A failure is logged and the run goes on: the letter is held either way, and
    * the next run tries again.
    */
+  /**
+   * Moves what was collected under the fingerprint as it was first taken - of
+   * the host and user exactly as typed - to the one taken now.
+   *
+   * An instance whose settings carried a capital letter or a space would
+   * otherwise find no letter held on its first run after the change, and store
+   * every letter still in the mailbox a second time; the purged and set-aside
+   * ledgers would stop matching with it. Nothing to do, and one comparison,
+   * where the two agree, which is every mailbox typed in lowercase.
+   */
+  private async adoptLegacyPrefix(
+    credentials: Pop3Credentials,
+    prefix: string,
+  ): Promise<void> {
+    const legacy = `${legacyMailboxFingerprint(credentials)}:`;
+    if (legacy === `${prefix}:`) {
+      return;
+    }
+    // substr from the separator on, so what follows the prefix is kept as is.
+    await this.prisma.$transaction([
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_ignored_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_collection_failure SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+    ]);
+  }
+
   private async forgetStoredSetAside(uids: readonly string[]): Promise<void> {
     if (uids.length === 0) {
       return;
