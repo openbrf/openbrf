@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -434,12 +434,10 @@ describe("recording a fee", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so
+      // it is awaited together with the enabled state.
       await waitFor(() => {
         expect(amount.matches(":disabled")).toBe(false);
-      });
-      // The hand-back is an effect that runs after the fieldset is enabled, so
-      // it may land a tick after the control stops being disabled.
-      await waitFor(() => {
         expect(refocus).toHaveBeenCalledTimes(1);
       });
       expect(document.activeElement).toBe(amount);
@@ -467,10 +465,11 @@ describe("recording a fee", () => {
       screen.getByRole("button", { name: "Registrera avgiften" }),
     );
 
+    // The hand-back runs in an effect after the render that clears the field.
     await waitFor(() => {
       expect((amount as HTMLInputElement).value).toBe("");
+      expect(document.activeElement).toBe(amount);
     });
-    expect(document.activeElement).toBe(amount);
   });
 
   it("leaves focus where the user moved it while the rate was being recorded", async () => {
@@ -501,12 +500,18 @@ describe("recording a fee", () => {
     date.focus();
     expect(document.activeElement).toBe(date);
 
+    const refocus = vi.spyOn(amount, "focus");
+
     settle({ ok: true, value: REGISTER.apartments[0]?.fees[0] });
 
     await waitFor(() => {
       expect(amount.matches(":disabled")).toBe(false);
     });
+    // The hand-back would run in an effect after the field is enabled again;
+    // flush it so the check below is not made before it had its chance.
+    await act(async () => {});
     expect((amount as HTMLInputElement).value).toBe("");
+    expect(refocus).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(date);
   });
 
@@ -534,10 +539,11 @@ describe("recording a fee", () => {
     const submit = screen.getByRole("button", { name: "Registrera avgiften" });
     (submit.closest("form") as HTMLFormElement).requestSubmit(submit);
 
+    // The hand-back runs in an effect after the render that clears the field.
     await waitFor(() => {
       expect((amount as HTMLInputElement).value).toBe("");
+      expect(document.activeElement).toBe(amount);
     });
-    expect(document.activeElement).toBe(amount);
   });
 
   it("puts the refusal on the screen rather than swallowing it", async () => {

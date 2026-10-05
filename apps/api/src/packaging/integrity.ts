@@ -1,5 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { formatSha512, IntegrityError, parseSha512 } from "@openbrf/plugin-sdk";
+
 /**
  * Tarball integrity.
  *
@@ -11,61 +13,10 @@ import { createHash, timingSafeEqual } from "node:crypto";
  * discarded, never unpacked.
  *
  * Shared by the plugin installer and the theme installer, which run the same
- * download-and-verify path against the same catalog format.
+ * download-and-verify path against the same catalog format. Reading a digest is
+ * not done here: `parseSha512` comes from the plugin SDK, so the catalog's own
+ * check accepts exactly the spellings this does.
  */
-
-/** How the catalog may write a digest. */
-const SRI_PATTERN = /^sha512-([A-Za-z0-9+/]+={0,2})$/;
-const HEX_PATTERN = /^[0-9a-f]{128}$/i;
-
-export class IntegrityError extends Error {
-  constructor(
-    message: string,
-    readonly reason: "malformed-digest" | "digest-mismatch",
-  ) {
-    super(message);
-    this.name = "IntegrityError";
-  }
-}
-
-/**
- * Normalizes a declared digest to raw bytes.
- *
- * Both spellings are accepted because both are what a publisher actually has
- * to hand: `npm pack --json` reports the subresource-integrity form
- * (`sha512-<base64>`), while `sha512sum` prints hex. Requiring one would mean
- * every catalog entry is transcribed by hand from the other, which is how a
- * digest ends up wrong in a way nobody notices until an install fails.
- */
-export function parseSha512(declared: string): Buffer {
-  const trimmed = declared.trim();
-
-  const sri = SRI_PATTERN.exec(trimmed);
-  if (sri !== null) {
-    const bytes = Buffer.from(sri[1] ?? "", "base64");
-    if (bytes.length !== 64) {
-      throw new IntegrityError(
-        "A sha512 digest is 64 bytes; this one is not.",
-        "malformed-digest",
-      );
-    }
-    return bytes;
-  }
-
-  if (HEX_PATTERN.test(trimmed)) {
-    return Buffer.from(trimmed, "hex");
-  }
-
-  throw new IntegrityError(
-    'Expected a digest written as "sha512-<base64>" or 128 hex characters.',
-    "malformed-digest",
-  );
-}
-
-/** The subresource-integrity spelling, which is what a catalog entry carries. */
-export function formatSha512(digest: Buffer): string {
-  return `sha512-${digest.toString("base64")}`;
-}
 
 export function sha512(bytes: Uint8Array): Buffer {
   return createHash("sha512").update(bytes).digest();
