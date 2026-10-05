@@ -104,6 +104,10 @@ export function toRunView(session: ImportRunRow): ImportRunView {
 }
 
 /** Whether the job still has work to do, and the screen still has to watch. */
-export function isRunning(status: ImportRunStatus): boolean {
-  return status === "QUEUED" || status === "APPLYING";
+export function isRunning(
+  status: ImportRunStatus,
+): status is (typeof RUNNING_IMPORT_STATUSES)[number] {
+  return (RUNNING_IMPORT_STATUSES as readonly ImportRunStatus[]).includes(
+    status,
+  );
 }

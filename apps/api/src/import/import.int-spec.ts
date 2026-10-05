@@ -1621,6 +1621,54 @@ describe("abandoning an import that is stuck", () => {
     ).toBe(1);
   }, 60_000);
 
+  it("is shown on the screen after its upload has expired, so it can still be abandoned", async () => {
+    // A lost job does not run out with the upload: the purge leaves a running
+    // session alone, and it holds off every other apply until somebody ends
+    // it. The screen has to keep finding it, or there is nothing to press.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "gammal.csv",
+      harmlessRows("Gammal"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        status: "QUEUED",
+        decisions: {},
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    const readActive = async (): Promise<ImportRunView | null> => {
+      const response = await inject({
+        method: "GET",
+        url: "/api/import/sessions/active",
+        headers: { cookie: board },
+      });
+      expect(response.statusCode).toBe(200);
+      return JSON.parse(response.body) as ImportRunView | null;
+    };
+
+    expect(await readActive()).toMatchObject({
+      sessionId: session.sessionId,
+      fileName: "gammal.csv",
+      status: "QUEUED",
+    });
+
+    const response = await abandonImport(admin, session.sessionId);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body) as ImportRunView).toMatchObject({
+      sessionId: session.sessionId,
+      status: "FAILED",
+      failureReason: "apply-abandoned",
+    });
+
+    // Ended, it is an expired upload like any other and leaves the screen.
+    expect((await readActive())?.sessionId).not.toBe(session.sessionId);
+  }, 60_000);
+
   it("refuses an upload that was never started, and one that does not exist", async () => {
     const board = await signIn(actors.board.email);
     const admin = await signIn(actors.admin.email);

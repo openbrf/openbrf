@@ -548,13 +548,23 @@ export class ImportService implements OnModuleInit {
    * The most recent session that has left the mapping step is that import, and
    * it stays answerable for as long as the upload does - after which the purge
    * removes it and the screen offers a fresh upload again.
+   *
+   * A running import comes first, however old its upload. The purge leaves it
+   * alone and it refuses every other apply until it ends, so one whose job was
+   * lost has to stay on the screen where an administrator can abandon it.
    */
   async activeRun(): Promise<ImportRunView | null> {
-    const session = await this.prisma.importSession.findFirst({
-      where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: "desc" },
-      select: IMPORT_RUN_SELECT,
-    });
+    const session =
+      (await this.prisma.importSession.findFirst({
+        where: { status: { in: [...RUNNING_IMPORT_STATUSES] } },
+        orderBy: { createdAt: "desc" },
+        select: IMPORT_RUN_SELECT,
+      })) ??
+      (await this.prisma.importSession.findFirst({
+        where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        select: IMPORT_RUN_SELECT,
+      }));
     return session === null ? null : toRunView(session);
   }
 

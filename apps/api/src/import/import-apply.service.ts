@@ -34,7 +34,11 @@ import {
   type IdentityIndexCache,
   ImportPlannerService,
 } from "./import-planner.service";
-import { type ImportApplyResult, RUNNING_IMPORT_STATUSES } from "./import-run";
+import {
+  type ImportApplyResult,
+  isRunning,
+  RUNNING_IMPORT_STATUSES,
+} from "./import-run";
 
 /**
  * Writing the register, as a background job.
@@ -296,7 +300,7 @@ export class ImportApplyService implements OnModuleInit {
       // nothing left to report on either.
       return false;
     }
-    if (session.status !== "QUEUED" && session.status !== "APPLYING") {
+    if (!isRunning(session.status)) {
       return false;
     }
     if (session.status === "QUEUED") {
@@ -479,8 +483,9 @@ export class ImportApplyService implements OnModuleInit {
     sessionId: string,
     reason: ImportErrorReason,
   ): Promise<void> {
-    await stopImport(this.prisma, sessionId, reason);
-    this.logger.warn(`Import session ${sessionId} stopped: ${reason}`);
+    if (await stopImport(this.prisma, sessionId, reason)) {
+      this.logger.warn(`Import session ${sessionId} stopped: ${reason}`);
+    }
   }
 
   /** Ciphertexts and indexes for every row that will be written. */
