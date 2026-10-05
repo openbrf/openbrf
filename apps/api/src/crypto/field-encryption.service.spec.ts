@@ -44,8 +44,6 @@ const TEST_ENV: Env = {
   OPENBRF_S3_SECRET_ACCESS_KEY: undefined,
   OPENBRF_S3_FORCE_PATH_STYLE: false,
   OPENBRF_MAX_UPLOAD_BYTES: 10 * 1024 * 1024,
-  TRUSTED_PROXIES: [],
-  OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: [],
 };
 
 describe("FieldEncryptionService", () => {

@@ -9,7 +9,10 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
-import { guardedMetadataFetch, metadataDocumentPolicy } from "./cimd-fetch";
+import {
+  guardedMetadataFetch,
+  isMetadataDocumentUrlAllowed,
+} from "./cimd-fetch";
 import { hashOpaqueToken } from "./opaque-token";
 import type { ProtectedResource } from "./protected-resource";
 
@@ -314,15 +317,12 @@ export function buildAuthOptions(
         // rate-limit bucket for the whole instance, where a single resident
         // failing to sign in would throttle the entire board.
         //
-        // Better Auth reads the header alone and never sees the connection.
-        // With the proxies named it takes the right-most hop they did not
-        // write, as the public forms' limiter does (clientAddressOf); with
-        // none it takes a header holding one address and refuses one holding
-        // several, so it relies on the proxy OVERWRITING the header, as nginx,
-        // Caddy and Traefik do by default. An instance reachable without a
-        // proxy lets a caller set that one address itself.
+        // This assumes the proxy OVERWRITES x-forwarded-for rather than
+        // appending to a client-supplied value, which is the default behaviour
+        // of nginx, Caddy and Traefik. An instance exposed directly to the
+        // internet without a proxy would let a caller spoof this header and
+        // sidestep the rate limit.
         ipAddressHeaders: ["x-forwarded-for"],
-        trustedProxies: [...env.TRUSTED_PROXIES],
       },
     },
 
@@ -491,9 +491,7 @@ export function buildAuthOptions(
       // the fetch is bounded by us rather than left to the library's defaults.
       cimd({
         fetchClientMetadataResource: guardedMetadataFetch,
-        isMetadataDocumentUrlAllowed: metadataDocumentPolicy(
-          env.OPENBRF_OAUTH_CLIENT_METADATA_HOSTS,
-        ),
+        isMetadataDocumentUrlAllowed,
         metadataProfile: "mcp-2026-07-28",
       }),
     ],

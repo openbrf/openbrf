@@ -72,12 +72,10 @@ interface Fakes {
       delete: ReturnType<typeof vi.fn>;
     };
     systemRole: {
-      count: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
       deleteMany: ReturnType<typeof vi.fn>;
     };
   };
-  client: { $executeRaw: ReturnType<typeof vi.fn> };
   auth: { createAccountForPerson: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   pages: {
@@ -120,7 +118,6 @@ function build(
       delete: vi.fn().mockResolvedValue({ id: "person-1" }),
     },
     systemRole: {
-      count: vi.fn().mockResolvedValue(0),
       create: vi.fn().mockResolvedValue({ id: "role-1" }),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
@@ -173,7 +170,6 @@ function build(
   return {
     service,
     prisma,
-    client,
     auth,
     audit,
     pages,
@@ -363,24 +359,6 @@ describe("creating the first administrator", () => {
       fakes.service.createFirstAdministrator(ADMINISTRATOR),
     ).rejects.toBeInstanceOf(SetupError);
     expect(fakes.prisma.person.create).not.toHaveBeenCalled();
-  });
-
-  it("refuses inside the transaction when another submission's grant committed first", async () => {
-    // The other submission's account is not written yet - it is created after
-    // its transaction - so the grant is the only trace of it this one can find.
-    fakes.prisma.systemRole.count.mockResolvedValueOnce(1);
-
-    await expect(
-      fakes.service.createFirstAdministrator(ADMINISTRATOR),
-    ).rejects.toMatchObject({ reason: "already-claimed" });
-    expect(fakes.prisma.person.create).not.toHaveBeenCalled();
-    // Counted under the administrators' lock, taken before the count.
-    const lockedAt =
-      fakes.client.$executeRaw.mock.invocationCallOrder.at(0) ?? -1;
-    const countedAt =
-      fakes.prisma.systemRole.count.mock.invocationCallOrder.at(0) ?? -1;
-    expect(lockedAt).toBeGreaterThan(0);
-    expect(lockedAt).toBeLessThan(countedAt);
   });
 
   it("refuses an address that cannot be indexed", async () => {

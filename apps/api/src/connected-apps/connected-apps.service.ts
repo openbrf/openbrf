@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { ActorContext } from "../audit/actor-context";
@@ -6,7 +6,6 @@ import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
-import { failureFrames, failureName } from "../logging/failure";
 import { connectedAppHost } from "./client-host";
 
 /**
@@ -80,8 +79,6 @@ export interface ConnectedAppGrantView extends ConnectedAppView {
 
 @Injectable()
 export class ConnectedAppsService {
-  private readonly logger = new Logger(ConnectedAppsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
@@ -302,112 +299,6 @@ export class ConnectedAppsService {
 
     if (!removed) {
       throw new NotFoundException("No such connection.");
-    }
-  }
-
-  /**
-   * Turns a client away for the whole instance.
-   *
-   * For an app the board no longer wants anybody to connect, where cutting it
-   * member by member would leave every new member free to connect it again.
-   * One transaction, the way {@link disconnect} is one, for every account at
-   * once: every access token goes, every refresh token is marked revoked, every
-   * consent is deleted, and the client is disabled, which the provider refuses
-   * at the authorization and token endpoints.
-   *
-   * Disabled rather than deleted. A client that identifies itself by the URL
-   * of its own metadata document would come straight back on its next
-   * authorization if its row were gone, while a disabled row is kept disabled
-   * when the provider fetches that document again.
-   */
-  async revokeClient(clientId: string, actor: ActorContext): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const disabled = await tx.oauthClient.updateMany({
-        where: { clientId },
-        data: { disabled: true },
-      });
-      if (disabled.count === 0) {
-        throw new NotFoundException("No such client.");
-      }
-      await tx.oauthAccessToken.deleteMany({ where: { clientId } });
-      await tx.oauthRefreshToken.updateMany({
-        where: { clientId, revoked: null },
-        data: { revoked: new Date() },
-      });
-      const consents = await tx.oauthConsent.deleteMany({
-        where: { clientId },
-      });
-      await this.audit.record(
-        {
-          action: "OAUTH_CLIENT_REVOKED",
-          ...auditActor(actor),
-          targetKind: "oauthClient",
-          targetId: clientId,
-          context: { connectionsCut: consents.count },
-        },
-        tx,
-      );
-    });
-  }
-
-  /**
-   * Removes a client whose registration by hand did not finish.
-   *
-   * Only for a client created moments ago in the same request: nobody can have
-   * consented to it yet, so the consents, tokens and resource link the delete
-   * cascades to are at most the link that request made. Reported rather than
-   * thrown, because the caller is already passing on the failure that matters
-   * and this one needs a human rather than to replace it.
-   */
-  async discardClient(clientId: string): Promise<void> {
-    try {
-      await this.prisma.oauthClient.deleteMany({ where: { clientId } });
-    } catch (cause) {
-      this.logger.error(
-        `Could not remove the client ${clientId}, whose registration failed: ` +
-          `${failureName(cause)}. It has no audit entry; delete its ` +
-          "auth_oauth_client row by hand.",
-        failureFrames(cause),
-      );
-    }
-  }
-
-  /**
-   * Withdraws a grant the provider stored but the audit log could not record.
-   *
-   * A disconnect by the person themself, so it writes no entry - the one write
-   * that failed is the reason this runs. Reported rather than thrown, for the
-   * reason {@link discardClient} gives.
-   */
-  async withdrawUnrecordedConsent(
-    actor: ActorContext,
-    personId: string,
-    clientId: string,
-  ): Promise<void> {
-    try {
-      const account = await this.prisma.user.findUnique({
-        where: { personId },
-        select: { id: true },
-      });
-      if (account !== null) {
-        await this.disconnect({
-          userId: account.id,
-          personId,
-          clientId,
-          actor,
-          onBehalf: false,
-        });
-      }
-    } catch (cause) {
-      if (cause instanceof NotFoundException) {
-        return; // No consent stood, so nothing is left to withdraw.
-      }
-      this.logger.error(
-        `Could not withdraw the unrecorded consent to the client ${clientId}: ` +
-          `${failureName(cause)}. Delete its auth_oauth_consent row for ` +
-          `person ${personId} by hand.`,
-        failureFrames(cause),
-      );
     }
   }
 

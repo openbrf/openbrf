@@ -5,7 +5,6 @@ import {
   createGuardedMetadataFetch,
   guardedMetadataFetch,
   isMetadataDocumentUrlAllowed,
-  metadataDocumentPolicy,
   MetadataFetchError,
   REAL_DEPENDENCIES,
 } from "./cimd-fetch";
@@ -803,28 +802,5 @@ describe("the guarded transport", () => {
     ]) {
       expect(message).not.toContain(leak);
     }
-  });
-});
-
-describe("metadataDocumentPolicy", () => {
-  it("lets any public https client present itself when no host is listed", () => {
-    const policy = metadataDocumentPolicy([]);
-    expect(policy(CLIENT_ID)).toBe(true);
-    expect(policy("https://another.example.org/client.json")).toBe(true);
-  });
-
-  it("takes only the listed hosts, exactly, once any is listed", () => {
-    const policy = metadataDocumentPolicy(["apps.example.se"]);
-    expect(policy(CLIENT_ID)).toBe(true);
-    expect(policy("https://another.example.org/client.json")).toBe(false);
-    // Not a suffix match: a listed host does not vouch for names under it.
-    expect(policy("https://evil.apps.example.se/client.json")).toBe(false);
-  });
-
-  it("never lets the list widen the gate before it", () => {
-    const policy = metadataDocumentPolicy(["apps.example.se"]);
-    expect(policy("http://apps.example.se/client.json")).toBe(false);
-    expect(policy("https://apps.example.se:8443/client.json")).toBe(false);
-    expect(policy("not a url")).toBe(false);
   });
 });

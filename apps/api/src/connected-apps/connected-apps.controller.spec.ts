@@ -134,11 +134,6 @@ describe("registering a client by hand", () => {
     expect(requiredOn(prototype, "register")).toEqual(["association:manage"]);
   });
 
-  it("gates turning a client away on the same capability", () => {
-    expect(requiredOn(prototype, "revoke")).toEqual(["association:manage"]);
-    expect(isPublicRoute(prototype, "revoke")).toBe(false);
-  });
-
   it("is not public", () => {
     expect(isPublicClass(OAuthClientsController)).toBe(false);
     expect(isPublicRoute(prototype, "register")).toBe(false);

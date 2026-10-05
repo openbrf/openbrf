@@ -20,7 +20,6 @@ import {
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
 import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
-import { lockSystemRole } from "../roles/role-lock";
 import { PagesService } from "../site/pages.service";
 import { SetupClaimService } from "./setup-claim.service";
 
@@ -208,20 +207,17 @@ export class SetupService implements OnModuleInit {
     }
 
     const personId = await this.prisma.$transaction(async (tx) => {
-      // Re-checked inside the transaction, under the lock every change to the
-      // administrators takes. Two submissions at the same instant would both
-      // pass the check above, and the accounts alone cannot settle which one
-      // wins: the account is written after this transaction, through Better
-      // Auth's adapter, which takes no transaction. The ADMIN grant is written
-      // here, so it is what the second submission finds once the first commits
-      // and the lock passes to it. A failed account creation removes the grant
-      // again (rollbackAdministrator), so a retry is not shut out by it.
-      await lockSystemRole(tx, "ADMIN");
+      // Re-checked inside the transaction. Two operators submitting the form at
+      // the same instant would both pass the check above, and this narrows that
+      // window to the account creation that follows. It does not close it: the
+      // account goes through Better Auth's adapter, which takes no transaction.
+      // The window is one request wide on an instance nobody has signed in to
+      // yet, and only a holder of the setup link reaches it (ADR 0023), so the
+      // two requests that could race both come from the claimant. The second
+      // administrator would be visible in the register, so it is documented
+      // rather than defended with a reservation held across the account write.
       const accounts = await tx.user.count();
-      const administrators = await tx.systemRole.count({
-        where: { role: "ADMIN" },
-      });
-      if (accounts > 0 || administrators > 0) {
+      if (accounts > 0) {
         throw new SetupError(
           "This instance already has an account. Setup is closed.",
           "already-claimed",
