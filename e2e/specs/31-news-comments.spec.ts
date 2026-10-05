@@ -377,7 +377,7 @@ test.describe("comments on the association's news", () => {
     await browseAs(page, clientAddress, "author");
     await signInThroughTheScreen(page, AUTHOR.email, AUTHOR.password);
 
-    const rows = await openTheNotice(page);
+    await openTheNotice(page);
     const refused = `Det är ${LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER} som står på dörren, ${suffix}.`;
 
     await page.getByLabel("Din kommentar").fill(refused);
@@ -395,7 +395,11 @@ test.describe("comments on the association's news", () => {
     );
 
     // And the comment is not on the thread: the refusal stopped the write and
-    // not only the answer.
-    await expect(rows.filter({ hasText: refused })).toHaveCount(0);
+    // not only the answer. Asked of the thread as the server sends it again,
+    // since the screen does not re-read it after a refusal: the notice is
+    // opened afresh and the thread waited for until its loading line goes.
+    const reread = await openTheNotice(page);
+    await expect(page.getByText("Läser kommentarerna...")).toHaveCount(0);
+    await expect(reread.filter({ hasText: refused })).toHaveCount(0);
   });
 });

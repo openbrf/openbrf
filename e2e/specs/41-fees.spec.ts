@@ -488,6 +488,12 @@ test("the andelstal aid suggests a figure and stores nothing", async ({
   // And the rate itself is untouched: the aid is arithmetic on the screen.
   await expect(row).toContainText(/3\s*450,50 kr/);
   await expect(page.getByText(/lagras aldrig/)).toBeVisible();
+
+  // Stored nothing, as the server reads it: the screen opened afresh, with the
+  // aid closed, carries the rate the board recorded and not the suggestion.
+  await openFees(page);
+  await expect(row).toContainText(/3\s*450,50 kr/);
+  await expect(row).not.toContainText(/2\s*500,00 kr/);
 });
 
 test("the board issues the period's notices and takes them away", async ({

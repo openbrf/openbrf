@@ -576,6 +576,10 @@ test("a personal identity number in the reason is refused", async ({
   await expect(page.getByText(/personnummer/i)).toBeVisible();
   // Refused, so nothing was recorded: the reason travels into a file that leaves
   // the association, and a number in it is a disclosure nobody can take back.
+  // Asked of the server rather than of the screen in front of it, which a
+  // refusal does not re-read: the list opened afresh, which `openCharges`
+  // waits for, holds no such row.
+  await openCharges(page);
   await expect(rowFor(page, "811228")).toHaveCount(0);
 });
 
