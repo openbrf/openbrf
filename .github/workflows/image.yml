@@ -225,6 +225,10 @@ jobs:
           # genuine first boot: key provisioning, every migration, the job
           # schema and the runtime role, then the server.
           postgres="$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
+          # Generated for this run, as an operator is told to: the image runs
+          # in production mode, which refuses a short or published secret.
+          auth_secret="$(openssl rand -base64 48)"
+          echo "::add-mask::${auth_secret}"
           docker network create openbrf-smoke
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \
             --network-alias db \
@@ -234,7 +238,7 @@ jobs:
             --env APP_URL=http://localhost:3000 \
             --env POSTGRES_PASSWORD=smoke-owner \
             --env RUNTIME_DB_PASSWORD=smoke-runtime \
-            --env BETTER_AUTH_SECRET=smoke-secret-0123456789abcdef \
+            --env BETTER_AUTH_SECRET="${auth_secret}" \
             --env OPENBRF_ENCRYPTION_KEY= \
             "${IMAGE}@${DIGEST}"
 
