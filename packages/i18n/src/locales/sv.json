@@ -2231,6 +2231,8 @@
       "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
       "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
       "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
+      "transferWithoutTenantOwnership": "En överlåtelse eller upplåtelse kan bara registreras för en bostadsrättshavare. Registrera flytten som medlem, eller ta bort överlåtelsen.",
+      "alreadyGranted": "Lägenheten är redan upplåten. Ett senare ägarbyte är en överlåtelse.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

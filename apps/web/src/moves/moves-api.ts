@@ -32,7 +32,9 @@ export type MoveErrorReason =
   | "grant-has-no-seller"
   | "date-not-a-calendar-date"
   | "seller-is-acquirer"
-  | "seller-not-tenant-owner";
+  | "seller-not-tenant-owner"
+  | "transfer-without-tenant-ownership"
+  | "already-granted";
 
 /** An upplatelse under BRL 4 kap., or an overgang under 6 kap. */
 export type TransferKind = "GRANT" | "TRANSFER";

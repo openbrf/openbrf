@@ -2231,6 +2231,8 @@
       "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
+      "transferWithoutTenantOwnership": "A transfer or a grant can only be recorded for a tenant-owner. Record the move as a member, or leave the transfer out.",
+      "alreadyGranted": "This apartment has already been granted. A later change of hands is a transfer.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },

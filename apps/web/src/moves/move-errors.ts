@@ -33,6 +33,9 @@ const MESSAGES: Record<MoveErrorReason | "invalid-body", TranslationKey> = {
   "invalid-body": "moves.errors.invalidBody",
   "seller-is-acquirer": "moves.errors.sellerIsAcquirer",
   "seller-not-tenant-owner": "moves.errors.sellerNotTenantOwner",
+  "transfer-without-tenant-ownership":
+    "moves.errors.transferWithoutTenantOwnership",
+  "already-granted": "moves.errors.alreadyGranted",
 };
 
 export function failureMessage(reason: string): TranslationKey {
