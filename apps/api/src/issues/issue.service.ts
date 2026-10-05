@@ -6,6 +6,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
+import { failureName } from "../logging/failure";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import { IssueTypeService } from "./issue-type.service";
@@ -462,8 +463,8 @@ export class IssueService {
         .remove(file.id, input.reporterPersonId, "WEB")
         .catch((removal: unknown) => {
           this.logger.error(
-            `Could not remove file ${file.id} after its photograph was refused`,
-            removal instanceof Error ? removal.stack : String(removal),
+            `Could not remove file ${file.id} after its photograph was refused: ` +
+              failureName(removal),
           );
         });
       throw cause;
