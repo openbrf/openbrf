@@ -65,6 +65,11 @@ function readStackEnv(): Readonly<Record<string, string>> {
     .filter((line) => line !== "" && !line.startsWith("#"))
     .map((line) => {
       const separator = line.indexOf("=");
+      // Without this a typo would be sliced into a nonsense name, and what
+      // failed would be a later lookup reporting a variable as missing.
+      if (separator <= 0) {
+        throw new Error(`${ENV_FILE}: "${line}" is not NAME=value`);
+      }
       return [line.slice(0, separator), line.slice(separator + 1)] as const;
     });
   return Object.fromEntries(entries);
