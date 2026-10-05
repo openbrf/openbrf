@@ -27,8 +27,8 @@ updates:
         patterns: ["*"]
 
   # Compose files are a separate ecosystem rather than part of the one above,
-  # and this is what keeps the Postgres digest in docker-compose.prod.yml
-  # current.
+  # and this is what keeps the Postgres digest current in docker-compose.prod.yml
+  # and docker-compose.yml alike, in one group so the two move together.
   - package-ecosystem: docker-compose
     directory: /
     schedule:
