@@ -2177,7 +2177,8 @@
       "done": "{{name}} is registered at apartment {{apartment}}.",
       "registerEntry": "An entry was written in the member register.",
       "welcomeSent": "A welcome email was sent, in the recipient's own language.",
-      "welcomeSkipped": "No welcome email was sent: this person has no email address on file."
+      "welcomeSkipped": "No welcome email was sent: this person has no email address on file.",
+      "personSearching": "Searching the register..."
     },
     "out": {
       "heading": "Move out",

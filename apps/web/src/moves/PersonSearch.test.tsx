@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +44,14 @@ beforeEach(() => {
 
 describe("searching for a person", () => {
   it("says the register holds nobody by that name when it holds nobody", async () => {
+    // Only once the register has answered. Said before, it is a claim about a
+    // search that has not happened yet.
+    let answer: (value: unknown) => void = () => undefined;
+    fetchBoardRegister.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
     const session = userEvent.setup();
     render(
       <PersonSearch
@@ -55,8 +63,64 @@ describe("searching for a person", () => {
     );
 
     await session.type(screen.getByLabelText(/Ny innehavare/), "Nils");
+    await waitFor(() => {
+      expect(fetchBoardRegister).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "Nils" }),
+        expect.anything(),
+      );
+    });
+    expect(screen.queryByText(/Ingen matchar det namnet/)).toBeNull();
+    expect(screen.getByText("Söker i registret...")).toBeTruthy();
+
+    await act(async () => {
+      answer(page([]));
+      await Promise.resolve();
+    });
 
     expect(await screen.findByText(/Ingen matchar det namnet/)).toBeTruthy();
+  });
+
+  it("never lists one search's answer under another", async () => {
+    let answerSecond: (value: unknown) => void = () => undefined;
+    fetchBoardRegister.mockImplementation((query: { search: string }) =>
+      query.search === "Nils"
+        ? Promise.resolve(page([{ personId: "person-nils", name: "Nils Ek" }]))
+        : new Promise((resolve) => {
+            answerSecond = resolve;
+          }),
+    );
+    const session = userEvent.setup();
+    render(
+      <PersonSearch
+        id="person"
+        label="Ny innehavare"
+        selected={null}
+        onSelect={noop}
+      />,
+    );
+
+    await session.type(screen.getByLabelText(/Ny innehavare/), "Nils");
+    expect(await screen.findByRole("button", { name: "Nils Ek" })).toBeTruthy();
+
+    await session.type(screen.getByLabelText(/Ny innehavare/), "son");
+
+    expect(screen.queryByRole("button", { name: "Nils Ek" })).toBeNull();
+    await waitFor(() => {
+      expect(fetchBoardRegister).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "Nilsson" }),
+        expect.anything(),
+      );
+    });
+    expect(screen.queryByRole("button", { name: "Nils Ek" })).toBeNull();
+
+    await act(async () => {
+      answerSecond(page([{ personId: "person-nilsson", name: "Eva Nilsson" }]));
+      await Promise.resolve();
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Eva Nilsson" }),
+    ).toBeTruthy();
   });
 
   it("does not say that when the register could not be asked", async () => {

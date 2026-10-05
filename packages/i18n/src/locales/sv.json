@@ -2177,7 +2177,8 @@
       "done": "{{name}} är registrerad på lägenhet {{apartment}}.",
       "registerEntry": "En post skrevs i medlemsförteckningen.",
       "welcomeSent": "Ett välkomstmejl skickades, på mottagarens eget språk.",
-      "welcomeSkipped": "Inget välkomstmejl skickades: personen har ingen e-postadress registrerad."
+      "welcomeSkipped": "Inget välkomstmejl skickades: personen har ingen e-postadress registrerad.",
+      "personSearching": "Söker i registret..."
     },
     "out": {
       "heading": "Flytta ut",
