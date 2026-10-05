@@ -220,6 +220,9 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
           "The archive has a directory entry that states a size.",
         );
       }
+      // The path is not used, but a prefix without the ustar magic is read
+      // differently by different tools here too.
+      headerPath(header);
       continue;
     }
 

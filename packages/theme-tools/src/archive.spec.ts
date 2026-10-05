@@ -237,6 +237,35 @@ describe("readThemeArchive refusals", () => {
     );
   });
 
+  it("refuses a prefix in a directory header without the ustar magic", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "fonts",
+        prefix: "example-theme",
+        size: 0,
+        typeFlag: "5",
+        ustar: false,
+      }),
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(
+      "The archive has a path prefix in a header that is not ustar.",
+    );
+  });
+
+  it("reads a ustar directory header that has a prefix", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "fonts",
+        prefix: "example-theme",
+        size: 0,
+        typeFlag: "5",
+      }),
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+    ]);
+    expect(unpack(archive)).toEqual({ "theme.json": "" });
+  });
+
   it("reads a header without the ustar magic by its name", () => {
     const archive = rawArchive([
       rawHeader({ name: "theme.json", size: 0, typeFlag: "0", ustar: false }),
