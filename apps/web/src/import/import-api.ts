@@ -185,14 +185,37 @@ export function fetchImportRun(
   );
 }
 
+/** How long the screen waits to hear whether an import is running. */
+export const ACTIVE_IMPORT_TIMEOUT_MS = 10_000;
+
 /**
  * The import that is running, or the last one that ran.
  *
  * Asked for on load, because a board member who closed the tab has no session
  * id left to ask with and still has to be able to see what happened.
+ *
+ * The screen holds back the upload form until this settles, so a request that
+ * never answers would hold it back for good. It is given up on after
+ * ACTIVE_IMPORT_TIMEOUT_MS and comes back as a failed request, which the screen
+ * already treats as "nothing known".
  */
-export function fetchActiveImport(): Promise<ApiResult<ImportRunView | null>> {
-  return apiRequest("GET", "/api/import/sessions/active");
+export async function fetchActiveImport(): Promise<
+  ApiResult<ImportRunView | null>
+> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, ACTIVE_IMPORT_TIMEOUT_MS);
+  try {
+    return await apiRequest(
+      "GET",
+      "/api/import/sessions/active",
+      undefined,
+      controller.signal,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
