@@ -23,6 +23,11 @@ export type SaveState =
  * on to another resource or week would otherwise be handed the previous one's
  * "saved" or refusal, and `saving` having been cleared would let a second
  * submission start under it.
+ *
+ * `pending` is the part `reset` leaves alone: it is true from the moment a save
+ * is sent until its answer is in. A form that keeps its own writes in order -
+ * the answer to an older one must not land over a newer one - disables its
+ * control on it rather than on `saving`, which an edit clears.
  */
 export function useSaveAction<Args extends unknown[], T>(
   run: (...args: Args) => Promise<ApiResult<T>>,
@@ -30,19 +35,33 @@ export function useSaveAction<Args extends unknown[], T>(
   onFailed?: (failure: ApiFailure) => void,
 ): {
   state: SaveState;
+  pending: boolean;
   submit: (...args: Args) => Promise<boolean>;
   reset: () => void;
 } {
   const [state, setState] = useState<SaveState>({ kind: "idle" });
   // Counts the saves and resets so far; an answer applies only if it is still the latest.
   const generation = useRef(0);
+  // Counts the saves still waiting for their answer, whether or not `reset` let go of them.
+  const unanswered = useRef(0);
+  const [pending, setPending] = useState(false);
 
   const submit = useCallback(
     async (...args: Args): Promise<boolean> => {
       generation.current += 1;
       const mine = generation.current;
+      unanswered.current += 1;
+      setPending(true);
       setState({ kind: "saving" });
-      const result = await run(...args);
+      let result: ApiResult<T>;
+      try {
+        result = await run(...args);
+      } finally {
+        unanswered.current -= 1;
+        if (unanswered.current === 0) {
+          setPending(false);
+        }
+      }
       const current = generation.current === mine;
 
       if (!result.ok) {
@@ -67,7 +86,7 @@ export function useSaveAction<Args extends unknown[], T>(
     setState({ kind: "idle" });
   }, []);
 
-  return { state, submit, reset };
+  return { state, pending, submit, reset };
 }
 
 /**

@@ -176,6 +176,9 @@ function ItemDecision({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+    if (save.pending) {
+      return;
+    }
     const [forCount, againstCount, abstainingCount] = counts;
     if (
       forCount === null ||
@@ -358,7 +361,7 @@ function ItemDecision({
               type="submit"
               form={formId}
               className={PRIMARY_BUTTON}
-              disabled={save.state.kind === "saving" || !sendable}
+              disabled={save.pending || !sendable}
               aria-label={t("meetings.decisions.recordNamed", {
                 title: item.title,
               })}

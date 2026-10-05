@@ -141,7 +141,7 @@ export function MeetingAgendaPanel({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!sendable) {
+    if (!sendable || save.pending) {
       return;
     }
     const sent = draftRevision.current;
@@ -243,7 +243,7 @@ export function MeetingAgendaPanel({
               type="submit"
               form="meeting-agenda"
               className={PRIMARY_BUTTON}
-              disabled={save.state.kind === "saving" || !sendable}
+              disabled={save.pending || !sendable}
             >
               {save.state.kind === "saving"
                 ? t("meetings.agenda.saving")

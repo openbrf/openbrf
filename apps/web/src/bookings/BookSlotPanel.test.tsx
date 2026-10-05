@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -568,8 +568,13 @@ describe("a stay of several nights", () => {
     const claimed = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let answered!: () => void;
+    const answer = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
     bookSlot.mockImplementation(async () => {
       await claimed;
+      answered();
       return BOOKED;
     });
     const session = userEvent.setup();
@@ -588,10 +593,13 @@ describe("a stay of several nights", () => {
       await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
     );
 
-    release();
     // The panel says nothing of a booking made from a window since left, so
-    // there is no confirmation to wait for.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // there is no confirmation to wait for: the answer is what is awaited, and
+    // the act flushes what the panel does with it.
+    await act(async () => {
+      release();
+      await answer;
+    });
 
     expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
   });

@@ -567,6 +567,46 @@ describe("the general meeting screen", () => {
     expect(fetchMeeting.mock.calls.length).toBe(reads);
   });
 
+  it("sends no second agenda while the first is still being saved, edit or not", async () => {
+    // An edit lets go of the confirmation, not of the request: it is still on
+    // its way, and a newer one sent beside it could be overtaken by it.
+    const user = userEvent.setup();
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    let landed: (value: unknown) => void = () => undefined;
+    setMeetingAgenda.mockReturnValue(
+      new Promise((resolve) => {
+        landed = resolve;
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Spara dagordningen" }),
+    );
+    await user.type(screen.getByLabelText("Punkt 1"), " igen");
+
+    const again = screen.getByRole("button", {
+      name: "Spara dagordningen",
+    }) as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    await user.click(again);
+    expect(setMeetingAgenda).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      landed({ ok: true, value: ARRANGING });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Spara dagordningen",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    });
+  });
+
   it("does not say the agenda is saved on a meeting other than the one that was saved", async () => {
     /*
      * A save still in flight when another meeting is opened reports back after
@@ -692,6 +732,52 @@ describe("the general meeting screen", () => {
     expect(screen.queryByText("Beslutet är antecknat.")).toBeNull();
     expect((screen.getByLabelText("För") as HTMLInputElement).value).toBe("45");
     expect(fetchMeeting.mock.calls.length).toBe(reads);
+  });
+
+  it("sends no second decision while the first is still being recorded, edit or not", async () => {
+    const user = userEvent.setup();
+    fetchMeeting.mockResolvedValue({ ok: true, value: HELD });
+    render(<MeetingsScreen viewer={viewer(["meetings:manage"])} />);
+    await openTheMeeting(user);
+    let landed: (value: unknown) => void = () => undefined;
+    recordDecision.mockReturnValue(
+      new Promise((resolve) => {
+        landed = resolve;
+      }),
+    );
+    const name = "Anteckna beslutet om Val av styrelse";
+
+    await user.type(screen.getByLabelText("För"), "4");
+    await user.type(screen.getByLabelText("Mot"), "1");
+    await user.type(screen.getByLabelText("Avstår"), "0");
+    await user.click(screen.getByRole("button", { name }));
+    await user.type(screen.getByLabelText("För"), "5");
+
+    const again = screen.getByRole("button", { name }) as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    await user.click(again);
+    expect(recordDecision).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      landed({
+        ok: true,
+        value: {
+          outcome: "CARRIED",
+          votesFor: 4,
+          votesAgainst: 1,
+          votesAbstaining: 0,
+          closedBallot: false,
+          recordedAt: "2027-05-21T09:00:00.000Z",
+          recordedByPersonId: "person-board",
+        },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
   });
 
   it("still says the decision was recorded once the re-read has landed", async () => {
