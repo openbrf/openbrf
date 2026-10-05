@@ -15,7 +15,10 @@ messages and news comments.
 
 Focus stays where it was: the field that had it when the form was sent gets it
 back once the request ends, on success and on failure, and so does the submit
-button when a browser (Safari, macOS Firefox) left it unfocused when pressed.
-Focus is only given back while it is still in the form or on the page itself; a
-control the user moved to in the meantime keeps it. The fee and charge forms
-share the same locked form component.
+button, also where it sits outside the form (as on the motion, key order, chat
+and news forms) or where a browser (Safari, macOS Firefox) left it unfocused
+when pressed. On the SMTP, SMS and board mailbox settings, which are built again
+when a save changes them, focus moves to the same field of the new panel. Focus
+is only given back while it is still in the form or on the page itself; a
+control the user moved to in the meantime keeps it. While a chat message or a
+group is being sent, the other rooms and the send button are disabled too.

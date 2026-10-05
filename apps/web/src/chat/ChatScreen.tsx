@@ -531,9 +531,16 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
       setConversation(null);
       setDraft("");
       setReported(null);
-      send.reset();
+      // A save still running keeps its state, and so keeps the form locked: a
+      // reset would unlock it while the request is out, and the save's own
+      // clean-up would then wipe what was typed in this room meanwhile.
+      if (send.state.kind !== "saving") {
+        send.reset();
+      }
       report.reset();
-      create.reset();
+      if (create.state.kind !== "saving") {
+        create.reset();
+      }
     },
     [send, report, create],
   );
@@ -645,6 +652,8 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                   type="button"
                   className={QUIET_BUTTON}
                   aria-current={each.id === room?.id}
+                  // A save belongs to the room it was sent from.
+                  disabled={sending || creating}
                   onClick={() => {
                     openRoom(each.id);
                   }}
@@ -742,7 +751,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                 type="submit"
                 form="write-chat-message"
                 className={PRIMARY_BUTTON}
-                disabled={sending || draft.trim() === ""}
+                disabled={sending || creating || draft.trim() === ""}
               >
                 {sending ? t("chat.sending") : t("chat.submit")}
               </button>

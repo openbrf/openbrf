@@ -1157,6 +1157,44 @@ describe("while a message is being written", () => {
   });
 });
 
+describe("while a message is being written and another room is pressed", () => {
+  it("keeps the new room's box locked until the request ends, so nothing typed there is wiped", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(writeMessage);
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    const box = screen.getByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Bra");
+    await user.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+
+    // The room cannot be left while its message is on the way.
+    const garden = screen.getByRole("button", { name: "Trädgårdsgruppen" });
+    expect(garden.matches(":disabled")).toBe(true);
+    await user.click(garden);
+    expect(box.matches(":disabled")).toBe(true);
+    expect(box.value).toBe("Bra");
+
+    settle({ ok: true, value: MINE });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    await user.type(box, "Hej");
+    expect(box.value).toBe("Hej");
+  });
+});
+
 describe("while a group is being made", () => {
   /** A resident in one group, who is making another. */
   function makingAGroup(): void {
@@ -1219,6 +1257,30 @@ describe("while a group is being made", () => {
       expect(box.matches(":disabled")).toBe(false);
     });
     expect(box.value).toBe("");
+  });
+
+  it("does not send the message from its button while the group is being made", async () => {
+    const user = userEvent.setup();
+    holdRequest(createChatGroup);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const box =
+      await screen.findByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Hej");
+    await user.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await user.click(screen.getByRole("button", { name: "Skapa gruppen" }));
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+
+    // The send button sits outside the locked form, so it is not disabled by it.
+    const send = screen.getByRole("button", { name: "Skicka meddelandet" });
+    expect(send.matches(":disabled")).toBe(true);
+    await user.click(send);
+    box.form?.requestSubmit();
+    expect(writeMessage).not.toHaveBeenCalled();
   });
 
   it.each([

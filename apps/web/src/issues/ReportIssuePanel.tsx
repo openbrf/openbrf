@@ -334,6 +334,7 @@ export function ReportIssuePanel({
                     // construction as the theme toggle, for the same reason.
                     "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
                     "peer-focus-visible:outline-trust",
+                    "peer-disabled:opacity-60",
                   ].join(" ")}
                 >
                   {t("issues.photos.add")}

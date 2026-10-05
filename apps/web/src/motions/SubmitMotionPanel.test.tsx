@@ -114,4 +114,35 @@ describe("while a motion is being sent", () => {
       expect(document.activeElement).toBe(title);
     },
   );
+
+  it.each(OUTCOMES)(
+    "keeps focus on the send button after a click on it, %s",
+    async (_case, outcome) => {
+      // The button sits outside the form, tied to it with `form="…"`.
+      const user = userEvent.setup();
+      const settle = holdRequest();
+      panel();
+
+      await user.type(
+        screen.getByLabelText("Vad du föreslår, på en rad"),
+        "Laddstolpar",
+      );
+      await user.type(screen.getByLabelText("Förslaget"), "Utred kostnaden.");
+      const send = screen.getByRole("button", { name: "Skicka motionen" });
+      await user.click(send);
+
+      await waitFor(() => {
+        expect(send.matches(":disabled")).toBe(true);
+      });
+      const refocus = vi.spyOn(send, "focus");
+
+      settle(outcome);
+
+      await waitFor(() => {
+        expect(send.matches(":disabled")).toBe(false);
+      });
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(send);
+    },
+  );
 });

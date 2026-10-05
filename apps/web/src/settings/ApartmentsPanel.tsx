@@ -149,8 +149,8 @@ export function ApartmentsPanel({
     skipped: number;
   } | null>(null);
 
-  /** Takes focus back when the button that sent the draft is disabled again. */
-  const commitRef = useRef<HTMLButtonElement>(null);
+  /** Takes focus back when the button that sent the draft is disabled or gone. */
+  const addRowRef = useRef<HTMLButtonElement>(null);
 
   const commit = useSaveAction(addApartments, (result) => {
     setRows([]);
@@ -311,7 +311,10 @@ export function ApartmentsPanel({
             <LockedForm
               className="contents"
               locked={commit.state.kind === "saving"}
-              focusFallback={commitRef}
+              focusFallback={addRowRef}
+              // The generator's `min`/`max` are hints: `generate` clamps, so a
+              // value outside them must not stop the commit.
+              noValidate
               onSend={commitDraft}
               /* The draft was never a form, so Enter in a number field did
                  nothing. It still does nothing: committing a table to a
@@ -392,6 +395,7 @@ export function ApartmentsPanel({
                     {t("settings.apartments.generator.generate")}
                   </button>
                   <button
+                    ref={addRowRef}
                     type="button"
                     onClick={addRow}
                     className={QUIET_BUTTON}
@@ -476,7 +480,6 @@ export function ApartmentsPanel({
 
                   <div>
                     <button
-                      ref={commitRef}
                       type="submit"
                       disabled={
                         filled.length === 0 ||

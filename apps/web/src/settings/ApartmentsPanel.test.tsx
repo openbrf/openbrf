@@ -424,4 +424,49 @@ describe("while the table is being committed", () => {
     expect(document.activeElement).toBe(button);
     expect(numberFields()).toHaveLength(2);
   });
+
+  it("commits although a generator field holds a value outside its range", async () => {
+    // `generate` clamps, so 150 per floor is a legal thing to have typed; the
+    // browser's own constraint check on that field must not block the commit.
+    const session = userEvent.setup();
+    renderPanel();
+
+    await generate(session, { floors: "1", perFloor: "2" });
+    const perFloor = screen.getByLabelText<HTMLInputElement>(
+      /lägenheter per våning/i,
+    );
+    await session.clear(perFloor);
+    await session.type(perFloor, "150");
+    expect(perFloor.validity.rangeOverflow).toBe(true);
+
+    await session.click(commitButton());
+
+    await waitFor(() => {
+      expect(addApartments).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("hands focus to a control that is still there once the table is stored", async () => {
+    const session = userEvent.setup();
+    const settle = holdRequest();
+    renderPanel();
+
+    await generate(session, { floors: "1", perFloor: "2" });
+    await session.click(commitButton());
+    await waitFor(() => {
+      expect(commitButton().matches(":disabled")).toBe(true);
+    });
+
+    settle({ ok: true, value: { created: 2, skipped: 0 } });
+
+    // The commit button went with the table it sent.
+    await waitFor(() => {
+      expect(screen.queryAllByLabelText(/lägenhetsnummer/i)).toHaveLength(0);
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: /lägg till rad/i }),
+      );
+    });
+  });
 });

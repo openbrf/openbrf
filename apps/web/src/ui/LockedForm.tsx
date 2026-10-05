@@ -43,6 +43,10 @@ export function LockedForm({
       ref={formRef}
       onSubmit={(event) => {
         event.preventDefault();
+        // A submit button outside the fieldset (`form="…"`) is not disabled by it.
+        if (locked) {
+          return;
+        }
         const { submitter } = event.nativeEvent as SubmitEvent;
         rememberFocus(submitter);
         onSend();
