@@ -11,6 +11,7 @@ import type {
 
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
+import { deliverToMailbox } from "../src/mailpit";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -324,6 +325,15 @@ async function perform(page: Page, action: Action): Promise<void> {
     });
     return;
   }
+  if ("deliver" in action) {
+    await deliverToMailbox({
+      from: { address: action.deliver.from },
+      to: action.deliver.to,
+      subject: action.deliver.subject,
+      text: action.deliver.text,
+    });
+    return;
+  }
   await expect(locate(page, action.see)).toBeVisible();
 }
 
@@ -357,7 +367,11 @@ async function postContactMessages(
       if (sent.handled !== true) {
         continue;
       }
-      const stored = inbox.find((row) => row.message === sent.message);
+      // The newest copy: a reused stack may hold an older one from an earlier
+      // run, already handled.
+      const stored = inbox
+        .filter((row) => row.message === sent.message)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       if (stored === undefined) {
         throw new Error(
           `the message "${sent.message}" never reached the inbox`,

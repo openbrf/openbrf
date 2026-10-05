@@ -838,19 +838,36 @@ export type ContactSubmissionRow = {
   readonly email: string;
   readonly message: string;
   readonly handled: boolean;
+  readonly createdAt: string;
 };
 
-/** The first page of the board's inbox for the website's contact form. */
+/**
+ * The board's inbox for the website's contact form, every page of it.
+ *
+ * Read to the end rather than stopping at the first page: a stack kept between
+ * runs holds what earlier runs left, and a message just sent can sort past it.
+ */
 export async function listContactSubmissions(
   request: APIRequestContext,
   baseUrl: string,
 ): Promise<readonly ContactSubmissionRow[]> {
-  const response = await request.get(`${baseUrl}/api/contact-submissions`);
-  await expectOk(response, "GET /api/contact-submissions");
-  const page = (await response.json()) as {
-    readonly submissions: readonly ContactSubmissionRow[];
-  };
-  return page.submissions;
+  const rows: ContactSubmissionRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string =
+      cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+    const response = await request.get(
+      `${baseUrl}/api/contact-submissions${query}`,
+    );
+    await expectOk(response, "GET /api/contact-submissions");
+    const page = (await response.json()) as {
+      readonly submissions: readonly ContactSubmissionRow[];
+      readonly nextCursor: string | null;
+    };
+    rows.push(...page.submissions);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return rows;
 }
 
 /**

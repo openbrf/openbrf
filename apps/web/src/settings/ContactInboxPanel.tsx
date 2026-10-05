@@ -476,7 +476,9 @@ function MessageRow({
           }}
           className="size-4"
         />
-        {t("settings.contactInbox.select")}
+        {t("settings.contactInbox.select", {
+          name: submission.name ?? t("settings.contactInbox.anonymous"),
+        })}
       </label>
       <div className="flex flex-col gap-1">
         <h3 className="text-title">

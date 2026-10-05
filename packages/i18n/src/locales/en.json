@@ -1385,7 +1385,7 @@
       "showMore": "Show more messages",
       "loadingMore": "Loading...",
       "moreFailed": "More messages could not be read just now. The ones shown are still here, and you can try again.",
-      "select": "Select this message",
+      "select": "Select the message from {{name}}",
       "selectAll": "Select every message shown",
       "deleteSelected": "Delete selected ({{count}})",
       "deleteSelectedHint": "Removes the selected messages from the instance. There is no undoing it.",
@@ -2701,6 +2701,21 @@
       "collecting": "Collecting...",
       "collected_one": "One new letter was collected.",
       "collected_other": "{{count}} new letters were collected."
+    },
+    "setAside": {
+      "intro_one": "One letter could not be collected. It is still in the mailbox: open it there with a mail client.",
+      "intro_other": "{{count}} letters could not be collected. They are still in the mailbox: open them there with a mail client.",
+      "dated": "Dated {{date}}",
+      "undated": "Date unknown",
+      "setAsideAt": "set aside {{date}}",
+      "retryFrom": "tried again from {{date}}",
+      "more_one": "And one more.",
+      "more_other": "And {{count}} more.",
+      "reasons": {
+        "noSenderAddress": "No sender address to answer",
+        "unstorable": "Could not be stored",
+        "unknown": "Could not be collected"
+      }
     },
     "inbox": {
       "title": "The inbox",

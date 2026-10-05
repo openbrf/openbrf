@@ -1385,7 +1385,7 @@
       "showMore": "Visa fler meddelanden",
       "loadingMore": "Hämtar...",
       "moreFailed": "Fler meddelanden kunde inte hämtas just nu. De som visas är kvar, och du kan försöka igen.",
-      "select": "Välj meddelandet",
+      "select": "Välj meddelandet från {{name}}",
       "selectAll": "Välj alla meddelanden som visas",
       "deleteSelected": "Radera markerade ({{count}})",
       "deleteSelectedHint": "Tar bort de markerade meddelandena från instansen. Det går inte att ångra.",
@@ -2701,6 +2701,21 @@
       "collecting": "Hämtar...",
       "collected_one": "Ett nytt brev hämtades.",
       "collected_other": "{{count}} nya brev hämtades."
+    },
+    "setAside": {
+      "intro_one": "Ett brev kunde inte hämtas. Det ligger kvar i brevlådan: öppna det där med ett e-postprogram.",
+      "intro_other": "{{count}} brev kunde inte hämtas. De ligger kvar i brevlådan: öppna dem där med ett e-postprogram.",
+      "dated": "Daterat {{date}}",
+      "undated": "Datum okänt",
+      "setAsideAt": "lagt åt sidan {{date}}",
+      "retryFrom": "prövas igen från {{date}}",
+      "more_one": "Och ett till.",
+      "more_other": "Och {{count}} till.",
+      "reasons": {
+        "noSenderAddress": "Ingen avsändaradress att svara till",
+        "unstorable": "Kunde inte sparas",
+        "unknown": "Kunde inte hämtas"
+      }
     },
     "inbox": {
       "title": "Inkorgen",

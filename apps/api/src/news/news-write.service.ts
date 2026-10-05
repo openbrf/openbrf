@@ -693,12 +693,19 @@ export class NewsWriteService {
      * in the audit log. The mailings are part of the test rather than an
      * afterthought: a board that published without sending and comes back to
      * press it again is asking for the one thing this call could still do.
+     *
+     * Not decided from this read alone when a mailing is claimed. The read took
+     * no lock, and a take-down that committed after it leaves rows waiting that
+     * only a publish can queue again; whether there is anything to do is
+     * settled on the locked row below.
      */
+    const claimed = news.emailQueuedAt !== null || news.smsQueuedAt !== null;
     if (
       news.published === input.published &&
       news.visibility === visibility &&
       !mailing &&
-      !texting
+      !texting &&
+      !(input.published && claimed)
     ) {
       return { ...(await this.viewOf(news)), mailedTo: null, textedTo: null };
     }
@@ -753,6 +760,21 @@ export class NewsWriteService {
         const resuming = input.published && !current.published;
         const mayResumeEmail = resuming && current.emailQueuedAt !== null;
         const mayResumeSms = resuming && current.smsQueuedAt !== null;
+
+        /*
+         * The no-op test again, on the locked row. A publish of an item that is
+         * up to the same people, with nothing to claim and nothing held, writes
+         * and records nothing, as it would have before the transaction opened.
+         */
+        if (
+          current.published === input.published &&
+          current.visibility === visibility &&
+          !mailing &&
+          !texting &&
+          !resuming
+        ) {
+          return { row: current, mailedTo: null, textedTo: null };
+        }
 
         /*
          * The claims, and the only writers of these two columns in the codebase.

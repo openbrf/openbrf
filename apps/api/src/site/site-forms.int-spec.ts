@@ -931,13 +931,13 @@ describe("the board's inbox", () => {
   });
 
   it("refuses a message removed between reading it and acting on it", async () => {
-    // Another board member's removal landing just after this call's own read:
-    // the read says the row is there, and the write must not then fail on the
-    // database.
+    // Another board member's removal landing between this call's write and its
+    // read: the update reports the row matched, and then it is gone. The
+    // removal's own delete reports nothing deleted.
     const gone = "contact-submission-removed-in-between";
-    const read = vi
-      .spyOn(prisma.contactSubmission, "findUnique")
-      .mockResolvedValueOnce({ id: gone } as never);
+    const write = vi
+      .spyOn(prisma.contactSubmission, "updateMany")
+      .mockResolvedValueOnce({ count: 1 });
     try {
       await expect(
         contact.setHandled({
@@ -947,18 +947,18 @@ describe("the board's inbox", () => {
         }),
       ).rejects.toMatchObject({ reason: "not-found" });
     } finally {
-      read.mockRestore();
+      write.mockRestore();
     }
 
-    const readAgain = vi
-      .spyOn(prisma.contactSubmission, "findUnique")
-      .mockResolvedValueOnce({ id: gone } as never);
+    const del = vi
+      .spyOn(prisma.contactSubmission, "deleteMany")
+      .mockResolvedValueOnce({ count: 0 });
     try {
       await expect(contact.remove(gone)).rejects.toMatchObject({
         reason: "not-found",
       });
     } finally {
-      readAgain.mockRestore();
+      del.mockRestore();
     }
   });
 

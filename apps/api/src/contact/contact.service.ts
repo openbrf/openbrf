@@ -384,11 +384,14 @@ export class ContactService implements OnModuleInit {
     }
 
     /*
-     * Counted from the stored messages rather than from mail sent, so a retry
-     * of this job reaches the same answer as the first attempt did.
+     * Counted from the messages the board was queued for, not from every stored
+     * one: a burst that was itself left out must not keep the next message
+     * from being mailed. The marker is written in the fan-out transaction
+     * below, so a retry of a job that committed reaches the same answer.
      */
     const earlier = await this.prisma.contactSubmission.count({
       where: {
+        notifiedAt: { not: null },
         createdAt: {
           gte: new Date(submission.createdAt.getTime() - HOUR_MS),
           lt: submission.createdAt,
@@ -429,6 +432,10 @@ export class ContactService implements OnModuleInit {
      */
     await this.ensureQueues();
     await this.prisma.$transaction(async (tx) => {
+      await tx.contactSubmission.updateMany({
+        where: { id: submissionId, notifiedAt: null },
+        data: { notifiedAt: new Date() },
+      });
       for (const personId of board) {
         await this.jobs.sendInTransaction<ContactNoticeJob>(
           tx,

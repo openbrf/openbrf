@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { IntegrityError } from "@openbrf/plugin-sdk";
 
 import { DomainError } from "../http/domain-error";
 import {
@@ -7,7 +8,6 @@ import {
 } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
 import { ResourceFetchError } from "../packaging/fetch-resource";
-import { IntegrityError } from "../packaging/integrity";
 import { fetchVerified } from "../packaging/package-archive";
 
 /**
