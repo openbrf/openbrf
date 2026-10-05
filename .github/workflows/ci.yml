@@ -196,15 +196,18 @@ jobs:
           # changed and the base commit has to be in the clone to answer.
           fetch-depth: 0
 
-      # What the walk photographs is the client, the Swedish it renders and the
-      # list of screens itself, so those three are what can break it, and a pull
-      # request touching none of them would pay an image build for images nobody
-      # asked for. Every push to main walks whatever it carries. GitHub filters
-      # paths per workflow and never per job, and this workflow has three other
-      # jobs that run on everything, so the filter is a step rather than a
-      # `paths:` key. A skipped job still reports, which a workflow filtered out
-      # by path does not - the difference between a check that is satisfied and
-      # one a pull request waits on forever.
+      # What the walk photographs is the client as the production stack serves
+      # it, so what can break it is the client and every workspace package it
+      # imports, the API whose answers it renders, the image and the compose
+      # stack it runs in, the dependencies they install, and the walk's own
+      # harness and list of screens. A pull request touching none of those
+      # would pay an image build for images nobody asked for. Every push to
+      # main walks whatever it carries. GitHub filters paths per workflow and
+      # never per job, and this workflow has three other jobs that run on
+      # everything, so the filter is a step rather than a `paths:` key. A
+      # skipped job still reports, which a workflow filtered out by path does
+      # not - the difference between a check that is satisfied and one a pull
+      # request waits on forever, and what lets the ruleset require this one.
       - name: Decide whether the walk applies
         id: scope
         env:
@@ -214,8 +217,12 @@ jobs:
             echo "walk=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          touched=$(git diff --name-only "$BASE_SHA" HEAD \
-            -- apps/web packages/i18n e2e/screenshots)
+          touched=$(git diff --name-only "$BASE_SHA" HEAD -- \
+            apps packages Dockerfile .dockerignore docker \
+            docker-compose.prod.yml package.json pnpm-lock.yaml \
+            pnpm-workspace.yaml e2e/src e2e/screenshots e2e/package.json \
+            e2e/playwright.screenshots.config.ts e2e/screenshots.env \
+            e2e/docker-compose.e2e.yml)
           if [ -n "$touched" ]; then
             echo "walk=true" >> "$GITHUB_OUTPUT"
           else
