@@ -437,7 +437,11 @@ describe("recording a fee", () => {
       await waitFor(() => {
         expect(amount.matches(":disabled")).toBe(false);
       });
-      expect(refocus).toHaveBeenCalledTimes(1);
+      // The hand-back is an effect that runs after the fieldset is enabled, so
+      // it may land a tick after the control stops being disabled.
+      await waitFor(() => {
+        expect(refocus).toHaveBeenCalledTimes(1);
+      });
       expect(document.activeElement).toBe(amount);
     },
   );
