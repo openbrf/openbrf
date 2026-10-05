@@ -20,9 +20,25 @@ const DIGEST = sha512(BYTES);
 const SRI_FORM = formatSha512(DIGEST);
 const HEX_FORM = DIGEST.toString("hex");
 
-/** An IntegrityError carrying this reason, which is what a caller branches on. */
-const refusedAs = (reason: IntegrityError["reason"]) =>
-  expect.objectContaining({ name: "IntegrityError", reason });
+/**
+ * Runs `run` and asserts it was refused with an IntegrityError carrying this
+ * reason. The class is checked as well as the reason: the installer tells the
+ * two apart with `instanceof`, which a plain Error that merely carries a
+ * `reason` would not satisfy.
+ */
+function expectRefusal(
+  run: () => unknown,
+  reason: IntegrityError["reason"],
+): void {
+  let thrown: unknown;
+  try {
+    run();
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(IntegrityError);
+  expect(thrown).toHaveProperty("reason", reason);
+}
 
 describe("verifySha512", () => {
   /*
@@ -42,9 +58,9 @@ describe("verifySha512", () => {
       verifySha512(BYTES, declared);
     }).not.toThrow();
 
-    expect(() => {
+    expectRefusal(() => {
       verifySha512(OTHER_BYTES, declared);
-    }).toThrow(refusedAs("digest-mismatch"));
+    }, "digest-mismatch");
   });
 
   it("refuses a single flipped byte", () => {
@@ -54,23 +70,23 @@ describe("verifySha512", () => {
     const tampered = Buffer.from(BYTES);
     tampered.writeUInt8(tampered.readUInt8(0) ^ 0xff, 0);
 
-    expect(() => {
+    expectRefusal(() => {
       verifySha512(tampered, SRI_FORM);
-    }).toThrow(refusedAs("digest-mismatch"));
+    }, "digest-mismatch");
   });
 
   it("refuses bytes appended to the end", () => {
     const extended = Buffer.concat([BYTES, Buffer.from([0])]);
-    expect(() => {
+    expectRefusal(() => {
       verifySha512(extended, SRI_FORM);
-    }).toThrow(refusedAs("digest-mismatch"));
+    }, "digest-mismatch");
   });
 
   it("reports a malformed declaration rather than a mismatch", () => {
     // The installer shows these differently: one is a broken catalog entry, the
     // other is a tarball that must not be unpacked.
-    expect(() => {
+    expectRefusal(() => {
       verifySha512(BYTES, "sha512-nonsense");
-    }).toThrow(refusedAs("malformed-digest"));
+    }, "malformed-digest");
   });
 });
