@@ -446,7 +446,12 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     setReading(false);
     if (!result.ok) {
       setConversation((held) =>
-        held === null ? held : { ...held, failure: result.failure },
+        // The refusal is the press's, in the room it was pressed in. Written
+        // onto an empty room opened meanwhile it would read as that room being
+        // unreadable, and take its write box away.
+        held === null || held.chatId !== chatId || held.earlier !== before
+          ? held
+          : { ...held, failure: result.failure },
       );
       return;
     }
@@ -496,8 +501,8 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     setConversation(null);
     setDraft("");
     setReported(null);
-    send.reset();
-    report.reset();
+    send.abandon();
+    report.abandon();
     void loadRooms(made.chatId);
   });
   const creating = create.state.kind === "saving";
@@ -516,23 +521,32 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * save action rather than in this component's own state: a personal identity
    * number refused in the board chat would otherwise be reported over the group
    * opened next, about a message that room never saw. Each room-bound action is
-   * reset here, which is what `useSaveAction` returns `reset` for.
+   * abandoned here rather than reset: a send or a report still in flight
+   * finishes after the press, and its refusal, its cleared draft or its report
+   * notice would otherwise land in the room opened meanwhile.
    *
    * `ChatGroupPanel` holds its own room-local state and is given the room's
    * identifier as its key instead, which is React's own way of saying that a
    * different room is a different panel.
+   *
+   * Pressing the room already on screen changes nothing. It is not a change of
+   * room, so nothing would read the room again: the read follows the room's
+   * identifier, and that has not moved.
    */
   const openRoom = useCallback(
-    (chatId: string | null): void => {
-      setOpenRoomId(chatId);
+    (next: string | null): void => {
+      setOpenRoomId(next);
+      if (next !== null && next === chatId) {
+        return;
+      }
       setConversation(null);
       setDraft("");
       setReported(null);
-      send.reset();
-      report.reset();
+      send.abandon();
+      report.abandon();
       create.reset();
     },
-    [send, report, create],
+    [chatId, send, report, create],
   );
 
   /*

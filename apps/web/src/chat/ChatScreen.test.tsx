@@ -1018,7 +1018,174 @@ describe("changing room", () => {
       (screen.getByLabelText("Sök bland grannarna") as HTMLInputElement).value,
     ).toBe("");
   });
+
+  it("keeps the room and the draft when the open room is pressed again", async () => {
+    /*
+     * Before anything is chosen the screen shows the first room and marks it
+     * as the current one, so pressing it is the obvious thing to do. Treated as
+     * a change of room, the press cleared the conversation, and nothing read it
+     * again: the room it names had not changed.
+     */
+    twoRooms();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Halvskrivet.",
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Styrelsechatten" }),
+    );
+
+    expect(
+      screen.getByText("Jag har tagit in en offert pa taket."),
+    ).not.toBeNull();
+    expect(screen.queryByText("Läser meddelandena...")).toBeNull();
+    expect(
+      (screen.getByLabelText("Ditt meddelande") as HTMLTextAreaElement).value,
+    ).toBe("Halvskrivet.");
+  });
+
+  it("drops a refusal that answers a message sent from the room left", async () => {
+    // The refusal is about a line the next room never saw.
+    twoRooms();
+    const write = deferred();
+    writeMessage.mockReturnValue(write.promise);
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Det är 19811218-9876 som står där.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+    await act(async () => {
+      write.resolve({
+        ok: false,
+        failure: { status: 422, reason: "personal-identity-number" },
+      });
+      await write.promise;
+    });
+
+    expect(screen.queryByText(/innehåller ett personnummer/)).toBeNull();
+  });
+
+  it("never clears the next room's draft when a message sent from the last one lands", async () => {
+    twoRooms();
+    const write = deferred();
+    writeMessage.mockReturnValue(write.promise);
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.type(screen.getByLabelText("Ditt meddelande"), "Ja.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Till trädgården.",
+    );
+    await act(async () => {
+      write.resolve({ ok: true, value: MINE });
+      await write.promise;
+    });
+
+    expect(
+      (screen.getByLabelText("Ditt meddelande") as HTMLTextAreaElement).value,
+    ).toBe("Till trädgården.");
+  });
+
+  it("says nothing in the next room about a report made in the last one", async () => {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP, STAIRWELL_GROUP], mayCreateGroup: true },
+    });
+    const filed = deferred();
+    reportChatMessage.mockReturnValue(filed.promise);
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Anmäl meddelandet från/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka anmälan" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Uppgång C" }));
+    await act(async () => {
+      filed.resolve({ ok: true, value: { reportId: "report-1" } });
+      await filed.promise;
+    });
+
+    expect(
+      screen.queryByText("Meddelandet är anmält till styrelsen."),
+    ).toBeNull();
+  });
+
+  it("never calls the next room unreadable when the last one's earlier page fails", async () => {
+    /*
+     * The refusal is the press's, in the room it was pressed in. Written onto
+     * an empty room opened meanwhile, it would hide that room's write box and
+     * call it broken.
+     */
+    twoRooms();
+    const earlier = deferred();
+    readChat
+      .mockReset()
+      .mockImplementation((input: { chatId: string; before: string | null }) =>
+        input.chatId === GARDEN_GROUP.id
+          ? Promise.resolve({ ok: true, value: page([]) })
+          : input.before === null
+            ? Promise.resolve({
+                ok: true,
+                value: page([FROM_A_COLLEAGUE], "cursor-before"),
+              })
+            : earlier.promise,
+      );
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Visa tidigare meddelanden" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+    expect(
+      await screen.findByText("Ingenting har skrivits här än."),
+    ).not.toBeNull();
+
+    await act(async () => {
+      earlier.resolve({ ok: false, failure: { status: 0, reason: "offline" } });
+      await earlier.promise;
+    });
+
+    expect(screen.getByText("Ingenting har skrivits här än.")).not.toBeNull();
+    expect(screen.getByLabelText("Ditt meddelande")).not.toBeNull();
+    expect(
+      screen.queryByText("Det gick inte just nu. Försök igen."),
+    ).toBeNull();
+  });
 });
+
+/** A promise the test answers when it chooses, for a request held in flight. */
+function deferred(): {
+  promise: Promise<unknown>;
+  resolve: (value: unknown) => void;
+} {
+  let resolve: (value: unknown) => void = () => undefined;
+  const promise = new Promise((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
 
 describe("a board member who lives somewhere else", () => {
   it("is shown their room and not the sentence for an account with none", async () => {
