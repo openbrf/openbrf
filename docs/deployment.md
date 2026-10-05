@@ -148,7 +148,9 @@ changes nothing but the owner's password, which it sets from
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
-5. The job queue schema is installed or migrated, as the owner.
+5. The job queue schema is installed or migrated, as the owner. It stops on a
+   queue that is partitioned or names a job table of its own, which Open BRF
+   never declares, because pg-boss builds SQL from those names as the owner.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
@@ -291,11 +293,11 @@ the database rather than by application code alone. A table's owner can run
 application must not be the owner. And migrations need to own the tables and
 nothing more, so the role that runs them must not be a superuser.
 
-| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                   | Password              | Given to                  |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
-| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                    | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
-| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                      | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
-| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history and on the job schema's version. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                 | Password              | Given to                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                  | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                    | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
 
 Neither the owner's credentials nor the superuser's reach the application's
 container. No password is passed as a process argument - `/proc/<pid>/cmdline`
@@ -405,7 +407,7 @@ compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
 unset RUNTIME_DB_PASSWORD
 ```
 
-Otherwise revoke the three privileges the release took away, as the superuser,
+Otherwise revoke the privileges the release took away, as the superuser,
 naming your role. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
 column of that table except `version`, read from the catalog as the hardening
@@ -416,6 +418,7 @@ compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
 SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
   string_agg(quote_ident(attname), ', ' ORDER BY attnum))
