@@ -535,6 +535,14 @@ describe("a change sent with the session cookie", () => {
       "this application's own pages, by Origin alone",
       { origin: "https://brf.example" },
     ],
+    // A client that is not a browser names no origin. A page cannot send JSON
+    // to another origin without a preflight, which this server never answers,
+    // so only the form encodings above are refused for naming none.
+    [
+      "a client that is not a browser, sending JSON",
+      { "content-type": "application/json" },
+    ],
+    ["a client that is not a browser, sending no body", {}],
   ])("is accepted from %s", async (_name, headers) => {
     const { guard } = build({});
 
