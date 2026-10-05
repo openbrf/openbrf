@@ -173,6 +173,59 @@ describe("approving", () => {
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
   });
 
+  it("drops the chosen apartment as soon as the address changes", async () => {
+    // The second address's apartments are still on their way. Until they
+    // arrive, an apartment picked at the first address must not be approvable:
+    // the screen shows the second address, and the approval would put the
+    // applicant in the first.
+    const SECOND: AddressView = {
+      ...ADDRESSES[0]!,
+      id: "address-14",
+      number: "14",
+      sortOrder: 2,
+    };
+    let arrive = (): void => undefined;
+    fetchApartments.mockImplementation((addressId: string) =>
+      addressId === SECOND.id
+        ? new Promise((resolve) => {
+            arrive = () => {
+              resolve({
+                ok: true,
+                value: [{ id: "apartment-1401", number: "1401", floor: 1 }],
+              });
+            };
+          })
+        : Promise.resolve({
+            ok: true,
+            value: [{ id: "apartment-1203", number: "1203", floor: 2 }],
+          }),
+    );
+
+    const session = userEvent.setup();
+    render(<SignupRequestQueuePanel addresses={[...ADDRESSES, SECOND]} />);
+    await waitForTheRow();
+    const apartment = screen.getByLabelText("Lägenhet i registret");
+    await session.selectOptions(apartment, "apartment-1203");
+    expect(approveButton()).toHaveProperty("disabled", false);
+
+    await session.selectOptions(
+      screen.getByLabelText("Adress i registret"),
+      SECOND.id,
+    );
+
+    expect(approveButton()).toHaveProperty("disabled", true);
+    expect(apartment).toHaveProperty("value", "");
+    expect(
+      within(apartment).queryByRole("option", { name: "1203" }),
+    ).toBeNull();
+    await session.click(approveButton());
+    expect(approveSignupRequest).not.toHaveBeenCalled();
+
+    arrive();
+    await within(apartment).findByRole("option", { name: "1401" });
+    expect(approveButton()).toHaveProperty("disabled", true);
+  });
+
   it("waits for a real apartment before it offers the decision", async () => {
     renderPanel();
 

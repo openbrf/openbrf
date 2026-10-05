@@ -284,35 +284,56 @@ function RequestRow({
       ? chosenAddressId
       : (addresses[0]?.id ?? "");
 
-  const [apartments, setApartments] = useState<readonly ApartmentView[]>([]);
-  const [apartmentsFailed, setApartmentsFailed] = useState(false);
+  /*
+   * The apartments as last read, with the address they were read for. Rows
+   * are null for a failed read, which an empty list would hide: Approve would
+   * stay disabled for good with nothing saying why.
+   */
+  const [listed, setListed] = useState<{
+    addressId: string;
+    rows: readonly ApartmentView[] | null;
+  } | null>(null);
   /** Bumped by the retry, which reads the same address again. */
   const [attempt, setAttempt] = useState(0);
-  const [apartmentId, setApartmentId] = useState("");
+  const [chosenApartmentId, setChosenApartmentId] = useState("");
   const [reason, setReason] = useState("");
 
-  // Null for a failed read, which an empty list would hide: Approve would stay
-  // disabled for good with nothing saying why.
-  const readApartments = useCallback(async (): Promise<
-    readonly ApartmentView[] | null
-  > => {
+  /*
+   * Derived from the list rather than cleared when the address changes. Until
+   * the new address's apartments have arrived, the list on hand belongs to the
+   * address the board has just left, and an apartment picked from it would be
+   * approved into a building the screen no longer shows. So the list counts
+   * only for the address it was read for, the choice only while it is in that
+   * list, and Approve waits for both.
+   */
+  const current =
+    listed !== null && listed.addressId === addressId ? listed : null;
+  const apartments = current?.rows ?? [];
+  const apartmentsFailed = current !== null && current.rows === null;
+  const apartmentId = apartments.some(
+    (apartment) => apartment.id === chosenApartmentId,
+  )
+    ? chosenApartmentId
+    : "";
+
+  const readApartments = useCallback(async (): Promise<{
+    addressId: string;
+    rows: readonly ApartmentView[] | null;
+  }> => {
     if (addressId === "") {
-      return [];
+      return { addressId, rows: [] };
     }
     const result = await fetchApartments(addressId);
-    return result.ok ? result.value : null;
+    return { addressId, rows: result.ok ? result.value : null };
   }, [addressId]);
 
   useEffect(() => {
     // Guarded so a list for an address the board has already moved away from
     // cannot overwrite the one they are looking at.
     let active = true;
-    void readApartments().then((rows) => {
+    void readApartments().then((next) => {
       if (active) {
-        setApartments(rows ?? []);
-        setApartmentsFailed(rows === null);
-        // The chosen apartment belonged to the previous address.
-        setApartmentId("");
+        setListed(next);
       }
     });
     return () => {
@@ -369,6 +390,8 @@ function RequestRow({
             disabled={busy}
             onChange={(event) => {
               setChosenAddressId(event.target.value);
+              // The chosen apartment belongs to the address being left.
+              setChosenApartmentId("");
             }}
             className={FIELD}
           >
@@ -386,7 +409,7 @@ function RequestRow({
             value={apartmentId}
             disabled={busy}
             onChange={(event) => {
-              setApartmentId(event.target.value);
+              setChosenApartmentId(event.target.value);
             }}
             className={FIELD_DATA}
           >
