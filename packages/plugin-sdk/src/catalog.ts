@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { IntegrityError, parseSha512 } from "./integrity.ts";
 import {
   declaredActionsSchema,
   pluginActionSchema,
@@ -37,6 +38,18 @@ import {
  * instance ignores.
  */
 
+function isReadableSha512(declared: string): boolean {
+  try {
+    parseSha512(declared);
+    return true;
+  } catch (error) {
+    if (error instanceof IntegrityError) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 /** A tarball and the digest its bytes must hash to. */
 export const catalogArtifactSchema = z.strictObject({
   /**
@@ -50,8 +63,18 @@ export const catalogArtifactSchema = z.strictObject({
    * inside the network the instance sits in.
    */
   url: z.string().min(1).max(2000),
-  /** "sha512-<base64>" or 128 hex characters. */
-  sha512: z.string().min(1).max(200),
+  /**
+   * "sha512-<base64>" or 128 hex characters.
+   *
+   * Read through the same `parseSha512` the instance verifies a download with,
+   * so an entry the catalog's check lets through is one the instance can read,
+   * and an index with a badly spelled digest is refused by `parseCatalogIndex`
+   * alone.
+   */
+  sha512: z.string().min(1).max(200).refine(isReadableSha512, {
+    error:
+      'Expected a digest written as "sha512-<base64>" or 128 hex characters.',
+  }),
   bytes: z.int().min(1).optional(),
 });
 

@@ -26,17 +26,9 @@ const DIGEST = new Uint8Array(
 const SRI_FORM = formatSha512(DIGEST);
 const HEX_FORM = Buffer.from(DIGEST).toString("hex");
 
-function refusalReason(run: () => void): string {
-  try {
-    run();
-  } catch (error) {
-    if (error instanceof IntegrityError) {
-      return error.reason;
-    }
-    throw error;
-  }
-  throw new Error("The call was expected to throw an IntegrityError.");
-}
+/** An IntegrityError carrying this reason, which is what a caller branches on. */
+const refusedAs = (reason: IntegrityError["reason"]) =>
+  expect.objectContaining({ name: "IntegrityError", reason });
 
 describe("parseSha512", () => {
   it("accepts the subresource-integrity form", () => {
@@ -80,8 +72,8 @@ describe("parseSha512", () => {
 
   it("rejects a digest with three '=' of padding", () => {
     const body = SRI_FORM.slice(0, -2);
-    expect(refusalReason(() => parseSha512(`${body}===`))).toBe(
-      "malformed-digest",
+    expect(() => parseSha512(`${body}===`)).toThrow(
+      refusedAs("malformed-digest"),
     );
   });
 
@@ -101,9 +93,7 @@ describe("parseSha512", () => {
     // A truncated digest still matches the shape of the SRI form, so the byte
     // length is the only thing that catches it.
     const truncated = formatSha512(DIGEST.subarray(0, 32));
-    expect(refusalReason(() => parseSha512(truncated))).toBe(
-      "malformed-digest",
-    );
+    expect(() => parseSha512(truncated)).toThrow(refusedAs("malformed-digest"));
   });
 
   it.each([
@@ -117,7 +107,7 @@ describe("parseSha512", () => {
     ["hex one character short", HEX_FORM.slice(0, 127)],
     ["a bare word", "not-a-digest"],
   ])("rejects %s", (_label, declared) => {
-    expect(refusalReason(() => parseSha512(declared))).toBe("malformed-digest");
+    expect(() => parseSha512(declared)).toThrow(refusedAs("malformed-digest"));
   });
 
   it("reads random digests as Buffer does", () => {
