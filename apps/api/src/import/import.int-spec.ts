@@ -33,7 +33,7 @@ import {
 import { MAX_IMPORT_ROWS } from "./workbook";
 import {
   advisoryLockCount,
-  blockedConnectionCount,
+  blockedBehindResidencyApartmentCount,
   residencyApartmentLockCount,
   waitFor,
   waitingLockCount,
@@ -1822,11 +1822,13 @@ describe("abandoning an import that is stuck", () => {
       abandoning = abandonImport(admin, sessionId).finally(() => {
         abandonSettled = true;
       });
-      // Two connections blocked: the chunk on the apartment, the abandon on
-      // the session row the chunk holds.
+      // The abandon blocked by the chunk, on the session row the chunk holds
+      // while it waits for the apartment.
       await waitFor(
         async () =>
-          abandonSettled || (await blockedConnectionCount(prisma)) > 1n,
+          abandonSettled ||
+          (await blockedBehindResidencyApartmentCount(prisma, apartmentId)) >
+            0n,
       );
       expect(abandonSettled).toBe(false);
     } finally {
