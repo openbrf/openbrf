@@ -330,18 +330,17 @@ describe("writing a page", () => {
     function arranged(last: number | null, notice: number) {
       const fakes = build();
       fakes.page.aggregate.mockResolvedValue({ _max: { sortOrder: last } });
-      fakes.page.findUnique.mockImplementation(
-        async (args: { where: { slug?: string } }) =>
-          args.where.slug === PRIVACY_NOTICE_SLUG
-            ? { sortOrder: notice }
-            : null,
-      );
+      // The new address is free, and then the notice is where it is.
+      fakes.page.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ sortOrder: notice });
       return fakes;
     }
 
     function writtenSortOrder(page: { create: ReturnType<typeof vi.fn> }) {
-      return (page.create.mock.calls[0]?.[0] as { data: { sortOrder: number } })
-        .data.sortOrder;
+      const written = page.create.mock.calls[0]?.[0] as
+        { data: { sortOrder: number } } | undefined;
+      return written?.data.sortOrder;
     }
 
     it("goes before the notice, moving the notice down, once a reorder has numbered them", async () => {
