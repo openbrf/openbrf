@@ -328,3 +328,100 @@ describe("apartments already in the register", () => {
     });
   });
 });
+
+describe("while the table is being committed", () => {
+  /** Holds the request open, so the table is observed mid-save. */
+  function holdRequest(): (outcome: unknown) => void {
+    let settle: (outcome: unknown) => void = () => undefined;
+    addApartments.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return (outcome) => {
+      settle(outcome);
+    };
+  }
+
+  const commitButton = () =>
+    screen.getByRole("button", { name: /spara lägenheterna|sparar/i });
+
+  it("locks the table, so nothing typed is lost when it is emptied", async () => {
+    const session = userEvent.setup();
+    const settle = holdRequest();
+    renderPanel();
+
+    await generate(session, { floors: "1", perFloor: "2" });
+    const [first] = numberFields() as HTMLInputElement[];
+    if (first === undefined) {
+      throw new Error("the generator produced no rows");
+    }
+    expect(first.matches(":disabled")).toBe(false);
+
+    await session.click(commitButton());
+
+    // The request is in flight: the rows refuse input rather than taking it
+    // and dropping it once the table is stored.
+    await waitFor(() => {
+      expect(first.matches(":disabled")).toBe(true);
+    });
+    expect(
+      (numberFields() as HTMLInputElement[]).every((field) =>
+        field.matches(":disabled"),
+      ),
+    ).toBe(true);
+    expect(
+      screen.getByRole("button", { name: /^generera$/i }).matches(":disabled"),
+    ).toBe(true);
+    await session.type(first, "9");
+    expect(first.value).toBe("1001");
+
+    settle({ ok: true, value: { created: 2, skipped: 0 } });
+
+    await waitFor(() => {
+      expect(screen.queryAllByLabelText(/lägenhetsnummer/i)).toHaveLength(0);
+    });
+    expect(screen.getByText(/lade till 2/i)).toBeTruthy();
+  });
+
+  it("does not send the table from a keystroke in a number field", async () => {
+    const session = userEvent.setup();
+    renderPanel();
+
+    await generate(session, { floors: "1", perFloor: "2" });
+    const [first] = numberFields() as HTMLInputElement[];
+    if (first === undefined) {
+      throw new Error("the generator produced no rows");
+    }
+    await session.type(first, "{Enter}");
+
+    expect(addApartments).not.toHaveBeenCalled();
+  });
+
+  it("keeps focus on the save button when the commit is refused", async () => {
+    const session = userEvent.setup();
+    const settle = holdRequest();
+    renderPanel();
+
+    await generate(session, { floors: "1", perFloor: "2" });
+    await session.click(commitButton());
+
+    const button = commitButton();
+    await waitFor(() => {
+      expect(button.matches(":disabled")).toBe(true);
+    });
+    // A browser drops focus to the page when the focused control is disabled;
+    // jsdom leaves it where it was. So the hand-back is watched as well as the
+    // outcome.
+    const refocus = vi.spyOn(button, "focus");
+
+    settle({ ok: false, failure: { status: 500, reason: "unknown" } });
+
+    await waitFor(() => {
+      expect(button.matches(":disabled")).toBe(false);
+    });
+    expect(refocus).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(button);
+    expect(numberFields()).toHaveLength(2);
+  });
+});

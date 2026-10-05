@@ -1112,3 +1112,152 @@ describe("pressing another room", () => {
     });
   });
 });
+
+/** Holds a request open, so the form is observed mid-save. */
+function holdRequest(request: typeof writeMessage): (outcome: unknown) => void {
+  let settle: (outcome: unknown) => void = () => undefined;
+  request.mockReturnValue(
+    new Promise((resolve) => {
+      settle = resolve;
+    }),
+  );
+  return (outcome) => {
+    settle(outcome);
+  };
+}
+
+describe("while a message is being written", () => {
+  it("locks the box, so nothing typed is lost when the draft is cleared", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(writeMessage);
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    const box = screen.getByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Bra");
+    expect(box.matches(":disabled")).toBe(false);
+
+    await user.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+    await user.type(box, "x");
+    expect(box.value).toBe("Bra");
+
+    settle({ ok: true, value: MINE });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    expect(box.value).toBe("");
+  });
+});
+
+describe("while a group is being made", () => {
+  /** A resident in one group, who is making another. */
+  function makingAGroup(): void {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+  }
+
+  it("locks the name, so nothing typed is lost when it is cleared", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(createChatGroup);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const name =
+      await screen.findByLabelText<HTMLInputElement>("Gruppens namn");
+    await user.type(name, "Uppgång C");
+    expect(name.matches(":disabled")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Skapa gruppen" }));
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(true);
+    });
+    await user.type(name, "x");
+    expect(name.value).toBe("Uppgång C");
+
+    settle({ ok: true, value: { chatId: "chat-new", name: "Uppgång C" } });
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(false);
+    });
+    expect(name.value).toBe("");
+  });
+
+  it("locks the draft as well, since making the group clears it", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(createChatGroup);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const box =
+      await screen.findByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Hej");
+    await user.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await user.click(screen.getByRole("button", { name: "Skapa gruppen" }));
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+    await user.type(box, "x");
+    expect(box.value).toBe("Hej");
+
+    settle({ ok: true, value: { chatId: "chat-new", name: "Uppgång C" } });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    expect(box.value).toBe("");
+  });
+
+  it.each([
+    [
+      "once the group is made",
+      { ok: true, value: { chatId: "chat-new", name: "Uppgång C" } },
+    ],
+    [
+      "when the group is refused",
+      { ok: false, failure: { status: 422, reason: "too-many-groups" } },
+    ],
+  ] as const)(
+    "keeps focus in the name field after Enter, %s",
+    async (_case, outcome) => {
+      const user = userEvent.setup();
+      const settle = holdRequest(createChatGroup);
+      makingAGroup();
+
+      render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+      const name =
+        await screen.findByLabelText<HTMLInputElement>("Gruppens namn");
+      await user.type(name, "Uppgång C{Enter}");
+
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(name, "focus");
+
+      settle(outcome);
+
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(false);
+      });
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(name);
+    },
+  );
+});
