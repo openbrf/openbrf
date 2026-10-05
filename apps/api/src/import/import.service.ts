@@ -574,23 +574,18 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    // A decision is an answer to a row that asks for one, and to nothing else.
-    // One kept for a row that needs none would be carried into the job, where
-    // a register that changed between chunks could make that row need it, and
-    // the worker would then write what nobody was shown.
-    const decidable = new Set(
-      plan.rows
-        .filter((row) => row.outcome === "ambiguous")
-        .map((row) => String(row.rowNumber)),
-    );
-    if (Object.keys(decisions).some((rowNumber) => !decidable.has(rowNumber))) {
+    // The same rules the worker applies to each chunk, here to the whole file,
+    // which this plan holds every row of. A decision kept for a row that needs
+    // none would be carried into the job, where a register that changed between
+    // chunks could make that row need it, and the worker would then write what
+    // nobody was shown.
+    const undecided = findUndecided(plan, decisions, plan.rows.length);
+    if (undecided === "decision-not-needed") {
       throw new ImportError(
         "Given these decisions, a decision answers a row that does not need one.",
         "preview-outdated",
       );
     }
-
-    const undecided = findUndecided(plan, decisions);
     if (undecided === "ambiguous-rows-undecided") {
       throw new ImportError(
         "Given these decisions, more rows match more than one person or " +
