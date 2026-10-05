@@ -1283,6 +1283,43 @@ describe("while a group is being made", () => {
     expect(writeMessage).not.toHaveBeenCalled();
   });
 
+  it("cannot be made while a message is on its way, so its late clean-up wipes nothing", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(writeMessage);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const box =
+      await screen.findByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Hej");
+    await user.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await user.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+
+    const name = screen.getByLabelText<HTMLInputElement>("Gruppens namn");
+    expect(name.matches(":disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Skapa gruppen" })
+        .matches(":disabled"),
+    ).toBe(true);
+    name.form?.requestSubmit();
+    expect(createChatGroup).not.toHaveBeenCalled();
+
+    settle({ ok: true, value: MINE });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    await user.type(box, "Hej igen");
+    expect(box.value).toBe("Hej igen");
+  });
+
   it.each([
     [
       "once the group is made",

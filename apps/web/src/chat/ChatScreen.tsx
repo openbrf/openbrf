@@ -671,7 +671,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         {roomList?.mayCreateGroup === true ? (
           <LockedForm
             className="flex flex-col gap-2 border-t border-line pt-4"
-            locked={creating}
+            // A message on its way locks this too: making the group opens its
+            // room and resets the send, which would unlock the draft while the
+            // message is still out and let its clean-up wipe what is typed next.
+            locked={creating || sending}
             focusFallback={groupNameRef}
             onSend={() => {
               void create.submit({ name: groupName });
@@ -696,7 +699,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               <button
                 type="submit"
                 className={QUIET_BUTTON}
-                disabled={creating || groupName.trim() === ""}
+                disabled={creating || sending || groupName.trim() === ""}
               >
                 {creating ? t("chat.creating") : t("chat.createGroup")}
               </button>
