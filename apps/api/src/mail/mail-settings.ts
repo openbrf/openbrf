@@ -67,6 +67,13 @@ export interface MailDescription {
 @Injectable()
 export class MailSettingsResolver implements OnModuleInit {
   private readonly logger = new Logger(MailSettingsResolver.name);
+  /**
+   * The stored password last decrypted, keyed on its cipher text: a mailing
+   * resolves the mail once per recipient, and the password changes only when
+   * the board saves a new one. The mail driver built from it holds the same
+   * value for as long, so keeping it here holds nothing new.
+   */
+  private decrypted: { cipher: string; password: string } | null = null;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -108,6 +115,19 @@ export class MailSettingsResolver implements OnModuleInit {
       : "environment";
   }
 
+  private async decryptPassword(cipher: string): Promise<string> {
+    if (this.decrypted?.cipher !== cipher) {
+      this.decrypted = {
+        cipher,
+        password: await this.encryption.decrypt(
+          "association.smtpPassword",
+          cipher,
+        ),
+      };
+    }
+    return this.decrypted.password;
+  }
+
   /**
    * The mail to send through, or null when there is none: the environment
    * chooses no driver and the board has not entered a server and a sender.
@@ -143,10 +163,7 @@ export class MailSettingsResolver implements OnModuleInit {
     const password =
       association.smtpPasswordCipher === null
         ? null
-        : await this.encryption.decrypt(
-            "association.smtpPassword",
-            association.smtpPasswordCipher,
-          );
+        : await this.decryptPassword(association.smtpPasswordCipher);
 
     return {
       source: "settings",

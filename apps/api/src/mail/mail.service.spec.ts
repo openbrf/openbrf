@@ -12,8 +12,10 @@ import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
+import { Logger } from "@nestjs/common";
+
 import { MailSettingsResolver } from "./mail-settings";
-import { MailService } from "./mail.service";
+import { MailNotConfiguredError, MailService } from "./mail.service";
 import {
   startMailApiTestServer,
   type MailApiTestServer,
@@ -22,6 +24,7 @@ import {
   boardMailboxReplyMail,
   invitationMail,
   magicLinkMail,
+  moveInMail,
   moveOutMail,
 } from "./templates";
 
@@ -81,13 +84,25 @@ function serviceWith(
   );
 }
 
-function buildService(): MailService {
+async function buildService(env: Env = TEST_ENV): Promise<MailService> {
   const i18n = new I18nService();
-  // Nest would call onModuleInit; construct it directly here.
-  void i18n.init();
+  // Nest would call onModuleInit; construct it directly here, and wait for it,
+  // so nothing below renders before the translations are loaded.
+  await i18n.init();
 
-  return serviceWith(TEST_ENV, ASSOCIATION, i18n);
+  return serviceWith(env, ASSOCIATION, i18n);
 }
+
+const INVITATION = {
+  to: "anna@exempel.se",
+  locale: "sv",
+  template: invitationMail,
+  props: {
+    recipientName: "Anna",
+    activationUrl: "https://brf.example.se/activate/abc",
+    expiresAt: new Date("2026-09-03T10:00:00Z"),
+  },
+};
 
 describe("MailService rendering", () => {
   let service: MailService;
@@ -262,20 +277,85 @@ describe("the logo in a message", () => {
 
 describe("MailService without SMTP", () => {
   it("does not throw outside production, so local flows still work", async () => {
-    const service = buildService();
+    const service = await buildService();
 
-    await expect(
-      service.send({
-        to: "anna@exempel.se",
-        locale: "sv",
-        template: invitationMail,
-        props: {
-          recipientName: "Anna",
-          activationUrl: "https://brf.example.se/activate/abc",
-          expiresAt: new Date("2026-09-03T10:00:00Z"),
-        },
-      }),
-    ).resolves.toEqual({ messageId: null });
+    await expect(service.send(INVITATION)).resolves.toEqual({
+      messageId: null,
+    });
+  });
+
+  it("refuses in production, so every sender can say the mail is not set up", async () => {
+    const service = await buildService({ ...TEST_ENV, NODE_ENV: "production" });
+
+    await expect(service.send(INVITATION)).rejects.toBeInstanceOf(
+      MailNotConfiguredError,
+    );
+  });
+
+  it("logs neither the link nor the subject unless a developer asks", async () => {
+    // NODE_ENV defaults to development, so an instance that left it unset is
+    // this case, and its log must not hold a live sign-in link.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {
+      // Silenced: the line is read from the spy.
+    });
+    try {
+      const service = await buildService({
+        ...TEST_ENV,
+        NODE_ENV: "development",
+      });
+      await service.send(INVITATION);
+
+      const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toContain(invitationMail.id);
+      expect(logged).not.toContain("activate/abc");
+      expect(logged).not.toContain("anna@exempel.se");
+      expect(logged).not.toContain("Brf Eksemplet");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("prints the whole message when a developer sets the flag", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {
+      // Silenced: the line is read from the spy.
+    });
+    try {
+      const service = await buildService({
+        ...TEST_ENV,
+        NODE_ENV: "development",
+        OPENBRF_MAIL_LOG_BODY: true,
+      });
+      await service.send(INVITATION);
+
+      const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toContain("https://brf.example.se/activate/abc");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("a date column in a message", () => {
+  it("is the day the column holds, not the day an instant falls on", async () => {
+    /*
+     * A date column is read back as midnight UTC, and formatting it on the
+     * association's clock is right only because that clock is ahead of UTC.
+     * Late in the UTC day the two readings part, which is what this asserts:
+     * the column's own fields, the 1st, rather than the 2nd in Stockholm.
+     */
+    const service = await buildService();
+    const rendered = await service.renderMail({
+      locale: "sv",
+      template: moveInMail,
+      props: {
+        recipientName: "Anna",
+        apartmentNumber: "1101",
+        movedInOn: new Date("2026-09-01T23:30:00.000Z"),
+      },
+    });
+
+    expect(rendered.text).toContain("2026-09-01");
+    expect(rendered.text).not.toContain("2026-09-02");
   });
 });
 
