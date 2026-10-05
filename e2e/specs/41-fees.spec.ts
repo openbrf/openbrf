@@ -408,10 +408,16 @@ test("the board records the participation shares on the register", async ({
     .fill("125000.00");
   await page.getByRole("button", { name: "Spara siffrorna" }).click();
 
-  // Read back off the register document, which is what the board sees.
-  await expect(
-    page.locator("[data-print='document']").getByText("0.025"),
-  ).toBeVisible();
+  // Read back off the register document, which is what the board sees, and
+  // off this apartment's entry in it rather than anywhere on the page.
+  const entry = page.locator("[data-print='document'] article").filter({
+    has: page.getByRole("heading", {
+      level: 3,
+      name: `${people.apartment.addressLabel} ${people.apartment.number}`,
+      exact: true,
+    }),
+  });
+  await expect(entry).toContainText("0.025");
 });
 
 test("the board records a fee, including one dated forward", async ({
