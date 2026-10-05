@@ -1291,3 +1291,26 @@ describe("a write built on a copy somebody else has replaced", () => {
     );
   });
 });
+
+describe("reading the pages a few at a time", () => {
+  it("refuses a cursor whose sort order no page can have, without asking the database", async () => {
+    const { service, page } = build();
+
+    for (const cursor of ["9999999999:page-1", "-2147483649:page-1"]) {
+      const refusal = await refusalOf(
+        service.listSummaries({ limit: 1, cursor }),
+      );
+      expect(refusal.reason, cursor).toBe("not-found");
+    }
+    expect(page.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still reads a cursor at either end of the column's range", async () => {
+    const { service, page } = build();
+
+    for (const cursor of ["2147483647:page-1", "-2147483648:page-1"]) {
+      await service.listSummaries({ limit: 1, cursor });
+    }
+    expect(page.findMany).toHaveBeenCalledTimes(2);
+  });
+});

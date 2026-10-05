@@ -1100,6 +1100,10 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
   };
 }
 
+/** The range of PostgreSQL's `integer`, which `Page.sortOrder` is stored as. */
+const INT4_MIN = -2_147_483_648;
+const INT4_MAX = 2_147_483_647;
+
 /**
  * The position a `listSummaries` cursor names: a sort order and an id.
  *
@@ -1107,12 +1111,21 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
  * rather than read as the start of the list - which would hand a caller that
  * sent a stale or mangled cursor the first pages again as if they were the
  * next ones.
+ *
+ * The sort order is held to the column's own range: ten digits reach past a
+ * 32-bit integer, and the database answers such a value with an error rather
+ * than an empty list, which the caller would read as a failure of ours.
  */
 function readPageCursor(cursor: string): { sortOrder: number; id: string } {
   const match = /^(-?\d{1,10}):([^:]+)$/.exec(cursor);
   const sortOrder = Number(match?.[1]);
   const id = match?.[2];
-  if (id === undefined || !Number.isSafeInteger(sortOrder)) {
+  if (
+    id === undefined ||
+    !Number.isInteger(sortOrder) ||
+    sortOrder < INT4_MIN ||
+    sortOrder > INT4_MAX
+  ) {
     throw new PageWriteError(
       "There is no such place in the list of pages. Start it again without a cursor.",
       "not-found",
