@@ -40,6 +40,8 @@ export interface Pop3TestServerOptions {
   neverTerminate?: boolean;
   /** Answers with a status line longer than the protocol allows. */
   floodStatusLine?: boolean;
+  /** Refuses PASS with this response, whatever the password, as `-ERR <it>`. */
+  refusePass?: string;
 }
 
 export interface Pop3TestServer {
@@ -134,6 +136,8 @@ export async function startPop3TestServer(
           write(
             argument === options.user ? "+OK\r\n" : "-ERR no such mailbox\r\n",
           );
+        } else if (command === "PASS" && options.refusePass !== undefined) {
+          write(`-ERR ${options.refusePass}\r\n`);
         } else if (command === "PASS") {
           authenticated = argument === options.password;
           write(authenticated ? "+OK signed in\r\n" : "-ERR bad password\r\n");

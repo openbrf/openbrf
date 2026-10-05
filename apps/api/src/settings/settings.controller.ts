@@ -16,6 +16,7 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { actingPersonId } from "../registers/acting-person";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { isTooLarge, readSingleFile } from "../http/multipart";
+import { hasControlCharacter } from "../mail/header-text";
 import { MediaError } from "../media/media.service";
 import {
   MAX_MEMBERS_PER_PROXY_HOLDER,
@@ -83,9 +84,12 @@ const smtpSchema = z.object({
  * reply carries in Reply-To, and an address that is not one would send every
  * answer the board writes into a header no mail server can act on.
  */
+/** One line, because each of these is sent as a line of the POP3 conversation. */
+const pop3Line = (value: string): boolean => !hasControlCharacter(value);
+
 const boardMailboxSchema = z.object({
   address: z.email().max(320).nullable(),
-  host: z.string().min(1).max(255).nullable(),
+  host: z.string().min(1).max(255).refine(pop3Line).nullable(),
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
   /**
@@ -94,9 +98,9 @@ const boardMailboxSchema = z.object({
    * nobody signs in to is not a mailbox, and one recorded as configured offers
    * the board a collection that can only fail.
    */
-  user: z.string().min(1).max(255).nullable(),
+  user: z.string().min(1).max(255).refine(pop3Line).nullable(),
   /** Omit to keep the stored password; null or "" to clear it. */
-  password: z.string().max(200).nullish(),
+  password: z.string().max(200).refine(pop3Line).nullish(),
 });
 
 const smsSchema = z.object({

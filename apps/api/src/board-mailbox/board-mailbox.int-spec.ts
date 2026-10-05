@@ -807,6 +807,29 @@ describe("who may work the board's mailbox", () => {
     expect(response.statusCode).toBe(403);
   });
 
+  it.each([
+    ["user", { user: "board\r\nsecond line" }],
+    ["password", { password: "secret\nsecond line" }],
+    ["host", { host: "mail.example.test\r\n" }],
+  ])("refuses a mailbox %s that holds a line break", async (_field, change) => {
+    // Each is sent as one line of the POP3 conversation.
+    const response = await inject({
+      method: "PUT",
+      url: "/api/settings/board-mailbox",
+      payload: {
+        address: BOARD_ADDRESS,
+        host: "127.0.0.1",
+        port: 1110,
+        secure: false,
+        user: MAILBOX_USER,
+        password: MAILBOX_PASSWORD,
+        ...change,
+      },
+      headers: { cookie: administratorCookie },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
   it("lets a board member read the inbox", async () => {
     const response = await inject({
       method: "GET",
