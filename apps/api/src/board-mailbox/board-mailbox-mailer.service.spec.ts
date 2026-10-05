@@ -34,7 +34,6 @@ function build(sent: SentMail) {
         thread: {
           subject: "Fraga om balkongen",
           correspondentEmailCipher: "brf:email",
-          correspondentNameCipher: null,
         },
       }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -68,6 +67,33 @@ function build(sent: SentMail) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("putting an answer on the queue", () => {
+  it("gives an attempt as long as the other mail jobs get", async () => {
+    // Five minutes was shorter than a slow handover on a loaded host, and an
+    // attempt that expires mid-send leaves the answer claimed and unsent.
+    const jobs = { sendInTransaction: vi.fn().mockResolvedValue(undefined) };
+    const mailer = new BoardMailboxMailerService(
+      { NODE_ENV: "test" } as Env,
+      {} as PrismaService,
+      {} as FieldEncryptionService,
+      {} as MailService,
+      jobs as unknown as JobQueueService,
+    );
+
+    await mailer.enqueueInTransaction(
+      {} as Parameters<BoardMailboxMailerService["enqueueInTransaction"]>[0],
+      "reply-1",
+    );
+
+    expect(jobs.sendInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      { messageId: "reply-1" },
+      expect.objectContaining({ expireInSeconds: 15 * 60 }),
+    );
+  });
 });
 
 describe("marking an answer sent", () => {

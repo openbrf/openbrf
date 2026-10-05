@@ -83,7 +83,11 @@ const REPLY_JOB_OPTIONS = {
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
-  expireInSeconds: 5 * 60,
+  // The mail jobs' common bound. The queue fails an attempt that outlives it
+  // while that attempt may still be talking to the mail server, so it has to
+  // outlast a slow handover on a loaded host by a wide margin rather than a
+  // typical one.
+  expireInSeconds: 15 * 60,
   deadLetter: BOARD_MAILBOX_REPLY_ABANDONED_QUEUE,
 } satisfies JobSendOptions;
 
@@ -173,7 +177,6 @@ export class BoardMailboxMailerService implements OnModuleInit {
           select: {
             subject: true,
             correspondentEmailCipher: true,
-            correspondentNameCipher: true,
           },
         },
       },
@@ -229,13 +232,6 @@ export class BoardMailboxMailerService implements OnModuleInit {
         "boardMailboxThread.correspondentEmail",
         message.thread.correspondentEmailCipher,
       );
-      const name =
-        message.thread.correspondentNameCipher === null
-          ? null
-          : await this.encryption.decrypt(
-              "boardMailboxThread.correspondentName",
-              message.thread.correspondentNameCipher,
-            );
 
       sent = await this.mail.send({
         to,
@@ -244,7 +240,6 @@ export class BoardMailboxMailerService implements OnModuleInit {
         locale: null,
         template: boardMailboxReplyMail,
         props: {
-          recipientName: name,
           subject: message.thread.subject,
           body: message.body,
           boardAddress: settings.address,

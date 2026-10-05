@@ -2372,6 +2372,11 @@ describe("answering a letter", () => {
     expect(sent?.replyTo).toBe(BOARD_ADDRESS);
     // And it threads in the correspondent's own client.
     expect(sent?.inReplyTo).toContain("@utanfor.example");
+    // It greets nobody by the name on the envelope. That name is whatever the
+    // sender typed, and printed in a letter sent under the association's name
+    // it would read as the association's own words.
+    expect(sent?.props).not.toHaveProperty("recipientName");
+    expect(JSON.stringify(sent?.props)).not.toContain("Granne");
 
     const stored = await prisma.boardMailboxMessage.findUnique({
       where: { id: replyMessageId },
