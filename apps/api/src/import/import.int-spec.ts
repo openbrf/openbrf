@@ -1641,6 +1641,68 @@ describe("a preview another import has overtaken", () => {
       (candidate) => candidate.status === "APPLIED",
     );
   }, 60_000);
+
+  it("is not refused over an import that reached a person it had nothing to add to", async () => {
+    // An update fills in what the register lacks. A file restating what the
+    // register already has counts its row as an update and writes nothing.
+    const cookie = await signIn(actors.board.email);
+    const row = [
+      addressLabel,
+      "2102",
+      "Oforandrad",
+      surname,
+      "Boende",
+      "",
+      "",
+      "2023-02-01",
+    ];
+    const created = await uploadAndPreview(cookie, "forsta-gangen.csv", [
+      HEADERS,
+      row,
+    ]);
+    expect((await applyImport(cookie, created.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      created.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+
+    const restated = await upload(
+      cookie,
+      "andra-gangen.csv",
+      encode(writeCsv([HEADERS, row])),
+    );
+    expect((await previewAgain(cookie, restated)).summary).toMatchObject({
+      create: 0,
+      update: 1,
+    });
+    const waiting = await uploadAndPreview(cookie, "vantar-pa-tur.csv", [
+      HEADERS,
+      [addressLabel, "2102", "PaTur", surname, "Boende", "", "", "2023-02-01"],
+    ]);
+
+    expect((await applyImport(cookie, restated.sessionId)).statusCode).toBe(
+      202,
+    );
+    const unchanged = await waitForRun(
+      cookie,
+      restated.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(unchanged.result).toMatchObject({
+      personsCreated: 0,
+      personsUpdated: 1,
+      residenciesCreated: 0,
+      memberRegisterEntriesCreated: 0,
+    });
+
+    expect((await applyImport(cookie, waiting.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      waiting.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
 });
 
 describe("a preview another import has overtaken, afterwards", () => {

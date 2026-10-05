@@ -415,12 +415,11 @@ export class ImportApplyService implements OnModuleInit {
           },
         });
         // Every preview taken before this is out of date now, unless the chunk
-        // wrote nothing: rows skipped or in error leave the register as it was.
-        // A row counted as an update may have found nothing to fill in; that
-        // costs at most a preview the board did not need.
+        // wrote nothing: rows skipped or in error leave the register as it was,
+        // and so does an update that found nothing to fill in.
         if (
           written.personsCreated +
-            written.personsUpdated +
+            written.personsChanged +
             written.residenciesCreated +
             written.memberRegisterEntriesCreated >
           0
@@ -539,10 +538,11 @@ export class ImportApplyService implements OnModuleInit {
     decisions: ImportDecisions,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     unwritten: Map<number, string>,
-  ): Promise<ImportApplyResult> {
-    const result: ImportApplyResult = {
+  ): Promise<ChunkWrites> {
+    const result: ChunkWrites = {
       personsCreated: 0,
       personsUpdated: 0,
+      personsChanged: 0,
       residenciesCreated: 0,
       memberRegisterEntriesCreated: 0,
       skipped: 0,
@@ -625,7 +625,7 @@ export class ImportApplyService implements OnModuleInit {
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     createdByRow: Map<number, string>,
     unwritten: Map<number, string>,
-    result: ImportApplyResult,
+    result: ChunkWrites,
   ): Promise<string | null> {
     const values = encrypted.get(row.rowNumber);
     if (values === undefined) {
@@ -707,6 +707,7 @@ export class ImportApplyService implements OnModuleInit {
 
     if (Object.keys(data).length > 0) {
       await tx.person.update({ where: { id: existing.id }, data });
+      result.personsChanged++;
     }
     result.personsUpdated++;
     return existing.id;
@@ -767,6 +768,16 @@ export class ImportApplyService implements OnModuleInit {
     });
     result.residenciesCreated++;
   }
+}
+
+/** What a chunk wrote, as the session counts it and as the revision needs it. */
+interface ChunkWrites extends ImportApplyResult {
+  /**
+   * The persons among `personsUpdated` that had something filled in. A row
+   * that reached an existing person counts as an update even when the register
+   * already had everything it stated, and that leaves every preview standing.
+   */
+  personsChanged: number;
 }
 
 interface EncryptedRowValues {
