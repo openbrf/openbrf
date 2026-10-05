@@ -825,9 +825,11 @@ describe("the board's answer", () => {
         }),
       ),
     );
-    expect(answers.map((answer) => answer.statusCode).sort()).toEqual([
-      201, 409,
-    ]);
+    expect(
+      answers
+        .map((answer) => answer.statusCode)
+        .sort((left, right) => left - right),
+    ).toEqual([201, 409]);
     const refused = answers.find((answer) => answer.statusCode === 409);
     expect(refused?.json<{ reason: string }>().reason).toBe("already-closed");
 
