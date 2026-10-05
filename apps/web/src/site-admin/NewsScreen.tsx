@@ -130,8 +130,9 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const [catchUp, setCatchUp] = useState<CatchUp>(null);
   /*
    * Bumped by anything that moves the editor on - another item, a cancel, a
-   * new read - so an answer for the item that was open before cannot land on
-   * the one that is open now.
+   * new read - so a read for the item that was open before cannot land on the
+   * one that is open now. Edit and Cancel are held while a save runs, so the
+   * refusal of that save always arrives at the item it was made for.
    */
   const catchUpRead = useRef(0);
 
@@ -256,8 +257,13 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
     if (save.state.kind !== "failed") {
       return null;
     }
-    if (save.state.failure.reason === "news-changed" && catchUp === "reading") {
-      return "news.errors.newsChangedReading";
+    if (catchUp === "reading") {
+      if (save.state.failure.reason === "news-changed") {
+        return "news.errors.newsChangedReading";
+      }
+      if (save.state.failure.reason === "not-found") {
+        return "news.errors.notFoundReading";
+      }
     }
     return failureMessageKey(
       save.state.failure,
@@ -321,6 +327,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
             {draft.id === null ? null : (
               <button
                 type="button"
+                disabled={save.state.kind === "saving"}
                 onClick={() => {
                   leaveRefusal();
                   setDraft(EMPTY);
@@ -401,7 +408,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
 
           {catchUp === "readFailed" ? (
             <LoadFailure
-              messageKey="news.errors.newsChangedReadFailed"
+              messageKey="news.errors.readAfterRefusalFailed"
               onRetry={() => {
                 if (draft.id !== null) {
                   void readAfterRefusal(draft.id);
@@ -464,6 +471,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           key={item.id}
           item={item}
           recipients={recipients}
+          editDisabled={save.state.kind === "saving"}
           onEdit={(chosen) => {
             leaveRefusal();
             if (!isPlainText(chosen.content)) {

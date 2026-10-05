@@ -3373,8 +3373,9 @@
       "notPlainText": "That news item holds formatting this editor cannot show. Editing it here would remove it.",
       "notFound": "That news item is gone. The list has been read again.",
       "newsChanged": "Somebody else saved this news item while it was open here. The list below now shows their version. What you have written is still here, and saving again writes it over theirs.",
+      "notFoundReading": "That news item is gone. Reading the list...",
       "newsChangedReading": "Somebody else saved this news item while it was open here. Reading their version...",
-      "newsChangedReadFailed": "Somebody else changed this news item while it was open here, and it could not be read again just now. What you have written is still here. Read it again before you save.",
+      "readAfterRefusalFailed": "Somebody else changed or removed this news item while it was open here, and the list could not be read again just now. What you have written is still here. Read it again before you save.",
       "removedWhileOpen": "Somebody else removed this news item while it was open here. What you have written is still here, and saving it makes a new draft that nobody can read until it is published.",
       "hasComments": "Residents have commented on this news item, so it cannot be removed yet. Taking it down hides it from readers; the comments are erased on their own schedule, and the item can be removed once they are gone.",
       "unknown": "That could not be saved just now. Please try again."

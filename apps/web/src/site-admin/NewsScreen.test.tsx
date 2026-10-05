@@ -85,6 +85,14 @@ function viewerWith(capabilities: string[]): Viewer {
   };
 }
 
+function deferred() {
+  let resolve!: (value: unknown) => void;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function renderScreen(capabilities: string[] = ["site:manage"]) {
   return render(<NewsScreen viewer={viewerWith(capabilities)} />);
 }
@@ -292,6 +300,135 @@ describe("two board members editing the same item", () => {
       );
     });
     expect(editNews).not.toHaveBeenCalled();
+  });
+
+  it("holds the save off while the read after a refusal is still running", async () => {
+    // The draft still carries the refused revision until the read answers, so a
+    // press now would be refused for the same reason.
+    editNews.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "news-changed" },
+    });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Ändra" }));
+    const read = deferred();
+    fetchNews.mockReturnValue(read.promise);
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    expect(await screen.findByText(/Hämtar deras version/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Spara nyheten" }),
+    ).toHaveProperty("disabled", true);
+
+    read.resolve({
+      ok: true,
+      value: [{ ...DRAFT, title: "Deras rubrik", revision: 5 }],
+    });
+    await screen.findByRole("heading", { name: "Deras rubrik" });
+    expect(
+      screen.getByRole("button", { name: "Spara nyheten" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("treats an item that is gone like one that was changed: save off while reading, then a new draft", async () => {
+    editNews.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "not-found" },
+    });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Ändra" }));
+    const read = deferred();
+    fetchNews.mockReturnValue(read.promise);
+    await user.type(screen.getByLabelText(/^Text/), " Med min rättelse.");
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    // Not "the list has been read again" before it has been.
+    expect(
+      await screen.findByText(/Nyheten finns inte längre\. Hämtar/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Spara nyheten" }),
+    ).toHaveProperty("disabled", true);
+
+    read.resolve({ ok: true, value: [] });
+    expect(
+      await screen.findByText(/Någon annan tog bort nyheten/),
+    ).toBeTruthy();
+    expect(screen.getByLabelText(/^Text/)).toHaveProperty(
+      "value",
+      "Från måndag gäller nya tider. Med min rättelse.",
+    );
+
+    editNews.mockClear();
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+    await waitFor(() => {
+      expect(createNews).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: DRAFT.slug }),
+      );
+    });
+    expect(editNews).not.toHaveBeenCalled();
+  });
+
+  it("does not say the item was changed when a read after not-found fails", async () => {
+    editNews.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "not-found" },
+    });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Ändra" }));
+    fetchNews.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    expect(
+      await screen.findByText(/ändrade eller tog bort nyheten/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Spara nyheten" }),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("keeps Edit and Cancel off while a save runs, so its refusal lands on the item it was for", async () => {
+    // A refusal that came back after the board had opened another item would
+    // hold that item's save off and, for a removed item, tell the board the
+    // wrong item was removed.
+    fetchNews.mockResolvedValue({ ok: true, value: [DRAFT, MAILED] });
+    const answer = deferred();
+    editNews.mockReturnValue(answer.promise);
+    const user = userEvent.setup();
+    renderScreen();
+
+    const [first] = await screen.findAllByRole("button", { name: "Ändra" });
+    await user.click(first as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "Spara nyheten" }));
+
+    for (const edit of screen.getAllByRole("button", { name: "Ändra" })) {
+      expect(edit).toHaveProperty("disabled", true);
+    }
+    expect(screen.getByRole("button", { name: "Avbryt" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    answer.resolve({
+      ok: false,
+      failure: { status: 404, reason: "not-found" },
+    });
+    fetchNews.mockResolvedValue({ ok: true, value: [MAILED] });
+    expect(
+      await screen.findByText(/Någon annan tog bort nyheten/),
+    ).toBeTruthy();
+    for (const edit of screen.getAllByRole("button", { name: "Ändra" })) {
+      expect(edit).toHaveProperty("disabled", false);
+    }
   });
 });
 

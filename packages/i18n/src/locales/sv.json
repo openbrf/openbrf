@@ -3373,8 +3373,9 @@
       "notPlainText": "Nyheten innehåller formatering som den här redigeraren inte kan visa. Att redigera den här skulle ta bort den.",
       "notFound": "Nyheten finns inte längre. Listan har lästs om.",
       "newsChanged": "Någon annan sparade nyheten medan den var öppen här. Listan nedan visar nu deras version. Det du har skrivit ligger kvar, och sparar du igen skrivs deras version över.",
+      "notFoundReading": "Nyheten finns inte längre. Hämtar listan...",
       "newsChangedReading": "Någon annan sparade nyheten medan den var öppen här. Hämtar deras version...",
-      "newsChangedReadFailed": "Någon annan ändrade nyheten medan den var öppen här, och den kunde inte hämtas på nytt just nu. Det du har skrivit ligger kvar. Hämta den igen innan du sparar.",
+      "readAfterRefusalFailed": "Någon annan ändrade eller tog bort nyheten medan den var öppen här, och listan kunde inte hämtas på nytt just nu. Det du har skrivit ligger kvar. Hämta den igen innan du sparar.",
       "removedWhileOpen": "Någon annan tog bort nyheten medan den var öppen här. Det du har skrivit ligger kvar, och sparar du blir det ett nytt utkast som ingen kan läsa förrän det publiceras.",
       "hasComments": "Boende har kommenterat nyheten, så den kan inte tas bort än. Tas den ned döljs den för läsarna; kommentarerna gallras enligt sin egen tidsplan, och nyheten kan tas bort när de är borta.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
