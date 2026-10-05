@@ -13,6 +13,8 @@ import {
   COLLECTION_REFUSALS,
   type CollectionRefusal,
 } from "./board-mailbox-delivery";
+import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
+import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
   mailboxFingerprint,
@@ -188,8 +190,9 @@ export interface CollectionSummary {
   /** Messages this instance already held. */
   alreadyHeld: number;
   /**
-   * Messages left where they are: too large, carrying no address the board
-   * could answer, refused by the database, or to be tried again.
+   * Messages left where they are: too large, dated before the retention
+   * window, carrying no address the board could answer, refused by the
+   * database, or to be tried again.
    */
   skipped: number;
 }
@@ -211,6 +214,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     private readonly encryption: FieldEncryptionService,
     private readonly media: MediaService,
     private readonly jobs: JobQueueService,
+    private readonly purge: BoardMailboxPurgeService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -767,6 +771,39 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       "person.email",
       parsed.fromAddress,
     );
+
+    const occurredAt = trustedDate(parsed.date, now);
+    if (
+      occurredAt.getTime() <= boardMailboxPurgeCutoff(now).getTime() &&
+      !(await this.purge.withholds(address.index))
+    ) {
+      /*
+       * A letter already past the retention window when it is first read.
+       *
+       * The date is the one the thread would be anchored on, so storing it
+       * would keep a letter the purge is due to erase that night. Not stored,
+       * and recorded as read: time only moves one way, so no later run will
+       * judge it differently.
+       *
+       * Unless a legal hold or a restriction of processing stands against the
+       * address. The purge keeps that person's correspondence past its window,
+       * so a letter left here would be missing from the very record the hold
+       * or the restriction was placed to preserve - evidence the association
+       * was told to keep, or data it was asked not to erase. Asked here, after
+       * the address is indexed, because the purge matches on nothing else.
+       */
+      this.logger.warn(
+        "Board mailbox: a message dated before the retention window was left in the mailbox.",
+      );
+      await this.setAside(
+        uid,
+        COLLECTION_REFUSALS.pastRetention,
+        letterDate,
+        null,
+      );
+      return "skipped";
+    }
+
     const name =
       parsed.fromName === null
         ? null
@@ -774,8 +811,6 @@ export class BoardMailboxCollectorService implements OnModuleInit {
             "boardMailboxThread.correspondentName",
             parsed.fromName,
           );
-
-    const occurredAt = trustedDate(parsed.date, now);
 
     /*
      * The files are stored before the rows that point at them.
@@ -956,7 +991,11 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       if (answered !== null) {
         const thread = await tx.boardMailboxThread.findUnique({
           where: { id: answered.threadId },
-          select: { id: true, status: true, takenByPersonId: true },
+          select: {
+            id: true,
+            status: true,
+            takenByPersonId: true,
+          },
         });
         if (thread !== null) {
           await tx.boardMailboxThread.update({
@@ -1076,9 +1115,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * photograph's argument in full: nobody knows whether a photograph somebody
    * mailed the board caught a neighbour in it, an attachment here is never
    * published, and the declaration is the input the publication guardrails need.
-   * It carries no required capability for the reason that file does not - what
-   * keeps it private is that nothing hands out its identifier except a thread
-   * payload, and those are behind `boardMailbox:handle`.
+   * It names `boardMailbox:handle` as its required capability, which
+   * `MediaService.open` checks on every read: whoever handles the board's mail
+   * reads it, and nobody else does, whether or not they have its identifier.
    */
   private async storeAttachments(
     attachments: readonly MimeAttachment[],
@@ -1114,6 +1153,8 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           fileName: attachment.fileName,
           accept,
           visibility: "INTERNAL",
+          // Letters to the board are read by whoever handles its mail.
+          requiredCapability: "boardMailbox:handle",
           showsIdentifiablePersons: accept === "image" ? true : undefined,
           uploadedByPersonId: null,
           // The collector is a job: no person asked for this file to be stored.

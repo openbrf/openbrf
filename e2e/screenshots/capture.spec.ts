@@ -132,11 +132,10 @@ const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
 /**
  * The tenant-owner the statutory registers are photographed with.
  *
- * The shared register fixture puts its four people on apartments through
- * sign-up approval, which records a residency and nothing statutory. A member
- * register entry is written by a move-in, and the apartment register states who
- * holds an apartment, so without one move-in both documents would be
- * photographed empty. Looked up before she is created, like every other fixture
+ * The shared register fixture moves its four people in with no transfer, so
+ * the apartment register, which states who holds an apartment and on which
+ * agreement, would be photographed empty without one move-in that records a
+ * tenant-ownership. Looked up before she is created, like every other fixture
  * here, so a capture against a stack that is already up finds her rather than
  * seeding a second one.
  */
@@ -497,6 +496,18 @@ test("captures every declared screen in light and dark", async ({
     if (people === undefined) {
       const seeded = new Map(await ensureRegisterFixture(request));
       seeded.set(MEMBER.name, await ensureTenantOwner(request));
+
+      // A move-in sends no invitation, so the person view's account field would
+      // read "no account". One person is invited so the screen that shows a
+      // pending invitation has one to show.
+      const invited = seeded.get(RESIDENT.name);
+      if (invited === undefined) {
+        throw new Error(`${RESIDENT.name} is not in the register fixture`);
+      }
+      await api.sendInvitation(request, stack.baseUrl, invited);
+
+      // The request-account screen is only offered while sign-up is on.
+      await api.setSelfSignup(request, stack.baseUrl, true);
       people = seeded;
     }
     return people;

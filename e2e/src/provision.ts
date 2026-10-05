@@ -160,10 +160,10 @@ export type RegisterPerson = {
 /**
  * The people the address book spec reads.
  *
- * They are created through the sign-up approval path because that is the only
- * endpoint in the application today that writes a residency: a person created
- * straight into the register has no apartment, and the board is grouped by
- * floor. Move-in is the flow that will own this once it exists (stage S7).
+ * They are created in the register and moved in, because a move-in is what
+ * writes a member's residency together with its ENTRY in the member register.
+ * A sign-up approval only ever records a resident: a self-signup never grants
+ * membership.
  */
 export const REGISTER_PEOPLE: readonly RegisterPerson[] = [
   {
@@ -207,16 +207,15 @@ export const REGISTER_PEOPLE: readonly RegisterPerson[] = [
  * Returns their person ids, keyed by full name.
  *
  * Idempotent against a finished record rather than against a person's mere
- * existence. Putting somebody in the register takes two writes - the sign-up
- * request creates the person, the approval records the residency - and a run
- * that failed between them leaves a person with no apartment. Asking only
- * "does this name exist" would return early on that from then on, and what
- * fails is an assertion several tests later, timing out on a board the person
- * is missing from with nothing saying why. So the residency the fixture
- * promises is what settles it - this apartment, with a move-in date, rather
- * than any apartment at all - and anything short of that is put through the
- * creation path again, where approval matches them by email and records the
- * residency they were left without.
+ * existence. Putting somebody in the register takes two writes - one creates
+ * the person, the move-in records the residency - and a run that failed
+ * between them leaves a person with no apartment. Asking only "does this name
+ * exist" would return early on that from then on, and what fails is an
+ * assertion several tests later, timing out on a board the person is missing
+ * from with nothing saying why. So the residency the fixture promises is what
+ * settles it - this apartment, with a move-in date, rather than any apartment
+ * at all - and a person short of that is moved in again, reusing the person
+ * that the failed run created.
  */
 export async function ensureRegisterFixture(
   request: APIRequestContext,
@@ -231,10 +230,6 @@ export async function ensureRegisterFixture(
       await api.listApartments(request, stack.baseUrl, address.id),
     );
   }
-
-  // Sign-up requests are only accepted while the toggle is on. It is restored
-  // by the spec that owns it; here it is simply switched on for the fixture.
-  await api.setSelfSignup(request, stack.baseUrl, true);
 
   const ids = new Map<string, string>();
   for (const person of REGISTER_PEOPLE) {
@@ -265,8 +260,7 @@ export async function ensureRegisterFixture(
      * move spec put them there, or with no move-in date; either state satisfies
      * "has an apartment" and would be accepted as finished, and what fails is
      * an assertion several tests later about a board the person is missing
-     * from. Anything else goes through the creation path again, where approval
-     * matches by email and records the residency they were left without.
+     * from. Anything else is moved in again, as the person already created.
      */
     if (
       existing?.apartment?.id === apartment.id &&
@@ -276,25 +270,22 @@ export async function ensureRegisterFixture(
       continue;
     }
 
-    const submitted = await api.submitSignupRequest(request, stack.baseUrl, {
-      firstName: person.firstName,
-      lastName: person.lastName,
-      email: person.email,
-      claimedAddress: `${address.street} ${address.number}`,
-      claimedApartmentNumber: person.apartmentNumber,
-    });
-    if (submitted.id === undefined) {
-      throw new Error(
-        `sign-up request for ${fullName} answered ${String(submitted.status)}`,
-      );
-    }
+    const personId =
+      existing?.personId ??
+      (await api.createPerson(request, stack.baseUrl, {
+        firstName: person.firstName,
+        lastName: person.lastName,
+        email: person.email,
+      }));
 
-    const personId = await api.approveSignupRequest(
-      request,
-      stack.baseUrl,
-      submitted.id,
-      { apartmentId: apartment.id, role: person.role },
-    );
+    // Dated today, as the sign-up approval that used to write these did, so
+    // the specs that read what a member owes see the same holding as before.
+    await api.moveIn(request, stack.baseUrl, {
+      personId,
+      apartmentId: apartment.id,
+      role: person.role,
+      movedInOn: today(),
+    });
     ids.set(fullName, personId);
 
     if (person.protectedPersonalData === true) {
@@ -308,6 +299,20 @@ export async function ensureRegisterFixture(
   }
 
   return ids;
+}
+
+/** Today, on the association's clock rather than on this machine's. */
+function today(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const field = (type: "year" | "month" | "day"): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${field("year")}-${field("month")}-${field("day")}`;
 }
 
 /** The activation token out of an invitation email. */

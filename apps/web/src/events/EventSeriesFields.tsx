@@ -9,7 +9,7 @@ import {
   type EventRecurrenceFrequency,
 } from "../api/events";
 import type { TranslationKey } from "../i18n/translation-key";
-import { FIELD, HINT, LABEL } from "../ui/controls";
+import { FIELD, FIELD_MULTILINE, HINT, LABEL } from "../ui/controls";
 import type { EventDraft, RecurrenceEnd } from "./event-draft";
 
 const FREQUENCY_LABEL: Readonly<
@@ -128,7 +128,7 @@ export function EventSeriesFields({
           onChange={(event) => {
             onChange({ ...draft, description: event.target.value });
           }}
-          className={`${FIELD} py-2`}
+          className={`${FIELD_MULTILINE}`}
         />
         <span className={HINT}>{t("events.manage.freeTextWarning")}</span>
       </label>

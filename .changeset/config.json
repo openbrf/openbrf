@@ -6,11 +6,13 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "ignore": [],
+  "fixed": [
+    ["@openbrf/api", "@openbrf/web", "@openbrf/i18n", "@openbrf/shared"]
+  ],
+  "linked": [],
+  "updateInternalDependencies": "patch",
   "privatePackages": {
     "version": true,
     "tag": false
-  },
-  "fixed": [],
-  "linked": [],
-  "updateInternalDependencies": "patch"
+  }
 }

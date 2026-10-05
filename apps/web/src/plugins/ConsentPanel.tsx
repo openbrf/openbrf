@@ -5,7 +5,7 @@ import { catalogText } from "../i18n/catalog-text";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import type { CatalogPlugin } from "./plugin-api";
+import type { CatalogPlugin, ProcessorAgreementAnswer } from "./plugin-api";
 import {
   ACTION_EFFECT_LABELS,
   actionPersonalDataLabel,
@@ -13,13 +13,23 @@ import {
   permissionLabel,
   personalDataLabel,
 } from "./plugin-labels";
+import {
+  recipientAnswer,
+  RecipientQuestion,
+  RecipientRecorded,
+  UNANSWERED,
+} from "./RecipientQuestion";
 
 export interface ConsentPanelProps {
   entry: CatalogPlugin;
   /** The board's language, for the catalog's own bilingual text. */
   locale: string;
   busy?: boolean;
-  onConfirm: () => void;
+  /**
+   * Called with the board's answer about where the plugin sends personal data,
+   * or with null where the record already classifies the plugin and is kept.
+   */
+  onConfirm: (answer: ProcessorAgreementAnswer | null) => void;
   onCancel: () => void;
 }
 
@@ -37,6 +47,13 @@ export interface ConsentPanelProps {
  * The two limits that hold regardless of what a plugin asked for are stated
  * here as well, because a board reading a list of permissions has no other way
  * to know where the list stops.
+ *
+ * It also asks the one thing the declaration cannot say - whether the plugin
+ * sends personal data outside the instance, and to whom - and nothing installs
+ * until that is answered, so the recipient is classified in the art. 28 record
+ * by the same act that consents to the plugin. A plugin the record already
+ * classifies - a reinstall, an update, or one removed and installed again - is
+ * not asked again, and what the record says stands.
  */
 export function ConsentPanel({
   entry,
@@ -47,6 +64,10 @@ export function ConsentPanel({
 }: ConsentPanelProps): ReactElement {
   const { t } = useTranslation();
   const [understood, setUnderstood] = useState(false);
+  const [recipient, setRecipient] = useState(UNANSWERED);
+  const recorded = entry.recipientState;
+  const answer = recipientAnswer(recipient);
+  const answered = recorded !== "notRecorded" || answer !== null;
 
   return (
     <Panel
@@ -60,8 +81,14 @@ export function ConsentPanel({
         <>
           <button
             type="button"
-            disabled={!understood || busy}
-            onClick={onConfirm}
+            disabled={!understood || !answered || busy}
+            onClick={() => {
+              if (recorded !== "notRecorded") {
+                onConfirm(null);
+              } else if (answer !== null) {
+                onConfirm(answer);
+              }
+            }}
             className={PRIMARY_BUTTON}
           >
             {busy
@@ -184,6 +211,22 @@ export function ConsentPanel({
           {t("plugins.consent.acknowledge")}
         </span>
       </label>
+
+      {/*
+        After the acknowledgement rather than among the declaration: the lists
+        above are what the catalog says and the board reads, and this is what
+        the board says and the record keeps. Directly above the install button,
+        so a button held shut sits beside the question still open.
+      */}
+      {recorded === "notRecorded" ? (
+        <RecipientQuestion
+          draft={recipient}
+          onChange={setRecipient}
+          disabled={busy}
+        />
+      ) : (
+        <RecipientRecorded state={recorded} />
+      )}
     </Panel>
   );
 }

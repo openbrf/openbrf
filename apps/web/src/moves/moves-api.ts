@@ -30,7 +30,9 @@ export type MoveErrorReason =
   | "transfer-person-not-found"
   | "transfer-reference-required"
   | "grant-has-no-seller"
-  | "date-not-a-calendar-date";
+  | "date-not-a-calendar-date"
+  | "seller-is-acquirer"
+  | "seller-not-tenant-owner";
 
 /** An upplatelse under BRL 4 kap., or an overgang under 6 kap. */
 export type TransferKind = "GRANT" | "TRANSFER";

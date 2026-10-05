@@ -16,7 +16,10 @@ import type {
 import { mediaUrl } from "../media/media.service";
 import { BoardMailboxError } from "./board-mailbox.error";
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
-import type { CollectionRefusal } from "./board-mailbox-delivery";
+import {
+  type CollectionRefusal,
+  LISTED_REFUSALS,
+} from "./board-mailbox-delivery";
 import { computeBoardMailboxPurgeDate } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
@@ -248,9 +251,13 @@ export class BoardMailboxService {
 
     // The mailbox collected from now, and no other. A letter set aside from a
     // mailbox the settings no longer name is not in the one the board would
-    // open to look for it.
+    // open to look for it. And only a letter set aside: the ledger also keeps
+    // what the purge erased and what was past retention when it was read, so
+    // the collector leaves those alone, and neither is the board's to go and
+    // read.
     const where = {
       sourceUid: { startsWith: `${mailboxFingerprint(settings.credentials)}:` },
+      reason: { in: [...LISTED_REFUSALS] },
     };
     const [rows, count] = await Promise.all([
       this.prisma.boardMailboxIgnoredMessage.findMany({

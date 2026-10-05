@@ -5,7 +5,8 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { MailSettingsResolver } from "../mail/mail-settings";
-import { connectedAppHost, type ProcessorFacts } from "./processors";
+import { connectedAppHost } from "../connected-apps/client-host";
+import type { ProcessorFacts } from "./processors";
 
 /**
  * What this instance is configured to hand personal data to.
@@ -68,6 +69,7 @@ export class ProcessorFactsService {
           where: { consents: { some: {} } },
           select: {
             id: true,
+            clientId: true,
             name: true,
             clientDiscoveryId: true,
             uri: true,
@@ -87,6 +89,12 @@ export class ProcessorFactsService {
     return {
       mailHost: mail?.host ?? null,
       mailFromAddress: mail?.fromAddress ?? null,
+      mailDriver:
+        mail === null
+          ? null
+          : mail.source === "settings"
+            ? "settings"
+            : mail.driver,
       smsDriver: association?.smsDriver ?? null,
       smsGatewayUrl: association?.smsGatewayUrl ?? null,
       storageDriver: this.env.OPENBRF_STORAGE_DRIVER,

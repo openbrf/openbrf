@@ -530,7 +530,9 @@ export class NewsActionsRegistrar implements OnModuleInit {
         additive: false,
         // The registry refuses to register a delete that does not say this, and
         // the reason is the same one that makes it true here: the row goes, the
-        // delivery ledger goes with it, and there is no undo.
+        // delivery ledger goes with it, and there is no undo. An item with
+        // comments under it is refused rather than taken with its thread; the
+        // comments are erased by their own purge and nothing else.
         needsConfirmation: true,
         input: z.strictObject({ id: newsIdSchema }),
         output: z.strictObject({

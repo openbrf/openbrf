@@ -23,6 +23,7 @@ import {
   installPlugin,
   type PluginsOverview,
   type PluginSummary,
+  type ProcessorAgreementAnswer,
   setPluginActionArmed,
 } from "./plugin-api";
 import {
@@ -67,14 +68,28 @@ const RESTART_POLL_ATTEMPTS = 30;
  *
  * Everything else falls back to the general sentence, which tells a board to
  * read the catalog again - right for an entry that changed under the screen and
- * wrong for these two, where reading the catalog again changes nothing. One
+ * wrong for the first two, where reading the catalog again changes nothing. One
  * names the plugin that has to be removed first, the other says the id is not
  * this plugin's to take; the board's next act is different in each case, so the
  * sentence has to be.
+ *
+ * The answer about where the plugin sends personal data is refused in the
+ * record's own words, which name the field to correct. The step holds back
+ * what it can see would be refused, so these arrive only when it could not.
+ * The one it cannot see is a record written since the screen was opened: the
+ * step asked because the plugin was unclassified then, and the install refuses
+ * to replace what the board has recorded since.
  */
 const INSTALL_ERRORS: Readonly<Record<string, TranslationKey>> = {
   "plugin-resource-conflict": "plugins.consent.errors.resourceConflict",
   "plugin-id-reserved": "plugins.consent.errors.reservedId",
+  "recipient-already-recorded": "plugins.consent.errors.recipientRecorded",
+  "recipient-required": "dataProtection.processors.errors.counterpartyRequired",
+  "note-required": "dataProtection.processors.errors.noteRequired",
+  "personal-identity-number":
+    "dataProtection.processors.errors.personalIdentityNumber",
+  "classification-inconsistent":
+    "dataProtection.processors.errors.classificationInconsistent",
 };
 
 /**
@@ -238,7 +253,9 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
     setCatalogToken((token) => token + 1);
   };
 
-  const confirmInstall = async (): Promise<void> => {
+  const confirmInstall = async (
+    answer: ProcessorAgreementAnswer | null,
+  ): Promise<void> => {
     if (pending === null) {
       return;
     }
@@ -251,6 +268,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       personalData: pending.personalData,
       actions: pending.actions,
       oauthProtectedResource: pending.oauthProtectedResource,
+      ...(answer === null ? {} : { processorAgreement: answer }),
     });
 
     setInstalling(false);
@@ -356,8 +374,8 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
               entry={pending}
               locale={i18n.language}
               busy={installing}
-              onConfirm={() => {
-                void confirmInstall();
+              onConfirm={(answer) => {
+                void confirmInstall(answer);
               }}
               onCancel={() => {
                 setPending(null);

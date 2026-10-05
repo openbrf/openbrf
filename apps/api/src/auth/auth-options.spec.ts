@@ -6,6 +6,7 @@ import type { PrismaService } from "../database/prisma.service";
 import {
   type AccountState,
   buildAuthOptions,
+  CALLER_SETTABLE_USER_FIELDS,
   CLIENT_MANAGEMENT_PATHS,
   deliverMagicLink,
   type MagicLinkDelivery,
@@ -13,6 +14,7 @@ import {
   SESSION_READ_MAX,
   SESSION_READ_PATH,
   SESSION_READ_WINDOW_SECONDS,
+  USER_UPDATE_PATH,
 } from "./auth-options";
 import { hashOpaqueToken } from "./opaque-token";
 
@@ -35,6 +37,7 @@ const options = buildAuthOptions(
       Promise.resolve({ exists: false, hasSecondFactor: false }),
     send: () => Promise.resolve(),
     sendSecondFactorNotice: () => Promise.resolve(),
+    background: () => undefined,
   },
   {
     declared: true,
@@ -77,6 +80,7 @@ function recording(state: AccountState): Recorded {
         notices.push(email);
         return Promise.resolve();
       },
+      background: (task) => void task(),
     },
   };
 }
@@ -261,6 +265,50 @@ describe("the tables the sign-in plugins need", () => {
 });
 
 /**
+ * What a caller may write to its own user row through Better Auth.
+ *
+ * Better Auth takes a field from a request body unless the field says
+ * `input: false`, and its own default is to take it. Every field this
+ * application or a plugin adds to the user is therefore checked here, so a new
+ * one has to be declared caller-settable on purpose rather than by omission.
+ */
+describe("the user fields a caller may set", () => {
+  const additional: Record<string, { input?: boolean }> =
+    options.user.additionalFields;
+
+  const fromPlugins = options.plugins.flatMap((plugin) => {
+    const schema = "schema" in plugin ? plugin.schema : undefined;
+    const user = (
+      schema as
+        { user?: { fields?: Record<string, { input?: boolean }> } } | undefined
+    )?.user;
+    return Object.entries(user?.fields ?? {}).map(
+      ([name, field]) => [`${plugin.id}.${name}`, field] as const,
+    );
+  });
+
+  it("takes none of this application's user fields from a request", () => {
+    expect(Object.keys(additional)).not.toHaveLength(0);
+    for (const [name, field] of Object.entries(additional)) {
+      if (CALLER_SETTABLE_USER_FIELDS.includes(name)) continue;
+      expect({ name, input: field.input }).toEqual({ name, input: false });
+    }
+  });
+
+  it("takes none of the plugins' user fields from a request", () => {
+    expect(fromPlugins).not.toHaveLength(0);
+    for (const [label, field] of fromPlugins) {
+      if (CALLER_SETTABLE_USER_FIELDS.includes(label)) continue;
+      expect({ label, input: field.input }).toEqual({ label, input: false });
+    }
+  });
+
+  it("closes Better Auth's own user-update endpoint", () => {
+    expect(options.disabledPaths).toContain(USER_UPDATE_PATH);
+  });
+});
+
+/**
  * The sign-in options a connected app is issued a token under.
  *
  * Read off the plugin object rather than restated, so that these are
@@ -423,7 +471,10 @@ describe("who may manage an OAuth client", () => {
     expect(
       reachable.filter((path) => !stillOpen.includes(path)).toSorted(),
     ).toEqual([...CLIENT_MANAGEMENT_PATHS].toSorted());
-    expect(options.disabledPaths).toEqual([...CLIENT_MANAGEMENT_PATHS]);
+    expect(options.disabledPaths).toEqual([
+      ...CLIENT_MANAGEMENT_PATHS,
+      USER_UPDATE_PATH,
+    ]);
     for (const path of stillOpen) {
       expect(options.disabledPaths).not.toContain(path);
     }

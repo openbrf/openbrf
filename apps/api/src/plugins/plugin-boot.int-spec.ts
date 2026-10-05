@@ -27,6 +27,7 @@ import {
   type PluginFinding,
 } from "./plugin-boot";
 import { PluginHostBinding } from "./plugin-host";
+import { PluginLoaderService } from "./plugin-loader.service";
 import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
 import { PluginRegistryService } from "./plugin-registry.service";
 
@@ -63,7 +64,19 @@ const WIDENED = `boot-widened-${SUFFIX}`;
 const REFUSED = `boot-refused-${SUFFIX}`;
 const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
-const ALL_IDS = [GOOD, BROKEN, DISABLED, WIDENED, REFUSED, FAILING, PD_WIDENED];
+const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
+const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
+const ALL_IDS = [
+  GOOD,
+  BROKEN,
+  DISABLED,
+  WIDENED,
+  REFUSED,
+  FAILING,
+  PD_WIDENED,
+  OTHER_PACKAGE,
+  OTHER_VERSION,
+];
 
 let prisma: PrismaClient;
 let workspace: string;
@@ -175,15 +188,20 @@ async function writePackage(
   );
 }
 
-async function consent(
-  id: string,
-  permissions: string[],
-  personalData: string[] = ["name"],
-): Promise<void> {
+/** What the board agreed to for `id`; the package and version default to its own. */
+interface Consented {
+  permissions?: string[];
+  personalData?: string[];
+  packageName?: string;
+  version?: string;
+}
+
+async function consent(id: string, consented: Consented = {}): Promise<void> {
+  const { permissions = [], personalData = ["name"] } = consented;
   await registry.consent({
     id,
-    packageName: `openbrf-plugin-${id}`,
-    version: "1.0.0",
+    packageName: consented.packageName ?? `openbrf-plugin-${id}`,
+    version: consented.version ?? "1.0.0",
     tarballUrl: `file:///dev/null/${id}.tgz`,
     checksum: "sha512-unused-in-this-suite",
     permissions: permissions as never,
@@ -257,6 +275,9 @@ exports.createPlugin = function createPlugin() {
 };
 `,
   });
+  // Both declare exactly what was consented to; only the package differs.
+  await writePackage(modules, { id: OTHER_PACKAGE });
+  await writePackage(modules, { id: OTHER_VERSION });
   await writePackage(modules, {
     id: FAILING,
     server: `exports.createPlugin = function createPlugin() {
@@ -277,15 +298,20 @@ exports.createPlugin = function createPlugin() {
   );
 
   await prisma.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
-  await consent(GOOD, ["addressBook:read"]);
-  await consent(DISABLED, []);
+  await consent(GOOD, { permissions: ["addressBook:read"] });
+  await consent(DISABLED);
   // Consented to less than the installed package now asks for, which is what a
   // republished version widening its own reach would look like.
-  await consent(WIDENED, ["addressBook:read"]);
-  await consent(PD_WIDENED, ["addressBook:read"], ["name"]);
-  await consent(BROKEN, []);
-  await consent(REFUSED, []);
-  await consent(FAILING, []);
+  await consent(WIDENED, { permissions: ["addressBook:read"] });
+  await consent(PD_WIDENED, {
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+  });
+  await consent(BROKEN);
+  await consent(REFUSED);
+  await consent(FAILING);
+  await consent(OTHER_PACKAGE, { packageName: "@someone-else/openbrf-plugin" });
+  await consent(OTHER_VERSION, { version: "0.9.0" });
   await registry.setEnabled(DISABLED, false);
 
   binding = new PluginHostBinding();
@@ -441,6 +467,43 @@ describe("loading plugins at boot", () => {
     expect(loaded(PD_WIDENED)).toBeUndefined();
     expect(finding(PD_WIDENED)?.reason).toBe("personal-data-widened");
     expect(finding(PD_WIDENED)?.detail["categories"]).toContain("email");
+  });
+
+  /**
+   * Consent is to a package at a version, and the id is only what a package
+   * says about itself. A different package, or a different release of the
+   * consented one, under the same id is not what the board agreed to run.
+   */
+  it("refuses a package other than the one consented to under the same id", () => {
+    expect(loaded(OTHER_PACKAGE)).toBeUndefined();
+    expect(finding(OTHER_PACKAGE)?.reason).toBe("not-consented");
+    expect(boot.reconcileNeeded).toBe(true);
+    expect(warnings).toContain(
+      "consent is for @someone-else/openbrf-plugin@1.0.0",
+    );
+  });
+
+  it("refuses a version other than the one consented to", () => {
+    expect(loaded(OTHER_VERSION)).toBeUndefined();
+    expect(finding(OTHER_VERSION)?.reason).toBe("not-consented");
+    expect(boot.reconcileNeeded).toBe(true);
+    expect(warnings).toContain(
+      `consent is for openbrf-plugin-${OTHER_VERSION}@0.9.0`,
+    );
+  });
+
+  /**
+   * The admin screen draws a plugin's settings form, and validates what the
+   * board saves, from the manifest the loader holds for its id. A package the
+   * board did not consent to must not supply that.
+   */
+  it("keeps no manifest for a package other than the one consented to", () => {
+    const loader = new PluginLoaderService(boot, {} as never, {} as never);
+
+    expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
+    expect(boot.dormant.has(OTHER_VERSION)).toBe(false);
+    expect(loader.manifestFor(OTHER_PACKAGE)).toBeNull();
+    expect(loader.manifestFor(OTHER_VERSION)).toBeNull();
   });
 
   it("raises the plugin's controllers to the floor its permissions imply", () => {

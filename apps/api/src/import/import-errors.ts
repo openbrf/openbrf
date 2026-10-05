@@ -12,12 +12,25 @@ export type ImportErrorReason =
   | "session-not-found"
   | "session-expired"
   | "session-already-applied"
+  /**
+   * Another session is queued or applying. Answered with 409 and the session
+   * asked about is left in MAPPING, so it can be applied once the other has
+   * finished.
+   */
+  | "another-import-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
+  | "preview-outdated"
+  /**
+   * Somebody previewed the session again while this apply was starting, so
+   * the preview it was checked against is no longer the one recorded. Answered
+   * with 409, and the session stays in MAPPING.
+   */
+  | "preview-replaced"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   | "apply-interrupted";
@@ -32,7 +45,10 @@ export class ImportError extends DomainError {
     this.status =
       reason === "session-not-found"
         ? 404
-        : reason === "session-expired" || reason === "session-already-applied"
+        : reason === "session-expired" ||
+            reason === "session-already-applied" ||
+            reason === "another-import-running" ||
+            reason === "preview-replaced"
           ? 409
           : 400;
   }

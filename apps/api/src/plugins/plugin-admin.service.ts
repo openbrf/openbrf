@@ -24,6 +24,7 @@ import {
 } from "../data-protection/processor-agreement.service";
 import { ProcessorFactsService } from "../data-protection/processor-facts.service";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import type { ProcessorAgreementState } from "../data-protection/processors";
 import { ENV } from "../config/config.module";
 import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
@@ -40,6 +41,7 @@ import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
   PluginConsentMismatchError,
+  PluginRecipientAlreadyRecordedError,
   PluginRecipientRequiredError,
   PluginNotFoundError,
   PluginReservedIdError,
@@ -125,6 +127,19 @@ export interface CatalogPluginView {
   supported: boolean;
   /** The version currently installed, when there is one. */
   installedVersion: string | null;
+  /**
+   * What the record of recipients already says about this plugin, or
+   * `notRecorded`.
+   *
+   * The consent step asks where the plugin sends personal data only while
+   * nothing is recorded. Reinstalling and updating open the same step, and
+   * answering it again would replace a classification the board may have
+   * completed since - a signed agreement's date and reference included - with
+   * the few facts the step asks for. The classification is kept across
+   * uninstalling as well, so this is read from the record rather than from
+   * `installedVersion`.
+   */
+  recipientState: ProcessorAgreementState;
 }
 
 export interface PluginSettingsView {
@@ -175,6 +190,9 @@ export interface InstallRequest {
    *
    * Omitted by the command-line tool, which records no classification: the
    * recipient reads as not recorded until the board answers on the screen.
+   *
+   * Only for a plugin the record does not yet classify; an answer for one it
+   * does is refused.
    */
   processorAgreement?: {
     sendsPersonalDataOutside: boolean;
@@ -363,9 +381,10 @@ export class PluginAdminService {
     source: string;
     entries: CatalogPluginView[];
   }> {
-    const [catalog, installed] = await Promise.all([
+    const [catalog, installed, recipients] = await Promise.all([
       this.catalog.read({ refresh: true }),
       this.registry.list(),
+      this.processors.forPlugins(),
     ]);
     const byId = new Map(installed.map((record) => [record.id, record]));
 
@@ -396,6 +415,7 @@ export class PluginAdminService {
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
+          recipientState: recipients.get(entry.id) ?? "notRecorded",
         })),
     };
   }
@@ -529,7 +549,17 @@ export class PluginAdminService {
      * and no classification in the art. 28 one. The command-line tool sends no
      * recipient answer; a direct caller of the API, such as a script, can send
      * one without any screen's checks in front of it.
+     *
+     * Neither can change a classification the record already holds; see
+     * {@link PluginRecipientAlreadyRecordedError}.
      */
+    if (
+      request.processorAgreement !== undefined &&
+      (await this.processors.forPlugins()).has(entry.id)
+    ) {
+      throw new PluginRecipientAlreadyRecordedError(entry.id);
+    }
+
     const agreement =
       request.processorAgreement === undefined
         ? undefined
@@ -554,12 +584,18 @@ export class PluginAdminService {
      *
      * The recipient is keyed on the plugin id rather than on the installed row,
      * so it survives the reinstall that rewrites that row.
+     *
+     * Only where the record is still empty: the check above was taken before
+     * the consent row, so a classification written in between is kept and this
+     * install goes on without its answer rather than failing after the consent
+     * is already committed.
      */
     if (agreement !== undefined) {
       await this.processors.record(
         pluginProcessorKey(entry.id),
         { ...agreement, actorPersonId, channel },
         await this.facts.read(),
+        { onlyIfUnrecorded: true },
       );
     }
 

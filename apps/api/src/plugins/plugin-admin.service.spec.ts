@@ -12,6 +12,7 @@ import { PluginInstallerService } from "./plugin-installer.service";
 import {
   PluginConsentMismatchError,
   PluginNotFoundError,
+  PluginRecipientAlreadyRecordedError,
   PluginRecipientRequiredError,
   PluginReservedIdError,
   PluginResourceConflictError,
@@ -58,6 +59,8 @@ interface Options {
   installed?: readonly InstalledPluginFixture[];
   /** What the index lists, when the subject is browsing rather than installing. */
   listed?: readonly CatalogPluginEntry[];
+  /** What the record of recipients says, by plugin id. */
+  recipients?: ReadonlyMap<string, string>;
   /** OPENBRF_PLUGINS_ENABLED; on unless the instance is the subject. */
   pluginsEnabled?: boolean;
 }
@@ -87,6 +90,7 @@ function build(options: Options = {}) {
   );
   const consent = vi.fn(async () => undefined);
   const recordProcessor = vi.fn(async () => undefined);
+  const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
   const record = vi.fn(async () => undefined);
   /*
@@ -127,11 +131,11 @@ function build(options: Options = {}) {
     // The recipient's classification, the processing it performs, and what the
     // instance is configured to hand data to. Recorded on install; the
     // assertions here are about the consent row, so these only have to exist.
-    { record: recordProcessor } as never,
     {
-      seedPlugin: vi.fn(async () => undefined),
-      endPlugin: vi.fn(async () => undefined),
+      record: recordProcessor,
+      forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
+    { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
     { read: async () => FACTS } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
@@ -142,6 +146,7 @@ function build(options: Options = {}) {
     service,
     consent,
     recordProcessor,
+    seedPlugin,
     setActionArmed,
     record,
     prisma,
@@ -471,6 +476,22 @@ describe("what the consent step records about the recipient", () => {
     },
   );
 
+  it("leaves the record of recipients alone when the request carries no answer", async () => {
+    // A reinstall over a classification the board has completed sends none.
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+      },
+      null,
+      "WEB",
+    );
+
+    expect(consent).toHaveBeenCalledTimes(1);
+    expect(recordProcessor).not.toHaveBeenCalled();
+  });
+
   it("records a processor with the recipient the board named", async () => {
     await service.install(
       {
@@ -622,6 +643,40 @@ describe("what the consent step records about the recipient", () => {
     });
   });
 
+  it("records an independent controller with the reason and no agreement", async () => {
+    /*
+     * The other answer the consent step offers once the board says data leaves.
+     * A controller in its own right has no art. 28(3) agreement, so every field
+     * describing one has to arrive empty - the record refuses them on this
+     * classification - and the reason the board gave is what the record keeps
+     * instead of an agreement.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: {
+          sendsPersonalDataOutside: true,
+          recipient: "Kartbolaget AB",
+          classification: "INDEPENDENT_CONTROLLER",
+          note: "Bestammer sjalv over sina kartdata.",
+        },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(classified()).toMatchObject({
+      classification: "INDEPENDENT_CONTROLLER",
+      status: null,
+      counterparty: "Kartbolaget AB",
+      termsConfirmed: null,
+      subProcessorsAuthorised: null,
+      note: "Bestammer sjalv over sina kartdata.",
+    });
+  });
+
   it("keeps the classification out of the declaration a reinstall compares", async () => {
     /*
      * The consent row asserts what the board was shown and agreed to. A
@@ -641,6 +696,119 @@ describe("what the consent step records about the recipient", () => {
     );
 
     expect(Object.keys(recorded())).not.toContain("processorAgreement");
+  });
+
+  it("asks the record to keep a classification written since the check", async () => {
+    /*
+     * The refusal below is a read taken before the consent row. A board
+     * classifying the plugin on the data protection screen in between is kept
+     * by the write itself, which is the only place the two can meet.
+     */
+    await service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+        processorAgreement: { sendsPersonalDataOutside: false },
+      },
+      null,
+      "WEB",
+    );
+
+    expect(recordProcessor.mock.calls[0]?.[3]).toEqual({
+      onlyIfUnrecorded: true,
+    });
+  });
+});
+
+describe("an install for a plugin the record already classifies", () => {
+  /*
+   * The consent step asks only where the record has nothing, so an answer
+   * arriving for a classified plugin comes from a tab opened before somebody
+   * classified it, or from a caller of the API with no screen at all. Either
+   * holds the permission to install plugins and not the one to change the
+   * art. 28 record; recording the answer would let an update turn an agreement
+   * the board recorded as in place back into one being made.
+   */
+  function classifiedAs(state: string) {
+    return build({ recipients: new Map([["occupancy", state]]) });
+  }
+
+  it("refuses an update's answer over an agreement in place, and writes nothing", async () => {
+    const built = classifiedAs("inPlace");
+
+    const refusal: unknown = await built.service
+      .install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: {
+            sendsPersonalDataOutside: true,
+            recipient: "Belaggningstjansten AB",
+            classification: "PROCESSOR",
+            status: "PENDING",
+          },
+        },
+        "admin-1",
+        "WEB",
+      )
+      .catch((error: unknown) => error);
+
+    // A reason of its own, so the screen can say what happened rather than
+    // falling back to "the catalog may have changed".
+    expect(refusal).toBeInstanceOf(PluginRecipientAlreadyRecordedError);
+    expect(refusal).toMatchObject({
+      status: 409,
+      reason: "recipient-already-recorded",
+    });
+
+    // Refused before the first write, like every other answer the install
+    // refuses: no consent row claiming an update that never happened.
+    expect(built.recordProcessor).not.toHaveBeenCalled();
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "notAProcessor", "independentController"])(
+    "refuses an answer over a %s classification too",
+    async (state) => {
+      const built = classifiedAs(state);
+
+      await expect(
+        built.service.install(
+          {
+            id: "occupancy",
+            permissions: ["mail:send", "addressBook:read"],
+            personalData: ["apartment", "name"],
+            processorAgreement: { sendsPersonalDataOutside: false },
+          },
+          "admin-1",
+          "WEB",
+        ),
+      ).rejects.toThrow(PluginRecipientAlreadyRecordedError);
+
+      expect(built.recordProcessor).not.toHaveBeenCalled();
+    },
+  );
+
+  it("installs with no answer and leaves the record as it is", async () => {
+    // What the consent step sends here: it shows what the record says and
+    // asks nothing.
+    const built = classifiedAs("inPlace");
+
+    await built.service.install(
+      {
+        id: "occupancy",
+        permissions: ["mail:send", "addressBook:read"],
+        personalData: ["apartment", "name"],
+      },
+      "admin-1",
+      "WEB",
+    );
+
+    expect(built.consent).toHaveBeenCalledTimes(1);
+    expect(built.recordProcessor).not.toHaveBeenCalled();
   });
 });
 
@@ -725,6 +893,27 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+
+  it("carries what the record of recipients says about the plugin", async () => {
+    // The consent step keeps a recorded classification rather than asking
+    // again, and a plugin removed and installed again still has one.
+    const { service } = build({
+      listed: [ENTRY],
+      recipients: new Map([["occupancy", "inPlace"]]),
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipientState).toBe("inPlace");
+  });
+
+  it("says not recorded for a plugin the record does not name", async () => {
+    const { service } = build({ listed: [ENTRY] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipientState).toBe("notRecorded");
   });
 });
 

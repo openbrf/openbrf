@@ -15,6 +15,7 @@ import {
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
+  FIELD_MULTILINE,
   HINT,
   LABEL,
   PRIMARY_BUTTON,
@@ -581,7 +582,7 @@ function ResourceFields({
           onChange={(event) => {
             onChange({ ...draft, description: event.target.value });
           }}
-          className={`${FIELD} py-2`}
+          className={`${FIELD_MULTILINE}`}
         />
         <span className={HINT}>
           {t("settings.bookableResources.descriptionHint")}
