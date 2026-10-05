@@ -645,6 +645,18 @@ export class NewsWriteService {
       input.published && input.sendSms === true && news.smsQueuedAt === null;
 
     /*
+     * Whether this call puts back up an item whose mailing was claimed while it
+     * was up. The workers leave a taken-down item's rows waiting rather than
+     * sending them or failing them, so this is where they are picked up again:
+     * the claim and the snapshot stand, and the job is queued once more. The
+     * rows are claimed one at a time by the worker, so a second job for the
+     * same mailing reaches nobody twice.
+     */
+    const resuming = input.published && !news.published;
+    const mayResumeEmail = resuming && news.emailQueuedAt !== null;
+    const mayResumeSms = resuming && news.smsQueuedAt !== null;
+
+    /*
      * A write that changes nothing writes nothing.
      *
      * Pressing publish on an item that is already published to the same people,
@@ -665,10 +677,10 @@ export class NewsWriteService {
     // Before the transaction opens: creating a queue is the queue backend's own
     // work on its own connection, and it has no business inside somebody else's
     // transaction.
-    if (mailing) {
+    if (mailing || mayResumeEmail) {
       await this.mailer.ensureQueues();
     }
-    if (texting) {
+    if (texting || mayResumeSms) {
       await this.texter.ensureQueues();
     }
 
@@ -805,6 +817,31 @@ export class NewsWriteService {
 
           return recipients.length;
         };
+
+        /**
+         * Queues one channel's earlier mailing again, when rows of it are still
+         * waiting. Counted here rather than before the transaction, so a worker
+         * that finished in between leaves nothing to queue.
+         */
+        const resume = async (channel: "EMAIL" | "SMS"): Promise<void> => {
+          const waiting = await tx.newsDelivery.count({
+            where: { newsId: id, channel, status: "PENDING" },
+          });
+          if (waiting === 0) {
+            return;
+          }
+          if (channel === "SMS") {
+            await this.texter.enqueueInTransaction(tx, id);
+          } else {
+            await this.mailer.enqueueInTransaction(tx, id);
+          }
+        };
+        if (mayResumeEmail) {
+          await resume("EMAIL");
+        }
+        if (mayResumeSms) {
+          await resume("SMS");
+        }
 
         return {
           row: updated,
