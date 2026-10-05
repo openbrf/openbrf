@@ -64,6 +64,12 @@ const STORED = {
   smtpPasswordCipher: null as string | null,
   smtpFromAddress: null as string | null,
   smtpSecure: true,
+  boardMailboxAddress: null as string | null,
+  boardMailboxPop3Host: null as string | null,
+  boardMailboxPop3Port: null as number | null,
+  boardMailboxPop3Secure: true,
+  boardMailboxPop3User: null as string | null,
+  boardMailboxPop3PasswordCipher: null as string | null,
   smsDriver: null as string | null,
   smsGatewayUrl: null as string | null,
   smsGatewayTokenCipher: null as string | null,
@@ -395,12 +401,74 @@ describe("SMTP settings", () => {
     // The screen never shows the password, so saving the rest of the form must
     // not wipe it.
     const { service, current } = build({
+      smtpHost: filled.host,
+      smtpPort: filled.port,
       smtpPasswordCipher: "brf:existing-ciphertext",
     });
 
-    await service.updateSmtp(filled);
+    await service.updateSmtp({ ...filled, user: "kassoren" });
 
     expect(current()?.smtpPasswordCipher).toBe("brf:existing-ciphertext");
+    expect(current()?.smtpUser).toBe("kassoren");
+  });
+
+  it.each([
+    ["host", { host: "smtp.elsewhere.example" }],
+    ["port", { port: 2525 }],
+  ])(
+    "refuses to keep the stored password for a new %s, and writes nothing",
+    async (_, change) => {
+      // The next send would hand the association's password to whatever
+      // answers at the new address.
+      const { service, current } = build({
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      });
+
+      await expect(
+        service.updateSmtp({ ...filled, ...change }),
+      ).rejects.toMatchObject({
+        reason: "secret-required-for-new-endpoint",
+        status: 400,
+      });
+      expect(current()).toMatchObject({
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      });
+    },
+  );
+
+  it("takes a new host together with a new or a cleared password", async () => {
+    const stored = {
+      smtpHost: filled.host,
+      smtpPort: filled.port,
+      smtpPasswordCipher: "brf:existing-ciphertext",
+    };
+    const moved = { ...filled, host: "smtp.elsewhere.example" };
+
+    const replaced = build(stored);
+    await replaced.service.updateSmtp({ ...moved, password: "new-password" });
+    expect(replaced.current()?.smtpHost).toBe("smtp.elsewhere.example");
+    expect(replaced.current()?.smtpPasswordCipher).not.toBe(
+      "brf:existing-ciphertext",
+    );
+
+    const cleared = build(stored);
+    await cleared.service.updateSmtp({ ...moved, password: null });
+    expect(cleared.current()).toMatchObject({
+      smtpHost: "smtp.elsewhere.example",
+      smtpPasswordCipher: null,
+    });
+  });
+
+  it("takes a new host freely while no password is stored", async () => {
+    const { service, current } = build({ smtpHost: "smtp.old.example" });
+
+    await service.updateSmtp(filled);
+
+    expect(current()?.smtpHost).toBe(filled.host);
   });
 
   it("clears the password when it is explicitly emptied", async () => {
@@ -657,6 +725,98 @@ describe("SMS settings", () => {
     });
 
     expect(current()?.smsGatewayTokenCipher).toBeNull();
+  });
+
+  it.each([
+    ["gateway address", { gatewayUrl: "https://elsewhere.example/send" }],
+    ["driver", { driver: "another-driver" }],
+  ])(
+    "refuses to keep the stored credential for a new %s",
+    async (_, change) => {
+      const { service, current } = build({
+        smsDriver: "http-gateway",
+        smsGatewayUrl: "https://gateway.example/send",
+        smsGatewayTokenCipher: "brf:some-ciphertext",
+      });
+      const input = {
+        driver: "http-gateway",
+        gatewayUrl: "https://gateway.example/send",
+        senderName: null,
+        ...change,
+      };
+
+      await expect(service.updateSms(input)).rejects.toMatchObject({
+        reason: "secret-required-for-new-endpoint",
+      });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+
+      // Typed again, or cleared, the same change goes through.
+      await expect(
+        service.updateSms({ ...input, token: null }),
+      ).resolves.toMatchObject({ ...change, tokenSet: false });
+    },
+  );
+});
+
+describe("board mailbox settings", () => {
+  const filled = {
+    address: "styrelsen@exempel.se",
+    host: "pop.example.se",
+    port: 995,
+    secure: true,
+    user: "styrelsen",
+  };
+  const stored = {
+    boardMailboxPop3Host: filled.host,
+    boardMailboxPop3Port: filled.port,
+    boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
+  };
+
+  it("keeps the stored password while the server stays the same", async () => {
+    const { service, current } = build(stored);
+
+    await service.updateBoardMailbox({ ...filled, user: "kassoren" });
+
+    expect(current()).toMatchObject({
+      boardMailboxPop3User: "kassoren",
+      boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
+    });
+  });
+
+  it.each([
+    ["host", { host: "pop.elsewhere.example" }],
+    ["port", { port: 1110 }],
+  ])("refuses to keep the stored password for a new %s", async (_, change) => {
+    const { service, current } = build(stored);
+
+    await expect(
+      service.updateBoardMailbox({ ...filled, ...change }),
+    ).rejects.toMatchObject({ reason: "secret-required-for-new-endpoint" });
+    expect(current()).toMatchObject(stored);
+
+    await service.updateBoardMailbox({
+      ...filled,
+      ...change,
+      password: "new-password",
+    });
+    expect(current()?.boardMailboxPop3PasswordCipher).not.toBe(
+      stored.boardMailboxPop3PasswordCipher,
+    );
+  });
+
+  it("takes a new host together with a cleared password", async () => {
+    const { service, current } = build(stored);
+
+    await service.updateBoardMailbox({
+      ...filled,
+      host: "pop.elsewhere.example",
+      password: "",
+    });
+
+    expect(current()).toMatchObject({
+      boardMailboxPop3Host: "pop.elsewhere.example",
+      boardMailboxPop3PasswordCipher: null,
+    });
   });
 });
 

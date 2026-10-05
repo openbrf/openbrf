@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { BoardMailboxSettings } from "../api/instance";
 import { saveBoardMailbox } from "../api/instance";
+import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -13,6 +14,12 @@ export interface BoardMailboxPanelProps {
   onSaved?: (value: BoardMailboxSettings) => void;
   editable?: boolean;
 }
+
+const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // The host or port changed while the password field was left empty.
+  "secret-required-for-new-endpoint":
+    "settings.boardMailbox.errors.secretRequiredForNewEndpoint",
+};
 
 /**
  * The port to offer when the settings name none.
@@ -99,7 +106,7 @@ export function BoardMailboxPanel({
             {t(
               failureMessageKey(
                 save.state.failure,
-                {},
+                SAVE_FAILURES,
                 "settings.errors.unknown",
               ),
             )}

@@ -27,6 +27,13 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "no-phone": "settings.sms.errors.noPhone",
 };
 
+const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // The driver or the gateway address changed while the credential field was
+  // left empty.
+  "secret-required-for-new-endpoint":
+    "settings.sms.errors.secretRequiredForNewEndpoint",
+};
+
 /**
  * The driver the board can pick on this screen.
  *
@@ -102,7 +109,7 @@ export function SmsPanel({
             {t(
               failureMessageKey(
                 save.state.failure,
-                {},
+                SAVE_FAILURES,
                 "settings.errors.unknown",
               ),
             )}

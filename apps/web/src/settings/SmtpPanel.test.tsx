@@ -350,3 +350,22 @@ describe("a save the environment refuses", () => {
     });
   });
 });
+
+describe("a save that moves the server", () => {
+  it("asks for the password again rather than a generic failure", async () => {
+    // The stored password is not sent to a new host on the strength of an
+    // empty field, and the refusal has to say what to do about it.
+    saveSmtp.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "secret-required-for-new-endpoint" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/ange lösenordet igen/i)).toBeTruthy();
+    });
+  });
+});

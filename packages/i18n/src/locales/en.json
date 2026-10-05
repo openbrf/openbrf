@@ -1133,7 +1133,8 @@
         "noEmail": "Your own record has no email address to send the test to.",
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
-        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them."
+        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
+        "secretRequiredForNewEndpoint": "The server changed. Enter its password again, or remove the stored one, before saving."
       },
       "test": {
         "subject": "Test message from {{association}}",
@@ -1154,7 +1155,10 @@
       "passwordClear": "Remove the stored password",
       "secure": "Encrypted connection (implicit TLS, usually port 995)",
       "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
-      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is."
+      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is.",
+      "errors": {
+        "secretRequiredForNewEndpoint": "The mailbox server changed. Enter its password again, or remove the stored one, before saving."
+      }
     },
     "sms": {
       "title": "Text messages",
@@ -1178,7 +1182,8 @@
       "errors": {
         "notConfigured": "Save a provider and a gateway address before sending a test.",
         "noPhone": "Your own record has no phone number to send the test to.",
-        "unknown": "The message could not be sent. Check the gateway address and the credential."
+        "unknown": "The message could not be sent. Check the gateway address and the credential.",
+        "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving."
       }
     },
     "retention": {
