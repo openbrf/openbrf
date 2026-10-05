@@ -245,6 +245,17 @@ export class ContactService implements OnModuleInit {
    */
   async list(cursor?: string): Promise<ContactInboxPage> {
     const after = cursor === undefined ? null : readInboxCursor(cursor);
+    if (cursor !== undefined && after === null) {
+      /*
+       * Refused as a place in the inbox that is not there when this service did
+       * not write it - rather than read as the first page, which would hand a
+       * board reading on the messages already in front of it.
+       */
+      throw new ContactError(
+        "There is no such place in the inbox. Read it again from the start.",
+        "not-found",
+      );
+    }
 
     const [rows, unhandled, total] = await Promise.all([
       this.prisma.contactSubmission.findMany({
@@ -577,12 +588,11 @@ function inboxCursor(row: InboxCursor): string {
 }
 
 /**
- * The cursor a reader handed back, refused as a place in the inbox that is not
- * there when this service did not write it - rather than read as the first
- * page, which would hand a board reading on the messages already in front of
- * it.
+ * The cursor a reader handed back, or null when it is not one this service
+ * issued. The instant has to come back out exactly as it went in, so a value
+ * `new Date` merely tolerates does not name a place in the inbox.
  */
-function readInboxCursor(value: string): InboxCursor {
+function readInboxCursor(value: string): InboxCursor | null {
   const [state, instant = "", id = "", ...rest] = value.split("|");
   const createdAt = new Date(instant);
   if (
@@ -592,10 +602,7 @@ function readInboxCursor(value: string): InboxCursor {
     Number.isNaN(createdAt.getTime()) ||
     createdAt.toISOString() !== instant
   ) {
-    throw new ContactError(
-      "There is no such place in the inbox. Read it again from the start.",
-      "not-found",
-    );
+    return null;
   }
   return { handled: state === "handled", createdAt, id };
 }
