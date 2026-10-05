@@ -312,7 +312,7 @@
           "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
           "termOverlaps": "Ett tidigare uppdrag på samma post löper förbi det här valdatumet. Kontrollera datumet.",
           "electedTooFarAhead": "Ett val kan inte dateras så långt fram i tiden. Kontrollera årtalet.",
-          "electedTooFarBack": "Ett val kan inte dateras mer än fem år bakåt i tiden. Kontrollera årtalet.",
+          "electedTooFarBack": "Ett val kan inte dateras så långt bakåt i tiden. Kontrollera årtalet.",
           "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du bara anteckna den första styrelsen, och aldrig ditt eget uppdrag.",
           "termAlreadyEnded": "Uppdraget är redan avslutat. Datumen är beskrivningen av en period som har löpt och de står kvar.",
           "endedBeforeElected": "Ett uppdrag kan inte avslutas före valet som påbörjade det.",
