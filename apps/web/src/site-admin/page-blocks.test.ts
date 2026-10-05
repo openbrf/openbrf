@@ -180,6 +180,22 @@ describe("what is worth sending", () => {
     });
   });
 
+  it("keeps the blocks it has nothing to fill in on, known or not", () => {
+    // A save carries the whole page: a block left out of the body is deleted.
+    const unknown = { type: "mapEmbed", zoom: 12 } as unknown as PageBlock;
+    const blocks: PageBlock[] = [
+      { type: "controllerContact" },
+      { type: "paragraph", runs: [] },
+      unknown,
+      TEXT,
+    ];
+
+    expect(submittableBlocks(blocks)).toEqual({
+      blocks: [{ type: "controllerContact" }, unknown, TEXT],
+      positions: [0, 2, 3],
+    });
+  });
+
   it("reads a text block as one string and back", () => {
     expect(runsToText([{ text: "Sty" }, { text: "relsen", bold: true }])).toBe(
       "Styrelsen",
@@ -288,6 +304,18 @@ describe("questions and answers", () => {
     ]);
   });
 
+  it("scan the binder a document list prints as its heading", () => {
+    expect(blockText({ type: "documentList" })).toBe("");
+    expect(
+      scanPage({
+        title: "Handlingar",
+        blocks: [
+          { type: "documentList", category: "Handlingar 19811218-9876" },
+        ],
+      }),
+    ).toEqual([{ block: 0 }]);
+  });
+
   it("put both halves in front of the scan", () => {
     // A question is as good a place to paste a personal identity number into
     // as an answer, and both are published.
@@ -341,6 +369,26 @@ describe("warning before the server refuses", () => {
         ],
       }),
     ).toEqual([]);
+  });
+
+  it("reads a link's address, which the page publishes in its HTML", () => {
+    expect(
+      scanPage({
+        title: "Kontakt",
+        blocks: [
+          TEXT,
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv till Anna",
+                link: "mailto:anna@exempel.se?subject=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([{ block: 1 }]);
   });
 
   it("reads an image's description as published prose", () => {

@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -428,6 +430,140 @@ describe("registering through the administrator's route", () => {
       targetKind: "oauthClient",
       context: { redirectHosts: ["app.exempel.se"] },
     });
+  });
+
+  it.each([
+    "http://localhost:8123/cb",
+    "http://127.0.0.1:8123/cb",
+    "http://[::1]:8123/cb",
+  ])("registers a client on this machine at %s", async (redirectUri) => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/oauth-clients",
+      payload: {
+        clientName: `${NAME_PREFIX} loopback`,
+        redirectUris: [redirectUri],
+      },
+      headers: browserHeaders(adminCookie),
+    });
+
+    expect(response.statusCode).toBe(201);
+    const { clientId } = response.json<{ clientId: string }>();
+    expect(
+      await prisma.oauthClient.findUniqueOrThrow({ where: { clientId } }),
+    ).toMatchObject({
+      applicationType: "native",
+      redirectUris: [redirectUri],
+      skipConsent: false,
+      requirePKCE: true,
+    });
+  });
+
+  it("takes a client on this machine through authorization code and PKCE", async () => {
+    const redirectUri = "http://127.0.0.1:8123/cb";
+    const registered = await inject({
+      method: "POST",
+      url: "/api/oauth-clients",
+      payload: {
+        clientName: `${NAME_PREFIX} loopback flow`,
+        redirectUris: [redirectUri],
+      },
+      headers: browserHeaders(adminCookie),
+    });
+    expect(registered.statusCode).toBe(201);
+    const { clientId, clientSecret } = registered.json<{
+      clientId: string;
+      clientSecret: string;
+    }>();
+
+    const verifier = randomBytes(32).toString("base64url");
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const authorize = await inject({
+      method: "GET",
+      url: `/api/auth/oauth2/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: "mcp:read",
+        state: "s",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        resource: resource.url,
+      }).toString()}`,
+      headers: { cookie: adminCookie },
+    });
+    // Sent to the consent screen: signed in, and no consent given yet.
+    expect(authorize.statusCode).toBe(302);
+    const consentUrl = new URL(String(authorize.headers.location), env.APP_URL);
+    expect(consentUrl.pathname).toBe("/app/oauth/consent");
+
+    const consent = await inject({
+      method: "POST",
+      url: "/api/connected-apps/consent",
+      payload: { oauth_query: consentUrl.search.slice(1) },
+      headers: browserHeaders(adminCookie),
+    });
+    expect(consent.statusCode).toBe(200);
+    const { url: callback } = consent.json<{ url: string }>();
+    const back = new URL(callback);
+    expect(`${back.origin}${back.pathname}`).toBe("http://127.0.0.1:8123/cb");
+    expect(back.searchParams.get("state")).toBe("s");
+    const code = back.searchParams.get("code");
+    expect(code).toEqual(expect.any(String));
+
+    const token = await inject({
+      method: "POST",
+      url: "/api/auth/oauth2/token",
+      payload: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        client_secret: clientSecret,
+        code_verifier: verifier,
+        resource: resource.url,
+      }).toString(),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+    expect(token.statusCode).toBe(200);
+    expect(token.json<{ access_token?: string }>().access_token).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it.each(["https://localhost:8123/cb", "http://127.1/cb"])(
+    "answers 400, not 500, when the provider refuses %s",
+    async (redirectUri) => {
+      const response = await inject({
+        method: "POST",
+        url: "/api/oauth-clients",
+        payload: {
+          clientName: `${NAME_PREFIX} refused by the provider`,
+          redirectUris: [redirectUri],
+        },
+        headers: browserHeaders(adminCookie),
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(await clientsNamed("refused by the provider")).toBe(0);
+    },
+  );
+
+  it("answers 400 with a reason the form can translate when only the provider objects", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/oauth-clients",
+      payload: {
+        clientName: `${NAME_PREFIX} refused by the provider`,
+        redirectUris: ["https://localhost:8123/cb"],
+      },
+      headers: browserHeaders(adminCookie),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ reason?: string }>().reason).toBe(
+      "invalid-redirect-uri",
+    );
   });
 
   it("refuses a resident, naming the capability", async () => {

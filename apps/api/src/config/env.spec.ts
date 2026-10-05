@@ -467,3 +467,35 @@ describe("the connection pool's size", () => {
     }
   });
 });
+
+describe("the sign-in secret in production", () => {
+  const production = (secret: string) =>
+    loadEnv({
+      ...REQUIRED,
+      NODE_ENV: "production",
+      APP_URL: "https://brf.example",
+      BETTER_AUTH_SECRET: secret,
+    });
+
+  it.each([
+    ["the published development placeholder", "dev-only-secret-change-me"],
+    ["one of sixteen characters", "0123456789abcdef"],
+    ["one a character short of the floor", "k".repeat(31)],
+  ])("refuses %s, naming the variable", (_name, secret) => {
+    expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
+  });
+
+  it.each([
+    ["one exactly at the floor", "k".repeat(32)],
+    ["a long one", "k".repeat(48)],
+  ])("takes %s", (_name, secret) => {
+    expect(production(secret).BETTER_AUTH_SECRET).toBe(secret);
+  });
+
+  it("keeps the shorter floor outside production", () => {
+    expect(
+      loadEnv({ ...REQUIRED, BETTER_AUTH_SECRET: "dev-only-secret-change-me" })
+        .BETTER_AUTH_SECRET,
+    ).toBe("dev-only-secret-change-me");
+  });
+});

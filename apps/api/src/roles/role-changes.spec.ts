@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasTermEnded,
+  latestElection,
   latestTermEnd,
+  overlapsRecordedTerm,
   parseCalendarDate,
   refuseTermEnd,
   RoleChangeError,
@@ -23,15 +25,21 @@ import {
  */
 
 const NOW = new Date("2026-06-01T12:00:00Z");
+const ELECTED_ON = new Date("2026-04-14T00:00:00Z");
 
 describe("whether a term has ended", () => {
   it("counts an open term as running", () => {
-    expect(hasTermEnded({ endedOn: null }, NOW)).toBe(false);
+    expect(hasTermEnded({ electedOn: ELECTED_ON, endedOn: null }, NOW)).toBe(
+      false,
+    );
   });
 
   it("counts a term that has run out as ended", () => {
     expect(
-      hasTermEnded({ endedOn: new Date("2026-05-31T00:00:00Z") }, NOW),
+      hasTermEnded(
+        { electedOn: ELECTED_ON, endedOn: new Date("2026-05-31T00:00:00Z") },
+        NOW,
+      ),
     ).toBe(true);
   });
 
@@ -44,7 +52,36 @@ describe("whether a term has ended", () => {
      * the access away on the day the board wrote down when it should end.
      */
     expect(
-      hasTermEnded({ endedOn: new Date("2026-12-31T00:00:00Z") }, NOW),
+      hasTermEnded(
+        { electedOn: ELECTED_ON, endedOn: new Date("2026-12-31T00:00:00Z") },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("counts a withdrawn election as ended while its end date is still ahead", () => {
+    // Elected from July and withdrawn with an end date in June: it covers no
+    // day, and the position can be recorded again.
+    expect(
+      hasTermEnded(
+        {
+          electedOn: new Date("2026-07-01T00:00:00Z"),
+          endedOn: new Date("2026-06-15T00:00:00Z"),
+        },
+        NOW,
+      ),
+    ).toBe(true);
+  });
+
+  it("counts a seat that has begun and ends ahead as running", () => {
+    expect(
+      hasTermEnded(
+        {
+          electedOn: new Date("2026-04-14T00:00:00Z"),
+          endedOn: new Date("2026-12-31T00:00:00Z"),
+        },
+        NOW,
+      ),
     ).toBe(false);
   });
 
@@ -54,7 +91,7 @@ describe("whether a term has ended", () => {
     // run on until midnight UTC.
     expect(
       hasTermEnded(
-        { endedOn: new Date("2026-06-22T00:00:00Z") },
+        { electedOn: ELECTED_ON, endedOn: new Date("2026-06-22T00:00:00Z") },
         new Date("2026-06-21T22:30:00Z"),
       ),
     ).toBe(true);
@@ -62,8 +99,6 @@ describe("whether a term has ended", () => {
 });
 
 describe("the date a term is recorded as ending on", () => {
-  const ELECTED_ON = new Date("2026-04-14T00:00:00Z");
-
   const refuse = (endedOn: string, currentEndedOn: Date | null = null) =>
     refuseTermEnd({
       electedOn: ELECTED_ON,
@@ -88,6 +123,37 @@ describe("the date a term is recorded as ending on", () => {
 
   it("refuses a term ending before the election that began it", () => {
     expect(refuse("2026-04-13")).toBe("ended-before-elected");
+  });
+
+  it("lets an election that has not begun be withdrawn before its date", () => {
+    // The correction for a mistyped year: 2062 for 2026 could otherwise be
+    // given no end at all, before the election or past the horizon.
+    expect(
+      refuseTermEnd({
+        electedOn: new Date("2062-04-14T00:00:00Z"),
+        currentEndedOn: null,
+        endedOn: new Date("2026-06-01T00:00:00Z"),
+        now: NOW,
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses to move the end of a withdrawn election past a later one's start", () => {
+    /*
+     * Elected from 1 December and withdrawn with an end of 1 November, so the
+     * seat covers no day and the position can be recorded again - from 15
+     * December, say. Moving the withdrawn seat's end to next June would then
+     * put it over the new election: two rows for the same person and position
+     * overlapping. A withdrawn election is settled like a spent term.
+     */
+    expect(
+      refuseTermEnd({
+        electedOn: new Date("2026-12-01T00:00:00Z"),
+        currentEndedOn: new Date("2026-11-01T00:00:00Z"),
+        endedOn: new Date("2027-06-01T00:00:00Z"),
+        now: NOW,
+      }),
+    ).toBe("term-already-ended");
   });
 
   it("refuses a year typed with the wrong century", () => {
@@ -161,6 +227,56 @@ describe("the date a term is recorded as ending on", () => {
     expect(refuse("2026-07-01", new Date("2026-06-01T00:00:00Z"))).toBe(
       "term-already-ended",
     );
+  });
+});
+
+describe("the date an election is recorded on", () => {
+  it("reaches a year ahead and no further", () => {
+    expect(formatDateColumn(latestElection(NOW))).toBe("2027-06-01");
+  });
+});
+
+describe("an election against the terms already recorded", () => {
+  const seat = (electedOn: string, endedOn: string | null) => ({
+    electedOn: new Date(`${electedOn}T00:00:00Z`),
+    endedOn: endedOn === null ? null : new Date(`${endedOn}T00:00:00Z`),
+  });
+  const on = (day: string) => new Date(`${day}T00:00:00Z`);
+
+  it("overlaps a term that runs past its date", () => {
+    expect(
+      overlapsRecordedTerm(
+        [seat("2022-04-14", "2023-04-14")],
+        on("2022-06-01"),
+      ),
+    ).toBe(true);
+  });
+
+  it("overlaps a later term, because the new one is open", () => {
+    expect(
+      overlapsRecordedTerm(
+        [seat("2023-04-14", "2024-04-14")],
+        on("2022-06-01"),
+      ),
+    ).toBe(true);
+  });
+
+  it("follows a term that ended on or before its date", () => {
+    expect(
+      overlapsRecordedTerm(
+        [seat("2022-04-14", "2023-04-14")],
+        on("2023-04-14"),
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores an election withdrawn before it began", () => {
+    expect(
+      overlapsRecordedTerm(
+        [seat("2062-04-14", "2026-06-01")],
+        on("2026-04-14"),
+      ),
+    ).toBe(false);
   });
 });
 

@@ -124,6 +124,28 @@ const issueSchema = z.object({
   email: optionalField(z.email().max(320)),
 });
 
+/**
+ * A submitted body with each line break as the one character the form counted.
+ *
+ * The form's `maxlength` counts a line break in a text area as one character,
+ * and the browser then submits it as CRLF, two. A message the form let
+ * somebody finish could then be refused by the limit below it - and nothing
+ * submitted is ever echoed back, so the text would be lost. Normalised before
+ * any limit is checked, which also stores one line break the same way whatever
+ * sent it.
+ */
+function withLineBreaksAsOne(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return body;
+  }
+  return Object.fromEntries(
+    Object.entries(body).map(([field, value]) => [
+      field,
+      typeof value === "string" ? value.replace(/\r\n?/g, "\n") : value,
+    ]),
+  );
+}
+
 @Public()
 @Controller()
 export class SiteFormsController {
@@ -176,7 +198,7 @@ export class SiteFormsController {
 
     // The schema does not name the decoy, so it is stripped here along with
     // anything else that was sent and not asked for.
-    const parsed = contactSchema.safeParse(body);
+    const parsed = contactSchema.safeParse(withLineBreaksAsOne(body));
     if (!parsed.success) {
       this.refused(reply, page, "contact");
       return;
@@ -231,7 +253,7 @@ export class SiteFormsController {
       return;
     }
 
-    const parsed = issueSchema.safeParse(body);
+    const parsed = issueSchema.safeParse(withLineBreaksAsOne(body));
     if (!parsed.success) {
       this.refused(reply, page, "issue");
       return;

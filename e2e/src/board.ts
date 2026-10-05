@@ -12,9 +12,9 @@ import { stack } from "./stack";
  * three screens to arrange one would put the register's own flow into every
  * spec that happens to need a board member.
  *
- * The shared fixture still has an administrator and residents and nobody on the
- * board, because the sign-up approval path it provisions people through writes
- * residencies and nothing else. So a spec that needs a seat asks for one here.
+ * The shared fixture still has an administrator, members and residents and
+ * nobody on the board, because it only moves people in. So a spec that needs a
+ * seat asks for one here.
  *
  * A seat decides more than one thing in the product now. It decides who is
  * emailed when the public writes to the association, whose name the board

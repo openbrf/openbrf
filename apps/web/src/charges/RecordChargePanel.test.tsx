@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -291,5 +291,161 @@ describe("a refusal", () => {
     expect(
       screen.getByLabelText<HTMLInputElement>("Vad debiteringen avser").value,
     ).toBe("Felaktig post");
+  });
+});
+
+describe("while a charge is being recorded", () => {
+  /** Holds the request open, so the form is observed mid-save. */
+  function holdRequest(): (outcome: unknown) => void {
+    let settle: (outcome: unknown) => void = () => undefined;
+    recordCharge.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return (outcome) => {
+      settle(outcome);
+    };
+  }
+
+  const OUTCOMES = [
+    [
+      "once the charge is stored",
+      { ok: true, value: { chargeId: "charge-1" } },
+    ],
+    [
+      "when the charge is refused",
+      { ok: false, failure: { status: 422, reason: "amount-not-positive" } },
+    ],
+  ] as const;
+
+  it("locks the form, so nothing typed is lost when the amount and reason are cleared", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest();
+    panel();
+
+    const amount = screen.getByLabelText<HTMLInputElement>("Belopp i kronor");
+    const reason = screen.getByLabelText<HTMLInputElement>(
+      "Vad debiteringen avser",
+    );
+    await user.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await user.type(amount, "450.00");
+    await user.type(reason, "Nyckel");
+    expect(amount.matches(":disabled")).toBe(false);
+
+    await user.click(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    );
+
+    // The request is in flight: the fields refuse input rather than taking it
+    // and dropping it once the charge is stored.
+    await waitFor(() => {
+      expect(amount.matches(":disabled")).toBe(true);
+    });
+    expect(reason.matches(":disabled")).toBe(true);
+    expect(screen.getByLabelText("Medlem").matches(":disabled")).toBe(true);
+    await user.type(amount, "9");
+    await user.type(reason, "x");
+    expect(amount.value).toBe("450.00");
+    expect(reason.value).toBe("Nyckel");
+
+    settle({ ok: true, value: { chargeId: "charge-1" } });
+
+    await waitFor(() => {
+      expect(amount.matches(":disabled")).toBe(false);
+    });
+    expect(amount.value).toBe("");
+    expect(reason.value).toBe("");
+  });
+
+  it.each(OUTCOMES)(
+    "keeps focus in the reason field after Enter, %s",
+    async (_case, outcome) => {
+      const user = userEvent.setup();
+      const settle = holdRequest();
+      panel();
+
+      const reason = screen.getByLabelText<HTMLInputElement>(
+        "Vad debiteringen avser",
+      );
+      await user.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+      await user.type(screen.getByLabelText("Belopp i kronor"), "450.00");
+      await user.type(reason, "Nyckel{Enter}");
+
+      await waitFor(() => {
+        expect(reason.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(reason, "focus");
+
+      settle(outcome);
+
+      await waitFor(() => {
+        expect(reason.matches(":disabled")).toBe(false);
+      });
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(reason);
+    },
+  );
+
+  it("leaves focus where the user moved it while the charge was being recorded", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest();
+    render(
+      <>
+        <input aria-label="Utanför formuläret" />
+        <RecordChargePanel
+          parties={PARTIES}
+          today="2026-06-01"
+          onRecorded={() => undefined}
+        />
+      </>,
+    );
+
+    const reason = screen.getByLabelText<HTMLInputElement>(
+      "Vad debiteringen avser",
+    );
+    await user.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await user.type(screen.getByLabelText("Belopp i kronor"), "450.00");
+    await user.type(reason, "Nyckel{Enter}");
+    await waitFor(() => {
+      expect(reason.matches(":disabled")).toBe(true);
+    });
+
+    const outside = screen.getByLabelText("Utanför formuläret");
+    outside.focus();
+
+    settle({ ok: true, value: { chargeId: "charge-1" } });
+
+    await waitFor(() => {
+      expect(reason.matches(":disabled")).toBe(false);
+    });
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("hands focus back to the submit button when a browser leaves it unfocused", async () => {
+    const user = userEvent.setup();
+    panel();
+
+    await user.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await user.type(screen.getByLabelText("Belopp i kronor"), "450.00");
+    await user.type(screen.getByLabelText("Vad debiteringen avser"), "Nyckel");
+    // Safari and macOS Firefox: pressing a button does not focus it.
+    (document.activeElement as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+
+    const submit = screen.getByRole("button", {
+      name: "Registrera debiteringen",
+    });
+    (submit.closest("form") as HTMLFormElement).requestSubmit(submit);
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText<HTMLInputElement>("Belopp i kronor").value,
+      ).toBe("");
+    });
+    expect(document.activeElement).toBe(submit);
   });
 });

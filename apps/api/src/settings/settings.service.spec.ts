@@ -373,6 +373,24 @@ describe("SMTP settings", () => {
     expect(cipher).not.toContain("hunter2hunter2");
   });
 
+  it("logs whether a sender is set, never the address", async () => {
+    // Often a board member's own address, and a log keeps what it is given
+    // (ADR 0007).
+    const { service } = build();
+    const logged: string[] = [];
+    vi.spyOn(
+      (service as unknown as { logger: { log: (line: string) => void } })
+        .logger,
+      "log",
+    ).mockImplementation((line: string) => {
+      logged.push(line);
+    });
+
+    await service.updateSmtp(filled);
+
+    expect(logged.join("\n")).not.toContain("styrelsen@exempel.se");
+  });
+
   it("keeps the stored password when the field is omitted", async () => {
     // The screen never shows the password, so saving the rest of the form must
     // not wipe it.

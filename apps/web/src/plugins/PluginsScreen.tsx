@@ -76,10 +76,14 @@ const RESTART_POLL_ATTEMPTS = 30;
  * The answer about where the plugin sends personal data is refused in the
  * record's own words, which name the field to correct. The step holds back
  * what it can see would be refused, so these arrive only when it could not.
+ * The one it cannot see is a record written since the screen was opened: the
+ * step asked because the plugin was unclassified then, and the install refuses
+ * to replace what the board has recorded since.
  */
 const INSTALL_ERRORS: Readonly<Record<string, TranslationKey>> = {
   "plugin-resource-conflict": "plugins.consent.errors.resourceConflict",
   "plugin-id-reserved": "plugins.consent.errors.reservedId",
+  "recipient-already-recorded": "plugins.consent.errors.recipientRecorded",
   "recipient-required": "dataProtection.processors.errors.counterpartyRequired",
   "note-required": "dataProtection.processors.errors.noteRequired",
   "personal-identity-number":

@@ -61,6 +61,21 @@ export function loadBootEnv(): Env {
 }
 
 /**
+ * Starts listening, on the port the validated environment gives.
+ *
+ * The validated value and not `process.env.PORT`: an empty `PORT` reads as
+ * unset there and is the default, where `Number("")` is 0 and a random port.
+ * Here rather than in the entrypoint, which cannot be imported without
+ * starting the application.
+ */
+export async function listen(
+  app: Pick<NestFastifyApplication, "listen">,
+  env: Pick<Env, "PORT">,
+): Promise<void> {
+  await app.listen(env.PORT, "0.0.0.0");
+}
+
+/**
  * Reads the data volume and returns what should be in the application's graph.
  *
  * The database is only consulted when there is something to consult it about.
