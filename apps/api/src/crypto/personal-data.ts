@@ -36,7 +36,8 @@ export type {
  * (blindIndexVersion), so the reindex at boot can tell which rows still hold
  * indexes from an older rule set.
  *
- * 2: a ten-digit identity number's century is judged by the whole birth date.
+ * 2: a ten-digit identity number's century is judged by the whole birth date,
+ * and a phone number's trunk zero after +46 is dropped.
  */
 export const NORMALIZATION_VERSION = 2;
 
@@ -73,11 +74,11 @@ export function normalizePhone(input: string): string {
   }
 
   if (hasPlus) {
-    return `+${digits}`;
+    return withoutTrunkZero(`+${digits}`);
   }
   // International prefix written as 00.
   if (digits.startsWith("00")) {
-    return `+${digits.slice(2)}`;
+    return withoutTrunkZero(`+${digits.slice(2)}`);
   }
   // Swedish national format: a single leading zero is the trunk prefix.
   if (digits.startsWith("0")) {
@@ -86,4 +87,17 @@ export function normalizePhone(input: string): string {
   // No country and no trunk prefix: assume Sweden, which is what a
   // spreadsheet that ate the leading zero produces.
   return `+46${digits}`;
+}
+
+/**
+ * A Swedish number with its trunk zero left beside the country code.
+ *
+ * "+46 (0)70 123 45 67" is a common way to write a number for readers at home
+ * and abroad at once, and it reaches here as +460701234567. No Swedish number
+ * continues with a zero after +46, so the zero is the trunk prefix and goes:
+ * otherwise this spelling and "070-123 45 67" would be two indexes for one
+ * phone.
+ */
+function withoutTrunkZero(international: string): string {
+  return international.replace(/^\+460/, "+46");
 }
