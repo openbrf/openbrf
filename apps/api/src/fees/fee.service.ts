@@ -5,6 +5,7 @@ import {
   dateColumnOf,
   formatDateColumn,
   formatLocalDay,
+  localDayOfColumn,
   type LocalDay,
   parseLocalDay,
 } from "@openbrf/shared";
@@ -13,7 +14,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
 import { lockFeeNotifications, lockFeeRates } from "./fee-lock";
-import { sumAmounts } from "./fee-period";
+import { firstMonthBilled, sumAmounts } from "./fee-period";
 import { FeeError } from "./fee.error";
 
 /** What the purge's audit entry names, and what the access report's section is called. */
@@ -284,10 +285,36 @@ export class FeeService {
       /*
        * Before either read, so the two reads and the write below are one
        * decision. Two rates recorded together for the same apartment and kind
-       * would otherwise both find nothing in the way and both be written. See
-       * `fee-lock.ts`.
+       * would otherwise both find nothing in the way and both be written. The
+       * notifications lock first, as removing a rate takes it, so a run issued
+       * or a rate removed at the same moment is ordered with this rather than
+       * interleaved. See `fee-lock.ts`.
        */
+      await lockFeeNotifications(tx);
       await lockFeeRates(tx, input.apartmentId, input.kind);
+
+      /*
+       * Not into a period a run has already billed this apartment for. The new
+       * rate would close the standing one before the months it billed, so the
+       * rate register would say those months were billed at the new terms while
+       * the frozen notices say otherwise - and the new rate, which billed
+       * nothing, could then never be removed. Asked from the first month the new
+       * rate would bill, since a month is billed at the rate in force on its
+       * first day.
+       */
+      const notified = await tx.feeNotification.findFirst({
+        where: {
+          periodTo: { gte: dateColumnOf(firstMonthBilled(appliesFrom)) },
+          notices: { some: { apartmentId: input.apartmentId } },
+        },
+        select: { id: true },
+      });
+      if (notified !== null) {
+        throw new FeeError(
+          "A notification run has already billed that apartment from that day.",
+          "period-already-notified",
+        );
+      }
 
       const later = await tx.fee.findFirst({
         where: {
@@ -336,6 +363,10 @@ export class FeeService {
         );
       }
 
+      // The books the association keeps now, which a rate's erasure is
+      // counted from. See the stamp below and on the rate it closes.
+      const financialYearStartMonth = await financialYearStartMonthInForce(tx);
+
       const standing = await tx.fee.findFirst({
         where: {
           apartmentId: input.apartmentId,
@@ -351,6 +382,13 @@ export class FeeService {
           where: { id: standing.id },
           data: {
             appliesUntil: dateColumnOf(addLocalDays(appliesFrom, -1)),
+            /*
+             * Stamped again now that the rate has an end, because the end is
+             * what its erasure is counted from: the books it ends in are the
+             * ones the association keeps today, not the ones it kept when the
+             * rate was first recorded.
+             */
+            financialYearStartMonth,
           },
         });
       }
@@ -366,7 +404,7 @@ export class FeeService {
           recordedByPersonId: input.actorPersonId,
           // The books this rate is entered in, so its erasure is counted from
           // them and not from whatever the setting says later.
-          financialYearStartMonth: await financialYearStartMonthInForce(tx),
+          financialYearStartMonth,
         },
         select: FEE_FIELDS,
       });
@@ -442,22 +480,40 @@ export class FeeService {
           kind: true,
           appliesFrom: true,
           appliesUntil: true,
+          createdAt: true,
         },
       });
       if (fee === null) {
         throw new FeeError("No such fee.", "not-found");
       }
 
-      const billed = await tx.feeNotification.findFirst({
-        where: {
-          periodTo: { gte: fee.appliesFrom },
-          ...(fee.appliesUntil === null
-            ? {}
-            : { periodFrom: { lte: fee.appliesUntil } }),
-          notices: { some: { apartmentId: fee.apartmentId } },
-        },
-        select: { id: true },
-      });
+      /*
+       * Whether a run billed from this rate: one issued after the rate was
+       * recorded, with a notice for the apartment, whose period holds a month
+       * whose first day the rate was in force on. A month is billed at the
+       * rate in force on its first day, so a rate that began mid-month and
+       * ended before the next first billed nothing at all, and a run whose
+       * period merely touches the rate's window may have billed only its
+       * neighbour. A run issued before the rate existed cannot have used it.
+       */
+      const billedFrom = dateColumnOf(
+        firstMonthBilled(localDayOfColumn(fee.appliesFrom)),
+      );
+      const billsAMonth =
+        fee.appliesUntil === null || billedFrom <= fee.appliesUntil;
+      const billed = !billsAMonth
+        ? null
+        : await tx.feeNotification.findFirst({
+            where: {
+              periodTo: { gte: billedFrom },
+              ...(fee.appliesUntil === null
+                ? {}
+                : { periodFrom: { lte: fee.appliesUntil } }),
+              issuedAt: { gte: fee.createdAt },
+              notices: { some: { apartmentId: fee.apartmentId } },
+            },
+            select: { id: true },
+          });
       if (billed !== null) {
         throw new FeeError(
           "That fee has already been billed and cannot be removed.",

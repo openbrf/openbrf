@@ -151,8 +151,10 @@ member register rather than copied onto the notice. A partner, an adult child or
 a tenant living there holds no share of the annual fee - it is the tenant-owner's
 under BRL 7 kap. 14 § - and so is not named.
 
-A holder with **protected personal data** is withheld, and the whole household's
-names go with them: naming the others on a flat of two is naming the household.
+Anyone in the household with **protected personal data** - a holder, or a
+partner or tenant living there - withholds the names, and the whole household's
+names go with them: naming the others on a flat of two is naming the household,
+and the holder's name against the door says where the protected person lives.
 The apartment stays on the row either way. This is the debiting list's own
 masking rule read from the other end - there the person is the charged party and
 their apartment is withheld; here the apartment is the party and cannot be
@@ -187,7 +189,9 @@ books.
 A fee rate a run has already billed from cannot be removed either, for the same
 reason: it is that money's basis. A rate that is merely out of date is not
 removed at all - recording the next one closes it, and the closed row is what
-says what was charged to the apartment until then.
+says what was charged to the apartment until then. For the same reason a new
+rate cannot be recorded from a day a run has already billed the apartment for:
+it would close the rate that run billed from before the months it billed.
 
 ## How long it is kept
 

@@ -36,13 +36,17 @@ export type FeeReason =
   | "fee-already-recorded-later"
   | "fee-already-in-force"
   | "fee-notified"
+  | "period-already-notified"
   | "period-not-whole-months"
   | "period-too-long"
   | "period-already-issued"
   | "period-overlaps-a-run"
   | "due-before-period"
   | "nothing-to-bill"
-  | "too-many-notices";
+  | "too-many-notices"
+  | "amount-too-large"
+  | "period-past-retention"
+  | "payment-reference-reused";
 
 /**
  * Every reason, and the sentence it becomes.
@@ -79,6 +83,7 @@ const FEE_FAILURES: Readonly<
   "fee-already-recorded-later": "fees.errors.feeAlreadyRecordedLater",
   "fee-already-in-force": "fees.errors.feeAlreadyInForce",
   "fee-notified": "fees.errors.feeNotified",
+  "period-already-notified": "fees.errors.periodAlreadyNotified",
 
   "period-not-whole-months": "fees.errors.periodNotWholeMonths",
   "period-too-long": "fees.errors.periodTooLong",
@@ -88,6 +93,9 @@ const FEE_FAILURES: Readonly<
 
   "nothing-to-bill": "fees.errors.nothingToBill",
   "too-many-notices": "fees.errors.tooManyNotices",
+  "amount-too-large": "fees.errors.amountTooLarge",
+  "period-past-retention": "fees.errors.periodPastRetention",
+  "payment-reference-reused": "fees.errors.paymentReferenceReused",
 
   "invalid-body": "fees.errors.invalidBody",
 };

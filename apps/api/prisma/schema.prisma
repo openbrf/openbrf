@@ -7252,9 +7252,10 @@ model Fee {
   appliesUntil DateTime? @db.Date
 
   /// The month the association's financial year began in when this rate was
-  /// recorded, 1 to 12. Stamped for the reason `MemberCharge` gives: the
-  /// preservation period is counted from the books the rate was entered in, and
-  /// a later change to the setting does not reach back into them.
+  /// recorded, or when it was closed once it has been, 1 to 12. Stamped for the
+  /// reason `MemberCharge` gives: the preservation period is counted from the
+  /// books the rate ended in, and a later change to the setting does not reach
+  /// back into them.
   financialYearStartMonth Int
 
   /// What the apartment pays for one calendar month, in kronor. Positive; a

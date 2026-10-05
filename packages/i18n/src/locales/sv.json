@@ -4345,6 +4345,7 @@
       "feeAlreadyRecordedLater": "Det finns redan en senare avgift av samma slag för lägenheten. Ta bort den först.",
       "feeAlreadyInForce": "En avgift av samma slag gäller redan för lägenheten den dagen. Låt den nya börja dagen efter att den slutar, eller ta bort den först.",
       "feeNotified": "Avgiften är redan aviserad och kan inte tas bort. Den är underlaget för pengar ni har begärt in.",
+      "periodAlreadyNotified": "En avisering har redan fakturerat lägenheten från den dagen. Registrera den nya avgiften från första månaden som ingen avisering har fakturerat.",
       "periodNotWholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad.",
       "periodTooLong": "Perioden är för lång. Ett räkenskapsår är högst arton månader.",
       "periodAlreadyIssued": "Perioden är redan aviserad.",
@@ -4352,6 +4353,9 @@
       "dueBeforePeriod": "Förfallodagen kan inte ligga före perioden den avser.",
       "nothingToBill": "Ingen lägenhet har en avgift som gäller under perioden.",
       "tooManyNotices": "Fler avier än formatet för betalningsreferenser rymmer.",
+      "amountTooLarge": "En avi skulle fakturera mer än ett belopp rymmer. Kontrollera avgifterna efter en felskriven siffra.",
+      "periodPastRetention": "Perioden är äldre än den tid föreningen sparar avier.",
+      "paymentReferenceReused": "En avisering från samma månad hundra år tidigare använder redan de här betalningsreferenserna. Kontrollera året.",
       "invalidBody": "Något i formuläret gick inte att läsa.",
       "unknown": "Det gick inte just nu. Försök igen."
     }

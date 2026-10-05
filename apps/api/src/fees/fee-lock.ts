@@ -48,13 +48,19 @@ export async function lockFeeRates(
 }
 
 /**
- * The lock issuing a period takes, and removing a rate takes too.
+ * The lock issuing a period takes, and recording and removing a rate take too.
  *
  * One key for the whole instance, because the overlap it guards is between any
  * two runs whatever their periods are. Removing a rate takes it as well: the
  * removal asks whether a run has already billed the rate, and a run issued
  * between that question and the delete would bill a rate that then no longer
- * exists.
+ * exists. Recording a rate takes it for the mirror question - whether a run has
+ * already billed the days the new rate would start on - and, because it does,
+ * a removal and a recording are ordered: the recording cannot read a standing
+ * rate that a removal then deletes under it.
+ *
+ * Always before {@link lockFeeRates} where both are taken, so two writers
+ * holding one each never wait on each other.
  */
 export async function lockFeeNotifications(
   tx: Prisma.TransactionClient,

@@ -1045,6 +1045,213 @@ describe("removing a rate", () => {
   });
 });
 
+describe("rates and the runs that billed them", () => {
+  function issue(from: string, to: string) {
+    return inject({
+      method: "POST",
+      url: "/api/fee-notifications",
+      payload: { from, to, dueOn: from },
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("refuses a rate recorded from a day a run has already billed", async () => {
+    await recordFee(feeOn({ monthlyAmount: "3000.00" }));
+    expect((await issue("2026-01-01", "2026-06-30")).statusCode).toBe(201);
+
+    // From March would close the January rate before four months it billed.
+    const inside = await recordFee(
+      feeOn({ appliesFrom: "2026-03-01", monthlyAmount: "3200.00" }),
+    );
+    expect(inside.statusCode).toBe(409);
+    expect(inside.json<{ reason: string }>().reason).toBe(
+      "period-already-notified",
+    );
+    const standing = await prisma.fee.findFirstOrThrow({
+      where: { apartmentId, kind: "ANNUAL_FEE" },
+      select: { appliesUntil: true },
+    });
+    expect(standing.appliesUntil).toBeNull();
+
+    // From mid-June first bills July, which no run has billed.
+    const after = await recordFee(
+      feeOn({ appliesFrom: "2026-06-15", monthlyAmount: "3200.00" }),
+    );
+    expect(after.statusCode).toBe(201);
+
+    await clearFees();
+  });
+
+  it("removes a rate no run billed, though a run's period covers its days", async () => {
+    await recordFee(feeOn({ monthlyAmount: "3000.00" }));
+    expect((await issue("2026-01-01", "2026-06-30")).statusCode).toBe(201);
+
+    /*
+     * A parking rate written inside the billed period after the run was
+     * issued, as a row recorded before the refusal above existed: the run
+     * cannot have billed it, and its notice is the annual fee's alone.
+     */
+    const parking = await prisma.fee.create({
+      data: {
+        apartmentId,
+        kind: "PARKING_SPACE",
+        appliesFrom: new Date("2026-02-01T00:00:00.000Z"),
+        monthlyAmount: "400.00",
+        vatTreatment: "EXEMPT",
+        financialYearStartMonth: 1,
+        recordedByPersonId: board.personId,
+      },
+      select: { id: true },
+    });
+    // And a rate that began mid-month and ended before the next first, which
+    // bills no month at all.
+    const brief = await prisma.fee.create({
+      data: {
+        apartmentId,
+        kind: "STORAGE_SPACE",
+        appliesFrom: new Date("2026-03-10T00:00:00.000Z"),
+        appliesUntil: new Date("2026-03-20T00:00:00.000Z"),
+        monthlyAmount: "100.00",
+        vatTreatment: "EXEMPT",
+        financialYearStartMonth: 1,
+        recordedByPersonId: board.personId,
+        createdAt: new Date("2025-01-01T00:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+
+    for (const feeId of [parking.id, brief.id]) {
+      const response = await inject({
+        method: "DELETE",
+        url: `/api/fees/${feeId}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(response.statusCode).toBe(204);
+    }
+
+    await clearFees();
+  });
+
+  it("re-stamps a rate's financial year when the next rate closes it", async () => {
+    await setStartMonth(1);
+    try {
+      const first = await recordFee(feeOn({ appliesFrom: "2026-01-01" }));
+      const firstId = first.json<{ feeId: string }>().feeId;
+      await setStartMonth(7);
+      await recordFee(feeOn({ appliesFrom: "2026-09-01" }));
+
+      // The rate ends in the books kept from July, and is erased by them.
+      const closed = await prisma.fee.findUniqueOrThrow({
+        where: { id: firstId },
+        select: { financialYearStartMonth: true, appliesUntil: true },
+      });
+      expect(closed.appliesUntil?.toISOString().slice(0, 10)).toBe(
+        "2026-08-31",
+      );
+      expect(closed.financialYearStartMonth).toBe(7);
+    } finally {
+      await setStartMonth(originalStartMonth);
+      await clearFees();
+    }
+  });
+
+  it("refuses a run whose notice would not fit an amount, rather than failing", async () => {
+    await recordFee(feeOn({ monthlyAmount: "999999999999.99" }));
+
+    const response = await issue("2026-01-01", "2026-02-28");
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "amount-too-large",
+    );
+
+    await clearFees();
+  });
+
+  it("refuses a period whose payment references a run a century apart holds", async () => {
+    await recordFee(feeOn());
+    expect((await issue("2026-01-01", "2026-01-31")).statusCode).toBe(201);
+
+    // January 2126 opens with the same four digits as January 2026.
+    const response = await issue("2126-01-01", "2126-01-31");
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "payment-reference-reused",
+    );
+
+    await clearFees();
+  });
+
+  it("refuses a period older than the purge keeps runs for", async () => {
+    await recordFee(feeOn({ appliesFrom: "2010-01-01" }));
+
+    const response = await issue("2010-01-01", "2010-01-31");
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "period-past-retention",
+    );
+
+    await clearFees();
+  });
+
+  it("lists each run with its own count and total", async () => {
+    await recordFee(feeOn());
+    await recordFee(
+      feeOn({ apartmentId: secondApartmentId, monthlyAmount: "3000.00" }),
+    );
+    const issued = await issue("2026-01-01", "2026-03-31");
+    const { notificationId } = issued.json<FeeNotificationSummary>();
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/fee-notifications",
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const listed = response
+      .json<FeeNotificationSummary[]>()
+      .find((run) => run.notificationId === notificationId);
+    expect(listed?.notices).toBe(2);
+    expect(listed?.total).toBe("19351.50");
+
+    await clearFees();
+  });
+
+  it("withholds the names where a protected person lives there without holding it", async () => {
+    // Signe, protected, lodging in 1501 beside the member who holds it.
+    const lodging = await prisma.residency.create({
+      data: {
+        personId: skyddad.personId,
+        apartmentId,
+        role: "RESIDENT",
+        movedInOn: new Date("2025-01-01T00:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+    try {
+      await recordFee(feeOn());
+      const run = await issue("2026-01-01", "2026-01-31");
+      const { notificationId } = run.json<FeeNotificationSummary>();
+
+      const response = await inject({
+        method: "POST",
+        url: `/api/fee-notifications/${notificationId}/document`,
+        headers: { cookie: boardCookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const produced = response.json<FeeNoticeExport>();
+      const row = produced.document.rows.find((candidate) =>
+        candidate.apartment.endsWith("1501"),
+      );
+      // The holder's name against the door would say where Signe lives.
+      expect(row?.holders).toEqual({ state: "withheld" });
+      expect(produced.csv).not.toContain("Astrid");
+    } finally {
+      await prisma.residency.delete({ where: { id: lodging.id } });
+      await clearFees();
+    }
+  });
+});
+
 describe("the apartment register", () => {
   it("refuses to remove an apartment carrying a fee, by name", async () => {
     await recordFee(feeOn({ apartmentId: emptyApartmentId }));

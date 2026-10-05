@@ -4345,6 +4345,7 @@
       "feeAlreadyRecordedLater": "A later fee of the same kind is already recorded for that apartment. Remove it first.",
       "feeAlreadyInForce": "A fee of this kind already applies to that apartment on that day. Start the new fee the day after it ends, or remove it first.",
       "feeNotified": "That fee has already been billed and cannot be removed. It is the basis for money you asked for.",
+      "periodAlreadyNotified": "A notification run has already billed this apartment from that day. Record the new fee from the first month no run has billed.",
       "periodNotWholeMonths": "The period opens on the first of a month and closes on the last of one.",
       "periodTooLong": "The period is too long. A financial year is at most eighteen months.",
       "periodAlreadyIssued": "That period has already been issued.",
@@ -4352,6 +4353,9 @@
       "dueBeforePeriod": "The due date cannot fall before the period it bills.",
       "nothingToBill": "No apartment has a fee in force for that period.",
       "tooManyNotices": "More notices than the payment reference format can number.",
+      "amountTooLarge": "One notice would bill more than an amount can hold. Check the fees for a mistyped figure.",
+      "periodPastRetention": "That period is older than the association keeps fee notices for.",
+      "paymentReferenceReused": "A run from the same month a hundred years apart already uses these payment references. Check the year.",
       "invalidBody": "Something in the form could not be read.",
       "unknown": "That did not work just now. Try again."
     }
