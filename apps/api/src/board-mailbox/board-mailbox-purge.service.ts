@@ -13,6 +13,7 @@ import {
   boardMailboxThreadsErasedOnRequest,
   remainingRunBound,
 } from "../retention/erasure-domains";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { COLLECTION_REFUSALS } from "./board-mailbox-delivery";
@@ -379,6 +380,10 @@ export class BoardMailboxPurgeService implements OnModuleInit {
       const linked = thread.correspondentPersonId;
       if (linked !== null && (await isPersonWithheld(tx, linked))) {
         return false;
+      }
+      if (linked !== null) {
+        // After the registry key, for the reason `erasure-lock.ts` gives.
+        await lockErasureEligibility(tx, linked);
       }
       const onRequest =
         linked !== null && (await isErasureInForce(tx, linked, now));

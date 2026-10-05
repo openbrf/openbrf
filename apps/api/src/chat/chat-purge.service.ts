@@ -14,6 +14,7 @@ import {
   chatTracesErasedOnRequest,
   remainingRunBound,
 } from "../retention/erasure-domains";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import { lockChat } from "./chat-lock";
 import { livesHere } from "./chat-membership";
@@ -528,6 +529,9 @@ export class ChatPurgeService implements OnModuleInit {
        * key, which is what makes the two orderable at all.
        */
       await lockLegalHold(tx, personId);
+      // And what decides whether a granted erasure may run, for the reason
+      // `erasure-lock.ts` gives.
+      await lockErasureEligibility(tx, personId);
 
       const held = await tx.legalHold.findFirst({
         where: { personId, releasedAt: null },

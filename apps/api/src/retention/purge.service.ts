@@ -8,7 +8,6 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -21,6 +20,7 @@ import {
   remainingRunBound,
   type ErasureRemainder,
 } from "./erasure-domains";
+import { lockErasureEligibility } from "./erasure-lock";
 import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
 import { purgeCutoff } from "./purge-window";
@@ -730,19 +730,21 @@ export class PurgeService implements OnModuleInit {
 
     return this.prisma.$transaction(async (tx) => {
       /*
-       * Both locks, in this order, before the read. The lock file's own comment
-       * describes the gap this closes: without them a hold placed, or a
-       * residency reopened, between the read below and the writes that follow
-       * would be decided by whichever transaction committed last.
+       * The hold, then what refuses an erasure, before the read. The lock
+       * files' own comments describe the gap this closes: without them a hold
+       * placed, a residency reopened, a board seat or a system role granted
+       * between the read below and the writes that follow would be decided by
+       * whichever transaction committed last.
        *
-       * The order is fixed across the product - hold, then residency - and
-       * every other writer takes at most one of them: LegalHoldService takes
-       * the hold lock, MoveService the residency lock. So no transaction ever
-       * holds the second while waiting for the first, and the pair cannot
-       * deadlock.
+       * The order is fixed across the product - hold, then residency, then the
+       * seat and the roles (`erasure-lock.ts`) - and no writer of one of the
+       * later keys takes an earlier one after it: LegalHoldService takes the
+       * hold lock, MoveService the residency lock, the role services their
+       * own. So no transaction ever holds a later key while waiting for an
+       * earlier one, and the set cannot deadlock.
        */
       await lockLegalHold(tx, personId);
-      await lockResidencyTransitions(tx, personId);
+      await lockErasureEligibility(tx, personId);
 
       const request = await tx.dataSubjectRequest.findFirst({
         where: {

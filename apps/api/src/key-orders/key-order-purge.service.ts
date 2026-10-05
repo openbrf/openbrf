@@ -10,6 +10,7 @@ import {
   keyOrdersErasedOnRequest,
   remainingRunBound,
 } from "../retention/erasure-domains";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   erasureRequestedPersonIds,
@@ -298,6 +299,9 @@ export class KeyOrderPurgeService implements OnModuleInit {
        * key, which is what makes the two orderable at all.
        */
       await lockLegalHold(tx, personId);
+      // And what decides whether a granted erasure may run, for the reason
+      // `erasure-lock.ts` gives.
+      await lockErasureEligibility(tx, personId);
 
       if (await isPersonWithheld(tx, personId)) {
         /*
