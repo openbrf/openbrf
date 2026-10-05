@@ -5,9 +5,18 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import type { ProtectedResource } from "../auth/protected-resource";
@@ -564,6 +573,31 @@ describe("registering through the administrator's route", () => {
     expect(response.json<{ reason?: string }>().reason).toBe(
       "invalid-redirect-uri",
     );
+  });
+
+  it("leaves no client behind when the registration cannot be recorded", async () => {
+    const record = vi
+      .spyOn(app.get(AuditLogService), "record")
+      .mockRejectedValueOnce(new Error("the audit log is unavailable"));
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/oauth-clients",
+        payload: {
+          clientName: `${NAME_PREFIX} unrecorded`,
+          redirectUris: ["https://app.exempel.se/cb"],
+        },
+        headers: browserHeaders(adminCookie),
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(record).toHaveBeenCalledTimes(1);
+      // Created by the provider and linked before the entry failed, and gone
+      // again, with its resource link by the cascade.
+      expect(await clientsNamed("unrecorded")).toBe(0);
+    } finally {
+      record.mockRestore();
+    }
   });
 
   it("refuses a resident, naming the capability", async () => {
