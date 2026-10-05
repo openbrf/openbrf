@@ -1,4 +1,5 @@
 import { actionInputJsonSchema } from "@openbrf/plugin-sdk";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -801,6 +802,38 @@ describe("the FAQ block", () => {
     });
   });
 
+  it("drops on the way in an answer the way out would drop", () => {
+    // Otherwise the entry is saved, echoed back to the editor as accepted, and
+    // gone the next time anybody reads the page.
+    expect(
+      submittedContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              { question: "Var står stadgarna?", answer: [{ text: "   " }] },
+              { question: "Vem sköter trädgården?", answer: [{ text: "Vi." }] },
+            ],
+          },
+          {
+            type: "faq",
+            items: [{ question: "Ensam?", answer: [{ text: " " }] }],
+          },
+        ],
+      }),
+    ).toEqual({
+      version: 1,
+      blocks: [
+        {
+          type: "faq",
+          items: [
+            { question: "Vem sköter trädgården?", answer: [{ text: "Vi." }] },
+          ],
+        },
+      ],
+    });
+  });
+
   it("drops a question whose answer is nothing but spaces", () => {
     // A blank question is already dropped above; an answer holding only spaces
     // is the same absence and has to go the same way, or the page renders a
@@ -871,13 +904,87 @@ describe("the FAQ block", () => {
   });
 });
 
+describe("the addresses a body links to", () => {
+  /*
+   * An address is in the page's HTML for anybody who reads the source, and a
+   * mailto: link carries whatever was typed into its subject line. Every block
+   * that holds runs is checked, because each one reads its runs its own way.
+   */
+  const MAILTO = "mailto:anna@exempel.se?subject=19811218-9876";
+
+  it("puts them in front of the guardrail scan, after the words", () => {
+    const content = readPageContent({
+      blocks: [
+        { type: "paragraph", runs: [{ text: "Skriv", link: MAILTO }] },
+        { type: "heading", level: 2, runs: [{ text: "Hem", link: "/hem" }] },
+        { type: "contactForm", intro: [{ text: "Eller", link: MAILTO }] },
+        {
+          type: "faq",
+          items: [
+            { question: "Vem?", answer: [{ text: "Anna", link: MAILTO }] },
+          ],
+        },
+      ],
+    });
+
+    expect(pageTextParts(content)).toEqual([
+      { index: 0, text: `Skriv ${MAILTO}` },
+      { index: 1, text: "Hem /hem" },
+      { index: 2, text: `Eller ${MAILTO}` },
+      { index: 3, text: `Vem? Anna ${MAILTO}` },
+    ]);
+    for (const part of pageTextParts(content)) {
+      if (part.index !== 1) {
+        expect(
+          scanForPersonalIdentityNumbers(part.text),
+          `block ${part.index}`,
+        ).toHaveLength(1);
+      }
+    }
+  });
+
+  it("reads an address decoded, so an escaped hyphen hides nothing", () => {
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv",
+                link: "mailto:anna@exempel.se?subject=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+  });
+
+  it("leaves a paragraph with no links scanned exactly as before", () => {
+    // The offsets a refusal names are into the words, so a body with no links
+    // must not gain so much as a trailing space.
+    expect(
+      pageTextParts(
+        readPageContent({
+          blocks: [
+            { type: "paragraph", runs: [{ text: "Hej" }, { text: " alla" }] },
+          ],
+        }),
+      ),
+    ).toEqual([{ index: 0, text: "Hej alla" }]);
+  });
+});
+
 describe("the blocks that name what the instance already holds", () => {
   it("carry no text of their own to be scanned", () => {
     expect(
       pageTextParts(
         readPageContent({
           blocks: [
-            { type: "documentList", category: "Protokoll" },
+            { type: "documentList" },
             { type: "boardRoster" },
             { type: "associationFacts" },
           ],
@@ -888,6 +995,19 @@ describe("the blocks that name what the instance already holds", () => {
       { index: 1, text: "" },
       { index: 2, text: "" },
     ]);
+  });
+
+  it("scan the binder a document list prints as its heading", () => {
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          { type: "documentList", category: "Handlingar 19811218-9876" },
+        ],
+      }),
+    );
+
+    expect(part?.text).toBe("Handlingar 19811218-9876");
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
   });
 });
 

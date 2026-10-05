@@ -1002,8 +1002,14 @@ function renderRun(run: TextRun): ReactNode {
   return node;
 }
 
+/**
+ * Whether a link leaves this instance.
+ *
+ * Case-blind, as a scheme is: the write path accepts `HTTPS://`, and a link
+ * the check missed would leave without noreferrer.
+ */
 function isExternal(url: string): boolean {
-  return url.startsWith("http:") || url.startsWith("https:");
+  return /^https?:/i.test(url);
 }
 
 /**
