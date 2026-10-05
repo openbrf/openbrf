@@ -1,11 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn, formatLocalDay, localDayOf } from "@openbrf/shared";
+import {
+  dateColumnOf,
+  formatDateColumn,
+  formatLocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { APARTMENT_REGISTER_ORDER } from "./apartment-order";
 import { residencyHeldOn } from "./held-on";
 import {
   SUPPLY_COLUMNS,
@@ -307,8 +313,9 @@ export class InitialSupplyService {
       );
     }
 
+    const today = dateColumnOf(localDayOf(now));
     const apartments = await tx.apartment.findMany({
-      orderBy: [{ address: { sortOrder: "asc" } }, { number: "asc" }],
+      orderBy: [...APARTMENT_REGISTER_ORDER],
       select: {
         id: true,
         number: true,
@@ -362,13 +369,48 @@ export class InitialSupplyService {
         },
         // The membership decision belongs to the holder rather than to the
         // apartment (Forordning (2026:898) 2 kap. 5 § forsta stycket 7), so the
-        // transfers are read here and matched to the holder below.
+        // transfers are read here and matched to the holder below. Every
+        // transfer, decided or not: one with no decision is what says the
+        // holding it began had none to report.
         transfers: {
-          where: { membershipDecidedOn: { not: null } },
-          orderBy: [{ membershipDecidedOn: "asc" }],
-          select: { toPersonId: true, membershipDecidedOn: true },
+          orderBy: [{ transferredOn: "asc" }, { createdAt: "asc" }],
+          select: {
+            toPersonId: true,
+            transferredOn: true,
+            membershipDecidedOn: true,
+          },
+        },
+        // The latest termination that has taken effect. A tenant-ownership that
+        // has ceased has no holder (register-supply-contract.md, Terminations),
+        // whether or not anybody has recorded the holders moving out.
+        terminations: {
+          where: { tookEffectOn: { lte: today } },
+          orderBy: [{ tookEffectOn: "desc" }],
+          take: 1,
+          select: { tookEffectOn: true },
         },
       },
+    });
+
+    /*
+     * When each holder's previous holding of the same apartment ended, if they
+     * had one. A transfer dated before that belongs to the earlier holding, and
+     * its membership decision admitted them to a membership that has since
+     * ended - so it is not this holding's decision, even when it is the latest
+     * one on file for the person.
+     */
+    const earlierHoldings = await tx.residency.findMany({
+      where: {
+        role: "MEMBER",
+        movedOutOn: { not: null, lte: today },
+        OR: apartments.flatMap((apartment) =>
+          apartment.residencies.map((residency) => ({
+            apartmentId: apartment.id,
+            personId: residency.person.id,
+          })),
+        ),
+      },
+      select: { apartmentId: true, personId: true, movedOutOn: true },
     });
 
     const rows: SupplyRow[] = [
@@ -405,16 +447,49 @@ export class InitialSupplyService {
         apartmentPostalCity: apartment.address.city,
       });
 
+      const terminatedOn = apartment.terminations[0]?.tookEffectOn ?? null;
       for (const residency of apartment.residencies) {
+        // A holding that began on or before the day the tenant-ownership ceased
+        // is a holding of the right that ceased, and is not supplied.
+        if (
+          terminatedOn !== null &&
+          residency.movedInOn.getTime() <= terminatedOn.getTime()
+        ) {
+          continue;
+        }
         const person = residency.person;
-        // The latest decision recorded for this person on this apartment. An
-        // acquirer who bought, sold and bought back has two, and the one that
-        // admitted them to the membership they hold now is the later.
-        const decided = apartment.transfers
-          .filter((transfer) => transfer.toPersonId === person.id)
-          .map((transfer) => formatDateColumn(transfer.membershipDecidedOn))
-          .filter((day): day is string => day !== null)
+        /*
+         * The decision on the latest transfer to this person that belongs to
+         * this holding: dated after any earlier holding of theirs here ended.
+         * An acquirer who bought, sold and bought back as an existing member
+         * has a decision from the first purchase and none from the second, and
+         * the cell is then empty rather than the old date.
+         */
+        const previousEnd = earlierHoldings
+          .filter(
+            (earlier) =>
+              earlier.apartmentId === apartment.id &&
+              earlier.personId === person.id &&
+              earlier.movedOutOn !== null &&
+              earlier.movedOutOn.getTime() <= residency.movedInOn.getTime(),
+          )
+          .reduce<number | null>(
+            (latest, earlier) =>
+              Math.max(latest ?? 0, earlier.movedOutOn?.getTime() ?? 0),
+            null,
+          );
+        const transfer = apartment.transfers
+          .filter(
+            (candidate) =>
+              candidate.toPersonId === person.id &&
+              (previousEnd === null ||
+                candidate.transferredOn.getTime() >= previousEnd),
+          )
           .at(-1);
+        const decided =
+          transfer === undefined
+            ? null
+            : formatDateColumn(transfer.membershipDecidedOn);
 
         const identityNumber =
           person.personalIdentityNumberCipher === null

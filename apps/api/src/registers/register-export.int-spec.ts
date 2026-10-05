@@ -85,6 +85,12 @@ const apartments = {
   protected: `rep-apartment-c-${suffix}`,
   /** Held by somebody whose move-out is dated but has not arrived. */
   leaving: `rep-apartment-d-${suffix}`,
+  /**
+   * Held by nobody, and terminated by the tests about the notices a register
+   * write queues. Not one of the held apartments: a termination ends the
+   * holding, and the supply tests read those holders.
+   */
+  noticed: `rep-apartment-e-${suffix}`,
 };
 
 const actors = {
@@ -293,6 +299,7 @@ beforeAll(async () => {
       { id: apartments.transferred, addressId, number: "1102", floor: 1 },
       { id: apartments.protected, addressId, number: "1103", floor: 1 },
       { id: apartments.leaving, addressId, number: "1104", floor: 1 },
+      { id: apartments.noticed, addressId, number: "1105", floor: 1 },
     ],
   });
 
@@ -744,7 +751,7 @@ describe("the notice that a window has opened", () => {
       method: "POST",
       url: "/api/apartment-register/terminations",
       payload: {
-        apartmentId: apartments.protected,
+        apartmentId: apartments.noticed,
         kind: "BUILDING_TRANSFERRED",
         tookEffectOn: day(-1),
         reference: `Kopebrev ${suffix}`,
@@ -763,7 +770,7 @@ describe("the notice that a window has opened", () => {
     // One identifier, and nothing else. The handler reads the dates and the
     // apartment back from the ledger rather than trusting a payload.
     expect(queued?.[1]).toEqual({
-      obligationId: await latestObligation(apartments.protected),
+      obligationId: await latestObligation(apartments.noticed),
     });
   });
 
@@ -772,7 +779,7 @@ describe("the notice that a window has opened", () => {
     const mailer = app.get(RegisterReportMailerService);
 
     const sent = await mailer.notifyBoard(
-      await latestObligation(apartments.protected),
+      await latestObligation(apartments.noticed),
     );
 
     // Counted relatively: the worker's database carries other suites' board
@@ -802,7 +809,7 @@ describe("the notice that a window has opened", () => {
       method: "POST",
       url: "/api/apartment-register/terminations",
       payload: {
-        apartmentId: apartments.transferred,
+        apartmentId: apartments.noticed,
         kind: "GENERAL_MEETING_DECISION",
         tookEffectOn: day(-3),
         reference: `Protokoll II ${suffix}`,
@@ -813,7 +820,7 @@ describe("the notice that a window has opened", () => {
     const captured = captureSends();
     await app
       .get(RegisterReportMailerService)
-      .notifyBoard(await latestObligation(apartments.transferred));
+      .notifyBoard(await latestObligation(apartments.noticed));
 
     const message = captured.find(
       (candidate) => candidate.to === actors.chair.email,
@@ -826,7 +833,7 @@ describe("the notice that a window has opened", () => {
       dueOn: Date;
     };
     expect(props.kind).toBe("TERMINATION");
-    expect(props.designation).toContain("1102");
+    expect(props.designation).toContain("1105");
     expect(props.dueOn.toISOString().slice(0, 10)).toBe(day(11));
     // The greeting names the board member the message is addressed to, which is
     // who it is to.
@@ -872,7 +879,7 @@ describe("the notice that a window has opened", () => {
 
     await app
       .get(RegisterReportMailerService)
-      .notifyBoard(await latestObligation(apartments.transferred));
+      .notifyBoard(await latestObligation(apartments.noticed));
 
     // The chair is first by id in this fixture, so the refusal happens before
     // the treasurer's send rather than after it.
@@ -898,7 +905,7 @@ describe("the notice that a window has opened", () => {
       method: "POST",
       url: "/api/apartment-register/terminations",
       payload: {
-        apartmentId: apartments.transferred,
+        apartmentId: apartments.noticed,
         kind: "BUILDING_TRANSFERRED",
         tookEffectOn: day(-6),
         reference: `Forvar ${suffix}`,
@@ -925,7 +932,7 @@ describe("the notice that a window has opened", () => {
 
     await app
       .get(RegisterReportMailerService)
-      .notifyBoard(await latestObligation(apartments.transferred));
+      .notifyBoard(await latestObligation(apartments.noticed));
 
     const lines = logged.mock.calls.map((call) => String(call[0]));
     const line = lines.find((text) => text.includes("obligation"));
@@ -1068,6 +1075,128 @@ describe("the initial supply", () => {
     expect(holder?.holderPersonalIdentityNumber).toBe(
       actors.leavingHolder.personalIdentityNumber,
     );
+  });
+
+  it("reads each holding as it stands today", async () => {
+    /*
+     * Two entrances sharing a position in the address book, which is the
+     * default. Before the street was a tiebreak their apartments interleaved by
+     * number, so "Ostra" 0101 came out before "Norra" 0202.
+     */
+    const north = `rep-north-${suffix}`;
+    const east = `rep-east-${suffix}`;
+    const ceased = `rep-ceased-${suffix}`;
+    const boughtBack = `rep-bought-back-${suffix}`;
+    for (const [id, street] of [
+      [north, `Norra ${suffix}`],
+      [east, `Ostra ${suffix}`],
+    ] as const) {
+      await prisma.address.create({
+        data: {
+          id,
+          street,
+          number: "1",
+          postalCode: "11144",
+          city: "Stockholm",
+          sortOrder: 931,
+        },
+      });
+    }
+    await prisma.apartment.createMany({
+      data: [
+        { id: ceased, addressId: north, number: "0202", floor: 2 },
+        { id: boughtBack, addressId: east, number: "0101", floor: 1 },
+      ],
+    });
+    const formerHolder = `rep-former-${suffix}`;
+    const returning = `rep-returning-${suffix}`;
+    for (const [personId, firstName] of [
+      [formerHolder, "Fia"],
+      [returning, "Rut"],
+    ] as const) {
+      await createPerson({
+        personId,
+        firstName,
+        email: `${personId}@exempel.se`,
+        locale: "sv",
+      });
+    }
+
+    // Terminated by the general meeting, with nobody recorded as moving out.
+    await prisma.residency.create({
+      data: {
+        personId: formerHolder,
+        apartmentId: ceased,
+        role: "MEMBER",
+        movedInOn: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    });
+    await prisma.termination.create({
+      data: {
+        apartmentId: ceased,
+        kind: "GENERAL_MEETING_DECISION",
+        tookEffectOn: new Date("2026-01-15T00:00:00.000Z"),
+        reference: `Stammobeslut ${suffix}`,
+      },
+    });
+
+    // Bought in 2015 on a membership decision, sold in 2018, and bought back
+    // in 2022 as a member already, which records no decision.
+    await prisma.residency.createMany({
+      data: [
+        {
+          personId: returning,
+          apartmentId: boughtBack,
+          role: "MEMBER",
+          movedInOn: new Date("2015-01-01T00:00:00.000Z"),
+          movedOutOn: new Date("2018-01-01T00:00:00.000Z"),
+        },
+        {
+          personId: returning,
+          apartmentId: boughtBack,
+          role: "MEMBER",
+          movedInOn: new Date("2022-03-01T00:00:00.000Z"),
+        },
+      ],
+    });
+    await prisma.transfer.createMany({
+      data: [
+        {
+          apartmentId: boughtBack,
+          kind: "TRANSFER",
+          toPersonId: returning,
+          transferredOn: new Date("2014-12-01T00:00:00.000Z"),
+          membershipDecidedOn: new Date("2014-12-10T00:00:00.000Z"),
+          agreementReference: `Forsta kopet ${suffix}`,
+        },
+        {
+          apartmentId: boughtBack,
+          kind: "TRANSFER",
+          toPersonId: returning,
+          transferredOn: new Date("2022-02-15T00:00:00.000Z"),
+          agreementReference: `Aterkopet ${suffix}`,
+        },
+      ],
+    });
+
+    const supply = await produce();
+    const keys = rowsOf(supply, "APARTMENT").map((row) => row.apartmentKey);
+    const ceasedKey = `Norra ${suffix} 1 0202`;
+    const boughtBackKey = `Ostra ${suffix} 1 0101`;
+    expect(keys.indexOf(ceasedKey)).toBeGreaterThan(-1);
+    expect(keys.indexOf(ceasedKey)).toBeLessThan(keys.indexOf(boughtBackKey));
+
+    // A tenant-ownership that has ceased appears with no HOLDER row.
+    const holders = rowsOf(supply, "HOLDER");
+    expect(holders.filter((row) => row.apartmentKey === ceasedKey)).toEqual(
+      [],
+    );
+
+    // The decision from 2014 admitted a membership that has ended; this
+    // holding had none, so the cell is empty.
+    const returned = holders.find((row) => row.apartmentKey === boughtBackKey);
+    expect(returned?.holderHeldFrom).toBe("2022-03-01");
+    expect(returned?.holderMembershipDecidedOn).toBe("");
   });
 
   it("carries the lien notes that still stand and leaves out a released one", async () => {
