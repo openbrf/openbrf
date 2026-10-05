@@ -390,9 +390,8 @@ export class ImportService implements OnModuleInit {
    * twice with an ENTRY row each - the same uncorrectable duplicate, reached
    * from two sessions instead of one. The screen hides the upload while an
    * import runs, but a tab opened earlier, a second board member or a direct
-   * call does not see that, so the refusal is made here, under the import lock;
-   * the partial unique index "import_session_one_apply" holds it against any
-   * other writer. A running session normally ends as APPLIED, or as FAILED on a
+   * call does not see that, so the refusal is made here, under the import
+   * lock. A running session normally ends as APPLIED, or as FAILED on a
    * refusal or through the dead letter once its retries run out. Until then
    * every other apply is refused: for as long as a hung attempt takes to time
    * out and be retried, and for a session whose job was lost, until the next
@@ -439,59 +438,49 @@ export class ImportService implements OnModuleInit {
 
     // A refusal is thrown from inside the transaction, which rolls back and
     // rethrows it. None of the refusals has written anything by then.
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        await lockImportApply(tx);
-        await refuseWhileAnotherRuns(tx, sessionId);
+    await this.prisma.$transaction(async (tx) => {
+      await lockImportApply(tx);
+      await refuseWhileAnotherRuns(tx, sessionId);
 
-        // On the token as well, so a preview recorded between the read above
-        // and this claim cannot have its mapping run with these decisions.
-        const claim = await tx.importSession.updateMany({
-          where: {
-            id: sessionId,
-            status: "MAPPING",
-            previewStatus: "READY",
-            previewToken: input.previewToken,
-          },
-          data: {
-            status: "QUEUED",
-            decisions: input.decisions as Prisma.InputJsonValue,
-            // The apply plans again from the rows; the stored preview has
-            // been looked at and is not kept past the point it was for.
-            previewCipher: null,
-          },
-        });
-        if (claim.count === 0) {
-          const current = await tx.importSession.findUnique({
-            where: { id: sessionId },
-            select: { status: true },
-          });
-          if (current?.status === "MAPPING") {
-            // Not "preview-outdated": nothing this board member chose changed
-            // the plan. Somebody else's preview replaced the one checked here,
-            // and answering with a preview of this tab's own would replace
-            // theirs in turn.
-            throw previewReplaced();
-          }
-          throw new ImportError(
-            "That import has already been started.",
-            "session-already-applied",
-          );
-        }
-        // The job is written by this transaction too, so the claim and the
-        // work it claims commit together. A session left claimed with no job
-        // behind it is an import that never runs and never says so.
-        await this.applies.enqueueInTransaction(tx, sessionId);
+      // On the token as well, so a preview recorded between the read above
+      // and this claim cannot have its mapping run with these decisions.
+      const claim = await tx.importSession.updateMany({
+        where: {
+          id: sessionId,
+          status: "MAPPING",
+          previewStatus: "READY",
+          previewToken: input.previewToken,
+        },
+        data: {
+          status: "QUEUED",
+          decisions: input.decisions as Prisma.InputJsonValue,
+          // The apply plans again from the rows; the stored preview has
+          // been looked at and is not kept past the point it was for.
+          previewCipher: null,
+        },
       });
-    } catch (cause) {
-      if (
-        cause instanceof Prisma.PrismaClientKnownRequestError &&
-        cause.code === "P2002"
-      ) {
-        throw anotherImportRunning();
+      if (claim.count === 0) {
+        const current = await tx.importSession.findUnique({
+          where: { id: sessionId },
+          select: { status: true },
+        });
+        if (current?.status === "MAPPING") {
+          // Not "preview-outdated": nothing this board member chose changed
+          // the plan. Somebody else's preview replaced the one checked here,
+          // and answering with a preview of this tab's own would replace
+          // theirs in turn.
+          throw previewReplaced();
+        }
+        throw new ImportError(
+          "That import has already been started.",
+          "session-already-applied",
+        );
       }
-      throw cause;
-    }
+      // The job is written by this transaction too, so the claim and the
+      // work it claims commit together. A session left claimed with no job
+      // behind it is an import that never runs and never says so.
+      await this.applies.enqueueInTransaction(tx, sessionId);
+    });
 
     this.logger.log(`Import session ${sessionId}: apply queued`);
     return this.run(sessionId);

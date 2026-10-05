@@ -23,7 +23,6 @@ import {
 } from "../registers/residency-lock";
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
-import { lockImportChunkWrite } from "./import-lock";
 import {
   conflictsWith,
   findUndecided,
@@ -375,8 +374,10 @@ export class ImportApplyService implements OnModuleInit {
           return null;
         }
 
-        // One chunk writes at a time, whichever import it belongs to.
-        await lockImportChunkWrite(tx);
+        // No lock across imports: only one is ever queued or applying, which
+        // the claim decides under lockImportApply, and a session leaves those
+        // states only through its own row, which the cursor claim above holds
+        // until this chunk commits.
 
         // The apartments first, before the persons: the charge and fee purges
         // decide from everybody who has ever lived in an apartment, and a

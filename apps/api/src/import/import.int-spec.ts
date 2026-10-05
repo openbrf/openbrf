@@ -33,6 +33,7 @@ import {
 } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
 import { ImportService, type ImportSessionView } from "./import.service";
+import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   advisoryLockCount,
   waitFor,
@@ -1788,80 +1789,6 @@ describe("two imports of one file", () => {
     expect(created).toHaveLength(1);
     expect(created[0]?.memberRegisterEntries).toHaveLength(1);
   }, 60_000);
-
-  it("lets the database refuse a second import queued past the check", async () => {
-    // The check in the request answers the common case; the index is what
-    // holds when two claims commit together.
-    const cookie = await signIn(actors.board.email);
-    const rows = [
-      HEADERS,
-      [addressLabel, "2104", "Index", surname, "Medlem", "", "", "2022-11-01"],
-    ];
-    const first = await uploadAndPreview(cookie, "index-1.csv", rows);
-    const second = await uploadAndPreview(cookie, "index-2.csv", rows);
-
-    await prisma.importSession.update({
-      where: { id: first.sessionId },
-      data: { status: "QUEUED" },
-    });
-    await expect(
-      prisma.importSession.update({
-        where: { id: second.sessionId },
-        data: { status: "QUEUED" },
-      }),
-    ).rejects.toMatchObject({ code: "P2002" });
-
-    await prisma.importSession.update({
-      where: { id: first.sessionId },
-      data: { status: "MAPPING" },
-    });
-  });
-
-  it("writes a chunk only once it holds the import lock", async () => {
-    const cookie = await signIn(actors.board.email);
-    const session = await uploadAndPreview(cookie, "las.csv", [
-      HEADERS,
-      [addressLabel, "2104", "Las", surname, "Medlem", "", "", "2022-12-01"],
-    ]);
-    await prisma.importSession.update({
-      where: { id: session.sessionId },
-      data: { status: "QUEUED", decisions: {} },
-    });
-
-    let release = (): void => undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const holder = prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
-        await held;
-      },
-      { timeout: 30_000 },
-    );
-    await waitFor(
-      async () => (await advisoryLockCount(prisma, "import-apply", true)) > 0n,
-    );
-
-    const chunk = applies.applyNextChunk(session.sessionId);
-    await waitFor(
-      async () => (await advisoryLockCount(prisma, "import-apply", false)) > 0n,
-    );
-    expect(
-      await prisma.person.count({
-        where: { firstName: "Las", lastName: surname },
-      }),
-    ).toBe(0);
-
-    release();
-    await holder;
-    await chunk;
-    expect(
-      await prisma.person.count({
-        where: { firstName: "Las", lastName: surname },
-      }),
-    ).toBe(1);
-  });
 });
 
 describe("an apply and a preview of one session", () => {
@@ -2538,20 +2465,21 @@ describe("a register that changes while a chunk waits for its lock", () => {
     const lockHeld = new Promise<void>((resolve) => {
       release = resolve;
     });
+    // Bert's transition lock is the last the chunk takes before it plans
+    // again, so holding it stops the chunk between its two plans.
     const holder = prisma.$transaction(
       async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
+        await lockResidencyTransitions(tx, personId);
         await lockHeld;
       },
       { timeout: 30_000 },
     );
     await waitFor(
-      async () => (await advisoryLockCount(prisma, "import-apply", true)) > 0n,
+      async () =>
+        (await advisoryLockCount(prisma, `residency:${personId}`, true)) > 0n,
     );
     const chunk = applies.applyNextChunk(session.sessionId);
-    await waitFor(
-      async () => (await advisoryLockCount(prisma, "import-apply", false)) > 0n,
-    );
+    await waitFor(() => waitsForTransitionLock(personId));
     await prisma.residency.update({
       where: { id: held.id },
       data: { movedOutOn: new Date("2023-01-01T00:00:00.000Z") },

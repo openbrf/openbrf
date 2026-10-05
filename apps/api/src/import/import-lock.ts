@@ -12,10 +12,12 @@ import type { Prisma } from "../generated/prisma/client";
  * second wait until the first commits, and its read then sees the first one
  * queued.
  *
- * The partial unique index "import_session_one_apply" holds the invariant
- * against any writer; this lock is what lets the apply answer it. Serialised,
- * the refusal comes from the read, as a reason the screen can explain, and the
- * index is left to catch only a writer that does not take the lock.
+ * An advisory lock rather than a partial unique index over the running
+ * statuses, for the reason `fees/fee-lock.ts` and `registers/residency-lock.ts`
+ * give for theirs: the invariant spans rows, and the apply is the only writer
+ * that moves a session to QUEUED, so serialising that one writer is enough. The
+ * refusal then comes from the read, as a reason the screen can explain, and
+ * not from a constraint violation translated after the fact.
  *
  * Held here rather than inline in the apply because a lock only works if every
  * writer spells the key the same way. A second spelling would be two locks that
@@ -30,22 +32,4 @@ export async function lockImportApply(
   tx: Prisma.TransactionClient,
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-sessions:running"}))`;
-}
-
-/**
- * The lock every chunk of every import takes before it writes.
- *
- * One key for the instance: what it serialises is the decision "this person is
- * new", which any two chunks can disagree on whichever imports they belong to.
- * The chunk plans again once it holds it, so what it writes was decided
- * against a register no other chunk is adding to.
- *
- * Held here rather than inline in the apply because a lock only works if every
- * writer spells the key the same way, as `fees/fee-lock.ts` says of its own.
- * Taken for the transaction, so the commit or the rollback releases it.
- */
-export async function lockImportChunkWrite(
-  tx: Prisma.TransactionClient,
-): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"import-apply"}))`;
 }
