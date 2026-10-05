@@ -688,6 +688,35 @@ describe("uploading a CSV", () => {
     expect(session.sample[0]?.[2]).toBe("Nina");
   });
 
+  it("hides every personal identity number in the sample it sends back", async () => {
+    // One valid number in its own column, one mistyped there, and one valid
+    // number in a note: the sample is the file as uploaded, and the mapping
+    // screen is not a screen that shows identity numbers.
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: {
+        fileName: "personnummer.csv",
+        content: encode(
+          writeCsv([
+            ["Förnamn", "Efternamn", "Personnummer", "Notering"],
+            ["Nina", surname, "19811218-9876", "Ring om 19811218-9876"],
+            ["Bo", surname, "19811218-9875", ""],
+          ]),
+        ),
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).not.toContain("19811218");
+    const session = JSON.parse(response.body) as ImportSessionView;
+    expect(session.sample).toEqual([
+      ["Nina", surname, "••••••••-••••", "Ring om ••••••••-••••"],
+      ["Bo", surname, "••••••••-••••", ""],
+    ]);
+  });
+
   it("refuses a file with nothing under its column titles", async () => {
     const response = await inject({
       method: "POST",
