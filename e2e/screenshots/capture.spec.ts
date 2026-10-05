@@ -11,6 +11,7 @@ import type {
 
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
+import { deliverToMailbox } from "../src/mailpit";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -315,6 +316,15 @@ async function perform(page: Page, action: Action): Promise<void> {
       name: action.file.name,
       mimeType: action.file.mimeType,
       buffer: Buffer.from(action.file.text, "utf8"),
+    });
+    return;
+  }
+  if ("deliver" in action) {
+    await deliverToMailbox({
+      from: { address: action.deliver.from },
+      to: action.deliver.to,
+      subject: action.deliver.subject,
+      text: action.deliver.text,
     });
     return;
   }

@@ -2694,6 +2694,21 @@
       "collected_one": "Ett nytt brev hämtades.",
       "collected_other": "{{count}} nya brev hämtades."
     },
+    "setAside": {
+      "intro_one": "Ett brev kunde inte hämtas. Det ligger kvar i brevlådan: öppna det där med ett e-postprogram.",
+      "intro_other": "{{count}} brev kunde inte hämtas. De ligger kvar i brevlådan: öppna dem där med ett e-postprogram.",
+      "dated": "Daterat {{date}}",
+      "undated": "Datum okänt",
+      "setAsideAt": "lagt åt sidan {{date}}",
+      "retryFrom": "prövas igen från {{date}}",
+      "more_one": "Och ett till.",
+      "more_other": "Och {{count}} till.",
+      "reasons": {
+        "noSenderAddress": "Ingen avsändaradress att svara till",
+        "unstorable": "Kunde inte sparas",
+        "unknown": "Kunde inte hämtas"
+      }
+    },
     "inbox": {
       "title": "Inkorgen",
       "description": "Det som väntar först, och den längsta väntan först inom det.",
