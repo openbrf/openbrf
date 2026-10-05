@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -703,6 +704,58 @@ describe("the personal identity number guardrail", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json<{ periodTo: string }>().periodTo).toBe(dayText(240));
+  });
+
+  it("refuses a revision once the applicant no longer holds the apartment", async () => {
+    const created = await apply(memberCookie);
+    expect(created.statusCode).toBe(201);
+    const id = created.json<{ id: string }>().id;
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: member.personId, apartmentId },
+      select: { id: true },
+    });
+    /*
+     * Moved out of this apartment today, while still holding the other one: the
+     * capability to order and apply stays, so only the service's own check
+     * stands between the revision and an apartment the caller has left.
+     */
+    await prisma.residency.update({
+      where: { id: residency.id },
+      data: { movedOutOn: dateColumnOf(localDayOf(new Date())) },
+    });
+    const elsewhere = await prisma.residency.create({
+      data: {
+        personId: member.personId,
+        apartmentId: otherApartmentId,
+        role: "MEMBER",
+        movedInOn: new Date("2025-01-01"),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const response = await inject({
+        method: "PUT",
+        url: `/api/sublet-applications/${id}`,
+        payload: {
+          periodFrom: dayText(60),
+          periodTo: dayText(240),
+          reason: "Provbo pa annan ort.",
+        },
+        headers: { cookie: memberCookie },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "apartment-not-found",
+      );
+    } finally {
+      await prisma.residency.delete({ where: { id: elsewhere.id } });
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: null },
+      });
+    }
   });
 });
 

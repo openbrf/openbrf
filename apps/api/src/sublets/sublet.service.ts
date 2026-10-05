@@ -369,7 +369,7 @@ export class SubletService {
 
     const existing = await this.prisma.subletApplication.findFirst({
       where: { id: applicationId, appliedByPersonId: personId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, apartmentId: true },
     });
     if (existing === null) {
       // Deliberately the same answer as an application that was never made: see
@@ -382,6 +382,17 @@ export class SubletService {
         "already-closed",
       );
     }
+    /*
+     * Asked again, as of today, because the act is still the holder's: a member
+     * who has sold the apartment since applying no longer has a letting to ask
+     * consent for, and a revised period would put one in front of the board
+     * anyway. Withdrawing stays open to them - taking a request back needs no
+     * tenant-ownership.
+     */
+    if (existing.apartmentId === null) {
+      throw new SubletError("No such apartment.", "apartment-not-found");
+    }
+    await this.requireOwnApartment(personId, existing.apartmentId);
 
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.subletApplication.updateMany({
