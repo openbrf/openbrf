@@ -8,7 +8,9 @@
 # image a release tag names; the suite runs the one built from this checkout,
 # which is the image the next release will publish. So the build lives here,
 # and its context is the repository root, because Compose resolves every
-# relative path against the directory of the first file it is given.
+# relative path against the directory of the first file it is given. All three
+# of the instance's services run that image, so each names the build: one that
+# named only the tag would have Compose try to pull it.
 # stack.env sets OPENBRF_VERSION only so the production file's required
 # variable interpolates; the image named below is the one that runs.
 #
@@ -23,7 +25,18 @@
 # The project name is always openbrf-e2e, so the suite can recreate its own
 # volumes without ever touching a development or production stack.
 
+x-e2e-image: &e2e-image
+  build:
+    context: .
+  image: openbrf:local
+
 services:
+  schema-owner:
+    <<: *e2e-image
+
+  migrate:
+    <<: *e2e-image
+
   db:
     ports:
       # Published so the suite can assert on the audit log directly. Reveals of
@@ -60,9 +73,7 @@ services:
       retries: 12
 
   app:
-    build:
-      context: .
-    image: openbrf:local
+    <<: *e2e-image
     depends_on:
       db:
         condition: service_healthy

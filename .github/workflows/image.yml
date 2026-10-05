@@ -222,8 +222,10 @@ jobs:
         run: |
           # The database docker-compose.prod.yml pins, and the variables
           # .env.production.example asks for. No encryption key, so this is a
-          # genuine first boot: key provisioning, every migration, the job
-          # schema and the runtime role, then the server.
+          # genuine first boot. The image runs three times, as the compose
+          # file runs it: the schema owner created as the superuser; then key
+          # provisioning, every migration, the job schema and the runtime role
+          # as that owner; then the server, given neither password.
           postgres="$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
           # Generated for this run, as an operator is told to: the image runs
           # in production mode, which refuses a short or published secret.
@@ -231,13 +233,31 @@ jobs:
           # container.
           auth_secret="$(openssl rand -base64 48)"
           docker network create openbrf-smoke
+          docker volume create openbrf-smoke-data
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \
             --network-alias db \
-            --env POSTGRES_USER=openbrf --env POSTGRES_PASSWORD=smoke-owner \
+            --env POSTGRES_USER=openbrf --env POSTGRES_PASSWORD=smoke-superuser \
             --env POSTGRES_DB=openbrf "${postgres}"
+          for _ in $(seq 30); do
+            docker exec openbrf-smoke-db pg_isready -h 127.0.0.1 -U openbrf -d openbrf && break
+            sleep 2
+          done
+          docker run --rm --name openbrf-smoke-schema-owner --network openbrf-smoke \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            --env POSTGRES_PASSWORD=smoke-superuser \
+            --env OWNER_DB_PASSWORD=smoke-owner \
+            "${IMAGE}@${DIGEST}" schema-owner
+          docker run --rm --name openbrf-smoke-migrate --network openbrf-smoke \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            --volume openbrf-smoke-data:/data \
+            --env OWNER_DB_PASSWORD=smoke-owner \
+            --env RUNTIME_DB_PASSWORD=smoke-runtime \
+            --env OPENBRF_ENCRYPTION_KEY= \
+            "${IMAGE}@${DIGEST}" migrate
           docker run --detach --name openbrf-smoke-app --network openbrf-smoke \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            --volume openbrf-smoke-data:/data \
             --env APP_URL=http://localhost:3000 \
-            --env POSTGRES_PASSWORD=smoke-owner \
             --env RUNTIME_DB_PASSWORD=smoke-runtime \
             --env BETTER_AUTH_SECRET="${auth_secret}" \
             --env OPENBRF_ENCRYPTION_KEY= \
@@ -269,6 +289,7 @@ jobs:
         if: always()
         run: |
           docker rm --force --volumes openbrf-smoke-app openbrf-smoke-db || true
+          docker volume rm openbrf-smoke-data || true
           docker network rm openbrf-smoke || true
 
       - name: Keep the digest for the index
