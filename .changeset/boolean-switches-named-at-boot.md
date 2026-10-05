@@ -1,5 +1,5 @@
 ---
-"@openbrf/api": patch
+"@openbrf/api": minor
 ---
 
 Refuse to start when a boolean setting is neither "true" nor "false".
@@ -11,3 +11,6 @@ false, so `OPENBRF_ACTIONS_READ_ONLY=1` started an instance that still wrote,
 without a word. They now take `true` or `false` in any case, an empty value
 still means the default, and anything else stops the boot with the variable
 named.
+
+An instance that sets one of these to anything else, such as `1` or `yes`,
+has to change it to `true` or `false` before it upgrades.
