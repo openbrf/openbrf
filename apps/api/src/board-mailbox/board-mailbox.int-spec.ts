@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -26,6 +27,7 @@ import {
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
+import { mailboxFingerprint } from "./board-mailbox-settings";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
@@ -1759,6 +1761,98 @@ describe("collecting the mailbox", () => {
       spy.mockRestore();
       await server.close();
     }
+  });
+
+  describe("a set-aside letter tried again and found already stored", () => {
+    /*
+     * The retry's own write fails, and the letter turns out to be stored
+     * anyway: another run stored it, and set it aside again as this one was
+     * failing. Played by a write that commits, the other run's set-aside row
+     * put back, and the answer lost. The retry returns "already-held", and the
+     * row has to go with it - nothing else would ever take it off the list.
+     */
+    async function retryFoundStored(tag: string): Promise<{
+      sourceUid: string;
+      summary: CollectionSummary;
+    }> {
+      const uid = `uid-retry-held-${tag}-${suffix}`;
+      const server = await serveMailbox([
+        {
+          uid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Redan sparat ${tag} ${suffix}`,
+            body: "Ett brev.",
+            messageId: `retry-held-${tag}-${suffix}@utanfor.example`,
+          }),
+        },
+      ]);
+      const sourceUid = `${mailboxFingerprint({
+        host: "127.0.0.1",
+        port: server.port,
+        secure: false,
+        user: MAILBOX_USER,
+        password: MAILBOX_PASSWORD,
+      })}:${uid}`;
+      const setAsideRow = {
+        sourceUid,
+        reason: "unstorable",
+        letterDate: null,
+        retryAfter: new Date(Date.now() - 60_000),
+      };
+      await prisma.boardMailboxIgnoredMessage.create({ data: setAsideRow });
+
+      const transaction = prisma.$transaction.bind(prisma);
+      const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+        ...args: unknown[]
+      ) =>
+        (
+          (transaction as (...rest: unknown[]) => Promise<unknown>)(
+            ...args,
+          ) as Promise<unknown>
+        ).then(async () => {
+          await prisma.boardMailboxIgnoredMessage.create({
+            data: setAsideRow,
+          });
+          throw new Error("Connection terminated unexpectedly");
+        })) as typeof prisma.$transaction);
+      try {
+        return { sourceUid, summary: await collector.collect() };
+      } finally {
+        spy.mockRestore();
+        await server.close();
+      }
+    }
+
+    it("is taken off the set-aside list", async () => {
+      const { sourceUid, summary } = await retryFoundStored("cleared");
+
+      expect(summary.alreadyHeld).toBe(1);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.count({ where: { sourceUid } }),
+      ).toBe(0);
+    });
+
+    it("is still held when the list cannot be written, and the failure is logged", async () => {
+      const deleteMany = vi
+        .spyOn(prisma.boardMailboxIgnoredMessage, "deleteMany")
+        .mockRejectedValue(new Error("Connection terminated unexpectedly"));
+      const warn = vi.spyOn(Logger.prototype, "warn");
+      try {
+        const { summary } = await retryFoundStored("unwritable");
+
+        expect(summary.alreadyHeld).toBe(1);
+        expect(summary.skipped).toBe(0);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "could not be removed from the set-aside list",
+          ),
+        );
+      } finally {
+        deleteMany.mockRestore();
+        warn.mockRestore();
+      }
+    });
   });
 
   it("takes a letter off the set-aside list once another collection has stored it", async () => {
