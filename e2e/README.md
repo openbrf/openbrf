@@ -477,7 +477,8 @@ something the next person to capture by hand discovers - and the images are one
 download away from the pull request that changed them.
 
 The stack is a second one, not the suite's: compose project `openbrf-shots`, on
-ports 3011, 5443 and 8126, configured by `screenshots.env`. A capture and a
+ports 3011, 5443 and 8126, with its image built as `openbrf:shots` rather than
+the suite's `openbrf:e2e`, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
