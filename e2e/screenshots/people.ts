@@ -37,11 +37,10 @@ export const RESIDENT = {
 /**
  * A tenant-owner, moved in with her transfer.
  *
- * The shared fixture puts its four people on apartments through sign-up
- * approval, which records a residency and nothing statutory. The member
- * register is written by a move-in, and the apartment register states who holds
- * an apartment, so without somebody who moved in as a member both statutory
- * documents would be photographed empty. She is also the one persona who can
+ * The shared fixture moves its four people in with no transfer, so the
+ * apartment register, which states who holds an apartment and on which
+ * agreement, would be photographed empty without somebody who moved in with a
+ * tenant-ownership. She is also the one persona who can
  * open her own entry in the apartment register: that screen exists for a
  * tenant-owner, and the resident above holds no tenant-ownership.
  */

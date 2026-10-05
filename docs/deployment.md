@@ -1,7 +1,8 @@
 # Running an Open BRF instance
 
 One housing cooperative, one instance: an application container and a
-PostgreSQL container, and nothing else to install.
+PostgreSQL container, two containers that prepare the database on every deploy
+and exit, and nothing else to install.
 
 > **Not yet ready to hold a housing cooperative's data.** See
 > [ROADMAP.md](../ROADMAP.md) for what is actually built. This document
@@ -16,19 +17,34 @@ PostgreSQL container, and nothing else to install.
 
 ## Starting an instance
 
+An instance needs two files: `docker-compose.prod.yml` and
+`.env.production.example`. Every release carries both as assets, the second
+under the name `env.production.example`, so either download them from the
+release to run
+
+```sh
+mkdir openbrf && cd openbrf
+curl -fLO https://github.com/openbrf/openbrf/releases/download/v0.1.0/docker-compose.prod.yml
+curl -fL -o .env.production https://github.com/openbrf/openbrf/releases/download/v0.1.0/env.production.example
+```
+
+or take them from a clone of the repository:
+
 ```sh
 git clone https://github.com/openbrf/openbrf.git
 cd openbrf
 cp .env.production.example .env.production
 ```
 
-Fill in the four values `.env.production` asks for, generating each with
+Set `OPENBRF_VERSION` in `.env.production` to the release line to run, such as
+`0.1` (see [Versions and upgrades](#versions-and-upgrades)), and fill in the
+five secrets it asks for, generating each with
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Any character is allowed in the two database passwords. They end up inside
+Any character is allowed in the database passwords. They end up inside
 PostgreSQL connection URLs, where `:`, `/`, `@`, `?` and `#` are delimiters, and
 the entrypoint percent-encodes them as it builds those URLs.
 
@@ -109,47 +125,65 @@ next start. It is the only page written outside the wizard, and writing it is
 idempotent: an instance that already has one is left alone, and so is a notice
 the board has since rewritten.
 
-## What happens on every start
+## What happens on every deploy
 
-The entrypoint runs, in this order, before the application listens:
+Every `up` runs two services before the application. Both are the same image as
+the application, started with a command of their own, and both do their job and
+exit; the next starts only if the one before it succeeded.
 
-1. The application's connection URL is assembled from the host, the port, the
-   database name and the runtime role's password, percent-encoding as it goes.
-   A `DATABASE_URL_RUNTIME` that is already set is left alone. The owner's URL
-   is built the same way, but separately for each of steps 3 to 6 and inside the
-   process that uses it, so it is never a variable in the entrypoint's shell and
-   is never written to a stream. A `DATABASE_URL` that is already set is used as
-   given.
-2. The data volume's directories are created and checked for writability.
+`schema-owner` makes sure the schema owner exists, as the database's superuser
+([schema-owner.sql](../docker/schema-owner.sql)). The owner is `openbrf_owner`
+unless `OWNER_DB_USER` names another: a role that owns the database, its
+schemas and every table in them, and is not a superuser. On an instance whose
+tables the superuser still owns, it moves them to the owner. After that it
+changes nothing but the owner's password, which it sets from
+`OWNER_DB_PASSWORD` each time.
+
+`migrate` then does, in this order:
+
+1. The data volume's directories are created and checked for writability.
+2. The schema owner's connection is checked: it has to work, and it must not be
+   a superuser.
 3. The field encryption key is provisioned if, and only if, this is a genuine
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
 5. The job queue schema is installed or migrated, as the owner.
-6. The application's own database role, `openbrf_app`, is created and
-   constrained.
-7. The owner's credentials are dropped from the environment, and the
-   application starts, connecting as `openbrf_app`.
+6. The application's own database role is created and constrained: `openbrf_app`,
+   or the name `RUNTIME_DB_ROLE` gives it.
 
-Steps 4 to 6 are idempotent, so upgrading is a newer image and the same `up -d`
-that started the instance.
+The owner's URL is built separately for each of steps 2 to 6, inside the
+process that uses it, so it is never a shell variable and never written to a
+stream; a `DATABASE_URL` that is set on the `migrate` service is used as given.
 
-There is no published image yet, so the image is built from the checkout. A
-`pull` has no registry to fetch it from and fails; an `up -d` on its own does
-not rebuild an image that already exists. The build is therefore its own step:
+The application's container assembles its own connection URL from the runtime
+role's password and starts. It is never given the owner's credentials or the
+superuser's, and it refuses to start if it is: a `POSTGRES_PASSWORD`, an
+`OWNER_DB_PASSWORD`, or a `DATABASE_URL` beside the runtime connection stops it
+with a message that says which. Once started, it asks the database whether the
+role it connected as is a constrained one, and refuses to serve if the answer
+is no - a superuser, a role that owns the database or its tables or can create
+objects in its schemas, or one that holds any privilege the hardening takes
+away on the statutory archive, the migration history or the job schema's
+version. Its first line after listening names the release and the commit it was
+built from, as `Open BRF 0.1.0 (1a2b3c4d5e6f)`.
 
-```sh
-git pull
-docker compose -f docker-compose.prod.yml --env-file .env.production build
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-```
+Both deploy services and the application are refused before anything connects
+when `RUNTIME_DB_ROLE` cannot be a runtime role's name: see
+[Several instances on one database server](#several-instances-on-one-database-server).
 
-Once an image is published, the `git pull` and the `build` become one `pull`:
+Every step is idempotent, so upgrading is a newer image and the same `up -d`
+that started the instance:
 
 ```sh
 docker compose -f docker-compose.prod.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
+
+`pull` fetches the image `OPENBRF_VERSION` names as it stands at that moment:
+the newest patch release of a line such as `0.1`, or the one exact version.
+Stop the application and take a backup before it; see
+[the upgrade, step by step](#the-upgrade-step-by-step).
 
 Both selectors belong on every one of those commands. Without
 `-f docker-compose.prod.yml`, Compose picks up the `docker-compose.yml` in this
@@ -157,41 +191,428 @@ repository instead, which defines the development database and no application
 at all: the upgrade would touch the wrong volumes and leave the running
 instance on its old image.
 
-## Two database roles, and why
+A build from a checkout, rather than a release, is an image under a tag of
+its own that `OPENBRF_VERSION` then names. It is never pulled, so `pull` is
+not part of running it:
+
+```sh
+docker build -t ghcr.io/openbrf/openbrf:checkout .
+# OPENBRF_VERSION=checkout in .env.production
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+**What a failed migration leaves.** The `migrate` service stops at the first
+error and exits with a non-zero status, `up` reports it, and the application is
+not started. The failing migration is rolled back
+whole, because each migration runs in one transaction, but the migrations
+applied before it in the same start stay applied, and the failure is recorded
+in the database's `_prisma_migrations` table, which makes every later start
+refuse to migrate until it is resolved. The database is then between two
+releases, and the previous image is not guaranteed to run against it.
+
+**Rolling back** is restoring the backup taken before the upgrade - the
+database and the data volume together, as
+[backup-and-restore.md](backup-and-restore.md) takes them - and starting the
+previous image, named by its exact version. Never the database alone: a start
+can rewrite the stored files on the volume before the application listens
+([ADR 0015](adr/0015-stored-files-encrypted-at-rest.md)). Never the previous image
+against the newer database. And never `prisma migrate resolve` to push past a
+failed migration: it records the migration as dealt with without doing what it
+does.
+
+**One container per database.** An upgrade that starts the new container before
+stopping the old one runs the migrations under a live older release. Stop, back
+up, start.
+
+## Versions and upgrades
+
+Every release is published as `ghcr.io/openbrf/openbrf`, one image for
+`linux/amd64` and `linux/arm64`, under up to three tags:
+
+- `X.Y.Z`, the release itself, which never moves;
+- `X.Y`, the release line, which moves to each patch release of that line;
+- `X`, from 1.0.0 on, which moves to each release of that major version.
+
+There is no `latest` tag. A tag that moved across release lines would install
+the one upgrade an operator is meant to choose. A patch to an older line moves
+that line's tag and nothing else.
+
+`OPENBRF_VERSION` is one of those tags. A line follows its patch releases on
+every `pull`; an exact version stays where it is; and a version with its
+digest, `0.1.0@sha256:<digest>`, is that image and no other, whatever happens to
+any tag. The digest is the one the release's attestation names and
+`docker buildx imagetools inspect ghcr.io/openbrf/openbrf:0.1.0` prints.
+
+What a release may change follows from its version:
+
+- **A patch release** (0.1.0 to 0.1.1) fixes without changing anything an
+  operator does, and can be installed without anybody choosing it.
+- **Before 1.0, a minor release** (0.1 to 0.2) may carry something an operator
+  has to act on - a new required variable, a variable removed or renamed, a
+  PostgreSQL major version no longer supported, a plugin API version no longer
+  accepted, a data change that needs a manual step - and waits for the
+  operator's choice. Its release notes say what.
+- **From 1.0 on**, minor releases join patch releases, and anything on that
+  list is a major release instead. [CONTRIBUTING.md](../CONTRIBUTING.md),
+  "Releasing the platform", is the rule a release is versioned by.
+
+Every image carries a build provenance attestation that names the commit and
+the workflow that built it. The release carries the same attestation as its
+asset `openbrf-X.Y.Z.intoto.jsonl`, and this checks the image against it:
+
+```sh
+gh attestation verify oci://ghcr.io/openbrf/openbrf:0.1.0 \
+  --repo openbrf/openbrf \
+  --signer-workflow openbrf/openbrf/.github/workflows/image.yml
+```
+
+The image's labels say the same: `org.opencontainers.image.version` and
+`org.opencontainers.image.revision`.
+
+### The upgrade, step by step
+
+The order an operator follows by hand, and the one an automated upgrade has to
+follow as well:
+
+1. Stop the application, then back up the database and the data volume
+   ([backup-and-restore.md](backup-and-restore.md), "Before an upgrade").
+2. Start the target image by digest - the digest its attestation names, not a
+   tag that could move.
+3. The upgrade has succeeded when the container's health is `healthy` within
+   its start period.
+4. Otherwise, stop it, restore both halves of the backup, and start the
+   previous image by its digest.
+
+## Three database roles, and why
 
 The member register and the audit log are append-only, enforced by triggers in
 the database rather than by application code alone. A table's owner can run
 `ALTER TABLE ... DISABLE TRIGGER` and walk straight past them, so the
-application must not be the owner.
+application must not be the owner. And migrations need to own the tables and
+nothing more, so the role that runs them must not be a superuser.
 
-`openbrf` owns the schema and runs migrations. `openbrf_app` owns nothing, holds
-no `CREATE` privilege, and has `UPDATE` and `DELETE` revoked on the statutory
-tables. The entrypoint creates and constrains it from `RUNTIME_DB_PASSWORD` on
-every start, so the privileges are reapplied after any migration that added a
-table.
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                   | Password              | Given to                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                    | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                      | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history and on the job schema's version. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
 
-The owner's credentials never reach the server. Neither password is passed as a
-process argument - `/proc/<pid>/cmdline` is readable by every process in the
-container, and the environment is not - and `DATABASE_URL`, `POSTGRES_PASSWORD`
-and `RUNTIME_DB_PASSWORD` are removed from the environment after step 6, so the
-process that answers requests carries `DATABASE_URL_RUNTIME` and no other
-database credential. A compromise of the application therefore has no owner
-connection to reach for, and the append-only guards on the member register and
-the audit log stay beyond it.
+Neither the owner's credentials nor the superuser's reach the application's
+container. No password is passed as a process argument - `/proc/<pid>/cmdline`
+is readable by every process in a container, and the environment is not - and
+each is given only to the service that needs it, which exits once it has run.
+The instance's three containers run with a read-only root filesystem, no
+capabilities and `no-new-privileges`, and the code in them is owned by root:
+the user they run as can write to `/data` and `/tmp` and nowhere else.
 
-An operator who manages that role themselves can leave `RUNTIME_DB_PASSWORD`
-empty in `.env.production` and set `DATABASE_URL_RUNTIME` there instead; the
-entrypoint then skips step 6 and constrains nothing, so the role has to be
-granted no more than
+An operator who manages the runtime role themselves can leave
+`RUNTIME_DB_PASSWORD` empty in `.env.production` and set `DATABASE_URL_RUNTIME`
+there instead; the `migrate` service then skips step 6 and constrains nothing,
+so the role has to be granted no more than
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) grants
 it. A `DATABASE_URL_RUNTIME` supplied that way is used as written, so its
-password has to be percent-encoded already.
+password has to be percent-encoded already. The entrypoint still refuses one
+that signs in as the owner, carries a `user` query parameter, which would
+override the user in the URL, or names no user, which the server's `PGUSER`
+would fill in. The same two are refused in `DATABASE_URL`, so that the owner's
+name read from it is the one that signs in, and so is a `password` or
+`sslpassword` query parameter there, which would reach psql's arguments. The
+application's own check at start is what catches a role granted more than the
+hardening leaves it; an instance that upgrades from a release before this
+check has to take that away first
+([Upgrading to a separate schema owner](#upgrading-to-a-separate-schema-owner)).
 
 Neither variable is required by the Compose file, because requiring either one
 would make the other impossible to use. The entrypoint is what refuses a
 production start that has neither, because the alternative is an application
 connecting as the owner - so that refusal, rather than a missing value in the
 env file, is the error an operator who has set up neither will read.
+
+## Upgrading to a separate schema owner
+
+An instance installed before the schema owner existed ran its migrations as the
+superuser, which owns every table. The release that brings the owner also
+changes `docker-compose.prod.yml`: it adds the `schema-owner` and `migrate`
+services, and no longer gives the application the superuser's password. The new
+image refuses to start under the old file, so the upgrade replaces it first.
+These steps are for an instance on the database `docker-compose.prod.yml`
+bundles; one on a server it shares with others follows
+[An instance on a shared database server](#an-instance-on-a-shared-database-server)
+instead.
+
+1. Back up ([backup-and-restore.md](backup-and-restore.md), "Before an
+   upgrade").
+2. Download the release's `docker-compose.prod.yml` over yours, and its
+   `env.production.example` beside it, naming the release you upgrade to as in
+   [Starting an instance](#starting-an-instance). Carry over anything you
+   changed in the old compose file. From a clone of the repository, check out
+   the release's tag instead, which brings both.
+
+   ```sh
+   curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/docker-compose.prod.yml
+   curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/env.production.example
+   ```
+
+3. Add the owner's password to `.env.production`, generated like the others,
+   and set `OPENBRF_VERSION` to the release line you upgrade to.
+   `env.production.example` shows every variable the release reads.
+
+   ```sh
+   OWNER_DB_PASSWORD="..."
+   ```
+
+4. `pull`, then `up -d`.
+
+The `schema-owner` service creates the owner and moves to it everything the
+superuser owns in the application's schemas, so the `migrate` service after it
+runs as the owner. Anything another role owns there - an object the runtime
+role created in the job schema, where an earlier release let it - is not moved:
+the service stops and names it, so that you can look at it, hand it to the
+owner or drop it, and run `up -d` again.
+
+The `schema-owner` service also revokes any role the runtime role has been made
+a member of. Such a membership lends it privileges that no revoke on the
+runtime role reaches, and only the superuser can take back a membership the
+superuser granted, so the `migrate` service refuses to harden the role while one
+is left and names the `schema-owner` service.
+
+If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
+`RUNTIME_DB_PASSWORD` empty), the `migrate` service does not touch it, and a
+role that was granted every write in `public` by an earlier release can still
+write the migration history, or create objects in the job schema. The
+application refuses to start as such a role, and as one that owns anything in
+the application's schemas or is a member of another role, so constrain it
+before the upgrade's `up -d`.
+
+If you have a checkout, apply
+[harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
+again as the owner, once the `schema-owner` service has run. The script also
+sets the role's password, from `RUNTIME_DB_PASSWORD`, so give it the password
+your `DATABASE_URL_RUNTIME` already uses, and the role's name in
+`RUNTIME_DB_ROLE` unless it is `openbrf_app`. The variables are set in your
+shell only and handed to the container by name, which keeps them out of the
+process arguments; `.env.production` keeps `RUNTIME_DB_PASSWORD` empty.
+
+```sh
+compose() {
+  docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+}
+
+compose up schema-owner
+read -rs RUNTIME_DB_PASSWORD && export RUNTIME_DB_PASSWORD
+compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
+  psql -U openbrf_owner -d openbrf -f - < apps/api/prisma/sql/harden-runtime-role.sql
+unset RUNTIME_DB_PASSWORD
+```
+
+Otherwise revoke the three privileges the release took away, as the superuser,
+naming your role. pg-boss's maintenance stamps the times it ran on the
+`pgboss.version` row, so the last statement grants `UPDATE` back on every
+column of that table except `version`, read from the catalog as the hardening
+script does. Without it, the application's maintenance fails.
+
+```sh
+compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
+REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
+SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
+  string_agg(quote_ident(attname), ', ' ORDER BY attnum))
+FROM pg_attribute
+WHERE attrelid = 'pgboss.version'::regclass
+  AND attnum > 0 AND NOT attisdropped AND attname <> 'version'
+\gexec
+COMMIT;
+SQL
+```
+
+Run the `GRANT` again after an upgrade that adds a column to `pgboss.version`.
+
+### An instance on a shared database server
+
+An instance on a server it shares with others named its own owner in
+`POSTGRES_USER` and `POSTGRES_PASSWORD`, and started the application alone. That
+owner already owns the database and its tables, so nothing has to move to a new
+one, and the `schema-owner` service, which runs as the server's superuser, is
+not run: it refuses a `POSTGRES_USER` that is not one. The migrations now run in
+a service of their own, before the application starts.
+
+An owner that was the server's superuser has to give way to one that is not,
+because the `migrate` service refuses to run as a superuser. Such an instance
+follows the steps below with two changes. In step 3, leave `POSTGRES_USER` and
+`POSTGRES_PASSWORD` naming the superuser for one run, and name a new owner in
+`OWNER_DB_USER` and `OWNER_DB_PASSWORD`. In place of step 4, run
+`compose run --rm --no-deps schema-owner` (`compose` as in step 5): it creates
+the owner, hands it what the superuser owns and revokes the runtime role's
+memberships. Then remove `POSTGRES_PASSWORD` from the env file and go on with
+step 5.
+
+1. Back up ([backup-and-restore.md](backup-and-restore.md), "Before an
+   upgrade").
+2. Download the release's `docker-compose.prod.yml` and
+   `env.production.example`, as in step 2 above.
+3. In `.env.production`, rename `POSTGRES_USER` to `OWNER_DB_USER` and
+   `POSTGRES_PASSWORD` to `OWNER_DB_PASSWORD`, keeping their values: the owner
+   and its password stay as they are. Set `OPENBRF_VERSION` to the release line
+   you upgrade to.
+
+   ```sh
+   OWNER_DB_USER="brf_example_owner"
+   OWNER_DB_PASSWORD="..."
+   ```
+
+4. Have the server's administrator revoke any role the runtime role is a member
+   of: the `migrate` service refuses to harden the role while one is left, and
+   names each. Then the instance's owner, connected as itself, hands itself
+   anything the runtime role owns in the instance's database - an object in the
+   job schema, where an earlier release let it create - which the `migrate`
+   service refuses as well. The owner runs this rather than the administrator:
+   run by the superuser, the last `REVOKE` also takes the owner's ADMIN option
+   on the runtime role, and the `migrate` service then fails because it cannot
+   alter that role. Here `brf_example_app` is the runtime role, the name in
+   `RUNTIME_DB_ROLE`, and `db.example.se` is the server in `POSTGRES_HOST`:
+
+   ```sh
+   psql -h db.example.se -U brf_example_owner -d brf_example -v ON_ERROR_STOP=1 <<'SQL'
+   GRANT brf_example_app TO brf_example_owner;  -- PostgreSQL 16 asks for it first
+   REASSIGN OWNED BY brf_example_app TO brf_example_owner;
+   REVOKE brf_example_app FROM brf_example_owner;
+   SQL
+   ```
+
+5. Run the deploy steps, then the application:
+
+   ```sh
+   compose() {
+     docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+   }
+
+   compose pull migrate app
+   compose run --rm --no-deps migrate
+   compose up -d --no-deps app
+   ```
+
+An override file that added `DATABASE_URL` to the `app` service adds it to the
+`migrate` service instead: the application refuses to start with the owner's
+connection in its environment.
+
+## Several instances on one database server
+
+One PostgreSQL server can hold the databases of several instances. Each is
+still a container of its own, with its own data volume and its own key. It
+reaches the server through `POSTGRES_HOST`, `POSTGRES_PORT` and `POSTGRES_DB`,
+names its schema owner in `OWNER_DB_USER`, and gives the owner's and the
+runtime role's passwords, all set in `.env.production`; left empty, the first
+three name the database `docker-compose.prod.yml` bundles.
+
+The server's administrator creates each instance's owner and its database,
+owned by it, before the instance first starts:
+
+```sql
+CREATE ROLE brf_example_owner LOGIN CREATEROLE PASSWORD '...';
+CREATE DATABASE brf_example OWNER brf_example_owner;
+```
+
+An administrator holding the server's superuser can have the `schema-owner`
+service do it instead, with `POSTGRES_USER` and `POSTGRES_PASSWORD` naming that
+superuser in the env file for the one run, and the database created first:
+`run --rm --no-deps schema-owner`. Either way the instance's containers never
+hold the superuser's password afterwards.
+
+Such an instance has no use for the bundled database, so it runs the deploy
+steps and then the application alone, and upgrades the same way:
+
+```sh
+compose() {
+  docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+}
+
+compose pull migrate app
+compose run --rm --no-deps migrate
+compose up -d --no-deps app
+```
+
+Setting `DATABASE_URL` instead of the parts and the owner's name works as well,
+through an override file that adds it to the `migrate` service; the Compose
+file still asks for `OWNER_DB_PASSWORD`, which is then not used. Three things
+are required, and each deploy checks them before it grants anything, refusing
+with a message that names what is wrong:
+
+- **PostgreSQL 16 or later.** Each instance's owner creates that instance's
+  runtime role, so it holds `CREATEROLE`. From 16 on, a role with `CREATEROLE`
+  manages only the roles it created, so one instance's owner cannot alter
+  another's runtime role. Before 16 it could. The owner may not be a superuser
+  at all: the `migrate` service refuses to run as one.
+- **A database owned by that instance's owner**, one owner per instance. Only
+  the database's owner can close it to the other roles on the server; for any
+  other role PostgreSQL would report the attempt as a warning and leave the
+  database open.
+- **A runtime role name of its own**, in `RUNTIME_DB_ROLE`. A role belongs to
+  the whole server rather than to one database, so two instances naming the
+  same role would each set its password on every start and grant it both
+  databases. The entrypoint refuses, before anything connects, a name that is
+  not a lower-case identifier of at most 63 characters, one that begins with
+  `pg_`, one PostgreSQL reserves such as `public`, and the owner's own. The
+  deploy refuses a role that another database already grants `CONNECT` to,
+  because that role is another instance's.
+  With `RUNTIME_DB_PASSWORD` set, a `DATABASE_URL_RUNTIME` you supply has to
+  sign in as that same role, or the entrypoint refuses to start: the
+  application would otherwise run as a role it never constrained. The
+  connection limit the script sets for the role has to be 1 or more; `-1`
+  would mean no limit.
+
+A new database grants `CONNECT` to every role on the server. Each deploy that
+constrains the runtime role revokes that grant on the instance's own database,
+and checks afterwards that it is gone, so no instance's runtime role can open
+a session on another's. The instance's own roles lose nothing: the runtime
+role holds a grant of its own, and the owner owns the database. Any other role
+that connects - a monitoring or a backup user - needs
+`GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner.
+
+That holds for the databases of instances that have started. A database no
+instance has hardened yet, the server's own `postgres`, or another
+application's database stays as its owner left it, open to every role on the
+server, this instance's runtime role included. Only that database's owner can
+close it, so a deploy does not refuse because of it. Create a new instance's
+database and start that instance before putting data in it, and close the
+databases of other applications yourself.
+
+An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
+and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
+it. Its owner runs `REVOKE CONNECT ON DATABASE <database> FROM PUBLIC` once, and
+grants `CONNECT` to the runtime role and to any other role that connects.
+
+The names of every role and every database on the server remain visible to all
+of them whatever the grants, so neither should carry anything an association
+would not want its neighbours to read. The server's own `postgres` database
+still grants `CONNECT` to everyone; revoking that is the server
+administrator's.
+
+**Renaming the runtime role.** A start with a new `RUNTIME_DB_ROLE` constrains
+the new role and leaves the old one as it was: still able to sign in, still
+granted `CONNECT` and every table, and never constrained again when a later
+migration adds one. Once the instance runs as the new role, the owner removes
+the old one, in the instance's database:
+
+```sql
+GRANT openbrf_app TO openbrf_owner;  -- the owner; PostgreSQL 16 asks for it first
+DROP OWNED BY openbrf_app;
+DROP ROLE openbrf_app;
+```
+
+**Connections.** The application's pool holds up to
+`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
+more, so an instance can take twelve at the defaults. Each deploy limits the
+runtime role to that plus three, so an instance - or code running inside it -
+cannot take more than its share. PostgreSQL allows 100 connections unless
+`max_connections` says otherwise, three of them reserved for superusers, which
+leaves room for six instances at their limits and a few connections over for
+the migrations each deploy runs and for anybody else who connects. The limits,
+and room for those, have to fit within `max_connections` less the reserved
+connections; a smaller pool, or a larger `max_connections`, makes room for more
+instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
+own bounds the migrations as well.
 
 ## Backups
 
@@ -209,6 +630,12 @@ it. The proxy must set `X-Forwarded-For` itself rather than passing through
 whatever a client sends: the header identifies the client for rate limiting on
 the authentication endpoints and on the forms an anonymous visitor can submit,
 and a client that can set it can spoof its way around both.
+
+The limits on a member exporting their own data - three a minute and one at a
+time each, twelve a minute and three at once for the whole instance - are
+counted in the memory of the application process, so running more than one
+application container for an instance multiplies every one of them by the number
+of containers.
 
 ## The data volume
 

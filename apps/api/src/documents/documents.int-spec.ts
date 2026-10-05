@@ -824,6 +824,7 @@ describe("the audience a document gets when nobody names one", () => {
         checksum: "0".repeat(64),
         fileName: "protokoll.pdf",
         visibility: "INTERNAL",
+        requiredCapability: "documents:manage",
         uploadedByPersonId: boardMember.personId,
       },
     });

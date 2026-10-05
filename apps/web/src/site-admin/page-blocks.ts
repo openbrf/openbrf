@@ -1,4 +1,7 @@
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  scannableRunsText,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import type { FaqItem, PageBlock, TextRun } from "../api/site";
 
@@ -258,24 +261,30 @@ export function blockText(block: PageBlock): string {
   switch (block.type) {
     case "paragraph":
     case "heading":
-      return block.runs.map((run) => run.text).join("");
+      return scannableRunsText(block.runs);
     case "image":
       return [block.alt, block.caption ?? ""].join(" ").trim();
     case "contactForm":
     case "issueReportForm":
-      return (block.intro ?? []).map((run) => run.text).join("");
+      return scannableRunsText(block.intro ?? []);
     case "faq":
       return block.items
         .map((item) =>
-          [item.question, ...item.answer.map((run) => run.text)].join(" "),
+          [item.question, scannableRunsText(item.answer)].join(" "),
         )
         .join(" ")
         .trim();
+    case "documentList":
+      return block.category ?? "";
     case "newsTeaser":
     case "eventCalendar":
-    case "documentList":
     case "boardRoster":
     case "associationFacts":
+    case "controllerContact":
+      return "";
+    // A block from a newer API: whatever it holds, the API scans it.
+    default:
+      block satisfies never;
       return "";
   }
 }
@@ -394,6 +403,15 @@ function worthSending(block: PageBlock): boolean {
     case "documentList":
     case "boardRoster":
     case "associationFacts":
+    case "controllerContact":
+      return true;
+    /*
+     * A block type this editor does not know, stored by a newer API or put
+     * there by another screen. A save carries the whole page, so leaving it out
+     * of the body would delete it, without anybody having asked for that.
+     */
+    default:
+      block satisfies never;
       return true;
   }
 }

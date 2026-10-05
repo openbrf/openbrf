@@ -353,6 +353,23 @@ describe("recording the consent", () => {
     });
   });
 
+  it("never sends the browser to an address that is not a web address", async () => {
+    grantConsent.mockResolvedValue({
+      ok: true,
+      value: { url: "javascript:alert(document.cookie)" },
+    });
+    const onGranted = vi.fn();
+    show(request(), { onGranted });
+
+    await screen.findByRole("button", { name: "Koppla appen" });
+    await agree();
+
+    expect(
+      await screen.findByText("Kopplingen blev inte av just nu. Försök igen."),
+    ).toBeTruthy();
+    expect(onGranted).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["the instance could not be reached", 0, "offline"],
     ["the instance failed", 500, "unexpected"],

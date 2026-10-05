@@ -20,9 +20,12 @@ const FAILURES: Record<string, TranslationKey> = {
   "too-many-rows": "import.errors.tooManyRows",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
+  "preview-outdated": "import.errors.previewOutdated",
+  "preview-replaced": "import.errors.previewReplaced",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",
+  "another-import-running": "import.errors.anotherImportRunning",
   "ambiguous-rows-undecided": "import.errors.ambiguousRowsUndecided",
   "decision-not-a-candidate": "import.errors.decisionNotACandidate",
   "apply-interrupted": "import.errors.applyInterrupted",
@@ -46,6 +49,7 @@ const PROBLEMS: Record<string, TranslationKey> = {
   "invalid-personal-identity-number":
     "import.problem.invalid-personal-identity-number",
   "invalid-email": "import.problem.invalid-email",
+  "garbled-characters": "import.problem.garbled-characters",
 };
 
 export function problemMessage(reason: string): TranslationKey {

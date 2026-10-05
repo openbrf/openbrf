@@ -200,16 +200,26 @@ docker compose -f docker-compose.prod.yml --env-file .env.production run --rm \
   -c 'umask 077 && mkdir -p /data/keys && cat > /data/keys/field-encryption.key' \
   < /media/usb/openbrf-field-encryption.key
 
-# 4. Restore the database.
+# 4. Restore the database, as the superuser and without the dump's owners and
+#    grants: they name the schema owner and the runtime role, which a new
+#    volume does not have yet. pg_restore exits 0 when it succeeds, so any error
+#    here is one to read.
 docker compose -f docker-compose.prod.yml exec -T db \
-  pg_restore -U openbrf -d openbrf --clean --if-exists \
+  pg_restore -U openbrf -d openbrf --clean --if-exists --no-owner --no-acl \
   < backups/<stamp>/openbrf.dump
 
-# 5. Start the application. The entrypoint applies any migrations the restored
-#    database is missing, reinstalls the job schema and reapplies the runtime
-#    role's privileges.
+# 5. Start the application. The schema-owner service creates the schema owner
+#    and gives it the restored schema, which the superuser owns after step 4,
+#    and the migrate service then applies any migrations the restored database
+#    is missing, reinstalls the job schema, and creates the runtime role and
+#    grants it its privileges again before the application starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
+
+If you manage the runtime role yourself (`DATABASE_URL_RUNTIME`), the migrate
+service leaves it alone, so the grants step 4 skipped are yours to give it
+again before step 5, as
+[deployment.md](deployment.md#upgrading-to-a-separate-schema-owner) describes.
 
 The key from its own place, the dump and the archive from **one** backup. A
 database from one backup and an archive from another describe two different
@@ -219,6 +229,31 @@ than like a mismatch.
 
 `BETTER_AUTH_SECRET` is not needed to read the data, but changing it signs
 everyone out, so restore the environment file too unless you mean to.
+
+## Before an upgrade
+
+Take the ordinary backup above immediately before every upgrade. It already
+stops the application for its length, which an upgrade needs anyway: the
+migrations of the new release must not run while the old one is still
+writing. That backup is the rollback.
+
+An upgrade that fails leaves the database between two releases, and a start
+of the new release can already have rewritten stored files on the data volume.
+Rolling back is therefore the restore above, both halves from that one backup,
+with `OPENBRF_VERSION` set to the exact version that was running before - not
+its release line, which by then names the newer release.
+Restoring the database alone, or starting the previous release against the
+newer database, is not a rollback ([deployment.md](deployment.md), "What
+happens on every start").
+
+**From 0.1.0 on, each start closes the instance's database to every role but
+its own two.** A database grants `CONNECT` to every role on the server when it
+is made, and the start that constrains the runtime role revokes that grant. A
+separate role that backs the database up or monitors it - anything but the
+owner and the runtime role - can no longer connect after the first start of
+such a release, until the owner grants it:
+`GRANT CONNECT ON DATABASE <database> TO <role>`. The backup above runs as the
+owner and is not affected.
 
 ## Moving between PostgreSQL major versions
 

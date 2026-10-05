@@ -83,7 +83,10 @@ export class SystemRoleService {
 
       const holders = await tx.systemRole.findMany({
         where: { role: input.role },
-        select: { personId: true },
+        select: {
+          personId: true,
+          person: { select: { userAccount: { select: { id: true } } } },
+        },
       });
       const heldByTarget = holders.some(
         (holder) => holder.personId === input.personId,
@@ -127,11 +130,17 @@ export class SystemRoleService {
        * care which of the two it is - the question is whether an administrator
        * would be left, and the actor's own id is in the list it is asked
        * against.
+       *
+       * Only administrators who can sign in are counted. A grant on a person
+       * with no account opens nothing, so leaving only such grants behind
+       * locks the instance as surely as leaving none.
        */
       if (
         revokingWouldLeaveNoAdministrator({
           role: input.role,
-          administratorPersonIds: holders.map((holder) => holder.personId),
+          administratorPersonIds: holders
+            .filter((holder) => holder.person.userAccount !== null)
+            .map((holder) => holder.personId),
           targetPersonId: input.personId,
         })
       ) {

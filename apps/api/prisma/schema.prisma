@@ -756,6 +756,9 @@ model SignupRequest {
   createdAt DateTime @default(now())
 
   @@index([status])
+  /// At most one PENDING request per address is a partial unique index written
+  /// by hand in the migration, with no @@unique counterpart here: a decided
+  /// request is history, and the address may ask again after a rejection.
   @@index([emailIndex])
   @@map("signup_request")
 }
@@ -2724,9 +2727,22 @@ model ImportSession {
   /// by the apply, which refuses to start while one of them has no decision.
   ambiguousRows Json?
 
+  /// A digest of what the preview planned for every row: its outcome, the
+  /// person it is written to and how it reached them, and the persons it could
+  /// equally well be. The apply plans the file again with the board's
+  /// decisions and refuses to start when that plan's digest differs, so a
+  /// decision cannot change what a row writes without the board seeing it.
+  previewDigest String?
+
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?
+
+  /// Rows the apply wrote to a person without writing the identity number the
+  /// row states, because the row reached them by email or by name: row number
+  /// to that person. A chunk reads the number back from the row, so a later
+  /// row stating it reaches the same person instead of creating them again.
+  unwrittenIdentityNumbers Json?
 
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
@@ -2772,9 +2788,9 @@ enum MediaVisibility {
   /// an email client renders it with no cookie to send, and the public website
   /// will serve it to visitors who have no account at all.
   PUBLIC
-  /// Anyone signed in. A file that additionally names a required capability is
-  /// narrowed to holders of it, and every serve of one is written to the audit
-  /// log.
+  /// Holders of the capability the file names, which a CHECK requires it to
+  /// name, and every serve to one is written to the audit log. The reporter of
+  /// an issue also reads the photos on it.
   INTERNAL
   /// A member of the housing cooperative, or a holder of the capability the
   /// file names.
@@ -2887,7 +2903,9 @@ model MediaFile {
   /// declared cannot be checked against that rule.
   showsIdentifiablePersons Boolean?
 
-  visibility MediaVisibility @default(INTERNAL)
+  /// No default: every caller states it, and an INTERNAL file with no
+  /// capability is a state the CHECK below refuses.
+  visibility MediaVisibility
 
   /// A capability this file names, by its name in the capability model.
   ///
@@ -2896,8 +2914,9 @@ model MediaFile {
   /// every serve is written to the audit log. On a MEMBER file it widens: it
   /// names who may read the file besides the members themselves, which is how
   /// the board and an administrator reach the members' shelf without holding a
-  /// residency of their own. Null on a PUBLIC file, and on an INTERNAL one
-  /// that anyone signed in may read.
+  /// residency of their own. Null on a PUBLIC file; never null on an INTERNAL
+  /// one, which a CHECK enforces, since an INTERNAL file with no capability
+  /// would be readable by every account that held its id.
   requiredCapability String?
 
   /// Who uploaded it.
@@ -3575,7 +3594,12 @@ enum ProcessingActivitySource {
 
 /// What kind of recipient a processor agreement row is about.
 enum ProcessorKind {
+  /// The SMTP server the board entered in the settings.
   SMTP
+  /// The SMTP relay whoever runs the instance sets in the environment.
+  HOST_SMTP
+  /// The HTTP mail API whoever runs the instance sets in the environment.
+  MAIL_API
   SMS
   STORAGE
   /// Whoever runs the instance.
@@ -3894,8 +3918,9 @@ model ProcessorAgreement {
 
   processorKind ProcessorKind
 
-  /// Stable identity of the recipient: "smtp", "sms", "storage", "hosting",
-  /// "plugin:<id>" or "external:<id>".
+  /// Stable identity of the recipient: "smtp", "hostSmtp", "mailApi", "sms",
+  /// "storage", "hosting", "mailbox", "plugin:<id>", "connectedApp:<id>" or
+  /// "external:<id>".
   processorKey String
 
   classification ProcessorClassification
@@ -6501,7 +6526,8 @@ model BoardMailboxAttachment {
   @@map("board_mailbox_attachment")
 }
 
-/// A message in the mailbox that was read and will never be stored.
+/// A message in the mailbox that will not be stored: one read and left, or one
+/// stored once and since erased with its thread.
 ///
 /// Nothing is deleted from the mailbox, so what this instance holds is decided
 /// by what it remembers having seen. A letter it stored is remembered by the
@@ -6510,6 +6536,11 @@ model BoardMailboxAttachment {
 /// bound counts fetches rather than rows, fifty of those at the head of the
 /// mailbox stop a collection before it reaches the mail behind them. This is the
 /// row that remembers one: the identifier, and why it was left.
+///
+/// The purge writes here too. Erasing a thread erases the rows that remembered
+/// its letters, and the letters are still in the mailbox, so the purge records
+/// each one's identifier in the same transaction or the next collection would
+/// store it again.
 ///
 /// Only for a letter that nothing will ever change about. A message too large to
 /// fetch is not here - it is never read, so it costs a listing line and no more -

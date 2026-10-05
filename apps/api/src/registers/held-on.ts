@@ -53,6 +53,22 @@ export function boardSeatHeldOn(day: LocalDay): Prisma.BoardPositionWhereInput {
 }
 
 /**
+ * The board seats that have not ended by a day: held on it, or recorded from a
+ * day still to come.
+ *
+ * The end alone, as {@link boardSeatHeldOn}'s doc comment says, so a seat whose
+ * first day has not arrived counts. A withdrawn election, ended on or before the
+ * day it would have begun, can still have an end date ahead; a caller that has
+ * the rows asks `hasTermEnded` of them.
+ */
+export function boardSeatNotEndedOn(
+  day: LocalDay,
+): Prisma.BoardPositionWhereInput {
+  const on = dateColumnOf(day);
+  return { OR: [{ endedOn: null }, { endedOn: { gt: on } }] };
+}
+
+/**
  * Whether a residency already read is held on a day.
  *
  * {@link residencyHeldOn} for a row in hand, and the same rule: a caller that

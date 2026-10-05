@@ -80,14 +80,27 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  */
 const SUBMISSIONS_PER_MINUTE = 20;
 
+/**
+ * An optional field as a browser sends it.
+ *
+ * A form sends every field it has, and one left untouched arrives as the empty
+ * string, never as an absent key. So a value that is blank once trimmed is
+ * read as no value at all before the field's own rule sees it: otherwise an
+ * address nobody typed would be refused as an address that is not one, and a
+ * name nobody typed would be stored as a name that is the empty string.
+ */
+function optionalField<Schema extends z.ZodType>(schema: Schema) {
+  return z.preprocess((value) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+    const trimmed = value.trim();
+    return trimmed === "" ? undefined : trimmed;
+  }, schema.optional());
+}
+
 const contactSchema = z.object({
-  // Trimmed and dropped when empty, so an untouched optional field is stored as
-  // nothing rather than as a name that is the empty string.
-  name: z
-    .string()
-    .max(100)
-    .transform((value) => value.trim())
-    .optional(),
+  name: optionalField(z.string().max(100)),
   email: z.email().max(320),
   message: z
     .string()
@@ -98,26 +111,40 @@ const contactSchema = z.object({
 
 const issueSchema = z.object({
   type: z.string().min(1).max(64),
-  location: z
-    .string()
-    .max(200)
-    .transform((value) => value.trim())
-    .optional(),
+  location: optionalField(z.string().max(200)),
   description: z
     .string()
     .max(4000)
     .transform((value) => value.trim())
     .refine((value) => value !== ""),
-  name: z
-    .string()
-    .max(100)
-    .transform((value) => value.trim())
-    .optional(),
+  name: optionalField(z.string().max(100)),
   // Optional, and validated when it is there: a report from somebody who left
   // no address is still a report, but an address that is not one would be
   // stored as a way to answer them that does not work.
-  email: z.email().max(320).optional(),
+  email: optionalField(z.email().max(320)),
 });
+
+/**
+ * A submitted body with each line break as the one character the form counted.
+ *
+ * The form's `maxlength` counts a line break in a text area as one character,
+ * and the browser then submits it as CRLF, two. A message the form let
+ * somebody finish could then be refused by the limit below it - and nothing
+ * submitted is ever echoed back, so the text would be lost. Normalised before
+ * any limit is checked, which also stores one line break the same way whatever
+ * sent it.
+ */
+function withLineBreaksAsOne(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return body;
+  }
+  return Object.fromEntries(
+    Object.entries(body).map(([field, value]) => [
+      field,
+      typeof value === "string" ? value.replace(/\r\n?/g, "\n") : value,
+    ]),
+  );
+}
 
 @Public()
 @Controller()
@@ -171,16 +198,14 @@ export class SiteFormsController {
 
     // The schema does not name the decoy, so it is stripped here along with
     // anything else that was sent and not asked for.
-    const parsed = contactSchema.safeParse(body);
+    const parsed = contactSchema.safeParse(withLineBreaksAsOne(body));
     if (!parsed.success) {
       this.refused(reply, page, "contact");
       return;
     }
 
     await this.contact.submit({
-      ...(parsed.data.name === undefined || parsed.data.name === ""
-        ? {}
-        : { name: parsed.data.name }),
+      ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
       email: parsed.data.email,
       message: parsed.data.message,
     });
@@ -228,7 +253,7 @@ export class SiteFormsController {
       return;
     }
 
-    const parsed = issueSchema.safeParse(body);
+    const parsed = issueSchema.safeParse(withLineBreaksAsOne(body));
     if (!parsed.success) {
       this.refused(reply, page, "issue");
       return;

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { formatSha512 } from "@openbrf/plugin-sdk";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -13,7 +14,7 @@ import { PrismaClient } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
-import { formatSha512, sha512 } from "../packaging/integrity";
+import { sha512 } from "../packaging/integrity";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -436,6 +437,36 @@ describe("the plugin install flow", () => {
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
   }, 120_000);
+
+  /**
+   * The digest pins the bytes, not what they say they are. An archive whose
+   * package.json names another release than the one consented to installs
+   * under the consented name all the same, and the loader would then refuse it
+   * at every boot. The build fails instead, and the plugin already on the
+   * volume keeps running.
+   */
+  it("refuses an archive that holds another version than the one consented to", async () => {
+    await consent(digest, tarball);
+    await installer.reconcile();
+
+    // Consent to a release the archive does not hold.
+    await consent(digest, tarball, "9.9.9");
+    const outcome = await installer.reconcile();
+
+    expect(outcome.changed).toBe(false);
+    expect(outcome.failed.map((failure) => failure.id)).toContain(PLUGIN_ID);
+
+    const record = await registry.find(PLUGIN_ID);
+    expect(record?.status).toBe("FAILED");
+    expect(record?.lastError).toContain(
+      `The archive for ${PACKAGE_NAME}@9.9.9 holds ${PACKAGE_NAME}@${VERSION}.`,
+    );
+
+    const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
+    expect(
+      scan.plugins.find((plugin) => plugin.id === PLUGIN_ID)?.version,
+    ).toBe(VERSION);
+  }, 180_000);
 
   /**
    * Two processes reach the same tree. The admin screen enqueues a reconcile

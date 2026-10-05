@@ -278,7 +278,7 @@ describe("the forms on a public page", () => {
     // a stored page could post somewhere else entirely.
     expect(response.headers["content-security-policy"]).toBe(
       "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
-        "font-src 'self'; form-action 'self'",
+        "font-src 'self'; form-action 'self'; frame-ancestors 'self'",
     );
   });
 });
@@ -312,6 +312,28 @@ describe("sending the contact form", () => {
         stored?.emailCipher ?? "",
       ),
     ).toBe("bo@exempel.se");
+  });
+
+  it("takes a message as long as the form let somebody write", async () => {
+    // The text area counts a line break as one character and the browser
+    // sends it as two. A message at the form's limit must not be refused by
+    // the server's, since nothing is echoed back and the text would be lost.
+    const lines = Array.from({ length: 40 }, (_, n) =>
+      `${String(n).padStart(2, "0")} ${suffix} `.padEnd(99, "x"),
+    );
+    const typed = lines.join("\n");
+    expect(typed.length).toBe(3999);
+
+    const response = await submit(`/${publicSlug}/kontakt`, {
+      email: "bo@exempel.se",
+      message: lines.join("\r\n"),
+    });
+
+    expect(response.headers["location"]).toBe(`/${publicSlug}?skickat=kontakt`);
+    const stored = await prisma.contactSubmission.findFirst({
+      where: { message: typed },
+    });
+    expect(stored).not.toBeNull();
   });
 
   it("renders the confirmation on the page it went back to", async () => {
@@ -352,6 +374,23 @@ describe("sending the contact form", () => {
     expect(await prisma.contactSubmission.count({ where: { message } })).toBe(
       0,
     );
+  });
+
+  it("stores a message from somebody who left the name blank as having none", async () => {
+    const message = `Utan namn ${suffix}.`;
+    const response = await submit(`/${publicSlug}/kontakt`, {
+      name: "   ",
+      email: "bo@exempel.se",
+      message,
+    });
+
+    expect(response.statusCode).toBe(303);
+    expect(response.headers["location"]).toBe(`/${publicSlug}?skickat=kontakt`);
+    const stored = await prisma.contactSubmission.findFirst({
+      where: { message },
+    });
+    expect(stored).not.toBeNull();
+    expect(stored?.name).toBeNull();
   });
 
   it("says it could not read a submission rather than storing half of it", async () => {
@@ -440,6 +479,25 @@ describe("sending the issue report form", () => {
     ).toBe("Nina Granne");
   });
 
+  it("takes a description as long as the form let somebody write", async () => {
+    const lines = Array.from({ length: 40 }, (_, n) =>
+      `${String(n).padStart(2, "0")} anmälan ${suffix} `.padEnd(99, "x"),
+    );
+    const typed = lines.join("\n");
+
+    const response = await submit(`/${publicSlug}/felanmalan`, {
+      type: nonMemberTypeId,
+      description: lines.join("\r\n"),
+      name: "Nina Granne",
+      email: "nina@exempel.se",
+    });
+
+    expect(response.headers["location"]).toBe(
+      `/${publicSlug}?skickat=felanmalan`,
+    );
+    expect(await prisma.issue.count({ where: { description: typed } })).toBe(1);
+  });
+
   it("refuses a type the form never offered, and files nothing", async () => {
     const description = `Internt ärende ${suffix}.`;
     const response = await submit(`/${publicSlug}/felanmalan`, {
@@ -456,15 +514,44 @@ describe("sending the issue report form", () => {
 
   it("takes a report from somebody who left no name or address", async () => {
     const description = `Anonym anmälan ${suffix}.`;
+    // A browser sends every field of the form, the ones left untouched as the
+    // empty string - so this is what a report with no contact details looks
+    // like on the wire, and a field that is merely absent would not test it.
     const response = await submit(`/${publicSlug}/felanmalan`, {
       type: nonMemberTypeId,
+      location: "",
       description,
+      name: "",
+      email: "",
     });
 
     expect(response.statusCode).toBe(303);
+    expect(response.headers["location"]).toBe(
+      `/${publicSlug}?skickat=felanmalan`,
+    );
     const issue = await prisma.issue.findFirst({ where: { description } });
+    expect(issue?.location).toBeNull();
     expect(issue?.reporterNameCipher).toBeNull();
     expect(issue?.reporterEmailCipher).toBeNull();
+    expect(issue?.reporterEmailIndex).toBeNull();
+  });
+
+  it("refuses an address that is not one, and files nothing", async () => {
+    const description = `Anmälan med felaktig adress ${suffix}.`;
+    const response = await submit(`/${publicSlug}/felanmalan`, {
+      type: nonMemberTypeId,
+      location: "",
+      description,
+      name: "Nina Granne",
+      email: "inte-en-adress",
+    });
+
+    // Optional is not the same as unchecked: an address that is there is an
+    // address the board will try to answer, so one that cannot work is refused
+    // rather than stored.
+    expect(response.statusCode).toBe(303);
+    expect(response.headers["location"]).toBe(`/${publicSlug}?fel=felanmalan`);
+    expect(await prisma.issue.count({ where: { description } })).toBe(0);
   });
 });
 

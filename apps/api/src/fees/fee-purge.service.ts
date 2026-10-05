@@ -6,6 +6,10 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  lockApartmentResidencies,
+  residentsOf,
+} from "../registers/residency-lock";
 import { FINANCIAL_YEAR_START_MONTHS } from "../retention/financial-year";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
@@ -161,7 +165,10 @@ export interface FeePurgeRunSummary {
  * while the run was in flight has to win, and the board member who clicked that
  * button is entitled to assume it did. That second check is taken under the
  * advisory lock in `retention/legal-hold-lock.ts`, which is what makes it a
- * decision rather than a race.
+ * decision rather than a race. Who has ever lived in the apartment is read in
+ * the same transaction under `lockApartmentResidencies`, which every writer of
+ * a residency takes too, so a residency added while the run was in flight is
+ * either among the people checked or written after the rows have gone.
  *
  * The scan's check is not a duplicate of it. Held apartments are excluded by
  * the query rather than dropped from its answer, so they cannot spend a run's
@@ -331,9 +338,20 @@ export class FeePurgeService implements OnModuleInit {
     retentionYears: number = FEE_RETENTION_YEARS,
   ): Promise<{ fees: number; notices: number }> {
     const expired = fallenOut(now, retentionYears);
-    const holdOn = await this.residentsOf(apartmentId);
 
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * Who has ever lived here is read under the apartment's lock, and not
+       * before the transaction. A residency written in between - an import
+       * bringing in a held former resident - would otherwise
+       * add a person nobody checked, and the deletes below are keyed on the
+       * apartment and would take that resident's rows with them. Every
+       * writer that adds a residency takes the same key, so it has either
+       * committed and is read here or waits for this to commit.
+       */
+      await lockApartmentResidencies(tx, apartmentId);
+      const holdOn = await residentsOf(tx, apartmentId);
+
       /*
        * Before the holds are read, so that reading them settles the question.
        * Everything below runs at READ COMMITTED, where a placement committing
@@ -457,15 +475,5 @@ export class FeePurgeService implements OnModuleInit {
       distinct: ["apartmentId"],
     });
     return residencies.map((residency) => residency.apartmentId);
-  }
-
-  /** Everybody who has ever held a residency on one apartment. */
-  private async residentsOf(apartmentId: string): Promise<string[]> {
-    const residencies = await this.prisma.residency.findMany({
-      where: { apartmentId },
-      select: { personId: true },
-      distinct: ["personId"],
-    });
-    return residencies.map((residency) => residency.personId);
   }
 }

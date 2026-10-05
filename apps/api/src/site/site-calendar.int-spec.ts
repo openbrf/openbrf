@@ -442,10 +442,11 @@ describe("what an anonymous visitor gets from the calendar", () => {
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["content-security-policy"]).toBe(
       "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
-        "font-src 'self'; form-action 'self'",
+        "font-src 'self'; form-action 'self'; frame-ancestors 'self'",
     );
     expect(response.headers["cache-control"]).toBe("no-cache");
-    expect(response.headers["vary"]).toBe("cookie");
+    expect(response.headers["vary"]).toBe("cookie, accept-language");
+    expect(response.headers["referrer-policy"]).toBe("same-origin");
   });
 
   it("runs no script, sets no cookie and names no host but this one", async () => {

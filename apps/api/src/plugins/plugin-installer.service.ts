@@ -19,11 +19,13 @@ import {
   type OnApplicationBootstrap,
   type OnModuleInit,
 } from "@nestjs/common";
+import { pluginPackageSchema } from "@openbrf/plugin-sdk";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { readArchivePackageJson } from "../packaging/archive-package-json";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
 import { npmInstall } from "../packaging/npm-install";
@@ -55,11 +57,54 @@ const STAGING_LEASE_MS = 60_000;
 /** Comfortably inside the lease, so a busy event loop does not lose one. */
 const STAGING_RENEWAL_MS = 10_000;
 
+/**
+ * How long one plugin archive download may take before it is abandoned.
+ *
+ * The byte cap bounds size, not time. A release host that sends its headers
+ * and then nothing would otherwise hold the install job - or the reinstall at
+ * boot - for as long as it cared to, and every other run waiting for the tree
+ * with it. Minutes rather than the index's seconds: a tarball may be as large
+ * as the 64 MiB cap, and five minutes still lets that through at under
+ * 2 Mbit/s. One deadline per archive, covering redirects and body alike.
+ */
+export const ARCHIVE_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * How long all of one run's downloads may take together.
+ *
+ * The archives are fetched one after another, so a per-archive deadline alone
+ * bounds a run at one deadline per plugin: a host that stalls every tarball
+ * would hold an instance with five plugins for twenty-five minutes. Each
+ * download gets the shorter of its own deadline and what is left of this.
+ */
+export const FETCH_BUDGET_MS = 8 * 60_000;
+
+/**
+ * How long the queue gives one install job before deciding its worker is gone.
+ *
+ * Written down rather than left at pg-boss's fifteen minutes, because a run
+ * adds up to more than that: up to fifteen minutes waiting for another run to
+ * let go of the tree (install-lock.ts), the download budget above, and five
+ * minutes of npm. A job that expires mid-run is started again beside the one
+ * still running, and a run meant to end in a restart never completes, so the
+ * restart never comes.
+ */
+const INSTALL_JOB_EXPIRE_SECONDS = 30 * 60;
+
 export interface PluginInstallJob {
   /** Which plugin triggered the run. Informational: the run reconciles all. */
   reason: string;
   /** Whether to replace the process once the volume matches. */
   restart: boolean;
+  /**
+   * Whether that restart is skipped when the run leaves the tree as it was.
+   *
+   * For the run a boot queues: that process already serves the tree on the
+   * volume, so replacing it with another that reads the same tree changes
+   * nothing, and a tree the reconcile cannot fix would restart the instance on
+   * every boot.
+   */
+  onlyIfChanged?: boolean;
 }
 
 export interface ReconcileOutcome {
@@ -144,7 +189,7 @@ export class PluginInstallerService
       "The data volume does not match the installed plugins; queueing a " +
         "reinstall.",
     );
-    await this.enqueue({ reason: "boot", restart: true });
+    await this.enqueue({ reason: "boot", restart: true, onlyIfChanged: true });
   }
 
   /**
@@ -158,7 +203,11 @@ export class PluginInstallerService
    * process that has them on.
    */
   async enqueue(job: PluginInstallJob): Promise<void> {
-    const id = await this.jobs.send(PLUGIN_INSTALL_QUEUE, { ...job });
+    const id = await this.jobs.send(
+      PLUGIN_INSTALL_QUEUE,
+      { ...job },
+      { expireInSeconds: INSTALL_JOB_EXPIRE_SECONDS },
+    );
     if (job.restart && this.env.OPENBRF_PLUGINS_ENABLED && id !== null) {
       this.restart.expectRestart(id);
     }
@@ -188,8 +237,9 @@ export class PluginInstallerService
           if (job.data.restart) {
             this.restart.expectRestart(job.id);
           }
+          let outcome: ReconcileOutcome;
           try {
-            await this.reconcile();
+            outcome = await this.reconcile();
           } catch (cause) {
             // A run with retries left is still owed its restart: pg-boss runs
             // it again, and that run ends in one.
@@ -199,6 +249,10 @@ export class PluginInstallerService
             throw cause;
           }
           if (!job.data.restart) {
+            continue;
+          }
+          if (job.data.onlyIfChanged === true && !outcome.changed) {
+            this.restart.abandonRestart(job.id);
             continue;
           }
           // Deliberately not awaited: the restart must not begin until this
@@ -278,10 +332,19 @@ export class PluginInstallerService
     };
 
     const archives = new Map<string, string>();
+    const versions = new Map<string, string>();
     const allowUncuratedSources = this.catalog.allowsUncuratedSources();
+    const fetchDeadline = Date.now() + FETCH_BUDGET_MS;
 
     for (const record of records) {
       try {
+        const remaining = fetchDeadline - Date.now();
+        if (remaining <= 0) {
+          throw new Error(
+            `The plugin downloads used their ${String(FETCH_BUDGET_MS)} ms ` +
+              "before this one could start.",
+          );
+        }
         const archive = await ensureArchive(
           paths.pluginArchives,
           record.id,
@@ -290,9 +353,11 @@ export class PluginInstallerService
           {
             headers: this.catalog.authorizationFor(record.tarballUrl),
             allowUncuratedSources,
+            timeoutMs: Math.min(ARCHIVE_TIMEOUT_MS, remaining),
           },
         );
         archives.set(record.packageName, archive);
+        versions.set(record.packageName, record.version);
         outcome.installed.push(record.id);
       } catch (cause) {
         const error = String(cause);
@@ -301,6 +366,10 @@ export class PluginInstallerService
         );
         await this.registry.markFailed(record.id, error);
         outcome.failed.push({ id: record.id, error });
+        // The tree is left as it is from here whatever the rest would do, so
+        // the rest are not fetched: a host that stalls one tarball usually
+        // stalls the next. Their rows keep the status they had.
+        break;
       }
     }
 
@@ -334,6 +403,7 @@ export class PluginInstallerService
         paths.pluginStaging,
         desired,
         archives,
+        versions,
         lock,
       );
     } catch (cause) {
@@ -414,6 +484,7 @@ export class PluginInstallerService
     stagingRoot: string,
     desired: Record<string, string>,
     archives: ReadonlyMap<string, string>,
+    versions: ReadonlyMap<string, string>,
     lock: InstallLock,
   ): Promise<void> {
     await mkdir(stagingRoot, { recursive: true });
@@ -438,7 +509,7 @@ export class PluginInstallerService
     renewal.unref();
 
     try {
-      await this.stage(staging, archives);
+      await this.stage(staging, archives, versions);
       // The last moment at which nothing has moved. A run whose claim was
       // taken over stopped renewing for a full lease, so the tree it is about
       // to replace is another run's current one rather than the one it read.
@@ -466,18 +537,26 @@ export class PluginInstallerService
   private async stage(
     staging: string,
     archives: ReadonlyMap<string, string>,
+    versions: ReadonlyMap<string, string>,
   ): Promise<void> {
     await mkdir(join(staging, "archives"), { recursive: true });
 
     // The archives are copied into the staging directory and referenced from
     // there, so npm's lockfile records paths that stay valid after the move.
     const staged: Record<string, string> = {};
+    const copies = new Map<string, string>();
     for (const [packageName, archive] of archives) {
       const name = basename(archive);
       const target = join(staging, "archives", name);
       await copyFile(archive, target);
       staged[packageName] = `file:./archives/${name}`;
+      copies.set(packageName, target);
     }
+
+    // Before npm, which acts on what an archive's package.json declares
+    // before it can be checked. The copies are what npm is given, so they are
+    // what is checked.
+    await assertArchivedPackages(copies, versions, join(staging, "unpacked"));
 
     await writeFile(
       join(staging, "package.json"),
@@ -506,6 +585,8 @@ export class PluginInstallerService
      * volume in the shape the next run expects to find.
      */
     await mkdir(join(staging, "node_modules"), { recursive: true });
+
+    await assertStagedPackages(join(staging, "node_modules"), versions);
   }
 
   /**
@@ -602,6 +683,143 @@ export function buildDependencySet(
     dependencies[packageName] = `file:./archives/${basename(archive)}`;
   }
   return sorted(dependencies);
+}
+
+/** The fields of a staged package.json that must agree with its consent. */
+const stagedPackageSchema = pluginPackageSchema.pick({
+  name: true,
+  version: true,
+  dependencies: true,
+  optionalDependencies: true,
+  bundleDependencies: true,
+  bundledDependencies: true,
+});
+
+/**
+ * Refuses an archive whose package.json is not the one consented to.
+ *
+ * npm installs an archive under the name it is given, whatever the archive's
+ * own package.json says, and the loader refuses a package whose name or
+ * version differs from its consent row. Letting such a tree through would
+ * mark the row installed for a plugin that never loads, and leave a tree the
+ * next reconcile finds already in place. A runtime dependency is refused for
+ * the reason the plugin contract gives: nothing an instance installs comes
+ * from anywhere but a verified archive.
+ */
+function assertConsentedPackage(
+  packageName: string,
+  version: string,
+  raw: unknown,
+): void {
+  const parsed = stagedPackageSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map(
+      (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+    );
+    throw new Error(
+      `The archive for ${packageName} is not an installable plugin package: ${issues.join("; ")}.`,
+    );
+  }
+  if (parsed.data.name !== packageName || parsed.data.version !== version) {
+    throw new Error(
+      `The archive for ${packageName}@${version} holds ` +
+        `${parsed.data.name}@${parsed.data.version}.`,
+    );
+  }
+}
+
+/**
+ * Refuses verified archives whose packages are not the ones consented to,
+ * before npm is given them.
+ *
+ * Read from the archive itself, because npm resolves what a package.json
+ * declares before it can be read from the staged tree.
+ *
+ * `archives` and `versions` map each consented package name to the archive
+ * npm is given and its version. Each archive is unpacked under `scratch`, which
+ * is removed again.
+ */
+export async function assertArchivedPackages(
+  archives: ReadonlyMap<string, string>,
+  versions: ReadonlyMap<string, string>,
+  scratch: string,
+): Promise<void> {
+  for (const [packageName, archive] of archives) {
+    let raw: unknown;
+    try {
+      raw = await readArchivePackageJson(archive, scratch);
+    } catch (cause) {
+      throw new Error(
+        `The archive for ${packageName} could not be read: ${(cause as Error).message}`,
+      );
+    }
+    assertConsentedPackage(packageName, versions.get(packageName) ?? "", raw);
+  }
+}
+
+/**
+ * Refuses a staged tree that is not exactly the packages consented to.
+ *
+ * The archives were checked before npm ran; this checks what npm made of
+ * them, so a package npm brought in beside them is refused rather than moved
+ * into place. Checked here, before the swap, so the build fails and the
+ * instance keeps what it was running.
+ *
+ * `versions` maps each consented package name to its version.
+ */
+export async function assertStagedPackages(
+  modules: string,
+  versions: ReadonlyMap<string, string>,
+): Promise<void> {
+  for (const [packageName, version] of versions) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(
+        await readFile(join(modules, packageName, "package.json"), "utf8"),
+      );
+    } catch {
+      throw new Error(
+        `The archive for ${packageName} was not installed as a package.`,
+      );
+    }
+    assertConsentedPackage(packageName, version, raw);
+  }
+
+  const extra = (await stagedPackageNames(modules)).filter(
+    (name) => !versions.has(name),
+  );
+  if (extra.length > 0) {
+    throw new Error(
+      `npm installed packages no archive was consented for: ${extra.join(", ")}.`,
+    );
+  }
+}
+
+/**
+ * The packages in a node_modules directory, scoped ones by their full name.
+ *
+ * npm's own bookkeeping - the hidden lockfile and the `.bin` links to a
+ * package's own executables - is not a package and is left out.
+ */
+async function stagedPackageNames(modules: string): Promise<string[]> {
+  const names: string[] = [];
+  for (const entry of await readdir(modules)) {
+    if (entry === ".package-lock.json" || entry === ".bin") {
+      continue;
+    }
+    if (!entry.startsWith("@")) {
+      names.push(entry);
+      continue;
+    }
+    const scoped = await readdir(join(modules, entry)).catch(() => []);
+    if (scoped.length === 0) {
+      names.push(entry);
+    }
+    for (const name of scoped) {
+      names.push(`${entry}/${name}`);
+    }
+  }
+  return names;
 }
 
 /**

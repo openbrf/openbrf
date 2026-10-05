@@ -80,6 +80,9 @@ const BOARD_POSITION_LABEL = {
  */
 const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
+  "term-overlaps": "register.person.roles.errors.termOverlaps",
+  "elected-too-far-ahead": "register.person.roles.errors.electedTooFarAhead",
+  "board-seat-required": "register.person.roles.errors.boardSeatRequired",
   "term-already-ended": "register.person.roles.errors.termAlreadyEnded",
   "ended-before-elected": "register.person.roles.errors.endedBeforeElected",
   "ended-too-far-ahead": "register.person.roles.errors.endedTooFarAhead",
@@ -90,13 +93,15 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
 
 function roleErrorMessage(error: unknown): TranslationKey {
   if (error instanceof RegisterRequestError) {
-    if (error.status === 403) {
-      return "register.person.roles.errors.forbidden";
-    }
+    // Read before the status: a refusal that names its reason says why,
+    // where "your account may not do this" leaves the board guessing.
     const known =
       error.reason === null ? undefined : ROLE_ERROR_MESSAGE[error.reason];
     if (known !== undefined) {
       return known;
+    }
+    if (error.status === 403) {
+      return "register.person.roles.errors.forbidden";
     }
   }
   return "register.person.roles.errors.failed";
@@ -114,10 +119,18 @@ function roleErrorMessage(error: unknown): TranslationKey {
  * offers is a correction rather than an end - a date typed into the wrong year
  * has to be reachable from here, or the only way back is the database.
  *
+ * A withdrawn election, ended on or before the day it would have begun, covers
+ * no day and is not running whatever its end date says: the position can be
+ * recorded again, as the server allows.
+ *
  * @see apps/api/src/roles/role-changes.ts
  */
 function isHeld(seat: PersonBoardPosition, today: string): boolean {
-  return seat.endedOn === null || seat.endedOn > today;
+  return (
+    seat.endedOn === null ||
+    (seat.endedOn > today &&
+      (seat.electedOn === null || seat.endedOn > seat.electedOn))
+  );
 }
 
 /**
@@ -210,6 +223,7 @@ export interface PersonPanelProps {
     residencyId: string;
     personName: string;
     apartmentNumber: string;
+    role: "MEMBER" | "RESIDENT";
   }) => void;
   /**
    * What the viewer may do, from `/api/me`.
@@ -956,6 +970,7 @@ export function PersonPanel({
                             personName:
                               `${person.firstName} ${person.lastName}`.trim(),
                             apartmentNumber: `${residency.addressLabel} ${residency.apartmentNumber}`,
+                            role: residency.role,
                           });
                         }}
                         aria-label={t("moves.out.actionLabel", {
