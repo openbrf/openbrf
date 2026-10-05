@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ContactSubmission } from "../api/contact";
 import "../i18n";
 import { ContactInboxPanel } from "./ContactInboxPanel";
 
@@ -30,7 +31,7 @@ vi.mock("../api/contact", async (importOriginal) => ({
     deleteContactSubmissions(ids),
 }));
 
-const MESSAGE = {
+const MESSAGE: ContactSubmission = {
   id: "message-1",
   name: "Bo Ek",
   email: "bo@exempel.se",
@@ -42,7 +43,7 @@ const MESSAGE = {
 
 /** One page of the inbox as the API answers it. */
 function page(
-  submissions: readonly (typeof MESSAGE)[],
+  submissions: readonly ContactSubmission[],
   nextCursor: string | null = null,
 ) {
   return {
