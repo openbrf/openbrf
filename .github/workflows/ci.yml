@@ -177,6 +177,19 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # Playwright's output directory (outputDir in e2e/playwright.config.ts):
+      # the traces and failure screenshots, and the application container's
+      # log, which teardown writes there before the stack and its logs are
+      # removed. The report shows what the browser saw; a server exception
+      # behind it is only in that log.
+      - name: Upload the test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 7
+
   # A job of its own rather than a step on the end-to-end suite above, although
   # that one has the checkout, the install and the browser already. The walk is
   # the only thing in CI that opens every screen in the client, so it is the
@@ -279,3 +292,14 @@ jobs:
           # An entry that broke before the first image leaves the directory
           # empty, and an empty upload is not a second failure worth reporting.
           if-no-files-found: ignore
+
+      # The walk's own output directory, for the same reason as the suite's
+      # above: the application container's log is written there before the
+      # stack is removed.
+      - name: Upload the test results
+        if: ${{ failure() && steps.scope.outputs.walk == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: screenshots-test-results
+          path: test-results/
+          retention-days: 7
