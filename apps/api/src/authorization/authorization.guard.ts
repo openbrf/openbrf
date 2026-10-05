@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   UnauthorizedException,
+  UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { FastifyRequest } from "fastify";
@@ -96,6 +97,8 @@ export class AuthorizationGuard implements CanActivate {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    refuseFormBody(context.switchToHttp().getRequest<FastifyRequest>());
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(
       IS_PUBLIC_ROUTE,
       [context.getHandler(), context.getClass()],
@@ -306,6 +309,35 @@ export class AuthorizationGuard implements CanActivate {
     }
 
     return true;
+  }
+}
+
+/**
+ * Refuses a form-encoded body on the application's own API.
+ *
+ * Every client of /api writes JSON, or multipart for an upload, and a form
+ * encoding is what an HTML form on any page can send without the preflight a
+ * JSON body needs. Turning it away here leaves a page elsewhere no body it can
+ * post that a route would read, on top of the origin check below. Two kinds of
+ * route keep it, and are not under this prefix or are named: the sign-in
+ * library's own paths, where the OAuth token endpoint is form-encoded by RFC
+ * 6749, and the public site's forms, which are ordinary HTML forms at the
+ * root of the origin.
+ *
+ * Read from the route the router matched rather than from the URL, so the
+ * answer cannot depend on how the path was spelled. Before the public check,
+ * because an anonymous route is as much a part of the API as any other.
+ */
+function refuseFormBody(request: FastifyRequest): void {
+  const route =
+    (request as { routeOptions?: { url?: string } }).routeOptions?.url ?? "";
+  const type = request.headers["content-type"]?.trim().toLowerCase() ?? "";
+  if (
+    route.startsWith("/api/") &&
+    !route.startsWith("/api/auth/") &&
+    type.startsWith("application/x-www-form-urlencoded")
+  ) {
+    throw new UnsupportedMediaTypeException("Send the body as JSON.");
   }
 }
 
