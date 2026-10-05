@@ -2198,7 +2198,8 @@
       "registerExit": "Medlemskapet avslutades i medlemsförteckningen.",
       "registerKept": "Själva posten i medlemsförteckningen bevaras som lagen kräver. Ingen gallringsinställning når den.",
       "binder": "Lägenhetspärmen följer lägenheten: den som flyttar in läser den från sin inflyttningsdag, och övriga boende i lägenheten läser den tills de själva flyttas ut.",
-      "boardReminder": "Styrelsen påminns {{date}} om att slutföra överlämningen."
+      "boardReminder": "Styrelsen påminns {{date}} om att slutföra överlämningen.",
+      "registerReentry": "Medlemskapet börjar igen {{date}}, när personen tillträder sin nästa bostadsrätt. Båda posterna skrevs i medlemsförteckningen."
     },
     "transfer": {
       "record": "Registrera överlåtelse",

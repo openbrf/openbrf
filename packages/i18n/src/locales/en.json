@@ -2198,7 +2198,8 @@
       "registerExit": "The membership was closed in the member register.",
       "registerKept": "The member register entry itself is retained as the law requires. No retention setting reaches it.",
       "binder": "The apartment binder follows the apartment: whoever moves in reads it from their move-in day, and anybody else living in the apartment reads it until they are moved out themselves.",
-      "boardReminder": "The board is reminded on {{date}} to finish the handover."
+      "boardReminder": "The board is reminded on {{date}} to finish the handover.",
+      "registerReentry": "The membership begins again on {{date}}, when the person takes over their next tenant-ownership. Both entries were written in the member register."
     },
     "transfer": {
       "record": "Record a transfer",

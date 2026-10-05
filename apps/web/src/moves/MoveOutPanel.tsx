@@ -283,6 +283,19 @@ export function MoveOutPanel({
               {t("moves.out.registerExit")}
             </p>
           ) : null}
+          {/*
+           * The other half of a gap: the person still holds an apartment
+           * bought for later, and its ENTRY was written with this EXIT. Said
+           * here, because "the membership was closed" read alone is not what
+           * the register now states.
+           */}
+          {result.memberRegisterEntryOn === null ? null : (
+            <p className="text-small text-ink-muted">
+              {t("moves.out.registerReentry", {
+                date: result.memberRegisterEntryOn,
+              })}
+            </p>
+          )}
           <p className="text-small text-ink-muted">
             {t("moves.out.registerKept")}
           </p>

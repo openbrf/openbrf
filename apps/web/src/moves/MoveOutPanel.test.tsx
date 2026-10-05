@@ -64,6 +64,7 @@ beforeEach(() => {
       movedOutOn: "2026-06-30",
       purgeOn: "2027-06-30",
       memberRegisterExitRecorded: true,
+      memberRegisterEntryOn: null,
       transferId: null,
       boardReminderOn: "2026-06-30",
     },
@@ -91,6 +92,41 @@ describe("after the move-out", () => {
     await moveSomeoneOut(session);
 
     expect(screen.getByText(/avslutades i medlemsförteckningen/)).toBeTruthy();
+  });
+
+  it("says nothing begins again when nothing does", async () => {
+    const session = userEvent.setup();
+    await moveSomeoneOut(session);
+
+    expect(screen.queryByText(/Medlemskapet börjar igen/)).toBeNull();
+  });
+
+  it("says when the membership begins again on an apartment bought for later", async () => {
+    /*
+     * The register shows the gap: an EXIT today and an ENTRY on the day the
+     * later apartment is taken over. Told only that the membership was closed,
+     * the board would read the member register as saying something it does
+     * not.
+     */
+    moveOut.mockResolvedValue({
+      ok: true,
+      value: {
+        residencyId: "residency-1",
+        movedOutOn: "2026-09-30",
+        purgeOn: "2027-09-30",
+        memberRegisterExitRecorded: true,
+        memberRegisterEntryOn: "2026-12-01",
+        transferId: null,
+        boardReminderOn: "2026-09-30",
+      },
+    });
+    const session = userEvent.setup();
+    await moveSomeoneOut(session);
+
+    expect(screen.getByText(/avslutades i medlemsförteckningen/)).toBeTruthy();
+    expect(
+      screen.getByText(/Medlemskapet börjar igen 2026-12-01/),
+    ).toBeTruthy();
   });
 
   it("says the register entry itself is retained whatever the policy says", async () => {
