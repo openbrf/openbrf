@@ -16,11 +16,11 @@ import type { Prisma } from "../generated/prisma/client";
  * writer waiting a moment for another is never felt. Taken for the
  * transaction, so the commit or the rollback releases it.
  *
- * Taken by `ProcessorAgreementService.record` and nothing else. The other
- * writers never leave a recipient with two open rows: `recordExternal` creates
- * a key of its own and `end` only closes. `seed` reads a row and then writes
- * it without this lock; nothing calls it today, and whatever wires it up has
- * to take the lock first.
+ * Taken by `ProcessorAgreementService.record` and by
+ * `ProcessorAgreementService.seed`, which reads the storage row and then
+ * inserts or closes it, and so takes the "storage" key before the read. The
+ * other writers never leave a recipient with two open rows: `recordExternal`
+ * creates a key of its own and `end` only closes.
  *
  * Held here rather than beside the writer because a lock only works if every
  * writer takes the same key.
