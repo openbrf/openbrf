@@ -238,6 +238,13 @@ export class ChatGroupService {
    * records nothing, and answers exactly as the press that put them in did. A
    * second press is not a second act, and an audit log that said it was would be
    * saying somebody was admitted to a room twice.
+   *
+   * The cap counts the people who live here today, as {@link members} lists
+   * them: a membership row outlives the residency, and somebody who has moved
+   * out is not in the room, so they do not take a place. Somebody who moves
+   * back in keeps their row and is in the room again, even when that puts it
+   * over the cap - nobody is turned out for it. The cap only stops new people
+   * from being put in until the residents are below it.
    */
   async addMember(
     actor: Principal,
@@ -287,22 +294,19 @@ export class ChatGroupService {
        */
       await lockChat(tx, group.id);
 
-      const members = await tx.chatGroupMember.count({
-        where: { chatId: group.id },
-      });
-      if (members >= MEMBERS_PER_GROUP) {
-        throw new ChatError(
-          "This group already holds as many people as a group may hold.",
-          "group-full",
-        );
-      }
-
       const standing = await tx.chatGroupMember.findUnique({
         where: { chatId_personId: { chatId: group.id, personId } },
         select: { chatId: true },
       });
       if (standing !== null) {
         return false;
+      }
+
+      if ((await residentsIn(tx, group.id, now)) >= MEMBERS_PER_GROUP) {
+        throw new ChatError(
+          "This group already holds as many people as a group may hold.",
+          "group-full",
+        );
       }
 
       await tx.chatGroupMember.create({
@@ -535,6 +539,30 @@ export class ChatGroupService {
       );
     }
   }
+}
+
+/**
+ * How many of the people written down in a group live here today.
+ *
+ * Two queries, because `ChatGroupMember` has no relation to the person to
+ * filter the residency through. The rows are the room's own, so what the second
+ * query is asked about is bounded by the cap plus whoever has moved out since.
+ */
+async function residentsIn(
+  db: ChatDbClient,
+  chatId: string,
+  now: Date,
+): Promise<number> {
+  const rows = await db.chatGroupMember.findMany({
+    where: { chatId },
+    select: { personId: true },
+  });
+  return db.person.count({
+    where: {
+      id: { in: rows.map((row) => row.personId) },
+      residencies: { some: residencyHeldOn(localDayOf(now)) },
+    },
+  });
 }
 
 /** Refuses a person already in as many rooms as one account may hold. */
