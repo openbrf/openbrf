@@ -23,6 +23,7 @@ import {
 import { isDataRefusal, isUniqueViolation } from "./database-refusal";
 import { type MimeAttachment, readMessage } from "./mime";
 import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
+import { lockThread } from "./thread-lock";
 
 /**
  * Collecting the board's mailbox.
@@ -1036,6 +1037,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       });
 
       if (answered !== null) {
+        // Locked before it is read, as every act on a thread's state is: the
+        // status written below is decided from the one read here.
+        await lockThread(tx, answered.threadId);
         const thread = await tx.boardMailboxThread.findUnique({
           where: { id: answered.threadId },
           select: {

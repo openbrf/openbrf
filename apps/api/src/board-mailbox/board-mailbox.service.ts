@@ -25,6 +25,7 @@ import {
   loadBoardMailboxSettings,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
+import { lockThread } from "./thread-lock";
 
 /**
  * The board's shared mailbox, as the board works it.
@@ -413,6 +414,10 @@ export class BoardMailboxService {
     principal: Principal,
   ): Promise<BoardMailboxThreadView> {
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: { id: true, status: true, takenByPersonId: true },
@@ -470,6 +475,10 @@ export class BoardMailboxService {
     principal: Principal,
   ): Promise<BoardMailboxThreadView> {
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: { id: true, status: true, takenByPersonId: true },
@@ -553,6 +562,10 @@ export class BoardMailboxService {
     await this.mailer.ensureQueues();
 
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: {
@@ -640,6 +653,10 @@ export class BoardMailboxService {
     principal: Principal,
   ): Promise<BoardMailboxThreadView> {
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: {

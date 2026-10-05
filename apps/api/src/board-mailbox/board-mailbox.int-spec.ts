@@ -2290,6 +2290,70 @@ describe("working a thread", () => {
     expect(reply.statusCode).toBe(409);
     expect((reply.json() as { reason: string }).reason).toBe("thread-closed");
   });
+
+  it("refuses a reply when a close commits while the reply is being decided", async () => {
+    /*
+     * Both acts decide from the thread they read. Unlocked, the reply read the
+     * thread open, waited for the close to commit, and then wrote ANSWERED over
+     * it - a thread answered and closed at once, with its closing date still
+     * set. The close here holds the row while the reply is sent, and lets go
+     * only once the reply is waiting on it.
+     */
+    const thread = await collectedThread(`Samtidigt stangd ${suffix}`);
+
+    let commitClose: () => void = () => undefined;
+    const closeMayCommit = new Promise<void>((resolve) => {
+      commitClose = resolve;
+    });
+    let closeHolds: () => void = () => undefined;
+    const closeHoldsRow = new Promise<void>((resolve) => {
+      closeHolds = resolve;
+    });
+    const close = prisma.$transaction(
+      async (tx) => {
+        await tx.boardMailboxThread.update({
+          where: { id: thread.id },
+          data: { status: "CLOSED", closedAt: new Date() },
+        });
+        closeHolds();
+        await closeMayCommit;
+      },
+      { timeout: 20_000 },
+    );
+    await closeHoldsRow;
+
+    const reply = inject({
+      method: "POST",
+      url: `/api/board-mailbox/threads/${thread.id}/reply`,
+      payload: { body: "Ett svar." },
+      headers: { cookie: boardCookie },
+    });
+    // Until the reply is waiting on the close's row lock, whichever statement
+    // it waits at. Only this worker's database: the others run suites of
+    // their own at the same time.
+    await vi.waitFor(
+      async () => {
+        const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+          SELECT count(*) AS waiting FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+        expect(Number(row?.waiting ?? 0)).toBeGreaterThan(0);
+      },
+      { timeout: 10_000, interval: 25 },
+    );
+    commitClose();
+    await close;
+
+    const answered = await reply;
+    expect(answered.statusCode).toBe(409);
+    expect((answered.json() as { reason: string }).reason).toBe(
+      "thread-closed",
+    );
+    const stored = await prisma.boardMailboxThread.findUnique({
+      where: { id: thread.id },
+      select: { status: true },
+    });
+    expect(stored?.status).toBe("CLOSED");
+  });
 });
 
 describe("answering a letter", () => {
