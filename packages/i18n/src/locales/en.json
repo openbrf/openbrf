@@ -2178,7 +2178,11 @@
       "registerEntry": "An entry was written in the member register.",
       "welcomeSent": "A welcome email was sent, in the recipient's own language.",
       "welcomeSkipped": "No welcome email was sent: this person has no email address on file.",
-      "personSearching": "Searching the register..."
+      "personSearching": "Searching the register...",
+      "addressesFailed": "The association's addresses could not be read just now.",
+      "apartmentsFailed": "The apartments at this address could not be read just now.",
+      "holdersReading": "Reading the apartment's current holders...",
+      "holdersFailed": "The apartment's current holders could not be read, so the previous holder cannot be chosen. Try again before the transfer is recorded."
     },
     "out": {
       "heading": "Move out",

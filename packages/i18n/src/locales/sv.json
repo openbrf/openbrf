@@ -2178,7 +2178,11 @@
       "registerEntry": "En post skrevs i medlemsförteckningen.",
       "welcomeSent": "Ett välkomstmejl skickades, på mottagarens eget språk.",
       "welcomeSkipped": "Inget välkomstmejl skickades: personen har ingen e-postadress registrerad.",
-      "personSearching": "Söker i registret..."
+      "personSearching": "Söker i registret...",
+      "addressesFailed": "Föreningens adresser gick inte att läsa just nu.",
+      "apartmentsFailed": "Lägenheterna på adressen gick inte att läsa just nu.",
+      "holdersReading": "Läser lägenhetens nuvarande innehavare...",
+      "holdersFailed": "Lägenhetens nuvarande innehavare gick inte att läsa, så den tidigare innehavaren kan inte väljas. Försök igen innan överlåtelsen registreras."
     },
     "out": {
       "heading": "Flytta ut",
