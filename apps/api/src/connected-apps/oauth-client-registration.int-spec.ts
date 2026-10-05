@@ -18,6 +18,7 @@ import {
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
+import { BearerPrincipalService } from "../auth/bearer-principal.service";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PrismaService } from "../database/prisma.service";
@@ -89,7 +90,7 @@ function nextForwardedFor(): string {
 }
 
 function inject(options: {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   url: string;
   payload?: object | string;
   headers?: Record<string, string>;
@@ -707,6 +708,126 @@ describe("registering through the administrator's route", () => {
 
     expect(response.statusCode).toBe(401);
     expect(await clientsNamed("by nobody")).toBe(0);
+  });
+});
+
+describe("turning a client away for the whole instance", () => {
+  const redirectUri = "http://127.0.0.1:8125/cb";
+
+  /** A client the administrator connected, and the live token it was given. */
+  async function connectedClient(
+    label: string,
+  ): Promise<{ clientId: string; accessToken: string }> {
+    const { clientId, clientSecret } = await registerClient(label, redirectUri);
+    const verifier = randomBytes(32).toString("base64url");
+    const authorize = await inject({
+      method: "GET",
+      url: `/api/auth/oauth2/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope: "mcp:read",
+        state: "s",
+        code_challenge: createHash("sha256")
+          .update(verifier)
+          .digest("base64url"),
+        code_challenge_method: "S256",
+        resource: resource.url,
+      }).toString()}`,
+      headers: { cookie: adminCookie },
+    });
+    const consentUrl = new URL(String(authorize.headers.location), env.APP_URL);
+    const consent = await inject({
+      method: "POST",
+      url: "/api/connected-apps/consent",
+      payload: { oauth_query: consentUrl.search.slice(1) },
+      headers: browserHeaders(adminCookie),
+    });
+    const code = new URL(consent.json<{ url: string }>().url).searchParams.get(
+      "code",
+    );
+    const token = await inject({
+      method: "POST",
+      url: "/api/auth/oauth2/token",
+      payload: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        client_secret: clientSecret,
+        code_verifier: verifier,
+        resource: resource.url,
+      }).toString(),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+    expect(token.statusCode).toBe(200);
+    return {
+      clientId,
+      accessToken: token.json<{ access_token: string }>().access_token,
+    };
+  }
+
+  it("cuts every connection, refuses the live token and the next authorization, and records it", async () => {
+    const bearer = app.get(BearerPrincipalService);
+    const { clientId, accessToken } = await connectedClient("revoked");
+    expect(await bearer.resolve(accessToken)).not.toBeNull();
+
+    const response = await inject({
+      method: "DELETE",
+      url: `/api/oauth-clients/${encodeURIComponent(clientId)}`,
+      headers: { cookie: adminCookie, origin: env.APP_URL },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(await bearer.resolve(accessToken)).toBeNull();
+    expect(await prisma.oauthConsent.count({ where: { clientId } })).toBe(0);
+    expect(
+      await prisma.oauthClient.findUniqueOrThrow({ where: { clientId } }),
+    ).toMatchObject({ disabled: true });
+
+    const again = await authorizeAsAdmin(clientId, redirectUri);
+    const sentTo = new URL(String(again.headers.location), env.APP_URL);
+    expect(sentTo.pathname).not.toBe("/app/oauth/consent");
+    expect(sentTo.searchParams.get("error")).toBe("client_disabled");
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "OAUTH_CLIENT_REVOKED", targetId: clientId },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      actorPersonId: admin.personId,
+      targetKind: "oauthClient",
+      context: { connectionsCut: 1 },
+    });
+  });
+
+  it("refuses a resident, and leaves the client as it was", async () => {
+    const { clientId } = await registerClient("kept", redirectUri);
+
+    const response = await inject({
+      method: "DELETE",
+      url: `/api/oauth-clients/${encodeURIComponent(clientId)}`,
+      headers: { cookie: residentCookie, origin: env.APP_URL },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(
+      await prisma.oauthClient.findUniqueOrThrow({ where: { clientId } }),
+    ).toMatchObject({ disabled: false });
+  });
+
+  it("answers 404 for a client the instance does not know, and records nothing", async () => {
+    const clientId = `no-such-client-${suffix}`;
+    const response = await inject({
+      method: "DELETE",
+      url: `/api/oauth-clients/${clientId}`,
+      headers: { cookie: adminCookie, origin: env.APP_URL },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(
+      await prisma.auditLogEntry.count({ where: { targetId: clientId } }),
+    ).toBe(0);
   });
 });
 

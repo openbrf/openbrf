@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   HttpStatus,
   Inject,
+  Param,
   Post,
   Req,
 } from "@nestjs/common";
@@ -182,6 +184,21 @@ export class OAuthClientsController {
       clientId: created.client_id,
       clientSecret: created.client_secret ?? null,
     };
+  }
+
+  /**
+   * Turns a client away for the whole instance, cutting every member's
+   * connection to it (ConnectedAppsService.revokeClient). The same capability
+   * as registering one: which apps the association lets in is one decision.
+   */
+  @Delete(":clientId")
+  @RequireCapability("association:manage")
+  async revoke(
+    @Req() request: RequestWithPrincipal,
+    @Param("clientId") clientId: string,
+  ): Promise<{ revoked: true }> {
+    await this.apps.revokeClient(clientId, webActor(request));
+    return { revoked: true };
   }
 
   /**
