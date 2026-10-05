@@ -7,8 +7,9 @@
  * format, not a presentation detail:
  *
  *   Changing any function here invalidates every blind index already stored.
- *   A change therefore needs a migration that decrypts each affected field and
- *   recomputes its index, and a bump of NORMALIZATION_VERSION below.
+ *   A change therefore bumps NORMALIZATION_VERSION below, together with a
+ *   migration that moves the default of person.blindIndexVersion to it, and
+ *   PersonReindexService recomputes the older rows' indexes at the next boot.
  *
  * The personal identity number's own parse, normalization and checksum live in
  * `@openbrf/shared` and are re-exported below, because the browser needs them
@@ -31,11 +32,13 @@ export type {
 } from "@openbrf/shared";
 
 /**
- * Bumped whenever the normalization rules change. Stored alongside the data so
- * a future migration can tell which rows still hold indexes from an older
- * rule set.
+ * Bumped whenever the normalization rules change. Stored on each person row
+ * (blindIndexVersion), so the reindex at boot can tell which rows still hold
+ * indexes from an older rule set.
+ *
+ * 2: a ten-digit identity number's century is judged by the whole birth date.
  */
-export const NORMALIZATION_VERSION = 1;
+export const NORMALIZATION_VERSION = 2;
 
 /**
  * Canonical form for email: trimmed and lowercased.

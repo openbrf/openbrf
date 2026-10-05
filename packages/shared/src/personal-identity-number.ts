@@ -14,9 +14,9 @@
  * time and at search time:
  *
  *   Changing normalizePersonalIdentityNumber, or the parse it rests on,
- *   invalidates every blind index already stored. Such a change needs a
- *   migration that decrypts each affected field and recomputes its index, and
- *   a bump of the normalization version the encryption layer records.
+ *   invalidates every blind index already stored. Such a change bumps the
+ *   normalization version the API records (NORMALIZATION_VERSION in
+ *   apps/api/src/crypto/personal-data.ts), which reindexes the stored rows.
  *
  * Swedish domain terms follow GLOSSARY.md.
  */
@@ -69,26 +69,37 @@ export function parsePersonalIdentityNumber(
   const twoDigitYear = Number(year);
   const monthNumber = Number(month);
   const dayNumber = Number(day);
+  const isCoordinationNumber = dayNumber > 60;
+  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
 
   let fullYear: number;
   if (century !== undefined) {
     // Written with the century, so take it at face value.
     fullYear = Number(century) * 100 + twoDigitYear;
   } else {
-    // Without a century, the most recent year that is not in the future wins,
-    // and a plus separator means the person has turned 100.
     const referenceYear = referenceDate.getFullYear();
     fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
-    if (fullYear > referenceYear) {
-      fullYear -= 100;
-    }
     if (separator === "+") {
+      // A plus is written from the year a person turns 100, so here it is the
+      // year that is compared rather than the birthday.
+      if (fullYear > referenceYear) {
+        fullYear -= 100;
+      }
+      fullYear -= 100;
+    } else if (
+      // Otherwise the most recent birth date that is not in the future wins.
+      // The whole date rather than the year: in March 2026, 261201 is
+      // 1926-12-01, because 2026-12-01 has not happened yet. Comparing years
+      // alone said 2026 until that day came, so the blind index of one
+      // unchanged input moved with the clock. The day is compared without a
+      // coordination number's offset, which is no date at all.
+      (fullYear * 100 + monthNumber) * 100 + actualDay >
+      (referenceYear * 100 + referenceDate.getMonth() + 1) * 100 +
+        referenceDate.getDate()
+    ) {
       fullYear -= 100;
     }
   }
-
-  const isCoordinationNumber = dayNumber > 60;
-  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
 
   if (monthNumber < 1 || monthNumber > 12 || actualDay < 1) {
     return null;
