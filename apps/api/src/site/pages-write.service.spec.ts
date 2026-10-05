@@ -922,8 +922,8 @@ describe("removing a page", () => {
     const { service, page, menuItem, audit, txClient } = build();
     page.findUnique.mockResolvedValue(DRAFT);
     menuItem.findMany.mockResolvedValue([
-      { id: "item-1", kind: "PAGE", _count: { children: 5 } },
-      { id: "item-2", kind: "PAGE", _count: { children: 0 } },
+      { id: "item-1", kind: "PAGE", parentId: null, _count: { children: 5 } },
+      { id: "item-2", kind: "PAGE", parentId: null, _count: { children: 0 } },
     ]);
 
     await service.remove(
@@ -955,6 +955,63 @@ describe("removing a page", () => {
     for (const [, tx] of entries) {
       expect(tx).toBe(txClient);
     }
+  });
+
+  it("records an entry under another entry for the page once, as its parent's child", async () => {
+    // The child goes with its parent, and the parent's record counts it. A
+    // second record of its own would say the menu lost two things where the
+    // board removed one.
+    const { service, page, menuItem, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    menuItem.findMany.mockResolvedValue([
+      { id: "item-1", kind: "PAGE", parentId: null, _count: { children: 1 } },
+      {
+        id: "item-2",
+        kind: "PAGE",
+        parentId: "item-1",
+        _count: { children: 0 },
+      },
+    ]);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(audit.record.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        targetId: "item-1",
+        context: { kind: "PAGE", childrenRemoved: 1, withPage: "page-1" },
+      }),
+    ]);
+  });
+
+  it("still records an entry for the page that hangs under an entry for another", async () => {
+    const { service, page, menuItem, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    menuItem.findMany.mockResolvedValue([
+      {
+        id: "item-2",
+        kind: "PAGE",
+        parentId: "item-elsewhere",
+        _count: { children: 0 },
+      },
+    ]);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(audit.record.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        targetId: "item-2",
+      }),
+    ]);
   });
 
   it("finds the entries under the menu lock, so none can be added unrecorded", async () => {

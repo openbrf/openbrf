@@ -867,9 +867,20 @@ export class PagesWriteService {
         select: {
           id: true,
           kind: true,
+          parentId: true,
           _count: { select: { children: true } },
         },
       });
+      /*
+       * An entry hanging under another entry for the same page goes with its
+       * parent, and the parent's record already counts it among the children
+       * it took. Recording it again would say two removals happened where the
+       * board made one.
+       */
+      const pointing = new Set(entries.map((entry) => entry.id));
+      const recorded = entries.filter(
+        (entry) => entry.parentId === null || !pointing.has(entry.parentId),
+      );
 
       let deleted: { slug: string; published: boolean };
       try {
@@ -910,7 +921,7 @@ export class PagesWriteService {
         );
       }
 
-      for (const entry of entries) {
+      for (const entry of recorded) {
         await this.audit.record(
           {
             action: "MENU_ITEM_REMOVED",
