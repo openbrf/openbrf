@@ -14,6 +14,7 @@ import {
   NewsCommentError,
   type NewsCommentTextLocation,
 } from "./news-comment.error";
+import { lockNewsCommentAuthor } from "./news-comment-lock";
 
 /**
  * The longest comment this application stores.
@@ -521,7 +522,7 @@ export class NewsCommentService {
        * Counted again under the author's own lock, which is what makes the
        * allowance a bound: parallel requests can all pass the count above.
        */
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`news-comment-author:${actor.personId}`}))`;
+      await lockNewsCommentAuthor(tx, actor.personId);
       await refuseTooManyComments(tx, actor.personId);
 
       const created = await tx.newsComment.create({
