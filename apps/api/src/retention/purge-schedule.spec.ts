@@ -10,10 +10,14 @@ import { erasureSourceFacts } from "../testing/erasure-source-facts";
  * the whole set rather than of any one file, so it is asserted here over every
  * schedule the source registers, found by the same walk the erasure order uses.
  */
+// Walked once, at load, as `erasure-request-order.spec.ts` does: the walk
+// parses the whole source tree and is the slow part of the file.
+const facts = erasureSourceFacts();
+
 describe("the night's schedule", () => {
   it("gives every daily job a minute no other job wakes at", () => {
     const owners = new Map<string, string[]>();
-    for (const file of erasureSourceFacts()) {
+    for (const file of facts) {
       for (const { cron } of file.schedules) {
         // Only a job run once a day at a fixed minute has a minute to share.
         if (cron === undefined || !/^\d{1,2} \d{1,2} \* \* \*$/.test(cron)) {
