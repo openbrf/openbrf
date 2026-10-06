@@ -486,6 +486,7 @@ export class InitialSupplyService {
           .filter(
             (candidate) =>
               candidate.toPersonId === person.id &&
+              candidate.transferredOn.getTime() <= today.getTime() &&
               (previousEnd === null ||
                 candidate.transferredOn.getTime() >= previousEnd),
           )
