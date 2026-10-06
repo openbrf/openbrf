@@ -1,10 +1,5 @@
 import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
-import {
-  useCallback,
-  useState,
-  type FormEvent,
-  type ReactElement,
-} from "react";
+import { useCallback, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -25,6 +20,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -90,6 +86,7 @@ export function BoardMailboxThreadPanel({
 }: BoardMailboxThreadPanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+  const draftRef = useRef<HTMLTextAreaElement>(null);
 
   /*
    * The pages read back from the newest one.
@@ -154,11 +151,6 @@ export function BoardMailboxThreadPanel({
           : reply.state.kind === "failed"
             ? reply.state.failure
             : null;
-
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    void reply.submit({ threadId: thread.id, body: draft });
-  };
 
   return (
     <Panel
@@ -288,7 +280,14 @@ export function BoardMailboxThreadPanel({
           {t("boardMailbox.thread.closedNoReply")}
         </p>
       ) : (
-        <form className="flex flex-col gap-3" onSubmit={onSubmit}>
+        <LockedForm
+          locked={reply.state.kind === "saving"}
+          focusFallback={draftRef}
+          className="flex flex-col gap-3"
+          onSend={() => {
+            void reply.submit({ threadId: thread.id, body: draft });
+          }}
+        >
           <label className={LABEL}>
             {t("boardMailbox.thread.replyLabel")}
             {/*
@@ -299,6 +298,7 @@ export function BoardMailboxThreadPanel({
               with a code this panel has no sentence for.
             */}
             <textarea
+              ref={draftRef}
               name="boardMailboxReply"
               rows={6}
               maxLength={MAX_REPLY_CHARACTERS}
@@ -330,7 +330,7 @@ export function BoardMailboxThreadPanel({
               })}
             </span>
           </span>
-        </form>
+        </LockedForm>
       )}
     </Panel>
   );
