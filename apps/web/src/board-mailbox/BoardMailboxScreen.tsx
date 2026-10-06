@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   type BoardMailboxCollection,
+  type BoardMailboxSetAside,
   type BoardMailboxStatus,
   type BoardMailboxThread,
   type BoardMailboxThreadSummary,
@@ -23,7 +24,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
-import { formatMailboxDay } from "./board-mailbox-dates";
+import { formatMailboxDay, formatMailboxMoment } from "./board-mailbox-dates";
 import { BoardMailboxStatusChip } from "./BoardMailboxStatusChip";
 import { BoardMailboxThreadPanel } from "./BoardMailboxThreadPanel";
 
@@ -31,6 +32,11 @@ const COLLECT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mailbox-not-configured": "boardMailbox.errors.notConfigured",
   "mailbox-unreachable": "boardMailbox.errors.unreachable",
   "mailbox-sign-in-refused": "boardMailbox.errors.signInRefused",
+};
+
+const SET_ASIDE_REASONS: Readonly<Record<string, TranslationKey>> = {
+  "no-sender-address": "boardMailbox.setAside.reasons.noSenderAddress",
+  unstorable: "boardMailbox.setAside.reasons.unstorable",
 };
 
 /** Everything one load produces, applied to the screen in one step. */
@@ -266,6 +272,12 @@ export function BoardMailboxScreen(): ReactElement {
           <p className="text-small text-ink-muted">
             {t("boardMailbox.mailbox.schedule")}
           </p>
+          {status.setAsideCount > 0 ? (
+            <SetAsideLetters
+              letters={status.setAside}
+              count={status.setAsideCount}
+            />
+          ) : null}
         </Panel>
       )}
 
@@ -350,6 +362,74 @@ export function BoardMailboxScreen(): ReactElement {
       {thread === null ? null : (
         <BoardMailboxThreadPanel thread={thread} onChanged={reload} />
       )}
+    </div>
+  );
+}
+
+/**
+ * The letters the collection read and did not store.
+ *
+ * On the screen because each one is a letter the board has not read and would
+ * otherwise never hear of: it is not in the inbox, and it is still in the
+ * mailbox. What the board is given is what finds it there - the date the letter
+ * carried - and why it was left, and nothing the sender wrote.
+ */
+function SetAsideLetters({
+  letters,
+  count,
+}: {
+  letters: readonly BoardMailboxSetAside[];
+  count: number;
+}): ReactElement {
+  const { t, i18n } = useTranslation();
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Live, because a collection from this screen can change it. */}
+      <Notice tone="warn" live>
+        {t("boardMailbox.setAside.intro", { count })}
+      </Notice>
+      <ul className="flex flex-col gap-1">
+        {letters.map((letter, position) => (
+          <li
+            // The rows carry no identifier, and the list is replaced whole on
+            // every read rather than edited.
+            key={position}
+            className="flex flex-wrap gap-x-3 text-small"
+          >
+            <span className="font-semibold">
+              {t(
+                SET_ASIDE_REASONS[letter.reason] ??
+                  "boardMailbox.setAside.reasons.unknown",
+              )}
+            </span>
+            <span className="font-data">
+              {letter.letterDate === null
+                ? t("boardMailbox.setAside.undated")
+                : t("boardMailbox.setAside.dated", {
+                    date: formatMailboxMoment(letter.letterDate, i18n.language),
+                  })}
+            </span>
+            <span className="font-data text-ink-muted">
+              {t("boardMailbox.setAside.setAsideAt", {
+                date: formatMailboxDay(letter.setAsideAt, i18n.language),
+              })}
+            </span>
+            {letter.retryAt === null ? null : (
+              <span className="font-data text-ink-muted">
+                {t("boardMailbox.setAside.retryFrom", {
+                  date: formatMailboxMoment(letter.retryAt, i18n.language),
+                })}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {count > letters.length ? (
+        <p className="text-small text-ink-muted">
+          {t("boardMailbox.setAside.more", { count: count - letters.length })}
+        </p>
+      ) : null}
     </div>
   );
 }

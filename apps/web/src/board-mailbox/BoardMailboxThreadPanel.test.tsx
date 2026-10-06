@@ -1,93 +1,136 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
-import type {
-  BoardMailboxMessage,
-  BoardMailboxThread,
-} from "../api/board-mailbox";
+import type { BoardMailboxThread } from "../api/board-mailbox";
 import { BoardMailboxThreadPanel } from "./BoardMailboxThreadPanel";
 
-const fetchBoardMailboxThread = vi.fn();
+/**
+ * Answering a letter while the reply is still being sent.
+ *
+ * The draft is cleared once the reply is queued, so what is typed in the
+ * meantime would be wiped without a word. The panel refuses it instead, and
+ * hands focus back when the form opens again. The reply is sent with the
+ * button: Enter in the draft is a line break.
+ */
+
+const replyToBoardMailboxThread = vi.fn();
 
 vi.mock("../api/board-mailbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/board-mailbox")>()),
-  fetchBoardMailboxThread: (threadId: string, before?: string) =>
-    fetchBoardMailboxThread(threadId, before),
+  replyToBoardMailboxThread: (input: unknown) =>
+    replyToBoardMailboxThread(input),
 }));
-
-function message(id: string, body: string): BoardMailboxMessage {
-  return {
-    id,
-    direction: "INBOUND",
-    body,
-    bodyFromHtml: false,
-    bodyTruncated: false,
-    attachmentsDropped: 0,
-    occurredAt: "2026-09-20T08:00:00.000Z",
-    sentBy: null,
-    delivery: null,
-    attachments: [],
-  };
-}
 
 const THREAD: BoardMailboxThread = {
   id: "thread-1",
-  subject: "Droppande kran",
-  correspondent: { name: "Eva Berg", email: "eva@example.test" },
+  subject: "Fråga om tvättstugan",
+  correspondent: { email: "grannen@example.test", name: "Grannen" },
   status: "NEW",
   takenBy: null,
-  lastMessageAt: "2026-09-20T08:00:00.000Z",
-  messageCount: 2,
-  erasableFrom: "2028-09-20T08:00:00.000Z",
-  messages: [message("message-2", "Kranen droppar fortfarande.")],
-  olderCursor: "before-2",
+  lastMessageAt: "2026-06-01T09:00:00.000Z",
+  messageCount: 1,
+  erasableFrom: "2027-06-01T09:00:00.000Z",
+  olderCursor: null,
+  messages: [],
 };
 
+/** Holds the request open, so the panel is observed mid-save. */
+function holdRequest(): (outcome: unknown) => void {
+  let settle: (outcome: unknown) => void = () => undefined;
+  replyToBoardMailboxThread.mockReturnValue(
+    new Promise((resolve) => {
+      settle = resolve;
+    }),
+  );
+  return (outcome) => {
+    settle(outcome);
+  };
+}
+
 beforeEach(() => {
-  fetchBoardMailboxThread.mockReset();
+  replyToBoardMailboxThread.mockReset();
 });
 
-describe("the earlier messages on a thread", () => {
-  it("says so when they could not be read, and reads them on the next press", async () => {
-    fetchBoardMailboxThread.mockResolvedValueOnce({
-      ok: false,
-      failure: { status: 500, reason: "unexpected" },
+describe("while a reply is being sent", () => {
+  it("locks the draft, so nothing typed is lost when it is cleared", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest();
+    render(
+      <BoardMailboxThreadPanel thread={THREAD} onChanged={() => undefined} />,
+    );
+
+    const draft = screen.getByLabelText<HTMLTextAreaElement>("Ditt svar");
+    await user.type(draft, "Tack för ditt brev.");
+    expect(draft.matches(":disabled")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Skicka svaret" }));
+
+    await waitFor(() => {
+      expect(draft.matches(":disabled")).toBe(true);
     });
-    render(<BoardMailboxThreadPanel thread={THREAD} onChanged={() => {}} />);
+    await user.type(draft, "9");
+    expect(draft.value).toBe("Tack för ditt brev.");
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Visa tidigare meddelanden" }),
-    );
+    settle({ ok: true, value: { id: "message-1" } });
 
-    expect(
-      await screen.findByText(
-        "De tidigare meddelandena kunde inte läsas just nu. Försök igen.",
-      ),
-    ).not.toBeNull();
-    expect(fetchBoardMailboxThread).toHaveBeenLastCalledWith(
-      "thread-1",
-      "before-2",
-    );
-
-    fetchBoardMailboxThread.mockResolvedValueOnce({
-      ok: true,
-      value: {
-        ...THREAD,
-        messages: [message("message-1", "Kranen i köket droppar.")],
-        olderCursor: null,
-      },
+    await waitFor(() => {
+      expect(draft.matches(":disabled")).toBe(false);
     });
-    await userEvent.click(
-      screen.getByRole("button", { name: "Visa tidigare meddelanden" }),
+    expect(draft.value).toBe("");
+  });
+
+  it("hands focus back to the draft once the reply is queued", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest();
+    render(
+      <BoardMailboxThreadPanel thread={THREAD} onChanged={() => undefined} />,
     );
 
-    await screen.findByText("Kranen i köket droppar.");
-    expect(
-      screen.queryByText(
-        "De tidigare meddelandena kunde inte läsas just nu. Försök igen.",
-      ),
-    ).toBeNull();
+    const draft = screen.getByLabelText<HTMLTextAreaElement>("Ditt svar");
+    await user.type(draft, "Tack för ditt brev.");
+    await user.click(screen.getByRole("button", { name: "Skicka svaret" }));
+    await waitFor(() => {
+      expect(draft.matches(":disabled")).toBe(true);
+    });
+    // The button the reply was sent with is disabled again, as the draft it
+    // sent is gone, so the draft is where the board member goes on.
+    const refocus = vi.spyOn(draft, "focus");
+
+    settle({ ok: true, value: { id: "message-1" } });
+
+    await waitFor(() => {
+      expect(draft.matches(":disabled")).toBe(false);
+    });
+    expect(refocus).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(draft);
+  });
+
+  it("hands focus back to the button when the reply is refused", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest();
+    render(
+      <BoardMailboxThreadPanel thread={THREAD} onChanged={() => undefined} />,
+    );
+
+    const draft = screen.getByLabelText<HTMLTextAreaElement>("Ditt svar");
+    await user.type(draft, "Tack för ditt brev.");
+    const send = screen.getByRole("button", { name: "Skicka svaret" });
+    await user.click(send);
+    await waitFor(() => {
+      expect(draft.matches(":disabled")).toBe(true);
+    });
+    const refocus = vi.spyOn(send, "focus");
+
+    settle({ ok: false, failure: { status: 422, reason: "empty-reply" } });
+
+    await waitFor(() => {
+      expect(draft.matches(":disabled")).toBe(false);
+    });
+    // The draft is kept, so the button can be pressed again where it was.
+    expect(draft.value).toBe("Tack för ditt brev.");
+    expect(refocus).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(send);
   });
 });
