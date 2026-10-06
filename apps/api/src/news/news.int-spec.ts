@@ -1206,7 +1206,12 @@ describe("two board members editing the same item", () => {
 async function holdingTheRow(
   id: string,
   change: { published?: boolean; emailQueuedAt?: Date; content?: object },
-): Promise<{ release: () => void; committed: Promise<unknown> }> {
+): Promise<{
+  pid: number;
+  release: () => void;
+  committed: Promise<unknown>;
+}> {
+  let pid = 0;
   let release = (): void => undefined;
   const released = new Promise<void>((resolve) => {
     release = resolve;
@@ -1218,6 +1223,10 @@ async function holdingTheRow(
   const committed = prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
+      const [session] = await tx.$queryRaw<
+        { pid: number }[]
+      >`SELECT pg_backend_pid() AS pid`;
+      pid = session?.pid ?? 0;
       await tx.news.update({ where: { id }, data: change });
       held();
       await released;
@@ -1225,22 +1234,24 @@ async function holdingTheRow(
     { timeout: 20_000 },
   );
   await holding;
-  return { release, committed };
+  return { pid, release, committed };
 }
 
 /**
- * Waits until another session in this database is blocked on a lock.
+ * Waits until another session is blocked on the lock the holder has.
  *
  * That is the write under test reaching the row the holder has, and only
  * then is the holder released: releasing earlier would let the write read the
  * committed change and pass for a reason that has nothing to do with the
- * lock.
+ * lock. It asks for sessions blocked by the holder's own backend, not for any
+ * lock wait in the database: the suites share it, and a wait elsewhere would
+ * release the holder early.
  */
-async function untilSomebodyWaits(): Promise<void> {
+async function untilSomebodyWaits(holderPid: number): Promise<void> {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
       SELECT count(*) AS waiting FROM pg_stat_activity
-      WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+      WHERE ${holderPid}::int = ANY(pg_blocking_pids(pid))`;
     if (row !== undefined && row.waiting > 0n) {
       return;
     }
@@ -1270,7 +1281,7 @@ describe("a save and a publish racing each other", () => {
         () => null,
         (cause: unknown) => cause,
       );
-    await untilSomebodyWaits();
+    await untilSomebodyWaits(holder.pid);
     holder.release();
     await holder.committed;
 
@@ -1296,7 +1307,7 @@ describe("a save and a publish racing each other", () => {
       () => null,
       (cause: unknown) => cause,
     );
-    await untilSomebodyWaits();
+    await untilSomebodyWaits(holder.pid);
     holder.release();
     await holder.committed;
 
@@ -1331,7 +1342,7 @@ describe("a save and a publish racing each other", () => {
         () => null,
         (cause: unknown) => cause,
       );
-    await untilSomebodyWaits();
+    await untilSomebodyWaits(holder.pid);
     holder.release();
     await holder.committed;
 
