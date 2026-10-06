@@ -15,7 +15,11 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import type { DebitingList, DebitingListRow } from "./debiting-list";
+import {
+  type DebitingList,
+  type DebitingListRow,
+  sumChargeAmounts,
+} from "./debiting-list";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import type { DebitingListExport } from "./member-charge.service";
 import {
