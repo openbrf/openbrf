@@ -600,6 +600,8 @@ export interface PageTextPart {
   text: string;
   /** Every address the block links to, each as written and decoded. */
   addresses: string[];
+  /** Whether one of them is escaped too deeply to be read. */
+  unreadableAddress: boolean;
 }
 
 /**
@@ -614,8 +616,8 @@ export interface PageTextPart {
  */
 export function pageTextParts(content: PageContent): PageTextPart[] {
   return content.blocks.map((block, index) => {
-    const { words, addresses } = blockText(block);
-    return { index, text: words, addresses };
+    const { words, addresses, unreadableAddress } = blockText(block);
+    return { index, text: words, addresses, unreadableAddress };
   });
 }
 
@@ -675,6 +677,7 @@ function blockText(block: PageBlock): ScannableText {
           .join(" ")
           .trim(),
         addresses: items.flatMap((item) => item.answer.addresses),
+        unreadableAddress: items.some((item) => item.answer.unreadableAddress),
       };
     }
     case "documentList":
@@ -697,7 +700,7 @@ function blockText(block: PageBlock): ScannableText {
 
 /** Text with no address in it. */
 function wordsOnly(words: string): ScannableText {
-  return { words, addresses: [] };
+  return { words, addresses: [], unreadableAddress: false };
 }
 
 /**

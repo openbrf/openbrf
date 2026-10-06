@@ -27,7 +27,25 @@ export interface ScannableText {
   words: string;
   /** Every address the runs link to, each as written and decoded. */
   addresses: string[];
+  /**
+   * Whether an address is escaped more times than the guardrail decodes.
+   *
+   * What such an address says cannot be read without decoding it further, so
+   * it is held against its block as a number would be rather than let through
+   * unread.
+   */
+  unreadableAddress: boolean;
 }
+
+/**
+ * How many times an address is decoded before it is given up on.
+ *
+ * Twice covers a link escaped twice over, the deepest a real one goes; the
+ * rest is room. Not until nothing changes, because each pass may take off as
+ * little as one level: "%2525...252D" written out to the length a link may
+ * have needs a thousand passes, and every reading is kept to be scanned.
+ */
+const ADDRESS_DECODE_PASSES = 4;
 
 /**
  * The words of a list of runs, and the addresses they link to.
@@ -38,11 +56,13 @@ export interface ScannableText {
  * spelled %2D is still the number.
  */
 export function scannableRuns(runs: readonly ScannableRun[]): ScannableText {
+  const read = runs.flatMap((run) =>
+    run.link === undefined ? [] : [addressForms(run.link)],
+  );
   return {
     words: runs.map((run) => run.text).join(""),
-    addresses: runs.flatMap((run) =>
-      run.link === undefined ? [] : addressForms(run.link),
-    ),
+    addresses: read.flatMap((address) => address.forms),
+    unreadableAddress: read.some((address) => !address.settled),
   };
 }
 
@@ -50,20 +70,21 @@ export function scannableRuns(runs: readonly ScannableRun[]): ScannableText {
  * An address as written, and every reading decoding it gives.
  *
  * Decoded again until nothing changes, so a hyphen escaped twice (%252D) is
- * read as the hyphen it ends up as. Each pass ends shorter than it began, so
- * the loop ends.
+ * read as the hyphen it ends up as - but at most ADDRESS_DECODE_PASSES times.
+ * An address that would still change after that is not settled.
  */
-function addressForms(link: string): string[] {
+function addressForms(link: string): { forms: string[]; settled: boolean } {
   const forms = [link];
   let current = link;
-  for (;;) {
+  for (let pass = 0; pass < ADDRESS_DECODE_PASSES; pass += 1) {
     const decoded = decodeEscapes(current);
     if (decoded === current) {
-      return forms;
+      return { forms, settled: true };
     }
     forms.push(decoded);
     current = decoded;
   }
+  return { forms, settled: decodeEscapes(current) === current };
 }
 
 /**

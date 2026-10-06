@@ -373,9 +373,14 @@ describe("what a body puts in front of a reader", () => {
     // The image's alternative text and caption are in here too: they are
     // published prose whatever they describe, so the guardrails scan them.
     expect(pageTextParts(content)).toEqual([
-      { index: 0, text: "Styrelsen", addresses: [] },
-      { index: 1, text: "Hej alla", addresses: [] },
-      { index: 2, text: "Garden Varen", addresses: [] },
+      { index: 0, text: "Styrelsen", addresses: [], unreadableAddress: false },
+      { index: 1, text: "Hej alla", addresses: [], unreadableAddress: false },
+      {
+        index: 2,
+        text: "Garden Varen",
+        addresses: [],
+        unreadableAddress: false,
+      },
     ]);
   });
 
@@ -508,8 +513,13 @@ describe("the form blocks", () => {
     // are chrome, translated rather than written by the board, so they are not
     // the board's text to be scanned or held against them.
     expect(pageTextParts(content)).toEqual([
-      { index: 0, text: "Skriv till oss", addresses: [] },
-      { index: 1, text: "", addresses: [] },
+      {
+        index: 0,
+        text: "Skriv till oss",
+        addresses: [],
+        unreadableAddress: false,
+      },
+      { index: 1, text: "", addresses: [], unreadableAddress: false },
     ]);
   });
 
@@ -582,7 +592,9 @@ describe("the news teaser block", () => {
       pageTextParts(
         readPageContent({ blocks: [{ type: "newsTeaser", count: 3 }] }),
       ),
-    ).toEqual([{ index: 0, text: "", addresses: [] }]);
+    ).toEqual([
+      { index: 0, text: "", addresses: [], unreadableAddress: false },
+    ]);
   });
 });
 
@@ -639,7 +651,9 @@ describe("the event calendar block", () => {
       pageTextParts(
         readPageContent({ blocks: [{ type: "eventCalendar", count: 3 }] }),
       ),
-    ).toEqual([{ index: 0, text: "", addresses: [] }]);
+    ).toEqual([
+      { index: 0, text: "", addresses: [], unreadableAddress: false },
+    ]);
   });
 });
 
@@ -900,7 +914,14 @@ describe("the FAQ block", () => {
           ],
         }),
       ),
-    ).toEqual([{ index: 0, text: "Vem är ordförande? Anna.", addresses: [] }]);
+    ).toEqual([
+      {
+        index: 0,
+        text: "Vem är ordförande? Anna.",
+        addresses: [],
+        unreadableAddress: false,
+      },
+    ]);
   });
 });
 
@@ -928,10 +949,25 @@ describe("the addresses a body links to", () => {
     });
 
     expect(pageTextParts(content)).toEqual([
-      { index: 0, text: "Skriv", addresses: [MAILTO] },
-      { index: 1, text: "Hem", addresses: ["/hem"] },
-      { index: 2, text: "Eller", addresses: [MAILTO] },
-      { index: 3, text: "Vem? Anna", addresses: [MAILTO] },
+      {
+        index: 0,
+        text: "Skriv",
+        addresses: [MAILTO],
+        unreadableAddress: false,
+      },
+      { index: 1, text: "Hem", addresses: ["/hem"], unreadableAddress: false },
+      {
+        index: 2,
+        text: "Eller",
+        addresses: [MAILTO],
+        unreadableAddress: false,
+      },
+      {
+        index: 3,
+        text: "Vem? Anna",
+        addresses: [MAILTO],
+        unreadableAddress: false,
+      },
     ]);
     for (const part of pageTextParts(content)) {
       if (part.index !== 1) {
@@ -966,6 +1002,7 @@ describe("the addresses a body links to", () => {
       index: 0,
       text: "Vem? Anna Var? Här.",
       addresses: [MAILTO],
+      unreadableAddress: false,
     });
   });
 
@@ -1028,7 +1065,9 @@ describe("the addresses a body links to", () => {
           ],
         }),
       ),
-    ).toEqual([{ index: 0, text: "Hej alla", addresses: [] }]);
+    ).toEqual([
+      { index: 0, text: "Hej alla", addresses: [], unreadableAddress: false },
+    ]);
   });
 });
 
@@ -1045,9 +1084,9 @@ describe("the blocks that name what the instance already holds", () => {
         }),
       ),
     ).toEqual([
-      { index: 0, text: "", addresses: [] },
-      { index: 1, text: "", addresses: [] },
-      { index: 2, text: "", addresses: [] },
+      { index: 0, text: "", addresses: [], unreadableAddress: false },
+      { index: 1, text: "", addresses: [], unreadableAddress: false },
+      { index: 2, text: "", addresses: [], unreadableAddress: false },
     ]);
   });
 

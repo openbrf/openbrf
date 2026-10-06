@@ -279,6 +279,7 @@ export function blockText(block: PageBlock): ScannableText {
           .join(" ")
           .trim(),
         addresses: items.flatMap((item) => item.answer.addresses),
+        unreadableAddress: items.some((item) => item.answer.unreadableAddress),
       };
     }
     case "documentList":
@@ -298,7 +299,7 @@ export function blockText(block: PageBlock): ScannableText {
 
 /** Text with no address in it. */
 function wordsOnly(words: string): ScannableText {
-  return { words, addresses: [] };
+  return { words, addresses: [], unreadableAddress: false };
 }
 
 /** Every run of a text block joined into one string, for a plain input. */
@@ -334,8 +335,9 @@ export function scanPage(input: {
     hits.push({ block: null });
   }
   input.blocks.forEach((block, index) => {
-    const { words, addresses } = blockText(block);
+    const { words, addresses, unreadableAddress } = blockText(block);
     if (
+      unreadableAddress ||
       [words, ...addresses].some(
         (text) => scanForPersonalIdentityNumbers(text).length > 0,
       )

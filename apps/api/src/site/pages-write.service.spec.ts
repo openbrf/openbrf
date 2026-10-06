@@ -572,6 +572,40 @@ describe("writing a page", () => {
     ]);
   });
 
+  it("refuses an address escaped too deeply to be read, placed by its block", async () => {
+    // Each decoding pass may take off one level only. Decoding a link of the
+    // length the schema allows to the end took a thousand passes and kept
+    // every reading, so a body of such links held the process for seconds.
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: {
+            version: 1,
+            blocks: [
+              { type: "paragraph", runs: [{ text: "Hej" }] },
+              {
+                type: "paragraph",
+                runs: [{ text: "Se här", link: `%${"25".repeat(999)}2D` }],
+              },
+            ],
+          },
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 1 },
+    ]);
+  });
+
   it("places a number in a later FAQ item where it is, whatever an earlier item links to", async () => {
     const { service, page } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });

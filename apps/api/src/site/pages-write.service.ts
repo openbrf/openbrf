@@ -45,7 +45,9 @@ export interface PageTextLocation {
  *
  * One in the words is placed by block and offset. One in an address is placed
  * by its block alone, once however many of the block's addresses carry it: an
- * offset into the words would point at whatever happens to stand there.
+ * offset into the words would point at whatever happens to stand there. An
+ * address escaped too deeply to be read is placed the same way, since what it
+ * says cannot be shown to be free of one.
  */
 export function identityNumbersInBody(
   content: PageContent,
@@ -58,7 +60,8 @@ export function identityNumbersInBody(
         offset: hit.index,
       }),
     ),
-    ...(part.addresses.some(
+    ...(part.unreadableAddress ||
+    part.addresses.some(
       (address) => scanForPersonalIdentityNumbers(address).length > 0,
     )
       ? [{ part: "block" as const, index: part.index }]
