@@ -1348,6 +1348,88 @@ describe("an apply and a preview of one session", () => {
       rowsDone: 0,
     });
   }, 60_000);
+
+  it("answers preview-replaced, not preview-outdated, when the preview was replaced after another import moved the revision", async () => {
+    // The apply read the preview before the lock; another tab previews the
+    // session meanwhile, after another import changed the register. The
+    // revision that tab recorded is not the one the apply holds, but the
+    // refusal is still the replaced preview's: re-previewing from here would
+    // overwrite the newer one.
+    const cookie = await signIn(actors.board.email);
+    const other = await uploadAndPreview(cookie, "annan.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        "Annan",
+        `${surname}x`,
+        "Medlem",
+        "",
+        "",
+        "1/2/23",
+      ],
+    ]);
+    const session = await uploadAndPreview(cookie, "ersatt-igen.csv", [
+      HEADERS,
+      [addressLabel, "2101", "Ersatt", surname, "Medlem", "", "", "1/2/23"],
+    ]);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const checked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const ensureQueues = applies.ensureQueues.bind(applies);
+    const paused = vi
+      .spyOn(applies, "ensureQueues")
+      .mockImplementationOnce(async () => {
+        reached();
+        await held;
+        await ensureQueues();
+      });
+
+    let response: Awaited<ReturnType<typeof applyImport>>;
+    try {
+      const applying = applyImport(cookie, session.sessionId);
+      try {
+        await Promise.race([checked, applying]);
+        // Another import finishes and moves the revision, then another tab
+        // previews this session against the moved register.
+        expect((await applyImport(cookie, other.sessionId)).statusCode).toBe(
+          202,
+        );
+        await waitForRun(
+          cookie,
+          other.sessionId,
+          (candidate) => candidate.status === "APPLIED",
+        );
+        const replaced = await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/preview`,
+          payload: {
+            mapping: session.suggestedMapping,
+            defaultMovedInOn: "2023-02-01",
+          },
+          headers: { cookie },
+        });
+        expect(replaced.statusCode).toBe(200);
+      } finally {
+        release();
+      }
+      response = await applying;
+    } finally {
+      paused.mockRestore();
+    }
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("preview-replaced");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+    });
+  }, 60_000);
 });
 
 describe("two imports of two files", () => {

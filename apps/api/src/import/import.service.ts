@@ -407,6 +407,24 @@ export class ImportService implements OnModuleInit {
       // Only a chunk that wrote moves the count. An import that stopped before
       // writing, or whose rows were all skipped or in error, left the register
       // as this preview saw it, and a second preview would show the same.
+      //
+      // The preview read before the lock may have been replaced since, by
+      // another tab, and its revision is the one that tab recorded. That is
+      // the replaced preview's own refusal, not an outdated one: previewing
+      // again from here would overwrite the newer preview.
+      const recorded = await tx.importSession.findUnique({
+        where: { id: sessionId },
+        select: { previewedAt: true },
+      });
+      if (
+        recorded !== null &&
+        recorded.previewedAt?.getTime() !== session.previewedAt.getTime()
+      ) {
+        throw new ImportError(
+          "The import was previewed again while it was being started.",
+          "preview-replaced",
+        );
+      }
       if (session.previewedRevision !== (await readImportRevision(tx))) {
         throw new ImportError(
           "Another import changed the register after this one was previewed. Preview it again.",
