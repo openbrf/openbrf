@@ -53,6 +53,7 @@ const previewImport = vi.fn();
 const applyImport = vi.fn();
 const fetchImportRun = vi.fn();
 const fetchActiveImport = vi.fn();
+const abandonImport = vi.fn();
 
 vi.mock("./import-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./import-api")>()),
@@ -63,7 +64,21 @@ vi.mock("./import-api", async (importOriginal) => ({
     applyImport(sessionId, input),
   fetchImportRun: (sessionId: string) => fetchImportRun(sessionId),
   fetchActiveImport: () => fetchActiveImport(),
+  abandonImport: (sessionId: string) => abandonImport(sessionId),
 }));
+
+/**
+ * What the signed-in account may do. A board member unless a case says
+ * otherwise: the board imports, and only an administrator may abandon.
+ */
+const capabilities = vi.fn<() => readonly string[]>();
+
+vi.mock("../shell/use-viewer-capabilities", () => ({
+  useViewerCapabilities: () => capabilities(),
+}));
+
+const BOARD = ["addressBook:read", "addressBook:write"];
+const ADMINISTRATOR = [...BOARD, "association:manage"];
 
 /**
  * The uploaded file carries a personal identity number, because a real member
@@ -284,6 +299,8 @@ beforeEach(() => {
   applyImport.mockReset().mockResolvedValue({ ok: true, value: runView() });
   fetchImportRun.mockReset().mockResolvedValue({ ok: true, value: FINISHED });
   fetchActiveImport.mockReset().mockResolvedValue({ ok: true, value: null });
+  abandonImport.mockReset();
+  capabilities.mockReset().mockReturnValue(BOARD);
 });
 
 describe("the mapping step", () => {
@@ -925,4 +942,112 @@ describe("when the file cannot be read", () => {
       screen.queryByText(/gick inte att läsa som ett kalkylblad/),
     ).toBeNull();
   });
+});
+
+describe("an import that has stopped moving", () => {
+  const STUCK = runView({ status: "APPLYING", rowsDone: 100, rowsTotal: 120 });
+
+  beforeEach(() => {
+    fetchActiveImport.mockResolvedValue({ ok: true, value: STUCK });
+    // Still running every time the screen asks, which is what stuck looks like.
+    fetchImportRun.mockResolvedValue({ ok: true, value: STUCK });
+  });
+
+  it("is not offered to the board", async () => {
+    // The API refuses anybody without association:manage, so a board member
+    // shown the control would only ever get a refusal.
+    render(<ImportScreen />);
+
+    expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Avbryt importen/ }),
+    ).toBeNull();
+  });
+
+  it("asks an administrator twice, then shows it stopped", async () => {
+    capabilities.mockReturnValue(ADMINISTRATOR);
+    const abandoned = runView({
+      status: "FAILED",
+      rowsDone: 100,
+      rowsTotal: 120,
+      failureReason: "apply-abandoned",
+      finishedAt: "2026-10-03T09:00:00.000Z",
+    });
+    abandonImport.mockResolvedValue({ ok: true, value: abandoned });
+    fetchImportRun.mockResolvedValue({ ok: true, value: abandoned });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Avbryt importen/ }),
+    );
+    // The first press only asks: it stops an import part way through a
+    // register that cannot be edited.
+    expect(abandonImport).not.toHaveBeenCalled();
+    expect(screen.getByText(/finns kvar i medlemsförteckningen/)).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: /Ja, avbryt den/ }));
+
+    expect(abandonImport).toHaveBeenCalledWith("session-1");
+    expect(await screen.findByText(/Importen stoppades$/)).toBeTruthy();
+    expect(screen.getByText(/En administratör avbröt importen/)).toBeTruthy();
+    expect(screen.getByText(/100 av 120 rader/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Importera en annan lista/ }),
+    ).toBeTruthy();
+  });
+
+  it("lets an administrator change their mind", async () => {
+    capabilities.mockReturnValue(ADMINISTRATOR);
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Avbryt importen/ }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Låt den fortsätta/ }),
+    );
+
+    expect(abandonImport).not.toHaveBeenCalled();
+    expect(screen.getByText(/Skriver registret/)).toBeTruthy();
+  });
+
+  it("says so when the import ended before the press, and keeps saying it", async () => {
+    capabilities.mockReturnValue(ADMINISTRATOR);
+    // The import finished between the screen's last poll and the press, so
+    // the API refuses and the next poll brings in the finished import.
+    abandonImport.mockImplementation(() => {
+      fetchImportRun.mockResolvedValue({
+        ok: true,
+        value: { ...FINISHED, rowsDone: 120, rowsTotal: 120 },
+      });
+      return Promise.resolve({
+        ok: false,
+        failure: { status: 409, reason: "session-not-running" },
+      });
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Avbryt importen/ }),
+    );
+    await session.click(screen.getByRole("button", { name: /Ja, avbryt den/ }));
+
+    expect(
+      await screen.findByText(/Den importen pågår inte längre/),
+    ).toBeTruthy();
+    // The poll takes the control away. The notice stays, to say why the press
+    // did nothing.
+    expect(
+      await screen.findByText(/Importen är klar/, undefined, {
+        timeout: 5000,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Avbryt importen/ }),
+    ).toBeNull();
+    expect(screen.getByText(/Den importen pågår inte längre/)).toBeTruthy();
+  }, 10_000);
 });

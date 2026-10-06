@@ -57,15 +57,25 @@ function build() {
       .mockResolvedValue({ id: "page-1", title: "Om föreningen" }),
   };
 
-  const client = { menuItem, page };
+  /*
+   * The transaction's client, and the only one that can write or decide
+   * anything. `$executeRaw` is the menu lock.
+   */
+  const client = {
+    menuItem,
+    page,
+    $executeRaw: vi.fn().mockResolvedValue(1),
+  };
 
   const prisma = {
-    ...client,
     /*
-     * The interactive form, because every write here now carries its audit
-     * entry inside the transaction. The callback is handed the same fake the
-     * service holds, so a spec can read what was written either way.
+     * The root client offers the read `list()` makes and nothing else. Every
+     * check a write decides on is read inside its transaction, under the menu
+     * lock, and a regression that read one through the root client again -
+     * outside the lock, where a concurrent move can change the answer - fails
+     * here on a method that is not there rather than passing on a shared fake.
      */
+    menuItem: { findMany: menuItem.findMany },
     $transaction: vi.fn(async (run: unknown) =>
       typeof run === "function"
         ? await (run as (tx: typeof client) => Promise<unknown>)(client)
@@ -84,6 +94,7 @@ function build() {
     page,
     prisma,
     audit,
+    txClient: client,
   };
 }
 
@@ -361,6 +372,35 @@ describe("the two-level rule", () => {
       ),
     ).rejects.toMatchObject({ reason: "nesting-too-deep" });
   });
+
+  it("takes the menu lock before it reads anything it decides on", async () => {
+    // Read first, each of two opposite moves passes its check against a menu
+    // the other is about to change, and the two entries end up hanging from
+    // each other - off the website, since nothing reaches them from the top.
+    const { service, menuItem, page, txClient } = build();
+    menuItem.findUnique.mockImplementation(
+      async (args: { where: { id: string } }) =>
+        args.where.id === "item-1"
+          ? { id: "item-1", parentId: null }
+          : { id: "item-2", parentId: null },
+    );
+
+    await service.update(
+      "item-1",
+      { kind: "PAGE", label: "", pageId: "page-1", parentId: "item-2" },
+      ACTOR,
+    );
+
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    const reads = [
+      ...menuItem.findUnique.mock.invocationCallOrder,
+      ...menuItem.count.mock.invocationCallOrder,
+      ...menuItem.aggregate.mock.invocationCallOrder,
+      ...page.findUnique.mock.invocationCallOrder,
+    ];
+    expect(reads.length).toBeGreaterThan(0);
+    expect(Math.min(...reads)).toBeGreaterThan(locked);
+  });
 });
 
 describe("rearranging the menu", () => {
@@ -574,7 +614,7 @@ describe("what the log keeps about a menu edit", () => {
   it("writes the entry inside the transaction that made the change", async () => {
     // Not beside it: an entry that survived a rolled-back write would claim a
     // menu nobody arranged.
-    const { service, audit, prisma } = build();
+    const { service, audit, prisma, txClient } = build();
 
     await service.create(
       { kind: "PAGE", label: "Om oss", pageId: "page-1" },
@@ -582,6 +622,8 @@ describe("what the log keeps about a menu edit", () => {
     );
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(audit.record.mock.calls[0]?.[1]).toBeDefined();
+    // The callback's own client, by identity: "defined" is also true of the
+    // root client, which would commit the entry apart from the change.
+    expect(audit.record.mock.calls[0]?.[1]).toBe(txClient);
   });
 });

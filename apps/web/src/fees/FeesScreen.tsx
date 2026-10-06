@@ -30,6 +30,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { useFocusAfterLock } from "../ui/use-focus-after-lock";
 import { feeFailureKey } from "./fee-failures";
 import {
   type FeeKind,
@@ -137,9 +138,9 @@ export function FeesScreen(): ReactElement {
   const [recording, setRecording] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
-  // The control that had focus when the form was locked. A disabled control
-  // drops focus to the page, so it is given back once the form is open again.
-  const focusedBeforeLock = useRef<HTMLElement | null>(null);
+  // The submit button stays disabled after a success, with the amount cleared;
+  // the amount field is where the board types next.
+  const rememberFocus = useFocusAfterLock(recording, formRef, amountRef);
 
   const [yearlyTotal, setYearlyTotal] = useState("");
   const [aidOpen, setAidOpen] = useState(false);
@@ -177,32 +178,6 @@ export function FeesScreen(): ReactElement {
     };
   }, [on, reload]);
 
-  useEffect(() => {
-    if (recording) {
-      return;
-    }
-    const target = focusedBeforeLock.current;
-    focusedBeforeLock.current = null;
-    if (target === null) {
-      return;
-    }
-    // Only while focus is still the form's or nobody's. A board member who
-    // moved on to the aid's yearly total or the register date meanwhile keeps
-    // it there, or what they type next would land in the amount field.
-    const active = document.activeElement;
-    if (
-      active !== null &&
-      active !== document.body &&
-      !formRef.current?.contains(active)
-    ) {
-      return;
-    }
-    // The submit button stays disabled after a success, with the amount
-    // cleared; the amount field is where the board types next.
-    const stillUsable = !target.matches(":disabled");
-    (stillUsable ? target : amountRef.current)?.focus();
-  }, [recording]);
-
   const suggestions = useMemo(() => {
     if (!aidOpen || register === null) {
       return null;
@@ -221,16 +196,7 @@ export function FeesScreen(): ReactElement {
   const onRecord = useCallback(
     async (submitter: HTMLElement | null): Promise<void> => {
       setRefusal(null);
-      // Safari and macOS Firefox do not focus a button that was clicked, so the
-      // submitter stands in for the focused control when focus is elsewhere.
-      const focused = document.activeElement;
-      const inForm = (element: Element | null): element is HTMLElement =>
-        element instanceof HTMLElement && !!formRef.current?.contains(element);
-      focusedBeforeLock.current = inForm(focused)
-        ? focused
-        : inForm(submitter)
-          ? submitter
-          : null;
+      rememberFocus(submitter);
       setRecording(true);
       const result = await recordFee({
         apartmentId,
@@ -257,6 +223,7 @@ export function FeesScreen(): ReactElement {
       kind,
       load,
       monthlyAmount,
+      rememberFocus,
       vatRatePercent,
       vatTreatment,
     ],
