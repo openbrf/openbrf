@@ -329,16 +329,30 @@ async function ensureMeetingFixture(
 }
 
 /**
+ * Which eight days of the window this run's meetings are held in.
+ *
+ * Nothing removes a meeting, so a run against a reused stack finds the last
+ * run's meetings still on the list, and a day both runs used would match two
+ * rows. The minute the run started, taken over forty-five blocks, keeps any two
+ * runs started within three quarters of an hour of each other apart - which is
+ * what a run against a kept stack while a spec is being written looks like.
+ */
+const RUN_BLOCK = Math.floor(Date.now() / 60_000) % 45;
+
+/**
  * A day of its own for each test.
  *
  * Distinct days rather than one shared: the meetings list is ordered by the day
  * and every control that names a meeting carries it, so two meetings on one day
  * would leave a test opening whichever of them the list happened to put first.
  * Every one of them is inside the year after {@link SIGNED_ON}, which is the
- * window EFL 6 kap. 4 § allows an authorisation.
+ * window EFL 6 kap. 4 § allows an authorisation: the last block ends on
+ * 2029-03-27.
  */
 function meetingDay(offset: number): string {
-  return `2028-05-${String(10 + offset).padStart(2, "0")}`;
+  return new Date(Date.UTC(2028, 3, 2 + RUN_BLOCK * 8 + offset))
+    .toISOString()
+    .slice(0, 10);
 }
 
 /** The panel whose level-2 heading reads exactly this. */
@@ -624,6 +638,15 @@ test.describe("the general meeting", () => {
     await expect(
       page.getByRole("heading", { name: "Föreningsstämmor" }),
     ).toBeVisible();
+    /*
+     * The list's own heading arrives only after its read answers, so its
+     * absence alone would hold on a screen still reading. For an account
+     * holding the capability the screen puts up its loading status in the same
+     * render as the title, and for one without it reads nothing at all - so the
+     * status being absent beside a rendered title is the screen having decided
+     * there is nothing here for him, rather than not having got that far.
+     */
+    await expect(page.getByText("Läser stämmorna...")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Föreningens stämmor" }),
     ).toHaveCount(0);

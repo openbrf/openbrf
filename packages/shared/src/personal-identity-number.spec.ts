@@ -12,7 +12,8 @@ import {
  * blind index (ADR 0002). The table below is therefore a compatibility suite
  * rather than a set of examples: a change that alters one byte of an output
  * silently breaks search on data already stored, and the only lawful way to
- * make one of these fail is a migration that recomputes every index.
+ * make one of these fail is a bump of the normalisation version, which
+ * recomputes every index.
  */
 
 // Fixed so century inference is deterministic rather than dependent on today.
@@ -25,7 +26,7 @@ describe("normalizePersonalIdentityNumber", () => {
     ["19811228-9874", "198112289874"],
     ["198112289874", "198112289874"],
     [" 811228 - 9874 ", "198112289874"],
-    // Without a century, the most recent year that is not in the future.
+    // Without a century, the most recent birth date that is not in the future.
     ["121212-1212", "201212121212"],
     // A plus separator means the person has turned 100.
     ["121212+1212", "191212121212"],
@@ -34,6 +35,37 @@ describe("normalizePersonalIdentityNumber", () => {
     ["000229-0120", "200002290120"],
   ])("writes %s as %s, byte for byte", (written, canonical) => {
     expect(normalizePersonalIdentityNumber(written, REFERENCE)).toBe(canonical);
+  });
+
+  it("places a birthday later this year in the last century", () => {
+    // In March 2026, 1 December 2026 has not happened, so nobody can have
+    // been born on it. Comparing years alone said 2026 until the day came.
+    const march = new Date(2026, 2, 15);
+    expect(normalizePersonalIdentityNumber("261201-1234", march)).toBe(
+      "192612011234",
+    );
+    expect(normalizePersonalIdentityNumber("2612011234", march)).toBe(
+      "192612011234",
+    );
+    // A coordination number is judged by its real day, 1 December, not 61.
+    expect(normalizePersonalIdentityNumber("261261-1234", march)).toBe(
+      "192612611234",
+    );
+    // A birthday already passed this year stays in this century.
+    expect(normalizePersonalIdentityNumber("260301-1234", march)).toBe(
+      "202603011234",
+    );
+    // Today itself is not in the future.
+    expect(normalizePersonalIdentityNumber("260315-1234", march)).toBe(
+      "202603151234",
+    );
+  });
+
+  it("keeps the plus separator to the year a person turns 100", () => {
+    // A plus is written all through that year, before the birthday as well.
+    expect(
+      normalizePersonalIdentityNumber("261201+1234", new Date(2026, 2, 15)),
+    ).toBe("192612011234");
   });
 
   it("returns null rather than an unmatchable index for bad input", () => {

@@ -36,6 +36,9 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The environment began setting the mail after this screen was loaded.
   "mail-managed-by-environment": "settings.smtp.errors.managedByEnvironment",
+  // The host or port changed while the password field was left empty.
+  "secret-required-for-new-endpoint":
+    "settings.smtp.errors.secretRequiredForNewEndpoint",
 };
 
 /**

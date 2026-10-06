@@ -62,7 +62,8 @@ export class SettingsError extends DomainError {
       | "financial-year-start-not-a-month"
       | "giro-not-a-number"
       | "joint-controller-incomplete"
-      | "mail-managed-by-environment",
+      | "mail-managed-by-environment"
+      | "secret-required-for-new-endpoint",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
@@ -232,7 +233,10 @@ export interface BoardMailboxInput {
   port: number | null;
   secure: boolean;
   user: string | null;
-  /** Undefined keeps the stored password; null clears it. */
+  /**
+   * Undefined keeps the stored password while the host and port stay the same;
+   * null clears it.
+   */
   password?: string | null;
 }
 
@@ -328,7 +332,10 @@ export interface SmtpInput {
   port: number | null;
   secure: boolean;
   user: string | null;
-  /** Undefined keeps the stored password; null clears it. */
+  /**
+   * Undefined keeps the stored password while the host and port stay the same;
+   * null clears it.
+   */
   password?: string | null;
   fromAddress: string | null;
 }
@@ -338,7 +345,10 @@ export interface SmsInput {
   driver: string | null;
   gatewayUrl: string | null;
   senderName: string | null;
-  /** Undefined keeps the stored credential; null clears it. */
+  /**
+   * Undefined keeps the stored credential while the driver and the gateway
+   * address stay the same; null clears it.
+   */
   token?: string | null;
 }
 
@@ -831,6 +841,16 @@ export class SettingsService {
       );
     }
     await this.requireAssociation();
+    const stored = await this.prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { smtpHost: true, smtpPort: true, smtpPasswordCipher: true },
+    });
+    requireSecretForNewEndpoint(
+      input.password,
+      stored.smtpPasswordCipher,
+      [stored.smtpHost, stored.smtpPort],
+      [input.host, input.port],
+    );
 
     const passwordCipher =
       input.password === undefined
@@ -884,6 +904,20 @@ export class SettingsService {
     input: BoardMailboxInput,
   ): Promise<BoardMailboxSettingsView> {
     await this.requireAssociation();
+    const stored = await this.prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: {
+        boardMailboxPop3Host: true,
+        boardMailboxPop3Port: true,
+        boardMailboxPop3PasswordCipher: true,
+      },
+    });
+    requireSecretForNewEndpoint(
+      input.password,
+      stored.boardMailboxPop3PasswordCipher,
+      [stored.boardMailboxPop3Host, stored.boardMailboxPop3Port],
+      [input.host, input.port],
+    );
 
     const passwordCipher =
       input.password === undefined
@@ -989,6 +1023,20 @@ export class SettingsService {
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
     await this.requireAssociation();
+    const stored = await this.prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: {
+        smsDriver: true,
+        smsGatewayUrl: true,
+        smsGatewayTokenCipher: true,
+      },
+    });
+    requireSecretForNewEndpoint(
+      input.token,
+      stored.smsGatewayTokenCipher,
+      [stored.smsDriver, stored.smsGatewayUrl],
+      [input.driver, input.gatewayUrl],
+    );
 
     const tokenCipher =
       input.token === undefined
@@ -1430,4 +1478,34 @@ function readGiro(value: string | null): string | null {
     throw new SettingsError("That is not a giro number.", "giro-not-a-number");
   }
   return trimmed;
+}
+
+/**
+ * Refuses to keep a stored secret for an endpoint other than the one it was
+ * entered for.
+ *
+ * A left-out secret means "keep the one stored", which is right while the
+ * server it authenticates to stays the same and wrong the moment it moves: the
+ * next send would present the association's credential to whatever answers at
+ * the new address. So a changed host, port, driver or gateway address needs the
+ * secret typed again, or cleared, in the same save. Compared as stored, without
+ * normalising: a host merely spelled in another case is asked for again, which
+ * costs one retyped password and never sends one anywhere.
+ */
+function requireSecretForNewEndpoint(
+  secret: string | null | undefined,
+  storedSecret: string | null,
+  storedEndpoint: readonly (string | number | null)[],
+  nextEndpoint: readonly (string | number | null)[],
+): void {
+  if (
+    secret === undefined &&
+    storedSecret !== null &&
+    nextEndpoint.some((part, index) => part !== storedEndpoint[index])
+  ) {
+    throw new SettingsError(
+      "Enter the secret again, or clear it, when the server changes.",
+      "secret-required-for-new-endpoint",
+    );
+  }
 }

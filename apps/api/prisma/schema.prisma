@@ -563,6 +563,12 @@ model Person {
   personalIdentityNumberCipher String?
   personalIdentityNumberIndex  String?
 
+  /// The normalisation rules the blind indexes above were computed under
+  /// (NORMALIZATION_VERSION in crypto/personal-data.ts). The default is the
+  /// current version, so a row written now needs nothing; a row below it is
+  /// reindexed from its ciphertexts at boot by PersonReindexService.
+  blindIndexVersion Int @default(2)
+
   /// Protected personal data (skyddade personuppgifter): masked in every view,
   /// export and extract; each reveal is written to the audit log.
   protectedPersonalData Boolean @default(false)
