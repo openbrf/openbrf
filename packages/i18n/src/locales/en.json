@@ -707,7 +707,8 @@
           "CHAT_GROUP_CREATED": "Group chat created",
           "CHAT_GROUP_MEMBER_ADDED": "Put into a group chat",
           "CHAT_GROUP_MEMBER_REMOVED": "Left a group chat",
-          "CHAT_MESSAGE_STRUCK": "Chat message struck through"
+          "CHAT_MESSAGE_STRUCK": "Chat message struck through",
+          "IMPORT_ABANDONED": "A member list import was abandoned"
         },
         "channel": {
           "WEB": "The web interface",
@@ -2368,6 +2369,14 @@
       "keepsGoing": "The import carries on if you close this page. Come back here to see how it went.",
       "another": "Import another list"
     },
+    "abandon": {
+      "description": "If the import has stopped moving, an administrator can abandon it so that another list can be imported. Rows it has already written stay in the register.",
+      "start": "Abandon this import",
+      "warning": "Abandon the import? It writes nothing more, and what it has already written stays in the member register, which cannot be edited. Do this only when the import has stopped moving.",
+      "confirm": "Yes, abandon it",
+      "cancel": "Keep it running",
+      "working": "Abandoning"
+    },
     "result": {
       "title": "The import is done",
       "personsCreated": "People added",
@@ -2395,6 +2404,8 @@
       "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
+      "applyAbandoned": "An administrator abandoned the import before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
+      "sessionNotRunning": "That import is no longer running.",
       "unknown": "The import did not work just now. Please try again."
     },
     "template": {

@@ -18,6 +18,11 @@ export type ImportErrorReason =
    * finished.
    */
   | "another-import-running"
+  /**
+   * An administrator asked to abandon a session that is not queued or
+   * applying: it has not been started, or it has already ended.
+   */
+  | "session-not-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
@@ -33,7 +38,12 @@ export type ImportErrorReason =
   | "preview-replaced"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
-  | "apply-interrupted";
+  | "apply-interrupted"
+  /**
+   * Recorded on a session an administrator abandoned while it was queued or
+   * applying. Never a request's answer.
+   */
+  | "apply-abandoned";
 
 export class ImportError extends DomainError {
   override readonly status: number;
@@ -48,6 +58,7 @@ export class ImportError extends DomainError {
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
             reason === "another-import-running" ||
+            reason === "session-not-running" ||
             reason === "preview-replaced"
           ? 409
           : 400;
