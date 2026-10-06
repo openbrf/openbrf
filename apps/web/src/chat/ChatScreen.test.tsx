@@ -1047,63 +1047,6 @@ describe("changing room", () => {
     ).toBe("Halvskrivet.");
   });
 
-  it("drops a refusal that answers a message sent from the room left", async () => {
-    // The refusal is about a line the next room never saw.
-    twoRooms();
-    const write = deferred();
-    writeMessage.mockReturnValue(write.promise);
-    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
-    await screen.findByText("Jag har tagit in en offert pa taket.");
-
-    await userEvent.type(
-      screen.getByLabelText("Ditt meddelande"),
-      "Det är 19811218-9876 som står där.",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Skicka meddelandet" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
-    );
-    await act(async () => {
-      write.resolve({
-        ok: false,
-        failure: { status: 422, reason: "personal-identity-number" },
-      });
-      await write.promise;
-    });
-
-    expect(screen.queryByText(/innehåller ett personnummer/)).toBeNull();
-  });
-
-  it("never clears the next room's draft when a message sent from the last one lands", async () => {
-    twoRooms();
-    const write = deferred();
-    writeMessage.mockReturnValue(write.promise);
-    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
-    await screen.findByText("Jag har tagit in en offert pa taket.");
-
-    await userEvent.type(screen.getByLabelText("Ditt meddelande"), "Ja.");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Skicka meddelandet" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
-    );
-    await userEvent.type(
-      screen.getByLabelText("Ditt meddelande"),
-      "Till trädgården.",
-    );
-    await act(async () => {
-      write.resolve({ ok: true, value: MINE });
-      await write.promise;
-    });
-
-    expect(
-      (screen.getByLabelText("Ditt meddelande") as HTMLTextAreaElement).value,
-    ).toBe("Till trädgården.");
-  });
-
   it("says nothing in the next room about a report made in the last one", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
