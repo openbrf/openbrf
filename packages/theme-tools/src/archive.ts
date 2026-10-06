@@ -76,20 +76,60 @@ function decodeString(
 ): string {
   const slice = block.subarray(start, start + length);
   const end = slice.indexOf(0);
-  return new TextDecoder("utf8").decode(
-    end === -1 ? slice : slice.subarray(0, end),
-  );
+  // A leading BOM is kept, so it cannot make two names look like one, and
+  // bytes that are not UTF-8 are refused rather than replaced.
+  try {
+    return new TextDecoder("utf8", { ignoreBOM: true, fatal: true }).decode(
+      end === -1 ? slice : slice.subarray(0, end),
+    );
+  } catch {
+    throw new ThemeArchiveError("The archive has a field that is not UTF-8.");
+  }
 }
 
+/**
+ * Reads a numeric field: octal digits, with only spaces and NULs around them.
+ * Nothing else is tolerated (no `String.trim()`, which would also drop
+ * Unicode whitespace), since tools disagree about what such a field means.
+ */
 function decodeOctal(block: Uint8Array, start: number, length: number): number {
-  const text = decodeString(block, start, length).trim().replace(/\0+$/, "");
-  if (text === "") {
+  const slice = block.subarray(start, start + length);
+  let first = 0;
+  let last = slice.length;
+  const padding = (byte: number | undefined): boolean =>
+    byte === 0x20 || byte === 0;
+  while (first < last && padding(slice[first])) {
+    first += 1;
+  }
+  while (last > first && padding(slice[last - 1])) {
+    last -= 1;
+  }
+  if (first === last) {
     return 0;
   }
-  if (!/^[0-7]+$/.test(text)) {
-    throw new ThemeArchiveError("The archive has a malformed numeric field.");
+  let value = 0;
+  for (let index = first; index < last; index += 1) {
+    const byte = slice[index] ?? 0;
+    if (byte < 0x30 || byte > 0x37) {
+      throw new ThemeArchiveError("The archive has a malformed numeric field.");
+    }
+    value = value * 8 + (byte - 0x30);
   }
-  return Number.parseInt(text, 8);
+  return value;
+}
+
+/** Every numeric field but size and the checksum, which are read where used. */
+function assertNumericFields(header: Uint8Array): void {
+  for (const [start, length] of [
+    [100, 8], // mode
+    [108, 8], // uid
+    [116, 8], // gid
+    [136, 12], // mtime
+    [329, 8], // devmajor
+    [337, 8], // devminor
+  ] as const) {
+    decodeOctal(header, start, length);
+  }
 }
 
 /**
@@ -238,6 +278,7 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
       throw new ThemeArchiveError("The archive has a corrupt header.");
     }
 
+    assertNumericFields(header);
     const typeFlag = decodeString(header, 156, 1);
     const size = decodeOctal(header, 124, 12);
     const dataBlocks = Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;

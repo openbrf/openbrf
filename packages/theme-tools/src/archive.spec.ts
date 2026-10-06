@@ -48,6 +48,8 @@ function rawHeader(options: {
   typeFlag: string;
   prefix?: string;
   ustar?: boolean;
+  /** Raw bytes to write over the header at an offset, before the checksum. */
+  overwrite?: Record<number, Uint8Array>;
 }): Uint8Array {
   const header = new Uint8Array(512);
   const write = (value: string, start: number): void => {
@@ -66,6 +68,9 @@ function rawHeader(options: {
     write("00", 263);
   }
   write(options.prefix ?? "", 345);
+  for (const [start, bytes] of Object.entries(options.overwrite ?? {})) {
+    header.set(bytes, Number(start));
+  }
 
   let checksum = 0;
   for (const byte of header) {
@@ -371,5 +376,90 @@ describe("readThemeArchive refusals", () => {
     const header = rawHeader({ name: "theme.json", size: 0, typeFlag: "0" });
     header[0] = 0x41;
     expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
+  });
+
+  it("keeps a name with a leading byte order mark apart from the plain one", () => {
+    const files = readThemeArchive(
+      rawArchive([
+        rawHeader({ name: "theme.json", size: 1, typeFlag: "0" }),
+        dataBlock("a"),
+        rawHeader({ name: "\ufefftheme.json", size: 1, typeFlag: "0" }),
+        dataBlock("b"),
+      ]),
+    );
+    expect([...files.keys()].sort()).toEqual([
+      "theme.json",
+      "\ufefftheme.json",
+    ]);
+  });
+
+  it("refuses a byte order mark as the prefix of a header without the ustar magic", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        ustar: false,
+        overwrite: { 345: new Uint8Array([0xef, 0xbb, 0xbf]) },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(
+      "The archive has a path prefix in a header that is not ustar.",
+    );
+  });
+
+  it("refuses a name that is not UTF-8", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        overwrite: { 0: new Uint8Array([0xff]) },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/not UTF-8/);
+  });
+
+  it.each([
+    ["size", 124],
+    ["mtime", 136],
+    ["mode", 100],
+    ["uid", 108],
+    ["gid", 116],
+    ["devmajor", 329],
+    ["devminor", 337],
+  ])("refuses a %s field with something other than octal digits", (_, at) => {
+    for (const bad of [
+      new TextEncoder().encode("12x4"),
+      new Uint8Array([0x31, 0xc2, 0xa0, 0x31]),
+      new TextEncoder().encode("1\t2"),
+      new TextEncoder().encode("8"),
+    ]) {
+      const archive = rawArchive([
+        rawHeader({
+          name: "theme.json",
+          size: 0,
+          typeFlag: "0",
+          overwrite: { [at]: bad },
+        }),
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
+    }
+  });
+
+  it("reads numeric fields padded with spaces and NULs", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 1,
+        typeFlag: "0",
+        overwrite: {
+          100: new TextEncoder().encode("  644 \0\0"),
+          136: new TextEncoder().encode("\0\0\0\0\0\0\0\0\0\0\0\0"),
+        },
+      }),
+      dataBlock("a"),
+    ]);
+    expect([...readThemeArchive(archive).keys()]).toEqual(["theme.json"]);
   });
 });
