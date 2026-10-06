@@ -719,6 +719,25 @@ describe("uploading a CSV", () => {
       "file-empty",
     );
   });
+
+  it("answers a file that mixes UTF-8 and Windows-1252 with its own reason", async () => {
+    const bytes = Buffer.concat([
+      Buffer.from("Förnamn;Efternamn\nÅsa;Öberg\nBj", "utf8"),
+      Buffer.from([0xf6]),
+      Buffer.from("rk;Lind\n", "utf8"),
+    ]);
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: { fileName: "blandad.csv", content: bytes.toString("base64") },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "file-mixed-encoding",
+    );
+  });
 });
 
 describe("uploading a CSV saved by Swedish Excel", () => {

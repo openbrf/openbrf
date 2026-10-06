@@ -11,7 +11,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
-import { decodeCsv, parseCsv, writeCsv } from "./csv";
+import { decodeCsv, MixedEncodingError, parseCsv, writeCsv } from "./csv";
 import {
   finishImport,
   ImportApplyService,
@@ -596,7 +596,13 @@ export class ImportService implements OnModuleInit {
         return parseCsv(decodeCsv(bytes)).rows;
       }
       return await parseWorkbook(bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof MixedEncodingError) {
+        throw new ImportError(
+          "That file mixes UTF-8 and another encoding. Save it again as UTF-8 or as CSV (semikolonavgränsad).",
+          "file-mixed-encoding",
+        );
+      }
       throw new ImportError(
         "That file could not be read as a spreadsheet.",
         "file-unreadable",
