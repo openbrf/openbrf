@@ -29,6 +29,7 @@ import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmsPanel } from "./SmsPanel";
 import { SmtpPanel } from "./SmtpPanel";
 import { ThemesPanel } from "../themes/ThemesPanel";
+import { useFocusAcrossReload } from "./use-focus-across-reload";
 
 export interface SettingsScreenProps {
   viewer: Viewer;
@@ -142,8 +143,15 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
     };
   }, [read]);
 
+  // A panel keyed on what a save changes is built again by the reload, and
+  // would take the focus of whoever sent it with Enter along.
+  const { rootRef, remember } = useFocusAcrossReload(loaded);
+
   const reload = (): void => {
-    void read().then(setLoaded);
+    void read().then((next) => {
+      remember();
+      setLoaded(next);
+    });
   };
 
   const { ready, settings, addresses, loadFailed } = loaded;
@@ -192,7 +200,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
           editable, and the cooperative write upserts: a blank form saved over
           a cooperative that exists would clear its organisation number. */}
       {canRead && ready && !loadFailed ? (
-        <>
+        <div ref={rootRef} className="contents">
           <HousingCooperativePanel
             key={settings?.housingCooperative.name ?? "unnamed"}
             value={settings?.housingCooperative ?? null}
@@ -336,7 +344,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               {canManage ? <ThemesPanel /> : null}
             </>
           )}
-        </>
+        </div>
       ) : null}
 
       <ProfilePanel viewer={viewer} />

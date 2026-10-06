@@ -46,11 +46,13 @@ export type ReplyDeliveryFailure =
 /**
  * Why a message in the mailbox is not stored, or is no longer.
  *
- * Its own list beside the delivery codes above, and read by nothing on a screen:
- * this one is written into the ledger of messages the collector will not store,
- * so a letter it can do nothing with is not fetched again on every run for as
- * long as the mailbox keeps it. A code rather than prose here for the reason the
- * others are: what could be quoted is a header a stranger wrote.
+ * Its own list beside the delivery codes above. This one is written into the
+ * ledger of messages the collector will not store, so a letter it can do
+ * nothing with is not fetched again on every run for as long as the mailbox
+ * keeps it, and the board's mailbox screen lists the letters it set aside by
+ * it, so the board knows to open them in a mail client. A code rather than
+ * prose here for the reason the others are: what could be quoted is a header a
+ * stranger wrote.
  *
  * Two writers. The collector records a message it read and then left; the purge
  * records every message it erases with a thread, because that letter is still
@@ -90,19 +92,36 @@ export const COLLECTION_REFUSALS = {
   pastRetention: "past-retention",
 
   /**
-   * The database refused the letter as it was read.
+   * The letter could not be stored.
    *
-   * The reader removes what it knows a column cannot hold, and this is the
-   * answer for whatever it has not foreseen: the same bytes read the same way
-   * are refused the same way on every run, so the letter is set aside rather
-   * than left to stop the collection of every letter behind it. A failure that
-   * says nothing about the letter - the database out of reach, restarting or
-   * out of connections, a pool that was busy, a statement cancelled, an error
-   * that is not an answer from the database at all - is not recorded here; see
-   * `isTransientFailure`.
+   * Either the database refused its values as they were read - the reader
+   * removes what it knows a column cannot hold, and this is the answer for
+   * whatever it has not foreseen: the same bytes read the same way are refused
+   * the same way on every run, so the letter is set aside rather than left to
+   * stop the collection of every letter behind it. Or it failed for some other
+   * reason on every attempt for longer than the collector retries one, and is
+   * then tried again now and then rather than never. A single
+   * failure that says nothing about the letter - the database out of reach or
+   * restarting, storage that did not answer - is not recorded here; see
+   * `database-refusal.ts`.
    */
   unstorable: "unstorable",
 } as const;
 
 export type CollectionRefusal =
   (typeof COLLECTION_REFUSALS)[keyof typeof COLLECTION_REFUSALS];
+
+/**
+ * The refusals the board's mailbox screen lists: a letter the board has not
+ * read and should open in a mail client.
+ *
+ * Not a letter the purge erased, which the board did read and the association
+ * no longer keeps, nor one already past the retention window when it was first
+ * read, which it was never to keep. Those rows are there so the collector does
+ * not store the letter again, and a screen that listed them would fill with
+ * every thread the purge has taken.
+ */
+export const LISTED_REFUSALS: readonly CollectionRefusal[] = [
+  COLLECTION_REFUSALS.noSenderAddress,
+  COLLECTION_REFUSALS.unstorable,
+];

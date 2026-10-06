@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -16,6 +16,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -167,6 +168,8 @@ function StoredSmtpPanel({
   editable = true,
 }: SmtpPanelProps & { value: StoredSmtpSettings }): ReactElement {
   const { t } = useTranslation();
+  /** Takes focus back when the field that had it is still disabled. */
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [host, setHost] = useState(value.host ?? "");
   const [port, setPort] = useState(
     value.port === null ? defaultPortFor(value.secure) : String(value.port),
@@ -190,8 +193,7 @@ function StoredSmtpPanel({
     setTestedAddress(result.sentTo);
   });
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const send = (): void => {
     const parsedPort = Number.parseInt(port, 10);
 
     void save.submit({
@@ -251,7 +253,12 @@ function StoredSmtpPanel({
         )
       }
     >
-      <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+      <LockedForm
+        className="flex flex-col gap-4"
+        locked={save.state.kind === "saving"}
+        focusFallback={passwordRef}
+        onSend={send}
+      >
         <div className="grid gap-4 sm:grid-cols-2">
           <label className={LABEL}>
             {t("settings.smtp.host")}
@@ -319,6 +326,7 @@ function StoredSmtpPanel({
           {t("settings.smtp.password")}
           <input
             type="password"
+            ref={passwordRef}
             name="smtpPassword"
             autoComplete="new-password"
             disabled={!editable || clearPassword}
@@ -395,7 +403,7 @@ function StoredSmtpPanel({
             </button>
           </div>
         ) : null}
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

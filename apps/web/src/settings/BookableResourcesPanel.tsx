@@ -2,8 +2,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent,
   type ReactElement,
+  type RefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -28,6 +28,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessage, useSaveAction } from "../ui/save-state";
@@ -232,6 +233,7 @@ export function BookableResourcesPanel(): ReactElement {
    */
   const [reads, setReads] = useState(0);
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const reread = (): void => {
     setReads((count) => count + 1);
@@ -306,8 +308,7 @@ export function BookableResourcesPanel(): ReactElement {
     change.state.kind === "saving" ||
     withdraw.state.kind === "saving";
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const onSend = (): void => {
     change.reset();
     withdraw.reset();
     void add.submit(inputOf(draft));
@@ -425,15 +426,22 @@ export function BookableResourcesPanel(): ReactElement {
         </section>
       )}
 
-      <form
+      <LockedForm
+        locked={add.state.kind === "saving"}
+        focusFallback={nameRef}
         className="flex flex-col gap-4 border-t border-line pt-4"
-        onSubmit={onSubmit}
+        onSend={onSend}
       >
         <h3 className="text-label text-ink-muted uppercase">
           {t("settings.bookableResources.addTitle")}
         </h3>
 
-        <ResourceFields draft={draft} onChange={setDraft} disabled={busy} />
+        <ResourceFields
+          draft={draft}
+          onChange={setDraft}
+          disabled={busy}
+          nameRef={nameRef}
+        />
 
         <div>
           <button
@@ -446,7 +454,7 @@ export function BookableResourcesPanel(): ReactElement {
               : t("settings.bookableResources.add")}
           </button>
         </div>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }
@@ -594,10 +602,12 @@ function ResourceFields({
   draft,
   onChange,
   disabled,
+  nameRef,
 }: {
   draft: Draft;
   onChange: (next: Draft) => void;
   disabled: boolean;
+  nameRef?: RefObject<HTMLInputElement | null>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -607,6 +617,7 @@ function ResourceFields({
         <label className={LABEL}>
           {t("settings.bookableResources.name")}
           <input
+            ref={nameRef}
             type="text"
             name="resourceName"
             required
