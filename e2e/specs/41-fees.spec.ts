@@ -3,6 +3,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
+import { recordFee } from "../src/fees";
 import { uniqueSurname } from "../src/identity";
 import { offeredDestinations } from "../src/navigation";
 import {
@@ -335,32 +336,6 @@ async function openFees(page: Page): Promise<void> {
   ).toBeVisible();
   await expect(page.locator("[data-print='document']")).toBeVisible();
   await page.getByLabel("Gäller den").fill(AS_OF);
-}
-
-/**
- * Records one rate through the form.
- *
- * By role and accessible name, not by label: `getByLabel` compares the label
- * ELEMENT's text, and a label that wraps a select carries every option with it,
- * so no exact match can ever equal it.
- */
-async function recordFee(
-  page: Page,
-  fee: { apartmentId: string; appliesFrom: string; monthlyAmount: string },
-): Promise<void> {
-  await page
-    .getByRole("combobox", { name: "Lägenhet", exact: true })
-    .selectOption(fee.apartmentId);
-  await page.getByLabel("Gäller från").fill(fee.appliesFrom);
-  const amount = page.getByLabel("Belopp per månad i kronor");
-  await amount.fill(fee.monthlyAmount);
-  await page.getByRole("button", { name: "Registrera avgiften" }).click();
-  // The screen clears the amount once the server has accepted the rate, and
-  // only then: a refusal leaves it filled in beside the sentence saying why.
-  // Waited for here so that nothing after a call - another rate, the period's
-  // notices, an assertion that no refusal was shown - can run while the write
-  // is still in flight.
-  await expect(amount).toHaveValue("");
 }
 
 /** The register document's row for this apartment. */

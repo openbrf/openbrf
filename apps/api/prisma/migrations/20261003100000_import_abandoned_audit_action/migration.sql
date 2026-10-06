@@ -1,0 +1,13 @@
+-- What an administrator abandoning a stuck member list import has to leave in
+-- the log.
+--
+-- One import runs at a time, so a session left queued with a lost job, or held
+-- applying by a hung attempt, refuses every other import until the queue gives
+-- up on it. Abandoning it ends that wait by hand. It stops an import that was
+-- writing the statutory member register part way through, which is an act the
+-- association has to be able to account for: who did it, to which import and
+-- how far through the file it had got.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'IMPORT_ABANDONED';
