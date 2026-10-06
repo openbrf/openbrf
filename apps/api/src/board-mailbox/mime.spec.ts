@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   addressFrom,
   decodeEncodedWords,
   htmlToText,
+  MAX_TEXT_CHARACTERS,
   readMessage,
 } from "./mime";
 
@@ -252,6 +253,33 @@ describe("readMessage", () => {
     // is reduced to its last segment so it cannot read as a path anywhere it is
     // shown or offered as a download.
     expect(message.attachments[0]?.fileName).toBe("protokoll årsmöte.pdf");
+  });
+
+  it("strips the characters that reorder a file name from it", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: application/pdf",
+        "Content-Transfer-Encoding: base64",
+        "Content-Disposition: attachment;",
+        "\tfilename*=utf-8''faktura%E2%80%AEfdp.exe%E2%81%A6",
+        "",
+        Buffer.from("pdf bytes").toString("base64"),
+        "--SEP--",
+        "",
+      ),
+    );
+
+    // A right-to-left override would show this as "fakturaexe.pdf", and the name
+    // is what a board member decides whether to open it by.
+    expect(message.attachments[0]?.fileName).toBe("fakturafdp.exe");
   });
 
   it("does not treat an inline part with no name as an attachment", () => {
@@ -648,6 +676,178 @@ describe("readMessage", () => {
     expect(message.attachments[0]?.bytes.subarray(0, 8)).toEqual(png);
   });
 
+  it("reads a body no further than the bound, and says it was cut", () => {
+    const message = readMessage(
+      raw("From: <sender@example.test>", "", "a".repeat(5_000_000), ""),
+    );
+
+    expect(message.text).toHaveLength(MAX_TEXT_CHARACTERS);
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("does not call a body that fits cut", () => {
+    const message = readMessage(
+      raw("From: <sender@example.test>", "", "a".repeat(MAX_TEXT_CHARACTERS)),
+    );
+
+    expect(message.text).toHaveLength(MAX_TEXT_CHARACTERS);
+    expect(message.textTruncated).toBe(false);
+  });
+
+  it("does not read an HTML body past the bound, and says it was cut", () => {
+    // Text that sits behind more markup than the reader reads is not reached,
+    // and the board is told the letter was cut although the text it got is
+    // short.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: text/html",
+        "",
+        `<!--${"x".repeat(10 * MAX_TEXT_CHARACTERS)}--><p>Hej</p>`,
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("");
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("decodes no more of a body's bytes than the bound, and says it was cut", () => {
+    const decode = vi.spyOn(TextDecoder.prototype, "decode");
+    try {
+      const message = readMessage(
+        raw("From: <sender@example.test>", "", "a".repeat(3_000_000), ""),
+      );
+
+      const longest = Math.max(
+        ...decode.mock.calls.map(([input]) =>
+          ArrayBuffer.isView(input) ? input.byteLength : 0,
+        ),
+      );
+      expect(longest).toBeLessThan(2_000_000);
+      expect(message.textTruncated).toBe(true);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it("says a body was cut when its cut bytes decode to nothing", () => {
+    // Soft line breaks decode to nothing, so no cut after decoding sees how much
+    // of the body there was.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: text/plain",
+        "Content-Transfer-Encoding: quoted-printable",
+        "",
+        `${"=\r\n".repeat(1_000_000)}Hej`,
+        "",
+      ),
+    );
+
+    expect(message.text).not.toContain("Hej");
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("reads each part of nested alternatives once", () => {
+    // Each level is one alternative around the next, with an HTML letter at the
+    // bottom. Reading every level's children twice - once for plain text, once
+    // for anything - reads that letter 2^levels times.
+    const levels = 12;
+    const lines = ["From: <sender@example.test>"];
+    for (let level = 0; level < levels; level += 1) {
+      const boundary = `alt${String(level)}x`;
+      lines.push(
+        `Content-Type: multipart/alternative; boundary=${boundary}`,
+        "",
+        `--${boundary}`,
+      );
+    }
+    lines.push("Content-Type: text/html; charset=utf-8", "", "<p>Hej</p>", "");
+
+    const decode = vi.spyOn(TextDecoder.prototype, "decode");
+    try {
+      const message = readMessage(raw(...lines));
+
+      expect(message.text).toBe("Hej");
+      expect(message.textFromHtml).toBe(true);
+      expect(decode.mock.calls.length).toBeLessThanOrEqual(levels + 1);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  it("prefers plain text inside a nested alternative over a later HTML one", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=OUTER",
+        "",
+        "--OUTER",
+        "Content-Type: multipart/alternative; boundary=INNER",
+        "",
+        "--INNER",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Inre rendering</p>",
+        "--INNER",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Vad avsandaren skrev",
+        "--INNER--",
+        "--OUTER",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Yttre rendering</p>",
+        "--OUTER--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Vad avsandaren skrev");
+    expect(message.textFromHtml).toBe(false);
+  });
+
+  it("takes the last HTML alternative when no alternative is plain text", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Forsta</p>",
+        "--SEP",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Sista</p>",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Sista");
+    expect(message.textFromHtml).toBe(true);
+  });
+
+  it("does not split a character when it cuts a body", () => {
+    const message = readMessage(
+      Buffer.from(
+        [
+          "From: <sender@example.test>",
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          `${"a".repeat(MAX_TEXT_CHARACTERS - 1)}\u{1f3e0} och mer`,
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+
+    expect(message.text).toBe("a".repeat(MAX_TEXT_CHARACTERS - 1));
+    expect(message.textTruncated).toBe(true);
+  });
+
   it("keeps a date the sender's clock produced", () => {
     const message = readMessage(
       raw(
@@ -678,6 +878,13 @@ describe("addressFrom", () => {
   it("refuses something that is not an address", () => {
     expect(addressFrom("Astrid Lindqvist")).toBeNull();
     expect(addressFrom("<not an address>")).toBeNull();
+  });
+
+  it("refuses an address that carries a control character", () => {
+    // The address becomes the recipient of the board's answer.
+    expect(addressFrom("<a\u0000b@example.test>")).toBeNull();
+    expect(addressFrom("a\u001bb@example.test")).toBeNull();
+    expect(addressFrom("<ab@example.test\u007f>")).toBeNull();
   });
 });
 

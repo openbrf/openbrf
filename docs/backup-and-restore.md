@@ -200,16 +200,26 @@ docker compose -f docker-compose.prod.yml --env-file .env.production run --rm \
   -c 'umask 077 && mkdir -p /data/keys && cat > /data/keys/field-encryption.key' \
   < /media/usb/openbrf-field-encryption.key
 
-# 4. Restore the database.
+# 4. Restore the database, as the superuser and without the dump's owners and
+#    grants: they name the schema owner and the runtime role, which a new
+#    volume does not have yet. pg_restore exits 0 when it succeeds, so any error
+#    here is one to read.
 docker compose -f docker-compose.prod.yml exec -T db \
-  pg_restore -U openbrf -d openbrf --clean --if-exists \
+  pg_restore -U openbrf -d openbrf --clean --if-exists --no-owner --no-acl \
   < backups/<stamp>/openbrf.dump
 
-# 5. Start the application. The entrypoint applies any migrations the restored
-#    database is missing, reinstalls the job schema and reapplies the runtime
-#    role's privileges.
+# 5. Start the application. The schema-owner service creates the schema owner
+#    and gives it the restored schema, which the superuser owns after step 4,
+#    and the migrate service then applies any migrations the restored database
+#    is missing, reinstalls the job schema, and creates the runtime role and
+#    grants it its privileges again before the application starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
+
+If you manage the runtime role yourself (`DATABASE_URL_RUNTIME`), the migrate
+service leaves it alone, so the grants step 4 skipped are yours to give it
+again before step 5, as
+[deployment.md](deployment.md#upgrading-to-a-separate-schema-owner) describes.
 
 The key from its own place, the dump and the archive from **one** backup. A
 database from one backup and an archive from another describe two different

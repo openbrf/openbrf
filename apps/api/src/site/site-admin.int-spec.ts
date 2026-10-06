@@ -16,6 +16,7 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { PagesWriteService, PageWriteError } from "./pages-write.service";
 
 /**
  * The board's own screen for the association's website, over HTTP.
@@ -68,6 +69,10 @@ const slugs = {
   internalImage: `site-admin-internal-image-${suffix}`,
   spare: `site-admin-spare-${suffix}`,
   concurrent: `site-admin-concurrent-${suffix}`,
+  race: `site-admin-race-${suffix}`,
+  firstListed: `site-admin-first-listed-${suffix}`,
+  secondListed: `site-admin-second-listed-${suffix}`,
+  thirdListed: `site-admin-third-listed-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -371,6 +376,33 @@ describe("writing a page", () => {
     // behind it.
     const visitor = await inject({ method: "GET", url: `/${slugs.public}` });
     expect(visitor.statusCode).toBe(404);
+  });
+
+  it("answers two creates at one address with one page and one conflict", async () => {
+    // Both pass the check that the address is free, and the unique index
+    // decides. Called on the service, so the two interleave as tightly as the
+    // database lets them.
+    const pages = app.get(PagesWriteService);
+    const create = () =>
+      pages.create(
+        {
+          slug: slugs.race,
+          title: "Samma adress",
+          content: { version: 1, blocks: [] },
+          visibility: "PUBLIC",
+        },
+        { personId: boardMember.personId, channel: "WEB" },
+      );
+
+    const outcomes = await Promise.allSettled([create(), create()]);
+
+    const refused = outcomes.flatMap((outcome) =>
+      outcome.status === "rejected" ? [outcome.reason as unknown] : [],
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toBeInstanceOf(PageWriteError);
+    expect(refused[0]).toMatchObject({ reason: "slug-taken", status: 409 });
+    expect(await prisma.page.count({ where: { slug: slugs.race } })).toBe(1);
   });
 
   it("refuses a save built on a copy somebody has already written over", async () => {
@@ -980,6 +1012,49 @@ describe("the order the pages sit in", () => {
       .filter((one) => one.slug.includes(suffix))
       .map((one) => one.id);
     expect(after).toEqual([...mine].reverse());
+  });
+});
+
+describe("reading the pages a few at a time", () => {
+  it("carries on past a page deleted since the last call", async () => {
+    // Sorted in front of every other page on the instance, so the first call
+    // from the start of the list reads them in this order.
+    const listed = [slugs.firstListed, slugs.secondListed, slugs.thirdListed];
+    const { _min } = await prisma.page.aggregate({ _min: { sortOrder: true } });
+    const lowest = (_min.sortOrder ?? 0) - listed.length;
+    await prisma.page.createMany({
+      data: listed.map((slug, index) => ({
+        slug,
+        title: slug,
+        content: { version: 1, blocks: [] },
+        visibility: "PUBLIC" as const,
+        published: false,
+        sortOrder: lowest + index,
+      })),
+    });
+    const pages = app.get(PagesWriteService);
+
+    const first = await pages.listSummaries({ limit: 1 });
+    expect(first.pages.map((page) => page.slug)).toEqual([slugs.firstListed]);
+    expect(first.nextCursor).not.toBeNull();
+
+    // Somebody deletes the page the caller stopped at before it asks again.
+    await prisma.page.delete({ where: { slug: slugs.firstListed } });
+
+    const second = await pages.listSummaries({
+      limit: 1,
+      cursor: first.nextCursor ?? undefined,
+    });
+    expect(second.pages.map((page) => page.slug)).toEqual([slugs.secondListed]);
+    expect(second.nextCursor).not.toBeNull();
+  });
+
+  it("refuses a cursor it did not write rather than starting over", async () => {
+    const pages = app.get(PagesWriteService);
+
+    await expect(
+      pages.listSummaries({ limit: 1, cursor: "no-such-place" }),
+    ).rejects.toMatchObject({ reason: "not-found" });
   });
 });
 

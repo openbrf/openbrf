@@ -304,6 +304,18 @@ describe("questions and answers", () => {
     ]);
   });
 
+  it("scan the binder a document list prints as its heading", () => {
+    expect(blockText({ type: "documentList" })).toBe("");
+    expect(
+      scanPage({
+        title: "Handlingar",
+        blocks: [
+          { type: "documentList", category: "Handlingar 19811218-9876" },
+        ],
+      }),
+    ).toEqual([{ block: 0 }]);
+  });
+
   it("put both halves in front of the scan", () => {
     // A question is as good a place to paste a personal identity number into
     // as an answer, and both are published.
@@ -357,6 +369,26 @@ describe("warning before the server refuses", () => {
         ],
       }),
     ).toEqual([]);
+  });
+
+  it("reads a link's address, which the page publishes in its HTML", () => {
+    expect(
+      scanPage({
+        title: "Kontakt",
+        blocks: [
+          TEXT,
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv till Anna",
+                link: "mailto:anna@exempel.se?subject=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([{ block: 1 }]);
   });
 
   it("reads an image's description as published prose", () => {

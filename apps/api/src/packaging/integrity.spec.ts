@@ -1,26 +1,17 @@
+import { formatSha512, IntegrityError, parseSha512 } from "@openbrf/plugin-sdk";
 import { describe, expect, it } from "vitest";
 
-import {
-  formatSha512,
-  IntegrityError,
-  parseSha512,
-  sha512,
-  verifySha512,
-} from "./integrity";
+import { sha512, verifySha512 } from "./integrity";
 
 /**
  * The digest is the whole trust model for the bytes of a downloaded tarball:
  * the catalog is curated and served over TLS, the tarball itself may live on
- * another host, and nothing is signed. Two invariants are protected here.
- *
- * Both spellings of a digest must mean the same 64 bytes, because a publisher
- * has one of them to hand and transcribing to the other by hand is how a
- * catalog entry ends up wrong in a way nobody notices until an install fails.
- *
- * A refusal must be identifiable by its `reason`, because that is what the
- * installer branches on to tell "the catalog entry is wrong" apart from "the
- * bytes that arrived are not the bytes the catalog named". Message text is not
- * part of that contract and is not asserted.
+ * another host, and nothing is signed. What is protected here is that a
+ * refusal is identifiable by its `reason`, because that is what the installer
+ * branches on to tell "the catalog entry is wrong" apart from "the bytes that
+ * arrived are not the bytes the catalog named". Message text is not part of
+ * that contract and is not asserted. Reading the two digest spellings is the
+ * SDK's, and is tested there.
  */
 
 const BYTES = Buffer.from("the bytes of a plugin tarball", "utf8");
@@ -42,55 +33,6 @@ function refusalReason(run: () => void): string {
   throw new Error("The call was expected to throw an IntegrityError.");
 }
 
-describe("parseSha512", () => {
-  it("accepts the subresource-integrity form", () => {
-    expect(parseSha512(SRI_FORM)).toHaveLength(64);
-  });
-
-  it("accepts the 128-character hex form", () => {
-    expect(parseSha512(HEX_FORM)).toHaveLength(64);
-  });
-
-  it("reads the same 64 bytes from either spelling", () => {
-    // The two forms are what "npm pack --json" and "sha512sum" each report for
-    // the same tarball, so they have to be interchangeable in a catalog entry.
-    expect(parseSha512(SRI_FORM).equals(parseSha512(HEX_FORM))).toBe(true);
-    expect(parseSha512(SRI_FORM).equals(DIGEST)).toBe(true);
-  });
-
-  it("accepts hex in upper case", () => {
-    expect(parseSha512(HEX_FORM.toUpperCase()).equals(DIGEST)).toBe(true);
-  });
-
-  it("ignores surrounding whitespace", () => {
-    expect(parseSha512(`  ${SRI_FORM}\n`).equals(DIGEST)).toBe(true);
-  });
-
-  it("rejects a base64 digest that is not 64 bytes", () => {
-    // A truncated digest still matches the shape of the SRI form, so the byte
-    // length is the only thing that catches it.
-    const truncated = formatSha512(DIGEST.subarray(0, 32));
-    expect(refusalReason(() => parseSha512(truncated))).toBe(
-      "malformed-digest",
-    );
-  });
-
-  it.each([
-    ["a non-hex string of the right length", "z".repeat(128)],
-    ["an empty string", ""],
-    ["only whitespace", "   "],
-    ["a sha256 prefix", `sha256-${DIGEST.subarray(0, 32).toString("base64")}`],
-    ["hex one character short", HEX_FORM.slice(0, 127)],
-    ["a bare word", "not-a-digest"],
-  ])("rejects %s", (_label, declared) => {
-    expect(refusalReason(() => parseSha512(declared))).toBe("malformed-digest");
-  });
-
-  it("round-trips a formatted digest", () => {
-    expect(parseSha512(formatSha512(sha512(BYTES))).equals(DIGEST)).toBe(true);
-  });
-});
-
 describe("verifySha512", () => {
   /*
    * Acceptance is asserted together with the refusal of the same declaration
@@ -103,7 +45,7 @@ describe("verifySha512", () => {
     ["the subresource-integrity spelling", SRI_FORM],
     ["the hex spelling", HEX_FORM],
   ])("accepts exactly the bytes named in %s", (_label, declared) => {
-    expect(parseSha512(declared).equals(sha512(BYTES))).toBe(true);
+    expect(Buffer.from(parseSha512(declared)).equals(sha512(BYTES))).toBe(true);
 
     expect(() => {
       verifySha512(BYTES, declared);

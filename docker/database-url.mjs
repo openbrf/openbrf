@@ -28,34 +28,43 @@
 // An argument is in /proc/<pid>/cmdline, which every process in the container
 // can read; an environment is not, so the password travels in PGPASSWORD and
 // the argument carries the rest. passwordOf and withoutPassword do that split
-// in-process for first-boot.mjs and harden-runtime-role.mjs; neither prints.
+// in-process for psql.mjs, which every deploy step that runs psql goes
+// through; neither prints.
 //
 // A URL that cannot be read as one is refused rather than passed on: it cannot
 // be taken apart, and passing it on puts the password straight back into the
 // argument the taking apart exists to keep it out of.
 //
 // The runtime role's name is RUNTIME_DB_ROLE, openbrf_app when that is unset or
-// empty, and prisma/sql/harden-runtime-role.sql reads the same variable. A role
-// belongs to the whole PostgreSQL server, so instances sharing one each name
-// their own. `node docker/database-url.mjs check-runtime-role` refuses a name
-// that cannot be one, before anything connects, and prints nothing otherwise.
-// It also refuses a DATABASE_URL_RUNTIME that signs in as another role while
+// empty, and prisma/sql/harden-runtime-role.sql reads the same variable. The
+// schema owner's is OWNER_DB_USER, openbrf_owner when that is unset or empty,
+// and docker/schema-owner.sql reads that one. A role belongs to the whole
+// PostgreSQL server, so instances sharing one each name their own.
+// `node docker/database-url.mjs check-runtime-role` refuses a name that cannot
+// be one, before anything connects, and prints nothing otherwise. It also
+// refuses a DATABASE_URL_RUNTIME that signs in as another role while
 // RUNTIME_DB_PASSWORD asks for the named one to be constrained: the application
-// would then run as a role the hardening never touched.
+// would then run as a role the hardening never touched. The database's
+// superuser is neither role, and its password is never here.
 //
 // Node built-ins only, like the rest of docker/, so it stays readable and
 // runnable inside the image an operator is debugging.
 
-const host = process.env.POSTGRES_HOST ?? "db";
-const port = process.env.POSTGRES_PORT ?? "5432";
-const database = process.env.POSTGRES_DB ?? "openbrf";
+/**
+ * The server and database every connection here goes to: the bundled database
+ * unless POSTGRES_HOST, POSTGRES_PORT or POSTGRES_DB names another. Empty is
+ * unset, as Compose passes an optional variable nobody set.
+ */
+export function databaseServer() {
+  return {
+    host: process.env.POSTGRES_HOST || "db",
+    port: process.env.POSTGRES_PORT || "5432",
+    database: process.env.POSTGRES_DB || "openbrf",
+  };
+}
 
-const OWNER = {
-  user: process.env.POSTGRES_USER || "openbrf",
-  secret: "POSTGRES_PASSWORD",
-};
-
-/** The name harden-runtime-role.sql falls back to as well. */
+/** The names schema-owner.sql and harden-runtime-role.sql fall back to as well. */
+const DEFAULT_OWNER_ROLE = "openbrf_owner";
 const DEFAULT_RUNTIME_ROLE = "openbrf_app";
 
 /**
@@ -76,6 +85,13 @@ const RESERVED_ROLE_NAMES = new Set([
   "current_role",
   "session_user",
 ]);
+
+/**
+ * Query parameters libpq reads a secret from. psql takes the connection string
+ * as an argument, so one of these left in it would put that secret into
+ * /proc/<pid>/cmdline, which is what taking the password out exists to avoid.
+ */
+const SECRET_QUERY_PARAMETERS = ["password", "sslpassword"];
 
 /**
  * Parses a connection URL, or refuses it when it cannot be read as one.
@@ -126,14 +142,39 @@ export function passwordOf(url, variable) {
   return decodeURIComponent(parsed.password);
 }
 
-/** The same connection URL with its password removed. */
+/**
+ * The same connection URL with its password removed, or an error when a secret
+ * would stay in it.
+ *
+ * libpq also reads a password, and the passphrase of a client key, from the
+ * query string. Neither can be moved into the environment the way the URL's own
+ * password is - PGPASSWORD is the only variable libpq reads a password from,
+ * and a password parameter would win over it anyway - so a URL carrying one is
+ * refused, naming the parameter and nothing it holds.
+ */
 export function withoutPassword(url, variable) {
   const parsed = parseUrl(url, variable);
+  for (const name of SECRET_QUERY_PARAMETERS) {
+    if (parsed.searchParams.has(name)) {
+      throw new Error(
+        `${variable} carries a ${name} query parameter, which would reach ` +
+          "psql's arguments, where every process in the container can read " +
+          "it. Put the password in the URL's own password instead, as " +
+          "postgresql://user:password@host:port/database.",
+      );
+    }
+  }
   parsed.password = "";
   return parsed.href;
 }
 
-function fail(message) {
+/**
+ * Ends the process with a message, or with an error's own message, on stderr.
+ * Every script in docker/ stops this way; this file imports nothing, so it is
+ * the one the others can all import it from.
+ */
+export function fail(reason) {
+  const message = reason instanceof Error ? reason.message : String(reason);
   console.error(`openbrf: ${message}`);
   process.exit(1);
 }
@@ -168,57 +209,70 @@ function signInUser(url, variable) {
 }
 
 /**
- * The user the owner's connection signs in as: the one in DATABASE_URL when an
- * operator supplied it, POSTGRES_USER otherwise.
- */
-function ownerUser() {
-  const supplied = process.env.DATABASE_URL;
-  if (supplied !== undefined && supplied !== "") {
-    return signInUser(supplied, "DATABASE_URL");
-  }
-  return OWNER.user;
-}
-
-/**
- * The runtime role's name, or an error saying why it cannot be one.
+ * The role name a variable holds, its default when it is unset or empty, or an
+ * error saying why it cannot be one.
  *
  * Refused, with nothing from the value repeated back:
  *
- *   - anything but a plain lower-case identifier. The hardening script quotes
- *     the name wherever it uses it, but a name that needs quoting is a name an
- *     operator types differently in psql than in this variable, and one longer
- *     than 63 characters is silently shortened by the server;
+ *   - anything but a plain lower-case identifier. The SQL quotes the name
+ *     wherever it uses it, but a name that needs quoting is a name an operator
+ *     types differently in psql than in this variable, and one longer than 63
+ *     characters is silently shortened by the server;
  *   - a name beginning with pg_, which PostgreSQL reserves for its own roles,
- *     and the few others it will not create a role under;
- *   - the owner's own name. The script would then set the owner's password and
- *     the application would connect as the owner, which can disable the
- *     triggers that keep the member register and the audit log append-only.
+ *     and the few others it will not create a role under.
  */
-export function runtimeRole() {
-  const configured = process.env.RUNTIME_DB_ROLE;
+function roleName(variable, fallback) {
+  const configured = process.env[variable];
   const role =
-    configured === undefined || configured === ""
-      ? DEFAULT_RUNTIME_ROLE
-      : configured;
+    configured === undefined || configured === "" ? fallback : configured;
   if (!ROLE_NAME.test(role)) {
     throw new Error(
-      "RUNTIME_DB_ROLE has to be a lower-case PostgreSQL role name: a letter " +
+      `${variable} has to be a lower-case PostgreSQL role name: a letter ` +
         "or an underscore, then letters, digits and underscores, 63 " +
         "characters at most.",
     );
   }
   if (role.startsWith("pg_")) {
     throw new Error(
-      "RUNTIME_DB_ROLE may not begin with pg_, which PostgreSQL reserves for " +
+      `${variable} may not begin with pg_, which PostgreSQL reserves for ` +
         "its own roles.",
     );
   }
   if (RESERVED_ROLE_NAMES.has(role)) {
     throw new Error(
-      "RUNTIME_DB_ROLE may not be public, none, current_user, current_role or " +
+      `${variable} may not be public, none, current_user, current_role or ` +
         "session_user, which PostgreSQL reserves.",
     );
   }
+  return role;
+}
+
+/** The schema owner's name, OWNER_DB_USER or openbrf_owner, checked as above. */
+export function ownerRole() {
+  return roleName("OWNER_DB_USER", DEFAULT_OWNER_ROLE);
+}
+
+/**
+ * The user the owner's connection signs in as: the one in DATABASE_URL when an
+ * operator supplied it, OWNER_DB_USER or its default otherwise.
+ */
+function ownerUser() {
+  const supplied = process.env.DATABASE_URL;
+  if (supplied !== undefined && supplied !== "") {
+    return signInUser(supplied, "DATABASE_URL");
+  }
+  return ownerRole();
+}
+
+/**
+ * The runtime role's name, or an error saying why it cannot be one: refused as
+ * roleName() refuses, and when it is the owner's own name. The script would
+ * then set the owner's password and the application would connect as the
+ * owner, which can disable the triggers that keep the member register and the
+ * audit log append-only.
+ */
+export function runtimeRole() {
+  const role = roleName("RUNTIME_DB_ROLE", DEFAULT_RUNTIME_ROLE);
   if (role === ownerUser()) {
     throw new Error(
       "RUNTIME_DB_ROLE names the schema owner. The application needs a role " +
@@ -237,6 +291,7 @@ function assemble(role) {
       `${role.secret} is not set, so no connection URL can be built for ${role.user}.`,
     );
   }
+  const { host, port, database } = databaseServer();
   return `postgresql://${encodeURIComponent(role.user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
 }
 
@@ -256,7 +311,13 @@ export function ownerUrl() {
   if (supplied !== undefined && supplied !== "") {
     return supplied;
   }
-  return assemble(OWNER);
+  let user;
+  try {
+    user = ownerRole();
+  } catch (error) {
+    fail(error);
+  }
+  return assemble({ user, secret: "OWNER_DB_PASSWORD" });
 }
 
 /** The runtime role's name, or the process ends saying why it cannot be. */
@@ -264,7 +325,7 @@ function checkedRuntimeRole() {
   try {
     return runtimeRole();
   } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error));
+    return fail(error);
   }
 }
 
@@ -308,7 +369,7 @@ function checkedRuntimeUrl() {
       );
     }
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(error);
   }
 }
 

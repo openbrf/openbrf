@@ -440,21 +440,23 @@ body {
 }
 
 /*
- * Between months.
+ * Between months, and between pages of the news.
  *
  * Two ordinary links with the whole target height to themselves, because
  * moving a month is done with a thumb on a telephone and there is no script to
  * make anything else of them. Spread apart, so back and forward are not next
  * to each other under one finger.
  */
-.site-calendar-nav {
+.site-calendar-nav,
+.site-news-nav {
   display: flex;
   gap: 1.5rem;
   justify-content: space-between;
   margin: 0 0 1.5rem;
 }
 
-.site-calendar-nav a {
+.site-calendar-nav a,
+.site-news-nav a {
   align-items: center;
   display: inline-flex;
   min-height: 44px;

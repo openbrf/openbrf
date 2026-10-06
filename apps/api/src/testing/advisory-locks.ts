@@ -87,6 +87,41 @@ export async function waitingLockCount(prisma: PrismaService): Promise<bigint> {
   return row?.locks ?? 0n;
 }
 
+/**
+ * How many connections to this database are blocked by a transaction that is
+ * itself queued behind this apartment's residency key.
+ *
+ * The count to use when a test holds the key to stop a writer part way, and
+ * needs to know a second writer is waiting for a row the first one holds -
+ * not merely that something, somewhere, is waiting. A writer queued behind a
+ * row lock waits on the holder's transaction id, and `pg_locks` does not tie a
+ * transaction id lock to a database, so {@link waitingLockCount} never sees
+ * it. `pg_blocking_pids` names the holder, and the holder is the connection
+ * `pg_locks` shows queued behind the key.
+ */
+export async function blockedBehindResidencyApartmentCount(
+  prisma: PrismaService,
+  apartmentId: string,
+): Promise<bigint> {
+  const key = `residency-apartment:${apartmentId}`;
+  const [row] = await prisma.$queryRaw<{ blocked: bigint }[]>`
+    SELECT count(*) AS blocked
+    FROM pg_stat_activity
+    WHERE wait_event_type = 'Lock'
+      AND datname = current_database()
+      AND pg_blocking_pids(pid) && ARRAY(
+        SELECT pid
+        FROM pg_locks
+        WHERE locktype = 'advisory'
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+          AND NOT granted
+          AND objsubid = 1
+          AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+          AND objid = (hashtext(${key})::bigint & 4294967295)::oid
+      )`;
+  return row?.blocked ?? 0n;
+}
+
 /** Polls until the condition holds, or gives up so a failure is a failure. */
 export async function waitFor(
   condition: () => Promise<boolean>,
