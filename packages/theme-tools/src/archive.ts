@@ -69,6 +69,8 @@ export class ThemeArchiveError extends Error {
 /** The files an archive contained, keyed by their path inside the package. */
 export type ThemeArchiveFiles = ReadonlyMap<string, Uint8Array>;
 
+const utf8 = new TextDecoder("utf8", { ignoreBOM: true, fatal: true });
+
 function decodeString(
   block: Uint8Array,
   start: number,
@@ -79,9 +81,7 @@ function decodeString(
   // A leading BOM is kept, so it cannot make two names look like one, and
   // bytes that are not UTF-8 are refused rather than replaced.
   try {
-    return new TextDecoder("utf8", { ignoreBOM: true, fatal: true }).decode(
-      end === -1 ? slice : slice.subarray(0, end),
-    );
+    return utf8.decode(end === -1 ? slice : slice.subarray(0, end));
   } catch {
     throw new ThemeArchiveError("The archive has a field that is not UTF-8.");
   }
@@ -120,12 +120,37 @@ function decodeOctal(block: Uint8Array, start: number, length: number): number {
 }
 
 /**
+ * Reads a base-256 field (flagged by a leading 0x80 or 0xff byte) and refuses
+ * a value that is not a safe integer, as node-tar does.
+ */
+function assertBase256(block: Uint8Array, start: number, length: number): void {
+  const bytes = block.subarray(start, start + length);
+  let value = 0n;
+  if (bytes[0] === 0x80) {
+    for (const byte of bytes.subarray(1)) {
+      value = value * 256n + BigInt(byte);
+    }
+  } else {
+    for (const byte of bytes) {
+      value = value * 256n + BigInt(byte);
+    }
+    value -= 1n << BigInt(8 * bytes.length);
+  }
+  if (
+    value > BigInt(Number.MAX_SAFE_INTEGER) ||
+    value < -BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    throw new ThemeArchiveError("The archive has a malformed numeric field.");
+  }
+}
+
+/**
  * Every numeric field but size and the checksum, which are read where used.
  *
  * GNU tar and bsdtar write a value that does not fit octal (a uid above
  * 2^21, a negative mtime) in base-256, flagged by a leading 0x80 or 0xff byte.
- * These fields are never used, so such a field is accepted unread; size and
- * the checksum stay octal-only.
+ * These fields are never used, so such a field is accepted when its value is a
+ * safe integer; size and the checksum stay octal-only.
  */
 function assertNumericFields(header: Uint8Array): void {
   for (const [start, length] of [
@@ -137,6 +162,7 @@ function assertNumericFields(header: Uint8Array): void {
     [337, 8], // devminor
   ] as const) {
     if (header[start] === 0x80 || header[start] === 0xff) {
+      assertBase256(header, start, length);
       continue;
     }
     decodeOctal(header, start, length);
@@ -150,6 +176,10 @@ function assertNumericFields(header: Uint8Array): void {
  * rather than a nonsensical path or a huge size read out of arbitrary bytes.
  */
 function checksumMatches(block: Uint8Array): boolean {
+  // node-tar reads the checksum over 12 bytes, so it must end at the field.
+  if (!isPadding(block[155])) {
+    return false;
+  }
   const stated = decodeOctal(block, 148, 8);
   let signed = 0;
   let unsigned = 0;
@@ -211,7 +241,11 @@ function headerPath(header: Uint8Array): string {
   return `${prefix}/${name}`;
 }
 
-function assertSafePath(path: string): void {
+/**
+ * `rootedAtDot` lets the reader pass a path that still has its leading `./`
+ * root, which it strips once it has seen every entry.
+ */
+function assertSafePath(path: string, rootedAtDot = false): void {
   if (path.length === 0 || path.length > 200) {
     throw new ThemeArchiveError(
       `The archive names a path of an unusable length.`,
@@ -222,9 +256,15 @@ function assertSafePath(path: string): void {
       `The archive names an absolute or backslashed path: ${path}`,
     );
   }
-  if (path.split("/").some((segment) => segment === ".." || segment === "")) {
+  const segments = path.split("/");
+  if (segments.some((segment) => segment === ".." || segment === "")) {
     throw new ThemeArchiveError(
       `The archive names a path that escapes the package: ${path}`,
+    );
+  }
+  if (segments.slice(rootedAtDot ? 1 : 0).includes(".")) {
+    throw new ThemeArchiveError(
+      `The archive names a path with a "." segment: ${path}`,
     );
   }
 }
@@ -305,6 +345,12 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
 
     assertNumericFields(header);
     const typeFlag = decodeString(header, 156, 1);
+    if (
+      (typeFlag === "5" || typeFlag === "0" || typeFlag === "") &&
+      header.subarray(157, 257).some((byte) => byte !== 0)
+    ) {
+      throw new ThemeArchiveError("The archive has a file with a link name.");
+    }
     const size = decodeOctal(header, 124, 12);
     const dataBlocks = Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;
 
@@ -357,7 +403,7 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
     fileRecords += 1;
 
     const path = headerPath(header);
-    assertSafePath(path);
+    assertSafePath(path, true);
 
     if (offset + size > tarball.length) {
       throw new ThemeArchiveError("The archive ends inside a file.");

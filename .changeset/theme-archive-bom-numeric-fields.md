@@ -19,3 +19,8 @@ base-256: those fields (not used) are accepted when they start with 0x80 or
 A `.` path segment left after the common root is stripped is refused, so
 `theme.json` and `./theme.json` cannot be two entries for one file. Archives
 made with `tar -czf x.tgz -C dir .` still read.
+
+A base-256 uid, gid, mtime, mode or device number is accepted only when its
+value is a safe integer, as node-tar reads it. The checksum must end in a space
+or NUL, a regular-file or directory header with a link name is refused, and the
+writer refuses `.` segments too.

@@ -420,7 +420,7 @@ describe("readThemeArchive refusals", () => {
     expect(() => readThemeArchive(archive)).toThrow(/not UTF-8/);
   });
 
-  it.each([
+  const octalFields: [string, number][] = [
     ["size", 124],
     ["mtime", 136],
     ["mode", 100],
@@ -428,13 +428,20 @@ describe("readThemeArchive refusals", () => {
     ["gid", 116],
     ["devmajor", 329],
     ["devminor", 337],
-  ])("refuses a %s field with something other than octal digits", (_, at) => {
-    for (const bad of [
-      encoder.encode("12x4"),
-      new Uint8Array([0x31, 0xc2, 0xa0, 0x31]),
-      encoder.encode("1\t2"),
-      encoder.encode("8"),
-    ]) {
+  ];
+  const badOctal: [string, Uint8Array][] = [
+    ["a letter", encoder.encode("12x4")],
+    ["a non-breaking space", new Uint8Array([0x31, 0xc2, 0xa0, 0x31])],
+    ["a tab", encoder.encode("1\t2")],
+    ["an 8", encoder.encode("8")],
+  ];
+  const badOctalCases = octalFields.flatMap(([field, at]) =>
+    badOctal.map(([label, bad]) => [field, at, label, bad] as const),
+  );
+
+  it.each(badOctalCases)(
+    "refuses a %s field with %s",
+    (_field, at, _label, bad) => {
       const archive = rawArchive([
         rawHeader({
           name: "theme.json",
@@ -444,19 +451,17 @@ describe("readThemeArchive refusals", () => {
         }),
       ]);
       expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
-    }
-  });
+    },
+  );
 
-  it.each([
-    ["size", 124],
-    ["mtime", 136],
-    ["mode", 100],
-    ["uid", 108],
-    ["gid", 116],
-    ["devmajor", 329],
-    ["devminor", 337],
-  ])("refuses a %s field with a NUL before the digits", (_, at) => {
-    for (const lead of ["\0", "\0\0", " \0"]) {
+  const nulLeads = ["\0", "\0\0", " \0"];
+  const nulCases = octalFields.flatMap(([field, at]) =>
+    nulLeads.map((lead) => [field, at, JSON.stringify(lead), lead] as const),
+  );
+
+  it.each(nulCases)(
+    "refuses a %s field with a NUL before the digits (%s)",
+    (_field, at, _label, lead) => {
       const archive = rawArchive([
         rawHeader({
           name: "theme.json",
@@ -466,8 +471,8 @@ describe("readThemeArchive refusals", () => {
         }),
       ]);
       expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
-    }
-  });
+    },
+  );
 
   it("refuses a checksum with a leading NUL on a header that is not the first", () => {
     const second = rawHeader({ name: "evil.js", size: 0, typeFlag: "0" });
@@ -499,6 +504,68 @@ describe("readThemeArchive refusals", () => {
       dataBlock("a"),
     ]);
     expect([...readThemeArchive(archive).keys()]).toEqual(["theme.json"]);
+  });
+
+  it.each([
+    ["uid", 108, new Uint8Array([0x80, ...new Array<number>(7).fill(0xff)])],
+    ["mtime", 136, new Uint8Array([0xff, ...new Array<number>(11).fill(0)])],
+  ])("refuses a base-256 %s beyond a safe integer", (_, at, bytes) => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        overwrite: { [at]: bytes },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
+  });
+
+  it("refuses a base-256 checksum", () => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        overwrite: { 148: new Uint8Array([0x80, 0, 0, 0, 0, 0, 0x10, 0x00]) },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/malformed numeric|corrupt/);
+  });
+
+  it("refuses an eight-digit checksum with no terminator", () => {
+    const header = rawHeader({ name: "theme.json", size: 0, typeFlag: "0" });
+    let sum = 0;
+    for (let index = 0; index < 512; index += 1) {
+      sum += index >= 148 && index < 156 ? 0x20 : (header[index] ?? 0);
+    }
+    header.set(encoder.encode(sum.toString(8).padStart(8, "0")), 148);
+    expect(() => readThemeArchive(rawArchive([header]))).toThrow(
+      /corrupt header/,
+    );
+  });
+
+  it.each([
+    ["x", "theme.json"],
+    ["\0\nx", "theme.json"],
+    ["x", "assets"],
+  ])("refuses a file or directory with linkname %j", (linkname, name) => {
+    const isDirectory = name === "assets";
+    const archive = rawArchive([
+      rawHeader({
+        name,
+        size: 0,
+        typeFlag: isDirectory ? "5" : "0",
+        overwrite: { 157: encoder.encode(linkname) },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/link name/);
+  });
+
+  it("refuses a . segment in a path the writer is given", () => {
+    expect(() =>
+      writeThemeArchive(new Map([["a/./b", new Uint8Array(1)]])),
+    ).toThrow(/"\." segment/);
   });
 
   it("refuses a base-256 size", () => {
