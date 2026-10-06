@@ -380,6 +380,10 @@ export class ImportService implements OnModuleInit {
       );
     }
 
+    // Kept as a constant: the narrowing of `session.previewedAt` does not reach
+    // into the transaction callback below, the narrowing of a constant does.
+    const previewedAt = session.previewedAt;
+
     // Asked once before the plan as well as under the lock. Planned against a
     // register another import is halfway through writing, the decisions could
     // look outdated, and the board would be sent back to a preview of that
@@ -418,7 +422,7 @@ export class ImportService implements OnModuleInit {
       });
       if (
         recorded !== null &&
-        recorded.previewedAt?.getTime() !== session.previewedAt.getTime()
+        recorded.previewedAt?.getTime() !== previewedAt.getTime()
       ) {
         throw new ImportError(
           "The import was previewed again while it was being started.",
@@ -439,7 +443,7 @@ export class ImportService implements OnModuleInit {
         where: {
           id: sessionId,
           status: "MAPPING",
-          previewedAt: session.previewedAt,
+          previewedAt,
         },
         data: {
           status: "QUEUED",
