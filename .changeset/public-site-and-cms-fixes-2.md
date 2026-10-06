@@ -17,10 +17,14 @@ and the document archive.
   `%` stands elsewhere in the link, or when the number's hyphen is escaped
   twice. The refusal places it by its block, without an offset into the
   block's words, and offsets in a FAQ block no longer shift past a link in an
-  earlier answer.
+  earlier answer. A link escaped more than four times over is decoded no
+  further: the block is refused as if it carried a number, and the editor
+  warns about it the same way.
 - A document for the members or the public whose title, binder or file name
   carries a personal identity number is refused, since a document list on the
-  website prints all three. A board document is not affected.
+  website prints all three. The file name is read as it will be stored, after
+  the characters a stored name may not hold are removed. A board document is
+  not affected.
 - A new page goes before the privacy notice in the board's list after the
   pages have been reordered, unless the board moved the notice up the list.
 - Removing a page records a menu entry under another entry for the same page
