@@ -9,6 +9,7 @@ import {
   MediaService,
   type MediaVisibility,
   mediaUrl,
+  safeFileName,
 } from "../media/media.service";
 
 /**
@@ -261,8 +262,17 @@ export class DocumentsService {
    * would leave a document pointing at nothing.
    */
   async add(input: AddDocumentInput): Promise<DocumentView> {
-    // Before the upload, so a refused document leaves no file behind.
-    refusePersonalIdentityNumbers(input);
+    /*
+     * Before the upload, so a refused document leaves no file behind. And of
+     * the name as it will be stored rather than as it arrived: `safeFileName`
+     * strips the Unicode "other" category and path punctuation, and stripping
+     * a character joins what it separated, so "19811218*9876.pdf" carries no
+     * personal identity number for the scanner and is listed as one.
+     */
+    refusePersonalIdentityNumbers({
+      ...input,
+      fileName: safeFileName(input.fileName),
+    });
     const transport = transportFor(input.audience);
 
     const file = await this.media.upload({

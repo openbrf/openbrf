@@ -449,6 +449,31 @@ describe("the personal identity number guardrail", () => {
     ).rejects.toMatchObject({ reason: "personal-identity-number" });
   });
 
+  it.each([
+    ["an asterisk", "19811218*9876.pdf"],
+    ["a zero-width space", "19811218\u200B-9876.pdf"],
+  ])(
+    "refuses a file name whose number %s splits until it is stored",
+    async (_split, fileName) => {
+      // The scan reads the name as it will be listed. Storing it strips the
+      // character that kept the number apart.
+      await expect(
+        fakes.service.add({
+          title: "Avtal",
+          category: "Avtal",
+          audience: "PUBLIC",
+          bytes: Buffer.from("%PDF-1.7"),
+          fileName,
+          actorPersonId: "person-1",
+        }),
+      ).rejects.toMatchObject({
+        reason: "personal-identity-number",
+        status: 422,
+      });
+      expect(fakes.upload).not.toHaveBeenCalled();
+    },
+  );
+
   it("files a board document whatever it names, since no page lists it", async () => {
     const document = await fakes.service.add({
       title: `Överlåtelse ${NUMBER}`,
