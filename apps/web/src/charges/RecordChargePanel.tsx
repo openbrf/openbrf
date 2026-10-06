@@ -16,7 +16,7 @@ import {
 import { normalizeAmount, vatRateOf } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
-import { useFocusAfterLock } from "../ui/use-focus-after-lock";
+import { LockedForm } from "../ui/LockedForm";
 import { chargeFailureKey, refusedIdentityNumbers } from "./charge-failures";
 import type { ChargeablePerson, ChargeParties } from "./charge-parties";
 import {
@@ -108,7 +108,6 @@ export function RecordChargePanel({
 }): ReactElement {
   const { t } = useTranslation();
   const chargedOnRef = useRef<HTMLInputElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
 
   const [partyKind, setPartyKind] = useState<"person" | "apartment">("person");
@@ -153,7 +152,6 @@ export function RecordChargePanel({
   );
 
   const saving = state.kind === "saving";
-  const rememberFocus = useFocusAfterLock(saving, formRef, amountRef);
 
   const chosen = partyKind === "person" ? personId : apartmentId;
 
@@ -172,11 +170,11 @@ export function RecordChargePanel({
         </p>
       </div>
 
-      <form
-        ref={formRef}
+      <LockedForm
+        locked={saving}
+        focusFallback={amountRef}
         className="flex flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        onSend={() => {
           // Said at the field rather than by the request schema, whose refusal
           // can only point at the whole form.
           const normalized = normalizeAmount(amount);
@@ -196,8 +194,6 @@ export function RecordChargePanel({
             handedToManagerOn:
               handedToManagerOn === "" ? null : handedToManagerOn,
           };
-          const { submitter } = event.nativeEvent as SubmitEvent;
-          rememberFocus(submitter);
           void submit(() =>
             correcting === undefined
               ? recordCharge({
@@ -209,251 +205,243 @@ export function RecordChargePanel({
           );
         }}
       >
-        {/*
-          Locked while the request runs. The amount and the reason are cleared
-          once the charge is stored, so what is typed in the meantime would be
-          lost without a word. `contents` keeps the controls in the form's own
-          flex column.
-        */}
-        <fieldset className="contents" disabled={saving}>
-          {correcting === undefined ? (
-            <>
-              <fieldset className="flex flex-col gap-2">
-                <legend className="text-label text-ink-muted uppercase">
-                  {t("charges.record.party.legend")}
-                </legend>
-                <div className="flex flex-wrap gap-4">
-                  {(["person", "apartment"] as const).map((kind) => (
-                    <label
-                      key={kind}
-                      className="flex min-h-11 items-center gap-2 text-small text-ink"
-                    >
-                      <input
-                        type="radio"
-                        name="charge-party-kind"
-                        value={kind}
-                        checked={partyKind === kind}
-                        onChange={() => {
-                          setPartyKind(kind);
-                        }}
-                        className="size-4 accent-trust"
-                      />
-                      {t(`charges.record.party.${kind}`)}
-                    </label>
-                  ))}
-                </div>
-                <p className={HINT}>{t("charges.record.party.hint")}</p>
-              </fieldset>
-
-              {partyKind === "person" ? (
-                <label className={LABEL}>
-                  {t("charges.record.person")}
-                  <select
-                    value={personId}
-                    onChange={(event) => {
-                      setPersonId(event.target.value);
-                    }}
-                    required
-                    className={FIELD}
+        {correcting === undefined ? (
+          <>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-label text-ink-muted uppercase">
+                {t("charges.record.party.legend")}
+              </legend>
+              <div className="flex flex-wrap gap-4">
+                {(["person", "apartment"] as const).map((kind) => (
+                  <label
+                    key={kind}
+                    className="flex min-h-11 items-center gap-2 text-small text-ink"
                   >
-                    <option value="">{t("charges.record.choose")}</option>
-                    {parties.persons.map((person) => (
-                      <option key={person.personId} value={person.personId}>
-                        {personOption(person, t)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label className={LABEL}>
-                  {t("charges.record.apartment")}
-                  <select
-                    value={apartmentId}
-                    onChange={(event) => {
-                      setApartmentId(event.target.value);
-                    }}
-                    required
-                    className={FIELD}
-                  >
-                    <option value="">{t("charges.record.choose")}</option>
-                    {parties.apartments.map((apartment) => (
-                      <option
-                        key={apartment.apartmentId}
-                        value={apartment.apartmentId}
-                      >
-                        {apartment.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </>
-          ) : null}
+                    <input
+                      type="radio"
+                      name="charge-party-kind"
+                      value={kind}
+                      checked={partyKind === kind}
+                      onChange={() => {
+                        setPartyKind(kind);
+                      }}
+                      className="size-4 accent-trust"
+                    />
+                    {t(`charges.record.party.${kind}`)}
+                  </label>
+                ))}
+              </div>
+              <p className={HINT}>{t("charges.record.party.hint")}</p>
+            </fieldset>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className={LABEL}>
-              {t("charges.record.chargedOn")}
-              <input
-                ref={chargedOnRef}
-                type="date"
-                value={chargedOn}
-                max={today}
-                onChange={(event) => {
-                  setChargedOn(event.target.value);
-                }}
-                required
-                className={FIELD_DATA}
-              />
-            </label>
-
-            <div className="flex flex-col gap-1">
+            {partyKind === "person" ? (
               <label className={LABEL}>
-                {t("charges.record.amount")}
-                <input
-                  ref={amountRef}
-                  type="text"
-                  inputMode="decimal"
-                  value={amount}
+                {t("charges.record.person")}
+                <select
+                  value={personId}
                   onChange={(event) => {
-                    setAmount(event.target.value);
-                    setAmountInvalid(false);
+                    setPersonId(event.target.value);
                   }}
                   required
-                  aria-invalid={amountInvalid}
-                  aria-describedby={amountInvalid ? amountErrorId : undefined}
-                  className={FIELD_DATA}
-                />
-              </label>
-              {amountInvalid ? (
-                <p
-                  id={amountErrorId}
-                  role="alert"
-                  className="text-small text-danger"
+                  className={FIELD}
                 >
-                  {t("charges.errors.amountNotASum")}
-                </p>
-              ) : null}
-            </div>
-          </div>
+                  <option value="">{t("charges.record.choose")}</option>
+                  {parties.persons.map((person) => (
+                    <option key={person.personId} value={person.personId}>
+                      {personOption(person, t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className={LABEL}>
+                {t("charges.record.apartment")}
+                <select
+                  value={apartmentId}
+                  onChange={(event) => {
+                    setApartmentId(event.target.value);
+                  }}
+                  required
+                  className={FIELD}
+                >
+                  <option value="">{t("charges.record.choose")}</option>
+                  {parties.apartments.map((apartment) => (
+                    <option
+                      key={apartment.apartmentId}
+                      value={apartment.apartmentId}
+                    >
+                      {apartment.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
+        ) : null}
 
+        <div className="grid gap-4 sm:grid-cols-2">
           <label className={LABEL}>
-            {t("charges.record.reason")}
+            {t("charges.record.chargedOn")}
             <input
-              type="text"
-              value={reason}
-              maxLength={500}
+              ref={chargedOnRef}
+              type="date"
+              value={chargedOn}
+              max={today}
               onChange={(event) => {
-                setReason(event.target.value);
+                setChargedOn(event.target.value);
               }}
               required
-              className={FIELD}
+              className={FIELD_DATA}
             />
           </label>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
             <label className={LABEL}>
-              {t("charges.record.vatTreatment")}
-              <select
-                value={vatTreatment}
+              {t("charges.record.amount")}
+              <input
+                ref={amountRef}
+                type="text"
+                inputMode="decimal"
+                value={amount}
                 onChange={(event) => {
-                  setVatTreatment(event.target.value as VatTreatment);
+                  setAmount(event.target.value);
+                  setAmountInvalid(false);
                 }}
-                className={FIELD}
-              >
-                {VAT_TREATMENTS.map((treatment) => (
-                  <option key={treatment} value={treatment}>
-                    {t(`charges.vat.${treatment}`)}
-                  </option>
-                ))}
-              </select>
+                required
+                aria-invalid={amountInvalid}
+                aria-describedby={amountInvalid ? amountErrorId : undefined}
+                className={FIELD_DATA}
+              />
             </label>
+            {amountInvalid ? (
+              <p
+                id={amountErrorId}
+                role="alert"
+                className="text-small text-danger"
+              >
+                {t("charges.errors.amountNotASum")}
+              </p>
+            ) : null}
+          </div>
+        </div>
 
-            {vatTreatment === "RATE" ? (
-              <div className="flex flex-col gap-1">
-                {/*
+        <label className={LABEL}>
+          {t("charges.record.reason")}
+          <input
+            type="text"
+            value={reason}
+            maxLength={500}
+            onChange={(event) => {
+              setReason(event.target.value);
+            }}
+            required
+            className={FIELD}
+          />
+        </label>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className={LABEL}>
+            {t("charges.record.vatTreatment")}
+            <select
+              value={vatTreatment}
+              onChange={(event) => {
+                setVatTreatment(event.target.value as VatTreatment);
+              }}
+              className={FIELD}
+            >
+              {VAT_TREATMENTS.map((treatment) => (
+                <option key={treatment} value={treatment}>
+                  {t(`charges.vat.${treatment}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {vatTreatment === "RATE" ? (
+            <div className="flex flex-col gap-1">
+              {/*
                   A text field rather than a number one: a browser empties a
                   number field it cannot read, so "25,5" would arrive as no rate
                   at all and be refused as one never typed.
                 */}
-                <label className={LABEL}>
-                  {t("charges.record.vatRatePercent")}
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={vatRatePercent}
-                    onChange={(event) => {
-                      setVatRatePercent(event.target.value);
-                      setRateInvalid(false);
-                    }}
-                    required
-                    aria-invalid={rateInvalid}
-                    aria-describedby={rateInvalid ? rateErrorId : undefined}
-                    className={FIELD_DATA}
-                  />
-                </label>
-                {rateInvalid ? (
-                  <p
-                    id={rateErrorId}
-                    role="alert"
-                    className="text-small text-danger"
-                  >
-                    {t("charges.errors.vatRateOutOfRange")}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+              <label className={LABEL}>
+                {t("charges.record.vatRatePercent")}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={vatRatePercent}
+                  onChange={(event) => {
+                    setVatRatePercent(event.target.value);
+                    setRateInvalid(false);
+                  }}
+                  required
+                  aria-invalid={rateInvalid}
+                  aria-describedby={rateInvalid ? rateErrorId : undefined}
+                  className={FIELD_DATA}
+                />
+              </label>
+              {rateInvalid ? (
+                <p
+                  id={rateErrorId}
+                  role="alert"
+                  className="text-small text-danger"
+                >
+                  {t("charges.errors.vatRateOutOfRange")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
-          <label className={LABEL}>
-            {t("charges.record.handedToManagerOn")}
-            {/*
+        <label className={LABEL}>
+          {t("charges.record.handedToManagerOn")}
+          {/*
               Bounded at both ends, because the server refuses both: a hand-over
               before the charge existed, and one in the future. The form does not
               invite an entry it knows will come back refused.
             */}
-            <input
-              type="date"
-              value={handedToManagerOn}
-              min={chargedOn}
-              max={today}
-              onChange={(event) => {
-                setHandedToManagerOn(event.target.value);
-              }}
-              className={FIELD_DATA}
-            />
-            <span className={HINT}>{t("charges.record.handedHint")}</span>
-          </label>
+          <input
+            type="date"
+            value={handedToManagerOn}
+            min={chargedOn}
+            max={today}
+            onChange={(event) => {
+              setHandedToManagerOn(event.target.value);
+            }}
+            className={FIELD_DATA}
+          />
+          <span className={HINT}>{t("charges.record.handedHint")}</span>
+        </label>
 
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={saving || (correcting === undefined && chosen === "")}
+            className={PRIMARY_BUTTON}
+          >
+            {correcting !== undefined
+              ? saving
+                ? t("charges.correct.saving")
+                : t("charges.correct.submit")
+              : saving
+                ? t("charges.record.saving")
+                : t("charges.record.submit")}
+          </button>
+          {onCancel === undefined ? null : (
             <button
-              type="submit"
-              disabled={saving || (correcting === undefined && chosen === "")}
-              className={PRIMARY_BUTTON}
+              type="button"
+              onClick={onCancel}
+              className={SECONDARY_BUTTON}
             >
-              {correcting !== undefined
-                ? saving
-                  ? t("charges.correct.saving")
-                  : t("charges.correct.submit")
-                : saving
-                  ? t("charges.record.saving")
-                  : t("charges.record.submit")}
+              {t("charges.correct.cancel")}
             </button>
-            {onCancel === undefined ? null : (
-              <button
-                type="button"
-                onClick={onCancel}
-                className={SECONDARY_BUTTON}
-              >
-                {t("charges.correct.cancel")}
-              </button>
-            )}
-            {state.kind === "saved" ? (
-              <span role="status" className={HINT}>
-                {t("charges.record.saved")}
-              </span>
-            ) : null}
-          </div>
-        </fieldset>
+          )}
+          {state.kind === "saved" ? (
+            <span role="status" className={HINT}>
+              {t("charges.record.saved")}
+            </span>
+          ) : null}
+        </div>
 
         {state.kind === "failed" ? (
           <Notice tone="danger" live>
@@ -465,7 +453,7 @@ export function RecordChargePanel({
               : null}
           </Notice>
         ) : null}
-      </form>
+      </LockedForm>
     </section>
   );
 }

@@ -37,7 +37,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount, normalizeAmount, vatRateOf } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
-import { useFocusAfterLock } from "../ui/use-focus-after-lock";
+import { LockedForm } from "../ui/LockedForm";
 import { feeFailureKey } from "./fee-failures";
 import {
   type FeeKind,
@@ -154,11 +154,9 @@ export function FeesScreen(): ReactElement {
   const amountErrorId = useId();
   const rateErrorId = useId();
   const [recording, setRecording] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
-  const amountRef = useRef<HTMLInputElement>(null);
   // The submit button stays disabled after a success, with the amount cleared;
   // the amount field is where the board types next.
-  const rememberFocus = useFocusAfterLock(recording, formRef, amountRef);
+  const amountRef = useRef<HTMLInputElement>(null);
 
   const [yearlyTotal, setYearlyTotal] = useState("");
   const [aidOpen, setAidOpen] = useState(false);
@@ -235,47 +233,42 @@ export function FeesScreen(): ReactElement {
     [suggestions],
   );
 
-  const onRecord = useCallback(
-    async (submitter: HTMLElement | null): Promise<void> => {
-      setRefusal(null);
-      // Said at the field rather than by the request schema, whose refusal
-      // can only point at the whole form.
-      const amount = normalizeAmount(monthlyAmount);
-      const rate = vatTreatment === "RATE" ? vatRateOf(vatRatePercent) : null;
-      setAmountInvalid(amount === null);
-      setRateInvalid(rate === undefined);
-      if (amount === null || rate === undefined) {
-        return;
-      }
-      rememberFocus(submitter);
-      setRecording(true);
-      const result = await recordFee({
-        apartmentId,
-        kind,
-        appliesFrom,
-        monthlyAmount: amount,
-        vatTreatment,
-        vatRatePercent: rate,
-      });
-      setRecording(false);
-      if (!result.ok) {
-        setRefusal(feeFailureKey(result.failure));
-        return;
-      }
-      setMonthlyAmount("");
-      load();
-    },
-    [
+  const onRecord = useCallback(async (): Promise<void> => {
+    setRefusal(null);
+    // Said at the field rather than by the request schema, whose refusal
+    // can only point at the whole form.
+    const amount = normalizeAmount(monthlyAmount);
+    const rate = vatTreatment === "RATE" ? vatRateOf(vatRatePercent) : null;
+    setAmountInvalid(amount === null);
+    setRateInvalid(rate === undefined);
+    if (amount === null || rate === undefined) {
+      return;
+    }
+    setRecording(true);
+    const result = await recordFee({
       apartmentId,
-      appliesFrom,
       kind,
-      load,
-      monthlyAmount,
-      rememberFocus,
-      vatRatePercent,
+      appliesFrom,
+      monthlyAmount: amount,
       vatTreatment,
-    ],
-  );
+      vatRatePercent: rate,
+    });
+    setRecording(false);
+    if (!result.ok) {
+      setRefusal(feeFailureKey(result.failure));
+      return;
+    }
+    setMonthlyAmount("");
+    load();
+  }, [
+    apartmentId,
+    appliesFrom,
+    kind,
+    load,
+    monthlyAmount,
+    vatRatePercent,
+    vatTreatment,
+  ]);
 
   const onRemove = useCallback(
     async (feeId: string): Promise<void> => {
@@ -339,155 +332,146 @@ export function FeesScreen(): ReactElement {
         <section className={`flex flex-col gap-4 ${PANEL}`}>
           <h2 className="text-title">{t("fees.record.title")}</h2>
           <p className={HINT}>{t("fees.record.description")}</p>
-          <form
-            ref={formRef}
+          <LockedForm
+            locked={recording}
+            focusFallback={amountRef}
             className="flex flex-wrap items-end gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const { submitter } = event.nativeEvent as SubmitEvent;
-              void onRecord(submitter);
+            onSend={() => {
+              void onRecord();
             }}
           >
-            {/*
-              Locked while the request runs. The amount is cleared once the
-              rate is stored, so what is typed in the meantime would be lost
-              without a word. `contents` keeps the fields in the form's own
-              flex row.
-            */}
-            <fieldset className="contents" disabled={recording}>
-              <label className={LABEL}>
-                {t("fees.record.apartment")}
-                <select
-                  value={apartmentId}
-                  onChange={(event) => {
-                    setApartmentId(event.target.value);
-                  }}
-                  className={FIELD}
-                >
-                  <option value="">{t("fees.record.chooseApartment")}</option>
-                  {(register?.apartments ?? []).map((apartment) => (
-                    <option
-                      key={apartment.apartmentId}
-                      value={apartment.apartmentId}
-                    >
-                      {apartment.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className={LABEL}>
+              {t("fees.record.apartment")}
+              <select
+                value={apartmentId}
+                onChange={(event) => {
+                  setApartmentId(event.target.value);
+                }}
+                className={FIELD}
+              >
+                <option value="">{t("fees.record.chooseApartment")}</option>
+                {(register?.apartments ?? []).map((apartment) => (
+                  <option
+                    key={apartment.apartmentId}
+                    value={apartment.apartmentId}
+                  >
+                    {apartment.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-              <label className={LABEL}>
-                {t("fees.record.kind")}
-                <select
-                  value={kind}
-                  onChange={(event) => {
-                    setKind(event.target.value as FeeKind);
-                  }}
-                  className={FIELD}
-                >
-                  {KINDS.map((value) => (
-                    <option key={value} value={value}>
-                      {t(KIND_LABEL[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className={LABEL}>
+              {t("fees.record.kind")}
+              <select
+                value={kind}
+                onChange={(event) => {
+                  setKind(event.target.value as FeeKind);
+                }}
+                className={FIELD}
+              >
+                {KINDS.map((value) => (
+                  <option key={value} value={value}>
+                    {t(KIND_LABEL[value])}
+                  </option>
+                ))}
+              </select>
+            </label>
 
+            <label className={LABEL}>
+              {t("fees.record.appliesFrom")}
+              <input
+                type="date"
+                value={appliesFrom}
+                onChange={(event) => {
+                  setAppliesFrom(event.target.value);
+                }}
+                className={FIELD_DATA}
+              />
+            </label>
+
+            <div className="flex flex-col gap-1">
               <label className={LABEL}>
-                {t("fees.record.appliesFrom")}
+                {t("fees.record.monthlyAmount")}
                 <input
-                  type="date"
-                  value={appliesFrom}
+                  ref={amountRef}
+                  type="text"
+                  inputMode="decimal"
+                  value={monthlyAmount}
                   onChange={(event) => {
-                    setAppliesFrom(event.target.value);
+                    setMonthlyAmount(event.target.value);
+                    setAmountInvalid(false);
                   }}
+                  aria-invalid={amountInvalid}
+                  aria-describedby={amountInvalid ? amountErrorId : undefined}
                   className={FIELD_DATA}
                 />
               </label>
+              {amountInvalid ? (
+                <p
+                  id={amountErrorId}
+                  role="alert"
+                  className="text-small text-danger"
+                >
+                  {t("fees.errors.amountNotASum")}
+                </p>
+              ) : null}
+            </div>
 
+            <label className={LABEL}>
+              {t("fees.record.vatTreatment")}
+              <select
+                value={vatTreatment}
+                onChange={(event) => {
+                  setVatTreatment(event.target.value as FeeVatTreatment);
+                }}
+                className={FIELD}
+              >
+                {(["EXEMPT", "RATE"] as const).map((value) => (
+                  <option key={value} value={value}>
+                    {t(VAT_LABEL[value])}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {vatTreatment === "RATE" ? (
               <div className="flex flex-col gap-1">
                 <label className={LABEL}>
-                  {t("fees.record.monthlyAmount")}
+                  {t("fees.record.vatRatePercent")}
                   <input
-                    ref={amountRef}
                     type="text"
-                    inputMode="decimal"
-                    value={monthlyAmount}
+                    inputMode="numeric"
+                    value={vatRatePercent}
                     onChange={(event) => {
-                      setMonthlyAmount(event.target.value);
-                      setAmountInvalid(false);
+                      setVatRatePercent(event.target.value);
+                      setRateInvalid(false);
                     }}
-                    aria-invalid={amountInvalid}
-                    aria-describedby={amountInvalid ? amountErrorId : undefined}
+                    aria-invalid={rateInvalid}
+                    aria-describedby={rateInvalid ? rateErrorId : undefined}
                     className={FIELD_DATA}
                   />
                 </label>
-                {amountInvalid ? (
+                {rateInvalid ? (
                   <p
-                    id={amountErrorId}
+                    id={rateErrorId}
                     role="alert"
                     className="text-small text-danger"
                   >
-                    {t("fees.errors.amountNotASum")}
+                    {t("fees.errors.vatRateOutOfRange")}
                   </p>
                 ) : null}
               </div>
+            ) : null}
 
-              <label className={LABEL}>
-                {t("fees.record.vatTreatment")}
-                <select
-                  value={vatTreatment}
-                  onChange={(event) => {
-                    setVatTreatment(event.target.value as FeeVatTreatment);
-                  }}
-                  className={FIELD}
-                >
-                  {(["EXEMPT", "RATE"] as const).map((value) => (
-                    <option key={value} value={value}>
-                      {t(VAT_LABEL[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {vatTreatment === "RATE" ? (
-                <div className="flex flex-col gap-1">
-                  <label className={LABEL}>
-                    {t("fees.record.vatRatePercent")}
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={vatRatePercent}
-                      onChange={(event) => {
-                        setVatRatePercent(event.target.value);
-                        setRateInvalid(false);
-                      }}
-                      aria-invalid={rateInvalid}
-                      aria-describedby={rateInvalid ? rateErrorId : undefined}
-                      className={FIELD_DATA}
-                    />
-                  </label>
-                  {rateInvalid ? (
-                    <p
-                      id={rateErrorId}
-                      role="alert"
-                      className="text-small text-danger"
-                    >
-                      {t("fees.errors.vatRateOutOfRange")}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <button
-                type="submit"
-                className={PRIMARY_BUTTON}
-                disabled={apartmentId === "" || monthlyAmount === ""}
-              >
-                {t("fees.record.submit")}
-              </button>
-            </fieldset>
-          </form>
+            <button
+              type="submit"
+              className={PRIMARY_BUTTON}
+              disabled={apartmentId === "" || monthlyAmount === ""}
+            >
+              {t("fees.record.submit")}
+            </button>
+          </LockedForm>
           <p className={HINT}>{t("fees.record.forwardDated")}</p>
         </section>
 

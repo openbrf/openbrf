@@ -18,9 +18,20 @@ export type ImportErrorReason =
    * finished.
    */
   | "another-import-running"
+  /**
+   * An administrator asked to abandon a session that is not queued or
+   * applying: it has not been started, or it has already ended.
+   */
+  | "session-not-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
+  /**
+   * A CSV without a byte order mark that is UTF-8 and another encoding at once.
+   * Its own code, because the board can fix it by saving the file again, and
+   * the generic "unreadable" message does not say how.
+   */
+  | "file-mixed-encoding"
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
@@ -33,7 +44,12 @@ export type ImportErrorReason =
   | "preview-replaced"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
-  | "apply-interrupted";
+  | "apply-interrupted"
+  /**
+   * Recorded on a session an administrator abandoned while it was queued or
+   * applying. Never a request's answer.
+   */
+  | "apply-abandoned";
 
 export class ImportError extends DomainError {
   override readonly status: number;
@@ -48,6 +64,7 @@ export class ImportError extends DomainError {
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
             reason === "another-import-running" ||
+            reason === "session-not-running" ||
             reason === "preview-replaced"
           ? 409
           : 400;
