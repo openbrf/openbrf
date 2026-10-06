@@ -19,13 +19,16 @@ A letter is no longer taken for a copy of the board's own answer just because
 it carries the answer's Message-ID. That identifier reaches the correspondent
 with the answer, so anybody the board had answered could write to it again
 under the identifier and the letter was never stored. A letter is now the
-board's own answer only when its subject and every form of its text - the
-plain text and the HTML alike - are the answer as this instance renders it,
-and it carries no file and no other part. A copy that a mailing list or a mail
-service has changed is collected as a letter, so the board may see its own
-answer again; it no longer misses somebody else's letter. A copy of an answer
-too long for the collector to read whole is still recognised by as much of it
-as was read.
+board's own answer only when its subject and every form of its text are the
+answer as this instance renders it, and it carries no file and no other part.
+The plain text is compared word for word and the HTML as HTML, so a picture or
+styled text that a mail client would show beside the answer's words also makes
+it a letter. A copy that a mailing list or a mail service has changed is
+collected as a letter, so the board may see its own answer again; it no longer
+misses somebody else's letter. A copy of an answer too long for the collector
+to read whole is still recognised by the part that is read, which is all the
+board's screen shows of any letter. A letter cut short with less text than
+that is never taken for an answer, whatever its first lines say.
 
 Further copies of one answer are no longer fetched on every collection. The
 first copy is held under the answer, as before; each further one, which a

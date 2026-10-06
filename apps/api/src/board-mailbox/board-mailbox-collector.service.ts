@@ -24,10 +24,10 @@ import {
 } from "./board-mailbox-settings";
 import { isDataRefusal, isUniqueViolation } from "./database-refusal";
 import {
-  htmlToText,
   type MimeAttachment,
   type ParsedMessage,
   type ReadText,
+  readBody,
   readMessage,
 } from "./mime";
 import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
@@ -1403,30 +1403,37 @@ function believedDate(claimed: Date | null, now: Date): Date | null {
  *
  * Its subject, and every form of its text: the body the reader chose and each
  * alternative beside it, so that a letter cannot put the answer where this
- * module reads and something else where a mail client shows it. Plain text is
- * held to the answer's plain text and HTML to its HTML, read as the reader
- * reads it - a copy that kept only its HTML is read from that. A form that
- * says nothing is no form. Compared with the whitespace folded, which is what
- * a transfer encoding and a client's line wrapping change, and nothing else
- * is forgiven: a word added anywhere is a letter.
+ * module reads and something else where a mail client shows it. Each form is
+ * held to the answer's form of the same kind, read as the reader reads a
+ * letter - a copy that kept only its HTML is read from that. Plain text is
+ * compared by its words. HTML is compared as HTML, because its words are not
+ * all a client shows: a picture, or text a style sheet writes, says something
+ * no word of it does. A form that says nothing is held to the answer all the
+ * same, since a client may show what it does say. Compared with the whitespace
+ * folded, which is what a transfer encoding and a client's line wrapping
+ * change, and nothing else is forgiven: a word or a tag added anywhere is a
+ * letter.
  *
- * A form the reader cut is held to as much of the answer as it kept. An answer
- * as long as the board may write is, with its greeting and closing line,
- * longer than the reader keeps of any letter, so its copy is always read cut.
- * What lies past the cut would not have been on the board's screen either,
- * only the notice that the letter went on.
+ * A form the reader cut matches only an answer the reader cuts at the same
+ * place, which is an answer longer than the reader keeps of any letter: as long
+ * as the board may write, with its greeting and closing line. A copy of it is
+ * always read cut, and what lies past the cut would not have been on the
+ * board's screen either, only the notice that the letter went on. A short
+ * answer and a cut letter are never the same, whatever the letter keeps of it
+ * before the cut.
  */
 function saysTheSame(letter: ParsedMessage, answer: RenderedMail): boolean {
-  const folded = (value: string): string =>
-    value.replaceAll(/\s+/g, " ").trim();
-  const text = folded(answer.text);
-  const html = folded(htmlToText(answer.html));
+  const folded = (value: string | null): string | null =>
+    value === null ? null : value.replaceAll(/\s+/g, " ").trim();
+  const text = readBody(answer.text, false);
+  const html = readBody(answer.html, true);
   const matches = (form: ReadText): boolean => {
-    const said = folded(form.text);
     const meant = form.fromHtml ? html : text;
-    return form.truncated
-      ? said !== "" && meant.startsWith(said)
-      : said === meant;
+    return (
+      form.truncated === meant.truncated &&
+      folded(form.text) === folded(meant.text) &&
+      folded(form.html) === folded(meant.html)
+    );
   };
   return (
     folded(letter.subject) === folded(answer.subject) &&
@@ -1434,10 +1441,9 @@ function saysTheSame(letter: ParsedMessage, answer: RenderedMail): boolean {
       text: letter.text,
       truncated: letter.textTruncated,
       fromHtml: letter.textFromHtml,
+      html: letter.textHtml,
     }) &&
-    letter.alternatives.every(
-      (form) => folded(form.text) === "" || matches(form),
-    )
+    letter.alternatives.every(matches)
   );
 }
 

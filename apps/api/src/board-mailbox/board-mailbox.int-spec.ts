@@ -28,7 +28,7 @@ import {
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
-import { readMessage } from "./mime";
+import { htmlToText, MAX_TEXT_CHARACTERS, readMessage } from "./mime";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
@@ -329,6 +329,7 @@ async function sendAnswer(replyMessageId: string): Promise<HandedOver> {
  *   multipart/mixed.
  * @param options.html An HTML form in place of the answer's own.
  * @param options.subject A subject line in place of the answer's own.
+ * @param options.text A plain-text form in place of the answer's own.
  */
 async function answerCopy(
   input: HandedOver,
@@ -336,6 +337,7 @@ async function answerCopy(
     extraParts?: readonly (readonly string[])[];
     html?: string;
     subject?: string;
+    text?: string;
   } = {},
 ): Promise<string> {
   const extraParts = options.extraParts ?? [];
@@ -349,7 +351,7 @@ async function answerCopy(
     "Content-Type: text/plain; charset=utf-8",
     "Content-Transfer-Encoding: base64",
     "",
-    base64(rendered.text),
+    base64(options.text ?? rendered.text),
     "--ALT",
     "Content-Type: text/html; charset=utf-8",
     "Content-Transfer-Encoding: base64",
@@ -2626,6 +2628,8 @@ describe("answering a letter", () => {
      * each of these is somebody writing to the board, and each is stored.
      */
     const sent = await sendAnswer(replyMessageId);
+    const rendered = await mail.renderMail(sent);
+    const [firstWord] = htmlToText(rendered.html).trim().split(/\s+/);
     const borrowed = (name: string, raw: string) => ({
       uid: `uid-${name}-${suffix}`,
       raw,
@@ -2680,11 +2684,52 @@ describe("answering a letter", () => {
         "lanat-amne",
         await answerCopy(sent, { subject: `Nytt arende ${subject}` }),
       ),
+      // The answer, then a gap longer than the reader keeps, then another
+      // letter. A client shows all of it; the reader keeps the answer and the
+      // gap, and is told the letter goes on.
+      borrowed(
+        "lanat-utfyllnad",
+        await answerCopy(sent, {
+          text: `${rendered.text}${" ".repeat(MAX_TEXT_CHARACTERS)}Det har ar ett annat brev.`,
+        }),
+      ),
+      // The same in HTML: the answer's first word, then a comment longer than
+      // the reader reads, then another letter.
+      borrowed(
+        "lanat-kommentar",
+        await answerCopy(sent, {
+          html: `<p>${firstWord}<!--${" ".repeat(4 * MAX_TEXT_CHARACTERS)}-->Det har ar ett annat brev.</p>`,
+        }),
+      ),
+      // Another letter as a picture in the HTML, which has no words at all.
+      borrowed(
+        "lanat-bild",
+        await answerCopy(sent, {
+          html: '<img src="data:image/png;base64,iVBORw0KGgo=">',
+        }),
+      ),
+      // Another letter written by a style sheet, which has no words either.
+      borrowed(
+        "lanat-stil",
+        await answerCopy(sent, {
+          html: '<style>body::before { content: "Det har ar ett annat brev."; }</style>',
+        }),
+      ),
+      // The answer's HTML word for word, and a picture among its words.
+      borrowed(
+        "lanat-bild-i-svaret",
+        await answerCopy(sent, {
+          html: rendered.html.replace(
+            "</body>",
+            '<img src="data:image/png;base64,iVBORw0KGgo="></body>',
+          ),
+        }),
+      ),
     ]);
 
     try {
       const summary = await collector.collect();
-      expect(summary.collected).toBe(5);
+      expect(summary.collected).toBe(10);
 
       const stored = await prisma.boardMailboxMessage.findMany({
         where: {
@@ -2692,7 +2737,7 @@ describe("answering a letter", () => {
         },
         select: { direction: true },
       });
-      expect(stored).toHaveLength(5);
+      expect(stored).toHaveLength(10);
       expect(stored.every((row) => row.direction === "INBOUND")).toBe(true);
 
       // The second text is in the letter the board reads, not left out of it.

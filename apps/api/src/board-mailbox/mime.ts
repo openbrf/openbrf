@@ -145,6 +145,11 @@ export interface ParsedMessage {
   readonly textTruncated: boolean;
   /** Whether {@link text} was derived from an HTML part rather than sent as text. */
   readonly textFromHtml: boolean;
+  /**
+   * The HTML {@link text} was read from, as far as the reader read it, when it
+   * was read from one HTML part. Null otherwise.
+   */
+  readonly textHtml: string | null;
   readonly attachments: readonly MimeAttachment[];
   /**
    * The other forms of the body: every text part of a `multipart/alternative`
@@ -174,6 +179,15 @@ export interface ReadText {
   readonly truncated: boolean;
   /** Whether it was read from HTML. */
   readonly fromHtml: boolean;
+  /**
+   * The HTML it was read from, as far as the reader read it, when it was read
+   * from one HTML part. Null for plain text, and for text joined from several
+   * parts.
+   *
+   * The words are not all an HTML form says: a picture, or text a style sheet
+   * writes, is shown by a mail client and is no word of it.
+   */
+  readonly html: string | null;
 }
 
 /** A parsed content type: "text/plain; charset=utf-8" and its parameters. */
@@ -225,6 +239,7 @@ export function readMessage(raw: Buffer): ParsedMessage {
     text: body?.text ?? "",
     textTruncated: body?.truncated ?? false,
     textFromHtml: body?.fromHtml ?? false,
+    textHtml: body?.html ?? null,
     attachments: collectAttachments(part),
     alternatives: unread.alternatives,
     unreadParts: unread.parts,
@@ -626,22 +641,34 @@ function chooseBody(part: MimePart): ChosenBody | null {
     ),
     charset,
   );
-  const read = prefix(decoded, MAX_BODY_INPUT);
+  const read = readBody(decoded, part.contentType.subtype === "html");
 
-  const fromHtml = part.contentType.subtype === "html";
+  return { ...read, parts: [part], truncated: cut || read.truncated };
+}
+
+/**
+ * A body's decoded text, read as the reader reads one: plain text with its
+ * newlines normalised and its control characters dropped, HTML as the text it
+ * shows, and either held to the bounds above.
+ *
+ * Exported so that what this instance sent can be read the way a copy of it
+ * that comes back is read.
+ */
+export function readBody(decoded: string, fromHtml: boolean): ReadText {
+  const read = prefix(decoded, MAX_BODY_INPUT);
   const text = fromHtml
     ? htmlToText(read)
     : withoutControlCharacters(normaliseNewlines(read));
 
   return {
-    parts: [part],
     text: prefix(text, MAX_TEXT_CHARACTERS),
     // Either cut counts. A body cut before it was read can still come out
     // shorter than the bound - an HTML letter whose text sat behind its markup -
     // and the board is owed the same notice for it.
     truncated:
-      cut || read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
+      read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
     fromHtml,
+    html: fromHtml ? read : null,
   };
 }
 
@@ -750,6 +777,7 @@ function joinedBody(children: readonly MimePart[]): ChosenBody | null {
       text.length > MAX_TEXT_CHARACTERS ||
       read.some((chosen) => chosen.truncated),
     fromHtml: said.some((chosen) => chosen.fromHtml),
+    html: null,
   };
 }
 
@@ -895,6 +923,7 @@ function unreadContent(
         text: form.text,
         truncated: form.truncated,
         fromHtml: form.fromHtml,
+        html: form.html,
       });
     }
   }

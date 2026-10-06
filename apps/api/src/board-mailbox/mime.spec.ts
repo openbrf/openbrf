@@ -163,6 +163,7 @@ describe("readMessage", () => {
     expect(message.text).toContain("Vad sagt av avsandaren");
     expect(message.text).not.toContain("En rendering av det");
     expect(message.textFromHtml).toBe(false);
+    expect(message.textHtml).toBeNull();
     // And the alternative is not turned into an attachment: it is the same
     // message written twice, not a file.
     expect(message.attachments).toHaveLength(0);
@@ -184,6 +185,9 @@ describe("readMessage", () => {
 
     expect(message.textFromHtml).toBe(true);
     expect(message.text).toContain("Forsta stycket");
+    // The markup is kept beside the text, whole, for a caller that has to know
+    // what a client shows rather than what the words are.
+    expect(message.textHtml).toContain("<style>p{color:red}</style>");
     expect(message.text).toContain("Andra stycket");
     // Nothing markup-shaped survives, so nothing downstream can render it.
     expect(message.text).not.toContain("<");
@@ -1220,7 +1224,12 @@ describe("readMessage", () => {
     // A client that shows HTML shows the other letter, so a caller that judges
     // the letter by its text has to be able to see it.
     expect(message.alternatives).toEqual([
-      { text: "Ett annat brev", truncated: false, fromHtml: true },
+      {
+        text: "Ett annat brev",
+        truncated: false,
+        fromHtml: true,
+        html: "<p>Ett <b>annat</b> brev</p>",
+      },
     ]);
     expect(message.unreadParts).toBe(0);
   });
