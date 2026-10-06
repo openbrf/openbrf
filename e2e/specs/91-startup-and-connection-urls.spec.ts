@@ -757,6 +757,30 @@ test("the hardening refuses an owner's URL on another server than the applicatio
   }
 });
 
+test("the hardening refuses a supplied runtime URL on another server than the owner's", () => {
+  test.setTimeout(60_000);
+
+  // With RUNTIME_DB_PASSWORD beside it this service still hardens the role,
+  // on the server DATABASE_URL names, while the application connects by
+  // DATABASE_URL_RUNTIME: the role it uses would be one nobody constrained.
+  const { status, output } = runInAppContainer(
+    ["node", "/app/docker/harden-runtime-role.mjs"],
+    {
+      DATABASE_URL: `postgresql://openbrf_owner:${DECOY_PASSWORD}@db:5432/openbrf`,
+      DATABASE_URL_RUNTIME: `postgresql://openbrf_app:${DECOY_PASSWORD}@elsewhere.invalid:5432/openbrf`,
+      RUNTIME_DB_PASSWORD: DECOY_PASSWORD,
+    },
+    60_000,
+  );
+
+  expect(status, `refused: ${output}`).toBe(1);
+  expect(output).toContain(
+    "DATABASE_URL names another server or database than DATABASE_URL_RUNTIME",
+  );
+  expect(output.includes(WAITED_FOR_A_DATABASE), "psql never ran").toBe(false);
+  expect(output.includes(DECOY_PASSWORD), "not echoed").toBe(false);
+});
+
 test("the entrypoint refuses a runtime URL that signs in as the owner when the operator manages the role", () => {
   test.setTimeout(120_000);
 

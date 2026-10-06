@@ -34,8 +34,9 @@ const SEED_PERSON_PREFIX = "seed-person-";
  * runs only where every one of these holds. Asked for in this invocation, by an
  * argument rather than a variable: an .env line would ask on every later run as
  * well, from whichever checkout it sits in. Not production. And a database that
- * holds nothing but the seed's own rows - no association under another name, no
- * person and no member register entry the seed did not write - because
+ * holds nothing but the seed's own rows - no association under another name or
+ * organisation number, no person and no member register entry the seed did not
+ * write - because
  * NODE_ENV defaults to development, and a checkout whose DATABASE_URL points at
  * a real instance is exactly where the first two would not stop it.
  */
@@ -50,7 +51,10 @@ export async function demoSeedRefusal(
     return "Refusing to seed demo data in production: the member register entries it creates are append-only and could not be removed.";
   }
   const [association, people, entries] = await Promise.all([
-    prisma.association.findUnique({ where: { id: 1 }, select: { name: true } }),
+    prisma.association.findUnique({
+      where: { id: 1 },
+      select: { name: true, organizationNumber: true },
+    }),
     prisma.person.count({
       where: { NOT: { id: { startsWith: SEED_PERSON_PREFIX } } },
     }),
@@ -58,11 +62,13 @@ export async function demoSeedRefusal(
       where: { NOT: { personId: { startsWith: SEED_PERSON_PREFIX } } },
     }),
   ]);
-  if (
-    (association !== null && association.name !== DEMO_ASSOCIATION.name) ||
-    people > 0 ||
-    entries > 0
-  ) {
+  // The name alone is not the demo's: a real association can be called that,
+  // and the seed would write its undeletable entries into that one's register.
+  const foreign =
+    association !== null &&
+    (association.name !== DEMO_ASSOCIATION.name ||
+      association.organizationNumber !== DEMO_ASSOCIATION.organizationNumber);
+  if (foreign || people > 0 || entries > 0) {
     return "Refusing to seed demo data: this database already holds an association, people or member register entries of its own.";
   }
   return null;

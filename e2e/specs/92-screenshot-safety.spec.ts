@@ -226,6 +226,18 @@ for (const written of ["070-123 45 67", "+46 70 123 45 67", "0701234567"]) {
   });
 }
 
+test("refuses a mobile number right after a label of its own", async ({
+  page,
+}) => {
+  // Two inline elements read as one run of text, the label touching the
+  // number; on the screen they are a label and a number.
+  await page.setContent(pageShowing("Mobil0701234567"));
+
+  await expect(assertSafeToPublish(page, "phone-after-label")).rejects.toThrow(
+    /phone number/,
+  );
+});
+
 test("lets a date, a time and an amount through", async ({ page }) => {
   await page.setContent(
     pageShowing("2026-07-01 – 2026-07-31, kl. 07:30, 1 070 123,45 kr"),

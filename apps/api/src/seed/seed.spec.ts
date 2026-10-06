@@ -16,16 +16,25 @@ import { DEMO_SEED_FLAG, demoSeedRefusal } from "./seed";
 
 interface Holding {
   associationName?: string;
+  /** Defaults to the demo's own when an association is held. */
+  organizationNumber?: string | null;
   /** People and member register entries the seed did not write. */
   ownPeople?: number;
   ownEntries?: number;
 }
 
-function database({ associationName, ownPeople = 0, ownEntries = 0 }: Holding) {
+function database({
+  associationName,
+  organizationNumber = DEMO_ASSOCIATION.organizationNumber,
+  ownPeople = 0,
+  ownEntries = 0,
+}: Holding) {
   return {
     association: {
       findUnique: vi.fn(async () =>
-        associationName === undefined ? null : { name: associationName },
+        associationName === undefined
+          ? null
+          : { name: associationName, organizationNumber },
       ),
     },
     person: { count: vi.fn(async () => ownPeople) },
@@ -70,6 +79,23 @@ describe("the demo seed", () => {
     // The seed would rename it to the demo's.
     await expect(
       refusal({ associationName: "Brf Ekhagen" }),
+    ).resolves.not.toBeNull();
+  });
+
+  it("refuses an association that shares only the demo's name", async () => {
+    // A real association can be called that; the seed would write member
+    // register entries that cannot be deleted into its register.
+    await expect(
+      refusal({
+        associationName: DEMO_ASSOCIATION.name,
+        organizationNumber: "716400-1234",
+      }),
+    ).resolves.not.toBeNull();
+    await expect(
+      refusal({
+        associationName: DEMO_ASSOCIATION.name,
+        organizationNumber: null,
+      }),
     ).resolves.not.toBeNull();
   });
 

@@ -12,7 +12,10 @@ import { JobQueueService } from "../jobs/job-queue.service";
 
 export const PERSON_REINDEX_QUEUE = "person-blind-index-reindex";
 
-/** People read per round; each costs an Argon2id hash for its identity number. */
+/**
+ * People read per round; each costs an Argon2id hash for its personal identity
+ * number.
+ */
 const BATCH = 100;
 
 /**
@@ -21,8 +24,8 @@ const BATCH = 100;
  * A blind index is a keyed hash of the normalised value (ADR 0002), so when the
  * rules change, an index stored under the old ones stops matching a search
  * normalised under the new: the person is still in the register and can no
- * longer be found by phone or identity number, and the import's duplicate check
- * misses them. Only the application holds the key, so the indexes are
+ * longer be found by phone or personal identity number, and the import's
+ * duplicate check misses them. Only the application holds the key, so the indexes are
  * recomputed here, from the ciphertexts, which hold each value as entered. The
  * email is left alone because its rules have not changed.
  *

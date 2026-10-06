@@ -283,9 +283,40 @@ export function runtimeRole() {
   return role;
 }
 
+/** Query parameters libpq lets override a connection URL's server or database. */
+const SERVER_PARAMETERS = ["host", "hostaddr", "port", "dbname"];
+
+/**
+ * Where a connection URL connects, in a form two of them can be compared by.
+ * Spelled as the URL spells it, so one server written two ways is refused
+ * rather than guessed at.
+ */
+function serverOf(url, variable) {
+  const parsed = parseUrl(url, variable);
+  return {
+    host: parsed.hostname.toLowerCase(),
+    port: parsed.port || "5432",
+    database: decodeURIComponent(parsed.pathname.slice(1)),
+    overrides: SERVER_PARAMETERS.map((name) =>
+      parsed.searchParams.getAll(name).join("\n"),
+    ).join("\0"),
+  };
+}
+
+/** The server POSTGRES_HOST, POSTGRES_PORT and POSTGRES_DB name, as serverOf. */
+function assembledServer() {
+  const { host, port, database } = databaseServer();
+  return {
+    host: host.toLowerCase(),
+    port,
+    database,
+    overrides: SERVER_PARAMETERS.map(() => "").join("\0"),
+  };
+}
+
 /**
  * Refuses an owner's connection to a server or database other than the one the
- * application's own connection is built for. Nothing from the URL is repeated
+ * application's own connection is for. Nothing from either URL is repeated
  * back.
  *
  * Without DATABASE_URL_RUNTIME the application's URL is assembled from
@@ -295,31 +326,47 @@ export function runtimeRole() {
  * connects to the one those three name: a host that does not resolve, or a
  * database that is not this instance's. Server and database are compared as
  * the URL spells them, so one moved into a query parameter is refused too.
+ *
+ * With DATABASE_URL_RUNTIME supplied beside RUNTIME_DB_PASSWORD, this service
+ * still hardens the role and the application connects by that URL, so the two
+ * URLs are compared with each other instead. With DATABASE_URL_RUNTIME alone
+ * the operator manages the role, nothing is hardened, and there is nothing to
+ * compare.
  */
 export function checkRuntimeServer() {
   const runtimeUrl = process.env.DATABASE_URL_RUNTIME;
-  if (runtimeUrl !== undefined && runtimeUrl !== "") {
+  const supplied = runtimeUrl !== undefined && runtimeUrl !== "";
+  const password = process.env.RUNTIME_DB_PASSWORD;
+  if (supplied && (password === undefined || password === "")) {
     return;
   }
-  const parsed = parseUrl(process.env.DATABASE_URL ?? "", "DATABASE_URL");
-  const { host, port, database } = databaseServer();
-  const elsewhere =
-    ["host", "hostaddr", "port", "dbname"].some((name) =>
-      parsed.searchParams.has(name),
-    ) ||
-    parsed.hostname.toLowerCase() !== host.toLowerCase() ||
-    (parsed.port || "5432") !== port ||
-    decodeURIComponent(parsed.pathname.slice(1)) !== database;
-  if (elsewhere) {
+  const owner = serverOf(process.env.DATABASE_URL ?? "", "DATABASE_URL");
+  const runtime = supplied
+    ? serverOf(runtimeUrl, "DATABASE_URL_RUNTIME")
+    : assembledServer();
+  const elsewhere = ["host", "port", "database", "overrides"].some(
+    (part) => owner[part] !== runtime[part],
+  );
+  if (!elsewhere) {
+    return;
+  }
+  if (supplied) {
     throw new Error(
-      "DATABASE_URL names another server or database than POSTGRES_HOST, " +
-        "POSTGRES_PORT and POSTGRES_DB, which the application builds its own " +
-        "connection from, so the runtime role would be constrained on one and " +
-        "used on the other. Set those three to the server and database " +
-        "DATABASE_URL names, for this service and the application alike, or " +
-        "give both DATABASE_URL_RUNTIME.",
+      "DATABASE_URL names another server or database than " +
+        "DATABASE_URL_RUNTIME, so the runtime role would be constrained on " +
+        "one and used on the other. Write both for the same server and " +
+        "database, spelled the same way, or unset RUNTIME_DB_PASSWORD to " +
+        "manage the role yourself.",
     );
   }
+  throw new Error(
+    "DATABASE_URL names another server or database than POSTGRES_HOST, " +
+      "POSTGRES_PORT and POSTGRES_DB, which the application builds its own " +
+      "connection from, so the runtime role would be constrained on one and " +
+      "used on the other. Set those three to the server and database " +
+      "DATABASE_URL names, for this service and the application alike, or " +
+      "give both DATABASE_URL_RUNTIME.",
+  );
 }
 
 /** Every component that carries a value an operator chose is encoded. */

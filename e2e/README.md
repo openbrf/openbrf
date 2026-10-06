@@ -519,7 +519,7 @@ That is checked rather than trusted. Before each image is written, the capture
 reads the rendered text, every filled-in field and every embedded frame, and
 fails the run on a personal identity number in either form, with or without
 its separator, on anything shaped like a Swedish mobile number, or on any email
-address outside `.test`. Identity numbers are found with the product's own
+address outside `.test`. Personal identity numbers are found with the product's own
 scanner from `@openbrf/shared`, which checks the date and the check digit. A
 Swedish organisation number has the same shape and is not one; the two are told
 apart by the date a personal identity number begins with, which an organisation

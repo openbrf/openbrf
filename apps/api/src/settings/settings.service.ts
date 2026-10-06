@@ -6,6 +6,7 @@ import {
 } from "@openbrf/tokens";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import type { Prisma } from "../generated/prisma/client";
 import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
 import { PrismaService } from "../database/prisma.service";
@@ -864,20 +865,17 @@ export class SettingsService {
               )
             ).cipher;
 
-    await this.prisma.association.update({
-      where: { id: 1 },
-      data: {
-        smtpHost: input.host,
-        smtpPort: input.port,
-        smtpSecure: input.secure,
-        smtpUser: input.user,
-        smtpFromAddress: input.fromAddress,
-        // Left out of the update entirely when undefined, so saving the rest of
-        // the form does not silently wipe a password the screen never showed.
-        ...(passwordCipher === undefined
-          ? {}
-          : { smtpPasswordCipher: passwordCipher }),
-      },
+    await this.writeEndpointBlock(input.password === undefined, stored, {
+      smtpHost: input.host,
+      smtpPort: input.port,
+      smtpSecure: input.secure,
+      smtpUser: input.user,
+      smtpFromAddress: input.fromAddress,
+      // Left out of the update entirely when undefined, so saving the rest of
+      // the form does not silently wipe a password the screen never showed.
+      ...(passwordCipher === undefined
+        ? {}
+        : { smtpPasswordCipher: passwordCipher }),
     });
 
     // The host, and whether a sender is set. The password is a secret, the user
@@ -931,20 +929,17 @@ export class SettingsService {
               )
             ).cipher;
 
-    await this.prisma.association.update({
-      where: { id: 1 },
-      data: {
-        boardMailboxAddress: input.address,
-        boardMailboxPop3Host: input.host,
-        boardMailboxPop3Port: input.port,
-        boardMailboxPop3Secure: input.secure,
-        boardMailboxPop3User: input.user,
-        // Left out of the update entirely when undefined, so saving the rest of
-        // the form does not silently wipe a password the screen never showed.
-        ...(passwordCipher === undefined
-          ? {}
-          : { boardMailboxPop3PasswordCipher: passwordCipher }),
-      },
+    await this.writeEndpointBlock(input.password === undefined, stored, {
+      boardMailboxAddress: input.address,
+      boardMailboxPop3Host: input.host,
+      boardMailboxPop3Port: input.port,
+      boardMailboxPop3Secure: input.secure,
+      boardMailboxPop3User: input.user,
+      // Left out of the update entirely when undefined, so saving the rest of
+      // the form does not silently wipe a password the screen never showed.
+      ...(passwordCipher === undefined
+        ? {}
+        : { boardMailboxPop3PasswordCipher: passwordCipher }),
     });
 
     // The host, and whether an address is set rather than the address: it is
@@ -1050,18 +1045,15 @@ export class SettingsService {
               )
             ).cipher;
 
-    await this.prisma.association.update({
-      where: { id: 1 },
-      data: {
-        smsDriver: input.driver,
-        smsGatewayUrl: input.gatewayUrl,
-        smsSenderName: input.senderName,
-        // Left out of the update entirely when undefined, so saving the rest of
-        // the form does not silently wipe a credential the screen never showed.
-        ...(tokenCipher === undefined
-          ? {}
-          : { smsGatewayTokenCipher: tokenCipher }),
-      },
+    await this.writeEndpointBlock(input.token === undefined, stored, {
+      smsDriver: input.driver,
+      smsGatewayUrl: input.gatewayUrl,
+      smsSenderName: input.senderName,
+      // Left out of the update entirely when undefined, so saving the rest of
+      // the form does not silently wipe a credential the screen never showed.
+      ...(tokenCipher === undefined
+        ? {}
+        : { smsGatewayTokenCipher: tokenCipher }),
     });
 
     // The driver only. The gateway address is an endpoint an administrator
@@ -1417,6 +1409,35 @@ export class SettingsService {
    * invent a housing cooperative with a placeholder name from a request that
    * was only meant to set an SMTP host.
    */
+  /**
+   * Writes a mail or SMS block whose kept secret was judged against `stored`.
+   *
+   * requireSecretForNewEndpoint reads the row and the write comes after it, so
+   * a second administrator's save can land in between: a password stored for
+   * the old host, or a host changed under a password, and the kept secret
+   * would then go to an endpoint nobody typed it for. While the secret is
+   * kept, the write therefore lands only on a row whose endpoint and secret
+   * are still the ones the guard saw, and asks for the secret again when they
+   * are not. A save that sends the secret writes it with the endpoint in one
+   * statement, so it needs no condition.
+   */
+  private async writeEndpointBlock(
+    keepsSecret: boolean,
+    stored: Prisma.AssociationWhereInput,
+    data: Prisma.AssociationUpdateManyMutationInput,
+  ): Promise<void> {
+    const { count } = await this.prisma.association.updateMany({
+      where: { ...(keepsSecret ? stored : {}), id: 1 },
+      data,
+    });
+    if (count === 0) {
+      throw new SettingsError(
+        "The server or its secret changed during this save; enter the secret again.",
+        "secret-required-for-new-endpoint",
+      );
+    }
+  }
+
   private async requireAssociation(): Promise<void> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },

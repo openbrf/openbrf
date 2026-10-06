@@ -18,4 +18,5 @@ Each person now records the normalisation rules their blind indexes were
 computed under. After the upgrade the instance recomputes the indexes of every
 person stored before it, from the encrypted values, in a job queued at start.
 There is nothing to do by hand; until the job has finished, a search by phone
-number or identity number can miss a person stored before the upgrade.
+number or personal identity number can miss a person stored before the
+upgrade.

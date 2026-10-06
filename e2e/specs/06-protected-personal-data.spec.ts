@@ -133,10 +133,13 @@ test("a reveal is an explicit act and lands in the audit log", async ({
 
   // Nothing is on the page before it is asked for, in the person view or in
   // the row behind it: not the email address, not the phone number however
-  // it is spaced, and not the personal identity number.
+  // it is spaced, domestic or international (the register stores it as
+  // +46709876543), and not the personal identity number.
   const onThePage = page.locator("body");
   await expect(onThePage).not.toContainText(REVEALED.email);
-  await expect(onThePage).not.toContainText(/070[\s-]?987[\s-]?65[\s-]?43/);
+  await expect(onThePage).not.toContainText(
+    /(?:(?:\+|00)46[\s-]?(?:\(0\)[\s-]?)?|0)70[\s-]?987[\s-]?65[\s-]?43/,
+  );
   await expect(onThePage).not.toContainText(/(19)?900101[-+]?0017/);
 
   // The personal identity number is masked for everyone, protected flag or

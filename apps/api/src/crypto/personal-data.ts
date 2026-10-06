@@ -36,8 +36,8 @@ export type {
  * (blindIndexVersion), so the reindex at boot can tell which rows still hold
  * indexes from an older rule set.
  *
- * 2: a ten-digit identity number's century is judged by the whole birth date,
- * and a phone number's trunk zero after +46 is dropped.
+ * 2: a ten-digit personal identity number's century is judged by the whole
+ * birth date, and a phone number's trunk zero after +46 is dropped.
  */
 export const NORMALIZATION_VERSION = 2;
 

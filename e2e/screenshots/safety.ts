@@ -50,13 +50,15 @@ export async function freezeScripts(
  *
  * Mobile numbers only, because those are what a person gives the association
  * and what the demo data the capture never runs is full of. Ten digits with at
- * most one space or hyphen between any two, and not touching a letter or a
- * digit on either side: a date (2026-07-01), a time or an amount runs out of
- * digits or meets another separator long before ten, and a longer run of
- * digits - a reference, an account - is not cut into a number from its middle.
+ * most one space or hyphen between any two, and not touching a digit on either
+ * side: a date (2026-07-01), a time or an amount runs out of digits or meets
+ * another separator long before ten, and a longer run of digits - a reference,
+ * an account - is not cut into a number from its middle. A letter may touch
+ * it: a label in an element of its own reads as "Mobil0701234567" in the text,
+ * and the picture still shows the number.
  */
 const PHONE_NUMBER =
-  /(?<!\w)(?:(?:\+|00)46[\s-]?(?:\(0\)[\s-]?)?|0)7\d(?:[\s-]?\d){7}(?!\d)/g;
+  /(?<!\d)(?:(?:\+|00)46[\s-]?(?:\(0\)[\s-]?)?|0)7\d(?:[\s-]?\d){7}(?!\d)/g;
 
 const EMAIL_ADDRESS = /\b[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
 

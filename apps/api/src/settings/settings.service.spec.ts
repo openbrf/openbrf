@@ -88,8 +88,10 @@ interface Fakes {
   prisma: {
     association: {
       findUnique: ReturnType<typeof vi.fn>;
+      findUniqueOrThrow: ReturnType<typeof vi.fn>;
       upsert: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
     person: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -146,6 +148,30 @@ function build(
         row = { ...row, ...data };
         return row;
       }),
+      // Equality on every column named, which is all the service asks of it.
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Partial<Association> & { id: number };
+          data: Partial<Association>;
+        }) => {
+          const current = row;
+          const { id: _id, ...columns } = where;
+          if (
+            current === null ||
+            Object.entries(columns).some(
+              ([column, value]) =>
+                current[column as keyof Association] !== value,
+            )
+          ) {
+            return { count: 0 };
+          }
+          row = { ...current, ...data };
+          return { count: 1 };
+        },
+      ),
     },
     person: {
       findUnique: vi.fn(async () => ({
@@ -462,6 +488,49 @@ describe("SMTP settings", () => {
       smtpPasswordCipher: null,
     });
   });
+
+  it.each([
+    [
+      "a password stored for the old host",
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: null,
+      },
+      {
+        smtpHost: "smtp.old.example",
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:stored-meanwhile",
+      },
+    ],
+    [
+      "the host moved under the stored password",
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      },
+      {
+        smtpHost: "smtp.elsewhere.example",
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      },
+    ],
+  ])(
+    "refuses to keep the password after another save wrote %s in between",
+    async (_, seen, meanwhile) => {
+      // The guard passed on the row it read; the row the write meets is
+      // another administrator's, and the kept password would go to a host
+      // nobody typed it for.
+      const { service, prisma, current } = build(meanwhile);
+      prisma.association.findUniqueOrThrow.mockResolvedValueOnce(seen);
+
+      await expect(
+        service.updateSmtp({ ...filled, user: "kassoren" }),
+      ).rejects.toMatchObject({ reason: "secret-required-for-new-endpoint" });
+      expect(current()).toMatchObject({ ...meanwhile, smtpUser: null });
+    },
+  );
 
   it("takes a new host freely while no password is stored", async () => {
     const { service, current } = build({ smtpHost: "smtp.old.example" });

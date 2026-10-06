@@ -54,6 +54,27 @@ async function plantedBuilds(): Promise<number> {
   return row?.count ?? 0;
 }
 
+/**
+ * Roles other than the owner that can write pgboss.bam, by the install
+ * script's own test: a table or column grant of INSERT or UPDATE.
+ */
+async function foreignWriters(): Promise<string[]> {
+  const rows = await owner.$queryRawUnsafe<{ grantee: string }[]>(
+    `SELECT DISTINCT pg_get_userbyid(g.grantee) AS grantee
+     FROM pg_class c
+     CROSS JOIN LATERAL (
+       SELECT c.relacl AS acl
+       UNION ALL
+       SELECT a.attacl FROM pg_attribute a WHERE a.attrelid = c.oid
+     ) AS acls
+     CROSS JOIN LATERAL aclexplode(acls.acl) AS g
+     WHERE c.oid = 'pgboss.bam'::regclass
+       AND g.grantee <> c.relowner
+       AND g.privilege_type IN ('INSERT', 'UPDATE')`,
+  );
+  return rows.map((row) => row.grantee);
+}
+
 /** A pending index build, which pg-boss's runner would execute verbatim. */
 async function plantBuild(command: string): Promise<void> {
   await owner.$executeRawUnsafe(
@@ -153,7 +174,13 @@ describe("the job schema install", () => {
 
   it("leaves an index build alone once only the owner can write the queue of them", async () => {
     // The owner's own builds, enqueued by a pg-boss upgrade, are what the
-    // queue is for once the hardening has run.
+    // queue is for once the hardening has run. The database is shared, so a
+    // grant left by another suite would remove the build for a reason this
+    // test is not about; it is named here rather than as a missing build.
+    expect(
+      await foreignWriters(),
+      "roles other than the owner that can write pgboss.bam",
+    ).toEqual([]);
     await plantBuild("SELECT 1");
 
     const installed = install();

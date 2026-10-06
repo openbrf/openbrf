@@ -374,6 +374,17 @@ async function arrangeAndOpen(page: Page, heldOn: string): Promise<string> {
 
   const list = panel(page, "Föreningens stämmor");
   await expect(list).toBeVisible();
+  /*
+   * The heading arrives with the list, so the list is read by now. A day
+   * already on it is an earlier run's on a reused stack, started in the same
+   * minute as this one or a multiple of forty-five minutes before it: said
+   * here, rather than as the strict-mode failure a later lookup by the day
+   * would give for two rows.
+   */
+  await expect(
+    meetingRow(page, heldOn),
+    `a meeting from an earlier run on this stack is already held on ${heldOn}`,
+  ).toHaveCount(0);
   await list.getByLabel("Dag då den hålls").fill(heldOn);
 
   /*
