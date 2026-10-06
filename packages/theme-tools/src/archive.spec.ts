@@ -372,4 +372,21 @@ describe("readThemeArchive refusals", () => {
     header[0] = 0x41;
     expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
   });
+
+  it("refuses a header whose checksum matches only the signed sum", () => {
+    const header = rawHeader({ name: "theme.json", size: 0, typeFlag: "0" });
+    // One byte of 0x80 or more makes the signed and unsigned sums differ by
+    // 256. node-tar computes only the unsigned one and would skip this header.
+    header[300] = 0xff;
+    let signed = 0;
+    for (const [index, byte] of header.entries()) {
+      const value = index >= 148 && index < 156 ? 0x20 : byte;
+      signed += value > 127 ? value - 256 : value;
+    }
+    header.set(
+      encoder.encode(`${signed.toString(8).padStart(6, "0")}\0 `),
+      148,
+    );
+    expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
+  });
 });
