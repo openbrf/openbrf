@@ -709,7 +709,8 @@
           "CHAT_GROUP_MEMBER_REMOVED": "Lämnade en gruppchatt",
           "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
           "DOCUMENT_UPDATED": "Ett dokument i arkivet döptes om, flyttades eller fick en annan målgrupp",
-          "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades"
+          "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
+          "IMPORT_ABANDONED": "En import av medlemslista avbröts"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -2370,6 +2371,14 @@
       "keepsGoing": "Importen fortsätter även om du stänger sidan. Kom tillbaka hit för att se hur det gick.",
       "another": "Importera en annan lista"
     },
+    "abandon": {
+      "description": "Om importen har slutat gå framåt kan en administratör avbryta den, så att en annan lista kan importeras. Rader som redan har skrivits finns kvar i registret.",
+      "start": "Avbryt importen",
+      "warning": "Avbryta importen? Den skriver inget mer, och det den redan har skrivit finns kvar i medlemsförteckningen, som inte kan ändras. Gör det bara när importen har slutat gå framåt.",
+      "confirm": "Ja, avbryt den",
+      "cancel": "Låt den fortsätta",
+      "working": "Avbryter"
+    },
     "result": {
       "title": "Importen är klar",
       "personsCreated": "Tillagda personer",
@@ -2397,6 +2406,8 @@
       "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
+      "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
+      "sessionNotRunning": "Den importen pågår inte längre.",
       "unknown": "Importen gick inte just nu. Försök igen."
     },
     "template": {

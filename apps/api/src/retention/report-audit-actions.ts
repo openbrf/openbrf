@@ -148,6 +148,7 @@ export const REPORT_AUDIT_ACTIONS = [
   "CHAT_MESSAGE_STRUCK",
   "DOCUMENT_UPDATED",
   "ASSOCIATION_RETENTION_RECORDED",
+  "IMPORT_ABANDONED",
 ] as const;
 
 export type ReportAuditAction = (typeof REPORT_AUDIT_ACTIONS)[number];

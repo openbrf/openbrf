@@ -2033,6 +2033,11 @@ enum AuditAction {
   /// The time service data is kept after a move-out was changed, which moves
   /// every pending purge date at once. The value before and after.
   ASSOCIATION_RETENTION_RECORDED
+  /// An administrator abandoned a member list import that was queued or
+  /// applying, so that another one could run. The target is the import session;
+  /// the entry carries how far through the file it got, never anything from the
+  /// file. What the import already wrote stays in the register.
+  IMPORT_ABANDONED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
