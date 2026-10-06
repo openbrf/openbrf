@@ -48,6 +48,8 @@ function rawHeader(options: {
   typeFlag: string;
   prefix?: string;
   ustar?: boolean;
+  /** Bytes written over the header before its checksum is computed. */
+  patches?: readonly { start: number; bytes: readonly number[] }[];
 }): Uint8Array {
   const header = new Uint8Array(512);
   const write = (value: string, start: number): void => {
@@ -66,6 +68,9 @@ function rawHeader(options: {
     write("00", 263);
   }
   write(options.prefix ?? "", 345);
+  for (const patch of options.patches ?? []) {
+    header.set(patch.bytes, patch.start);
+  }
 
   let checksum = 0;
   for (const byte of header) {
@@ -371,5 +376,170 @@ describe("readThemeArchive refusals", () => {
     const header = rawHeader({ name: "theme.json", size: 0, typeFlag: "0" });
     header[0] = 0x41;
     expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
+  });
+
+  it("reads the numeric fields of GNU tar, bsdtar and older tars", () => {
+    // Trailing space instead of a NUL, leading spaces, and blank fields.
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        patches: [
+          { start: 100, bytes: [...encoder.encode("   644 \0")] },
+          { start: 108, bytes: [...encoder.encode("0001750 ")] },
+          { start: 116, bytes: [...encoder.encode("        ")] },
+          { start: 136, bytes: [...encoder.encode("14013235625 ")] },
+          { start: 329, bytes: [...encoder.encode("0000000 ")] },
+        ],
+      }),
+    ]);
+    expect(unpack(archive)).toEqual({ "theme.json": "" });
+  });
+
+  describe("a malformed numeric field in a later header", () => {
+    const NO_BREAK_SPACE = [0xc2, 0xa0];
+    const fields = [
+      { field: "mode", start: 100, length: 8 },
+      { field: "uid", start: 108, length: 8 },
+      { field: "gid", start: 116, length: 8 },
+      { field: "mtime", start: 136, length: 12 },
+      { field: "devmajor", start: 329, length: 8 },
+      { field: "devminor", start: 337, length: 8 },
+    ];
+    const malformed = [
+      { form: "a non-octal digit", bytes: [...encoder.encode("00008\0")] },
+      { form: "trailing text", bytes: [...encoder.encode("0644x\0")] },
+      { form: "a second number", bytes: [...encoder.encode("12 34\0")] },
+      { form: "a sign", bytes: [...encoder.encode("-1\0")] },
+      {
+        form: "a no-break space a text trim would drop",
+        bytes: [0x31, ...NO_BREAK_SPACE, 0],
+      },
+      { form: "a GNU base-256 value", bytes: [0x80, 0, 0, 0, 0, 0, 1, 0] },
+    ];
+
+    for (const { field, start } of fields) {
+      for (const { form, bytes } of malformed) {
+        it(`refuses ${form} in ${field}`, () => {
+          const archive = rawArchive([
+            rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+            rawHeader({
+              name: "hidden.json",
+              size: 0,
+              typeFlag: "0",
+              patches: [{ start, bytes }],
+            }),
+          ]);
+          expect(() => readThemeArchive(archive)).toThrow(
+            "The archive has a malformed numeric field.",
+          );
+        });
+      }
+    }
+
+    it("refuses a malformed checksum field", () => {
+      const header = rawHeader({ name: "hidden.json", size: 0, typeFlag: "0" });
+      header.set([0x30, 0x30, 0x31, 0x32, 0xc2, 0xa0, 0, 0x20], 148);
+      const archive = rawArchive([
+        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+        header,
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(
+        "The archive has a malformed numeric field.",
+      );
+    });
+
+    it("refuses a malformed size field", () => {
+      const archive = rawArchive([
+        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+        rawHeader({
+          name: "hidden.json",
+          size: 0,
+          typeFlag: "0",
+          patches: [{ start: 124, bytes: [0x31, ...NO_BREAK_SPACE, 0] }],
+        }),
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(
+        "The archive has a malformed numeric field.",
+      );
+    });
+  });
+
+  describe("names that are not UTF-8", () => {
+    const invalidName = [0x61, 0xff, 0x62, 0];
+
+    it("refuses an invalid byte in a name in a later header", () => {
+      // Read without fatal decoding, 0xff and 0xfe both become U+FFFD and
+      // these two names are one path.
+      const archive = rawArchive([
+        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+        rawHeader({
+          name: "x",
+          size: 0,
+          typeFlag: "0",
+          patches: [{ start: 0, bytes: invalidName }],
+        }),
+        rawHeader({
+          name: "x",
+          size: 0,
+          typeFlag: "0",
+          patches: [{ start: 0, bytes: [0x61, 0xfe, 0x62, 0] }],
+        }),
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(
+        "The archive has a name that is not UTF-8.",
+      );
+    });
+
+    it("refuses an invalid byte in a prefix", () => {
+      const archive = rawArchive([
+        rawHeader({
+          name: "theme.json",
+          size: 0,
+          typeFlag: "0",
+          patches: [{ start: 345, bytes: invalidName }],
+        }),
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(
+        "The archive has a name that is not UTF-8.",
+      );
+    });
+
+    it("refuses an invalid byte in a directory name", () => {
+      const archive = rawArchive([
+        rawHeader({
+          name: "x",
+          size: 0,
+          typeFlag: "5",
+          patches: [{ start: 0, bytes: invalidName }],
+        }),
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(
+        "The archive has a name that is not UTF-8.",
+      );
+    });
+
+    it("reads a name with multibyte characters", () => {
+      const archive = rawArchive([
+        rawHeader({ name: "fonts/Åkesson.woff2", size: 0, typeFlag: "0" }),
+        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+      ]);
+      expect(Object.keys(unpack(archive)).sort()).toEqual([
+        "fonts/Åkesson.woff2",
+        "theme.json",
+      ]);
+    });
+
+    it("keeps a byte order mark, so it does not merge two names", () => {
+      const archive = rawArchive([
+        rawHeader({ name: "\uFEFFtheme.json", size: 0, typeFlag: "0" }),
+        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+      ]);
+      expect(Object.keys(unpack(archive)).sort()).toEqual([
+        "theme.json",
+        "\uFEFFtheme.json",
+      ]);
+    });
   });
 });

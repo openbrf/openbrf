@@ -23,6 +23,8 @@ import { gunzipSync, gzipSync } from "node:zlib";
  *   Where tar implementations read the same bytes differently, the archive is
  *   refused rather than read one way. Otherwise `tar -tzf` or Python's tarfile
  *   would list one set of files for a reviewer while this reader kept another.
+ *   That covers every numeric header field, which must be plain ASCII octal,
+ *   and every name, which must be valid UTF-8.
  *
  * The whole archive is held in memory. A theme is colours, a manifest and a
  * few font files; the cap below is the ceiling on that, not a streaming limit.
@@ -66,30 +68,98 @@ export class ThemeArchiveError extends Error {
   }
 }
 
+const SPACE = 0x20;
+const DIGIT_ZERO = 0x30;
+const DIGIT_SEVEN = 0x37;
+const TYPE_FILE = 0x30;
+const TYPE_DIRECTORY = 0x35;
+
+function printableType(typeFlag: number): string {
+  return typeFlag > SPACE && typeFlag < 0x7f
+    ? String.fromCharCode(typeFlag)
+    : "?";
+}
+
 /** The files an archive contained, keyed by their path inside the package. */
 export type ThemeArchiveFiles = ReadonlyMap<string, Uint8Array>;
 
-function decodeString(
+/**
+ * Names are decoded strictly: invalid UTF-8 would otherwise become U+FFFD, and
+ * two different byte strings would then list as one path. The byte order mark
+ * is kept, since dropping it would collapse two names the same way.
+ */
+const nameDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/** The bytes of a NUL-terminated field, up to the first NUL. */
+function fieldBytes(
   block: Uint8Array,
   start: number,
   length: number,
-): string {
+): Uint8Array {
   const slice = block.subarray(start, start + length);
   const end = slice.indexOf(0);
-  return new TextDecoder("utf8").decode(
-    end === -1 ? slice : slice.subarray(0, end),
-  );
+  return end === -1 ? slice : slice.subarray(0, end);
 }
 
-function decodeOctal(block: Uint8Array, start: number, length: number): number {
-  const text = decodeString(block, start, length).trim().replace(/\0+$/, "");
-  if (text === "") {
-    return 0;
+function decodeName(block: Uint8Array, start: number, length: number): string {
+  try {
+    return nameDecoder.decode(fieldBytes(block, start, length));
+  } catch {
+    throw new ThemeArchiveError("The archive has a name that is not UTF-8.");
   }
-  if (!/^[0-7]+$/.test(text)) {
-    throw new ThemeArchiveError("The archive has a malformed numeric field.");
+}
+
+/**
+ * Reads a numeric header field as ASCII octal, and refuses anything else.
+ *
+ * The field is optional spaces, octal digits, then only NUL or space bytes up
+ * to its end. One that is blank or all NULs is zero, as tar writes for a field
+ * it has no value for. Anything else - a stray byte, a high-bit byte (GNU's
+ * base-256 form, or a no-break space that a text trim would drop), a sign, a
+ * second number - is a field some tools read as a number and others stop at, so
+ * the archive is refused. Python's tarfile ends its listing at such a header
+ * without a word, which would leave this reader keeping files it never shows.
+ */
+function parseOctal(block: Uint8Array, start: number, length: number): number {
+  const field = block.subarray(start, start + length);
+  let index = 0;
+  while (index < field.length && field[index] === SPACE) {
+    index += 1;
   }
-  return Number.parseInt(text, 8);
+  let value = 0;
+  let digits = 0;
+  while (index < field.length) {
+    const byte = field[index] ?? 0;
+    if (byte < DIGIT_ZERO || byte > DIGIT_SEVEN) {
+      break;
+    }
+    value = value * 8 + (byte - DIGIT_ZERO);
+    digits += 1;
+    index += 1;
+  }
+  for (; index < field.length; index += 1) {
+    const byte = field[index];
+    if (byte !== 0 && byte !== SPACE) {
+      throw new ThemeArchiveError("The archive has a malformed numeric field.");
+    }
+  }
+  return digits === 0 ? 0 : value;
+}
+
+/**
+ * Every numeric field of a header other than the checksum, parsed whether or
+ * not this reader uses it: Python's tarfile parses all of them, and a header
+ * with one it cannot read is where its listing stops. Returns the size.
+ */
+function parseNumericFields(header: Uint8Array): number {
+  parseOctal(header, 100, 8); // mode
+  parseOctal(header, 108, 8); // uid
+  parseOctal(header, 116, 8); // gid
+  const size = parseOctal(header, 124, 12);
+  parseOctal(header, 136, 12); // mtime
+  parseOctal(header, 329, 8); // devmajor
+  parseOctal(header, 337, 8); // devminor
+  return size;
 }
 
 /**
@@ -99,7 +169,7 @@ function decodeOctal(block: Uint8Array, start: number, length: number): number {
  * rather than a nonsensical path or a huge size read out of arbitrary bytes.
  */
 function checksumMatches(block: Uint8Array): boolean {
-  const stated = decodeOctal(block, 148, 8);
+  const stated = parseOctal(block, 148, 8);
   let signed = 0;
   let unsigned = 0;
   for (let index = 0; index < BLOCK_SIZE; index += 1) {
@@ -117,7 +187,11 @@ function isZeroBlock(block: Uint8Array): boolean {
 /** The POSIX ustar magic and version, which make the `prefix` field a path. */
 function isUstar(header: Uint8Array): boolean {
   return (
-    decodeString(header, 257, 6) === "ustar" &&
+    header[257] === 0x75 &&
+    header[258] === 0x73 &&
+    header[259] === 0x74 &&
+    header[260] === 0x61 &&
+    header[261] === 0x72 &&
     header[262] === 0 &&
     header[263] === 0x30 &&
     header[264] === 0x30
@@ -133,8 +207,8 @@ function isUstar(header: Uint8Array): boolean {
  * without the magic that has anything in them is refused.
  */
 function headerPath(header: Uint8Array): string {
-  const name = decodeString(header, 0, 100);
-  const prefix = decodeString(header, 345, 155);
+  const name = decodeName(header, 0, 100);
+  const prefix = decodeName(header, 345, 155);
   if (prefix === "") {
     return name;
   }
@@ -238,11 +312,11 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
       throw new ThemeArchiveError("The archive has a corrupt header.");
     }
 
-    const typeFlag = decodeString(header, 156, 1);
-    const size = decodeOctal(header, 124, 12);
+    const typeFlag = header[156] ?? 0;
+    const size = parseNumericFields(header);
     const dataBlocks = Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;
 
-    if (typeFlag === "5") {
+    if (typeFlag === TYPE_DIRECTORY) {
       // A directory entry carries no content and creates nothing: extraction
       // makes the directories the files it keeps actually need. One that
       // states a size is refused: tar and Python's tarfile do not skip a
@@ -264,9 +338,9 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
       continue;
     }
 
-    if (typeFlag !== "0" && typeFlag !== "\0" && typeFlag !== "") {
+    if (typeFlag !== TYPE_FILE && typeFlag !== 0) {
       throw new ThemeArchiveError(
-        `The archive contains an entry that is not a regular file (type ${typeFlag || "?"}). ` +
+        `The archive contains an entry that is not a regular file (type ${printableType(typeFlag)}). ` +
           "A theme package holds files only.",
       );
     }
