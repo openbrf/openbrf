@@ -249,6 +249,7 @@ async function add(
   await admin.install(
     {
       id,
+      expectedVersion: entry.version,
       permissions: entry.permissions,
       personalData: entry.personalData,
       actions: entry.actions,

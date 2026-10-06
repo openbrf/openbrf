@@ -247,6 +247,24 @@ describe("the consent echo gate", () => {
     expect(consent).not.toHaveBeenCalled();
   });
 
+  it("refuses a version other than the one the operator was shown", async () => {
+    // The declaration is unchanged, so only the version tells the release the
+    // operator read about from the one the catalog now names.
+    await expect(
+      service.install(
+        {
+          id: "occupancy",
+          expectedVersion: "0.9.0",
+          permissions: ["addressBook:read", "mail:send"],
+          personalData: ["name", "apartment"],
+        },
+        null,
+        "SYSTEM",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
   it("refuses a request that echoes the permissions and omits the personal data", async () => {
     // Omitting one field must not mean that field goes unchecked. The install
     // would otherwise proceed on a personal-data declaration nobody confirmed.

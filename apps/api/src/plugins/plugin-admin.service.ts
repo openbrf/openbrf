@@ -162,6 +162,13 @@ export interface PluginSettingsView {
 export interface InstallRequest {
   id: string;
   /**
+   * The catalog version the operator was shown, when the caller shows one.
+   * The command-line tool echoes the version it printed, so a release published
+   * between the listing and the install is refused rather than recorded as
+   * consented. Omitted, the install takes the version the catalog names now.
+   */
+  expectedVersion?: string;
+  /**
    * What the consent screen showed. Echoed back so an entry that changed
    * between browsing and confirming is refused rather than installed on
    * consent the board never gave.
@@ -502,6 +509,12 @@ export class PluginAdminService {
      */
     if (entry.deprecated && (await this.registry.find(entry.id)) === null) {
       throw new PluginEntryDeprecatedError(entry.id);
+    }
+    if (
+      request.expectedVersion !== undefined &&
+      request.expectedVersion !== entry.version
+    ) {
+      throw new PluginConsentMismatchError();
     }
     if (!isSupportedApiVersion(entry.apiVersion)) {
       throw new PluginApiVersionError(entry.id, entry.apiVersion);
