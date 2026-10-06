@@ -544,6 +544,48 @@ describe("a person who is not protected", () => {
     expect(again.disabled).toBe(false);
   });
 
+  it("takes one protection change at a time, so a failed one cannot end the block of another", async () => {
+    /*
+     * The block on reveals is a single flag. If a second change could start
+     * while the first is in flight, the first failing would end the block under
+     * the second, and a reveal would be accepted over a person drawn unmasked.
+     */
+    let fail = (): void => {};
+    setProtectedPersonalData.mockImplementation(
+      async () =>
+        new Promise((_resolve, reject) => {
+          fail = () => {
+            reject(new Error("refused"));
+          };
+        }),
+    );
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+
+    const protect = screen.getByRole("button", {
+      name: /Maskera den här personen/,
+    }) as HTMLButtonElement;
+    await userEvent.click(protect);
+    await waitFor(() => {
+      expect(protect.disabled).toBe(true);
+    });
+    await userEvent.click(protect);
+    expect(setProtectedPersonalData).toHaveBeenCalledTimes(1);
+    const identity = (): HTMLButtonElement =>
+      screen
+        .getAllByRole("button", { name: /^Visa/ })
+        .find((button) =>
+          button.getAttribute("aria-label")?.includes("Personnummer"),
+        ) as HTMLButtonElement;
+    expect(identity().disabled).toBe(true);
+
+    fail();
+    await waitFor(() => {
+      expect(protect.disabled).toBe(false);
+    });
+    expect(identity().disabled).toBe(false);
+  });
+
   it("ends the block on reveals when a second read replaces the one the masking change asked for", async () => {
     /*
      * The masking change asks for a read, and another act - a consent here -

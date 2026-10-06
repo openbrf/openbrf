@@ -468,6 +468,16 @@ export function PersonPanel({
    */
   const toggleProtection = useCallback(
     async (next: boolean): Promise<void> => {
+      /*
+       * One change at a time, until the person has been read back. The block is
+       * a single flag, so a second request that failed would end it while the
+       * first was still in flight, and a reveal would be accepted over a person
+       * drawn unmasked. Asked of the ref, because a second click can arrive
+       * before the button has been redrawn disabled.
+       */
+      if (changingProtectionRef.current) {
+        return;
+      }
       setProtectionFailed(false);
       /*
        * From here until the person has been read back, nothing may be revealed
@@ -1545,6 +1555,7 @@ export function PersonPanel({
             </p>
             <button
               type="button"
+              disabled={changingProtection}
               onClick={() => {
                 void toggleProtection(!person.protectedPersonalData);
               }}
