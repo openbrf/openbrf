@@ -1,10 +1,11 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AddressView } from "../api/instance";
 import { createAddress, removeAddress } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, LABEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -40,6 +41,7 @@ export function AddressesPanel({
 }: AddressesPanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
+  const streetRef = useRef<HTMLInputElement>(null);
 
   const add = useSaveAction(createAddress, () => {
     setDraft(EMPTY);
@@ -54,8 +56,7 @@ export function AddressesPanel({
         ? remove.state.failure
         : null;
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const onSend = (): void => {
     void add.submit({
       street: draft.street.trim(),
       number: draft.number.trim(),
@@ -132,14 +133,17 @@ export function AddressesPanel({
       )}
 
       {editable ? (
-        <form
+        <LockedForm
+          locked={add.state.kind === "saving"}
+          focusFallback={streetRef}
           className="flex flex-col gap-4 border-t border-line pt-4"
-          onSubmit={onSubmit}
+          onSend={onSend}
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={LABEL}>
               {t("settings.addresses.street")}
               <input
+                ref={streetRef}
                 type="text"
                 name="street"
                 autoComplete="off"
@@ -206,7 +210,7 @@ export function AddressesPanel({
                 : t("settings.addresses.add")}
             </button>
           </div>
-        </form>
+        </LockedForm>
       ) : null}
     </Panel>
   );
