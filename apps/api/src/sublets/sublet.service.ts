@@ -801,7 +801,16 @@ export class SubletService {
      * plan.
      */
     const today = localDayOf(new Date());
-    const horizon = { ...today, year: today.year + SUBLET_HORIZON_YEARS };
+    const horizonYear = today.year + SUBLET_HORIZON_YEARS;
+    // 29 February has no counterpart in a common year: clamp to the month's end.
+    const horizon = {
+      year: horizonYear,
+      month: today.month,
+      day: Math.min(
+        today.day,
+        new Date(Date.UTC(horizonYear, today.month, 0)).getUTCDate(),
+      ),
+    };
     if (compareLocalDays(parsedTo, horizon) > 0) {
       throw new SubletError(
         "The period ends too far ahead.",

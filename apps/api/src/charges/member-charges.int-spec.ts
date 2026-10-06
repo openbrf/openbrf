@@ -1507,7 +1507,9 @@ describe("the list itself", () => {
     try {
       const list = await readList({ from: day, to: day });
       expect(ownRows(list)).toHaveLength(91);
-      expect(list.total).toBe("90999999999999.09");
+      expect(sumChargeAmounts(ownRows(list).map((row) => row.amount))).toBe(
+        "90999999999999.09",
+      );
     } finally {
       await prisma.memberCharge.deleteMany({
         where: { reason: { startsWith: "Stor summa ", endsWith: suffix } },

@@ -4,6 +4,7 @@ import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
 } from "./personal-identity-number.ts";
 
@@ -153,5 +154,13 @@ describe("scanForPersonalIdentityNumbers", () => {
 
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
+  });
+});
+
+describe("scanForPersonalIdentityNumberCandidates", () => {
+  it("finds a number-shaped run whose check digit fails", () => {
+    expect(
+      scanForPersonalIdentityNumberCandidates("Skrev 19811218-9875 fel"),
+    ).toEqual([{ value: "19811218-9875", index: 6 }]);
   });
 });

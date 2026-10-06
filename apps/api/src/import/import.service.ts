@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import { scanForPersonalIdentityNumberCandidates } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -817,7 +817,7 @@ const TEMPLATE_EXAMPLE: Record<(typeof TEMPLATE_COLUMNS)[number], string> = {
  * identity numbers, and the sample is the first rows of the file exactly as
  * uploaded. A column the titles say holds the numbers is hidden whole, so a
  * mistyped number that fails its check digit is hidden as well; a number
- * anywhere else is found by the same scanner the free-text guardrails use.
+ * anywhere else is hidden by its shape, valid or not, for the same reason.
  * The shape stays, so the board can still see which column holds them.
  */
 function maskedSample(
@@ -831,7 +831,7 @@ function maskedSample(
         return hide(cell);
       }
       let masked = cell;
-      for (const found of scanForPersonalIdentityNumbers(cell)) {
+      for (const found of scanForPersonalIdentityNumberCandidates(cell)) {
         masked =
           masked.slice(0, found.index) +
           hide(found.value) +

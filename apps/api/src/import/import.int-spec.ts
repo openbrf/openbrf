@@ -701,7 +701,7 @@ describe("uploading a CSV", () => {
           writeCsv([
             ["Förnamn", "Efternamn", "Personnummer", "Notering"],
             ["Nina", surname, "19811218-9876", "Ring om 19811218-9876"],
-            ["Bo", surname, "19811218-9875", ""],
+            ["Bo", surname, "19811218-9875", "Skrev 19811218-9875 fel"],
           ]),
         ),
       },
@@ -713,7 +713,7 @@ describe("uploading a CSV", () => {
     const session = JSON.parse(response.body) as ImportSessionView;
     expect(session.sample).toEqual([
       ["Nina", surname, "••••••••-••••", "Ring om ••••••••-••••"],
-      ["Bo", surname, "••••••••-••••", ""],
+      ["Bo", surname, "••••••••-••••", "Skrev ••••••••-•••• fel"],
     ]);
   });
 

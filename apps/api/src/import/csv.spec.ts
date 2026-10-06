@@ -47,6 +47,10 @@ describe("choosing the delimiter", () => {
       ";",
     );
   });
+
+  it("ignores a line break inside quotes when the file ends rows with CR", () => {
+    expect(detectDelimiter('"Namn,\nfullt";Lgh\rAnna;1101')).toBe(";");
+  });
 });
 
 describe("decoding the bytes", () => {

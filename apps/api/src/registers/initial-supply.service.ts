@@ -399,19 +399,23 @@ export class InitialSupplyService {
      * ended - so it is not this holding's decision, even when it is the latest
      * one on file for the person.
      */
-    const earlierHoldings = await tx.residency.findMany({
-      where: {
-        role: "MEMBER",
-        movedOutOn: { not: null, lte: today },
-        OR: apartments.flatMap((apartment) =>
-          apartment.residencies.map((residency) => ({
-            apartmentId: apartment.id,
-            personId: residency.person.id,
-          })),
-        ),
-      },
-      select: { apartmentId: true, personId: true, movedOutOn: true },
-    });
+    const currentHolders = apartments.flatMap((apartment) =>
+      apartment.residencies.map((residency) => ({
+        apartmentId: apartment.id,
+        personId: residency.person.id,
+      })),
+    );
+    const earlierHoldings =
+      currentHolders.length === 0
+        ? []
+        : await tx.residency.findMany({
+            where: {
+              role: "MEMBER",
+              movedOutOn: { not: null, lte: today },
+              OR: currentHolders,
+            },
+            select: { apartmentId: true, personId: true, movedOutOn: true },
+          });
 
     const rows: SupplyRow[] = [
       {
