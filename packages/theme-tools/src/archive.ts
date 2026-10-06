@@ -24,7 +24,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
  *   refused rather than read one way. Otherwise `tar -tzf` or Python's tarfile
  *   would list one set of files for a reviewer while this reader kept another.
  *   That covers every numeric header field, which must be plain ASCII octal,
- *   and every name, which must be valid UTF-8.
+ *   and every path, which must be valid UTF-8.
  *
  * The whole archive is held in memory. A theme is colours, a manifest and a
  * few font files; the cap below is the ceiling on that, not a streaming limit.
@@ -114,11 +114,16 @@ function decodeName(block: Uint8Array, start: number, length: number): string {
  *
  * The field is optional spaces, octal digits, then only NUL or space bytes up
  * to its end. One that is blank or all NULs is zero, as tar writes for a field
- * it has no value for. Anything else - a stray byte, a high-bit byte (GNU's
- * base-256 form, or a no-break space that a text trim would drop), a sign, a
- * second number - is a field some tools read as a number and others stop at, so
- * the archive is refused. Python's tarfile ends its listing at such a header
- * without a word, which would leave this reader keeping files it never shows.
+ * it has no value for. Anything else is refused.
+ *
+ * Some of that is a differential: a non-ASCII byte (a no-break space that a
+ * text trim would drop) or stray text inside the field makes Python's tarfile
+ * end its listing at that header without a word, which would leave this reader
+ * keeping files it never shows.
+ *
+ * The rest is a deliberate tightening, not a difference between tools: GNU
+ * base-256 values, signs, bytes after the NUL and tabs are read by
+ * Python's tarfile, but a theme package never needs them, so one fixed form is accepted.
  */
 function parseOctal(block: Uint8Array, start: number, length: number): number {
   const field = block.subarray(start, start + length);
@@ -127,14 +132,12 @@ function parseOctal(block: Uint8Array, start: number, length: number): number {
     index += 1;
   }
   let value = 0;
-  let digits = 0;
   while (index < field.length) {
     const byte = field[index] ?? 0;
     if (byte < DIGIT_ZERO || byte > DIGIT_SEVEN) {
       break;
     }
     value = value * 8 + (byte - DIGIT_ZERO);
-    digits += 1;
     index += 1;
   }
   for (; index < field.length; index += 1) {
@@ -143,7 +146,7 @@ function parseOctal(block: Uint8Array, start: number, length: number): number {
       throw new ThemeArchiveError("The archive has a malformed numeric field.");
     }
   }
-  return digits === 0 ? 0 : value;
+  return value;
 }
 
 /**

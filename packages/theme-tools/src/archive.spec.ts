@@ -144,6 +144,47 @@ describe("writeThemeArchive and readThemeArchive", () => {
       writeThemeArchive(new Map([["../outside.json", encoder.encode("{}")]])),
     ).toThrow(ThemeArchiveError);
   });
+
+  it("reads the numeric fields of GNU tar, bsdtar and older tars", () => {
+    // Trailing space instead of a NUL, leading spaces, and blank fields.
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        patches: [
+          { start: 100, bytes: [...encoder.encode("   644 \0")] },
+          { start: 108, bytes: [...encoder.encode("0001750 ")] },
+          { start: 116, bytes: [...encoder.encode("        ")] },
+          { start: 136, bytes: [...encoder.encode("14013235625 ")] },
+          { start: 329, bytes: [...encoder.encode("0000000 ")] },
+        ],
+      }),
+    ]);
+    expect(unpack(archive)).toEqual({ "theme.json": "" });
+  });
+
+  it("reads a name with multibyte characters", () => {
+    const archive = rawArchive([
+      rawHeader({ name: "fonts/Åkesson.woff2", size: 0, typeFlag: "0" }),
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+    ]);
+    expect(Object.keys(unpack(archive)).sort()).toEqual([
+      "fonts/Åkesson.woff2",
+      "theme.json",
+    ]);
+  });
+
+  it("keeps a byte order mark, so it does not merge two names", () => {
+    const archive = rawArchive([
+      rawHeader({ name: "\uFEFFtheme.json", size: 0, typeFlag: "0" }),
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+    ]);
+    expect(Object.keys(unpack(archive)).sort()).toEqual([
+      "theme.json",
+      "\uFEFFtheme.json",
+    ]);
+  });
 });
 
 describe("readThemeArchive refusals", () => {
@@ -378,25 +419,6 @@ describe("readThemeArchive refusals", () => {
     expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
   });
 
-  it("reads the numeric fields of GNU tar, bsdtar and older tars", () => {
-    // Trailing space instead of a NUL, leading spaces, and blank fields.
-    const archive = rawArchive([
-      rawHeader({
-        name: "theme.json",
-        size: 0,
-        typeFlag: "0",
-        patches: [
-          { start: 100, bytes: [...encoder.encode("   644 \0")] },
-          { start: 108, bytes: [...encoder.encode("0001750 ")] },
-          { start: 116, bytes: [...encoder.encode("        ")] },
-          { start: 136, bytes: [...encoder.encode("14013235625 ")] },
-          { start: 329, bytes: [...encoder.encode("0000000 ")] },
-        ],
-      }),
-    ]);
-    expect(unpack(archive)).toEqual({ "theme.json": "" });
-  });
-
   describe("a malformed numeric field in a later header", () => {
     const NO_BREAK_SPACE = [0xc2, 0xa0];
     const fields = [
@@ -518,28 +540,6 @@ describe("readThemeArchive refusals", () => {
       expect(() => readThemeArchive(archive)).toThrow(
         "The archive has a name that is not UTF-8.",
       );
-    });
-
-    it("reads a name with multibyte characters", () => {
-      const archive = rawArchive([
-        rawHeader({ name: "fonts/Åkesson.woff2", size: 0, typeFlag: "0" }),
-        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
-      ]);
-      expect(Object.keys(unpack(archive)).sort()).toEqual([
-        "fonts/Åkesson.woff2",
-        "theme.json",
-      ]);
-    });
-
-    it("keeps a byte order mark, so it does not merge two names", () => {
-      const archive = rawArchive([
-        rawHeader({ name: "\uFEFFtheme.json", size: 0, typeFlag: "0" }),
-        rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
-      ]);
-      expect(Object.keys(unpack(archive)).sort()).toEqual([
-        "theme.json",
-        "\uFEFFtheme.json",
-      ]);
     });
   });
 });
