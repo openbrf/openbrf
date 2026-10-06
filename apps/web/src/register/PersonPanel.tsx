@@ -351,10 +351,12 @@ export function PersonPanel({
     // a read that was already running when the change was made cannot end it.
     const answersProtectionChange = readAfterProtection.current;
     readAfterProtection.current = false;
+    let answered = false;
 
     void (async () => {
       try {
         const detail = await fetchPerson(personId, controller.signal);
+        answered = true;
         setPerson(detail);
         if (answersProtectionChange) {
           // Only now is the person drawn as the server holds them, so only now
@@ -402,6 +404,15 @@ export function PersonPanel({
 
     return () => {
       controller.abort();
+      /*
+       * Handed on here and not when the abort is noticed: the next run reads
+       * the flag as soon as this cleanup returns, and the rejection reaches the
+       * catch above only after that. A read that is replaced before it answers
+       * leaves the block to the one that replaces it.
+       */
+      if (answersProtectionChange && !answered) {
+        readAfterProtection.current = true;
+      }
     };
   }, [personId, reloadToken]);
 

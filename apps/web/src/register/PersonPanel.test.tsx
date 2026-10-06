@@ -544,6 +544,63 @@ describe("a person who is not protected", () => {
     expect(again.disabled).toBe(false);
   });
 
+  it("ends the block on reveals when a second read replaces the one the masking change asked for", async () => {
+    /*
+     * The masking change asks for a read, and another act - a consent here -
+     * asks for one before it returns. The first is aborted; the second is the
+     * one that must hand the panel back, or every reveal stays off until the
+     * panel is opened again.
+     */
+    setProtectedPersonalData.mockResolvedValue({ protectedPersonalData: true });
+    setPublicationConsent.mockResolvedValue({
+      scope: "PHOTO",
+      state: "granted",
+      grantedOn: "2026-08-29",
+      withdrawnOn: null,
+      note: null,
+    });
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+    const landed: (() => void)[] = [];
+    fetchPerson.mockImplementation(
+      async (_personId: string, signal?: AbortSignal) =>
+        new Promise((resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            reject(new DOMException("aborted", "AbortError"));
+          });
+          landed.push(() => {
+            resolve({ ...PLAIN_PERSON, protectedPersonalData: true });
+          });
+        }),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Maskera den här personen/ }),
+    );
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(2);
+    });
+    await userEvent.click(
+      screen.getAllByRole("button", {
+        name: /^Anteckna samtycke för/,
+      })[0] as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(fetchPerson).toHaveBeenCalledTimes(3);
+    });
+
+    landed[1]?.();
+    await screen.findByText(
+      "Maskeras överallt; varje visning loggas i granskningsloggen",
+    );
+    const identity = screen
+      .getAllByRole("button", { name: /^Visa/ })
+      .find((button) =>
+        button.getAttribute("aria-label")?.includes("Personnummer"),
+      ) as HTMLButtonElement;
+    expect(identity.disabled).toBe(false);
+  });
+
   it("does not let a reveal let go of by a masking change clear the busy state of a newer one", async () => {
     // Turning masking off and on again while a reveal is in flight: the first
     // reveal answers last, and must not re-enable a button whose own reveal -
