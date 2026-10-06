@@ -147,14 +147,33 @@ export interface ParsedMessage {
   readonly textFromHtml: boolean;
   readonly attachments: readonly MimeAttachment[];
   /**
+   * The other forms of the body: every text part of a `multipart/alternative`
+   * the reader chose another part of, read as it would have read that part.
+   *
+   * Not the letter as the board sees it, which is {@link text}. A mail client
+   * may show any one of the forms, and the sender decides what each says, so
+   * a caller that judges a letter by its text reads these as well.
+   */
+  readonly alternatives: readonly ReadText[];
+  /**
    * How many parts the message holds that are neither its body, nor another
-   * form of the body, nor an attachment - inline content this reader does not
-   * read.
+   * text form of the body, nor an attachment - inline content this reader does
+   * not read.
    *
    * Counted so a caller that judges a letter by its text can tell when the
    * text is not all the letter says.
    */
   readonly unreadParts: number;
+}
+
+/** One form of a letter's body, as the reader reads it. */
+export interface ReadText {
+  /** At most {@link MAX_TEXT_CHARACTERS} of it. */
+  readonly text: string;
+  /** Whether the form held more than {@link text} gives. */
+  readonly truncated: boolean;
+  /** Whether it was read from HTML. */
+  readonly fromHtml: boolean;
 }
 
 /** A parsed content type: "text/plain; charset=utf-8" and its parameters. */
@@ -188,6 +207,7 @@ interface MimePart {
 export function readMessage(raw: Buffer): ParsedMessage {
   const part = parsePart(raw);
   const body = chooseBody(part);
+  const unread = unreadContent(part, body?.parts ?? []);
 
   return {
     subject: oneLine(decodeEncodedWords(part.headers.get("subject") ?? "")),
@@ -206,7 +226,8 @@ export function readMessage(raw: Buffer): ParsedMessage {
     textTruncated: body?.truncated ?? false,
     textFromHtml: body?.fromHtml ?? false,
     attachments: collectAttachments(part),
-    unreadParts: countUnreadParts(part, body?.parts ?? []),
+    alternatives: unread.alternatives,
+    unreadParts: unread.parts,
   };
 }
 
@@ -556,12 +577,9 @@ function trimLineBreak(body: Buffer, at: number): number {
 // The body.
 // ---------------------------------------------------------------------------
 
-interface ChosenBody {
+interface ChosenBody extends ReadText {
   /** The leaves the text was read from, in the order it reads them. */
   readonly parts: readonly MimePart[];
-  readonly text: string;
-  readonly truncated: boolean;
-  readonly fromHtml: boolean;
 }
 
 /**
@@ -582,6 +600,8 @@ interface ChosenBody {
  * readable part of it is part of the letter. Apple Mail writes the text around
  * an inline picture as one text part before it and another after it, and a
  * reader that stopped at the first would give the board half the letter.
+ *
+ * A part is readable when it is plain text or HTML: see {@link isReadable}.
  */
 function chooseBody(part: MimePart): ChosenBody | null {
   if (part.children !== null) {
@@ -594,7 +614,7 @@ function chooseBody(part: MimePart): ChosenBody | null {
     return joinedBody(part.children);
   }
 
-  if (isAttachment(part) || part.contentType.type !== "text") {
+  if (!isReadable(part)) {
     return null;
   }
 
@@ -739,10 +759,26 @@ function joinedBody(children: readonly MimePart[]): ChosenBody | null {
  */
 function holdsText(part: MimePart): boolean {
   return leavesOf(part).some(
-    (leaf) =>
-      !isAttachment(leaf) &&
-      leaf.contentType.type === "text" &&
-      leaf.body.length > 0,
+    (leaf) => isReadable(leaf) && leaf.body.length > 0,
+  );
+}
+
+/**
+ * Whether a leaf is one the reader reads as the letter: plain text or HTML,
+ * and not a file.
+ *
+ * The other text types are data a mail client hands to something else - an
+ * invitation to its calendar, a contact card to its address book, the headers
+ * of a bounced letter, a table - and shows as that, or offers as a file. Read
+ * into the text, they would put a contact card's fields in the middle of what
+ * somebody wrote to the board.
+ */
+function isReadable(part: MimePart): boolean {
+  return (
+    !isAttachment(part) &&
+    part.contentType.type === "text" &&
+    (part.contentType.subtype === "plain" ||
+      part.contentType.subtype === "html")
   );
 }
 
@@ -803,21 +839,26 @@ function collectAttachments(part: MimePart): readonly MimeAttachment[] {
 }
 
 /**
- * The leaves that are neither read into the body, nor another form of what
- * was, nor a file.
+ * What the message holds beside its body and its files: the other forms of the
+ * body, read, and a count of the leaves that are not read at all.
  *
- * The other forms are every leaf under an outermost `multipart/alternative`
- * that holds a part that was read: the same message written again, which is
- * not read because the body already says it. Anything else that is not an
- * attachment - a text part among the resources of a `multipart/related`, or
- * one past the bound on the text - is content this reader leaves unread. An
- * empty part says nothing and is not counted.
+ * The other forms are the readable leaves under an outermost
+ * `multipart/alternative` that holds a part that was read: the same message
+ * written again, which the body is meant to say already. Each is read as the
+ * body would have been, because nothing but the sender makes it so. Anything
+ * else that is not an attachment - a text part among the resources of a
+ * `multipart/related`, one past the bound on the text, a text type that is not
+ * the letter, a form that is not text - is content this reader leaves unread.
+ * An empty part says nothing and is not counted.
  *
  * One walk over the structure, whatever number of parts were read: a sender
  * decides how many there are, and a search for each of them from the top would
- * cost the square of that.
+ * cost the square of that. Each form is read once, and bounded as the body is.
  */
-function countUnreadParts(part: MimePart, read: readonly MimePart[]): number {
+function unreadContent(
+  part: MimePart,
+  read: readonly MimePart[],
+): { alternatives: readonly ReadText[]; parts: number } {
   const said = new Set<MimePart>(read);
   const forms = new Set<MimePart>();
 
@@ -840,13 +881,24 @@ function countUnreadParts(part: MimePart, read: readonly MimePart[]): number {
   };
   walk(part);
 
-  return leavesOf(part).filter(
-    (leaf) =>
-      !said.has(leaf) &&
-      !forms.has(leaf) &&
-      !isAttachment(leaf) &&
-      leaf.body.length > 0,
-  ).length;
+  const alternatives: ReadText[] = [];
+  let unread = 0;
+  for (const leaf of leavesOf(part)) {
+    if (said.has(leaf) || isAttachment(leaf) || leaf.body.length === 0) {
+      continue;
+    }
+    const form = forms.has(leaf) ? chooseBody(leaf) : null;
+    if (form === null) {
+      unread += 1;
+    } else {
+      alternatives.push({
+        text: form.text,
+        truncated: form.truncated,
+        fromHtml: form.fromHtml,
+      });
+    }
+  }
+  return { alternatives, parts: unread };
 }
 
 /** Every leaf under a part, the part itself when it is one. */

@@ -312,11 +312,11 @@ export class BoardMailboxMailerService implements OnModuleInit {
    *   states in its closing line.
    */
   async renderReply(
-    messageId: string,
+    answerId: string,
     boardAddress: string,
   ): Promise<RenderedMail | null> {
     const message = await this.prisma.boardMailboxMessage.findFirst({
-      where: { id: messageId, direction: "OUTBOUND" },
+      where: { id: answerId, direction: "OUTBOUND" },
       select: {
         body: true,
         thread: { select: { subject: true, correspondentNameCipher: true } },

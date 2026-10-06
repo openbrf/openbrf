@@ -1157,6 +1157,98 @@ describe("readMessage", () => {
     expect(message.unreadParts).toBe(1);
   });
 
+  it("reads no text type into the letter but plain text and HTML", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: text/calendar; method=REQUEST",
+        "",
+        "BEGIN:VCALENDAR",
+        "END:VCALENDAR",
+        "--SEP",
+        "Content-Type: text/vcard",
+        "",
+        "BEGIN:VCARD",
+        "END:VCARD",
+        "--SEP",
+        "Content-Type: text/rfc822-headers",
+        "",
+        "Received: from mx.example.test",
+        "--SEP",
+        "Content-Type: text/csv",
+        "",
+        "lagenhet,belopp",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    // An invitation, a contact card, a bounced letter's headers and a table
+    // are data a client shows as something else, not the letter's words.
+    expect(message.text).toBe("Hej");
+    expect(message.textTruncated).toBe(false);
+    expect(message.unreadParts).toBe(4);
+  });
+
+  it("reads the other forms of a letter beside the one it chose", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=ALT",
+        "",
+        "--ALT",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--ALT",
+        "Content-Type: text/html",
+        "",
+        "<p>Ett <b>annat</b> brev</p>",
+        "--ALT--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Hej");
+    // A client that shows HTML shows the other letter, so a caller that judges
+    // the letter by its text has to be able to see it.
+    expect(message.alternatives).toEqual([
+      { text: "Ett annat brev", truncated: false, fromHtml: true },
+    ]);
+    expect(message.unreadParts).toBe(0);
+  });
+
+  it("counts a form of the letter that is not text as unread", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/alternative; boundary=ALT",
+        "",
+        "--ALT",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--ALT",
+        "Content-Type: application/octet-stream",
+        "",
+        "AAAA",
+        "--ALT--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Hej");
+    expect(message.alternatives).toEqual([]);
+    expect(message.unreadParts).toBe(1);
+  });
+
   it("reads a letter of many parts in time that grows with their number", () => {
     // A sender decides how many parts a letter has, and a part that says
     // nothing adds nothing to the bound on the text, so every one is read.

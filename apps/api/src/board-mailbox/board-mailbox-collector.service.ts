@@ -27,6 +27,7 @@ import {
   htmlToText,
   type MimeAttachment,
   type ParsedMessage,
+  type ReadText,
   readMessage,
 } from "./mime";
 import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
@@ -130,7 +131,7 @@ const MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
  * receiving for years, and for the day somebody points a mailing list at the
  * board's address.
  */
-const MAX_MESSAGES_PER_COLLECTION = 50;
+export const MAX_MESSAGES_PER_COLLECTION = 50;
 
 /**
  * The most attachments one message may leave behind.
@@ -414,12 +415,13 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * Taken alone it would let anybody who was ever answered write to the board
    * again under it, and have the letter set aside here as the board's own
    * words - never stored, and never shown. So the letter has to say what the
-   * board said as well. Its text is held to the answer as this instance
-   * renders it, and it may carry nothing the answer did not: no file, no part
-   * the reader leaves unread, and no more text than the reader keeps. A text
-   * part a sender adds beside the answer is read into the text, so it is
-   * compared with the rest. A sender who copies all of that has sent the board
-   * its own answer, and nothing is lost by not storing it twice.
+   * board said as well. Its subject and every form of its text are held to
+   * the answer as this instance renders it, and it may carry nothing the
+   * answer did not: no file, and no part the reader leaves unread. A text part
+   * a sender adds beside the answer is read into the text, and an HTML form
+   * beside the plain one is read on its own, so each is compared with the
+   * rest. A sender who copies all of that has sent the board its own answer,
+   * and nothing is lost by not storing it twice.
    *
    * A copy that does not match - a list that adds a footer, an association
    * renamed between the answer and its copy - is collected as a letter. That
@@ -433,8 +435,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     if (
       parsed.messageId === null ||
       parsed.attachments.length > 0 ||
-      parsed.unreadParts > 0 ||
-      parsed.textTruncated
+      parsed.unreadParts > 0
     ) {
       return null;
     }
@@ -442,7 +443,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       where: { messageId: parsed.messageId, direction: "OUTBOUND" },
       select: { id: true },
       // An identifier this instance minted or a mail service reported names one
-      // answer. A bound all the same, since each candidate is rendered.
+      // answer. A bound all the same, since each candidate is rendered, and an
+      // order, so the same copy is compared with the same answers on every run.
+      orderBy: [{ occurredAt: "desc" }, { id: "asc" }],
       take: 3,
     });
     for (const candidate of candidates) {
@@ -457,7 +460,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         );
         continue;
       }
-      if (rendered !== null && saysTheSame(parsed.text, rendered)) {
+      if (rendered !== null && saysTheSame(parsed, rendered)) {
         return candidate.id;
       }
     }
@@ -477,18 +480,42 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * The write is conditional on the column still being empty, so two runs that
    * saw the same answer do not fight over it, and a failure to write is not a
    * reason to store the board's own words back as a question.
+   *
+   * The answer has one column, and a mailbox can hold more than one copy: a
+   * provider that files sent mail and a board that copies its own address
+   * leave two. A copy that finds the column taken is recorded in the ledger
+   * of letters read and not stored instead, under a reason the board's screen
+   * does not list. Without that it would be fetched again on every run, and
+   * as many copies as one run fetches would stop the collection before the
+   * letters behind them.
+   *
+   * @param letterDate The copy's own date, where it is believed.
    */
-  private async holdOwnAnswer(id: string, uid: string): Promise<void> {
+  private async holdOwnAnswer(
+    id: string,
+    uid: string,
+    letterDate: Date | null,
+  ): Promise<void> {
     try {
-      await this.prisma.boardMailboxMessage.updateMany({
+      const marked = await this.prisma.boardMailboxMessage.updateMany({
         where: { id, sourceUid: null },
         data: { sourceUid: uid },
       });
+      if (marked.count > 0) {
+        return;
+      }
     } catch (error) {
       this.logger.warn(
         `Board mailbox: an answer of this instance's own could not be marked as held: ${failureName(error)}`,
       );
+      return;
     }
+    await this.setAside(
+      uid,
+      COLLECTION_REFUSALS.ownAnswerCopy,
+      letterDate,
+      null,
+    );
   }
 
   /**
@@ -838,7 +865,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
        * the board has answered. Anything we did not send is not matched by this
        * and is collected normally.
        */
-      await this.holdOwnAnswer(own, uid);
+      await this.holdOwnAnswer(own, uid, letterDate);
       return "already-held";
     }
 
@@ -1133,9 +1160,12 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           });
           /*
            * The retention anchor moves forward only. A reply's date is the
-           * sender's Date header, and one dated long before the last thing said
-           * on the thread - a letter held up somewhere, a client with a wrong
-           * clock, a reply to an old copy - is still a message on a live
+           * sender's Date header wherever it lies within a day of the mailbox
+           * receiving it (see trustedDate), and its own date where nothing
+           * says when it arrived - so it can still be dated before the last
+           * thing said on the thread: a client whose clock is a few hours
+           * behind, an answer sent while the reply was on its way, a letter
+           * filed into the mailbox by hand. It is still a message on a live
            * conversation. Taking its date would put the whole thread back to
            * that day and hand it to the purge while it was still running.
            *
@@ -1369,19 +1399,45 @@ function believedDate(claimed: Date | null, now: Date): Date | null {
 }
 
 /**
- * Whether a letter's text is an answer's, as this instance renders it.
+ * Whether a letter says what an answer says, as this instance renders it.
  *
- * Either of the answer's two forms, because a copy that kept only its HTML is
- * read from that: both are the board's words. Compared with the whitespace
- * folded, which is what a transfer encoding and a client's line wrapping
- * change, and nothing else is forgiven: a word added anywhere is a letter.
+ * Its subject, and every form of its text: the body the reader chose and each
+ * alternative beside it, so that a letter cannot put the answer where this
+ * module reads and something else where a mail client shows it. Plain text is
+ * held to the answer's plain text and HTML to its HTML, read as the reader
+ * reads it - a copy that kept only its HTML is read from that. A form that
+ * says nothing is no form. Compared with the whitespace folded, which is what
+ * a transfer encoding and a client's line wrapping change, and nothing else
+ * is forgiven: a word added anywhere is a letter.
+ *
+ * A form the reader cut is held to as much of the answer as it kept. An answer
+ * as long as the board may write is, with its greeting and closing line,
+ * longer than the reader keeps of any letter, so its copy is always read cut.
+ * What lies past the cut would not have been on the board's screen either,
+ * only the notice that the letter went on.
  */
-function saysTheSame(text: string, answer: RenderedMail): boolean {
+function saysTheSame(letter: ParsedMessage, answer: RenderedMail): boolean {
   const folded = (value: string): string =>
     value.replaceAll(/\s+/g, " ").trim();
-  const letter = folded(text);
+  const text = folded(answer.text);
+  const html = folded(htmlToText(answer.html));
+  const matches = (form: ReadText): boolean => {
+    const said = folded(form.text);
+    const meant = form.fromHtml ? html : text;
+    return form.truncated
+      ? said !== "" && meant.startsWith(said)
+      : said === meant;
+  };
   return (
-    letter === folded(answer.text) || letter === folded(htmlToText(answer.html))
+    folded(letter.subject) === folded(answer.subject) &&
+    matches({
+      text: letter.text,
+      truncated: letter.textTruncated,
+      fromHtml: letter.textFromHtml,
+    }) &&
+    letter.alternatives.every(
+      (form) => folded(form.text) === "" || matches(form),
+    )
   );
 }
 
