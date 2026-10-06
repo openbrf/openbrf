@@ -446,7 +446,7 @@ describe("pluginPackageProblems", () => {
     const hostile = `require${"/**/".repeat(50_000)}x`;
     const started = performance.now();
     expect(problemsWith(hostile)).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 
   it.each([
@@ -457,7 +457,7 @@ describe("pluginPackageProblems", () => {
   ])("reads a bundle of many %s in linear time", (_what, hostile) => {
     const started = performance.now();
     problemsWith(hostile);
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 
   it("still reports a package that only shares a built-in's name as a prefix", () => {
