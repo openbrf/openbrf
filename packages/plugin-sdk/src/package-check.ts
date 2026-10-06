@@ -157,7 +157,7 @@ interface PendingCall {
   specifier: string | null;
   /** Whether a method name could stand where the word is. */
   mayBeMethod: boolean;
-  /** How many `/` the scanner had read as code when it reached the word. */
+  /** How many `/` punctuators the scanner had read when it reached the word. */
   slashes: number;
 }
 
@@ -348,7 +348,7 @@ function requireCalls(source: string): {
   let awaiting: PendingCall | undefined;
   const parentheses: (PendingCall | undefined)[] = [];
 
-  /** How many `/` the scanner has read as a division or a regular expression. */
+  /** How many `/` punctuators the scanner has read. */
   let slashes = 0;
 
   /**
@@ -402,7 +402,6 @@ function requireCalls(source: string): {
       index = templateText(index + 1);
     } else if (char === "/" && startsExpression(previous(1))) {
       index = afterRegularExpression(source, index);
-      slashes += 1;
       remember("literal");
     } else if (char === "#" && startsIdentifier(source, index + 1)) {
       // A private name, `#require`, which is never the loader.

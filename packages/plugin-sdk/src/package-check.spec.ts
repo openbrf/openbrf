@@ -306,6 +306,10 @@ describe("pluginPackageProblems", () => {
     ["a class's method", "class Loader { static require(name) {} }"],
     ["an accessor", "const loader = { get require() { return 1; } };"],
     ["a method with a default", 'const o = { require(n = f("x")) {} };'],
+    [
+      "a method with a regular-expression default",
+      "const helper = { require(pattern = /x/) {} };",
+    ],
     ["a private method", "class Loader { #require(name) {} }"],
     ["a call to a private method", "this.#require(name);"],
     ["a method's body opened after a comment", "({ require(n) /* c */ {} });"],
