@@ -87,38 +87,46 @@ function decodeString(
   }
 }
 
+function isPadding(byte: number | undefined): boolean {
+  return byte === 0x20 || byte === 0;
+}
+
 /**
- * Reads a numeric field: octal digits, with only spaces and NULs around them.
- * Nothing else is tolerated (no `String.trim()`, which would also drop
- * Unicode whitespace), since tools disagree about what such a field means.
+ * Reads a numeric field: leading spaces, octal digits, then only spaces and
+ * NULs (`^ *[0-7]*[ \0]*$`). A NUL before the digits is refused, since tools
+ * disagree about whether the field then ends there or at the digits.
  */
 function decodeOctal(block: Uint8Array, start: number, length: number): number {
   const slice = block.subarray(start, start + length);
-  let first = 0;
-  let last = slice.length;
-  const padding = (byte: number | undefined): boolean =>
-    byte === 0x20 || byte === 0;
-  while (first < last && padding(slice[first])) {
-    first += 1;
-  }
-  while (last > first && padding(slice[last - 1])) {
-    last -= 1;
-  }
-  if (first === last) {
-    return 0;
+  let index = 0;
+  while (index < slice.length && slice[index] === 0x20) {
+    index += 1;
   }
   let value = 0;
-  for (let index = first; index < last; index += 1) {
+  while (index < slice.length) {
     const byte = slice[index] ?? 0;
     if (byte < 0x30 || byte > 0x37) {
-      throw new ThemeArchiveError("The archive has a malformed numeric field.");
+      break;
     }
     value = value * 8 + (byte - 0x30);
+    index += 1;
+  }
+  for (; index < slice.length; index += 1) {
+    if (!isPadding(slice[index])) {
+      throw new ThemeArchiveError("The archive has a malformed numeric field.");
+    }
   }
   return value;
 }
 
-/** Every numeric field but size and the checksum, which are read where used. */
+/**
+ * Every numeric field but size and the checksum, which are read where used.
+ *
+ * GNU tar and bsdtar write a value that does not fit octal (a uid above
+ * 2^21, a negative mtime) in base-256, flagged by a leading 0x80 or 0xff byte.
+ * These fields are never used, so such a field is accepted unread; size and
+ * the checksum stay octal-only.
+ */
 function assertNumericFields(header: Uint8Array): void {
   for (const [start, length] of [
     [100, 8], // mode
@@ -128,6 +136,9 @@ function assertNumericFields(header: Uint8Array): void {
     [329, 8], // devmajor
     [337, 8], // devminor
   ] as const) {
+    if (header[start] === 0x80 || header[start] === 0xff) {
+      continue;
+    }
     decodeOctal(header, start, length);
   }
 }
@@ -173,6 +184,20 @@ function isUstar(header: Uint8Array): boolean {
  * without the magic that has anything in them is refused.
  */
 function headerPath(header: Uint8Array): string {
+  // node-tar reads past a NUL when a newline follows it, so anything but NULs
+  // after the first is a name tools read differently.
+  for (const [start, length] of [
+    [0, 100],
+    [345, 155],
+  ] as const) {
+    const field = header.subarray(start, start + length);
+    const end = field.indexOf(0);
+    if (end !== -1 && field.subarray(end).some((byte) => byte !== 0)) {
+      throw new ThemeArchiveError(
+        "The archive has a name with bytes after its end.",
+      );
+    }
+  }
   const name = decodeString(header, 0, 100);
   const prefix = decodeString(header, 345, 155);
   if (prefix === "") {
@@ -344,14 +369,19 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
     offset += dataBlocks;
   }
 
+  // `tar -czf x.tgz -C dir .` roots every name at `.`, which is stripped like
+  // any other common root. A `.` left after that would let `theme.json` and
+  // `./theme.json` be two entries that land on one file.
   const root = stripCommonRoot([...collected.keys()]);
-  if (root === null) {
-    return collected;
-  }
-
   const stripped = new Map<string, Uint8Array>();
   for (const [path, content] of collected) {
-    stripped.set(path.slice(root.length + 1), content);
+    const relative = root === null ? path : path.slice(root.length + 1);
+    if (relative.split("/").includes(".")) {
+      throw new ThemeArchiveError(
+        `The archive names a path with a "." segment: ${path}`,
+      );
+    }
+    stripped.set(relative, content);
   }
   return stripped;
 }

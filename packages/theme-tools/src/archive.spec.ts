@@ -430,10 +430,10 @@ describe("readThemeArchive refusals", () => {
     ["devminor", 337],
   ])("refuses a %s field with something other than octal digits", (_, at) => {
     for (const bad of [
-      new TextEncoder().encode("12x4"),
+      encoder.encode("12x4"),
       new Uint8Array([0x31, 0xc2, 0xa0, 0x31]),
-      new TextEncoder().encode("1\t2"),
-      new TextEncoder().encode("8"),
+      encoder.encode("1\t2"),
+      encoder.encode("8"),
     ]) {
       const archive = rawArchive([
         rawHeader({
@@ -447,6 +447,121 @@ describe("readThemeArchive refusals", () => {
     }
   });
 
+  it.each([
+    ["size", 124],
+    ["mtime", 136],
+    ["mode", 100],
+    ["uid", 108],
+    ["gid", 116],
+    ["devmajor", 329],
+    ["devminor", 337],
+  ])("refuses a %s field with a NUL before the digits", (_, at) => {
+    for (const lead of ["\0", "\0\0", " \0"]) {
+      const archive = rawArchive([
+        rawHeader({
+          name: "theme.json",
+          size: 0,
+          typeFlag: "0",
+          overwrite: { [at]: encoder.encode(`${lead}0002000`) },
+        }),
+      ]);
+      expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
+    }
+  });
+
+  it("refuses a checksum with a leading NUL on a header that is not the first", () => {
+    const second = rawHeader({ name: "evil.js", size: 0, typeFlag: "0" });
+    let sum = 0;
+    for (let index = 0; index < 512; index += 1) {
+      sum += index >= 148 && index < 156 ? 0x20 : (second[index] ?? 0);
+    }
+    second.set(encoder.encode(`\0${sum.toString(8).padStart(5, "0")}\0 `), 148);
+    const archive = rawArchive([
+      rawHeader({ name: "theme.json", size: 0, typeFlag: "0" }),
+      second,
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
+  });
+
+  it("reads base-256 uid and a negative mtime, as GNU tar writes them", () => {
+    const uid = new Uint8Array(8);
+    uid[0] = 0x80;
+    uid.set([0x2d, 0xc6, 0xc0], 5);
+    const mtime = new Uint8Array(12).fill(0xff);
+    mtime[11] = 0x9c;
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 1,
+        typeFlag: "0",
+        overwrite: { 108: uid, 136: mtime },
+      }),
+      dataBlock("a"),
+    ]);
+    expect([...readThemeArchive(archive).keys()]).toEqual(["theme.json"]);
+  });
+
+  it("refuses a base-256 size", () => {
+    const size = new Uint8Array(12);
+    size[0] = 0x80;
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        overwrite: { 124: size },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/malformed numeric/);
+  });
+
+  it("refuses theme.json next to ./theme.json", () => {
+    const archive = rawArchive([
+      rawHeader({ name: "theme.json", size: 1, typeFlag: "0" }),
+      dataBlock("a"),
+      rawHeader({ name: "./theme.json", size: 1, typeFlag: "0" }),
+      dataBlock("b"),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/"\." segment/);
+  });
+
+  it("refuses a . segment inside a path", () => {
+    const archive = rawArchive([
+      rawHeader({ name: "a/./b", size: 1, typeFlag: "0" }),
+      dataBlock("a"),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/"\." segment/);
+  });
+
+  it("reads an archive whose every name is ./-prefixed", () => {
+    const archive = rawArchive([
+      rawHeader({ name: "./", size: 0, typeFlag: "5" }),
+      rawHeader({ name: "./theme.json", size: 1, typeFlag: "0" }),
+      dataBlock("a"),
+      rawHeader({ name: "./fonts/body.woff2", size: 1, typeFlag: "0" }),
+      dataBlock("b"),
+    ]);
+    expect([...readThemeArchive(archive).keys()].sort()).toEqual([
+      "fonts/body.woff2",
+      "theme.json",
+    ]);
+  });
+
+  it.each([
+    ["name", 0, "theme.json\0\nX"],
+    ["prefix", 345, "pkg\0\nX"],
+  ])("refuses a %s with bytes after its first NUL", (_, at, value) => {
+    const archive = rawArchive([
+      rawHeader({
+        name: "theme.json",
+        size: 0,
+        typeFlag: "0",
+        overwrite: { [at]: encoder.encode(value) },
+      }),
+    ]);
+    expect(() => readThemeArchive(archive)).toThrow(/after its end/);
+  });
+
   it("reads numeric fields padded with spaces and NULs", () => {
     const archive = rawArchive([
       rawHeader({
@@ -454,8 +569,8 @@ describe("readThemeArchive refusals", () => {
         size: 1,
         typeFlag: "0",
         overwrite: {
-          100: new TextEncoder().encode("  644 \0\0"),
-          136: new TextEncoder().encode("\0\0\0\0\0\0\0\0\0\0\0\0"),
+          100: encoder.encode("  644 \0\0"),
+          136: new Uint8Array(12),
         },
       }),
       dataBlock("a"),
