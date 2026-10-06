@@ -389,4 +389,22 @@ describe("readThemeArchive refusals", () => {
     );
     expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
   });
+
+  it("reads a header with a byte >= 0x80 and the unsigned checksum", () => {
+    // "ö" is 0xc3 0xb6 in UTF-8, so the signed and unsigned sums of this header
+    // differ by 512. A reader that sign-extended bytes would refuse it.
+    const name = "fonts/Brödtext.css";
+    const content = "body{}";
+    const header = rawHeader({ name, size: content.length, typeFlag: "0" });
+    expect(header.some((byte) => byte >= 0x80)).toBe(true);
+
+    // A second root keeps the reader from stripping "fonts/".
+    const manifest = rawHeader({ name: "theme.json", size: 2, typeFlag: "0" });
+
+    expect(
+      unpack(
+        rawArchive([header, dataBlock(content), manifest, dataBlock("{}")]),
+      ),
+    ).toEqual({ [name]: content, "theme.json": "{}" });
+  });
 });
