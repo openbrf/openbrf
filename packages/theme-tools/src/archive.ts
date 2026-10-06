@@ -69,6 +69,8 @@ export class ThemeArchiveError extends Error {
 /** The files an archive contained, keyed by their path inside the package. */
 export type ThemeArchiveFiles = ReadonlyMap<string, Uint8Array>;
 
+const utf8 = new TextDecoder("utf8", { ignoreBOM: true, fatal: true });
+
 function decodeString(
   block: Uint8Array,
   start: number,
@@ -76,20 +78,95 @@ function decodeString(
 ): string {
   const slice = block.subarray(start, start + length);
   const end = slice.indexOf(0);
-  return new TextDecoder("utf8").decode(
-    end === -1 ? slice : slice.subarray(0, end),
-  );
+  // A leading BOM is kept, so it cannot make two names look like one, and
+  // bytes that are not UTF-8 are refused rather than replaced.
+  try {
+    return utf8.decode(end === -1 ? slice : slice.subarray(0, end));
+  } catch {
+    throw new ThemeArchiveError("The archive has a field that is not UTF-8.");
+  }
 }
 
+function isPadding(byte: number | undefined): boolean {
+  return byte === 0x20 || byte === 0;
+}
+
+/**
+ * Reads a numeric field: leading spaces, octal digits, then only spaces and
+ * NULs (`^ *[0-7]*[ \0]*$`). A NUL before the digits is refused, since tools
+ * disagree about whether the field then ends there or at the digits.
+ */
 function decodeOctal(block: Uint8Array, start: number, length: number): number {
-  const text = decodeString(block, start, length).trim().replace(/\0+$/, "");
-  if (text === "") {
-    return 0;
+  const slice = block.subarray(start, start + length);
+  let index = 0;
+  while (index < slice.length && slice[index] === 0x20) {
+    index += 1;
   }
-  if (!/^[0-7]+$/.test(text)) {
+  let value = 0;
+  while (index < slice.length) {
+    const byte = slice[index] ?? 0;
+    if (byte < 0x30 || byte > 0x37) {
+      break;
+    }
+    value = value * 8 + (byte - 0x30);
+    index += 1;
+  }
+  for (; index < slice.length; index += 1) {
+    if (!isPadding(slice[index])) {
+      throw new ThemeArchiveError("The archive has a malformed numeric field.");
+    }
+  }
+  return value;
+}
+
+/**
+ * Reads a base-256 field (flagged by a leading 0x80 or 0xff byte) and refuses
+ * a value that is not a safe integer, as node-tar does.
+ */
+function assertBase256(block: Uint8Array, start: number, length: number): void {
+  const bytes = block.subarray(start, start + length);
+  let value = 0n;
+  if (bytes[0] === 0x80) {
+    for (const byte of bytes.subarray(1)) {
+      value = value * 256n + BigInt(byte);
+    }
+  } else {
+    for (const byte of bytes) {
+      value = value * 256n + BigInt(byte);
+    }
+    value -= 1n << BigInt(8 * bytes.length);
+  }
+  if (
+    value > BigInt(Number.MAX_SAFE_INTEGER) ||
+    value < -BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
     throw new ThemeArchiveError("The archive has a malformed numeric field.");
   }
-  return Number.parseInt(text, 8);
+}
+
+/**
+ * Every numeric field but size and the checksum, which are read where used.
+ *
+ * GNU tar and bsdtar write a value that does not fit octal (a uid above
+ * 2^21, a negative mtime) in base-256, flagged by a leading 0x80 or 0xff byte.
+ * These fields are never used, so such a field is accepted when its value is a
+ * safe integer; size and the checksum stay octal-only.
+ */
+function assertNumericFields(header: Uint8Array): void {
+  for (const [start, length] of [
+    [100, 8], // mode
+    [108, 8], // uid
+    [116, 8], // gid
+    [136, 12], // mtime
+    [329, 8], // devmajor
+    [337, 8], // devminor
+  ] as const) {
+    if (header[start] === 0x80 || header[start] === 0xff) {
+      assertBase256(header, start, length);
+      continue;
+    }
+    decodeOctal(header, start, length);
+  }
 }
 
 /**
@@ -99,6 +176,10 @@ function decodeOctal(block: Uint8Array, start: number, length: number): number {
  * rather than a nonsensical path or a huge size read out of arbitrary bytes.
  */
 function checksumMatches(block: Uint8Array): boolean {
+  // node-tar reads the checksum over 12 bytes, so it must end at the field.
+  if (!isPadding(block[155])) {
+    return false;
+  }
   const stated = decodeOctal(block, 148, 8);
   let signed = 0;
   let unsigned = 0;
@@ -133,6 +214,20 @@ function isUstar(header: Uint8Array): boolean {
  * without the magic that has anything in them is refused.
  */
 function headerPath(header: Uint8Array): string {
+  // node-tar reads past a NUL when a newline follows it, so anything but NULs
+  // after the first is a name tools read differently.
+  for (const [start, length] of [
+    [0, 100],
+    [345, 155],
+  ] as const) {
+    const field = header.subarray(start, start + length);
+    const end = field.indexOf(0);
+    if (end !== -1 && field.subarray(end).some((byte) => byte !== 0)) {
+      throw new ThemeArchiveError(
+        "The archive has a name with bytes after its end.",
+      );
+    }
+  }
   const name = decodeString(header, 0, 100);
   const prefix = decodeString(header, 345, 155);
   if (prefix === "") {
@@ -146,7 +241,11 @@ function headerPath(header: Uint8Array): string {
   return `${prefix}/${name}`;
 }
 
-function assertSafePath(path: string): void {
+/**
+ * `rootedAtDot` lets the reader pass a path that still has its leading `./`
+ * root, which it strips once it has seen every entry.
+ */
+function assertSafePath(path: string, rootedAtDot = false): void {
   if (path.length === 0 || path.length > 200) {
     throw new ThemeArchiveError(
       `The archive names a path of an unusable length.`,
@@ -157,9 +256,15 @@ function assertSafePath(path: string): void {
       `The archive names an absolute or backslashed path: ${path}`,
     );
   }
-  if (path.split("/").some((segment) => segment === ".." || segment === "")) {
+  const segments = path.split("/");
+  if (segments.some((segment) => segment === ".." || segment === "")) {
     throw new ThemeArchiveError(
       `The archive names a path that escapes the package: ${path}`,
+    );
+  }
+  if (segments.slice(rootedAtDot ? 1 : 0).includes(".")) {
+    throw new ThemeArchiveError(
+      `The archive names a path with a "." segment: ${path}`,
     );
   }
 }
@@ -238,7 +343,14 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
       throw new ThemeArchiveError("The archive has a corrupt header.");
     }
 
+    assertNumericFields(header);
     const typeFlag = decodeString(header, 156, 1);
+    if (
+      (typeFlag === "5" || typeFlag === "0" || typeFlag === "") &&
+      header.subarray(157, 257).some((byte) => byte !== 0)
+    ) {
+      throw new ThemeArchiveError("The archive has a file with a link name.");
+    }
     const size = decodeOctal(header, 124, 12);
     const dataBlocks = Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;
 
@@ -291,7 +403,7 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
     fileRecords += 1;
 
     const path = headerPath(header);
-    assertSafePath(path);
+    assertSafePath(path, true);
 
     if (offset + size > tarball.length) {
       throw new ThemeArchiveError("The archive ends inside a file.");
@@ -303,14 +415,19 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
     offset += dataBlocks;
   }
 
+  // `tar -czf x.tgz -C dir .` roots every name at `.`, which is stripped like
+  // any other common root. A `.` left after that would let `theme.json` and
+  // `./theme.json` be two entries that land on one file.
   const root = stripCommonRoot([...collected.keys()]);
-  if (root === null) {
-    return collected;
-  }
-
   const stripped = new Map<string, Uint8Array>();
   for (const [path, content] of collected) {
-    stripped.set(path.slice(root.length + 1), content);
+    const relative = root === null ? path : path.slice(root.length + 1);
+    if (relative.split("/").includes(".")) {
+      throw new ThemeArchiveError(
+        `The archive names a path with a "." segment: ${path}`,
+      );
+    }
+    stripped.set(relative, content);
   }
   return stripped;
 }
