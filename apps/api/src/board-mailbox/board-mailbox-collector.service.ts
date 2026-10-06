@@ -416,8 +416,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * words - never stored, and never shown. So the letter has to say what the
    * board said as well. Its text is held to the answer as this instance
    * renders it, and it may carry nothing the answer did not: no file, no part
-   * the reader leaves unread, and no more text than the reader keeps. A sender who copies all of that has sent
-   * the board its own answer, and nothing is lost by not storing it twice.
+   * the reader leaves unread, and no more text than the reader keeps. A text
+   * part a sender adds beside the answer is read into the text, so it is
+   * compared with the rest. A sender who copies all of that has sent the board
+   * its own answer, and nothing is lost by not storing it twice.
    *
    * A copy that does not match - a list that adds a footer, an association
    * renamed between the answer and its copy - is collected as a letter. That

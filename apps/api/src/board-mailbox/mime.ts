@@ -134,7 +134,8 @@ export interface ParsedMessage {
   readonly receivedAt: Date | null;
   /**
    * The message as text, with newlines normalised, and at most
-   * {@link MAX_TEXT_CHARACTERS} of it.
+   * {@link MAX_TEXT_CHARACTERS} of it. A letter written in several text parts
+   * reads as all of them, in the order they stand.
    */
   readonly text: string;
   /**
@@ -204,8 +205,8 @@ export function readMessage(raw: Buffer): ParsedMessage {
     text: body?.text ?? "",
     textTruncated: body?.truncated ?? false,
     textFromHtml: body?.fromHtml ?? false,
-    attachments: collectAttachments(part, body?.part ?? null),
-    unreadParts: countUnreadParts(part, body?.part ?? null),
+    attachments: collectAttachments(part),
+    unreadParts: countUnreadParts(part, body?.parts ?? []),
   };
 }
 
@@ -556,14 +557,15 @@ function trimLineBreak(body: Buffer, at: number): number {
 // ---------------------------------------------------------------------------
 
 interface ChosenBody {
-  readonly part: MimePart;
+  /** The leaves the text was read from, in the order it reads them. */
+  readonly parts: readonly MimePart[];
   readonly text: string;
   readonly truncated: boolean;
   readonly fromHtml: boolean;
 }
 
 /**
- * The part a reader is meant to read.
+ * The parts a reader is meant to read.
  *
  * `multipart/alternative` is the case the rest follows from: its children are
  * the same message written twice, so exactly one of them is the body and the
@@ -571,19 +573,25 @@ interface ChosenBody {
  * what the sender typed rather than a rendering of it, and the last matching
  * child is preferred over the first because a client puts its richest
  * alternative last.
+ *
+ * `multipart/related` is one document and the resources it refers to - an HTML
+ * letter and the pictures it shows - so its first readable part is the body,
+ * and a text part among the resources is not the letter.
+ *
+ * Every other multipart is a sequence a mail client shows in order, and each
+ * readable part of it is part of the letter. Apple Mail writes the text around
+ * an inline picture as one text part before it and another after it, and a
+ * reader that stopped at the first would give the board half the letter.
  */
 function chooseBody(part: MimePart): ChosenBody | null {
   if (part.children !== null) {
     if (part.contentType.subtype === "alternative") {
       return lastBody(part.children);
     }
-    for (const child of part.children) {
-      const chosen = chooseBody(child);
-      if (chosen !== null) {
-        return chosen;
-      }
+    if (part.contentType.subtype === "related") {
+      return firstBody(part.children);
     }
-    return null;
+    return joinedBody(part.children);
   }
 
   if (isAttachment(part) || part.contentType.type !== "text") {
@@ -606,7 +614,7 @@ function chooseBody(part: MimePart): ChosenBody | null {
     : withoutControlCharacters(normaliseNewlines(read));
 
   return {
-    part,
+    parts: [part],
     text: prefix(text, MAX_TEXT_CHARACTERS),
     // Either cut counts. A body cut before it was read can still come out
     // shorter than the bound - an HTML letter whose text sat behind its markup -
@@ -657,6 +665,105 @@ function lastBody(children: readonly MimePart[]): ChosenBody | null {
   return last;
 }
 
+/** The body of the first child that has one. */
+function firstBody(children: readonly MimePart[]): ChosenBody | null {
+  for (const child of children) {
+    const chosen = chooseBody(child);
+    if (chosen !== null) {
+      return chosen;
+    }
+  }
+  return null;
+}
+
+/**
+ * The bodies of every child that has one, as one text in the order they stand.
+ *
+ * A letter with one body comes back exactly as that body reads, so joining
+ * changes nothing for the letters that never needed it. Several are joined
+ * with a blank line between them, where a client shows the picture or file
+ * that stood between them, and the whole is held to the same bound as one body.
+ *
+ * Reading stops once the text has reached that bound. A sender decides how many
+ * parts a letter has, and reading the rest would only produce text that is cut
+ * again; a part left behind with text in it is recorded as a cut instead, so the
+ * board is told the letter goes on.
+ */
+function joinedBody(children: readonly MimePart[]): ChosenBody | null {
+  const read: ChosenBody[] = [];
+  let length = 0;
+  let cut = false;
+
+  for (const child of children) {
+    if (length >= MAX_TEXT_CHARACTERS) {
+      if (holdsText(child)) {
+        cut = true;
+        break;
+      }
+      continue;
+    }
+    const chosen = chooseBody(child);
+    if (chosen === null) {
+      continue;
+    }
+    read.push(chosen);
+    length += chosen.text.length;
+  }
+
+  const [first] = read;
+  if (first === undefined || (read.length === 1 && !cut)) {
+    return first ?? null;
+  }
+
+  const said = read.filter(
+    (chosen) => withoutOuterLineBreaks(chosen.text) !== "",
+  );
+  const text = said
+    .map((chosen) => withoutOuterLineBreaks(chosen.text))
+    .join("\n\n");
+
+  return {
+    parts: read.flatMap((chosen) => chosen.parts),
+    text: prefix(text, MAX_TEXT_CHARACTERS),
+    truncated:
+      cut ||
+      text.length > MAX_TEXT_CHARACTERS ||
+      read.some((chosen) => chosen.truncated),
+    fromHtml: said.some((chosen) => chosen.fromHtml),
+  };
+}
+
+/**
+ * Whether a part holds a leaf the body could be read from, judged by its
+ * structure alone and without decoding anything.
+ */
+function holdsText(part: MimePart): boolean {
+  return leavesOf(part).some(
+    (leaf) =>
+      !isAttachment(leaf) &&
+      leaf.contentType.type === "text" &&
+      leaf.body.length > 0,
+  );
+}
+
+/**
+ * The text without the line breaks that open and close it.
+ *
+ * A scan rather than a pattern, for the reason {@link withoutTrailingBlanks}
+ * gives.
+ */
+function withoutOuterLineBreaks(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === "\n") {
+    start += 1;
+  }
+  while (end > start && text[end - 1] === "\n") {
+    end -= 1;
+  }
+  return text.slice(start, end);
+}
+
 /**
  * Every leaf that is a file rather than the letter.
  *
@@ -666,10 +773,7 @@ function lastBody(children: readonly MimePart[]): ChosenBody | null {
  * into files would give the board an "attachment" on every message a mail client
  * ever sent it.
  */
-function collectAttachments(
-  part: MimePart,
-  body: MimePart | null,
-): readonly MimeAttachment[] {
+function collectAttachments(part: MimePart): readonly MimeAttachment[] {
   const attachments: MimeAttachment[] = [];
 
   const walk = (candidate: MimePart): void => {
@@ -679,7 +783,8 @@ function collectAttachments(
       }
       return;
     }
-    if (candidate === body || !isAttachment(candidate)) {
+    // A body is never one: the reader does not read an attachment as text.
+    if (!isAttachment(candidate)) {
       return;
     }
     const bytes = decodeTransfer(candidate);
@@ -698,53 +803,55 @@ function collectAttachments(
 }
 
 /**
- * The leaves that are neither the body, nor another form of it, nor a file.
+ * The leaves that are neither read into the body, nor another form of what
+ * was, nor a file.
  *
- * The other forms of the body are every leaf under the outermost
- * `multipart/alternative` that holds it: the same message written again, which
- * is not read because the body already says it. Anything else that is not an
- * attachment - a second text part beside the body, which some clients write
- * around an inline picture - is content this reader leaves unread. An empty
- * part says nothing and is not counted.
+ * The other forms are every leaf under an outermost `multipart/alternative`
+ * that holds a part that was read: the same message written again, which is
+ * not read because the body already says it. Anything else that is not an
+ * attachment - a text part among the resources of a `multipart/related`, or
+ * one past the bound on the text - is content this reader leaves unread. An
+ * empty part says nothing and is not counted.
+ *
+ * One walk over the structure, whatever number of parts were read: a sender
+ * decides how many there are, and a search for each of them from the top would
+ * cost the square of that.
  */
-function countUnreadParts(part: MimePart, body: MimePart | null): number {
-  const forms = new Set<MimePart>(
-    body === null ? [] : leavesOf(alternativeHolding(part, body) ?? body),
-  );
+function countUnreadParts(part: MimePart, read: readonly MimePart[]): number {
+  const said = new Set<MimePart>(read);
+  const forms = new Set<MimePart>();
+
+  const walk = (candidate: MimePart): void => {
+    if (candidate.children === null) {
+      return;
+    }
+    if (candidate.contentType.subtype === "alternative") {
+      const leaves = leavesOf(candidate);
+      if (leaves.some((leaf) => said.has(leaf))) {
+        for (const leaf of leaves) {
+          forms.add(leaf);
+        }
+      }
+      return;
+    }
+    for (const child of candidate.children) {
+      walk(child);
+    }
+  };
+  walk(part);
+
   return leavesOf(part).filter(
-    (leaf) => !forms.has(leaf) && !isAttachment(leaf) && leaf.body.length > 0,
+    (leaf) =>
+      !said.has(leaf) &&
+      !forms.has(leaf) &&
+      !isAttachment(leaf) &&
+      leaf.body.length > 0,
   ).length;
 }
 
 /** Every leaf under a part, the part itself when it is one. */
 function leavesOf(part: MimePart): MimePart[] {
   return part.children === null ? [part] : part.children.flatMap(leavesOf);
-}
-
-/**
- * The outermost `multipart/alternative` on the way down to the body, or null
- * when the body is not one of several forms.
- */
-function alternativeHolding(
-  part: MimePart,
-  body: MimePart,
-  outermost: MimePart | null = null,
-): MimePart | null {
-  if (part === body) {
-    return outermost;
-  }
-  if (part.children === null) {
-    return null;
-  }
-  const holding =
-    outermost ?? (part.contentType.subtype === "alternative" ? part : null);
-  for (const child of part.children) {
-    const found = alternativeHolding(child, body, holding);
-    if (found !== null) {
-      return found;
-    }
-  }
-  return null;
 }
 
 function isAttachment(part: MimePart): boolean {

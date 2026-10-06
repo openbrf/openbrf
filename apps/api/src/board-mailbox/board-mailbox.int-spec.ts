@@ -2640,7 +2640,8 @@ describe("answering a letter", () => {
           ],
         ]),
       ),
-      // The answer word for word, and a second text the reader does not read.
+      // The answer word for word, and a second text part beside it, which the
+      // reader reads into the letter's text.
       borrowed(
         "lanat-del",
         await answerCopy(sent, [
@@ -2661,6 +2662,13 @@ describe("answering a letter", () => {
       });
       expect(stored).toHaveLength(3);
       expect(stored.every((row) => row.direction === "INBOUND")).toBe(true);
+
+      // The second text is in the letter the board reads, not left out of it.
+      const withPart = await prisma.boardMailboxMessage.findFirst({
+        where: { sourceUid: { endsWith: `uid-lanat-del-${suffix}` } },
+        select: { body: true },
+      });
+      expect(withPart?.body).toContain("Och en sak till.");
 
       // And the answer itself is not marked as any of them.
       const answer = await prisma.boardMailboxMessage.findUnique({

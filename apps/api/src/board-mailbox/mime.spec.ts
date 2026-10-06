@@ -924,7 +924,60 @@ describe("readMessage", () => {
     expect(message.unreadParts).toBe(0);
   });
 
-  it("counts an inline part beside the body as unread", () => {
+  it("reads the text on both sides of an inline picture, as Apple Mail writes it", () => {
+    const message = readMessage(
+      raw(
+        "From: Astrid Lindqvist <astrid@example.test>",
+        "Subject: Taket",
+        "Mime-Version: 1.0 (Mac OS X Mail 16.0)",
+        'Content-Type: multipart/mixed; boundary="Apple-Mail=_5B1C2D3E"',
+        "",
+        "",
+        "--Apple-Mail=_5B1C2D3E",
+        "Content-Transfer-Encoding: quoted-printable",
+        "Content-Type: text/plain;",
+        "\tcharset=utf-8",
+        "",
+        "Hej styrelsen,",
+        "",
+        "H=C3=A4r =C3=A4r en bild p=C3=A5 l=C3=A4ckan:",
+        "",
+        "--Apple-Mail=_5B1C2D3E",
+        "Content-Disposition: inline;",
+        "\tfilename=tak.jpg",
+        "Content-Type: image/jpeg;",
+        "\tx-unix-mode=0644;",
+        "\tname=tak.jpg",
+        "Content-Transfer-Encoding: base64",
+        "",
+        "/9j/4AAQSkZJRgABAQ==",
+        "--Apple-Mail=_5B1C2D3E",
+        "Content-Transfer-Encoding: 7bit",
+        "Content-Type: text/plain;",
+        "\tcharset=us-ascii",
+        "",
+        "",
+        "Det droppar in vid skorstenen.",
+        "",
+        "Mvh Astrid",
+        "--Apple-Mail=_5B1C2D3E--",
+        "",
+      ),
+    );
+
+    // Both parts, in order, with a blank line where the picture stood.
+    expect(message.text).toBe(
+      "Hej styrelsen,\n\nHär är en bild på läckan:\n\nDet droppar in vid skorstenen.\n\nMvh Astrid",
+    );
+    expect(message.textTruncated).toBe(false);
+    expect(message.textFromHtml).toBe(false);
+    expect(message.attachments.map((file) => file.fileName)).toEqual([
+      "tak.jpg",
+    ]);
+    expect(message.unreadParts).toBe(0);
+  });
+
+  it("reads a text part beside a letter written as text and HTML", () => {
     const message = readMessage(
       raw(
         "From: <sender@example.test>",
@@ -945,7 +998,7 @@ describe("readMessage", () => {
         "--SEP",
         "Content-Type: text/plain",
         "",
-        "Och det har ser ingen",
+        "Och det har ocksa",
         "--SEP",
         "Content-Type: image/png",
         'Content-Disposition: attachment; filename="tak.png"',
@@ -956,9 +1009,179 @@ describe("readMessage", () => {
       ),
     );
 
-    expect(message.text).toBe("Hej");
+    // The HTML is the same letter written again, and is not read twice.
+    expect(message.text).toBe("Hej\n\nOch det har ocksa");
     expect(message.attachments).toHaveLength(1);
+    expect(message.unreadParts).toBe(0);
+  });
+
+  it("says an HTML part was read when one of the joined parts is HTML", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: text/html",
+        "",
+        "<p>Mvh <b>Astrid</b></p>",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Hej\n\nMvh Astrid");
+    expect(message.textFromHtml).toBe(true);
+  });
+
+  it("leaves no gap for a text part that holds only line breaks", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Mvh Astrid",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Hej\n\nMvh Astrid");
+  });
+
+  it("holds joined parts to the bound, and says the letter was cut", () => {
+    const part = "a".repeat(MAX_TEXT_CHARACTERS / 2);
+    const lines = [
+      "From: <sender@example.test>",
+      "Content-Type: multipart/mixed; boundary=SEP",
+      "",
+    ];
+    for (let index = 0; index < 4; index += 1) {
+      lines.push("--SEP", "Content-Type: text/plain", "", part);
+    }
+    lines.push("--SEP--", "");
+
+    const message = readMessage(raw(...lines));
+
+    expect(message.text).toHaveLength(MAX_TEXT_CHARACTERS);
+    expect(message.textTruncated).toBe(true);
+    // The parts past the bound are not read, and are counted as unread.
+    expect(message.unreadParts).toBe(2);
+  });
+
+  it("says a letter was cut when a text part past the bound was not read", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "a".repeat(MAX_TEXT_CHARACTERS),
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Och mer",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toHaveLength(MAX_TEXT_CHARACTERS);
+    expect(message.text).not.toContain("Och mer");
+    expect(message.textTruncated).toBe(true);
+  });
+
+  it("does not call a letter cut when only files follow the bound", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "a".repeat(MAX_TEXT_CHARACTERS),
+        "--SEP",
+        "Content-Type: application/pdf",
+        'Content-Disposition: attachment; filename="rapport.pdf"',
+        "",
+        "AAAA",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.textTruncated).toBe(false);
+    expect(message.attachments).toHaveLength(1);
+  });
+
+  it("reads only the document of a multipart/related, and counts a text resource beside it as unread", () => {
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/related; boundary=REL",
+        "",
+        "--REL",
+        "Content-Type: text/html",
+        "",
+        "<p>Hej</p>",
+        "--REL",
+        "Content-Type: text/css",
+        "Content-ID: <stil@example.test>",
+        "",
+        "p { color: red }",
+        "--REL--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe("Hej");
     expect(message.unreadParts).toBe(1);
+  });
+
+  it("reads a letter of many parts in time that grows with their number", () => {
+    // A sender decides how many parts a letter has, and a part that says
+    // nothing adds nothing to the bound on the text, so every one is read.
+    // Finding each read part again by a search from the top would cost the
+    // square of their number.
+    const parts = 50_000;
+    const lines = [
+      "From: <sender@example.test>",
+      "Content-Type: multipart/mixed; boundary=SEP",
+      "",
+    ];
+    for (let index = 0; index < parts; index += 1) {
+      lines.push("--SEP", "Content-Type: text/plain", "", "\u0001");
+    }
+    lines.push("--SEP", "Content-Type: text/plain", "", "Hej", "--SEP--", "");
+
+    // Joined here rather than spread into raw(), which has a stack to run out of.
+    const letter = Buffer.from(lines.join("\r\n"), "latin1");
+
+    const started = performance.now();
+    const message = readMessage(letter);
+
+    expect(message.text).toBe("Hej");
+    expect(message.unreadParts).toBe(0);
+    expect(performance.now() - started).toBeLessThan(2_000);
   });
 });
 
