@@ -507,8 +507,8 @@ describe("readThemeArchive refusals", () => {
   });
 
   it.each([
-    ["uid", 108, new Uint8Array([0x80, ...new Array<number>(7).fill(0xff)])],
-    ["mtime", 136, new Uint8Array([0xff, ...new Array<number>(11).fill(0)])],
+    ["uid", 108, new Uint8Array(8).fill(0xff).fill(0x80, 0, 1)],
+    ["mtime", 136, new Uint8Array(12).fill(0).fill(0xff, 0, 1)],
   ])("refuses a base-256 %s beyond a safe integer", (_, at, bytes) => {
     const archive = rawArchive([
       rawHeader({
@@ -522,15 +522,21 @@ describe("readThemeArchive refusals", () => {
   });
 
   it("refuses a base-256 checksum", () => {
-    const archive = rawArchive([
-      rawHeader({
-        name: "theme.json",
-        size: 0,
-        typeFlag: "0",
-        overwrite: { 148: new Uint8Array([0x80, 0, 0, 0, 0, 0, 0x10, 0x00]) },
-      }),
-    ]);
-    expect(() => readThemeArchive(archive)).toThrow(/malformed numeric|corrupt/);
+    const header = rawHeader({ name: "theme.json", size: 0, typeFlag: "0" });
+    const checksumOf = () => {
+      let total = 0;
+      for (let index = 0; index < 512; index += 1) {
+        total += index >= 148 && index < 156 ? 0x20 : (header[index] ?? 0);
+      }
+      return total;
+    };
+    // Make the low byte a NUL, so the field reaches the numeric decoder.
+    header[500] = (256 - (checksumOf() % 256)) % 256;
+    const sum = checksumOf();
+    header.set([0x80, 0, 0, 0, 0, 0, sum >> 8, sum & 0xff], 148);
+    expect(() => readThemeArchive(rawArchive([header]))).toThrow(
+      /malformed numeric/,
+    );
   });
 
   it("refuses an eight-digit checksum with no terminator", () => {
