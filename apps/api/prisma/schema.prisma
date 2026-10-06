@@ -1713,6 +1713,10 @@ enum AuditAction {
   /// of trust is a dated fact about who answered for the association and when,
   /// so ending one adds a date rather than removing the period it covered.
   BOARD_POSITION_ENDED
+  /// A board was recorded on a vacant register by somebody who holds no seat:
+  /// a board recovery. One entry per seat it recorded, each carrying the
+  /// stated reason, so the log tells it from an election the board recorded.
+  BOARD_RECOVERY_RECORDED
   /// A bookable resource was added to the association's catalogue.
   BOOKING_RESOURCE_CREATED
   /// A bookable resource was edited: its name, its description, its booking

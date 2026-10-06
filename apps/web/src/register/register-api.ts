@@ -333,6 +333,7 @@ export type ReportAuditAction =
   | "SERVICE_DATA_PURGED"
   | "BOARD_POSITION_ELECTED"
   | "BOARD_POSITION_ENDED"
+  | "BOARD_RECOVERY_RECORDED"
   | "BOOKING_RESOURCE_CREATED"
   | "BOOKING_RESOURCE_UPDATED"
   | "BOOKING_RESOURCE_DEACTIVATED"
@@ -1439,6 +1440,42 @@ export function electToBoardPosition(
     `/api/board-positions/persons/${encodeURIComponent(personId)}`,
     { method: "POST", body: JSON.stringify({ position, electedOn }) },
   );
+}
+
+/**
+ * Whether the board register is vacant: no seat held today and none recorded
+ * ahead. Only then does the API take a board recovery, so the person panel asks
+ * before it decides which form to show.
+ */
+export function fetchBoardRecoveryState(
+  signal: AbortSignal,
+): Promise<{ vacant: boolean }> {
+  return request("/api/board-positions/recovery", { signal });
+}
+
+/** One seat of the board a recovery records. */
+export interface RecoveredSeat {
+  personId: string;
+  position: BoardPositionType;
+  electedOn: string;
+}
+
+/**
+ * Records a board on a vacant register: a board recovery.
+ *
+ * For somebody who holds no seat, which is everybody once every term has
+ * ended. The reason is required and is kept in the audit log for good, with
+ * each seat. Refused with `board-not-vacant` once a board is recorded, and
+ * with `board-seat-required` for the caller's own seat.
+ */
+export function recoverBoard(
+  seats: readonly RecoveredSeat[],
+  reason: string,
+): Promise<BoardPositionView[]> {
+  return request("/api/board-positions/recovery", {
+    method: "POST",
+    body: JSON.stringify({ seats, reason }),
+  });
 }
 
 /**
