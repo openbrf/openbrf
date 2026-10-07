@@ -42,6 +42,7 @@ import {
   hasControlCharacter,
   oneLine,
 } from "../mail/header-text";
+import { prefix } from "../text/prefix";
 
 /**
  * How much of one letter is read.
@@ -590,18 +591,6 @@ function chooseBody(part: MimePart): ChosenBody | null {
       cut || read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
     fromHtml,
   };
-}
-
-/**
- * The first `length` characters of the text, or one fewer where the cut would
- * split a character written as a surrogate pair.
- */
-function prefix(text: string, length: number): string {
-  if (text.length <= length) {
-    return text;
-  }
-  const last = text.charCodeAt(length - 1);
-  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? length - 1 : length);
 }
 
 /**
