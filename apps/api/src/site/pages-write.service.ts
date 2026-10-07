@@ -1157,7 +1157,7 @@ async function placeNewPage(tx: Prisma.TransactionClient): Promise<number> {
   const last = highest._max.sortOrder;
   const placed = (last ?? 0) + 1;
   const noticeAtTheEnd =
-    notice !== null && (last === null || notice.sortOrder >= last);
+    notice !== null && (last === null || notice.sortOrder > last);
   if (noticeAtTheEnd && notice.sortOrder <= placed) {
     await tx.page.update({
       where: { slug: PRIVACY_NOTICE_SLUG },

@@ -380,6 +380,17 @@ describe("writing a page", () => {
       expect(page.update).not.toHaveBeenCalled();
     });
 
+    it("leaves a notice tied with the last page where the board put it", async () => {
+      // A reorder that omitted pages can leave both at one number, and the
+      // older notice then sorts first on purpose.
+      const { service, page } = arranged(2, 2);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(3);
+      expect(page.update).not.toHaveBeenCalled();
+    });
+
     it("leaves a notice with room before it alone", async () => {
       const { service, page } = arranged(3, 1000);
 
