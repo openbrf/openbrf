@@ -305,7 +305,7 @@ function file(): File {
 async function reachPreview(session: ReturnType<typeof userEvent.setup>) {
   render(<ImportScreen />);
 
-  await session.upload(screen.getByLabelText(/Välj en fil/), file());
+  await session.upload(await screen.findByLabelText(/Välj en fil/), file());
   await session.click(screen.getByRole("button", { name: /Läs filen/ }));
   await screen.findByText(/Kolumnerna/);
 
@@ -325,7 +325,7 @@ async function reachPreview(session: ReturnType<typeof userEvent.setup>) {
 async function reachMapping(session: ReturnType<typeof userEvent.setup>) {
   render(<ImportScreen />);
 
-  await session.upload(screen.getByLabelText(/Välj en fil/), file());
+  await session.upload(await screen.findByLabelText(/Välj en fil/), file());
   await session.click(screen.getByRole("button", { name: /Läs filen/ }));
   await screen.findByText(/Kolumnerna/);
   fireEvent.change(screen.getByLabelText(/^Inflyttningsdatum/), {
@@ -376,7 +376,7 @@ describe("the mapping step", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     await screen.findByText(/Kolumnerna/);
@@ -393,7 +393,7 @@ describe("the mapping step", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
     await screen.findByText(/Kolumnerna/);
 
@@ -412,7 +412,7 @@ describe("the mapping step", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByLabelText(/^Roll/)).toBeTruthy();
@@ -1474,6 +1474,73 @@ describe("coming back to the screen", () => {
 
     expect(await screen.findByLabelText(/Välj en fil/)).toBeTruthy();
   });
+
+  /** An answer to "is an import running?" that the test hands over itself. */
+  function lateAnswer(): (value: unknown) => Promise<void> {
+    let resolve: (value: unknown) => void = () => undefined;
+    const pending = new Promise((settle) => {
+      resolve = settle;
+    });
+    fetchActiveImport.mockReturnValue(pending);
+    return async (value) => {
+      await act(async () => {
+        resolve(value);
+        await pending;
+      });
+    };
+  }
+
+  it("offers no upload before it knows whether an import is running", async () => {
+    // A reload while an import is writing the register, and a quick board
+    // member. A file sent before the screen knows could start a second write
+    // into the register, so there is no form to send one with until it does,
+    // and then what it shows is the import that is running.
+    const answer = lateAnswer();
+    render(<ImportScreen />);
+
+    expect(screen.getByRole("status").textContent).toBe(
+      "Ser efter om en import pågår",
+    );
+    expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
+
+    await answer({
+      ok: true,
+      value: runView({ status: "APPLYING", rowsDone: 40, rowsTotal: 120 }),
+    });
+
+    expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
+    expect(screen.queryByText(/Ser efter om en import pågår/)).toBeNull();
+    expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
+  });
+
+  it("offers the upload once a late answer says nothing is running", async () => {
+    const answer = lateAnswer();
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    expect(screen.queryByLabelText(/Välj en fil/)).toBeNull();
+    await answer({ ok: true, value: null });
+
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByText(/Kolumnerna/)).toBeTruthy();
+  });
+
+  it("offers the upload when the question goes unanswered", async () => {
+    // A failed request says nothing about an import, so it does not keep the
+    // form away for good.
+    const answer = lateAnswer();
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await answer({ ok: false, failure: { status: 0, reason: "offline" } });
+
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByText(/Kolumnerna/)).toBeTruthy();
+  });
 });
 
 describe("when the file cannot be read", () => {
@@ -1485,7 +1552,7 @@ describe("when the file cannot be read", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(
@@ -1501,7 +1568,7 @@ describe("when the file cannot be read", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     // Written as Swedish writes a number, from the cap the API enforces.
@@ -1516,7 +1583,7 @@ describe("when the file cannot be read", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -1533,7 +1600,7 @@ describe("when the file cannot be read", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
