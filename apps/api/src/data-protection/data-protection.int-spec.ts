@@ -1673,6 +1673,72 @@ describe("processors", () => {
     }
   }, 60_000);
 
+  it("refuses a second open row for one recipient from a writer that skips the key", async () => {
+    /*
+     * The lock above is the path writers take; the partial unique index is
+     * what holds when one does not. Written straight through Prisma, with no
+     * lock and no read first, as a future writer that got it wrong would. P2002
+     * is Prisma's name for the unique violation Postgres raises (23505), which
+     * is the refusal this test is about: any other failure would satisfy a bare
+     * `toThrow()`.
+     */
+    const processorKey = `external:dpindex${suffix}`;
+    const row = {
+      processorKind: "EXTERNAL" as const,
+      processorKey,
+      classification: "NOT_A_PROCESSOR" as const,
+      note: "Ingen mottagare.",
+      recordedByPersonId: board.personId,
+    };
+
+    const first = await prisma.processorAgreement.create({
+      data: row,
+      select: { id: true },
+    });
+    await expect(
+      prisma.processorAgreement.create({ data: row }),
+    ).rejects.toMatchObject({ code: "P2002" });
+
+    // Partial: a closed row is history and leaves the recipient free for the
+    // next classification.
+    await prisma.processorAgreement.update({
+      where: { id: first.id },
+      data: { endedAt: new Date(), endReason: "replaced" },
+    });
+    await expect(
+      prisma.processorAgreement.create({ data: row }),
+    ).resolves.toBeDefined();
+  });
+
+  it("records two recipients the board knows about at once", async () => {
+    /*
+     * A board-recorded recipient is written under a placeholder key and then
+     * renamed after its own id. Under the unique index a placeholder shared by
+     * both would hold one recording on the other's insert; each one's own
+     * leaves them independent, and neither placeholder outlives its
+     * transaction.
+     */
+    const facts = await app.get(ProcessorFactsService).read();
+    const service = app.get(ProcessorAgreementService);
+    const input = {
+      classification: "NOT_A_PROCESSOR" as const,
+      note: "Ingen behandling for foreningens rakning.",
+      actorPersonId: board.personId,
+    };
+
+    const [one, two] = await Promise.all([
+      service.recordExternal(input, facts),
+      service.recordExternal(input, facts),
+    ]);
+
+    expect(one.processorKey).not.toBe(two.processorKey);
+    expect(
+      await prisma.processorAgreement.count({
+        where: { processorKey: { startsWith: "external:pending" } },
+      }),
+    ).toBe(0);
+  });
+
   it("answers the plugin views from the same rows", async () => {
     const states = await app.get(ProcessorAgreementService).forPlugins();
 

@@ -3971,6 +3971,9 @@ model ProcessorAgreement {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// At most one open row per processorKey is a partial unique index written
+  /// by hand in the migration, with no @@unique counterpart here: a closed row
+  /// is history, and a recipient has one for every classification it has had.
   @@index([processorKind, processorKey, endedAt])
   @@map("processor_agreement")
 }

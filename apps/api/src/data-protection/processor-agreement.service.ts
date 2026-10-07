@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { HttpStatus, Injectable } from "@nestjs/common";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { TFunction } from "i18next";
@@ -219,12 +221,16 @@ export class ProcessorAgreementService {
      * open under the placeholder key would appear on the board screen as a
      * recipient called "external:pending", which is a false entry in the
      * art. 28 record.
+     *
+     * The placeholder is this call's own. One open row per key is a unique
+     * index, so a placeholder shared by every call would hold a second
+     * recording back on the first one's insert until that one committed.
      */
     const created = await this.prisma.$transaction(async (tx) => {
       const row = await tx.processorAgreement.create({
         data: {
           processorKind: "EXTERNAL",
-          processorKey: "external:pending",
+          processorKey: `external:pending:${randomUUID()}`,
           classification: input.classification,
           status: input.status ?? null,
           counterparty: input.counterparty ?? null,
