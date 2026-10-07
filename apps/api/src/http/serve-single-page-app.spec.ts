@@ -123,6 +123,16 @@ describe("the client's page", () => {
     },
   );
 
+  it("keeps the policy off paths outside the app", async () => {
+    const response = await app
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/api/x" });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["content-security-policy"]).toBeUndefined();
+  });
+
   it("runs only this origin's scripts and is framed by nobody", () => {
     const directives = new Map(
       APP_CONTENT_SECURITY_POLICY.split("; ").map((directive) => {
