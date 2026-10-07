@@ -438,6 +438,25 @@ describe("SMTP settings", () => {
     expect(current()?.smtpUser).toBe("kassoren");
   });
 
+  it("reads a stored null port as the default the screen fills in", async () => {
+    // The panel shows 465 for a secure connection with no port stored and sends
+    // it back; that is the server the password was entered for.
+    const { service, current } = build({
+      smtpHost: filled.host,
+      smtpPort: null,
+      smtpSecure: true,
+      smtpPasswordCipher: "brf:existing-ciphertext",
+    });
+
+    await service.updateSmtp({ ...filled, port: 465, user: "kassoren" });
+
+    expect(current()).toMatchObject({
+      smtpPort: 465,
+      smtpUser: "kassoren",
+      smtpPasswordCipher: "brf:existing-ciphertext",
+    });
+  });
+
   it.each([
     ["host", { host: "smtp.elsewhere.example" }],
     ["port", { port: 2525 }],
@@ -848,6 +867,21 @@ describe("board mailbox settings", () => {
 
     expect(current()).toMatchObject({
       boardMailboxPop3User: "kassoren",
+      boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
+    });
+  });
+
+  it("reads a stored null port as the default the screen fills in", async () => {
+    const { service, current } = build({
+      ...stored,
+      boardMailboxPop3Port: null,
+      boardMailboxPop3Secure: true,
+    });
+
+    await service.updateBoardMailbox({ ...filled, user: "kassoren" });
+
+    expect(current()).toMatchObject({
+      boardMailboxPop3Port: 995,
       boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
     });
   });

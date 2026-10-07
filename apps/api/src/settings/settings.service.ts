@@ -9,11 +9,13 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
+import { defaultPop3Port } from "../board-mailbox/pop3";
 import { PrismaService } from "../database/prisma.service";
 import { blankToNull } from "../http/blank-to-null";
 import { DomainError } from "../http/domain-error";
 import { MailSettingsResolver } from "../mail/mail-settings";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
+import { defaultPortFor } from "../mail/smtp-mail.driver";
 import { smtpTestMail } from "../mail/templates";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { normalizePhone } from "../crypto/personal-data";
@@ -844,13 +846,18 @@ export class SettingsService {
     await this.requireAssociation();
     const stored = await this.prisma.association.findUniqueOrThrow({
       where: { id: 1 },
-      select: { smtpHost: true, smtpPort: true, smtpPasswordCipher: true },
+      select: {
+        smtpHost: true,
+        smtpPort: true,
+        smtpSecure: true,
+        smtpPasswordCipher: true,
+      },
     });
     requireSecretForNewEndpoint(
       input.password,
       stored.smtpPasswordCipher,
-      [stored.smtpHost, stored.smtpPort],
-      [input.host, input.port],
+      [stored.smtpHost, stored.smtpPort ?? defaultPortFor(stored.smtpSecure)],
+      [input.host, input.port ?? defaultPortFor(input.secure)],
     );
 
     const passwordCipher =
@@ -907,14 +914,19 @@ export class SettingsService {
       select: {
         boardMailboxPop3Host: true,
         boardMailboxPop3Port: true,
+        boardMailboxPop3Secure: true,
         boardMailboxPop3PasswordCipher: true,
       },
     });
     requireSecretForNewEndpoint(
       input.password,
       stored.boardMailboxPop3PasswordCipher,
-      [stored.boardMailboxPop3Host, stored.boardMailboxPop3Port],
-      [input.host, input.port],
+      [
+        stored.boardMailboxPop3Host,
+        stored.boardMailboxPop3Port ??
+          defaultPop3Port(stored.boardMailboxPop3Secure),
+      ],
+      [input.host, input.port ?? defaultPop3Port(input.secure)],
     );
 
     const passwordCipher =
@@ -1403,13 +1415,6 @@ export class SettingsService {
   }
 
   /**
-   * Fails the write when the housing cooperative does not exist yet.
-   *
-   * Every setting except the name hangs off that row, and an upsert here would
-   * invent a housing cooperative with a placeholder name from a request that
-   * was only meant to set an SMTP host.
-   */
-  /**
    * Writes a mail or SMS block whose kept secret was judged against `stored`.
    *
    * requireSecretForNewEndpoint reads the row and the write comes after it, so
@@ -1438,6 +1443,13 @@ export class SettingsService {
     }
   }
 
+  /**
+   * Fails the write when the housing cooperative does not exist yet.
+   *
+   * Every setting except the name hangs off that row, and an upsert here would
+   * invent a housing cooperative with a placeholder name from a request that
+   * was only meant to set an SMTP host.
+   */
   private async requireAssociation(): Promise<void> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },
@@ -1509,9 +1521,11 @@ function readGiro(value: string | null): string | null {
  * server it authenticates to stays the same and wrong the moment it moves: the
  * next send would present the association's credential to whatever answers at
  * the new address. So a changed host, port, driver or gateway address needs the
- * secret typed again, or cleared, in the same save. Compared as stored, without
- * normalising: a host merely spelled in another case is asked for again, which
- * costs one retyped password and never sends one anywhere.
+ * secret typed again, or cleared, in the same save. A host is compared as
+ * stored, without normalising: one merely spelled in another case is asked for
+ * again, which costs one retyped password and never sends one anywhere. A port
+ * is compared as the one connected to, so a stored null and the default the
+ * screen fills in for it are the same server.
  */
 function requireSecretForNewEndpoint(
   secret: string | null | undefined,
