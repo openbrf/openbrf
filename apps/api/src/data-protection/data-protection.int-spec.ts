@@ -3,9 +3,10 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -24,6 +25,7 @@ import type { DataProtectionOverview } from "./data-protection-overview.service"
 import type { PrivacyNoticeCoverage } from "./privacy-notice.service";
 import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
+import { PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX } from "./processor-key";
 import type { ProcessorView } from "./processor-agreement.service";
 import { SEED_KEYS } from "./processing-activity-seed";
 import type { ProcessingRecord } from "./processing-activity.service";
@@ -1673,7 +1675,7 @@ describe("processors", () => {
     }
   }, 60_000);
 
-  it("refuses a second open row for one recipient from a writer that skips the key", async () => {
+  it("refuses a second open row for one recipient from a writer that skips the lock", async () => {
     /*
      * The lock above is the path writers take; the partial unique index is
      * what holds when one does not. Written straight through Prisma, with no
@@ -1710,34 +1712,65 @@ describe("processors", () => {
     ).resolves.toBeDefined();
   });
 
-  it("records two recipients the board knows about at once", async () => {
+  it("records a second recipient the board knows about while the first is still being written", async () => {
     /*
      * A board-recorded recipient is written under a placeholder key and then
-     * renamed after its own id. Under the unique index a placeholder shared by
-     * both would hold one recording on the other's insert; each one's own
-     * leaves them independent, and neither placeholder outlives its
-     * transaction.
+     * renamed after its own id, in one transaction. Under the unique index a
+     * placeholder shared by both recordings would hold the second on the
+     * first's insert until the first committed. So the first is held open at
+     * its audit entry, after both its steps, and the second has to finish
+     * while it waits.
      */
     const facts = await app.get(ProcessorFactsService).read();
     const service = app.get(ProcessorAgreementService);
+    const audit = app.get(AuditLogService);
     const input = {
       classification: "NOT_A_PROCESSOR" as const,
       note: "Ingen behandling for foreningens rakning.",
       actorPersonId: board.personId,
     };
 
-    const [one, two] = await Promise.all([
-      service.recordExternal(input, facts),
-      service.recordExternal(input, facts),
-    ]);
+    const writeAudit = audit.record.bind(audit);
+    let atAudit: (() => void) | undefined;
+    const firstAtAudit = new Promise<void>((resolve) => {
+      atAudit = resolve;
+    });
+    let releaseFirst: (() => void) | undefined;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const held = vi
+      .spyOn(audit, "record")
+      .mockImplementationOnce(async (...args) => {
+        atAudit?.();
+        await firstReleased;
+        return writeAudit(...args);
+      });
 
-    expect(one.processorKey).not.toBe(two.processorKey);
-    expect(
-      await prisma.processorAgreement.count({
-        where: { processorKey: { startsWith: "external:pending" } },
-      }),
-    ).toBe(0);
-  });
+    try {
+      const first = service.recordExternal(input, facts);
+      await firstAtAudit;
+
+      // With a shared placeholder this waits until the first's transaction
+      // times out, and the first then fails below.
+      const two = await service.recordExternal(input, facts);
+
+      releaseFirst?.();
+      const one = await first;
+
+      expect(one.processorKey).not.toBe(two.processorKey);
+      expect(
+        await prisma.processorAgreement.count({
+          where: {
+            processorKey: { startsWith: PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX },
+          },
+        }),
+      ).toBe(0);
+    } finally {
+      releaseFirst?.();
+      held.mockRestore();
+    }
+  }, 30_000);
 
   it("answers the plugin views from the same rows", async () => {
     const states = await app.get(ProcessorAgreementService).forPlugins();

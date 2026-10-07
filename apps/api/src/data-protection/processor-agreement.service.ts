@@ -14,7 +14,11 @@ import type {
 } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockProcessorAgreement } from "./processor-agreement-lock";
-import { externalProcessorKey, parseProcessorKey } from "./processor-key";
+import {
+  externalProcessorKey,
+  parseProcessorKey,
+  pendingExternalProcessorKey,
+} from "./processor-key";
 import {
   currentProcessors,
   type ProcessorAgreementState,
@@ -218,19 +222,16 @@ export class ProcessorAgreementService {
      * is addressable like any other and its classification can be replaced the
      * same way. Written in two steps because the id does not exist until the
      * row does, and both steps and the audit entry commit together: a row left
-     * open under the placeholder key would appear on the board screen as a
-     * recipient called "external:pending", which is a false entry in the
-     * art. 28 record.
-     *
-     * The placeholder is this call's own. One open row per key is a unique
-     * index, so a placeholder shared by every call would hold a second
-     * recording back on the first one's insert until that one committed.
+     * open under the placeholder key would appear on the board screen as one
+     * more recipient, named after the placeholder when it has no counterparty,
+     * which is a false entry in the art. 28 record. The placeholder is this
+     * call's own, for the reason `pendingExternalProcessorKey` gives.
      */
     const created = await this.prisma.$transaction(async (tx) => {
       const row = await tx.processorAgreement.create({
         data: {
           processorKind: "EXTERNAL",
-          processorKey: `external:pending:${randomUUID()}`,
+          processorKey: pendingExternalProcessorKey(randomUUID()),
           classification: input.classification,
           status: input.status ?? null,
           counterparty: input.counterparty ?? null,
