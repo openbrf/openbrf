@@ -1777,6 +1777,7 @@
       "packageUnreachable": "Temapaketet kunde inte hämtas.",
       "packageTooLarge": "Temapaketet är större än ett tema får vara.",
       "checksumMismatch": "Det hämtade paketet stämmer inte med kontrollsumman katalogen anger, så det avvisades.",
+      "malformedDigest": "Katalogen anger en kontrollsumma för paketet som inte är skriven i ett giltigt sha512-format, så det avvisades. Katalogposten behöver rättas.",
       "packageUnreadable": "Paketet kunde inte läsas som ett tema.",
       "manifestInvalid": "Paketets theme.json är inget giltigt manifest.",
       "identityMismatch": "Paketet beskriver inte det tema katalogen listade.",

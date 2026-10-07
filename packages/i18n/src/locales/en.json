@@ -1777,6 +1777,7 @@
       "packageUnreachable": "The theme package could not be downloaded.",
       "packageTooLarge": "The theme package is larger than a theme is allowed to be.",
       "checksumMismatch": "The downloaded package does not match the checksum the catalog states, so it was refused.",
+      "malformedDigest": "The catalog states a checksum for this package that is not written as a sha512 digest, so it was refused. The catalog entry needs correcting.",
       "packageUnreadable": "The package could not be read as a theme.",
       "manifestInvalid": "The package's theme.json is not a valid manifest.",
       "identityMismatch": "The package does not describe the theme the catalog listed.",

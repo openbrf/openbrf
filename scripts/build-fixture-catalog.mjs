@@ -22,7 +22,8 @@
  *                       directory elsewhere passes where it is mounted.
  *   --kind <kind>       plugin, theme or all (the default). Only the plugin
  *                       needs its own toolchain installed and built; the
- *                       themes are packed with nothing but theme-tools.
+ *                       themes are packed with theme-tools, and both kinds
+ *                       are digested with the plugin SDK.
  *
  * Safe to re-run: every output is removed before it is written, and each
  * digest is recomputed from the bytes that were actually packed.
@@ -161,8 +162,10 @@ async function load(entry, name) {
   return import(pathToFileURL(entry).href);
 }
 
-function digestOf(bytes) {
-  return `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+/** Spelled by the SDK's own `formatSha512`, which the catalog schema reads back. */
+async function digestOf(bytes) {
+  const { formatSha512 } = await load(sdkEntry, "@openbrf/plugin-sdk");
+  return formatSha512(createHash("sha512").update(bytes).digest());
 }
 
 /** Removes what an earlier run wrote, and nothing else in the directory. */
@@ -292,7 +295,7 @@ async function buildPlugin() {
       : { oauthProtectedResource: manifest.oauthProtectedResource }),
     artifact: {
       url: `${urlPrefix}${packed.filename}`,
-      sha512: digestOf(bytes),
+      sha512: await digestOf(bytes),
       bytes: bytes.byteLength,
     },
   };
@@ -376,7 +379,7 @@ async function buildThemes() {
       ...(manifest.extends === undefined ? {} : { extends: manifest.extends }),
       artifact: {
         url: `${urlPrefix}${fileName}`,
-        sha512: digestOf(archive),
+        sha512: await digestOf(archive),
         bytes: archive.byteLength,
       },
     });
