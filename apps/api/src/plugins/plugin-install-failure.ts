@@ -1,10 +1,10 @@
+import { IntegrityError } from "@openbrf/plugin-sdk";
 import type {
   PluginInstallFailureDetail,
   PluginInstallFailureReason,
 } from "@openbrf/shared";
 
 import { ResourceFetchError } from "../packaging/fetch-resource";
-import { IntegrityError } from "../packaging/integrity";
 import { NpmInstallError } from "../packaging/npm-install";
 import { InstallLockError } from "./install-lock";
 
