@@ -252,6 +252,22 @@ export function applyImport(
   );
 }
 
+/**
+ * Ends an import that is queued or applying, so another one can run.
+ *
+ * An administrator's: the API refuses it to anybody without
+ * `association:manage`. The answer is the run as it was left, with what it had
+ * already written.
+ */
+export function abandonImport(
+  sessionId: string,
+): Promise<ApiResult<ImportRunView>> {
+  return apiRequest(
+    "POST",
+    `/api/import/sessions/${encodeURIComponent(sessionId)}/abandon`,
+  );
+}
+
 /** How far the import has got. */
 export function fetchImportRun(
   sessionId: string,

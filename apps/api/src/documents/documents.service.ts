@@ -150,10 +150,33 @@ export class DocumentsService {
     private readonly media: MediaService,
   ) {}
 
-  /** Every document this viewer's audience allows, newest first per category. */
-  async list(viewer: Principal | null): Promise<DocumentView[]> {
+  /**
+   * Every document this viewer's audience allows, newest first per category.
+   *
+   * A caller that shows only part of the archive narrows it here, in the
+   * query, rather than reading the rest to throw it away: `within` keeps only
+   * those of the viewer's audiences, and `categories` only those binders. The
+   * narrowing can only ever take documents away, never add one the viewer's
+   * own audiences do not reach.
+   */
+  async list(
+    viewer: Principal | null,
+    narrowed: {
+      within?: readonly DocumentAudience[];
+      categories?: readonly string[];
+    } = {},
+  ): Promise<DocumentView[]> {
+    const within = narrowed.within;
+    const audiences = audiencesFor(viewer).filter(
+      (audience) => within === undefined || within.includes(audience),
+    );
     const documents = await this.prisma.document.findMany({
-      where: { audience: { in: [...audiencesFor(viewer)] } },
+      where: {
+        audience: { in: audiences },
+        ...(narrowed.categories === undefined
+          ? {}
+          : { category: { in: [...narrowed.categories] } }),
+      },
       orderBy: [{ category: "asc" }, { createdAt: "desc" }],
       include: {
         mediaFile: {

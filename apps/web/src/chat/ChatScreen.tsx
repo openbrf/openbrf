@@ -28,6 +28,7 @@ import {
   PRIMARY_BUTTON,
   QUIET_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -143,6 +144,8 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   );
   const [draft, setDraft] = useState("");
   const [groupName, setGroupName] = useState("");
+  const groupNameRef = useRef<HTMLInputElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   const [reading, setReading] = useState(false);
   /** Which room is open. Null until the first list of them has come back. */
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
@@ -528,9 +531,16 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
       setConversation(null);
       setDraft("");
       setReported(null);
-      send.reset();
+      // A save still running keeps its state, and so keeps the form locked: a
+      // reset would unlock it while the request is out, and the save's own
+      // clean-up would then wipe what was typed in this room meanwhile.
+      if (send.state.kind !== "saving") {
+        send.reset();
+      }
       report.reset();
-      create.reset();
+      if (create.state.kind !== "saving") {
+        create.reset();
+      }
     },
     [send, report, create],
   );
@@ -642,6 +652,8 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                   type="button"
                   className={QUIET_BUTTON}
                   aria-current={each.id === room?.id}
+                  // A save belongs to the room it was sent from.
+                  disabled={sending || creating}
                   onClick={() => {
                     openRoom(each.id);
                   }}
@@ -657,16 +669,21 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         )}
 
         {roomList?.mayCreateGroup === true ? (
-          <form
+          <LockedForm
             className="flex flex-col gap-2 border-t border-line pt-4"
-            onSubmit={(event) => {
-              event.preventDefault();
+            // A message on its way locks this too: making the group opens its
+            // room and resets the send, which would unlock the draft while the
+            // message is still out and let its clean-up wipe what is typed next.
+            locked={creating || sending}
+            focusFallback={groupNameRef}
+            onSend={() => {
               void create.submit({ name: groupName });
             }}
           >
             <label className={LABEL}>
               {t("chat.groupName")}
               <input
+                ref={groupNameRef}
                 type="text"
                 className={FIELD}
                 value={groupName}
@@ -682,12 +699,12 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               <button
                 type="submit"
                 className={QUIET_BUTTON}
-                disabled={creating || groupName.trim() === ""}
+                disabled={creating || sending || groupName.trim() === ""}
               >
                 {creating ? t("chat.creating") : t("chat.createGroup")}
               </button>
             </div>
-          </form>
+          </LockedForm>
         ) : null}
       </Panel>
     ) : null;
@@ -737,7 +754,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                 type="submit"
                 form="write-chat-message"
                 className={PRIMARY_BUTTON}
-                disabled={sending || draft.trim() === ""}
+                disabled={sending || creating || draft.trim() === ""}
               >
                 {sending ? t("chat.sending") : t("chat.submit")}
               </button>
@@ -826,17 +843,23 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
           )}
 
           {unreadable ? null : (
-            <form
+            <LockedForm
               id="write-chat-message"
               className="flex flex-col gap-2 border-t border-line pt-4"
-              onSubmit={(event) => {
-                event.preventDefault();
+              /*
+               * Also while a group is being made: that save clears this draft
+               * as well, since the room it was written for is left behind.
+               */
+              locked={sending || creating}
+              focusFallback={draftRef}
+              onSend={() => {
                 void send.submit({ chatId: room.id, body: draft });
               }}
             >
               <label className={LABEL}>
                 {t("chat.field")}
                 <textarea
+                  ref={draftRef}
                   className={`${FIELD_MULTILINE} min-h-24`}
                   value={draft}
                   maxLength={MESSAGE_MAX_LENGTH}
@@ -851,7 +874,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                   ? t("chat.hint")
                   : t("chat.groupWriteHint")}
               </p>
-            </form>
+            </LockedForm>
           )}
 
           {room.kind === "GROUP" ? (

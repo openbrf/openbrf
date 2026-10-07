@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -18,6 +24,7 @@ import {
   PRIMARY_BUTTON,
   QUIET_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
@@ -159,6 +166,7 @@ export function NewsThread({
 
   const [answer, setAnswer] = useState<Thread | null>(null);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   /**
    * Which page the reading effect is to fetch, and the press that asked for it.
    *
@@ -425,17 +433,19 @@ export function NewsThread({
         <p className={HINT}>{t("newsReader.thread.hideHint")}</p>
       ) : null}
 
-      <form
+      <LockedForm
         id="write-news-comment"
         className="flex flex-col gap-2 border-t border-line pt-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        locked={posting}
+        focusFallback={draftRef}
+        onSend={() => {
           void post.submit({ newsId, body: draft });
         }}
       >
         <label className={LABEL}>
           {t("newsReader.thread.field")}
           <textarea
+            ref={draftRef}
             className={`${FIELD_MULTILINE} min-h-24`}
             value={draft}
             maxLength={COMMENT_MAX_LENGTH}
@@ -446,7 +456,7 @@ export function NewsThread({
           />
         </label>
         <p className={HINT}>{t("newsReader.thread.hint")}</p>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

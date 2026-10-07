@@ -29,12 +29,7 @@
 
 import { spawnSync } from "node:child_process";
 
-import { ownerUrl } from "./database-url.mjs";
-
-function fail(message) {
-  console.error(`openbrf: ${message}`);
-  process.exit(1);
-}
+import { fail, ownerUrl } from "./database-url.mjs";
 
 const [command, ...args] = process.argv.slice(2);
 if (command === undefined) {

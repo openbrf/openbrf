@@ -909,14 +909,47 @@ function findMismatch(
 }
 
 /**
- * The first reason the plan cannot be applied with these decisions, if any: an
- * ambiguous row the board has not answered for, or one answered with a person
- * it did not match.
+ * The first reason the plan cannot be applied with these decisions, if any: a
+ * decision for a row that does not need one, an ambiguous row the board has not
+ * answered for, or one answered with a person it did not match.
+ *
+ * A decision is an answer to a row that asks for one, and to nothing else. The
+ * apply writes a row that is not ambiguous to whoever it matches, whatever was
+ * decided for it, so a row the board chose to skip or to make a new person would
+ * update somebody nobody chose. The register can take a row's ambiguity away
+ * after the board answered it - a name corrected, a candidate removed - between
+ * the preview and the apply, and between two chunks of one apply.
+ *
+ * A plan of one chunk answers only for its own rows: a decision for a row of
+ * another chunk is judged by the plan of that chunk. One for a row the file
+ * does not have, of its `rowCount` data rows, is judged by every plan.
  */
 export function findUndecided(
   plan: ImportPlan,
   decisions: ImportDecisions,
-): "ambiguous-rows-undecided" | "decision-not-a-candidate" | null {
+  rowCount: number,
+):
+  | "decision-not-needed"
+  | "ambiguous-rows-undecided"
+  | "decision-not-a-candidate"
+  | null {
+  const planned = new Map(plan.rows.map((row) => [String(row.rowNumber), row]));
+  for (const key of Object.keys(decisions)) {
+    const row = planned.get(key);
+    const rowNumber = Number(key);
+    if (
+      row === undefined
+        ? !(
+            Number.isInteger(rowNumber) &&
+            rowNumber >= 1 &&
+            rowNumber <= rowCount
+          )
+        : row.outcome !== "ambiguous"
+    ) {
+      return "decision-not-needed";
+    }
+  }
+
   for (const row of plan.rows) {
     if (row.outcome !== "ambiguous") {
       continue;

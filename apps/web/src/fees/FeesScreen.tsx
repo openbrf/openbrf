@@ -30,6 +30,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { LockedForm } from "../ui/LockedForm";
 import { feeFailureKey } from "./fee-failures";
 import {
   type FeeKind,
@@ -135,11 +136,9 @@ export function FeesScreen(): ReactElement {
   const [vatTreatment, setVatTreatment] = useState<FeeVatTreatment>("EXEMPT");
   const [vatRatePercent, setVatRatePercent] = useState("");
   const [recording, setRecording] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  // The submit button stays disabled after a success, with the amount cleared;
+  // the amount field is where the board types next.
   const amountRef = useRef<HTMLInputElement>(null);
-  // The control that had focus when the form was locked. A disabled control
-  // drops focus to the page, so it is given back once the form is open again.
-  const focusedBeforeLock = useRef<HTMLElement | null>(null);
 
   const [yearlyTotal, setYearlyTotal] = useState("");
   const [aidOpen, setAidOpen] = useState(false);
@@ -177,32 +176,6 @@ export function FeesScreen(): ReactElement {
     };
   }, [on, reload]);
 
-  useEffect(() => {
-    if (recording) {
-      return;
-    }
-    const target = focusedBeforeLock.current;
-    focusedBeforeLock.current = null;
-    if (target === null) {
-      return;
-    }
-    // Only while focus is still the form's or nobody's. A board member who
-    // moved on to the aid's yearly total or the register date meanwhile keeps
-    // it there, or what they type next would land in the amount field.
-    const active = document.activeElement;
-    if (
-      active !== null &&
-      active !== document.body &&
-      !formRef.current?.contains(active)
-    ) {
-      return;
-    }
-    // The submit button stays disabled after a success, with the amount
-    // cleared; the amount field is where the board types next.
-    const stillUsable = !target.matches(":disabled");
-    (stillUsable ? target : amountRef.current)?.focus();
-  }, [recording]);
-
   const suggestions = useMemo(() => {
     if (!aidOpen || register === null) {
       return null;
@@ -218,49 +191,36 @@ export function FeesScreen(): ReactElement {
     [suggestions],
   );
 
-  const onRecord = useCallback(
-    async (submitter: HTMLElement | null): Promise<void> => {
-      setRefusal(null);
-      // Safari and macOS Firefox do not focus a button that was clicked, so the
-      // submitter stands in for the focused control when focus is elsewhere.
-      const focused = document.activeElement;
-      const inForm = (element: Element | null): element is HTMLElement =>
-        element instanceof HTMLElement && !!formRef.current?.contains(element);
-      focusedBeforeLock.current = inForm(focused)
-        ? focused
-        : inForm(submitter)
-          ? submitter
-          : null;
-      setRecording(true);
-      const result = await recordFee({
-        apartmentId,
-        kind,
-        appliesFrom,
-        monthlyAmount,
-        vatTreatment,
-        vatRatePercent:
-          vatTreatment === "RATE" && vatRatePercent !== ""
-            ? Number(vatRatePercent)
-            : null,
-      });
-      setRecording(false);
-      if (!result.ok) {
-        setRefusal(feeFailureKey(result.failure));
-        return;
-      }
-      setMonthlyAmount("");
-      load();
-    },
-    [
+  const onRecord = useCallback(async (): Promise<void> => {
+    setRefusal(null);
+    setRecording(true);
+    const result = await recordFee({
       apartmentId,
-      appliesFrom,
       kind,
-      load,
+      appliesFrom,
       monthlyAmount,
-      vatRatePercent,
       vatTreatment,
-    ],
-  );
+      vatRatePercent:
+        vatTreatment === "RATE" && vatRatePercent !== ""
+          ? Number(vatRatePercent)
+          : null,
+    });
+    setRecording(false);
+    if (!result.ok) {
+      setRefusal(feeFailureKey(result.failure));
+      return;
+    }
+    setMonthlyAmount("");
+    load();
+  }, [
+    apartmentId,
+    appliesFrom,
+    kind,
+    load,
+    monthlyAmount,
+    vatRatePercent,
+    vatTreatment,
+  ]);
 
   const onRemove = useCallback(
     async (feeId: string): Promise<void> => {
@@ -319,127 +279,118 @@ export function FeesScreen(): ReactElement {
         <section className={`flex flex-col gap-4 ${PANEL}`}>
           <h2 className="text-title">{t("fees.record.title")}</h2>
           <p className={HINT}>{t("fees.record.description")}</p>
-          <form
-            ref={formRef}
+          <LockedForm
+            locked={recording}
+            focusFallback={amountRef}
             className="flex flex-wrap items-end gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const { submitter } = event.nativeEvent as SubmitEvent;
-              void onRecord(submitter);
+            onSend={() => {
+              void onRecord();
             }}
           >
-            {/*
-              Locked while the request runs. The amount is cleared once the
-              rate is stored, so what is typed in the meantime would be lost
-              without a word. `contents` keeps the fields in the form's own
-              flex row.
-            */}
-            <fieldset className="contents" disabled={recording}>
-              <label className={LABEL}>
-                {t("fees.record.apartment")}
-                <select
-                  value={apartmentId}
-                  onChange={(event) => {
-                    setApartmentId(event.target.value);
-                  }}
-                  className={FIELD}
-                >
-                  <option value="">{t("fees.record.chooseApartment")}</option>
-                  {(register?.apartments ?? []).map((apartment) => (
-                    <option
-                      key={apartment.apartmentId}
-                      value={apartment.apartmentId}
-                    >
-                      {apartment.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className={LABEL}>
-                {t("fees.record.kind")}
-                <select
-                  value={kind}
-                  onChange={(event) => {
-                    setKind(event.target.value as FeeKind);
-                  }}
-                  className={FIELD}
-                >
-                  {KINDS.map((value) => (
-                    <option key={value} value={value}>
-                      {t(KIND_LABEL[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className={LABEL}>
-                {t("fees.record.appliesFrom")}
-                <input
-                  type="date"
-                  value={appliesFrom}
-                  onChange={(event) => {
-                    setAppliesFrom(event.target.value);
-                  }}
-                  className={FIELD_DATA}
-                />
-              </label>
-
-              <label className={LABEL}>
-                {t("fees.record.monthlyAmount")}
-                <input
-                  ref={amountRef}
-                  type="text"
-                  inputMode="decimal"
-                  value={monthlyAmount}
-                  onChange={(event) => {
-                    setMonthlyAmount(event.target.value);
-                  }}
-                  className={FIELD_DATA}
-                />
-              </label>
-
-              <label className={LABEL}>
-                {t("fees.record.vatTreatment")}
-                <select
-                  value={vatTreatment}
-                  onChange={(event) => {
-                    setVatTreatment(event.target.value as FeeVatTreatment);
-                  }}
-                  className={FIELD}
-                >
-                  {(["EXEMPT", "RATE"] as const).map((value) => (
-                    <option key={value} value={value}>
-                      {t(VAT_LABEL[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {vatTreatment === "RATE" ? (
-                <label className={LABEL}>
-                  {t("fees.record.vatRatePercent")}
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={vatRatePercent}
-                    onChange={(event) => {
-                      setVatRatePercent(event.target.value);
-                    }}
-                    className={FIELD_DATA}
-                  />
-                </label>
-              ) : null}
-
-              <button
-                type="submit"
-                className={PRIMARY_BUTTON}
-                disabled={apartmentId === "" || monthlyAmount === ""}
+            <label className={LABEL}>
+              {t("fees.record.apartment")}
+              <select
+                value={apartmentId}
+                onChange={(event) => {
+                  setApartmentId(event.target.value);
+                }}
+                className={FIELD}
               >
-                {t("fees.record.submit")}
-              </button>
-            </fieldset>
-          </form>
+                <option value="">{t("fees.record.chooseApartment")}</option>
+                {(register?.apartments ?? []).map((apartment) => (
+                  <option
+                    key={apartment.apartmentId}
+                    value={apartment.apartmentId}
+                  >
+                    {apartment.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className={LABEL}>
+              {t("fees.record.kind")}
+              <select
+                value={kind}
+                onChange={(event) => {
+                  setKind(event.target.value as FeeKind);
+                }}
+                className={FIELD}
+              >
+                {KINDS.map((value) => (
+                  <option key={value} value={value}>
+                    {t(KIND_LABEL[value])}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className={LABEL}>
+              {t("fees.record.appliesFrom")}
+              <input
+                type="date"
+                value={appliesFrom}
+                onChange={(event) => {
+                  setAppliesFrom(event.target.value);
+                }}
+                className={FIELD_DATA}
+              />
+            </label>
+
+            <label className={LABEL}>
+              {t("fees.record.monthlyAmount")}
+              <input
+                ref={amountRef}
+                type="text"
+                inputMode="decimal"
+                value={monthlyAmount}
+                onChange={(event) => {
+                  setMonthlyAmount(event.target.value);
+                }}
+                className={FIELD_DATA}
+              />
+            </label>
+
+            <label className={LABEL}>
+              {t("fees.record.vatTreatment")}
+              <select
+                value={vatTreatment}
+                onChange={(event) => {
+                  setVatTreatment(event.target.value as FeeVatTreatment);
+                }}
+                className={FIELD}
+              >
+                {(["EXEMPT", "RATE"] as const).map((value) => (
+                  <option key={value} value={value}>
+                    {t(VAT_LABEL[value])}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {vatTreatment === "RATE" ? (
+              <label className={LABEL}>
+                {t("fees.record.vatRatePercent")}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={vatRatePercent}
+                  onChange={(event) => {
+                    setVatRatePercent(event.target.value);
+                  }}
+                  className={FIELD_DATA}
+                />
+              </label>
+            ) : null}
+
+            <button
+              type="submit"
+              className={PRIMARY_BUTTON}
+              disabled={apartmentId === "" || monthlyAmount === ""}
+            >
+              {t("fees.record.submit")}
+            </button>
+          </LockedForm>
           <p className={HINT}>{t("fees.record.forwardDated")}</p>
         </section>
 

@@ -3,7 +3,13 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { decodeCsv, detectDelimiter, parseCsv, writeCsv } from "./csv";
+import {
+  decodeCsv,
+  detectDelimiter,
+  MixedEncodingError,
+  parseCsv,
+  writeCsv,
+} from "./csv";
 
 function fixture(name: string): Buffer {
   return readFileSync(join(process.cwd(), "src", "import", "fixtures", name));
@@ -97,7 +103,7 @@ describe("decoding the bytes", () => {
       Buffer.from("rk;Lind", "utf8"),
     ]);
 
-    expect(() => decodeCsv(bytes)).toThrow();
+    expect(() => decodeCsv(bytes)).toThrow(MixedEncodingError);
   });
 
   it("reads bytes that are valid UTF-8 as UTF-8 even when Windows-1252 would read them differently", () => {

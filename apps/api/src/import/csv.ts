@@ -51,6 +51,19 @@ export function detectDelimiter(text: string): CsvDelimiter {
 }
 
 /**
+ * The file holds well-formed UTF-8 and bytes that are not UTF-8, so neither
+ * encoding reads it without damage. A class of its own so the import can tell
+ * the board to save the file again, instead of saying only that it is
+ * unreadable.
+ */
+export class MixedEncodingError extends Error {
+  constructor() {
+    super("The file mixes UTF-8 and another encoding.");
+    this.name = "MixedEncodingError";
+  }
+}
+
+/**
  * Turns the bytes of an uploaded CSV file into text.
  *
  * UTF-8 first, strictly, and Windows-1252 when the bytes are not UTF-8. Excel
@@ -100,7 +113,7 @@ export function decodeCsv(bytes: Uint8Array): string {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     if (holdsUtf8Sequence(bytes)) {
-      throw new Error("The file mixes UTF-8 and another encoding.");
+      throw new MixedEncodingError();
     }
     return new TextDecoder("windows-1252").decode(bytes);
   }

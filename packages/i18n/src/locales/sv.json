@@ -707,7 +707,8 @@
           "CHAT_GROUP_CREATED": "Gruppchatt skapades",
           "CHAT_GROUP_MEMBER_ADDED": "Lades till i en gruppchatt",
           "CHAT_GROUP_MEMBER_REMOVED": "Lämnade en gruppchatt",
-          "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks"
+          "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
+          "IMPORT_ABANDONED": "En import av medlemslista avbröts"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -2371,6 +2372,14 @@
       "keepsGoing": "Importen fortsätter även om du stänger sidan. Kom tillbaka hit för att se hur det gick.",
       "another": "Importera en annan lista"
     },
+    "abandon": {
+      "description": "Om importen har slutat gå framåt kan en administratör avbryta den, så att en annan lista kan importeras. Rader som redan har skrivits finns kvar i registret.",
+      "start": "Avbryt importen",
+      "warning": "Avbryta importen? Den skriver inget mer, och det den redan har skrivit finns kvar i medlemsförteckningen, som inte kan ändras. Gör det bara när importen har slutat gå framåt.",
+      "confirm": "Ja, avbryt den",
+      "cancel": "Låt den fortsätta",
+      "working": "Avbryter"
+    },
     "result": {
       "title": "Importen är klar",
       "personsCreated": "Tillagda personer",
@@ -2386,6 +2395,7 @@
       "fileEmpty": "Filen har inga rader under kolumnrubrikerna.",
       "fileTooLarge": "Filen är större än 512 kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
+      "fileMixedEncoding": "Filen blandar teckenkodningar, så åäö hade blivit fel. Spara om filen som UTF-8 eller som ”CSV (semikolonavgränsad)” och ladda upp den igen.",
       "tooManyRows": "Filen har fler än {{maxRows, number}} rader under kolumnrubrikerna.",
       "tooManyColumns": "Filen har fler än {{maxColumns, number}} kolumner.",
       "cellTooLong": "En cell i filen är längre än {{maxCellLength, number}} tecken.",
@@ -2404,6 +2414,8 @@
       "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
+      "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
+      "sessionNotRunning": "Den importen pågår inte längre.",
       "unknown": "Importen gick inte just nu. Försök igen."
     },
     "template": {
@@ -2702,6 +2714,21 @@
       "collecting": "Hämtar...",
       "collected_one": "Ett nytt brev hämtades.",
       "collected_other": "{{count}} nya brev hämtades."
+    },
+    "setAside": {
+      "intro_one": "Ett brev kunde inte hämtas. Det ligger kvar i brevlådan: öppna det där med ett e-postprogram.",
+      "intro_other": "{{count}} brev kunde inte hämtas. De ligger kvar i brevlådan: öppna dem där med ett e-postprogram.",
+      "dated": "Daterat {{date}}",
+      "undated": "Datum okänt",
+      "setAsideAt": "lagt åt sidan {{date}}",
+      "retryFrom": "prövas igen från {{date}}",
+      "more_one": "Och ett till.",
+      "more_other": "Och {{count}} till.",
+      "reasons": {
+        "noSenderAddress": "Ingen avsändaradress att svara till",
+        "unstorable": "Kunde inte sparas",
+        "unknown": "Kunde inte hämtas"
+      }
     },
     "inbox": {
       "title": "Inkorgen",
@@ -3380,6 +3407,9 @@
       "indexTitle": "Nyheter",
       "heading": "Senaste nytt",
       "allNews": "Alla nyheter",
+      "newer": "Nyare nyheter",
+      "older": "Äldre nyheter",
+      "pagination": "Nyhetssidor",
       "empty": "Inget är skrivet än."
     }
   },

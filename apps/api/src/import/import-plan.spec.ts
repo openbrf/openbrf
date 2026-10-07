@@ -1212,8 +1212,13 @@ describe("a row after one the board decided", () => {
 });
 
 describe("finding a row the board has not answered for", () => {
+  // Rows 1 and 2 of a file of three, as one chunk plans them: row 1 matches two
+  // people, row 2 nobody, and row 3 belongs to the next chunk.
   const plan = planImport(
-    [prepared(COMPLETE)],
+    [
+      prepared(COMPLETE),
+      prepared({ ...COMPLETE, firstName: "Bo" }, { rowNumber: 2 }),
+    ],
     snapshot({
       personsByApartmentAndName: new Map([
         [
@@ -1243,8 +1248,32 @@ describe("finding a row the board has not answered for", () => {
     ],
     ["a new person", { "1": { action: "create" } }, null],
     ["leaving it out", { "1": { action: "skip" } }, null],
+    [
+      "a decision for a row of another chunk",
+      { "1": { action: "skip" }, "3": { action: "skip" } },
+      null,
+    ],
+    [
+      "a decision for a row that matched nobody",
+      { "1": { action: "skip" }, "2": { action: "skip" } },
+      "decision-not-needed",
+    ],
+    [
+      "a decision for a row that matched nobody, before an unanswered one",
+      { "2": { action: "create" } },
+      "decision-not-needed",
+    ],
+    [
+      "a decision for a row the file does not have",
+      { "1": { action: "skip" }, "4": { action: "skip" } },
+      "decision-not-needed",
+    ],
   ])("answers %s", (_, decisions, expected) => {
-    expect(findUndecided(plan, decisions)).toBe(expected);
+    expect(plan.rows.map((row) => row.outcome)).toEqual([
+      "ambiguous",
+      "create",
+    ]);
+    expect(findUndecided(plan, decisions, 3)).toBe(expected);
   });
 });
 

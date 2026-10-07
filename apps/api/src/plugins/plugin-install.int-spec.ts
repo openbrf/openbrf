@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { formatSha512 } from "@openbrf/plugin-sdk";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -13,7 +14,7 @@ import { PrismaClient } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
-import { formatSha512, sha512 } from "../packaging/integrity";
+import { sha512 } from "../packaging/integrity";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
