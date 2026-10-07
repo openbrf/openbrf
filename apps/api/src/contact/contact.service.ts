@@ -388,6 +388,9 @@ export class ContactService implements OnModuleInit {
      * one: a burst that was itself left out must not keep the next message
      * from being mailed. The marker is written in the fan-out transaction
      * below, so a retry of a job that committed reaches the same answer.
+     * The bound is approximate: the count and the marker are not serialized,
+     * so parallel jobs can overshoot it by a message or two. It limits spam;
+     * the inbox still holds every message.
      */
     const earlier = await this.prisma.contactSubmission.count({
       where: {
