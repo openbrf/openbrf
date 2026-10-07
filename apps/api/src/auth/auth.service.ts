@@ -177,10 +177,13 @@ export class AuthService implements OnModuleDestroy {
     try {
       await closed;
     } catch (cause) {
-      this.logger.warn(
-        `The HTTP server could not be closed at shutdown: ${failureName(cause)}`,
-        failureFrames(cause),
-      );
+      const message = `The HTTP server could not be closed at shutdown: ${failureName(cause)}`;
+      const frames = failureFrames(cause);
+      if (frames === undefined) {
+        this.logger.warn(message);
+      } else {
+        this.logger.warn(message, frames);
+      }
     } finally {
       clearInterval(reaper);
       clearTimeout(deadline);
