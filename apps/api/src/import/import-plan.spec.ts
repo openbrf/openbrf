@@ -715,15 +715,21 @@ describe("an identity number an earlier row states without writing it", () => {
       DEFAULTS,
     );
 
+    // Named after row 1 either way, but found under different keys: the apply
+    // looks for persons added since the plan under the keys the plan looked
+    // under, and no further.
+    expect(plan.rows[0]).toMatchObject({ outcome: "create", foundUnder: null });
     expect(plan.rows[1]).toMatchObject({
       outcome: "update",
       matchedBy: "earlierRow",
+      foundUnder: "email",
       sameAsRowNumber: 1,
     });
     expect(plan.rows[2]).toMatchObject({
       outcome: "update",
       matchedPersonId: null,
       matchedBy: "earlierRow",
+      foundUnder: "personalIdentityNumber",
       sameAsRowNumber: 1,
     });
   });

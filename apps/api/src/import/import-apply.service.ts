@@ -26,10 +26,13 @@ import { ImportError, type ImportErrorReason } from "./import-errors";
 import {
   apartmentNameKey,
   findUndecided,
+  IMPORT_SEARCH_KEYS,
   type ImportDecision,
   type ImportDecisions,
   type ImportPlan,
+  isCurrentResidency,
   type PlannedRow,
+  push,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
@@ -62,9 +65,10 @@ import {
  *   the second time rather than created twice - by the same match-key precedence
  *   the preview used.
  * - **A new person is looked for again before it is written.** The plan is
- *   read before the transaction opens, so a row it enters as new is checked
- *   against the register once the chunk holds its locks. Somebody added in
- *   between stops the import rather than being entered a second time.
+ *   read before the transaction opens, so a row that writes a new person - or
+ *   gives one the chunk creates an address or a residency - is checked against
+ *   the register once the chunk holds its locks. Somebody added in between
+ *   stops the import rather than being entered a second time.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -419,15 +423,15 @@ export class ImportApplyService implements OnModuleInit {
 
         // The plan was read before this transaction opened, and a person
         // committed since - added from the address book, linked by a sign-up
-        // approval, moved in - is not in it. A row it planned as new would
-        // enter that human being a second time, and an access report or an
-        // erasure asked for by person would find one of the two. Thrown rather
-        // than returned, so the cursor claim rolls back with the chunk: the
-        // worker does not decide who the row is about, and the board does on a
-        // fresh preview.
-        if (await createsMatchedSincePlan(tx, plan, encrypted)) {
+        // approval, moved in - is not in it. A row that writes a new person
+        // would enter that human being a second time, and an access report or
+        // an erasure asked for by person would find one of the two. Thrown
+        // rather than returned, so the cursor claim rolls back with the chunk:
+        // the worker does not decide who the row is about, and the board does
+        // on a fresh preview.
+        if (await newPersonsMatchedSincePlan(tx, plan, decisions, encrypted)) {
           throw new ImportError(
-            "A row planned as a new person matches somebody the register gained since the plan.",
+            "A row that writes a new person matches somebody the register gained since the plan.",
             "register-changed-during-apply",
           );
         }
@@ -956,17 +960,21 @@ function writtenEmailIndexes(
 }
 
 /**
- * Whether a row the plan enters as a new person matches somebody in the
- * register now.
+ * Whether a row that writes a person the chunk creates matches somebody in the
+ * register the plan did not find for it.
  *
- * Asked only of the rows planned as `create`. The plan found nobody under any
- * of their keys, in the register or among the rows before them, so anybody
- * found under one now was added, or given that address or that residency, after
- * the plan read the register. The keys are the planner's own: the identity
- * number, the email address, and the name of somebody currently living in the
- * row's apartment. A row the board decided to enter as a new person is not
- * asked: it matched people the board has already seen, and finding them again
- * says nothing.
+ * Asked of every row whose writes go to a new person: one planned as `create`,
+ * one the board decided to enter as a new person, and one that reaches the
+ * person an earlier row of the chunk creates and may give them an address or a
+ * residency. The keys are the planner's own - the identity number, the email
+ * address, and the name of somebody currently living in the row's apartment -
+ * and a row is asked under the keys the plan looked under for it: all three
+ * when it found nobody, and otherwise the ones up to the key it found its
+ * candidates under. Under those the plan found the row's candidates and nobody
+ * else in the register, so anybody else found now was added, or given that
+ * address or that residency, after the plan read the register. The keys after
+ * that one were never looked under, and a person found there would not change
+ * the plan.
  *
  * Read through the chunk's transaction, after its apartment and email locks.
  * Every writer of an address takes the email lock and every writer of a
@@ -975,79 +983,151 @@ function writtenEmailIndexes(
  * so on that key the read narrows the gap to the length of the transaction
  * rather than closing it.
  */
-async function createsMatchedSincePlan(
+async function newPersonsMatchedSincePlan(
   tx: Prisma.TransactionClient,
   plan: ImportPlan,
+  decisions: ImportDecisions,
   encrypted: ReadonlyMap<number, EncryptedRowValues>,
 ): Promise<boolean> {
-  const emailIndexes: string[] = [];
-  const identityNumberIndexes: string[] = [];
-  const nameKeys = new Set<string>();
-  const apartmentIds = new Set<string>();
+  const asked = plan.rows.flatMap((row) =>
+    writesNewPerson(row, decisions)
+      ? [askedKeys(row, encrypted.get(row.rowNumber))]
+      : [],
+  );
 
-  for (const row of plan.rows) {
-    if (row.outcome !== "create") {
-      continue;
-    }
-    const values = encrypted.get(row.rowNumber);
-    const emailIndex = values?.email?.index ?? null;
-    if (emailIndex !== null) {
-      emailIndexes.push(emailIndex);
-    }
-    const identityNumberIndex = values?.personalIdentityNumber?.index ?? null;
-    if (identityNumberIndex !== null) {
-      identityNumberIndexes.push(identityNumberIndex);
-    }
-    if (row.apartment !== null) {
-      apartmentIds.add(row.apartment.id);
-      nameKeys.add(
-        apartmentNameKey(
-          row.apartment.id,
-          row.person.firstName,
-          row.person.lastName,
-        ),
-      );
-    }
-  }
-
-  if (emailIndexes.length > 0 || identityNumberIndexes.length > 0) {
-    const matched = await tx.person.count({
-      where: {
-        OR: [
-          { emailIndex: { in: emailIndexes } },
-          { personalIdentityNumberIndex: { in: identityNumberIndexes } },
-        ],
-      },
-    });
-    if (matched > 0) {
-      return true;
-    }
-  }
-
-  if (apartmentIds.size === 0) {
-    return false;
-  }
-  // Current the way the planner's snapshot counts it: not moved out, or moving
-  // out later than now.
-  const residents = await tx.residency.findMany({
-    where: {
-      apartmentId: { in: [...apartmentIds] },
-      OR: [{ movedOutOn: null }, { movedOutOn: { gt: new Date() } }],
-    },
-    select: {
-      apartmentId: true,
-      person: { select: { firstName: true, lastName: true } },
-    },
-  });
-  return residents.some((residency) =>
-    nameKeys.has(
-      apartmentNameKey(
-        residency.apartmentId,
-        residency.person.firstName,
-        residency.person.lastName,
+  const identityNumberIndexes = asked.flatMap(({ identityNumberIndex }) =>
+    identityNumberIndex === null ? [] : [identityNumberIndex],
+  );
+  const emailIndexes = asked.flatMap(({ emailIndex }) =>
+    emailIndex === null ? [] : [emailIndex],
+  );
+  const apartmentIds = [
+    ...new Set(
+      asked.flatMap(({ apartmentId }) =>
+        apartmentId === null ? [] : [apartmentId],
       ),
     ),
+  ];
+
+  const byIdentityNumber = new Map<string, string[]>();
+  const byEmail = new Map<string, string[]>();
+  const byName = new Map<string, string[]>();
+
+  if (identityNumberIndexes.length > 0 || emailIndexes.length > 0) {
+    const persons = await tx.person.findMany({
+      where: {
+        OR: [
+          { personalIdentityNumberIndex: { in: identityNumberIndexes } },
+          { emailIndex: { in: emailIndexes } },
+        ],
+      },
+      select: { id: true, personalIdentityNumberIndex: true, emailIndex: true },
+    });
+    for (const person of persons) {
+      if (person.personalIdentityNumberIndex !== null) {
+        push(byIdentityNumber, person.personalIdentityNumberIndex, person.id);
+      }
+      if (person.emailIndex !== null) {
+        push(byEmail, person.emailIndex, person.id);
+      }
+    }
+  }
+
+  if (apartmentIds.length > 0) {
+    const now = new Date();
+    const residencies = await tx.residency.findMany({
+      where: { apartmentId: { in: apartmentIds } },
+      select: {
+        apartmentId: true,
+        movedOutOn: true,
+        person: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+    for (const residency of residencies) {
+      if (isCurrentResidency(residency.movedOutOn, now)) {
+        push(
+          byName,
+          apartmentNameKey(
+            residency.apartmentId,
+            residency.person.firstName,
+            residency.person.lastName,
+          ),
+          residency.person.id,
+        );
+      }
+    }
+  }
+
+  return asked.some((row) =>
+    [
+      ...under(byIdentityNumber, row.identityNumberIndex),
+      ...under(byEmail, row.emailIndex),
+      ...under(byName, row.nameKey),
+    ].some((personId) => !row.candidates.has(personId)),
   );
+}
+
+/**
+ * Whether a row's writes go to a person the chunk creates: a row planned as
+ * one, one the board decided to enter as one, or one that reaches the person
+ * an earlier row of the chunk creates.
+ */
+function writesNewPerson(row: PlannedRow, decisions: ImportDecisions): boolean {
+  if (row.outcome === "create") {
+    return true;
+  }
+  if (row.outcome === "ambiguous") {
+    return decisions[String(row.rowNumber)]?.action === "create";
+  }
+  return row.outcome === "update" && row.matchedPersonId === null;
+}
+
+/** A row's values under the keys the plan looked under for it. */
+interface AskedKeys {
+  identityNumberIndex: string | null;
+  emailIndex: string | null;
+  apartmentId: string | null;
+  nameKey: string | null;
+  /** The register persons the plan found under them. */
+  candidates: ReadonlySet<string>;
+}
+
+function askedKeys(
+  row: PlannedRow,
+  values: EncryptedRowValues | undefined,
+): AskedKeys {
+  const searched = new Set(
+    row.foundUnder === null
+      ? IMPORT_SEARCH_KEYS
+      : IMPORT_SEARCH_KEYS.slice(
+          0,
+          IMPORT_SEARCH_KEYS.indexOf(row.foundUnder) + 1,
+        ),
+  );
+  const apartment = searched.has("apartmentAndName") ? row.apartment : null;
+  return {
+    identityNumberIndex: searched.has("personalIdentityNumber")
+      ? (values?.personalIdentityNumber?.index ?? null)
+      : null,
+    emailIndex: searched.has("email") ? (values?.email?.index ?? null) : null,
+    apartmentId: apartment?.id ?? null,
+    nameKey:
+      apartment === null
+        ? null
+        : apartmentNameKey(
+            apartment.id,
+            row.person.firstName,
+            row.person.lastName,
+          ),
+    candidates: new Set(row.candidates.map(({ personId }) => personId)),
+  };
+}
+
+function under(
+  map: ReadonlyMap<string, readonly string[]>,
+  key: string | null,
+): readonly string[] {
+  return key === null ? [] : (map.get(key) ?? []);
 }
 
 /** Where a row's writes go, once the board's decisions are taken into account. */

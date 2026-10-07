@@ -52,6 +52,15 @@ export type ImportOutcome = "create" | "update" | "ambiguous" | "error";
 export type ImportMatchKey =
   "personalIdentityNumber" | "email" | "apartmentAndName" | "earlierRow";
 
+/** The keys a row is matched under, in the order the plan tries them. */
+export const IMPORT_SEARCH_KEYS = [
+  "personalIdentityNumber",
+  "email",
+  "apartmentAndName",
+] as const satisfies readonly ImportMatchKey[];
+
+export type ImportSearchKey = (typeof IMPORT_SEARCH_KEYS)[number];
+
 /** What a row states differently from the one person it matched. */
 export type ImportMismatch = "personalIdentityNumber" | "name";
 
@@ -144,6 +153,13 @@ export interface PlannedRow {
   matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
   /**
+   * The key the row's candidates were found under, also when `matchedBy` names
+   * the row after an earlier one. The plan stops at the first key that finds
+   * anybody, so the keys after it were not looked under. Null when no key found
+   * anybody, and on a row with problems. Not sent to the preview.
+   */
+  foundUnder: ImportSearchKey | null;
+  /**
    * Why a row that matched one person still waits for a decision. Null when it
    * is ambiguous because it matched several, and on every other outcome.
    */
@@ -203,6 +219,14 @@ export function apartmentNameKey(
 
 function apartmentFullNameKey(apartmentId: string, name: string): string {
   return `${apartmentId}\u0000${normalizeName(name)}`;
+}
+
+/**
+ * Whether a residency makes its person findable by apartment and name at a
+ * moment: one not moved out of, or moved out of only later.
+ */
+export function isCurrentResidency(movedOutOn: Date | null, at: Date): boolean {
+  return movedOutOn === null || movedOutOn > at;
 }
 
 /** Reads the cells of one data row through the mapping. */
@@ -346,7 +370,7 @@ interface FileWrites {
 }
 
 interface PersonMatch {
-  key: ImportMatchKey | null;
+  key: ImportSearchKey | null;
   candidates: readonly FilePerson[];
 }
 
@@ -405,6 +429,7 @@ function planRow(
     matchedPersonId: null,
     matchedPersonName: null,
     matchedBy: null,
+    foundUnder: null,
     mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
@@ -475,6 +500,7 @@ function planRow(
       outcome: "ambiguous",
       matchedBy:
         earlier === null && !throughUnwrittenNumber ? match.key : "earlierRow",
+      foundUnder: match.key,
       mismatch,
       sameAsRowNumber: earlier,
       // A person an earlier row creates has no id yet to be chosen by. The
@@ -532,6 +558,7 @@ function planRow(
       (only.personId === null && match.key !== "personalIdentityNumber")
         ? "earlierRow"
         : match.key,
+    foundUnder: match.key,
     sameAsRowNumber:
       only.createdByRow ??
       (throughUnwrittenNumber ? only.identityNumberFromRow : null),
@@ -695,8 +722,10 @@ function recordWrites(
   if (!target.apartmentIds.has(apartment.id)) {
     target.apartmentIds.add(apartment.id);
     if (
-      movedOutOn === null ||
-      new Date(`${movedOutOn}T00:00:00.000Z`) > snapshot.takenAt
+      isCurrentResidency(
+        movedOutOn === null ? null : new Date(`${movedOutOn}T00:00:00.000Z`),
+        snapshot.takenAt,
+      )
     ) {
       push(
         written.byApartmentAndName,
@@ -855,7 +884,8 @@ function differs(row: string | null, registered: string | undefined): boolean {
   return row !== null && registered !== undefined && registered !== row;
 }
 
-function push<T>(map: Map<string, T[]>, key: string, value: T): void {
+/** Adds a value to the list a key holds, starting the list if need be. */
+export function push<T>(map: Map<string, T[]>, key: string, value: T): void {
   const existing = map.get(key);
   if (existing === undefined) {
     map.set(key, [value]);

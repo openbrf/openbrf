@@ -11,8 +11,10 @@ import {
   type ImportDecisions,
   type ImportPlan,
   type ImportRole,
+  isCurrentResidency,
   planImport,
   type PreparedRow,
+  push,
   readRow,
   type RegisterSnapshot,
   type UnwrittenIdentityNumber,
@@ -262,7 +264,7 @@ export class ImportPlannerService {
         new Set(person.residencies.map((residency) => residency.apartmentId)),
       );
       for (const residency of person.residencies) {
-        if (residency.movedOutOn !== null && residency.movedOutOn <= now) {
+        if (!isCurrentResidency(residency.movedOutOn, now)) {
           continue;
         }
         push(
@@ -314,13 +316,4 @@ function unwrittenIdentityNumbers(
     }
   }
   return unwritten;
-}
-
-function push(map: Map<string, string[]>, key: string, value: string): void {
-  const existing = map.get(key);
-  if (existing === undefined) {
-    map.set(key, [value]);
-  } else {
-    existing.push(value);
-  }
 }

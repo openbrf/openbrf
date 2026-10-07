@@ -2316,11 +2316,12 @@ describe("a person entered while a chunk is applied", () => {
     cookie: string,
     fileName: string,
     rows: string[][],
+    decisions: Record<string, { action: "create" }> = {},
   ): Promise<string> {
     const session = await uploadAndPreview(cookie, fileName, rows);
     await prisma.importSession.update({
       where: { id: session.sessionId },
-      data: { status: "QUEUED", decisions: {} },
+      data: { status: "QUEUED", decisions },
     });
     return session.sessionId;
   }
@@ -2437,6 +2438,140 @@ describe("a person entered while a chunk is applied", () => {
     );
 
     await expectStoppedUnwritten(cookie, sessionId, "Seninflytt");
+  }, 60_000);
+
+  it("stops when somebody with the address of a row the board made new is added", async () => {
+    // The row's address belongs to somebody of another name, so the row waits
+    // for the board, which decides it is a person of their own. The board saw
+    // one person under the address; a second one added since is somebody it
+    // never chose against.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-late-choice-${suffix}@exempel.se`;
+    await createPerson({
+      personId: `imp-late-choice-known-${suffix}`,
+      firstName: "Senkänd",
+      email,
+    });
+    const sessionId = await queued(
+      cookie,
+      "sen-val.csv",
+      [
+        HEADERS,
+        [
+          addressLabel,
+          "2115",
+          "Senval",
+          surname,
+          "Boende",
+          email,
+          "",
+          "2024-02-01",
+        ],
+      ],
+      { "1": { action: "create" } },
+    );
+    const emailIndex = await encryption.computeIndex("person.email", email);
+
+    await applyWhileEntering(
+      sessionId,
+      `person-email:${emailIndex ?? ""}`,
+      (tx) =>
+        createPerson(
+          {
+            personId: `imp-late-choice-added-${suffix}`,
+            firstName: "Senval",
+            email,
+          },
+          tx,
+        ),
+    );
+
+    await expectStoppedUnwritten(cookie, sessionId, "Senval");
+  }, 60_000);
+
+  it("stops when somebody is given the address a later row adds to a new person", async () => {
+    // Row 1 enters a person without an address. Row 2 reaches them by name in
+    // the same apartment and gives them one. Nobody had that address when the
+    // chunk was planned, or row 2 would have been matched by it; somebody given
+    // it since would be the person row 2 is about.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-late-second-row-${suffix}@exempel.se`;
+    const row = [addressLabel, "2115", "Senrad", surname, "Boende"];
+    const sessionId = await queued(cookie, "sen-rad.csv", [
+      HEADERS,
+      [...row, "", "", "2024-02-01"],
+      [...row, email, "", "2024-02-01"],
+    ]);
+    const emailIndex = await encryption.computeIndex("person.email", email);
+
+    await applyWhileEntering(
+      sessionId,
+      `person-email:${emailIndex ?? ""}`,
+      (tx) =>
+        createPerson(
+          {
+            personId: `imp-late-second-row-${suffix}`,
+            firstName: "Senepost",
+            email,
+          },
+          tx,
+        ),
+    );
+
+    await expectStoppedUnwritten(cookie, sessionId, "Senepost");
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Senrad", lastName: surname },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
+  it("writes a row the board made new past somebody under a key the plan never looked under", async () => {
+    // The row's address reaches somebody of another name, and the plan looks
+    // no further: a namesake living in the apartment was never a candidate,
+    // and a re-preview would show the row exactly as the board answered it.
+    // Stopping on them would stop every attempt at the file.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-unasked-key-${suffix}@exempel.se`;
+    await createPerson({
+      personId: `imp-unasked-key-address-${suffix}`,
+      firstName: "Senannan",
+      email,
+    });
+    const residentId = `imp-unasked-key-resident-${suffix}`;
+    await createPerson({ personId: residentId, firstName: "Senbo" });
+    await prisma.residency.create({
+      data: {
+        personId: residentId,
+        apartmentId: apartments.o,
+        role: "RESIDENT",
+        movedInOn: new Date("2024-01-01T00:00:00.000Z"),
+      },
+    });
+    const sessionId = await queued(
+      cookie,
+      "sen-obesokt.csv",
+      [
+        HEADERS,
+        [
+          addressLabel,
+          "2115",
+          "Senbo",
+          surname,
+          "Boende",
+          email,
+          "",
+          "2024-02-01",
+        ],
+      ],
+      { "1": { action: "create" } },
+    );
+
+    await applies.runApply(sessionId);
+
+    const run = await readRun(cookie, sessionId);
+    expect(run.status).toBe("APPLIED");
+    expect(run.result.personsCreated).toBe(1);
   }, 60_000);
 });
 
