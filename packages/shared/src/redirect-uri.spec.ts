@@ -17,6 +17,8 @@ describe("isAcceptableRedirectUri", () => {
     "http://localhost:8123/callback",
     "http://127.0.0.1:8123/callback",
     "http://[::1]:8123/callback",
+    "http://localhost/callback",
+    "HTTP://LOCALHOST:8123/callback",
     "se.exempel.app:/callback",
     "com.example.app:/oauth2redirect/brf",
   ])("takes %s", (uri) => {
@@ -44,6 +46,12 @@ describe("isAcceptableRedirectUri", () => {
     "https://app.localhost./cb",
     "https://brf.app.LOCALHOST:8443/cb",
     "http://127.0.0.2:8123/cb",
+    // This machine in a spelling the parser normalizes and the provider refuses.
+    "http://127.1:8123/cb",
+    "http://0x7f.0.0.1:8123/cb",
+    "http://2130706433:8123/cb",
+    "http://127.000.000.001:8123/cb",
+    "http://[0:0:0:0:0:0:0:1]:8123/cb",
     // An app scheme that is not a reversed domain name, or that names a host.
     "myapp:/callback",
     "myapp://callback",

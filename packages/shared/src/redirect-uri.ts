@@ -65,9 +65,23 @@ export function isAcceptableRedirectUri(value: string): boolean {
     return !namesThisMachine(url.hostname);
   }
   if (url.protocol === "http:") {
-    return isLoopbackHost(url.hostname);
+    return isLoopbackHost(url.hostname) && isLoopbackHost(writtenHost(value));
   }
   return isAppScheme(url);
+}
+
+/**
+ * The host of an http address as it is written, before the URL parser
+ * normalizes it. The parser reads `127.1` and `0x7f.0.0.1` as `127.0.0.1`,
+ * and the OAuth provider takes plain http only on the three exact spellings,
+ * so a rule that read the parsed host would take an address registration then
+ * refuses.
+ */
+function writtenHost(value: string): string {
+  const authority = /^http:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
+  const host = authority.slice(authority.lastIndexOf("@") + 1);
+  const end = host.startsWith("[") ? host.indexOf("]") + 1 : host.indexOf(":");
+  return (end > 0 ? host.slice(0, end) : host).toLowerCase();
 }
 
 /**

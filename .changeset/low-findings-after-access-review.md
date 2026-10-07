@@ -20,13 +20,14 @@ review:
   now.
 - In production, a `BETTER_AUTH_SECRET` committed to the repository or with
   fewer than 8 different characters stops the instance from starting.
-- A change sent with the session cookie in a form encoding is refused when it
-  names no origin.
+- A change sent with the session cookie in a body an HTML form can send
+  (URL-encoded, multipart or plain text) is refused when it carries neither
+  `Origin` nor `Sec-Fetch-Site`.
 - An invitation to an address another account already signs in with is
   refused with its own message instead of failing at activation.
 - An election may be dated at most five years back.
 - A failure's logged stack keeps only lines shaped like call frames.
 - Putting somebody into a group chat they are already in answers with the
   member list, whoever they are.
-- The signup confirmation says that a later request from an address with one
+- The confirmation of an account request says that a later request from an address with one
   waiting is not kept.
