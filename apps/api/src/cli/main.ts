@@ -273,10 +273,10 @@ void main(process.argv.slice(2))
   .catch((cause: unknown) => {
     // A catalog error quotes what the catalog's index said, and anything else
     // may quote a release host or an archive.
-    if (cause instanceof CatalogError) {
-      console.error(terminalText(cause.message));
-    } else {
-      console.error(terminalText(String(cause)));
-    }
+    console.error(
+      terminalText(
+        cause instanceof CatalogError ? cause.message : String(cause),
+      ),
+    );
     process.exitCode = 1;
   });

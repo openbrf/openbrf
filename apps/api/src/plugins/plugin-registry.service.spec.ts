@@ -249,6 +249,22 @@ describe("a failed install", () => {
     );
   });
 
+  it("replaces half a surrogate pair at the cut rather than dropping it", async () => {
+    const { service, installedPlugin } = build();
+
+    await service.markFailed("occupancy", {
+      reason: "archive-package-mismatch",
+      detail: { heldName: `${"x".repeat(212)}\ud800${"x".repeat(100)}` },
+      cause: `PluginInstallError: ${"x".repeat(1979)}\ud800 ...`,
+    });
+
+    const data = failureWritten(installedPlugin);
+    expect(data.lastErrorDetail.heldName).toBe(`${"x".repeat(212)}\uFFFD…`);
+    expect(data.lastError).toBe(
+      `PluginInstallError: ${"x".repeat(1979)}\uFFFD`,
+    );
+  });
+
   it("clears all three once the install converges", async () => {
     const { service, installedPlugin } = build();
 

@@ -7,6 +7,7 @@ import type {
 import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { prefix } from "../text/prefix";
 import { canonicalAction } from "./plugin-action-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
@@ -232,7 +233,7 @@ export class PluginRegistryService {
       where: { id },
       data: {
         status: "FAILED",
-        lastError: storable(prefix(failure.cause, 2000)),
+        lastError: prefix(storable(failure.cause), 2000),
         lastErrorReason: failure.reason,
         lastErrorDetail: storedDetail(failure.detail),
       },
@@ -272,11 +273,11 @@ function storedDetail(
       stored[name] = value;
       continue;
     }
-    stored[name] = storable(
-      value.length > DETAIL_VALUE_MAX_LENGTH
-        ? `${prefix(value, DETAIL_VALUE_MAX_LENGTH - 1)}…`
-        : value,
-    );
+    const text = storable(value);
+    stored[name] =
+      text.length > DETAIL_VALUE_MAX_LENGTH
+        ? `${prefix(text, DETAIL_VALUE_MAX_LENGTH - 1)}…`
+        : text;
   }
   return stored;
 }
@@ -289,23 +290,11 @@ const UNSTORABLE = /[\0\p{Cs}]/gu;
  * no NUL in a text column, and neither NUL nor half a surrogate pair in a JSON
  * one. An archive's package.json can hold either in its name, and a write that
  * throws would leave the failure unrecorded and fail every reconcile after it.
+ * It runs before a value is cut, so half a pair that lands at the cut is
+ * replaced like one anywhere else rather than dropped by `prefix`.
  */
 function storable(text: string): string {
   return text.replace(UNSTORABLE, "\uFFFD");
-}
-
-/**
- * The first `length` characters of the text, or one fewer where the cut would
- * split a character written as a surrogate pair. Half a pair cannot be stored:
- * it serialises as an escape (`\ud83d`) that Postgres refuses in a JSON
- * column, so the failure would never be recorded.
- */
-function prefix(text: string, length: number): string {
-  if (text.length <= length) {
-    return text;
-  }
-  const last = text.charCodeAt(length - 1);
-  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? length - 1 : length);
 }
 
 /** The three failure columns, cleared together. */
