@@ -11,6 +11,7 @@ import {
 import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
@@ -170,6 +171,27 @@ export class ImportController {
   ): Promise<ImportRunView> {
     const input = applySchema.parse(body);
     return this.imports.apply(id, { decisions: input.decisions });
+  }
+
+  /**
+   * Abandons an import that is queued or applying, so another can run.
+   *
+   * An administrator's, on top of the address book capabilities every route
+   * here needs. Starting an import is the board's work, but this stops one part
+   * way through a register that cannot be edited, possibly one another board
+   * member started and is watching. Deciding that the job behind it has died,
+   * rather than that it is slow, is a call about how the instance is running,
+   * which is what `association:manage` covers. The audit entry records who
+   * made it.
+   */
+  @Post("sessions/:id/abandon")
+  @HttpCode(200)
+  @RequireCapability("association:manage")
+  async abandon(
+    @Req() request: RequestWithPrincipal,
+    @Param("id") id: string,
+  ): Promise<ImportRunView> {
+    return this.imports.abandon(id, webActor(request));
   }
 
   /** How far the import has got. Polled by the screen while it runs. */

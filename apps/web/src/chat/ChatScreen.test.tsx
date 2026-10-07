@@ -1112,3 +1112,251 @@ describe("pressing another room", () => {
     });
   });
 });
+
+/** Holds a request open, so the form is observed mid-save. */
+function holdRequest(request: typeof writeMessage): (outcome: unknown) => void {
+  let settle: (outcome: unknown) => void = () => undefined;
+  request.mockReturnValue(
+    new Promise((resolve) => {
+      settle = resolve;
+    }),
+  );
+  return (outcome) => {
+    settle(outcome);
+  };
+}
+
+describe("while a message is being written", () => {
+  it("locks the box, so nothing typed is lost when the draft is cleared", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(writeMessage);
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    const box = screen.getByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Bra");
+    expect(box.matches(":disabled")).toBe(false);
+
+    await user.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+    await user.type(box, "x");
+    expect(box.value).toBe("Bra");
+
+    settle({ ok: true, value: MINE });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    expect(box.value).toBe("");
+  });
+});
+
+describe("while a message is being written and another room is pressed", () => {
+  it("keeps the new room's box locked until the request ends, so nothing typed there is wiped", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(writeMessage);
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    const box = screen.getByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Bra");
+    await user.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+
+    // The room cannot be left while its message is on the way.
+    const garden = screen.getByRole("button", { name: "Trädgårdsgruppen" });
+    expect(garden.matches(":disabled")).toBe(true);
+    await user.click(garden);
+    expect(box.matches(":disabled")).toBe(true);
+    expect(box.value).toBe("Bra");
+
+    settle({ ok: true, value: MINE });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    await user.type(box, "Hej");
+    expect(box.value).toBe("Hej");
+  });
+});
+
+describe("while a group is being made", () => {
+  /** A resident in one group, who is making another. */
+  function makingAGroup(): void {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+    });
+  }
+
+  it("locks the name, so nothing typed is lost when it is cleared", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(createChatGroup);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const name =
+      await screen.findByLabelText<HTMLInputElement>("Gruppens namn");
+    await user.type(name, "Uppgång C");
+    expect(name.matches(":disabled")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Skapa gruppen" }));
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(true);
+    });
+    await user.type(name, "x");
+    expect(name.value).toBe("Uppgång C");
+
+    settle({ ok: true, value: { chatId: "chat-new", name: "Uppgång C" } });
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(false);
+    });
+    expect(name.value).toBe("");
+  });
+
+  it("locks the draft as well, since making the group clears it", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(createChatGroup);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const box =
+      await screen.findByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Hej");
+    await user.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await user.click(screen.getByRole("button", { name: "Skapa gruppen" }));
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+    await user.type(box, "x");
+    expect(box.value).toBe("Hej");
+
+    settle({ ok: true, value: { chatId: "chat-new", name: "Uppgång C" } });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    expect(box.value).toBe("");
+  });
+
+  it("does not send the message from its button while the group is being made", async () => {
+    const user = userEvent.setup();
+    holdRequest(createChatGroup);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const box =
+      await screen.findByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Hej");
+    await user.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await user.click(screen.getByRole("button", { name: "Skapa gruppen" }));
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+
+    // The send button sits outside the locked form, so it is not disabled by it.
+    const send = screen.getByRole("button", { name: "Skicka meddelandet" });
+    expect(send.matches(":disabled")).toBe(true);
+    await user.click(send);
+    box.form?.requestSubmit();
+    expect(writeMessage).not.toHaveBeenCalled();
+  });
+
+  it("cannot be made while a message is on its way, so its late clean-up wipes nothing", async () => {
+    const user = userEvent.setup();
+    const settle = holdRequest(writeMessage);
+    makingAGroup();
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    const box =
+      await screen.findByLabelText<HTMLTextAreaElement>("Ditt meddelande");
+    await user.type(box, "Hej");
+    await user.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await user.click(
+      screen.getByRole("button", { name: "Skicka meddelandet" }),
+    );
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+
+    const name = screen.getByLabelText<HTMLInputElement>("Gruppens namn");
+    expect(name.matches(":disabled")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Skapa gruppen" })
+        .matches(":disabled"),
+    ).toBe(true);
+    name.form?.requestSubmit();
+    expect(createChatGroup).not.toHaveBeenCalled();
+
+    settle({ ok: true, value: MINE });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    await user.type(box, "Hej igen");
+    expect(box.value).toBe("Hej igen");
+  });
+
+  it.each([
+    [
+      "once the group is made",
+      { ok: true, value: { chatId: "chat-new", name: "Uppgång C" } },
+    ],
+    [
+      "when the group is refused",
+      { ok: false, failure: { status: 422, reason: "too-many-groups" } },
+    ],
+  ] as const)(
+    "keeps focus in the name field after Enter, %s",
+    async (_case, outcome) => {
+      const user = userEvent.setup();
+      const settle = holdRequest(createChatGroup);
+      makingAGroup();
+
+      render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+      const name =
+        await screen.findByLabelText<HTMLInputElement>("Gruppens namn");
+      await user.type(name, "Uppgång C{Enter}");
+
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(name, "focus");
+
+      settle(outcome);
+
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(false);
+      });
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(name);
+    },
+  );
+});

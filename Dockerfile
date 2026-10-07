@@ -22,7 +22,7 @@
 # reads image references off FROM and does not resolve a variable: an ARG here
 # would be a pin with nothing updating it, which is the failure the updater was
 # added to prevent.
-ARG PNPM_VERSION=12.6.0
+ARG PNPM_VERSION=12.9.1
 
 # --- base -------------------------------------------------------------------
 # pnpm is installed with npm, never corepack: Node 26 no longer bundles corepack

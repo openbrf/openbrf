@@ -580,7 +580,11 @@ instance does.
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
-digest does not match is discarded, never unpacked.
+digest does not match is discarded, never unpacked. `@openbrf/plugin-sdk`
+exports `parseSha512`, `formatSha512` and `IntegrityError`. `parseSha512` reads
+a digest and throws an `IntegrityError` with `reason` `malformed-digest` when it
+is neither spelling; `formatSha512` spells one. So a catalog's own check
+accepts exactly the spellings an instance does.
 
 ### What a listing must meet
 
@@ -714,6 +718,40 @@ openbrf plugin remove <id>
 The production image must carry the npm CLI. pnpm is not used for plugin
 installation: its isolated layout makes the resolution assumptions above
 unreliable (ADR 0003).
+
+## When an install fails
+
+An install that does not converge leaves the plugin's row failed and the data
+volume as it was. The row records why as one of the reasons below, with the
+values its sentence needs, and the admin screen and `openbrf plugin list` say
+it in the reader's language. What the installer threw is kept beside it, URL
+and all, and `openbrf plugin list` prints it beneath the sentence. A row that
+failed before an instance recorded reasons has only that text, and shows it.
+
+Some of those values come from the archive itself, such as the name its
+package.json gives. Each is stored cut to 214 characters, npm's limit on a
+package name, and `openbrf plugin list` prints control characters in it as
+escapes such as `\x1b` rather than passing them to the terminal.
+
+| Reason                     | Meaning                                                                   |
+| -------------------------- | ------------------------------------------------------------------------- |
+| `download-budget-spent`    | The run's downloads used their whole time before this one began.          |
+| `download-timed-out`       | The archive did not finish downloading in the time it was given.          |
+| `source-not-allowed`       | The archive's address, or a redirect, is not a source the instance reads. |
+| `source-unreachable`       | The release host could not be reached, or redirected nowhere usable.      |
+| `source-answered-error`    | The release host answered with an HTTP error status.                      |
+| `archive-too-large`        | The archive is larger than an instance accepts.                           |
+| `checksum-malformed`       | The catalog states a checksum that is not a sha512 digest.                |
+| `checksum-mismatch`        | The downloaded bytes do not hash to the checksum the catalog states.      |
+| `download-failed`          | The download failed for a reason with no code of its own.                 |
+| `archive-unreadable`       | The archive could not be unpacked to read its package.json.               |
+| `archive-not-a-plugin`     | The archive's package.json is not an installable plugin package.          |
+| `archive-package-mismatch` | The archive holds another package or version than the one consented to.   |
+| `npm-install-failed`       | npm could not install the verified archives.                              |
+| `package-not-installed`    | npm finished without installing a consented archive as a package.         |
+| `unconsented-packages`     | npm installed packages no archive was consented for.                      |
+| `installation-claim-lost`  | Another run took the installation over while this one was building it.    |
+| `build-failed`             | Building the installation failed for a reason with no code of its own.    |
 
 ## When a plugin does not load
 
