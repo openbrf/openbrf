@@ -1005,7 +1005,7 @@ describe("when the file cannot be read", () => {
     const session = userEvent.setup();
     render(<ImportScreen />);
 
-    await session.upload(screen.getByLabelText(/Välj en fil/), file());
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
