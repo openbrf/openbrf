@@ -62,4 +62,29 @@ describe("failureLines", () => {
       "  last error   Error: Digest mismatch: the catalog declares ...",
     ]);
   });
+
+  it("keeps what an archive named off the terminal's controls", () => {
+    const held = "\u001b]0;pwned\u0007x\n  status       installed";
+    const lines = failureLines(
+      record({
+        lastError: `PluginInstallError: The archive for @acme/booking@1.0.0 holds ${held}@1.0.0.`,
+        failure: {
+          reason: "archive-package-mismatch",
+          detail: {
+            packageName: "@acme/booking",
+            version: "1.0.0",
+            heldName: held,
+            heldVersion: "1.0.0",
+          },
+        },
+      }),
+      t(),
+    );
+
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line).not.toMatch(/\p{Cc}/u);
+    }
+    expect(lines[0]).toContain("\\x1b]0;pwned\\x07x\\n  status");
+  });
 });

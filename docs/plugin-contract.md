@@ -724,6 +724,11 @@ it in the reader's language. What the installer threw is kept beside it, URL
 and all, and `openbrf plugin list` prints it beneath the sentence. A row that
 failed before an instance recorded reasons has only that text, and shows it.
 
+Some of those values come from the archive itself, such as the name its
+package.json gives. Each is stored cut to 214 characters, npm's limit on a
+package name, and `openbrf plugin list` prints control characters in it as
+escapes such as `\x1b` rather than passing them to the terminal.
+
 | Reason                     | Meaning                                                                   |
 | -------------------------- | ------------------------------------------------------------------------- |
 | `download-budget-spent`    | The run's downloads used their whole time before this one began.          |

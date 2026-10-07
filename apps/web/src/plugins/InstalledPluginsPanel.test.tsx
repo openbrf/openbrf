@@ -218,6 +218,16 @@ describe("a failed install", () => {
     ).toBeTruthy();
   });
 
+  it("says one second, not one seconds, when a deadline was cut that short", () => {
+    renderPanel([failedWith("download-timed-out", { timeoutMs: 400 })]);
+
+    expect(
+      screen.getByText(
+        "Tilläggets arkiv blev inte färdighämtat inom 1 sekund. Servern som har det kan vara långsam eller otillgänglig.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("states the size cap in MiB rather than bytes", () => {
     renderPanel([
       failedWith("archive-too-large", { maxBytes: 64 * 1024 * 1024 }),

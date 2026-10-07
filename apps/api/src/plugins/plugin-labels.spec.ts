@@ -27,15 +27,19 @@ describe("INSTALL_FAILURE_LABEL_KEYS", () => {
     "has a sentence for %s in every locale",
     (reason) => {
       const key = INSTALL_FAILURE_LABEL_KEYS[reason];
-      const sentences = SUPPORTED_LOCALES.map((locale) =>
-        i18n.translatorFor(locale)(key),
-      );
+      // A sentence that names a number of seconds has a form per plural, and
+      // only resolves when it is given the count; one that does not ignores it.
+      for (const count of [1, 2]) {
+        const sentences = SUPPORTED_LOCALES.map((locale) =>
+          i18n.translatorFor(locale)(key, { count }),
+        );
 
-      // i18next prints a missing key back as it stands, and falls back to
-      // English for a locale missing one, so a sentence per locale is one
-      // that is neither the key nor another locale's.
-      expect(sentences).not.toContain(key);
-      expect(new Set(sentences).size).toBe(SUPPORTED_LOCALES.length);
+        // i18next prints a missing key back as it stands, and falls back to
+        // English for a locale missing one, so a sentence per locale is one
+        // that is neither the key nor another locale's.
+        expect(sentences).not.toContain(key);
+        expect(new Set(sentences).size).toBe(SUPPORTED_LOCALES.length);
+      }
     },
   );
 

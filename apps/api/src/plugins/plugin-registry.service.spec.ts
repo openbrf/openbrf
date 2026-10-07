@@ -155,6 +155,31 @@ describe("a failed install", () => {
     });
   });
 
+  it("cuts a detail value an archive made too long", async () => {
+    const { service, installedPlugin } = build();
+
+    await service.markFailed("occupancy", {
+      reason: "archive-package-mismatch",
+      detail: {
+        packageName: "@acme/occupancy",
+        heldName: "x".repeat(10_000),
+        heldVersion: "1.0.0",
+      },
+      cause: "PluginInstallError: The archive for @acme/occupancy@1.0.0 ...",
+    });
+
+    expect(installedPlugin.updateMany).toHaveBeenCalledWith({
+      where: { id: "occupancy" },
+      data: expect.objectContaining({
+        lastErrorDetail: {
+          packageName: "@acme/occupancy",
+          heldName: `${"x".repeat(213)}…`,
+          heldVersion: "1.0.0",
+        },
+      }),
+    });
+  });
+
   it("clears all three once the install converges", async () => {
     const { service, installedPlugin } = build();
 

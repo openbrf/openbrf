@@ -234,7 +234,7 @@ export class PluginRegistryService {
         status: "FAILED",
         lastError: failure.cause.slice(0, 2000),
         lastErrorReason: failure.reason,
-        lastErrorDetail: { ...failure.detail },
+        lastErrorDetail: storedDetail(failure.detail),
       },
     });
   }
@@ -252,6 +252,28 @@ export class PluginRegistryService {
       data: { settings: settings as Prisma.InputJsonObject },
     });
   }
+}
+
+/**
+ * The longest a detail value is stored. npm's own limit on a package name, so
+ * every name the installer records fits whole; what is longer came from an
+ * archive that is not a well-formed package, or is a list of names, and is cut
+ * so a hostile archive cannot make the row and every listing of it as large as
+ * it likes. `lastError` has its own, larger limit for the same reason.
+ */
+const DETAIL_VALUE_MAX_LENGTH = 214;
+
+function storedDetail(
+  detail: PluginInstallFailureDetail,
+): Record<string, string | number> {
+  const stored: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(detail)) {
+    stored[name] =
+      typeof value === "string" && value.length > DETAIL_VALUE_MAX_LENGTH
+        ? `${value.slice(0, DETAIL_VALUE_MAX_LENGTH - 1)}…`
+        : value;
+  }
+  return stored;
 }
 
 /** The three failure columns, cleared together. */

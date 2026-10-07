@@ -15,6 +15,7 @@ import {
 } from "../plugins/plugin-labels";
 import { PluginRegistryService } from "../plugins/plugin-registry.service";
 import { failureLines } from "./failure-lines";
+import { terminalText } from "./terminal-text";
 
 /**
  * `openbrf` - the command-line half of plugin management.
@@ -40,6 +41,10 @@ import { failureLines } from "./failure-lines";
  * shows, so an operator and a board reading the same row read the same reason;
  * what was actually thrown is printed beneath it, because that is the line an
  * operator debugs from.
+ *
+ * A value this tool did not write - from the catalog, a plugin archive or a
+ * thrown error - is printed through `terminalText`, so a control character in
+ * it is shown rather than acted on by the operator's terminal.
  */
 
 const USAGE = `openbrf - Open BRF instance administration
@@ -125,13 +130,13 @@ async function listInstalled(
 
   for (const record of records) {
     const state = record.enabled ? record.status : `${record.status}, disabled`;
-    console.log(`${record.id}  ${record.version}  [${state}]`);
-    console.log(`  package      ${record.packageName}`);
+    console.log(terminalText(`${record.id}  ${record.version}  [${state}]`));
+    console.log(`  package      ${terminalText(record.packageName)}`);
     console.log(
-      `  permissions  ${record.consentedPermissions.join(", ") || "none"}`,
+      `  permissions  ${terminalText(record.consentedPermissions.join(", ")) || "none"}`,
     );
     console.log(
-      `  personal data ${record.declaredPersonalData.join(", ") || "none"}`,
+      `  personal data ${terminalText(record.declaredPersonalData.join(", ")) || "none"}`,
     );
     for (const line of failureLines(record, t)) {
       console.log(line);
@@ -159,9 +164,11 @@ async function listCatalog(admin: PluginAdminService): Promise<number> {
     ].filter((mark): mark is string => mark !== null);
 
     console.log(
-      `${entry.id}  ${entry.version}${marks.length === 0 ? "" : `  [${marks.join(", ")}]`}`,
+      terminalText(
+        `${entry.id}  ${entry.version}${marks.length === 0 ? "" : `  [${marks.join(", ")}]`}`,
+      ),
     );
-    console.log(`  ${entry.name.en}`);
+    console.log(`  ${terminalText(entry.name.en)}`);
   }
   return 0;
 }
@@ -202,8 +209,10 @@ async function add(
       ? "none"
       : values.map((value) => t(key(value))).join("; ");
 
-  console.log(`${entry.name.en} ${entry.version} (${entry.packageName})`);
-  console.log(`  ${entry.description.en}`);
+  console.log(
+    terminalText(`${entry.name.en} ${entry.version} (${entry.packageName})`),
+  );
+  console.log(`  ${terminalText(entry.description.en)}`);
   console.log(
     `  may           ${declared(entry.permissions, permissionLabelKey)}`,
   );
@@ -229,7 +238,7 @@ async function add(
 
   const failure = outcome.failed.find((entryFailed) => entryFailed.id === id);
   if (failure !== undefined) {
-    console.error(`\nInstall failed: ${failure.error}`);
+    console.error(`\nInstall failed: ${terminalText(failure.error)}`);
     return 1;
   }
 

@@ -21,3 +21,9 @@ What the installer threw is still kept beside the reason, and `openbrf plugin
 list` prints it under the sentence. A plugin that failed before this version
 has no reason recorded and keeps showing the text it had. The migration adds
 two columns and changes nothing already stored.
+
+Values taken from a plugin's archive, such as the package name its
+package.json gives, are stored cut to 214 characters. `openbrf plugin list`,
+`catalog` and `add` print control characters in anything they did not write
+themselves as escapes such as `\x1b`, so a catalog entry, an archive or an
+error cannot send instructions to the operator's terminal.

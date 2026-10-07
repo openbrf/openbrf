@@ -1504,9 +1504,11 @@
         "awaitingRestart": "Installed, awaiting restart"
       },
       "failure": {
-        "downloadBudgetSpent": "The run's downloads had used up their {{budgetSeconds}} seconds before this plugin's turn came, so it was not downloaded. Installing again starts a new run.",
-        "downloadTimedOut": "The plugin's archive did not finish downloading within {{timeoutSeconds}} seconds. The server holding it may be slow or unavailable.",
-        "sourceNotAllowed": "The plugin's archive is at an address this instance does not download from. A curated instance downloads over https only.",
+        "downloadBudgetSpent_one": "The run's downloads had used up their {{budgetSeconds}} second before this plugin's turn came, so it was not downloaded. Installing again starts a new run.",
+        "downloadBudgetSpent_other": "The run's downloads had used up their {{budgetSeconds}} seconds before this plugin's turn came, so it was not downloaded. Installing again starts a new run.",
+        "downloadTimedOut_one": "The plugin's archive did not finish downloading within {{timeoutSeconds}} second. The server holding it may be slow or unavailable.",
+        "downloadTimedOut_other": "The plugin's archive did not finish downloading within {{timeoutSeconds}} seconds. The server holding it may be slow or unavailable.",
+        "sourceNotAllowed": "The plugin's archive is at an address this instance does not download from. Unless an instance is set to accept sources outside the curated catalog, it downloads over https only.",
         "sourceUnreachable": "The server holding the plugin's archive could not be reached.",
         "sourceAnsweredError": "The server holding the plugin's archive answered with HTTP status {{status}} instead of the archive.",
         "archiveTooLarge": "The plugin's archive is larger than the {{maxMebibytes}} MiB an instance accepts.",

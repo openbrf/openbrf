@@ -1504,9 +1504,11 @@
         "awaitingRestart": "Installerat, väntar på omstart"
       },
       "failure": {
-        "downloadBudgetSpent": "Körningens nedladdningar hade använt sina {{budgetSeconds}} sekunder innan det här tillägget stod på tur, så det hämtades inte. En ny installation startar en ny körning.",
-        "downloadTimedOut": "Tilläggets arkiv blev inte färdighämtat inom {{timeoutSeconds}} sekunder. Servern som har det kan vara långsam eller otillgänglig.",
-        "sourceNotAllowed": "Tilläggets arkiv ligger på en adress som instansen inte hämtar från. En granskad instans hämtar bara över https.",
+        "downloadBudgetSpent_one": "Körningens nedladdningar hade använt sin {{budgetSeconds}} sekund innan det här tillägget stod på tur, så det hämtades inte. En ny installation startar en ny körning.",
+        "downloadBudgetSpent_other": "Körningens nedladdningar hade använt sina {{budgetSeconds}} sekunder innan det här tillägget stod på tur, så det hämtades inte. En ny installation startar en ny körning.",
+        "downloadTimedOut_one": "Tilläggets arkiv blev inte färdighämtat inom {{timeoutSeconds}} sekund. Servern som har det kan vara långsam eller otillgänglig.",
+        "downloadTimedOut_other": "Tilläggets arkiv blev inte färdighämtat inom {{timeoutSeconds}} sekunder. Servern som har det kan vara långsam eller otillgänglig.",
+        "sourceNotAllowed": "Tilläggets arkiv ligger på en adress som instansen inte hämtar från. Om en instans inte är inställd på att ta emot källor utanför den granskade katalogen hämtar den bara över https.",
         "sourceUnreachable": "Servern som har tilläggets arkiv kunde inte nås.",
         "sourceAnsweredError": "Servern som har tilläggets arkiv svarade med HTTP-status {{status}} i stället för arkivet.",
         "archiveTooLarge": "Tilläggets arkiv är större än de {{maxMebibytes}} MiB som en instans tar emot.",

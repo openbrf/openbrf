@@ -79,6 +79,11 @@ export type PluginInstallFailureDetail = Readonly<
  * no locale has to decide where a decimal point goes. A deadline is rounded up,
  * so a run cut short a fraction of a second in never reads as "0 seconds".
  * Shared so the admin screen and the command-line tool say the same number.
+ *
+ * A number of seconds is also the sentence's `count`, which is what i18next
+ * picks a plural form by: a deadline cut down to the last of a run's budget
+ * can be one second, and "1 seconds" is not a sentence in either language. A
+ * failure records a budget or a deadline, never both.
  */
 export function pluginInstallFailureValues(
   detail: PluginInstallFailureDetail,
@@ -87,9 +92,11 @@ export function pluginInstallFailureValues(
   const { budgetMs, timeoutMs, maxBytes } = detail;
   if (typeof budgetMs === "number") {
     values["budgetSeconds"] = Math.ceil(budgetMs / 1000);
+    values["count"] = values["budgetSeconds"];
   }
   if (typeof timeoutMs === "number") {
     values["timeoutSeconds"] = Math.ceil(timeoutMs / 1000);
+    values["count"] = values["timeoutSeconds"];
   }
   if (typeof maxBytes === "number") {
     values["maxMebibytes"] = Math.max(1, Math.round(maxBytes / 1024 / 1024));
