@@ -3621,6 +3621,146 @@ describe("a decided row the register stops asking about between chunks", () => {
   );
 });
 
+describe("a decided row that matches more people between chunks", () => {
+  // A file of two chunks with one row in the second that writes anything; the
+  // rest have a date nobody can read, and write nothing.
+  function twoChunks(row: (rowNumber: number) => string[] | null): string[][] {
+    const rows: string[][] = [HEADERS];
+    for (let rowNumber = 1; rowNumber <= IMPORT_CHUNK_ROWS + 10; rowNumber++) {
+      rows.push(
+        row(rowNumber) ?? [
+          addressLabel,
+          "2102",
+          `Fyllnad${String(rowNumber)}`,
+          surname,
+          "Boende",
+          "",
+          "",
+          "01/03/2020",
+        ],
+      );
+    }
+    return rows;
+  }
+
+  it("stops when somebody with the address of a row the board made new is added after the apply began", async () => {
+    // Row 105 reaches a register person by email but gives them another first
+    // name, so it waits, and the board makes it a person of their own. Before
+    // the second chunk is planned somebody else is given that address. The
+    // chunk's plan then lists both, and the board chose against only one of
+    // them: written, the row would be a second record of the person added.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-later-chunk-${suffix}@exempel.se`;
+    const known = `imp-later-chunk-known-${suffix}`;
+    await createPerson({ personId: known, firstName: "Senkandid", email });
+    const session = await uploadAndPreview(
+      cookie,
+      "senare-del.csv",
+      twoChunks((rowNumber) =>
+        rowNumber === IMPORT_CHUNK_ROWS + 5
+          ? [
+              addressLabel,
+              "2115",
+              "Senaredel",
+              surname,
+              "Boende",
+              email,
+              "",
+              "2024-02-01",
+            ]
+          : null,
+      ),
+    );
+    const previewed = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.sessionId },
+      select: { ambiguousRows: true },
+    });
+    expect(previewed.ambiguousRows).toEqual({ "105": [known] });
+
+    // Stored as an apply accepts it, with no job behind it, so the test runs
+    // the chunks itself.
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: { "105": { action: "create" } } },
+    });
+    expect(await applies.applyNextChunk(session.sessionId)).toBe(true);
+    await createPerson({
+      personId: `imp-later-chunk-added-${suffix}`,
+      firstName: "Senaredel",
+      email,
+    });
+    expect(await applies.applyNextChunk(session.sessionId)).toBe(false);
+
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "FAILED",
+      failureReason: "register-changed-during-apply",
+      rowsDone: IMPORT_CHUNK_ROWS,
+      result: { personsCreated: 0 },
+    });
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Senaredel", lastName: surname },
+      }),
+    ).toBe(1);
+  }, 120_000);
+
+  it("writes a row the board made new past a person an earlier chunk created", async () => {
+    // Two people sharing an address, a chunk apart. Row 1 enters the first.
+    // Row 105 reaches them by that address under another first name, so it
+    // waits, and the preview lists nobody for it: the first has no id yet. The
+    // second chunk finds them in the register, and has to take them for what
+    // they are - somebody this import entered - and not for somebody new.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-shared-address-${suffix}@exempel.se`;
+    const partner = (firstName: string): string[] => [
+      addressLabel,
+      "2115",
+      firstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      "2024-02-01",
+    ];
+    const session = await uploadAndPreview(
+      cookie,
+      "delad-adress.csv",
+      twoChunks((rowNumber) =>
+        rowNumber === 1
+          ? partner("Delaren")
+          : rowNumber === IMPORT_CHUNK_ROWS + 5
+            ? partner("Delarinnan")
+            : null,
+      ),
+    );
+    const previewed = await prisma.importSession.findUniqueOrThrow({
+      where: { id: session.sessionId },
+      select: { ambiguousRows: true },
+    });
+    expect(previewed.ambiguousRows).toEqual({ "105": [] });
+
+    expect(
+      (
+        await applyImport(cookie, session.sessionId, {
+          "105": { action: "create" },
+        })
+      ).statusCode,
+    ).toBe(202);
+
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+    );
+    expect(run).toMatchObject({
+      status: "APPLIED",
+      rowsDone: IMPORT_CHUNK_ROWS + 10,
+      result: { personsCreated: 2 },
+    });
+  }, 120_000);
+});
+
 describe("a row after one the board decided", () => {
   function reasonOf(response: { body: string }): string {
     return (JSON.parse(response.body) as { reason: string }).reason;

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { ENV } from "../config/config.module";
@@ -12,6 +13,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { residencyNotEndedOn } from "../registers/held-on";
 import {
   appendOwedMembershipEvents,
   type MemberResidencySpan,
@@ -25,14 +27,15 @@ import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import {
   apartmentNameKey,
+  changedSincePreview,
   findUndecided,
   IMPORT_SEARCH_KEYS,
   type ImportDecision,
   type ImportDecisions,
   type ImportPlan,
-  isCurrentResidency,
   type PlannedRow,
   push,
+  readPreviewedCandidates,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
@@ -301,7 +304,9 @@ export class ImportApplyService implements OnModuleInit {
         defaultRole: true,
         defaultMovedInOn: true,
         decisions: true,
+        ambiguousRows: true,
         unwrittenIdentityNumbers: true,
+        createdPersons: true,
       },
     });
     if (session === null) {
@@ -337,9 +342,8 @@ export class ImportApplyService implements OnModuleInit {
     }
 
     const decisions = readDecisions(session.decisions);
-    const unwritten = readUnwrittenIdentityNumbers(
-      session.unwrittenIdentityNumbers,
-    );
+    const unwritten = readRowPersons(session.unwrittenIdentityNumbers);
+    const created = readRowPersons(session.createdPersons);
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -381,6 +385,26 @@ export class ImportApplyService implements OnModuleInit {
         sessionId,
         undecided === "decision-not-needed" ? "preview-outdated" : undecided,
       );
+      return false;
+    }
+
+    // And each of those rows still matches the persons the preview showed the
+    // board, which the request also checked, but a chunk is planned as long
+    // after it as the apply has run. A row the board made a new person that now
+    // also matches somebody added since would enter them a second time, and the
+    // check inside the transaction below cannot tell, because it allows the
+    // persons this plan found. The persons earlier chunks created are set
+    // aside: the preview could not list them. Recorded as the register having
+    // changed rather than as an outdated preview: the session cannot be
+    // previewed again, and the board imports the rest as a new file.
+    if (
+      changedSincePreview(
+        plan,
+        readPreviewedCandidates(session.ambiguousRows),
+        new Set(created.values()),
+      )
+    ) {
+      await this.stop(sessionId, "register-changed-during-apply");
       return false;
     }
 
@@ -454,11 +478,13 @@ export class ImportApplyService implements OnModuleInit {
           decisions,
           encrypted,
           unwritten,
+          created,
         );
         await tx.importSession.update({
           where: { id: sessionId },
           data: {
             unwrittenIdentityNumbers: Object.fromEntries(unwritten),
+            createdPersons: Object.fromEntries(created),
             personsCreated: { increment: written.personsCreated },
             personsUpdated: { increment: written.personsUpdated },
             residenciesCreated: { increment: written.residenciesCreated },
@@ -566,6 +592,7 @@ export class ImportApplyService implements OnModuleInit {
     decisions: ImportDecisions,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     unwritten: Map<number, string>,
+    created: Map<number, string>,
   ): Promise<ImportApplyResult> {
     const result: ImportApplyResult = {
       personsCreated: 0,
@@ -612,6 +639,9 @@ export class ImportApplyService implements OnModuleInit {
       }
 
       await this.writeResidency(tx, row, personId, membersBefore, result);
+    }
+    for (const [rowNumber, personId] of createdByRow) {
+      created.set(rowNumber, personId);
     }
 
     // After every row, so a file listing a person's newest apartment first
@@ -878,22 +908,23 @@ function readDecisions(value: unknown): ImportDecisions {
 }
 
 /**
- * The rows of earlier chunks whose identity number was not written, read back
- * as row number to the person each was written to. Narrowed rather than cast,
+ * Rows of earlier chunks, read back as row number to a person: those whose
+ * identity number was not written, to the person each was written to, and
+ * those written as a new person, to that person. Narrowed rather than cast,
  * like the decisions.
  */
-function readUnwrittenIdentityNumbers(value: unknown): Map<number, string> {
-  const unwritten = new Map<number, string>();
+function readRowPersons(value: unknown): Map<number, string> {
+  const persons = new Map<number, string>();
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return unwritten;
+    return persons;
   }
   for (const [rowNumber, personId] of Object.entries(value)) {
     const row = Number(rowNumber);
     if (Number.isInteger(row) && row > 0 && typeof personId === "string") {
-      unwritten.set(row, personId);
+      persons.set(row, personId);
     }
   }
-  return unwritten;
+  return persons;
 }
 
 function readDecision(raw: unknown): ImportDecision | null {
@@ -967,14 +998,16 @@ function writtenEmailIndexes(
  * one the board decided to enter as a new person, and one that reaches the
  * person an earlier row of the chunk creates and may give them an address or a
  * residency. The keys are the planner's own - the identity number, the email
- * address, and the name of somebody currently living in the row's apartment -
- * and a row is asked under the keys the plan looked under for it: all three
- * when it found nobody, and otherwise the ones up to the key it found its
- * candidates under. Under those the plan found the row's candidates and nobody
- * else in the register, so anybody else found now was added, or given that
- * address or that residency, after the plan read the register. The keys after
- * that one were never looked under, and a person found there would not change
- * the plan.
+ * address, and the name of somebody whose residency in the row's apartment has
+ * not ended - and a row is asked under the keys the plan looked under for it:
+ * all three when it found nobody, and otherwise the ones up to the key it found
+ * its candidates under. Under those the plan found the row's candidates and
+ * nobody else in the register, so anybody else found now was added, or given
+ * that address or that residency, after the plan read the register. The keys
+ * after that one were never looked under, and a person found there would not
+ * change the plan. A row the board decided has the candidates the preview
+ * showed for it, and besides them only persons earlier chunks created: the
+ * chunk made sure of that before the transaction opened.
  *
  * Read through the chunk's transaction, after its apartment and email locks.
  * Every writer of an address takes the email lock and every writer of a
@@ -1034,27 +1067,29 @@ async function newPersonsMatchedSincePlan(
   }
 
   if (apartmentIds.length > 0) {
-    const now = new Date();
+    // The residencies that have not ended, the rule the plan's snapshot reads
+    // the register by, and asked of the database: an apartment's past
+    // residents are no match, and need not be read under the chunk's locks.
     const residencies = await tx.residency.findMany({
-      where: { apartmentId: { in: apartmentIds } },
+      where: {
+        apartmentId: { in: apartmentIds },
+        ...residencyNotEndedOn(localDayOf(new Date())),
+      },
       select: {
         apartmentId: true,
-        movedOutOn: true,
         person: { select: { id: true, firstName: true, lastName: true } },
       },
     });
     for (const residency of residencies) {
-      if (isCurrentResidency(residency.movedOutOn, now)) {
-        push(
-          byName,
-          apartmentNameKey(
-            residency.apartmentId,
-            residency.person.firstName,
-            residency.person.lastName,
-          ),
-          residency.person.id,
-        );
-      }
+      push(
+        byName,
+        apartmentNameKey(
+          residency.apartmentId,
+          residency.person.firstName,
+          residency.person.lastName,
+        ),
+        residency.person.id,
+      );
     }
   }
 

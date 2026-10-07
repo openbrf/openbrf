@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
+import { hasMovedOut } from "../registers/held-on";
 import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
@@ -11,7 +12,6 @@ import {
   type ImportDecisions,
   type ImportPlan,
   type ImportRole,
-  isCurrentResidency,
   planImport,
   type PreparedRow,
   push,
@@ -264,7 +264,7 @@ export class ImportPlannerService {
         new Set(person.residencies.map((residency) => residency.apartmentId)),
       );
       for (const residency of person.residencies) {
-        if (!isCurrentResidency(residency.movedOutOn, now)) {
+        if (hasMovedOut(residency.movedOutOn, now)) {
           continue;
         }
         push(

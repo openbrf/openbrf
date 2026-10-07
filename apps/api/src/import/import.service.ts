@@ -27,12 +27,14 @@ import {
 import { ImportError } from "./import-errors";
 import { lockImportApply } from "./import-lock";
 import {
+  changedSincePreview,
   findUndecided,
   type ImportDecisions,
   type ImportOutcome,
   type ImportPlan,
   type ImportRole,
   type PlannedRow,
+  readPreviewedCandidates,
 } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import {
@@ -669,7 +671,7 @@ export class ImportService implements OnModuleInit {
     },
     decisions: ImportDecisions,
   ): Promise<void> {
-    const previewed = readAmbiguousRows(session.ambiguousRows);
+    const previewed = readPreviewedCandidates(session.ambiguousRows);
     if (Object.keys(decisions).length === 0) {
       if (Object.keys(previewed).length > 0) {
         throw new ImportError(
@@ -692,19 +694,7 @@ export class ImportService implements OnModuleInit {
       indexes: new Map(),
     });
 
-    if (
-      plan.rows.some((row) => {
-        const candidates = previewed[String(row.rowNumber)];
-        return (
-          candidates !== undefined &&
-          (row.outcome !== "ambiguous" ||
-            !samePeople(
-              candidates,
-              row.candidates.map((candidate) => candidate.personId),
-            ))
-        );
-      })
-    ) {
+    if (changedSincePreview(plan, previewed)) {
       throw new ImportError(
         "Given these decisions, a row the preview showed as needing a " +
           "decision no longer does, or matches other people.",
@@ -858,28 +848,6 @@ function planDigest(plan: ImportPlan): string {
     );
   }
   return hash.digest("hex");
-}
-
-/** Whether two lists of person ids name the same people. */
-function samePeople(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((personId) => b.includes(personId));
-}
-
-/** The rows the preview could not resolve, read back from the session. */
-function readAmbiguousRows(value: unknown): Record<string, string[]> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  const rows: Record<string, string[]> = {};
-  for (const [rowNumber, candidates] of Object.entries(value)) {
-    if (Array.isArray(candidates)) {
-      rows[rowNumber] = candidates.filter(
-        (candidate): candidate is string => typeof candidate === "string",
-      );
-    }
-  }
-  return rows;
 }
 
 /** Columns of the downloadable template, in the order they are written. */
