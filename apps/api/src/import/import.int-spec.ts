@@ -2982,11 +2982,23 @@ describe("a row after one the board decided", () => {
       "",
       "2021-04-01",
     ];
-    const session = await uploadAndPreview(cookie, "obesvarad-rad.csv", [
-      HEADERS,
-      row,
-      row,
-    ]);
+    const session = await upload(
+      cookie,
+      "obesvarad-rad.csv",
+      encode(writeCsv([HEADERS, row, row])),
+    );
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(200);
+    expect(
+      (JSON.parse(previewed.body) as ImportPreview).rows.map(
+        (planned) => planned.outcome,
+      ),
+    ).toEqual(["ambiguous", "ambiguous"]);
 
     const dubbels = () =>
       prisma.person.count({
