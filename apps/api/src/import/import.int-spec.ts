@@ -4016,18 +4016,10 @@ describe("a decided row the register stops asking about between chunks", () => {
         `inaktuellt-val-${action}.csv`,
         encode(writeCsv(rows)),
       );
-      const response = await inject({
-        method: "POST",
-        url: `/api/import/sessions/${session.sessionId}/preview`,
-        payload: { mapping: session.suggestedMapping },
-        headers: { cookie },
+      const preview = await previewImport(cookie, session.sessionId, {
+        mapping: session.suggestedMapping,
       });
-      expect(response.statusCode).toBe(200);
-      expect(
-        (JSON.parse(response.body) as ImportPreview).rows.find(
-          (row) => row.rowNumber === 150,
-        ),
-      ).toMatchObject({
+      expect(preview.rows.find((row) => row.rowNumber === 150)).toMatchObject({
         outcome: "ambiguous",
         matchedBy: "email",
         mismatch: "name",
