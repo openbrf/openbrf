@@ -232,7 +232,7 @@ export class PluginRegistryService {
       where: { id },
       data: {
         status: "FAILED",
-        lastError: prefix(failure.cause, 2000),
+        lastError: storable(prefix(failure.cause, 2000)),
         lastErrorReason: failure.reason,
         lastErrorDetail: storedDetail(failure.detail),
       },
@@ -268,12 +268,30 @@ function storedDetail(
 ): Record<string, string | number> {
   const stored: Record<string, string | number> = {};
   for (const [name, value] of Object.entries(detail)) {
-    stored[name] =
-      typeof value === "string" && value.length > DETAIL_VALUE_MAX_LENGTH
+    if (typeof value !== "string") {
+      stored[name] = value;
+      continue;
+    }
+    stored[name] = storable(
+      value.length > DETAIL_VALUE_MAX_LENGTH
         ? `${prefix(value, DETAIL_VALUE_MAX_LENGTH - 1)}…`
-        : value;
+        : value,
+    );
   }
   return stored;
+}
+
+/** NUL, and half of a surrogate pair with the other half missing. */
+const UNSTORABLE = /[\0\p{Cs}]/gu;
+
+/**
+ * The text with every character Postgres refuses replaced by U+FFFD. It takes
+ * no NUL in a text column, and neither NUL nor half a surrogate pair in a JSON
+ * one. An archive's package.json can hold either in its name, and a write that
+ * throws would leave the failure unrecorded and fail every reconcile after it.
+ */
+function storable(text: string): string {
+  return text.replace(UNSTORABLE, "\uFFFD");
 }
 
 /**

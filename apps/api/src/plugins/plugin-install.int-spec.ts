@@ -481,6 +481,39 @@ describe("the plugin install flow", () => {
   }, 180_000);
 
   /**
+   * What an archive says about itself can hold characters Postgres refuses:
+   * NUL in any text, half a surrogate pair in JSON. A write that threw would
+   * leave the failure unrecorded and fail every reconcile after it.
+   */
+  it("records a failure whose values Postgres could not store as written", async () => {
+    await consent(digest, tarball);
+
+    await registry.markFailed(PLUGIN_ID, {
+      reason: "archive-package-mismatch",
+      detail: {
+        packageName: PACKAGE_NAME,
+        // Cut at 213 units, which falls inside the emoji.
+        heldName: `@acme/occ\0upancy-\ud800-${"x".repeat(193)}😀${"x".repeat(10)}`,
+        heldVersion: VERSION,
+      },
+      // Cut at 2000 units, which falls inside the emoji.
+      cause: `PluginInstallError: @acme/occ\0upancy-\ud800 ${"x".repeat(1960)}😀`,
+    });
+
+    const row = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: PLUGIN_ID },
+    });
+    expect(row.status).toBe("FAILED");
+    expect(row.lastErrorReason).toBe("archive-package-mismatch");
+    expect(row.lastErrorDetail).toMatchObject({
+      heldName: `@acme/occ\uFFFDupancy-\uFFFD-${"x".repeat(193)}…`,
+    });
+    expect(row.lastError).toBe(
+      `PluginInstallError: @acme/occ\uFFFDupancy-\uFFFD ${"x".repeat(1960)}`,
+    );
+  });
+
+  /**
    * Rows that failed before the reason was recorded hold their English in
    * lastError and nothing else, and the migration leaves them so. They read
    * back with no reason, which is what tells the screen to show the text as

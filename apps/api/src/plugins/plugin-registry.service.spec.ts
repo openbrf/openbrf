@@ -229,6 +229,26 @@ describe("a failed install", () => {
     expect(data.lastErrorDetail.heldName).toBe(`${"x".repeat(211)}😀…`);
   });
 
+  it("stores NUL and half a surrogate pair from an archive as U+FFFD", async () => {
+    // Postgres refuses both, so the failure would never be recorded.
+    const { service, installedPlugin } = build();
+
+    await service.markFailed("occupancy", {
+      reason: "archive-package-mismatch",
+      detail: { heldName: "@acme/occ\0upancy", heldVersion: "1.0.0-\ud800" },
+      cause: "PluginInstallError: @acme/occ\0upancy@1.0.0-\ud800 😀",
+    });
+
+    const data = failureWritten(installedPlugin);
+    expect(data.lastErrorDetail).toEqual({
+      heldName: "@acme/occ\uFFFDupancy",
+      heldVersion: "1.0.0-\uFFFD",
+    });
+    expect(data.lastError).toBe(
+      "PluginInstallError: @acme/occ\uFFFDupancy@1.0.0-\uFFFD 😀",
+    );
+  });
+
   it("clears all three once the install converges", async () => {
     const { service, installedPlugin } = build();
 
