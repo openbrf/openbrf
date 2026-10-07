@@ -38,6 +38,17 @@ export type {
   PersonalIdentityNumberParts,
 } from "./personal-identity-number.ts";
 export {
+  PLUGIN_INSTALL_FAILURE_REASONS,
+  pluginInstallFailureReason,
+  pluginInstallFailureValues,
+} from "./plugin-install-failures.ts";
+export type {
+  PluginInstallFailureDetail,
+  PluginInstallFailureReason,
+} from "./plugin-install-failures.ts";
+export { scannableRunsText } from "./scannable-text.ts";
+export type { ScannableRun } from "./scannable-text.ts";
+export {
   addLocalDays,
   ASSOCIATION_TIME_ZONE,
   compareLocalDays,

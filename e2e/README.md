@@ -575,12 +575,14 @@ The pieces:
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
-  `{ upload, file }`, `{ recordBreach }` or `{ see }`. An uploaded file is
-  written out in the manifest - a name, a media type and its text - rather than
-  read from disk, so what a screen is photographed reading can be checked
-  against the publishing rules in the diff. `{ recordBreach }` writes up a
-  personal data breach over the API and reopens the screen, because no screen
-  records one; it is written out in the manifest for the same reason. A screen needing a kind that is not there adds it to the
+  `{ upload, file }`, `{ deliver }`, `{ recordBreach }` or `{ see }`. An
+  uploaded file is written out in the manifest - a name, a media type and its
+  text - rather than read from disk, so what a screen is photographed reading
+  can be checked against the publishing rules in the diff. A delivered letter is
+  written out the same way and put into mailpit, the mailbox the board mailbox
+  collects from. `{ recordBreach }` writes up a personal data breach over the
+  API and reopens the screen, because no screen records one; it is written out
+  in the manifest for the same reason. A screen needing a kind that is not there adds it to the
   `Action` union and to `perform` in `capture.spec.ts`, once, and every later
   screen has it.
 

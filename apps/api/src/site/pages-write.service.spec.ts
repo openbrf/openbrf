@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "./page-content";
 import {
   PagesWriteService,
   PageWriteError,
   type PageWriteReason,
 } from "./pages-write.service";
+import { PRIVACY_NOTICE_SLUG } from "./pages.service";
 
 /**
  * The publication guardrails, as rules rather than as endpoints.
@@ -32,6 +34,7 @@ interface Fakes {
     deleteMany: ReturnType<typeof vi.fn>;
   };
   mediaFile: { findMany: ReturnType<typeof vi.fn> };
+  menuItem: { findMany: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   prisma: { $transaction: ReturnType<typeof vi.fn> };
   /**
@@ -43,7 +46,7 @@ interface Fakes {
    * the write it records, and an assertion that the argument is defined cannot
    * tell the two apart.
    */
-  txClient: object;
+  txClient: { $executeRaw: ReturnType<typeof vi.fn> };
 }
 
 const DRAFT = {
@@ -83,9 +86,16 @@ function build(): Fakes {
     deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
   const mediaFile = { findMany: vi.fn().mockResolvedValue([]) };
+  const menuItem = { findMany: vi.fn().mockResolvedValue([]) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
-  const client = { page, mediaFile };
+  // `$executeRaw` is the menu lock a removal takes.
+  const client = {
+    page,
+    mediaFile,
+    menuItem,
+    $executeRaw: vi.fn().mockResolvedValue(1),
+  };
 
   const prisma = {
     ...client,
@@ -110,6 +120,7 @@ function build(): Fakes {
     ),
     page,
     mediaFile,
+    menuItem,
     audit,
     prisma,
     txClient: client,
@@ -205,6 +216,62 @@ describe("writing a page", () => {
     expect(refusal.status).toBe(409);
   });
 
+  it("answers an address taken since it was checked as taken, not as a failure", async () => {
+    // Two creates to one address at once both pass the check, and the unique
+    // index refuses the second write. That is the conflict the check answers,
+    // and the client already knows how to show it.
+    const { service, page } = build();
+    page.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.create(
+        {
+          slug: "hem",
+          title: "Hej",
+          content: paragraphsContent(["Hej."]),
+          visibility: "PUBLIC",
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("slug-taken");
+    expect(refusal.status).toBe(409);
+  });
+
+  it("answers a rename to an address taken since it was checked the same way", async () => {
+    const { service, page } = build();
+    page.updateMany.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    for (const expectedRevision of [undefined, DRAFT.revision]) {
+      // The page by its id, then nothing at the new address when it is checked.
+      page.findUnique.mockResolvedValueOnce(DRAFT).mockResolvedValueOnce(null);
+      const refusal = await refusalOf(
+        service.update(
+          "page-1",
+          {
+            slug: "hem",
+            title: DRAFT.title,
+            content: DRAFT.content,
+            ...(expectedRevision === undefined ? {} : { expectedRevision }),
+          },
+          { personId: "person-1", channel: "WEB" },
+        ),
+      );
+      expect(refusal.reason, String(expectedRevision)).toBe("slug-taken");
+    }
+  });
+
   it("writes a new page unpublished whatever else it says", async () => {
     const { service, page } = build();
 
@@ -222,6 +289,32 @@ describe("writing a page", () => {
       data: { published: boolean; sortOrder: number };
     };
     expect(written.data.published).toBe(false);
+    expect(written.data.sortOrder).toBe(4);
+  });
+
+  it("places a new page before the privacy notice, which is never the front page", async () => {
+    // The notice is seeded at 1000 so it is never the lowest page. A page
+    // placed after it would leave the notice first once the pages before it
+    // are gone, and the root would serve it.
+    const { service, page } = build();
+
+    await service.create(
+      {
+        slug: "ny-framsida",
+        title: "Välkommen",
+        content: paragraphsContent(["Hej."]),
+        visibility: "PUBLIC",
+      },
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(page.aggregate).toHaveBeenCalledWith({
+      where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+      _max: { sortOrder: true },
+    });
+    const written = page.create.mock.calls[0]?.[0] as {
+      data: { sortOrder: number };
+    };
     expect(written.data.sortOrder).toBe(4);
   });
 
@@ -350,6 +443,43 @@ describe("writing a page", () => {
       { part: "block", index: 1, offset: 23 },
     ]);
     expect(JSON.stringify(refusal.details())).not.toContain("9876");
+  });
+
+  it("refuses a personal identity number in a link's address", async () => {
+    // Nobody reads the address as text, and it is in the page's HTML all the
+    // same: a mailto: link carries whatever was typed into its subject line.
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: {
+            version: 1,
+            blocks: [
+              {
+                type: "paragraph",
+                runs: [
+                  {
+                    text: "Skriv till Anna",
+                    link: "mailto:anna@exempel.se?subject=19811218-9876",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 0, offset: 47 },
+    ]);
   });
 
   it("scans the title as well as the body", async () => {
@@ -703,6 +833,7 @@ describe("removing a page", () => {
   it("records taking a published page off the website", async () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.delete.mockResolvedValue({ ...DRAFT, published: true });
 
     await service.remove(
       "page-1",
@@ -710,12 +841,96 @@ describe("removing a page", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
-    expect(page.deleteMany).toHaveBeenCalledWith({ where: { id: "page-1" } });
+    expect(page.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "page-1" } }),
+    );
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { deleted: boolean } },
     ];
     expect(entry.action).toBe("PAGE_PUBLISHED");
     expect(entry.context.deleted).toBe(true);
+  });
+
+  it("records a page published after it was read, from the row it deleted", async () => {
+    // Read as a draft, published by somebody else, then deleted: deciding from
+    // the read would take a public page off the website with nothing said.
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    page.delete.mockResolvedValue({ ...DRAFT, published: true });
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    const [entry] = audit.record.mock.calls[0] as [
+      { action: string; context: Record<string, unknown> },
+    ];
+    expect(entry.action).toBe("PAGE_PUBLISHED");
+    expect(entry.context).toEqual({
+      slug: "om-foreningen",
+      published: false,
+      deleted: true,
+    });
+  });
+
+  it("records each menu entry the page takes with it", async () => {
+    // The cascade removes them, and every menu write is audited whichever way
+    // it was reached: the log has to say what left the menu, and who took it.
+    const { service, page, menuItem, audit, txClient } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    menuItem.findMany.mockResolvedValue([
+      { id: "item-1", kind: "PAGE", _count: { children: 5 } },
+      { id: "item-2", kind: "PAGE", _count: { children: 0 } },
+    ]);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(menuItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pageId: "page-1" } }),
+    );
+    const entries = audit.record.mock.calls.map(
+      ([entry, tx]) => [entry, tx] as [Record<string, unknown>, unknown],
+    );
+    expect(entries.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        actorPersonId: "person-1",
+        targetKind: "menuItem",
+        targetId: "item-1",
+        context: { kind: "PAGE", childrenRemoved: 5, withPage: "page-1" },
+      }),
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        targetId: "item-2",
+        context: { kind: "PAGE", childrenRemoved: 0, withPage: "page-1" },
+      }),
+    ]);
+    for (const [, tx] of entries) {
+      expect(tx).toBe(txClient);
+    }
+  });
+
+  it("finds the entries under the menu lock, so none can be added unrecorded", async () => {
+    const { service, page, menuItem, txClient } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    expect(menuItem.findMany.mock.invocationCallOrder[0]).toBeGreaterThan(
+      locked,
+    );
+    expect(page.delete.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
   });
 
   it("records nothing for a draft nobody could read", async () => {
@@ -885,9 +1100,9 @@ describe("a write built on a copy somebody else has replaced", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
-    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
-      where: { id: "page-1", revision: 4 },
-    });
+    expect(fakes.page.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "page-1", revision: 4 } }),
+    );
   });
 
   it("refuses the deletion and records nothing when the claim finds no row", async () => {
@@ -896,7 +1111,15 @@ describe("a write built on a copy somebody else has replaced", () => {
     // work they never saw.
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
-    fakes.page.deleteMany.mockResolvedValue({ count: 0 });
+    fakes.menuItem.findMany.mockResolvedValue([
+      { id: "item-1", kind: "PAGE", _count: { children: 0 } },
+    ]);
+    fakes.page.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("No record was found.", {
+        code: "P2025",
+        clientVersion: "test",
+      }),
+    );
 
     const refusal = await refusalOf(
       fakes.service.remove(
@@ -1063,8 +1286,8 @@ describe("a write built on a copy somebody else has replaced", () => {
       { personId: "person-1", channel: "WEB" },
     );
 
-    expect(fakes.page.deleteMany).toHaveBeenCalledWith({
-      where: { id: "page-1" },
-    });
+    expect(fakes.page.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "page-1" } }),
+    );
   });
 });

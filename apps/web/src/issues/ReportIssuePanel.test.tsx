@@ -278,3 +278,103 @@ describe("filing a report", () => {
     });
   });
 });
+
+describe("while a report is being filed", () => {
+  /** Holds the request open, so the form is observed mid-save. */
+  function holdRequest(): (outcome: unknown) => void {
+    let settle: (outcome: unknown) => void = () => undefined;
+    reportIssue.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return (outcome) => {
+      settle(outcome);
+    };
+  }
+
+  const OUTCOMES = [
+    ["once the report is filed", { ok: true, value: { id: "i-1" } }],
+    [
+      "when the report is refused",
+      { ok: false, failure: { status: 404, reason: "type-not-found" } },
+    ],
+  ] as const;
+
+  it("locks the form, so nothing typed is lost when the fields are cleared", async () => {
+    const session = userEvent.setup();
+    const settle = holdRequest();
+    renderPanel();
+
+    const place = screen.getByLabelText<HTMLInputElement>(/var i huset/i);
+    const description =
+      screen.getByLabelText<HTMLTextAreaElement>(/vad har hänt/i);
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.type(place, "Badrummet");
+    await session.type(description, "Det droppar.");
+    expect(description.matches(":disabled")).toBe(false);
+
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(description.matches(":disabled")).toBe(true);
+    });
+    expect(place.matches(":disabled")).toBe(true);
+    expect(screen.getByLabelText(/vad gäller det/i).matches(":disabled")).toBe(
+      true,
+    );
+    await session.type(description, "9");
+    await session.type(place, "x");
+    expect(description.value).toBe("Det droppar.");
+    expect(place.value).toBe("Badrummet");
+
+    settle({ ok: true, value: { id: "i-1" } });
+
+    await waitFor(() => {
+      expect(description.matches(":disabled")).toBe(false);
+    });
+    expect(description.value).toBe("");
+    expect(place.value).toBe("");
+  });
+
+  it.each(OUTCOMES)(
+    "keeps focus in the place field after Enter, %s",
+    async (_case, outcome) => {
+      const session = userEvent.setup();
+      const settle = holdRequest();
+      renderPanel();
+
+      const place = screen.getByLabelText<HTMLInputElement>(/var i huset/i);
+      await session.selectOptions(
+        screen.getByLabelText(/vad gäller det/i),
+        "type-water",
+      );
+      await session.type(
+        screen.getByLabelText(/vad har hänt/i),
+        "Det droppar.",
+      );
+      await session.type(place, "Badrummet{Enter}");
+
+      await waitFor(() => {
+        expect(place.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(place, "focus");
+
+      settle(outcome);
+
+      await waitFor(() => {
+        expect(place.matches(":disabled")).toBe(false);
+      });
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(place);
+    },
+  );
+});

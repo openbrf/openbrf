@@ -179,10 +179,52 @@ describe("the front page", () => {
     // an association's website is not a page half its visitors are answered
     // with a not-found for.
     expect(page.findFirst).toHaveBeenCalledWith({
-      where: { published: true, visibility: "PUBLIC" },
+      where: {
+        published: true,
+        visibility: "PUBLIC",
+        slug: { not: "integritetspolicy" },
+      },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { slug: true, title: true, content: true, visibility: true },
     });
+  });
+
+  it("never falls back to the privacy notice, whatever order the pages are in", async () => {
+    /*
+     * The board dragged its two pages once, which numbered them 0 and 1 - the
+     * privacy notice included. A page created after that is placed after the
+     * highest page that is not the notice, so it ties with the notice at 1,
+     * and the notice is the older of the two. Then the board removed the old
+     * front page and emptied the menu of it.
+     */
+    const rows = [
+      {
+        ...PUBLISHED,
+        slug: "integritetspolicy",
+        sortOrder: 1,
+        createdAt: new Date("2026-01-01"),
+      },
+      {
+        ...PUBLISHED,
+        slug: "hem",
+        sortOrder: 1,
+        createdAt: new Date("2026-09-01"),
+      },
+    ];
+    const { service, page, menu } = build();
+    menu.homePageSlug.mockResolvedValue(null);
+    page.findFirst.mockImplementation(
+      (args: { where: { slug?: { not: string } } }) =>
+        rows
+          .filter((row) => row.slug !== args.where.slug?.not)
+          .toSorted(
+            (a, b) =>
+              a.sortOrder - b.sortOrder ||
+              a.createdAt.getTime() - b.createdAt.getTime(),
+          )[0] ?? null,
+    );
+
+    await expect(service.homePage()).resolves.toMatchObject({ slug: "hem" });
   });
 
   it("falls back when the menu names a page that has since gone", async () => {

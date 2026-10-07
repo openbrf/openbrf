@@ -65,17 +65,21 @@ interface ErrorBody {
  * states the expected response type: these endpoints are ours and their shapes
  * are declared in api/instance.ts, so validating them again in the browser
  * would only duplicate the server's own contract.
+ *
+ * A signal lets the caller give up on a request that does not answer. The
+ * abandoned request comes back as the same "offline" failure as any other
+ * request that never got an answer.
  */
 export async function apiRequest<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<ApiResult<T>> {
   // The body and its header are added only when there is one. A GET carrying a
   // body key at all - even an undefined one - is invalid, and passing the
   // content type without content is a lie about the request.
-  return send<T>(
-    path,
+  const init: RequestInit =
     body === undefined
       ? { method, credentials: "same-origin" }
       : {
@@ -85,8 +89,13 @@ export async function apiRequest<T>(
           // Belt and braces: same-origin is already fetch's default, and the
           // session is an http-only cookie that has to travel with every call.
           credentials: "same-origin",
-        },
-  );
+        };
+  // Added only when the caller has one, so a request that cannot be abandoned
+  // is sent exactly as it was before.
+  if (signal !== undefined) {
+    init.signal = signal;
+  }
+  return send<T>(path, init);
 }
 
 /**

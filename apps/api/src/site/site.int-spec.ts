@@ -236,12 +236,18 @@ describe("what an anonymous visitor gets", () => {
       "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; " +
         // Where a form may submit to, which default-src 'none' does not cover:
         // without it a stored page could post somewhere else entirely.
-        "font-src 'self'; form-action 'self'",
+        "font-src 'self'; form-action 'self'; " +
+        // Who may frame the page, which default-src does not cover either:
+        // without it any site could frame the public forms as its own.
+        "frame-ancestors 'self'",
     );
     expect(response.headers["cache-control"]).toBe("no-cache");
-    // A member page answers differently to a visitor with a session, so a cache
-    // that ignored the cookie would serve one visitor's page to another.
-    expect(response.headers["vary"]).toBe("cookie");
+    // A member page answers differently to a visitor with a session, and every
+    // page is rendered in the language the browser asks for, so a cache that
+    // ignored either would serve one visitor's page to another.
+    expect(response.headers["vary"]).toBe("cookie, accept-language");
+    // A visitor following a link off the website does not say where from.
+    expect(response.headers["referrer-policy"]).toBe("same-origin");
   });
 
   it("sets no cookie on any response the website makes", async () => {

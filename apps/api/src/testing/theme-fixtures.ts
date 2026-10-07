@@ -15,8 +15,9 @@ import {
  * The same script that builds the fixture index for the plugin suites and the
  * end-to-end stack, asked for the themes only: one builder, so the index the
  * theme suites read is in the format every other reader of it expects. It
- * packs the themes with no network and no toolchain beyond theme-tools, which
- * is what lets a unit test call it.
+ * packs the themes with no network and no toolchain beyond theme-tools and the
+ * plugin SDK, which it builds first when its dist is missing; that is still
+ * what lets a unit test call it.
  */
 
 const run = promisify(execFile);
