@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
 import { describe, expect, it, vi } from "vitest";
 
@@ -73,8 +74,20 @@ describe("DataProtectionSeedService", () => {
     const { service, agreements } = build({
       setupCompletedAt: new Date("2026-01-01"),
     });
-    agreements.seed.mockRejectedValueOnce(new Error("no database"));
+    const error = new Error("no database");
+    agreements.seed.mockRejectedValueOnce(error);
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
 
-    await expect(service.seedIfConfigured()).resolves.toBeUndefined();
+    try {
+      await expect(service.seedIfConfigured()).resolves.toBeUndefined();
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("could not be seeded"),
+        error.stack,
+      );
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
