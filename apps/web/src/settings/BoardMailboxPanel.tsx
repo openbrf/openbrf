@@ -1,9 +1,10 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { BoardMailboxSettings } from "../api/instance";
 import { saveBoardMailbox } from "../api/instance";
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -55,6 +56,8 @@ export function BoardMailboxPanel({
   editable = true,
 }: BoardMailboxPanelProps): ReactElement {
   const { t } = useTranslation();
+  /** Takes focus back when the field that had it is still disabled. */
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [address, setAddress] = useState(value.address ?? "");
   const [host, setHost] = useState(value.host ?? "");
   const [port, setPort] = useState(
@@ -73,8 +76,7 @@ export function BoardMailboxPanel({
     onSaved?.(saved);
   });
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const send = (): void => {
     const parsedPort = Number.parseInt(port, 10);
 
     void save.submit({
@@ -122,7 +124,12 @@ export function BoardMailboxPanel({
         )
       }
     >
-      <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+      <LockedForm
+        className="flex flex-col gap-4"
+        locked={save.state.kind === "saving"}
+        focusFallback={passwordRef}
+        onSend={send}
+      >
         <label className={LABEL}>
           {t("settings.boardMailbox.address")}
           <input
@@ -191,6 +198,7 @@ export function BoardMailboxPanel({
           {t("settings.boardMailbox.password")}
           <input
             type="password"
+            ref={passwordRef}
             name="boardMailboxPassword"
             autoComplete="new-password"
             disabled={!editable || clearPassword}
@@ -256,7 +264,7 @@ export function BoardMailboxPanel({
             </button>
           </div>
         ) : null}
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

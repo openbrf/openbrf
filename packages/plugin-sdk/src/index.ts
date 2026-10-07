@@ -55,6 +55,7 @@ export {
   parseCatalogIndex,
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
+export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,
   type PluginFindingDetail,
