@@ -232,7 +232,7 @@ export class PluginRegistryService {
       where: { id },
       data: {
         status: "FAILED",
-        lastError: failure.cause.slice(0, 2000),
+        lastError: prefix(failure.cause, 2000),
         lastErrorReason: failure.reason,
         lastErrorDetail: storedDetail(failure.detail),
       },
@@ -270,10 +270,24 @@ function storedDetail(
   for (const [name, value] of Object.entries(detail)) {
     stored[name] =
       typeof value === "string" && value.length > DETAIL_VALUE_MAX_LENGTH
-        ? `${value.slice(0, DETAIL_VALUE_MAX_LENGTH - 1)}…`
+        ? `${prefix(value, DETAIL_VALUE_MAX_LENGTH - 1)}…`
         : value;
   }
   return stored;
+}
+
+/**
+ * The first `length` characters of the text, or one fewer where the cut would
+ * split a character written as a surrogate pair. Half a pair cannot be stored:
+ * it serialises as an escape (`\ud83d`) that Postgres refuses in a JSON
+ * column, so the failure would never be recorded.
+ */
+function prefix(text: string, length: number): string {
+  if (text.length <= length) {
+    return text;
+  }
+  const last = text.charCodeAt(length - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? length - 1 : length);
 }
 
 /** The three failure columns, cleared together. */

@@ -33,6 +33,9 @@ const ROW = {
   installedAt: new Date("2026-09-01T10:00:00.000Z"),
 };
 
+/** Half of a surrogate pair; with the `u` flag a whole pair is one character. */
+const UNPAIRED_SURROGATE = /\p{Cs}/u;
+
 function build(overrides: Partial<typeof ROW> = {}) {
   const held = { ...ROW, ...overrides };
   const installedPlugin = {
@@ -45,6 +48,16 @@ function build(overrides: Partial<typeof ROW> = {}) {
     service: new PluginRegistryService(prisma as unknown as PrismaService),
     installedPlugin,
   };
+}
+
+/** The failure columns the one `updateMany` call wrote. */
+function failureWritten(
+  installedPlugin: ReturnType<typeof build>["installedPlugin"],
+) {
+  const [[{ data }]] = installedPlugin.updateMany.mock.calls as unknown as [
+    [{ data: { lastError: string; lastErrorDetail: Record<string, string> } }],
+  ];
+  return data;
 }
 
 describe("switching one of a plugin's actions on", () => {
@@ -178,6 +191,42 @@ describe("a failed install", () => {
         },
       }),
     });
+  });
+
+  it("does not cut a value through the middle of a character", async () => {
+    // The emoji is a surrogate pair across the cut. Half of it would be
+    // written as `\ud83d`, which Postgres refuses in a JSON column, and the
+    // failure would never be recorded.
+    const { service, installedPlugin } = build();
+
+    await service.markFailed("occupancy", {
+      reason: "archive-package-mismatch",
+      detail: {
+        packageName: "@acme/occupancy",
+        heldName: `${"x".repeat(212)}😀${"x".repeat(100)}`,
+        heldVersion: "1.0.0",
+      },
+      cause: `PluginInstallError: ${"x".repeat(1979)}😀 ...`,
+    });
+
+    const data = failureWritten(installedPlugin);
+    expect(data.lastErrorDetail.heldName).toBe(`${"x".repeat(212)}…`);
+    expect(data.lastErrorDetail.heldName).not.toMatch(UNPAIRED_SURROGATE);
+    expect(data.lastError).toHaveLength(1999);
+    expect(data.lastError).not.toMatch(UNPAIRED_SURROGATE);
+  });
+
+  it("keeps a character whole that ends right at the cut", async () => {
+    const { service, installedPlugin } = build();
+
+    await service.markFailed("occupancy", {
+      reason: "archive-package-mismatch",
+      detail: { heldName: `${"x".repeat(211)}😀${"x".repeat(100)}` },
+      cause: "PluginInstallError: ...",
+    });
+
+    const data = failureWritten(installedPlugin);
+    expect(data.lastErrorDetail.heldName).toBe(`${"x".repeat(211)}😀…`);
   });
 
   it("clears all three once the install converges", async () => {
