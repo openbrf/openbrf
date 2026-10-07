@@ -2718,8 +2718,8 @@ describe("working a thread", () => {
     const closeMayCommit = new Promise<void>((resolve) => {
       commitClose = resolve;
     });
-    let closeHolds: () => void = () => undefined;
-    const closeHoldsRow = new Promise<void>((resolve) => {
+    let closeHolds: (pid: number) => void = () => undefined;
+    const closeHoldsRow = new Promise<number>((resolve) => {
       closeHolds = resolve;
     });
     const close = prisma.$transaction(
@@ -2728,12 +2728,14 @@ describe("working a thread", () => {
           where: { id: thread.id },
           data: { status: "CLOSED", closedAt: new Date() },
         });
-        closeHolds();
+        const [backend] = await tx.$queryRaw<{ pid: number }[]>`
+          SELECT pg_backend_pid() AS pid`;
+        closeHolds(backend?.pid ?? 0);
         await closeMayCommit;
       },
       { timeout: 20_000 },
     );
-    await closeHoldsRow;
+    const closePid = await closeHoldsRow;
 
     const reply = inject({
       method: "POST",
@@ -2742,13 +2744,13 @@ describe("working a thread", () => {
       headers: { cookie: boardCookie },
     });
     // Until the reply is waiting on the close's row lock, whichever statement
-    // it waits at. Only this worker's database: the others run suites of
-    // their own at the same time.
+    // it waits at. Blocked by the close's own session, so no other lock wait
+    // - a background job's, another suite's - can stand in for it.
     await vi.waitFor(
       async () => {
         const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
           SELECT count(*) AS waiting FROM pg_stat_activity
-          WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+          WHERE ${closePid}::int = ANY(pg_blocking_pids(pid))`;
         expect(Number(row?.waiting ?? 0)).toBeGreaterThan(0);
       },
       { timeout: 10_000, interval: 25 },

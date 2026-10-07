@@ -290,7 +290,7 @@ export function MoveOutPanel({
            * the register now states.
            */}
           {result.memberRegisterEntryOn === null ? null : (
-            <p className="text-small text-ink-muted">
+            <p className="font-data text-data text-ink-muted">
               {t("moves.out.registerReentry", {
                 date: result.memberRegisterEntryOn,
               })}

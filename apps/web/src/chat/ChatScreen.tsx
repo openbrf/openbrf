@@ -146,7 +146,16 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const [groupName, setGroupName] = useState("");
   const groupNameRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
-  const [reading, setReading] = useState(false);
+  /**
+   * The read of an earlier page in flight, and the room it was pressed in.
+   *
+   * Compared by identity when it settles, so a read left behind in one room
+   * cannot end a newer one, and by room on screen, so it does not hold the
+   * button down in a room opened meanwhile.
+   */
+  const [earlierRead, setEarlierRead] = useState<{ chatId: string } | null>(
+    null,
+  );
   /** Which room is open. Null until the first list of them has come back. */
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
   /** The message this account has just reported, so the row can say so. */
@@ -162,6 +171,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const room =
     rooms?.find((each) => each.id === openRoomId) ?? rooms?.[0] ?? null;
   const chatId = room?.id ?? null;
+  const reading = earlierRead !== null && earlierRead.chatId === chatId;
   const moderates = viewer.capabilities.includes("chat:moderate");
 
   /*
@@ -443,10 +453,11 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     if (chatId === null || earlierCursor === null) {
       return;
     }
-    setReading(true);
+    const read = { chatId };
+    setEarlierRead(read);
     const before = earlierCursor;
     const result = await readChat({ chatId, before });
-    setReading(false);
+    setEarlierRead((held) => (held === read ? null : held));
     if (!result.ok) {
       setConversation((held) =>
         // The refusal is the press's, in the room it was pressed in. Written

@@ -312,6 +312,32 @@ describe("readMessage", () => {
     ]);
   });
 
+  it("keeps the plain file name when the segments have no first one", () => {
+    // RFC 2231 allows no gap, so the stray segment joins to nothing, and
+    // nothing is no reason to drop the name the sender also gave.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "Content-Type: text/plain",
+        "",
+        "Hej",
+        "--SEP",
+        "Content-Type: application/pdf",
+        "Content-Transfer-Encoding: base64",
+        "Content-Disposition: attachment; filename=protokoll.pdf; filename*1*=extra",
+        "",
+        Buffer.from("pdf bytes").toString("base64"),
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.attachments[0]?.fileName).toBe("protokoll.pdf");
+  });
+
   it("strips the characters that reorder a file name from it", () => {
     const message = readMessage(
       raw(
@@ -955,8 +981,8 @@ describe("invisible characters", () => {
     const message = readMessage(
       Buffer.from(
         [
-          "From: Styrelsen\u202e\u200b <sender@example.test>",
-          "Subject: Faktura\u202egpj.exe\u0085",
+          "From: Styrel\u00adsen\u202e\u200b\u2060 <sender@example.test>",
+          "Subject: Faktura\u202egpj.exe\u0085\u2060",
           "",
           "Hej",
         ].join("\r\n"),
@@ -971,6 +997,8 @@ describe("invisible characters", () => {
   it.each([
     ["a right-to-left override", "<bank\u202e@example.test>"],
     ["a zero-width space", "<bank\u200b@example.test>"],
+    ["a word joiner", "<bank\u2060@example.test>"],
+    ["a soft hyphen", "<ba\u00adnk@example.test>"],
     ["a C1 control", "<bank\u0085@example.test>"],
   ])("make an address no address: %s", (_name, header) => {
     // The address is what the board reads as who wrote, and one that hides or
@@ -1002,6 +1030,21 @@ describe("addressFrom", () => {
 
     expect(addressFrom(header)).toBe("list@example.test");
     expect(displayNameFrom(header)).toBe("Kalle <via Grupp>");
+  });
+
+  it("takes the address before a comment that carries brackets", () => {
+    // Taken from the comment, the board's answer would go to the forwarder.
+    const header =
+      "Kalle (Styrelsen) <kalle@example.test> (via <list@example.test>)";
+
+    expect(addressFrom(header)).toBe("kalle@example.test");
+    expect(displayNameFrom(header)).toBe("Kalle (Styrelsen)");
+  });
+
+  it("reads a parenthesis left open as text", () => {
+    expect(addressFrom("Kalle :-( <kalle@example.test>")).toBe(
+      "kalle@example.test",
+    );
   });
 
   it("refuses an address that carries a control character", () => {

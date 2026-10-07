@@ -426,7 +426,11 @@ function parseParameters(raw: string): ReadonlyMap<string, string> {
   }
 
   for (const [name, segments] of continued) {
-    parameters.set(name, joinSegments(segments));
+    // Segments with no first one join to nothing, which must not replace a
+    // plain `filename=` sent beside them.
+    if (segments.has(0)) {
+      parameters.set(name, joinSegments(segments));
+    }
   }
 
   return parameters;
@@ -908,23 +912,58 @@ export function decodeEncodedWords(raw: string): string {
 
 /**
  * Where the address in a From header is: the last `<...>` outside a quoted
- * string, or null when there is none.
+ * string and a comment, or null when there is none.
  *
- * The last and outside quotes, because a display name may carry brackets of
- * its own - `"Kalle <via Grupp>" <list@example.se>` - and the address is the
- * one after it.
+ * The last and outside both, because a display name may carry brackets of its
+ * own - `"Kalle <via Grupp>" <list@example.se>` - and the address is the one
+ * after it; and a comment after the address may carry another -
+ * `Kalle <kalle@example.se> (via <list@example.se>)` - which is not where the
+ * board's answer goes.
  */
 function angleAddress(raw: string): { start: number; inner: string } | null {
-  // Quoted strings blanked out at the same length, so the positions found in
-  // what is left are positions in the header itself.
-  const unquoted = raw.replaceAll(/"(?:[^"\\]|\\.)*"?/g, (quoted) =>
-    " ".repeat(quoted.length),
-  );
+  const visible = blankedOut(raw, true);
   let found: { start: number; inner: string } | null = null;
-  for (const match of unquoted.matchAll(/<([^<>]*)>/g)) {
+  for (const match of visible.matchAll(/<([^<>]*)>/g)) {
     found = { start: match.index, inner: match[1] ?? "" };
   }
   return found;
+}
+
+/**
+ * The header with its quoted strings, and its comments when asked, blanked out
+ * at the same length, so a position found in what is left is a position in the
+ * header itself.
+ *
+ * A comment is RFC 5322's: `(...)` outside a quoted string, nested, with a
+ * backslash pair taken as one character as it is in a quoted string. One left
+ * open at the end is read again as text: a lone parenthesis in a display name
+ * is a typo, and blanking from it on would hide the address after it.
+ */
+function blankedOut(raw: string, comments: boolean): string {
+  let result = "";
+  let depth = 0;
+  let quoted = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index] ?? "";
+    if (character === "\\" && (quoted || depth > 0)) {
+      result += index + 1 < raw.length ? "  " : " ";
+      index += 1;
+    } else if (depth === 0 && character === '"') {
+      quoted = !quoted;
+      result += " ";
+    } else if (quoted) {
+      result += " ";
+    } else if (comments && character === "(") {
+      depth += 1;
+      result += " ";
+    } else if (depth > 0) {
+      depth -= character === ")" ? 1 : 0;
+      result += " ";
+    } else {
+      result += character;
+    }
+  }
+  return depth > 0 ? blankedOut(raw, false) : result;
 }
 
 /** The address out of a From header, lowercased, or null. */

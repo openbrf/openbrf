@@ -516,27 +516,6 @@ export class BoardMailboxCollectorService implements OnModuleInit {
   }
 
   /**
-   * Takes stored letters off the set-aside list.
-   *
-   * A letter is one or the other, but two collections can each leave half of
-   * both: one fails to store a letter and finds it not stored, the other stores
-   * it, and the first then sets it aside. A stored letter is not fetched again,
-   * so nothing else would ever correct the row, and the board's screen would
-   * list a letter it has already received for as long as the mailbox keeps it.
-   * Repaired here, where every run reads both ledgers anyway.
-   *
-   * Only the rows the screen lists. A letter can also be stored and recorded as
-   * purged at once: the purge deletes a thread and records its letters in one
-   * transaction, and a collection that read the messages before it committed
-   * and the ledger after sees both. That row is what keeps an erased letter
-   * erased, and the stored copy goes the next night with the rest of what is
-   * past the window, so the row has to outlive it. The same for a letter
-   * recorded as past retention when it was first read.
-   *
-   * A failure is logged and the run goes on: the letter is held either way, and
-   * the next run tries again.
-   */
-  /**
    * Moves what was collected under the fingerprint as it was first taken - of
    * the host and user exactly as typed - to the one taken now.
    *
@@ -565,6 +544,27 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     ]);
   }
 
+  /**
+   * Takes stored letters off the set-aside list.
+   *
+   * A letter is one or the other, but two collections can each leave half of
+   * both: one fails to store a letter and finds it not stored, the other stores
+   * it, and the first then sets it aside. A stored letter is not fetched again,
+   * so nothing else would ever correct the row, and the board's screen would
+   * list a letter it has already received for as long as the mailbox keeps it.
+   * Repaired here, where every run reads both ledgers anyway.
+   *
+   * Only the rows the screen lists. A letter can also be stored and recorded as
+   * purged at once: the purge deletes a thread and records its letters in one
+   * transaction, and a collection that read the messages before it committed
+   * and the ledger after sees both. That row is what keeps an erased letter
+   * erased, and the stored copy goes the next night with the rest of what is
+   * past the window, so the row has to outlive it. The same for a letter
+   * recorded as past retention when it was first read.
+   *
+   * A failure is logged and the run goes on: the letter is held either way, and
+   * the next run tries again.
+   */
   private async forgetStoredSetAside(uids: readonly string[]): Promise<void> {
     if (uids.length === 0) {
       return;

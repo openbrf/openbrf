@@ -21,12 +21,15 @@ import { BoardMailboxScreen } from "./BoardMailboxScreen";
 const fetchBoardMailboxStatus = vi.fn();
 const fetchBoardMailboxThreads = vi.fn();
 const fetchBoardMailboxThread = vi.fn();
+const takeBoardMailboxThread = vi.fn();
 
 vi.mock("../api/board-mailbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/board-mailbox")>()),
   fetchBoardMailboxStatus: () => fetchBoardMailboxStatus(),
   fetchBoardMailboxThreads: (after?: string) => fetchBoardMailboxThreads(after),
   fetchBoardMailboxThread: (id: string) => fetchBoardMailboxThread(id),
+  takeBoardMailboxThread: (input: { threadId: string }) =>
+    takeBoardMailboxThread(input),
 }));
 
 const STATUS: BoardMailboxStatus = {
@@ -61,6 +64,7 @@ beforeEach(() => {
   fetchBoardMailboxThreads
     .mockReset()
     .mockResolvedValue({ ok: true, value: { threads: [], nextCursor: null } });
+  takeBoardMailboxThread.mockReset();
   fetchBoardMailboxThread.mockReset().mockImplementation((id: string) =>
     Promise.resolve({
       ok: true,
@@ -187,5 +191,48 @@ describe("BoardMailboxScreen", () => {
       ((await screen.findByLabelText("Ditt svar")) as HTMLTextAreaElement)
         .value,
     ).toBe("");
+  });
+
+  it("keeps the thread opened while an act on the one before it lands", async () => {
+    /*
+     * The act's panel is gone by then. Reading its thread again would supersede
+     * the thread being opened, and the screen would show neither.
+     */
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    fetchBoardMailboxThreads.mockResolvedValue({
+      ok: true,
+      value: { threads: [WATER, BIKES], more: false, nextCursor: null },
+    });
+    let land: () => void = () => undefined;
+    takeBoardMailboxThread.mockReturnValue(
+      new Promise((resolve) => {
+        land = () => {
+          resolve({ ok: true, value: opened(WATER) });
+        };
+      }),
+    );
+    render(<BoardMailboxScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Vattenläcka i källaren/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ta hand om det" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Cyklar i trapphuset/ }),
+    );
+    await waitFor(() => {
+      expect(fetchBoardMailboxThread).toHaveBeenCalledWith(BIKES.id);
+    });
+    land();
+
+    await waitFor(() => {
+      expect(fetchBoardMailboxThreads).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      await screen.findByRole("heading", { name: "Cyklar i trapphuset" }),
+    ).toBeTruthy();
+    expect(fetchBoardMailboxThread).toHaveBeenCalledTimes(2);
   });
 });

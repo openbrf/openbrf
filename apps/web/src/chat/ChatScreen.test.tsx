@@ -980,6 +980,41 @@ describe("changing room", () => {
     ).toBeNull();
   });
 
+  it("does not hold the earlier-page control down in the room it opens", async () => {
+    // The read pressed in the room left is still in flight, and is that
+    // room's alone.
+    twoRooms();
+    readChat.mockImplementation(
+      (input: { chatId: string; before: string | null }) =>
+        input.before === null
+          ? Promise.resolve({
+              ok: true,
+              value: page([FROM_A_COLLEAGUE], `${input.chatId}|message-0`),
+            })
+          : new Promise(() => undefined),
+    );
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa tidigare meddelanden" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    );
+
+    await waitFor(() => {
+      expect(readChat).toHaveBeenCalledWith({
+        chatId: GARDEN_GROUP.id,
+        before: null,
+      });
+    });
+    const earlier = await screen.findByRole("button", {
+      name: "Visa tidigare meddelanden",
+    });
+    expect((earlier as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("gives each room its own member panel", async () => {
     /*
      * The panel holds the neighbour picked in it, the search that found them

@@ -176,6 +176,28 @@ export function BoardMailboxScreen(): ReactElement {
     reloadThread();
   }, [reload, reloadThread]);
 
+  /*
+   * Which thread is selected now, for an act that lands after the board has
+   * opened another: its panel is gone, and the callback it held reads the
+   * thread it was opened on. Read again, that thread's answer would supersede
+   * the one being opened and leave the screen with no thread on it.
+   */
+  const selectedNow = useRef<string | null>(null);
+  useEffect(() => {
+    selectedNow.current = selectedId;
+  }, [selectedId]);
+
+  /** An act on one thread: the inbox always, the thread while it is open. */
+  const threadChanged = useCallback(
+    (id: string): void => {
+      reload();
+      if (id === selectedNow.current) {
+        reloadThread();
+      }
+    },
+    [reload, reloadThread],
+  );
+
   const [collection, setCollection] = useState<BoardMailboxCollection | null>(
     null,
   );
@@ -381,7 +403,9 @@ export function BoardMailboxScreen(): ReactElement {
           // the outcome of the last act on it are that thread's alone.
           key={thread.id}
           thread={thread}
-          onChanged={reloadAll}
+          onChanged={() => {
+            threadChanged(thread.id);
+          }}
         />
       )}
     </div>

@@ -147,7 +147,7 @@ export interface BoardMailboxThreadList {
   more: boolean;
   /**
    * What to ask for to read the next page, or null when this is the last of
-   * them. The id of the last thread on this page.
+   * them. Where this page ended, as {@link INBOX_CURSOR} writes it.
    */
   nextCursor: string | null;
 }

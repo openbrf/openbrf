@@ -124,9 +124,9 @@ describe("after the move-out", () => {
     await moveSomeoneOut(session);
 
     expect(screen.getByText(/avslutades i medlemsförteckningen/)).toBeTruthy();
-    expect(
-      screen.getByText(/Medlemskapet börjar igen 2026-12-01/),
-    ).toBeTruthy();
+    const line = screen.getByText(/Medlemskapet börjar igen 2026-12-01/);
+    // A register date, so in the data face.
+    expect(line.className).toContain("font-data");
   });
 
   it("says the register entry itself is retained whatever the policy says", async () => {
