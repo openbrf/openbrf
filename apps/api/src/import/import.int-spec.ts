@@ -33,9 +33,12 @@ import {
 import { MAX_IMPORT_ROWS } from "./workbook";
 import {
   advisoryLockCount,
+  blockedBehindResidencyApartmentCount,
+  residencyApartmentLockCount,
   waitFor,
   waitingLockCount,
 } from "../testing/advisory-locks";
+import { lockApartmentResidencies } from "../registers/residency-lock";
 
 /**
  * The import from upload to applied register, against a real database and a
@@ -100,6 +103,11 @@ const actors = {
     personId: `imp-resident-${suffix}`,
     email: `imp-resident-${suffix}@exempel.se`,
   },
+  /** Holds the administrator grant: the one who may abandon an import. */
+  admin: {
+    personId: `imp-admin-${suffix}`,
+    email: `imp-admin-${suffix}@exempel.se`,
+  },
   /** Already in the register; a row must match them by email, not duplicate them. */
   existing: {
     personId: `imp-existing-${suffix}`,
@@ -139,6 +147,7 @@ const raceEmail = `imp-race-${suffix}@exempel.se`;
 const personIds = [
   actors.board.personId,
   actors.resident.personId,
+  actors.admin.personId,
   actors.existing.personId,
   actors.twinA.personId,
   actors.twinB.personId,
@@ -500,6 +509,11 @@ beforeAll(async () => {
     email: actors.resident.email,
   });
   await createPerson({
+    personId: actors.admin.personId,
+    firstName: "Ada",
+    email: actors.admin.email,
+  });
+  await createPerson({
     personId: actors.existing.personId,
     firstName: "Existing",
     email: actors.existing.email,
@@ -564,8 +578,12 @@ beforeAll(async () => {
     },
   });
 
+  await prisma.systemRole.create({
+    data: { personId: actors.admin.personId, role: "ADMIN" },
+  });
+
   const auth = app.get(AuthService);
-  for (const actor of [actors.board, actors.resident]) {
+  for (const actor of [actors.board, actors.resident, actors.admin]) {
     await auth.createAccountForPerson({
       personId: actor.personId,
       email: actor.email,
@@ -756,6 +774,25 @@ describe("uploading a CSV", () => {
     expect(response.statusCode).toBe(400);
     expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
       "file-empty",
+    );
+  });
+
+  it("answers a file that mixes UTF-8 and Windows-1252 with its own reason", async () => {
+    const bytes = Buffer.concat([
+      Buffer.from("Förnamn;Efternamn\nÅsa;Öberg\nBj", "utf8"),
+      Buffer.from([0xf6]),
+      Buffer.from("rk;Lind\n", "utf8"),
+    ]);
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: { fileName: "blandad.csv", content: bytes.toString("base64") },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "file-mixed-encoding",
     );
   });
 });
@@ -1251,9 +1288,11 @@ describe("two applies of one session", () => {
 
     // Claimed here rather than through the endpoint, because the endpoint would
     // also queue it and the point of this case is two workers on one session.
+    // Left APPLYING, as the first attempt leaves it: from QUEUED only one of
+    // the two would start it, and the other would stop before the cursor.
     await prisma.importSession.update({
       where: { id: session.sessionId },
-      data: { status: "QUEUED", decisions: {} },
+      data: { status: "APPLYING", startedAt: new Date(), decisions: {} },
     });
 
     await Promise.all([
@@ -1522,6 +1561,497 @@ describe("two imports of two files", () => {
       loserSession.sessionId,
       (candidate) => candidate.status === "APPLIED",
     );
+  }, 60_000);
+});
+
+function abandonImport(cookie: string, sessionId: string) {
+  return inject({
+    method: "POST",
+    url: `/api/import/sessions/${sessionId}/abandon`,
+    headers: { cookie },
+  });
+}
+
+describe("abandoning an import that is stuck", () => {
+  /** One row nobody can read the date of: it applies and writes nothing. */
+  function harmlessRows(firstName: string): string[][] {
+    return [
+      HEADERS,
+      [addressLabel, "2101", firstName, surname, "Medlem", "", "", "1/2/23"],
+    ];
+  }
+
+  it("is refused to anybody but an administrator", async () => {
+    // The board imports, but stopping an import part way through a register
+    // that cannot be edited - perhaps one another board member is watching -
+    // is a call about how the instance is running.
+    const board = await signIn(actors.board.email);
+    const session = await uploadAndPreview(
+      board,
+      "fast-styrelse.csv",
+      harmlessRows("FastStyrelse"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    expect((await abandonImport(board, session.sessionId)).statusCode).toBe(
+      403,
+    );
+    expect(
+      (
+        await abandonImport(
+          await signIn(actors.resident.email),
+          session.sessionId,
+        )
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/abandon`,
+        })
+      ).statusCode,
+    ).toBe(401);
+
+    // Refused before anything changed, and nothing logged as abandoned.
+    expect((await readRun(board, session.sessionId)).status).toBe("QUEUED");
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
+  it("ends a session whose job was lost, logs who did it, and lets the next import run", async () => {
+    // QUEUED with no job behind it: what a lost job leaves, and what would
+    // otherwise hold every other import off until the next restart.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const lost = await uploadAndPreview(
+      board,
+      "forlorad.csv",
+      harmlessRows("Forlorad"),
+    );
+    const next = await uploadAndPreview(
+      board,
+      "nasta.csv",
+      harmlessRows("Nasta"),
+    );
+    await prisma.importSession.update({
+      where: { id: lost.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+    const refused = await applyImport(board, next.sessionId);
+    expect(reasonOf(refused)).toBe("another-import-running");
+
+    const response = await abandonImport(admin, lost.sessionId);
+
+    expect(response.statusCode).toBe(200);
+    const run = JSON.parse(response.body) as ImportRunView;
+    expect(run).toMatchObject({
+      sessionId: lost.sessionId,
+      status: "FAILED",
+      failureReason: "apply-abandoned",
+      rowsDone: 0,
+    });
+    expect(run.finishedAt).not.toBeNull();
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "IMPORT_ABANDONED", targetId: lost.sessionId },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      channel: "WEB",
+      actorPersonId: actors.admin.personId,
+      targetKind: "importSession",
+      targetPersonId: null,
+      // Never started, and uploaded by the board: what the entry has to say
+      // on its own once the session is purged.
+      context: {
+        rowsDone: 0,
+        rowsTotal: 1,
+        startedAt: null,
+        createdById: actors.board.personId,
+      },
+    });
+
+    // The import the lost one was holding off now runs.
+    expect((await applyImport(board, next.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      board,
+      next.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+
+    // Abandoned once. A second press finds nothing running and logs nothing.
+    const again = await abandonImport(admin, lost.sessionId);
+    expect(again.statusCode).toBe(409);
+    expect(reasonOf(again)).toBe("session-not-running");
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "IMPORT_ABANDONED", targetId: lost.sessionId },
+      }),
+    ).toBe(1);
+  }, 60_000);
+
+  it("is shown on the screen after its upload has expired, so it can still be abandoned", async () => {
+    // A lost job does not run out with the upload: the purge leaves a running
+    // session alone, and it holds off every other apply until somebody ends
+    // it. The screen has to keep finding it, or there is nothing to press.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "gammal.csv",
+      harmlessRows("Gammal"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        status: "QUEUED",
+        decisions: {},
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    const readActive = async (): Promise<ImportRunView | null> => {
+      const response = await inject({
+        method: "GET",
+        url: "/api/import/sessions/active",
+        headers: { cookie: board },
+      });
+      expect(response.statusCode).toBe(200);
+      return JSON.parse(response.body) as ImportRunView | null;
+    };
+
+    expect(await readActive()).toMatchObject({
+      sessionId: session.sessionId,
+      fileName: "gammal.csv",
+      status: "QUEUED",
+    });
+
+    const response = await abandonImport(admin, session.sessionId);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body) as ImportRunView).toMatchObject({
+      sessionId: session.sessionId,
+      status: "FAILED",
+      failureReason: "apply-abandoned",
+    });
+
+    // Ended, it is an expired upload like any other and leaves the screen.
+    expect((await readActive())?.sessionId).not.toBe(session.sessionId);
+  }, 60_000);
+
+  it("refuses an upload that was never started, and one that does not exist", async () => {
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const mapping = await uploadAndPreview(
+      board,
+      "ej-startad.csv",
+      harmlessRows("EjStartad"),
+    );
+
+    const notStarted = await abandonImport(admin, mapping.sessionId);
+    expect(notStarted.statusCode).toBe(409);
+    expect(reasonOf(notStarted)).toBe("session-not-running");
+    // Still an upload, still applicable.
+    expect((await readRun(board, mapping.sessionId)).status).toBe("MAPPING");
+
+    const missing = await abandonImport(admin, `imp-no-such-${suffix}`);
+    expect(missing.statusCode).toBe(404);
+    expect(reasonOf(missing)).toBe("session-not-found");
+  }, 60_000);
+
+  it("leaves a job that wakes afterwards nothing to do", async () => {
+    // A hung attempt: one chunk written, then nothing. Abandoned, and then the
+    // retry, a redelivery or the re-queue at the next start comes for it.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "hangd.csv",
+      longFixture("Hangd"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+    expect(await applies.applyNextChunk(session.sessionId)).toBe(true);
+
+    const response = await abandonImport(admin, session.sessionId);
+    expect(response.statusCode).toBe(200);
+    expect((JSON.parse(response.body) as ImportRunView).rowsDone).toBe(
+      IMPORT_CHUNK_ROWS,
+    );
+
+    await expect(applies.runApply(session.sessionId)).resolves.toBeUndefined();
+
+    const run = await readRun(board, session.sessionId);
+    expect(run).toMatchObject({
+      status: "FAILED",
+      failureReason: "apply-abandoned",
+      rowsDone: IMPORT_CHUNK_ROWS,
+    });
+    // What the first chunk wrote stays; the second chunk's person never comes.
+    expect(
+      await prisma.person.count({
+        where: { firstName: "HangdFirst", lastName: surname },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.person.count({
+        where: { firstName: "HangdLast", lastName: surname },
+      }),
+    ).toBe(0);
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+    });
+    expect(entry?.context).toEqual({
+      rowsDone: IMPORT_CHUNK_ROWS,
+      rowsTotal: IMPORT_CHUNK_ROWS + 20,
+      startedAt: run.startedAt,
+      createdById: actors.board.personId,
+    });
+  }, 120_000);
+
+  it("leaves a queued job that wakes afterwards nothing to do", async () => {
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "vantande.csv",
+      harmlessRows("Vantande"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+    expect((await abandonImport(admin, session.sessionId)).statusCode).toBe(
+      200,
+    );
+
+    await expect(applies.runApply(session.sessionId)).resolves.toBeUndefined();
+
+    const run = await readRun(board, session.sessionId);
+    expect(run).toMatchObject({
+      status: "FAILED",
+      failureReason: "apply-abandoned",
+      rowsDone: 0,
+      startedAt: null,
+    });
+  }, 60_000);
+
+  /**
+   * Abandons the session while its next chunk is in flight, and answers what
+   * the chunk returned and what the abandon did.
+   *
+   * The chunk is the real one, held at the one point an abandon can race it. A
+   * test transaction holds the residency key of the apartment the chunk writes
+   * to. The chunk claims the cursor, which takes the session row, and then
+   * waits for that key. The abandon then has to wait for the session row, and
+   * is shown to be waiting before the chunk is let go.
+   */
+  async function abandonDuringChunk(
+    admin: string,
+    sessionId: string,
+    apartmentId: string,
+  ): Promise<{
+    more: boolean;
+    response: Awaited<ReturnType<typeof abandonImport>>;
+  }> {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let taken!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      taken = resolve;
+    });
+    const apartment = prisma.$transaction(
+      async (tx) => {
+        await lockApartmentResidencies(tx, apartmentId);
+        taken();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await holding;
+
+    let chunkSettled = false;
+    let abandonSettled = false;
+    const chunk = applies.applyNextChunk(sessionId).finally(() => {
+      chunkSettled = true;
+    });
+    let abandoning: ReturnType<typeof abandonImport> | null = null;
+    try {
+      // Waiting for the apartment means the cursor is claimed.
+      await waitFor(
+        async () =>
+          chunkSettled ||
+          (await residencyApartmentLockCount(prisma, apartmentId, false)) > 0n,
+      );
+      expect(chunkSettled).toBe(false);
+
+      abandoning = abandonImport(admin, sessionId).finally(() => {
+        abandonSettled = true;
+      });
+      // The abandon blocked by the chunk, on the session row the chunk holds
+      // while it waits for the apartment.
+      await waitFor(
+        async () =>
+          abandonSettled ||
+          (await blockedBehindResidencyApartmentCount(prisma, apartmentId)) >
+            0n,
+      );
+      expect(abandonSettled).toBe(false);
+    } finally {
+      release();
+    }
+    await apartment;
+
+    const more = await chunk;
+    if (abandoning === null) {
+      throw new Error("The abandon was never sent");
+    }
+    return { more, response: await abandoning };
+  }
+
+  it("waits for a chunk in flight and reports where it really stopped", async () => {
+    // A chunk claims the cursor first thing in its transaction and holds the
+    // session row until it commits. An abandon that arrives meanwhile has to
+    // wait for it rather than fail, and has to report and log the cursor that
+    // chunk committed - not the one it read before the chunk finished. The
+    // chunk held is the first of two, so the import is still running when it
+    // commits.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "mitt-i.csv",
+      longFixture("MittI"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    // The first chunk writes its one real row in 2101.
+    const { more, response } = await abandonDuringChunk(
+      admin,
+      session.sessionId,
+      apartments.a,
+    );
+
+    expect(more).toBe(true);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body) as ImportRunView).toMatchObject({
+      status: "FAILED",
+      failureReason: "apply-abandoned",
+      rowsDone: IMPORT_CHUNK_ROWS,
+    });
+    // What the chunk wrote is there; the abandon undid none of it.
+    expect(
+      await prisma.person.count({
+        where: { firstName: "MittIFirst", lastName: surname },
+      }),
+    ).toBe(1);
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+    });
+    expect(entry?.context).toEqual({
+      rowsDone: IMPORT_CHUNK_ROWS,
+      rowsTotal: IMPORT_CHUNK_ROWS + 20,
+      startedAt: expect.any(String),
+      createdById: actors.board.personId,
+    });
+  }, 120_000);
+
+  it("refuses once the last chunk in flight has written every row", async () => {
+    // The last chunk ends the import in the commit that writes its rows, so an
+    // abandon that waited for it finds an import that is no longer running.
+    // Recording it as abandoned would tell the board that an import which
+    // wrote every row did not finish.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(board, "sista.csv", [
+      HEADERS,
+      [addressLabel, "2102", "Sista", surname, "Boende", "", "", "2022-02-01"],
+    ]);
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { status: "QUEUED", decisions: {} },
+    });
+
+    const { more, response } = await abandonDuringChunk(
+      admin,
+      session.sessionId,
+      apartments.b,
+    );
+
+    expect(more).toBe(false);
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("session-not-running");
+    const run = await readRun(board, session.sessionId);
+    expect(run).toMatchObject({
+      status: "APPLIED",
+      failureReason: null,
+      rowsDone: 1,
+      rowsTotal: 1,
+    });
+    expect(run.finishedAt).not.toBeNull();
+    expect(
+      await prisma.residency.count({
+        where: {
+          apartmentId: apartments.b,
+          person: { firstName: "Sista", lastName: surname },
+        },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+      }),
+    ).toBe(0);
+  }, 60_000);
+
+  it("finishes rather than abandons an import left applying with every row written", async () => {
+    // What an instance that marked an import applied after its last chunk,
+    // rather than with it, leaves when it stops in between: the rows are all
+    // there and the session still says applying. It holds every other import
+    // off like a stuck one, and the abandon is how an administrator clears
+    // it - as applied, which is what it is.
+    const board = await signIn(actors.board.email);
+    const admin = await signIn(actors.admin.email);
+    const session = await uploadAndPreview(
+      board,
+      "skriven.csv",
+      harmlessRows("Skriven"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: {
+        status: "APPLYING",
+        startedAt: new Date(),
+        decisions: {},
+        rowsDone: 1,
+      },
+    });
+
+    const response = await abandonImport(admin, session.sessionId);
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("session-not-running");
+    const run = await readRun(board, session.sessionId);
+    expect(run).toMatchObject({ status: "APPLIED", failureReason: null });
+    expect(run.finishedAt).not.toBeNull();
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
+      }),
+    ).toBe(0);
   }, 60_000);
 });
 
@@ -2681,6 +3211,121 @@ describe("a decision for a row that does not need one", () => {
       rowsDone: 0,
     });
   });
+});
+
+describe("a decided row the register stops asking about between chunks", () => {
+  // Row 150, in the second chunk, reaches a register person by email but gives
+  // them another first name, so it waits for a decision. Between the chunks the
+  // register's name is corrected to the file's, and the row then matches that
+  // person and nobody else.
+  it.each(["skip", "create"] as const)(
+    "stops the apply rather than write a row decided %s to the person it now matches",
+    async (action) => {
+      const cookie = await signIn(actors.board.email);
+      const person = {
+        personId: `imp-stale-${action}-${suffix}`,
+        firstName: `Tidigare${action}`,
+        email: `imp-stale-${action}-${suffix}@exempel.se`,
+      };
+      await createPerson(person);
+      const corrected = `Rattad${action}`;
+
+      const rows: string[][] = [HEADERS];
+      for (
+        let rowNumber = 1;
+        rowNumber <= IMPORT_CHUNK_ROWS + 60;
+        rowNumber++
+      ) {
+        rows.push(
+          rowNumber === 150
+            ? [
+                addressLabel,
+                "2113",
+                corrected,
+                surname,
+                "Boende",
+                person.email,
+                "070-333 00 33",
+                "2021-04-01",
+              ]
+            : // A date nobody can read: a row with a problem, which writes
+              // nothing and needs no decision.
+              [
+                addressLabel,
+                "2102",
+                `Inaktuell${String(rowNumber)}`,
+                surname,
+                "Boende",
+                "",
+                "",
+                "01/03/2020",
+              ],
+        );
+      }
+      const session = await upload(
+        cookie,
+        `inaktuellt-val-${action}.csv`,
+        encode(writeCsv(rows)),
+      );
+      const response = await inject({
+        method: "POST",
+        url: `/api/import/sessions/${session.sessionId}/preview`,
+        payload: { mapping: session.suggestedMapping },
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(
+        (JSON.parse(response.body) as ImportPreview).rows.find(
+          (row) => row.rowNumber === 150,
+        ),
+      ).toMatchObject({
+        outcome: "ambiguous",
+        matchedBy: "email",
+        mismatch: "name",
+        candidates: [{ personId: person.personId }],
+      });
+
+      // Stored as an apply accepts it, with no job behind it, so the test runs
+      // the chunks itself.
+      await prisma.importSession.update({
+        where: { id: session.sessionId },
+        data: { status: "QUEUED", decisions: { "150": { action } } },
+      });
+      expect(await applies.applyNextChunk(session.sessionId)).toBe(true);
+      await prisma.person.update({
+        where: { id: person.personId },
+        data: { firstName: corrected },
+      });
+      expect(await applies.applyNextChunk(session.sessionId)).toBe(false);
+
+      expect(await readRun(cookie, session.sessionId)).toMatchObject({
+        status: "FAILED",
+        failureReason: "preview-outdated",
+        rowsDone: IMPORT_CHUNK_ROWS,
+        result: { personsCreated: 0, personsUpdated: 0 },
+      });
+      expect(
+        await prisma.person.findUniqueOrThrow({
+          where: { id: person.personId },
+          select: {
+            phoneCipher: true,
+            residencies: { select: { id: true } },
+            memberRegisterEntries: { select: { id: true } },
+          },
+        }),
+      ).toEqual({
+        phoneCipher: null,
+        residencies: [],
+        memberRegisterEntries: [],
+      });
+      expect(
+        await prisma.person.count({
+          where: { firstName: corrected, lastName: surname },
+        }),
+      ).toBe(1);
+    },
+    120_000,
+  );
 });
 
 describe("a row after one the board decided", () => {

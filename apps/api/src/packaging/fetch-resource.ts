@@ -49,10 +49,22 @@ const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
   301, 302, 303, 307, 308,
 ]);
 
+/**
+ * The values behind a refusal, for a caller that has to say it in a language
+ * other than this message's. Set where the refusal has one: the status a host
+ * answered, the deadline that passed, the limit a body went over.
+ */
+export interface ResourceFetchDetail {
+  status?: number;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
 export class ResourceFetchError extends Error {
   constructor(
     message: string,
     readonly reason: "unsupported-scheme" | "unreachable" | "too-large",
+    readonly detail: ResourceFetchDetail = {},
   ) {
     super(message);
     this.name = "ResourceFetchError";
@@ -122,6 +134,7 @@ export async function fetchBytes(
     throw new ResourceFetchError(
       `${url} is ${String(bytes.byteLength)} bytes, over the ${String(maxBytes)} byte limit.`,
       "too-large",
+      { maxBytes },
     );
   }
 
@@ -150,6 +163,7 @@ async function withDeadline<T>(
       new ResourceFetchError(
         `${url} did not finish within ${String(timeoutMs)} ms.`,
         "unreachable",
+        { timeoutMs },
       ),
     );
   }, timeoutMs);
@@ -204,6 +218,7 @@ async function readLocalFile(url: URL, maxBytes: number): Promise<Buffer> {
     throw new ResourceFetchError(
       `${url.href} is ${String(size)} bytes, over the ${String(maxBytes)} byte limit.`,
       "too-large",
+      { maxBytes },
     );
   }
 
@@ -248,6 +263,7 @@ async function readOverHttp(
         throw new ResourceFetchError(
           `${target.href} answered ${String(response.status)}.`,
           "unreachable",
+          { status: response.status },
         );
       }
       return await readBody(response, target, maxBytes, signal);
@@ -308,6 +324,7 @@ async function readBody(
     throw new ResourceFetchError(
       `${url.href} declares ${String(declared)} bytes, over the ${String(maxBytes)} byte limit.`,
       "too-large",
+      { maxBytes },
     );
   }
 
@@ -336,6 +353,7 @@ async function readBody(
       throw new ResourceFetchError(
         `${url.href} is over the ${String(maxBytes)} byte limit.`,
         "too-large",
+        { maxBytes },
       );
     }
     chunks.push(chunk);

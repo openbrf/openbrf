@@ -4,10 +4,13 @@ import type {
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
+import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { prefix } from "../text/prefix";
 import { canonicalAction } from "./plugin-action-gate";
-import type { InstalledPlugin, Prisma } from "../generated/prisma/client";
+import type { PluginInstallFailure } from "./plugin-install-failure";
+import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
 
 /**
@@ -29,7 +32,18 @@ export interface PluginRecord {
   checksum: string;
   enabled: boolean;
   status: InstalledPluginStatus;
+  /**
+   * What the last failed attempt threw, for the operator. On a row written
+   * before failures carried a code, the only record of why it failed.
+   */
   lastError: string | null;
+  /**
+   * Why the last attempt failed, as a code and the values its sentence needs,
+   * or null when it did not fail or failed before codes were recorded. The
+   * code is a plain string here: a row may carry one a later version wrote,
+   * and it is narrowed where it is turned into a sentence.
+   */
+  failure: { reason: string; detail: PluginInstallFailureDetail } | null;
   consentedPermissions: PluginPermission[];
   declaredPersonalData: PluginPersonalDataCategory[];
   /** The actions the board consented to when this version was installed. */
@@ -102,7 +116,7 @@ export class PluginRegistryService {
        */
       armedActions: [],
       status: "PENDING" as const,
-      lastError: null,
+      ...NO_FAILURE,
     };
 
     const row = await this.prisma.installedPlugin.upsert({
@@ -204,7 +218,7 @@ export class PluginRegistryService {
   async markInstalled(id: string): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
       where: { id },
-      data: { status: "INSTALLED", lastError: null },
+      data: { status: "INSTALLED", ...NO_FAILURE },
     });
   }
 
@@ -214,10 +228,15 @@ export class PluginRegistryService {
    * The row stays. A failed install that vanished would leave a board with no
    * way to see what happened, and no way to retry or withdraw it.
    */
-  async markFailed(id: string, error: string): Promise<void> {
+  async markFailed(id: string, failure: PluginInstallFailure): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
       where: { id },
-      data: { status: "FAILED", lastError: error.slice(0, 2000) },
+      data: {
+        status: "FAILED",
+        lastError: prefix(storable(failure.cause), 2000),
+        lastErrorReason: failure.reason,
+        lastErrorDetail: storedDetail(failure.detail),
+      },
     });
   }
 
@@ -236,6 +255,55 @@ export class PluginRegistryService {
   }
 }
 
+/**
+ * The longest a detail value is stored. npm's own limit on a package name, so
+ * every name the installer records fits whole; what is longer came from an
+ * archive that is not a well-formed package, or is a list of names, and is cut
+ * so a hostile archive cannot make the row and every listing of it as large as
+ * it likes. `lastError` has its own, larger limit for the same reason.
+ */
+const DETAIL_VALUE_MAX_LENGTH = 214;
+
+function storedDetail(
+  detail: PluginInstallFailureDetail,
+): Record<string, string | number> {
+  const stored: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(detail)) {
+    if (typeof value !== "string") {
+      stored[name] = value;
+      continue;
+    }
+    const text = storable(value);
+    stored[name] =
+      text.length > DETAIL_VALUE_MAX_LENGTH
+        ? `${prefix(text, DETAIL_VALUE_MAX_LENGTH - 1)}…`
+        : text;
+  }
+  return stored;
+}
+
+/** NUL, and half of a surrogate pair with the other half missing. */
+const UNSTORABLE = /[\0\p{Cs}]/gu;
+
+/**
+ * The text with every character Postgres refuses replaced by U+FFFD. It takes
+ * no NUL in a text column, and neither NUL nor half a surrogate pair in a JSON
+ * one. An archive's package.json can hold either in its name, and a write that
+ * throws would leave the failure unrecorded and fail every reconcile after it.
+ * It runs before a value is cut, so half a pair that lands at the cut is
+ * replaced like one anywhere else rather than dropped by `prefix`.
+ */
+function storable(text: string): string {
+  return text.replace(UNSTORABLE, "\uFFFD");
+}
+
+/** The three failure columns, cleared together. */
+const NO_FAILURE = {
+  lastError: null,
+  lastErrorReason: null,
+  lastErrorDetail: Prisma.DbNull,
+} as const;
+
 function toRecord(row: InstalledPlugin): PluginRecord {
   return {
     id: row.id,
@@ -246,6 +314,13 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     enabled: row.enabled,
     status: row.status,
     lastError: row.lastError,
+    failure:
+      row.lastErrorReason === null
+        ? null
+        : {
+            reason: row.lastErrorReason,
+            detail: failureDetail(row.lastErrorDetail),
+          },
     // Stored as plain string arrays: the database does not need to know the
     // permission set, and a permission that no longer exists must read back as
     // an unknown string the loader can refuse rather than a failed decode.
@@ -265,4 +340,24 @@ function toRecord(row: InstalledPlugin): PluginRecord {
         : {},
     installedAt: row.installedAt,
   };
+}
+
+/**
+ * The stored detail, keeping only the values a sentence can be completed with.
+ *
+ * Read defensively because the column is JSON: a value of another shape is
+ * dropped rather than handed to a translation as an object, which i18next
+ * would print as "[object Object]" in the middle of a board's sentence.
+ */
+function failureDetail(value: Prisma.JsonValue): PluginInstallFailureDetail {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const detail: Record<string, string | number> = {};
+  for (const [name, held] of Object.entries(value)) {
+    if (typeof held === "string" || typeof held === "number") {
+      detail[name] = held;
+    }
+  }
+  return detail;
 }

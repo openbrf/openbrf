@@ -28,6 +28,7 @@ import {
   PluginInstallerService,
   type ReconcileOutcome,
 } from "./plugin-installer.service";
+import type { PluginInstallFailure } from "./plugin-install-failure";
 import type { PluginRecord } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
@@ -215,6 +216,22 @@ describe("assertStagedPackages", () => {
     );
   });
 
+  it("records which package an archive held instead, as values", async () => {
+    await staged({ name: "@someone-else/occupancy", version: "1.3.0" });
+
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "archive-package-mismatch",
+      detail: {
+        packageName: "openbrf-plugin-occupancy",
+        version: "1.4.0",
+        heldName: "@someone-else/occupancy",
+        heldVersion: "1.3.0",
+      },
+    });
+  });
+
   it("refuses an archive that holds another version", async () => {
     await staged({ name: "openbrf-plugin-occupancy", version: "1.3.0" });
 
@@ -233,12 +250,24 @@ describe("assertStagedPackages", () => {
     await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
       /is not an installable plugin package: dependencies: /,
     );
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "archive-not-a-plugin",
+      detail: { packageName: "openbrf-plugin-occupancy" },
+    });
   });
 
   it("refuses a tree the archive is missing from", async () => {
     await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
       "was not installed as a package",
     );
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "package-not-installed",
+      detail: { packageName: "openbrf-plugin-occupancy" },
+    });
   });
 
   it("refuses a package npm brought in beside the consented ones", async () => {
@@ -249,6 +278,12 @@ describe("assertStagedPackages", () => {
     await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
       "npm installed packages no archive was consented for: @scope/other, local-package.",
     );
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "unconsented-packages",
+      detail: { packages: "@scope/other, local-package" },
+    });
   });
 
   it("accepts a scoped package and npm's own bookkeeping", async () => {
@@ -651,10 +686,12 @@ describe("the archive downloads", () => {
     });
 
     const failed: string[] = [];
+    const failures = new Map<string, PluginInstallFailure>();
     const registry = {
       list: () => Promise.resolve(records),
-      markFailed: (id: string) => {
+      markFailed: (id: string, failure: PluginInstallFailure) => {
         failed.push(id);
+        failures.set(id, failure);
         return Promise.resolve();
       },
     };
@@ -684,6 +721,7 @@ describe("the archive downloads", () => {
       reconciling,
       requested,
       failed,
+      failures,
     };
   }
 
@@ -704,6 +742,13 @@ describe("the archive downloads", () => {
 
     expect(outcome.failed).toEqual([{ id: "occupancy", error: timedOut }]);
     expect(run.failed).toEqual(["occupancy"]);
+    // The board reads the deadline in its own language; the operator keeps
+    // the English, URL and all.
+    expect(run.failures.get("occupancy")).toEqual({
+      reason: "download-timed-out",
+      detail: { timeoutMs: ARCHIVE_TIMEOUT_MS },
+      cause: timedOut,
+    });
   });
 
   it("does not start the next download once one has failed", async () => {
@@ -753,5 +798,38 @@ describe("the archive downloads", () => {
     expect(outcome.installed).toEqual(["occupancy"]);
     expect(outcome.failed).toEqual([{ id: "bookings", error: timedOut }]);
     expect(run.failed).toEqual(["bookings"]);
+    // The deadline it was actually given: what was left of the run's.
+    expect(run.failures.get("bookings")).toMatchObject({
+      reason: "download-timed-out",
+      detail: { timeoutMs: FETCH_BUDGET_MS - ARCHIVE_TIMEOUT_MS + 1 },
+    });
+  });
+
+  it("does not start a download once the run's budget is spent", async () => {
+    vi.useFakeTimers();
+    const bytes = Buffer.from("a plugin that used the whole run");
+    const checksum = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+    const run = installer(
+      [record("occupancy", checksum), record("bookings")],
+      () => {
+        // The clock alone, without firing the deadline: a download that
+        // finished as the budget ran out, leaving the next one nothing.
+        vi.setSystemTime(Date.now() + FETCH_BUDGET_MS);
+        return Promise.resolve(new Response(bytes));
+      },
+    );
+
+    const outcome = await run.reconciling;
+
+    expect(run.requested).toEqual(["occupancy"]);
+    expect(outcome.installed).toEqual(["occupancy"]);
+    expect(run.failed).toEqual(["bookings"]);
+    expect(run.failures.get("bookings")).toEqual({
+      reason: "download-budget-spent",
+      detail: { budgetMs: FETCH_BUDGET_MS },
+      cause: expect.stringMatching(
+        /The plugin downloads used their \d+ ms before this one could start\./,
+      ) as string,
+    });
   });
 });

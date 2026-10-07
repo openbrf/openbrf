@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
 import { AppModule } from "../app.module";
@@ -17,6 +18,8 @@ import {
   describeOwed,
   MemberRegisterReconciliationService,
 } from "../registers/member-register-reconciliation";
+import { failureLines } from "./failure-lines";
+import { terminalText } from "./terminal-text";
 
 /**
  * `openbrf` - the command-line half of plugin management.
@@ -34,11 +37,18 @@ import {
  *
  * Output is plain English on stdout. This is an operator tool, not a screen:
  * it is read in a terminal by whoever is administering the instance, and its
- * own prose is not translated. The one exception is the declaration printed
- * before an install, which is read from the application's own translations in
- * the fallback locale: that text is what is being consented to, and it has to
- * be the same statement the consent screen makes rather than a second wording
- * that could drift from it.
+ * own prose is not translated. Two things are read from the application's own
+ * translations in the fallback locale instead. The declaration printed before
+ * an install is what is being consented to, and it has to be the same
+ * statement the consent screen makes rather than a second wording that could
+ * drift from it. And why an install failed is the sentence the admin screen
+ * shows, so an operator and a board reading the same row read the same reason;
+ * what was actually thrown is printed beneath it, because that is the line an
+ * operator debugs from.
+ *
+ * A value this tool did not write - from the catalog, a plugin archive or a
+ * thrown error - is printed through `terminalText`, so a control character in
+ * it is shown rather than acted on by the operator's terminal.
  */
 
 const USAGE = `openbrf - Open BRF instance administration
@@ -105,7 +115,7 @@ async function run(
 
   switch (args[0]) {
     case "list":
-      return listInstalled(registry);
+      return listInstalled(registry, i18n.translatorFor(FALLBACK_LOCALE));
     case "catalog":
       return listCatalog(admin);
     case "add":
@@ -172,7 +182,10 @@ async function runMemberRegister(
   return 0;
 }
 
-async function listInstalled(registry: PluginRegistryService): Promise<number> {
+async function listInstalled(
+  registry: PluginRegistryService,
+  t: TFunction,
+): Promise<number> {
   const records = await registry.list();
   if (records.length === 0) {
     console.log("No plugins are installed.");
@@ -181,16 +194,16 @@ async function listInstalled(registry: PluginRegistryService): Promise<number> {
 
   for (const record of records) {
     const state = record.enabled ? record.status : `${record.status}, disabled`;
-    console.log(`${record.id}  ${record.version}  [${state}]`);
-    console.log(`  package      ${record.packageName}`);
+    console.log(terminalText(`${record.id}  ${record.version}  [${state}]`));
+    console.log(`  package      ${terminalText(record.packageName)}`);
     console.log(
-      `  permissions  ${record.consentedPermissions.join(", ") || "none"}`,
+      `  permissions  ${terminalText(record.consentedPermissions.join(", ")) || "none"}`,
     );
     console.log(
-      `  personal data ${record.declaredPersonalData.join(", ") || "none"}`,
+      `  personal data ${terminalText(record.declaredPersonalData.join(", ")) || "none"}`,
     );
-    if (record.lastError !== null) {
-      console.log(`  last error   ${record.lastError}`);
+    for (const line of failureLines(record, t)) {
+      console.log(line);
     }
   }
   return 0;
@@ -215,9 +228,11 @@ async function listCatalog(admin: PluginAdminService): Promise<number> {
     ].filter((mark): mark is string => mark !== null);
 
     console.log(
-      `${entry.id}  ${entry.version}${marks.length === 0 ? "" : `  [${marks.join(", ")}]`}`,
+      terminalText(
+        `${entry.id}  ${entry.version}${marks.length === 0 ? "" : `  [${marks.join(", ")}]`}`,
+      ),
     );
-    console.log(`  ${entry.name.en}`);
+    console.log(`  ${terminalText(entry.name.en)}`);
   }
   return 0;
 }
@@ -258,8 +273,10 @@ async function add(
       ? "none"
       : values.map((value) => t(key(value))).join("; ");
 
-  console.log(`${entry.name.en} ${entry.version} (${entry.packageName})`);
-  console.log(`  ${entry.description.en}`);
+  console.log(
+    terminalText(`${entry.name.en} ${entry.version} (${entry.packageName})`),
+  );
+  console.log(`  ${terminalText(entry.description.en)}`);
   console.log(
     `  may           ${declared(entry.permissions, permissionLabelKey)}`,
   );
@@ -285,7 +302,7 @@ async function add(
 
   const failure = outcome.failed.find((entryFailed) => entryFailed.id === id);
   if (failure !== undefined) {
-    console.error(`\nInstall failed: ${failure.error}`);
+    console.error(`\nInstall failed: ${terminalText(failure.error)}`);
     return 1;
   }
 
@@ -318,10 +335,12 @@ void main(process.argv.slice(2))
     process.exitCode = code;
   })
   .catch((cause: unknown) => {
-    if (cause instanceof CatalogError) {
-      console.error(cause.message);
-    } else {
-      console.error(String(cause));
-    }
+    // A catalog error quotes what the catalog's index said, and anything else
+    // may quote a release host or an archive.
+    console.error(
+      terminalText(
+        cause instanceof CatalogError ? cause.message : String(cause),
+      ),
+    );
     process.exitCode = 1;
   });

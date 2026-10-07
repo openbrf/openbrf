@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { formatSha512, IntegrityError } from "@openbrf/plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { CatalogArtifact } from "./catalog-entry";
@@ -24,7 +25,7 @@ import {
   fetchBytes,
   ResourceFetchError,
 } from "./fetch-resource";
-import { formatSha512, IntegrityError, sha512 } from "./integrity";
+import { sha512 } from "./integrity";
 import { archiveFileName, ensureArchive } from "./package-archive";
 
 /**

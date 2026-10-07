@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { scanForPersonalIdentityNumberCandidates } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
+import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -10,8 +12,13 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
-import { decodeCsv, parseCsv, writeCsv } from "./csv";
-import { ImportApplyService } from "./import-apply.service";
+import { decodeCsv, MixedEncodingError, parseCsv, writeCsv } from "./csv";
+import {
+  finishImport,
+  ImportApplyService,
+  IMPORT_CHUNK_TRANSACTION_MS,
+  stopImport,
+} from "./import-apply.service";
 import {
   type ImportField,
   type ImportMapping,
@@ -29,7 +36,12 @@ import {
   type PlannedRow,
 } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
-import { IMPORT_RUN_SELECT, type ImportRunView, toRunView } from "./import-run";
+import {
+  IMPORT_RUN_SELECT,
+  type ImportRunView,
+  RUNNING_IMPORT_STATUSES,
+  toRunView,
+} from "./import-run";
 import { MAX_IMPORT_ROWS, parseWorkbook } from "./workbook";
 
 /**
@@ -70,6 +82,12 @@ export const IMPORT_PURGE_QUEUE = "import-session-purge";
 
 /** Rows shown on the mapping screen so a column can be recognised by content. */
 const SAMPLE_ROWS = 5;
+
+/**
+ * How long abandoning an import may take. Longer than a chunk's transaction,
+ * because a chunk in flight holds the session row the abandon has to update.
+ */
+const ABANDON_TIMEOUT_MS = IMPORT_CHUNK_TRANSACTION_MS + 10_000;
 
 export interface ImportSessionView {
   sessionId: string;
@@ -143,6 +161,7 @@ export class ImportService implements OnModuleInit {
     private readonly jobs: JobQueueService,
     private readonly planner: ImportPlannerService,
     private readonly applies: ImportApplyService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -178,7 +197,7 @@ export class ImportService implements OnModuleInit {
     const { count } = await this.prisma.importSession.deleteMany({
       where: {
         expiresAt: { lt: now },
-        status: { notIn: ["QUEUED", "APPLYING"] },
+        status: { notIn: [...RUNNING_IMPORT_STATUSES] },
       },
     });
     if (count > 0) {
@@ -341,7 +360,8 @@ export class ImportService implements OnModuleInit {
    * normally ends as APPLIED, or as FAILED on a refusal or through the dead
    * letter once its retries run out. Until then every other apply is refused:
    * for as long as a hung attempt takes to time out and be retried, and for a
-   * session whose job was lost, until the next start re-queues it.
+   * session whose job was lost, until the next start re-queues it - or until
+   * an administrator abandons it (`abandon`).
    */
   async apply(
     sessionId: string,
@@ -418,6 +438,107 @@ export class ImportService implements OnModuleInit {
     return this.run(sessionId);
   }
 
+  /**
+   * Ends an import that is queued or applying, without waiting for the queue.
+   *
+   * One import runs at a time, so a session whose job was lost, or whose
+   * attempt hangs, refuses every other import until the queue gives up on it:
+   * up to the next restart for the first, and the expiry times the retries for
+   * the second. This is the way out an administrator takes meanwhile. The
+   * session is recorded as FAILED, as the dead letter would record it but with
+   * `apply-abandoned` rather than `apply-interrupted`, so the screen can say who
+   * stopped it. The next apply is accepted.
+   *
+   * It stops the import; it undoes nothing. What the chunks before it wrote is
+   * in a register that cannot be edited, and the counts on the session say how
+   * much that was.
+   *
+   * After this returns, the abandoned session writes nothing more. Every write
+   * the job makes is conditional on the session still being APPLYING, and a
+   * chunk takes the session row before it writes. So the update below either
+   * waits for a chunk that holds the row and lands after it, or lands first and
+   * the chunk then finds nothing to claim. A job that wakes later for this
+   * session - a retry, a redelivery, the re-queue at the next start - reads it
+   * as FAILED and ends without having done anything.
+   *
+   * An import that has written every row is not abandoned, because it is not
+   * running: there is nothing left to stop. The last chunk marks its import
+   * applied in the commit that writes its rows, so an abandon that waited for
+   * that chunk is refused. A session an earlier instance left applying with
+   * every row written is marked applied here, which is all its job had left
+   * to do, and the abandon is refused all the same.
+   *
+   * The audit entry is written in the same transaction as the change of status,
+   * so neither exists without the other.
+   */
+  async abandon(
+    sessionId: string,
+    actor: ActorContext,
+  ): Promise<ImportRunView> {
+    const session = await this.prisma.$transaction(
+      async (tx) => {
+        const abandoned = await stopImport(tx, sessionId, "apply-abandoned");
+
+        // Read after the update, under its row lock, so the cursor is the one
+        // the import finally stopped at rather than one a chunk was about to
+        // move.
+        const after = await tx.importSession.findUnique({
+          where: { id: sessionId },
+          select: { ...IMPORT_RUN_SELECT, createdById: true },
+        });
+        if (after === null) {
+          throw new ImportError("No such import.", "session-not-found");
+        }
+        if (!abandoned) {
+          // Returned rather than thrown, because throwing would roll back
+          // marking a complete import applied.
+          if (await finishImport(tx, sessionId)) {
+            this.logger.log(
+              `Import session ${sessionId}: every row was written, marked applied`,
+            );
+          }
+          return null;
+        }
+
+        await this.audit.record(
+          {
+            action: "IMPORT_ABANDONED",
+            ...auditActor(actor),
+            targetKind: "importSession",
+            targetId: sessionId,
+            // Enough to answer for the abandon once the session is purged:
+            // how far the import got, whether its job had ever started it, and
+            // who uploaded it.
+            context: {
+              rowsDone: after.rowsDone,
+              rowsTotal: after.rowCount,
+              startedAt: after.startedAt?.toISOString() ?? null,
+              createdById: after.createdById,
+            },
+          },
+          tx,
+        );
+        return after;
+      },
+      // Longer than the budget a chunk's own transaction has, so an abandon
+      // that arrives while a chunk holds the session row waits for it to commit
+      // or roll back instead of failing first. The same for getting a
+      // connection: with a pool of one, the chunk holds the only one.
+      { timeout: ABANDON_TIMEOUT_MS, maxWait: ABANDON_TIMEOUT_MS },
+    );
+    if (session === null) {
+      throw new ImportError(
+        "That import is not running.",
+        "session-not-running",
+      );
+    }
+
+    this.logger.warn(
+      `Import session ${sessionId}: abandoned by an administrator`,
+    );
+    return toRunView(session);
+  }
+
   /** How far the apply has got, read from the session itself. */
   async run(sessionId: string): Promise<ImportRunView> {
     const session = await this.prisma.importSession.findUnique({
@@ -438,13 +559,23 @@ export class ImportService implements OnModuleInit {
    * The most recent session that has left the mapping step is that import, and
    * it stays answerable for as long as the upload does - after which the purge
    * removes it and the screen offers a fresh upload again.
+   *
+   * A running import comes first, however old its upload. The purge leaves it
+   * alone and it refuses every other apply until it ends, so one whose job was
+   * lost has to stay on the screen where an administrator can abandon it.
    */
   async activeRun(): Promise<ImportRunView | null> {
-    const session = await this.prisma.importSession.findFirst({
-      where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: "desc" },
-      select: IMPORT_RUN_SELECT,
-    });
+    const session =
+      (await this.prisma.importSession.findFirst({
+        where: { status: { in: [...RUNNING_IMPORT_STATUSES] } },
+        orderBy: { createdAt: "desc" },
+        select: IMPORT_RUN_SELECT,
+      })) ??
+      (await this.prisma.importSession.findFirst({
+        where: { status: { not: "MAPPING" }, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        select: IMPORT_RUN_SELECT,
+      }));
     return session === null ? null : toRunView(session);
   }
 
@@ -475,7 +606,13 @@ export class ImportService implements OnModuleInit {
         return parseCsv(decodeCsv(bytes));
       }
       return await parseWorkbook(bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof MixedEncodingError) {
+        throw new ImportError(
+          "That file mixes UTF-8 and another encoding. Save it again as UTF-8 or as CSV (semikolonavgränsad).",
+          "file-mixed-encoding",
+        );
+      }
       throw new ImportError(
         "That file could not be read as a spreadsheet.",
         "file-unreadable",
@@ -586,23 +723,18 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    // A decision is an answer to a row that asks for one, and to nothing else.
-    // One kept for a row that needs none would be carried into the job, where
-    // a register that changed between chunks could make that row need it, and
-    // the worker would then write what nobody was shown.
-    const decidable = new Set(
-      plan.rows
-        .filter((row) => row.outcome === "ambiguous")
-        .map((row) => String(row.rowNumber)),
-    );
-    if (Object.keys(decisions).some((rowNumber) => !decidable.has(rowNumber))) {
+    // The same rules the worker applies to each chunk, here to the whole file,
+    // which this plan holds every row of. A decision kept for a row that needs
+    // none would be carried into the job, where a register that changed between
+    // chunks could make that row need it, and the worker would then write what
+    // nobody was shown.
+    const undecided = findUndecided(plan, decisions, plan.rows.length);
+    if (undecided === "decision-not-needed") {
       throw new ImportError(
         "Given these decisions, a decision answers a row that does not need one.",
         "preview-outdated",
       );
     }
-
-    const undecided = findUndecided(plan, decisions);
     if (undecided === "ambiguous-rows-undecided") {
       throw new ImportError(
         "Given these decisions, more rows match more than one person or " +
@@ -700,7 +832,7 @@ async function refuseWhileAnotherRuns(
   const running = await client.importSession.findFirst({
     where: {
       id: { not: sessionId },
-      status: { in: ["QUEUED", "APPLYING"] },
+      status: { in: [...RUNNING_IMPORT_STATUSES] },
     },
     select: { id: true },
   });

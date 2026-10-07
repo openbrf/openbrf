@@ -96,6 +96,7 @@ const INSTALLED: PluginSummary = {
   enabled: true,
   status: "INSTALLED",
   lastError: null,
+  failure: null,
   loaded: true,
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
