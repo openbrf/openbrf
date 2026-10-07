@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -418,12 +424,19 @@ describe("while a charge is being recorded", () => {
 
     const outside = screen.getByLabelText("Utanför formuläret");
     outside.focus();
+    expect(document.activeElement).toBe(outside);
+
+    const refocus = vi.spyOn(reason, "focus");
 
     settle({ ok: true, value: { chargeId: "charge-1" } });
 
     await waitFor(() => {
       expect(reason.matches(":disabled")).toBe(false);
     });
+    // The hand-back would run in an effect after the field is enabled again;
+    // flush it so the check below is not made before it had its chance.
+    await act(async () => {});
+    expect(refocus).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(outside);
   });
 
@@ -443,11 +456,12 @@ describe("while a charge is being recorded", () => {
     });
     (submit.closest("form") as HTMLFormElement).requestSubmit(submit);
 
+    // The hand-back runs in an effect after the render that clears the field.
     await waitFor(() => {
       expect(
         screen.getByLabelText<HTMLInputElement>("Belopp i kronor").value,
       ).toBe("");
+      expect(document.activeElement).toBe(submit);
     });
-    expect(document.activeElement).toBe(submit);
   });
 });
