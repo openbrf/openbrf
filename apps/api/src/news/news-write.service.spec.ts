@@ -931,7 +931,8 @@ describe("the SMS mailing, which happens once and separately", () => {
     );
 
     expect(published.textedTo).toBeNull();
-    expect(texter.ensureQueues).not.toHaveBeenCalled();
+    // The queues are ensured for any publish of a claimed item, since a held
+    // mailing is decided under the lock; nothing is queued, though.
     expect(texter.enqueueInTransaction).not.toHaveBeenCalled();
   });
 

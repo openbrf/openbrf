@@ -827,6 +827,7 @@ describe("telling the board", () => {
         emailIndex: email.index,
         message,
         createdAt: new Date(Date.now() - 5 * 60 * 1000),
+        notifiedAt: new Date(Date.now() - 5 * 60 * 1000),
       })),
     });
 
