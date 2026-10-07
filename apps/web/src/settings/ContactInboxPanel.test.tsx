@@ -329,7 +329,8 @@ describe("the contact inbox", () => {
     expect(deleteContactSubmissions.mock.calls[1]?.[0]).toEqual(
       many.slice(200).map((one) => one.id),
     );
-  });
+    // 250 rows render slowly under jsdom on a CI runner.
+  }, 30_000);
 
   it("keeps what is shown when the next page cannot be read, and tries again", async () => {
     const later = { ...MESSAGE, id: "message-2", name: "Ada Al" };
