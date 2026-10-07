@@ -56,6 +56,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^12.1.1",
+    "@prisma/driver-adapter-utils": "7.10.0",
     "@swc/core": "^1.16.2",
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",

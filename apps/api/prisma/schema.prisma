@@ -2026,6 +2026,12 @@ enum AuditAction {
   /// whoever wrote it. Only a group's message can be struck: the board chat has
   /// no strike-through at all.
   CHAT_MESSAGE_STRUCK
+
+  /// An administrator abandoned a member list import that was queued or
+  /// applying, so that another one could run. The target is the import session;
+  /// the entry carries how far through the file it got, never anything from the
+  /// file. What the import already wrote stays in the register.
+  IMPORT_ABANDONED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -6542,16 +6548,28 @@ model BoardMailboxAttachment {
 /// each one's identifier in the same transaction or the next collection would
 /// store it again.
 ///
-/// Only for a letter that nothing will ever change about. A message too large to
-/// fetch is not here - it is never read, so it costs a listing line and no more -
-/// and neither is one a retrieval failed on, because that is a mailbox having a
-/// bad minute and the next run should try it again.
+/// Only for a letter that nothing will ever change about, or one that failed to
+/// be stored more often than BoardMailboxCollectionFailure allows. A message too
+/// large to fetch is not here - it is never read, so it costs a listing line and
+/// no more - and neither is one a retrieval failed on, because that is a mailbox
+/// having a bad minute and the next run should try it again.
+///
+/// Listed on the board's mailbox screen, because a letter set aside is a letter
+/// the board has not read: it is still in the mailbox, and the screen says so and
+/// when it was dated, so a board member can find it in a mail client. Not a
+/// letter the purge erased or one already past the retention window, which are
+/// here to stay erased and are nothing the board is meant to go and read.
+///
+/// Kept only while the mailbox still holds the letter. A collection removes the
+/// rows, under the mailbox it collects, whose identifier the mailbox no longer
+/// lists, so a letter a board member deleted in a mail client leaves the screen.
 ///
 /// No personal data. The identifier is the mailbox's own opaque string behind a
-/// fingerprint of the credentials it was seen under, and the reason is a code
-/// this module writes. So it is outside every purge scope and outside the data
-/// subject access report: there is no person to key it to, which is the same
-/// reason the thread purge names no subject.
+/// fingerprint of the credentials it was seen under, the reason is a code this
+/// module writes, and the date is a moment with nobody attached to it. So it is
+/// outside every purge scope and outside the data subject access report: there
+/// is no person to key it to, which is the same reason the thread purge names no
+/// subject.
 model BoardMailboxIgnoredMessage {
   id String @id @default(cuid())
 
@@ -6562,9 +6580,55 @@ model BoardMailboxIgnoredMessage {
   /// Why it will not be stored, as a code. See `board-mailbox-delivery.ts`.
   reason String
 
+  /// The letter's Date header, where the collector believed it. What a board
+  /// member looks for in a mail client; the collection time is not, because a
+  /// letter can sit in the mailbox for a while before it is read.
+  letterDate DateTime?
+
+  /// When the collector tries the letter again, for a letter set aside because
+  /// it kept failing rather than because it was refused. Null for a refusal,
+  /// which the same bytes would meet on every run.
+  ///
+  /// A failure that kept on for an hour is as likely to be the instance's as
+  /// the letter's - storage down, a deploy ahead of its migration - and every
+  /// letter tried during it fails alike. Setting those aside for good would lose
+  /// them once the instance recovered; trying each again now and then stores
+  /// them then, and costs one fetch per letter that really cannot be stored.
+  retryAfter DateTime?
+
   createdAt DateTime @default(now())
 
   @@map("board_mailbox_ignored_message")
+}
+
+/// A letter the collector could not store for a reason that said nothing about
+/// the letter, and how often that has happened.
+///
+/// Such a failure is retried, because a later run stores the letter: the
+/// database was restarting, a deploy was ahead of its migration, the storage
+/// behind the attachments did not answer. But a letter that fails every time
+/// for a reason nobody foresaw would be fetched and retried on every run for as
+/// long as the mailbox keeps it, and the board would never be told. This is the
+/// count that bounds that: past it, the letter is set aside as
+/// BoardMailboxIgnoredMessage and shown on the board's screen.
+///
+/// The row goes when the letter is stored or set aside, or when the mailbox no
+/// longer lists it. No personal data, on the ledger's argument above.
+model BoardMailboxCollectionFailure {
+  id String @id @default(cuid())
+
+  /// The POP3 identifier, as the ledger above carries it.
+  sourceUid String @unique
+
+  /// How many collections have failed to store it.
+  attempts Int
+
+  /// When the first of them did. A letter is not set aside before a while has
+  /// passed however often it is tried, so a board pressing "collect now" during
+  /// an outage does not use the attempts up in a minute.
+  firstFailedAt DateTime
+
+  @@map("board_mailbox_collection_failure")
 }
 
 // ---------------------------------------------------------------------------

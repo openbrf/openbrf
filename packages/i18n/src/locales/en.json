@@ -707,7 +707,8 @@
           "CHAT_GROUP_CREATED": "Group chat created",
           "CHAT_GROUP_MEMBER_ADDED": "Put into a group chat",
           "CHAT_GROUP_MEMBER_REMOVED": "Left a group chat",
-          "CHAT_MESSAGE_STRUCK": "Chat message struck through"
+          "CHAT_MESSAGE_STRUCK": "Chat message struck through",
+          "IMPORT_ABANDONED": "A member list import was abandoned"
         },
         "channel": {
           "WEB": "The web interface",
@@ -2368,6 +2369,14 @@
       "keepsGoing": "The import carries on if you close this page. Come back here to see how it went.",
       "another": "Import another list"
     },
+    "abandon": {
+      "description": "If the import has stopped moving, an administrator can abandon it so that another list can be imported. Rows it has already written stay in the register.",
+      "start": "Abandon this import",
+      "warning": "Abandon the import? It writes nothing more, and what it has already written stays in the member register, which cannot be edited. Do this only when the import has stopped moving.",
+      "confirm": "Yes, abandon it",
+      "cancel": "Keep it running",
+      "working": "Abandoning"
+    },
     "result": {
       "title": "The import is done",
       "personsCreated": "People added",
@@ -2383,6 +2392,7 @@
       "fileEmpty": "That file has no rows below its column titles.",
       "fileTooLarge": "That file is larger than 512 kB.",
       "fileUnreadable": "That file could not be read as a spreadsheet.",
+      "fileMixedEncoding": "That file mixes character encodings, so letters such as å, ä and ö would come out wrong. Save it again as UTF-8 or as “CSV (semikolonavgränsad)” and upload it again.",
       "tooManyRows": "That file has more rows than one import can take.",
       "mappingInvalid": "The mapping cannot be applied yet.",
       "previewRequired": "Preview the import before you run it.",
@@ -2395,6 +2405,8 @@
       "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
+      "applyAbandoned": "An administrator abandoned the import before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
+      "sessionNotRunning": "That import is no longer running.",
       "unknown": "The import did not work just now. Please try again."
     },
     "template": {
@@ -2693,6 +2705,21 @@
       "collecting": "Collecting...",
       "collected_one": "One new letter was collected.",
       "collected_other": "{{count}} new letters were collected."
+    },
+    "setAside": {
+      "intro_one": "One letter could not be collected. It is still in the mailbox: open it there with a mail client.",
+      "intro_other": "{{count}} letters could not be collected. They are still in the mailbox: open them there with a mail client.",
+      "dated": "Dated {{date}}",
+      "undated": "Date unknown",
+      "setAsideAt": "set aside {{date}}",
+      "retryFrom": "tried again from {{date}}",
+      "more_one": "And one more.",
+      "more_other": "And {{count}} more.",
+      "reasons": {
+        "noSenderAddress": "No sender address to answer",
+        "unstorable": "Could not be stored",
+        "unknown": "Could not be collected"
+      }
     },
     "inbox": {
       "title": "The inbox",
