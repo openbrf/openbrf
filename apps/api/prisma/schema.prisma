@@ -2744,6 +2744,12 @@ model ImportSession {
   /// else. The apply refuses to start when another import has written since.
   previewedRevision Int?
 
+  /// How many times the session has been previewed. Each preview advances it,
+  /// so it names one preview: the apply claims the session only while it still
+  /// holds the count the apply was checked against. `previewedAt` cannot do
+  /// that, since two previews can be recorded in the same millisecond.
+  previewCount Int @default(0)
+
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?

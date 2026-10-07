@@ -1362,11 +1362,15 @@ describe("an apply and a preview of one session", () => {
         addressLabel,
         "2102",
         "Annan",
-        `${surname}x`,
-        "Medlem",
+        surname,
+        // A resident, not a member: written, so the revision moves, but with
+        // no ENTRY row to keep apartment 2102 in the archive after the suite.
+        "Boende",
         "",
         "",
-        "1/2/23",
+        // A date the importer accepts. With the row in error nothing would be
+        // written, and the order of the two refusals would go untested.
+        "2023-02-01",
       ],
     ]);
     const session = await uploadAndPreview(cookie, "ersatt-igen.csv", [
@@ -1401,11 +1405,12 @@ describe("an apply and a preview of one session", () => {
         expect((await applyImport(cookie, other.sessionId)).statusCode).toBe(
           202,
         );
-        await waitForRun(
+        const otherRun = await waitForRun(
           cookie,
           other.sessionId,
           (candidate) => candidate.status === "APPLIED",
         );
+        expect(otherRun.result.personsCreated).toBe(1);
         const replaced = await inject({
           method: "POST",
           url: `/api/import/sessions/${session.sessionId}/preview`,
@@ -1428,6 +1433,80 @@ describe("an apply and a preview of one session", () => {
     expect(reasonOf(response)).toBe("preview-replaced");
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
+    });
+  }, 60_000);
+
+  it("does not start the import when the replacing preview was recorded in the same millisecond", async () => {
+    // Two previews can record one previewedAt. The replacing preview here is
+    // given the time of the one the apply was checked against, which is what
+    // such a collision leaves behind, and the apply must still see that the
+    // session was previewed again.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "samma-tid.csv", [
+      HEADERS,
+      [addressLabel, "2101", "Samtidig", surname, "Medlem", "", "", "1/2/23"],
+    ]);
+    const { previewedAt: checkedAt } =
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.sessionId },
+        select: { previewedAt: true },
+      });
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const checked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const ensureQueues = applies.ensureQueues.bind(applies);
+    const paused = vi
+      .spyOn(applies, "ensureQueues")
+      .mockImplementationOnce(async () => {
+        reached();
+        await held;
+        await ensureQueues();
+      });
+
+    let response: Awaited<ReturnType<typeof applyImport>>;
+    try {
+      const applying = applyImport(cookie, session.sessionId);
+      try {
+        await Promise.race([checked, applying]);
+        const replaced = await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/preview`,
+          payload: {
+            mapping: session.suggestedMapping,
+            defaultMovedInOn: "2023-02-01",
+          },
+          headers: { cookie },
+        });
+        expect(replaced.statusCode).toBe(200);
+        await prisma.importSession.update({
+          where: { id: session.sessionId },
+          data: { previewedAt: checkedAt },
+        });
+      } finally {
+        release();
+      }
+      response = await applying;
+    } finally {
+      paused.mockRestore();
+    }
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("preview-replaced");
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.sessionId },
+        select: { status: true, defaultMovedInOn: true, decisions: true },
+      }),
+    ).toEqual({
+      status: "MAPPING",
+      defaultMovedInOn: "2023-02-01",
+      decisions: null,
     });
   }, 60_000);
 });

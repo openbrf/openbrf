@@ -320,6 +320,7 @@ export class ImportService implements OnModuleInit {
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
         previewDigest: planDigest(plan),
         previewedRevision,
+        previewCount: { increment: 1 },
         previewedAt: new Date(),
       },
     });
@@ -380,10 +381,6 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    // Kept as a constant: the narrowing of `session.previewedAt` does not reach
-    // into the transaction callback below, the narrowing of a constant does.
-    const previewedAt = session.previewedAt;
-
     // Asked once before the plan as well as under the lock. Planned against a
     // register another import is halfway through writing, the decisions could
     // look outdated, and the board would be sent back to a preview of that
@@ -418,12 +415,9 @@ export class ImportService implements OnModuleInit {
       // again from here would overwrite the newer preview.
       const recorded = await tx.importSession.findUnique({
         where: { id: sessionId },
-        select: { previewedAt: true },
+        select: { previewCount: true },
       });
-      if (
-        recorded !== null &&
-        recorded.previewedAt?.getTime() !== previewedAt.getTime()
-      ) {
+      if (recorded !== null && recorded.previewCount !== session.previewCount) {
         throw new ImportError(
           "The import was previewed again while it was being started.",
           "preview-replaced",
@@ -443,7 +437,7 @@ export class ImportService implements OnModuleInit {
         where: {
           id: sessionId,
           status: "MAPPING",
-          previewedAt,
+          previewCount: session.previewCount,
         },
         data: {
           status: "QUEUED",
@@ -806,6 +800,7 @@ export class ImportService implements OnModuleInit {
     defaultMovedInOn: string | null;
     previewedAt: Date | null;
     previewedRevision: number | null;
+    previewCount: number;
     ambiguousRows: Prisma.JsonValue;
     previewDigest: string | null;
   }> {
@@ -820,6 +815,7 @@ export class ImportService implements OnModuleInit {
         defaultMovedInOn: true,
         previewedAt: true,
         previewedRevision: true,
+        previewCount: true,
         ambiguousRows: true,
         previewDigest: true,
         status: true,
