@@ -9,6 +9,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { residencyHeldOn } from "../registers/held-on";
+import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   chatMessagesErasedOnRequest,
   chatTracesErasedOnRequest,
@@ -282,8 +283,14 @@ export class ChatPurgeService implements OnModuleInit {
       try {
         removed += await this.prisma.$transaction(async (tx) => {
           // The room's lock, which a member being put in takes too, and the
-          // hold key, so a hold placed since the scan still wins.
+          // hold key, so a hold placed since the scan still wins. And the
+          // person's residency transition key, which a move-in takes: without
+          // it a move-in committing between the residency read below and the
+          // delete would cost a current resident their place in the room.
+          // Hold, then transition, then room, the order `residency-lock.ts`
+          // gives; no writer of a room takes a transition key.
           await lockLegalHold(tx, personId);
+          await lockResidencyTransitions(tx, personId);
           await lockChat(tx, chatId);
           // Moved back in since the scan, and the place is theirs again.
           if (
