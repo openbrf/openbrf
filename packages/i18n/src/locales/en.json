@@ -345,7 +345,7 @@
         "open": "Produce the report",
         "working": "Producing",
         "failed": "The report could not be produced. Try again.",
-        "busy": "Several reports and downloads of personal data are being prepared right now. Wait a moment and try again.",
+        "busy": "Several data subject access reports and data portability exports are being prepared right now. Wait a moment and try again.",
         "heading": "Data subject access report",
         "loading": "Producing the report",
         "print": "Print",

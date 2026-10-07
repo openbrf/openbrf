@@ -345,7 +345,7 @@
         "open": "Ta fram registerutdraget",
         "working": "Tar fram",
         "failed": "Registerutdraget kunde inte tas fram. Försök igen.",
-        "busy": "Flera registerutdrag och hämtningar av personuppgifter tas fram just nu. Vänta en stund och försök igen.",
+        "busy": "Flera registerutdrag och exporter för dataportabilitet tas fram just nu. Vänta en stund och försök igen.",
         "heading": "Registerutdrag",
         "loading": "Tar fram registerutdraget",
         "print": "Skriv ut",

@@ -954,7 +954,7 @@ describe("producing the report", () => {
     render(<DataSubjectReport personId="person-siv" onClose={noop} />);
 
     await screen.findByText(
-      "Flera registerutdrag och hämtningar av personuppgifter tas fram just nu. Vänta en stund och försök igen.",
+      "Flera registerutdrag och exporter för dataportabilitet tas fram just nu. Vänta en stund och försök igen.",
     );
     expect(
       screen.queryByText("Registerutdraget kunde inte tas fram. Försök igen."),
