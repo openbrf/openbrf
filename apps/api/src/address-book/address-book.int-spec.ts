@@ -1015,20 +1015,23 @@ describe("the resident-facing directory", () => {
       },
       select: { id: true },
     });
-    const cookie = await signIn(actors.resident.email);
-    const listed = async (filter: string): Promise<string[]> => {
-      const response = await inject({
-        method: "GET",
-        url: `/api/resident-directory?filter=${filter}`,
-        headers: { cookie },
-      });
-      expect(response.statusCode).toBe(200);
-      return (
-        JSON.parse(response.body) as { rows: { personId: string }[] }
-      ).rows.map((row) => row.personId);
-    };
 
+    // Signing in inside the `try`, so a failed sign-in still removes the seat
+    // and no later directory test finds this member on the board.
     try {
+      const cookie = await signIn(actors.resident.email);
+      const listed = async (filter: string): Promise<string[]> => {
+        const response = await inject({
+          method: "GET",
+          url: `/api/resident-directory?filter=${filter}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        return (
+          JSON.parse(response.body) as { rows: { personId: string }[] }
+        ).rows.map((row) => row.personId);
+      };
+
       expect(await listed("all")).toContain(actors.movedOut.personId);
       expect(await listed("board")).toContain(actors.movedOut.personId);
 
