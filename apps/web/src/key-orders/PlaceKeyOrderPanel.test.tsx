@@ -126,11 +126,13 @@ describe("while an order is being placed", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
       await waitFor(() => {
         expect(quantity.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(quantity);
       });
-      expect(refocus).toHaveBeenCalledTimes(1);
-      expect(document.activeElement).toBe(quantity);
     },
   );
 });
