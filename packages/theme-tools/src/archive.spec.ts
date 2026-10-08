@@ -378,6 +378,41 @@ describe("readThemeArchive refusals", () => {
     expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
   });
 
+  it("refuses a header whose checksum matches only the signed sum", () => {
+    const header = rawHeader({ name: "theme.json", size: 0, typeFlag: "0" });
+    // One byte of 0x80 or more makes the signed and unsigned sums differ by
+    // 256. node-tar computes only the unsigned one and would skip this header.
+    header[300] = 0xff;
+    let signed = 0;
+    for (const [index, byte] of header.entries()) {
+      const value = index >= 148 && index < 156 ? 0x20 : byte;
+      signed += value > 127 ? value - 256 : value;
+    }
+    header.set(
+      encoder.encode(`${signed.toString(8).padStart(6, "0")}\0 `),
+      148,
+    );
+    expect(() => readThemeArchive(rawArchive([header]))).toThrow(/corrupt/);
+  });
+
+  it("reads a header with a byte >= 0x80 and the unsigned checksum", () => {
+    // "ö" is 0xc3 0xb6 in UTF-8, so the signed and unsigned sums of this header
+    // differ by 512. A reader that sign-extended bytes would refuse it.
+    const name = "fonts/Brödtext.css";
+    const content = "body{}";
+    const header = rawHeader({ name, size: content.length, typeFlag: "0" });
+    expect(header.some((byte) => byte >= 0x80)).toBe(true);
+
+    // A second root keeps the reader from stripping "fonts/".
+    const manifest = rawHeader({ name: "theme.json", size: 2, typeFlag: "0" });
+
+    expect(
+      unpack(
+        rawArchive([header, dataBlock(content), manifest, dataBlock("{}")]),
+      ),
+    ).toEqual({ [name]: content, "theme.json": "{}" });
+  });
+
   it("keeps a name with a leading byte order mark apart from the plain one", () => {
     const files = readThemeArchive(
       rawArchive([

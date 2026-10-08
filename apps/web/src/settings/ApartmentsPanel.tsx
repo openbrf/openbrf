@@ -33,7 +33,7 @@ import {
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 export interface ApartmentsPanelProps {
   addresses: readonly AddressView[];
@@ -52,7 +52,10 @@ interface DraftRow {
 const APARTMENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "apartment-in-use": "settings.apartments.errors.inUse",
   "not-found": "settings.addresses.errors.notFound",
-  "invalid-body": "settings.apartments.errors.unknown",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  "apartments.number": "settings.apartments.table.number",
 };
 
 /**
@@ -211,12 +214,12 @@ export function ApartmentsPanel({
       notice={
         failure !== null ? (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                APARTMENT_FAILURES,
-                "settings.apartments.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              APARTMENT_FAILURES,
+              "settings.apartments.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         ) : commit.state.kind === "saved" && committed !== null ? (
@@ -435,6 +438,7 @@ export function ApartmentsPanel({
                                 aria-label={t(
                                   "settings.apartments.table.number",
                                 )}
+                                maxLength={20}
                                 value={row.number}
                                 onChange={(event) => {
                                   setRows(

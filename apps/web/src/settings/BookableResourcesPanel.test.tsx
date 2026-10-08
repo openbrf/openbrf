@@ -429,6 +429,9 @@ describe("withdrawing a resource", () => {
         name: "Ta Tvättstugan i port 12 ur bokning",
       }),
     );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, ta ur bokning" }),
+    );
 
     await waitFor(() => {
       expect(deactivateBookableResource).toHaveBeenCalledWith(
@@ -436,6 +439,35 @@ describe("withdrawing a resource", () => {
       );
     });
     expect(screen.queryByRole("button", { name: /^Ta bort$/ })).toBeNull();
+  });
+
+  it("asks a second time, because a withdrawal cannot be undone", async () => {
+    fetchAllBookableResources.mockResolvedValue({
+      ok: true,
+      value: [laundry()],
+    });
+
+    const session = userEvent.setup();
+    await open();
+    await session.click(
+      screen.getByRole("button", {
+        name: "Ta Tvättstugan i port 12 ur bokning",
+      }),
+    );
+
+    expect(deactivateBookableResource).not.toHaveBeenCalled();
+    // Focus moves to the question, since the pressed button is gone.
+    const confirm = screen.getByRole("button", { name: "Ja, ta ur bokning" });
+    expect(document.activeElement).toBe(confirm);
+
+    await session.click(screen.getByRole("button", { name: "Behåll" }));
+    expect(deactivateBookableResource).not.toHaveBeenCalled();
+    // And back to the row's own button, so a keyboard keeps its place.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", {
+        name: "Ta Tvättstugan i port 12 ur bokning",
+      }),
+    );
   });
 
   it("leaves the resource readable, with what it left standing", async () => {
@@ -716,11 +748,13 @@ describe("while a resource is being added", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
       await waitFor(() => {
         expect(name.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(name);
       });
-      expect(refocus).toHaveBeenCalledTimes(1);
-      expect(document.activeElement).toBe(name);
     },
   );
 });

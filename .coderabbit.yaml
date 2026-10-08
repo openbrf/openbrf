@@ -40,6 +40,11 @@ reviews:
     enabled: true
     drafts: false
     auto_incremental_review: true
+    # Never pause automatic reviews. By default CodeRabbit pauses them after
+    # five reviewed commits and then answers every later push with "Review
+    # paused" instead of a review, so a pull request that keeps receiving
+    # fixes is left without one.
+    auto_pause_after_reviewed_commits: 0
     base_branches:
       - main
       # Work branches are named wt/<topic>, and a stacked pull request has one
