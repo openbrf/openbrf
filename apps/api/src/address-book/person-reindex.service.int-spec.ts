@@ -154,17 +154,20 @@ describe("reindexing people at boot", () => {
 describe("a number stored without its century", () => {
   // 261201-1235 reads as 1926 until 1 December 2026 and as 2026 from then on.
   const WRITTEN = "261201-1235";
-  const DAY_BEFORE = new Date(2026, 10, 30, 12);
+  const WRITTEN_ON = new Date(2026, 2, 15, 12);
   const DAY_OF = new Date(2026, 11, 1, 12);
   const id = `reindex-short-${suffix}`;
+  const filledIn = `reindex-filled-in-${suffix}`;
   const addressId = `reindex-address-${suffix}`;
   const street = `Omindexgatan ${suffix}`;
+
+  let legacy: EncryptedField;
 
   beforeAll(async () => {
     // As a release before this one stored it: the value as entered, without
     // its century, in the library's own format. Written with the library
     // directly because the service no longer stores a number this way.
-    const legacy = new EncryptedField(
+    legacy = new EncryptedField(
       new CipherSweet(new StringProvider(EncryptionKeyProvider.resolve(env))),
       "person",
       "personalIdentityNumber",
@@ -175,8 +178,15 @@ describe("a number stored without its century", () => {
         firstName: "Greta",
         lastName: "Holm",
         personalIdentityNumberCipher: await legacy.encryptValue(WRITTEN),
-        personalIdentityNumberIndex: "stale",
+        // What that release computed: the year alone, so 2026, a birthday
+        // still to come. No reading this one makes can match it.
+        personalIdentityNumberIndex: await encryption.computeIndex(
+          "person.personalIdentityNumber",
+          `20${WRITTEN}`,
+        ),
         blindIndexVersion: 1,
+        createdAt: WRITTEN_ON,
+        updatedAt: WRITTEN_ON,
       },
     });
     await prisma.address.create({
@@ -196,36 +206,35 @@ describe("a number stored without its century", () => {
 
   afterAll(async () => {
     vi.useRealTimers();
-    await prisma.person.deleteMany({ where: { id } });
+    await prisma.person.deleteMany({ where: { id: { in: [id, filledIn] } } });
     await prisma.apartment.deleteMany({ where: { addressId } });
     await prisma.address.deleteMany({ where: { id: addressId } });
   });
 
-  it("is the same person on either side of the day it would flip", async () => {
+  it("is read as written, whenever the reindex runs", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
 
-    // Reindexed the day before: the century it was read with goes into the
-    // ciphertext.
-    vi.setSystemTime(DAY_BEFORE);
+    // First reindexed on the day the digits flip: still the person entered
+    // in March, so the ciphertext gains the century they meant then.
+    vi.setSystemTime(DAY_OF);
     await service.run();
-    const before = await prisma.person.findUniqueOrThrow({ where: { id } });
+    const first = await prisma.person.findUniqueOrThrow({ where: { id } });
     await expect(
       encryption.decrypt(
         "person.personalIdentityNumber",
-        before.personalIdentityNumberCipher ?? "",
+        first.personalIdentityNumberCipher ?? "",
       ),
     ).resolves.toBe(`19${WRITTEN}`);
 
-    // Reindexed again on the day itself, it is still that person.
-    vi.setSystemTime(DAY_OF);
+    // Reindexed again, it stays that person.
     await prisma.person.update({
       where: { id },
       data: { blindIndexVersion: 1 },
     });
     await service.run();
-    const after = await prisma.person.findUniqueOrThrow({ where: { id } });
-    expect(after.personalIdentityNumberIndex).toBe(
-      before.personalIdentityNumberIndex,
+    const again = await prisma.person.findUniqueOrThrow({ where: { id } });
+    expect(again.personalIdentityNumberIndex).toBe(
+      first.personalIdentityNumberIndex,
     );
 
     // And an import on that day finds them by the number with its century,
@@ -264,5 +273,38 @@ describe("a number stored without its century", () => {
         },
       ],
     });
+  });
+
+  it("takes the century its stored index was given when the number came later", async () => {
+    // A person added in 2024 whose number an import filled in this October:
+    // 251201-1236 read as 1925 when the row was made, and as 2025 when the
+    // number was written, which is the reading its index carries.
+    await prisma.person.create({
+      data: {
+        id: filledIn,
+        firstName: "Elsa",
+        lastName: "Holm",
+        personalIdentityNumberCipher: await legacy.encryptValue("251201-1236"),
+        personalIdentityNumberIndex: await encryption.computeIndex(
+          "person.personalIdentityNumber",
+          "20251201-1236",
+        ),
+        blindIndexVersion: 1,
+        createdAt: new Date(2024, 5, 1, 12),
+        updatedAt: new Date(2026, 9, 1, 12),
+      },
+    });
+
+    await service.run();
+
+    const person = await prisma.person.findUniqueOrThrow({
+      where: { id: filledIn },
+    });
+    await expect(
+      encryption.decrypt(
+        "person.personalIdentityNumber",
+        person.personalIdentityNumberCipher ?? "",
+      ),
+    ).resolves.toBe("20251201-1236");
   });
 });

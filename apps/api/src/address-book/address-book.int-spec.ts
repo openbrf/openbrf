@@ -1310,6 +1310,40 @@ describe("adding a person", () => {
     expect(failure.reason).toBe("invalid-personal-identity-number");
   });
 
+  it("asks for the century of a number that reads as somebody else within a year", async () => {
+    // Born 30 days ago and written in ten digits: a year ago the same digits
+    // were somebody turning 100, so the century is asked for, not guessed.
+    const born = new Date();
+    born.setDate(born.getDate() - 30);
+    const birthDate = [
+      born.getFullYear() % 100,
+      born.getMonth() + 1,
+      born.getDate(),
+    ]
+      .map((part) => String(part).padStart(2, "0"))
+      .join("");
+    const written = Array.from(
+      { length: 10 },
+      (_, checkDigit) => `${birthDate}-123${String(checkDigit)}`,
+    ).find((candidate) => isValidPersonalIdentityNumber(candidate));
+
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/address-book/persons",
+      payload: {
+        firstName: "Ny",
+        lastName: surname,
+        personalIdentityNumber: written,
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const failure = JSON.parse(response.body) as { reason: string };
+    expect(failure.reason).toBe("personal-identity-number-needs-century");
+  });
+
   it("is refused for a resident", async () => {
     const cookie = await signIn(actors.resident.email);
     const response = await inject({

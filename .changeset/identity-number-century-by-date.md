@@ -21,13 +21,16 @@ day they are read on passes the birthday they carry: `261201-1235` is 1926 until
 century it was read with (`19261201-1235`), and one whose reading would differ
 a year earlier or a year later is refused, by the person form and by the
 import, until it is written with its century. A number accepted on two dates
-less than a year apart is read as the same person on both, so a file previewed
-today matches the same people when it is applied or imported again.
+less than a year apart is read as the same person on both, and an import whose
+rows would now be read differently from its preview is refused as outdated
+rather than applied.
 
 Each person now records the normalisation rules their blind indexes were
 computed under. After the upgrade the instance recomputes the indexes of every
 person stored before it, from the encrypted values, in a job queued at start,
 and writes the century into each stored personal identity number that lacks
-one. There is nothing to do by hand; until the job has finished, a search by
-phone number or personal identity number can miss a person stored before the
-upgrade.
+one: the century it was written with, judged from when the person's record was
+made and last changed and from the index stored beside it, not from the day of
+the upgrade. There is nothing to do by hand; until the job has finished, a
+search by phone number or personal identity number can miss a person stored
+before the upgrade.

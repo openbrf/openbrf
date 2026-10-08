@@ -7,11 +7,24 @@ import {
   type EncryptedValue,
   FieldEncryptionService,
 } from "../crypto/field-encryption.service";
-import { NORMALIZATION_VERSION } from "../crypto/personal-data";
+import {
+  NORMALIZATION_VERSION,
+  withPersonalIdentityNumberCentury,
+} from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 
 export const PERSON_REINDEX_QUEUE = "person-blind-index-reindex";
+
+const IDENTITY_NUMBER: EncryptedFieldId = "person.personalIdentityNumber";
+
+/** What the reindex reads of a person. */
+interface StoredPerson {
+  personalIdentityNumberCipher: string | null;
+  personalIdentityNumberIndex: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 /**
  * People read per round; each costs an Argon2id hash for its personal identity
@@ -27,15 +40,18 @@ const BATCH = 100;
  * normalised under the new: the person is still in the register and can no
  * longer be found by phone or personal identity number, and the import's
  * duplicate check misses them. Only the application holds the key, so the indexes are
- * recomputed here, from the ciphertexts, which hold each value as entered. The
+ * recomputed here, from the ciphertexts, which hold each value as entered (and,
+ * for a personal identity number written since version 2, its century). The
  * email is left alone because its rules have not changed.
  *
  * A personal identity number is encrypted again as well. One entered without
  * its century was stored that way, and an index computed from it holds only
  * until the day it is read on passes the birthday it carries: from then on the
- * same digits are read as another person. So the century it is read with now is
- * written into the ciphertext, the form every number has been stored in since,
- * and a later reindex reads the same person from it whatever the date.
+ * same digits are read as another person. So the century is written into the
+ * ciphertext, the form every number has been stored in since, and a later
+ * reindex reads the same person from it whatever the date. Which century is
+ * decided by when the number was written, not by when this runs: see
+ * withCenturyAsWritten.
  *
  * A row records the version it was indexed under, and one below
  * NORMALIZATION_VERSION is what this looks for, so a run that finds nothing
@@ -80,6 +96,9 @@ export class PersonReindexService implements OnModuleInit {
           id: true,
           phoneCipher: true,
           personalIdentityNumberCipher: true,
+          personalIdentityNumberIndex: true,
+          createdAt: true,
+          updatedAt: true,
         },
         take: BATCH,
       });
@@ -87,12 +106,13 @@ export class PersonReindexService implements OnModuleInit {
         break;
       }
       for (const person of people) {
-        const identityNumber = await this.reencrypt(
-          "person.personalIdentityNumber",
-          person.personalIdentityNumberCipher,
-        );
+        const identityNumber = await this.identityNumber(person);
         const { count } = await this.prisma.person.updateMany({
-          where: person,
+          where: {
+            id: person.id,
+            phoneCipher: person.phoneCipher,
+            personalIdentityNumberCipher: person.personalIdentityNumberCipher,
+          },
           data: {
             phoneIndex: await this.indexOf("person.phone", person.phoneCipher),
             personalIdentityNumberCipher: identityNumber?.cipher ?? null,
@@ -111,14 +131,64 @@ export class PersonReindexService implements OnModuleInit {
     return reindexed;
   }
 
-  /** Encrypted again in the form encrypt stores it today, with its index. */
-  private async reencrypt(
-    id: EncryptedFieldId,
-    cipher: string | null,
+  /** The personal identity number encrypted again with its century, and its index. */
+  private async identityNumber(
+    person: StoredPerson,
   ): Promise<EncryptedValue | null> {
-    return cipher === null
-      ? null
-      : this.encryption.encrypt(id, await this.encryption.decrypt(id, cipher));
+    if (person.personalIdentityNumberCipher === null) {
+      return null;
+    }
+    const entered = await this.encryption.decrypt(
+      IDENTITY_NUMBER,
+      person.personalIdentityNumberCipher,
+    );
+    return this.encryption.encrypt(
+      IDENTITY_NUMBER,
+      await this.withCenturyAsWritten(entered, person),
+    );
+  }
+
+  /**
+   * A number stored without its century, with the century it was written
+   * with.
+   *
+   * Read today it could be somebody else: 260301-1234 entered in 2025 meant
+   * 1926, and reads as 2026 since 1 March 2026. The row does not record the day
+   * the number was written, but it was no earlier than the row's creation and
+   * no later than its last change, and the index stored beside it is the one
+   * the number was given then. So of the readings on those two days, the one
+   * that index matches is the number as written. When neither does - an index
+   * from rules that read a birthday still to come as this century, which is
+   * what version 2 corrects - the reading on the day the row was created is
+   * taken. Each reading is a birth date no later than its day, so a person is
+   * never made younger than the row that records them.
+   */
+  private async withCenturyAsWritten(
+    entered: string,
+    person: StoredPerson,
+  ): Promise<string> {
+    const readings = [
+      ...new Set(
+        [person.createdAt, person.updatedAt].map((day) =>
+          withPersonalIdentityNumberCentury(entered, day),
+        ),
+      ),
+    ];
+    const [first] = readings;
+    if (first === undefined || readings.length === 1) {
+      // Written with its century, or read the same on both days.
+      return first ?? entered;
+    }
+    for (const reading of readings) {
+      if (
+        person.personalIdentityNumberIndex !== null &&
+        (await this.encryption.computeIndex(IDENTITY_NUMBER, reading)) ===
+          person.personalIdentityNumberIndex
+      ) {
+        return reading;
+      }
+    }
+    return first;
   }
 
   private async indexOf(
