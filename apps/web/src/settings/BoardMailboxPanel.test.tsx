@@ -121,15 +121,13 @@ describe("while the board mailbox is being saved", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
       await waitFor(() => {
         expect(secret.matches(":disabled")).toBe(false);
-      });
-      // The hand-back runs in a passive effect, which can land just after the
-      // field is enabled.
-      await waitFor(() => {
         expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(secret);
       });
-      expect(document.activeElement).toBe(secret);
     },
   );
 });

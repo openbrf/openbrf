@@ -4,6 +4,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
 import { DriverAdapterError } from "@prisma/driver-adapter-utils";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +24,7 @@ import {
 import {
   BoardMailboxCollectorService,
   type CollectionSummary,
+  MAX_MESSAGES_PER_COLLECTION,
 } from "./board-mailbox-collector.service";
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
@@ -31,6 +33,7 @@ import {
   legacyMailboxFingerprint,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
+import { htmlToText, MAX_TEXT_CHARACTERS, readMessage } from "./mime";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
@@ -249,8 +252,19 @@ function letter(options: {
   attachment?: boolean;
   /** The Date header. Yesterday unless a test needs another. */
   date?: string;
+  /**
+   * The date on the Received header the mailbox's own server puts on top, or
+   * none at all, which is a letter that did not arrive through a mail server.
+   */
+  received?: string;
 }): string {
   const headers = [
+    ...(options.received === undefined
+      ? []
+      : [
+          "Received: from mx.utanfor.example (mx.utanfor.example [192.0.2.7])",
+          `\tby pop.exempel.se; ${options.received}`,
+        ]),
     `From: Granne <${options.from}>`,
     `To: <${BOARD_ADDRESS}>`,
     `Subject: ${options.subject}`,
@@ -282,6 +296,95 @@ function letter(options: {
     "--SEP--",
     "",
   ].join("\r\n");
+}
+
+/** What the mailer hands the mail service for one answer. */
+type HandedOver = Parameters<MailService["send"]>[0] & { messageId: string };
+
+/**
+ * Sends a reply through the mailer with the transport stubbed, and answers
+ * what was handed over.
+ */
+async function sendAnswer(replyMessageId: string): Promise<HandedOver> {
+  const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+  let input: Parameters<MailService["send"]>[0] | undefined;
+  try {
+    expect(await mailer.sendReply(replyMessageId)).toBe("sent");
+    // Read before the spy is restored, which clears what it recorded.
+    input = send.mock.calls[0]?.[0];
+  } finally {
+    send.mockRestore();
+  }
+  if (input === undefined || typeof input.messageId !== "string") {
+    throw new Error("The mailer handed nothing over.");
+  }
+  return { ...input, messageId: input.messageId };
+}
+
+/**
+ * The board's answer as a copy of it comes back into the mailbox.
+ *
+ * Rendered from what the mailer handed over, the way the mail service sends
+ * it, so the copy is the answer the correspondent received rather than this
+ * suite's idea of it. Both forms, base64-encoded, the HTML last, the way a mail
+ * library writes them.
+ *
+ * @param options.extraParts Parts a sender adds beside the answer, each as its
+ *   header and body lines. Any at all puts the answer inside a
+ *   multipart/mixed.
+ * @param options.html An HTML form in place of the answer's own.
+ * @param options.subject A subject line in place of the answer's own.
+ * @param options.text A plain-text form in place of the answer's own.
+ */
+async function answerCopy(
+  input: HandedOver,
+  options: {
+    extraParts?: readonly (readonly string[])[];
+    html?: string;
+    subject?: string;
+    text?: string;
+  } = {},
+): Promise<string> {
+  const extraParts = options.extraParts ?? [];
+  const rendered = await mail.renderMail(input);
+  const base64 = (value: string): string =>
+    Buffer.from(value, "utf8").toString("base64");
+  const alternative = [
+    "Content-Type: multipart/alternative; boundary=ALT",
+    "",
+    "--ALT",
+    "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64(options.text ?? rendered.text),
+    "--ALT",
+    "Content-Type: text/html; charset=utf-8",
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64(options.html ?? rendered.html),
+    "--ALT--",
+  ];
+  const headers = [
+    `From: Styrelsen <${BOARD_ADDRESS}>`,
+    `To: <${input.to}>`,
+    `Subject: ${options.subject ?? rendered.subject}`,
+    `Message-ID: <${input.messageId}>`,
+    `Date: ${yesterdayDateHeader()}`,
+    "MIME-Version: 1.0",
+  ];
+
+  const body =
+    extraParts.length === 0
+      ? alternative
+      : [
+          "Content-Type: multipart/mixed; boundary=MIX",
+          "",
+          "--MIX",
+          ...alternative,
+          ...extraParts.flatMap((part) => ["--MIX", ...part]),
+          "--MIX--",
+        ];
+  return [...headers, ...body, ""].join("\r\n");
 }
 
 /**
@@ -1023,6 +1126,70 @@ describe("collecting the mailbox", () => {
 
       // Not a letter the board is told to go and read: it was never to be kept.
       expect((await mailboxStatus()).setAsideCount).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("holds a sender's date to when the mailbox received the letter", async () => {
+    const now = new Date("2026-09-28T12:00:00.000Z");
+    const recent = `Sent-klocka ${suffix}`;
+    const old = `Gammal-post ${suffix}`;
+    const server = await serveMailbox([
+      {
+        // Sent this morning from a device whose clock is years behind - or by
+        // somebody who set the header so. Read by its date alone, it would be
+        // set aside unseen as past the retention window.
+        uid: `uid-sent-klocka-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: recent,
+          body: "Ett brev fran i dag.",
+          messageId: `sent-klocka-${suffix}@utanfor.example`,
+          date: "Wed, 01 Jan 2020 09:15:00 +0100",
+          received: "Mon, 28 Sep 2026 09:00:00 +0000",
+        }),
+      },
+      {
+        // The other way round: the mailbox took it in years ago, and its date
+        // says this week. It is a mailbox's old mail, read for the first time.
+        uid: `uid-gammal-post-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: old,
+          body: "Ett brev fran for lange sedan.",
+          messageId: `gammal-post-${suffix}@utanfor.example`,
+          date: "Sun, 27 Sep 2026 09:00:00 +0000",
+          received: "Wed, 01 Jan 2020 09:15:00 +0100",
+        }),
+      },
+    ]);
+
+    try {
+      const summary = await collector.collect(now);
+      expect(summary.collected).toBe(1);
+      expect(summary.skipped).toBe(1);
+
+      // Stored, and dated by its arrival, so the purge does not take it that
+      // night either.
+      const thread = await prisma.boardMailboxThread.findFirst({
+        where: { subject: recent },
+        select: { lastMessageAt: true },
+      });
+      expect(thread?.lastMessageAt.toISOString()).toBe(
+        "2026-09-28T09:00:00.000Z",
+      );
+
+      const setAside = await prisma.boardMailboxIgnoredMessage.findMany({
+        where: { sourceUid: { endsWith: `:uid-gammal-post-${suffix}` } },
+        select: { reason: true },
+      });
+      expect(setAside.map((row) => row.reason)).toStrictEqual([
+        "past-retention",
+      ]);
+      expect(
+        await prisma.boardMailboxThread.count({ where: { subject: old } }),
+      ).toBe(0);
     } finally {
       await server.close();
     }
@@ -2772,7 +2939,10 @@ describe("working a thread", () => {
 });
 
 describe("answering a letter", () => {
-  async function threadWithReply(subject: string): Promise<{
+  async function threadWithReply(
+    subject: string,
+    answer = "Tack for ditt brev. Vi tittar pa det.",
+  ): Promise<{
     thread: ThreadBody;
     replyMessageId: string;
   }> {
@@ -2797,7 +2967,7 @@ describe("answering a letter", () => {
     const replied = await inject({
       method: "POST",
       url: `/api/board-mailbox/threads/${thread.id}/reply`,
-      payload: { body: "Tack for ditt brev. Vi tittar pa det." },
+      payload: { body: answer },
       headers: { cookie: boardCookie },
     });
     expect(replied.statusCode, replied.body).toBe(201);
@@ -2918,12 +3088,6 @@ describe("answering a letter", () => {
     const subject = `Eget-svar ${suffix}`;
     const { replyMessageId } = await threadWithReply(subject);
 
-    const reply = await prisma.boardMailboxMessage.findUnique({
-      where: { id: replyMessageId },
-      select: { messageId: true },
-    });
-    expect(reply?.messageId).toBeTruthy();
-
     /*
      * A mailbox can hold what was sent from it as well as what was delivered to
      * it - a board that copies its own address, a provider that files sent mail
@@ -2933,13 +3097,8 @@ describe("answering a letter", () => {
      */
     const server = await serveMailbox([
       {
-        uid: "uid-own-answer",
-        raw: letter({
-          from: BOARD_ADDRESS,
-          subject: `Sv: ${subject}`,
-          body: "Tack for ditt brev.",
-          messageId: reply?.messageId ?? "",
-        }),
+        uid: `uid-own-answer-${suffix}`,
+        raw: await answerCopy(await sendAnswer(replyMessageId)),
       },
     ]);
 
@@ -2959,6 +3118,266 @@ describe("answering a letter", () => {
 
       expect(summary.collected).toBe(0);
       expect(after).toStrictEqual(before);
+
+      // Held under the answer itself, so it is not read again.
+      const answer = await prisma.boardMailboxMessage.findUnique({
+        where: { id: replyMessageId },
+        select: { sourceUid: true },
+      });
+      expect(answer?.sourceUid).toContain(`uid-own-answer-${suffix}`);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not take a letter that borrows an answer's identifier for the board's own", async () => {
+    const subject = `Lanat-id ${suffix}`;
+    const { replyMessageId } = await threadWithReply(subject);
+
+    /*
+     * The identifier is no secret: it reached the correspondent with the answer
+     * and is named in every reply they make. A letter carrying it is the board's
+     * own only when it also says what the board said and nothing more - so
+     * each of these is somebody writing to the board, and each is stored.
+     */
+    const sent = await sendAnswer(replyMessageId);
+    const rendered = await mail.renderMail(sent);
+    const [firstWord] = htmlToText(rendered.html).trim().split(/\s+/);
+    const borrowed = (name: string, raw: string) => ({
+      uid: `uid-${name}-${suffix}`,
+      raw,
+    });
+    const server = await serveMailbox([
+      // Other words under the answer's identifier.
+      borrowed(
+        "lanat-annat",
+        letter({
+          from: CORRESPONDENT,
+          subject: `Annat ${subject}`,
+          body: "Det har ar inte styrelsens svar.",
+          messageId: sent.messageId,
+        }),
+      ),
+      // The answer word for word, and a file beside it.
+      borrowed(
+        "lanat-bilaga",
+        await answerCopy(sent, {
+          extraParts: [
+            [
+              "Content-Type: image/png",
+              "Content-Transfer-Encoding: base64",
+              'Content-Disposition: attachment; filename="tak.png"',
+              "",
+              pngBytes().toString("base64"),
+            ],
+          ],
+        }),
+      ),
+      // The answer word for word, and a second text part beside it, which the
+      // reader reads into the letter's text.
+      borrowed(
+        "lanat-del",
+        await answerCopy(sent, {
+          extraParts: [
+            ["Content-Type: text/plain; charset=utf-8", "", "Och en sak till."],
+          ],
+        }),
+      ),
+      // The answer as its plain text, and another letter as its HTML. The
+      // reader reads the plain text, and a client that shows HTML shows the
+      // other letter.
+      borrowed(
+        "lanat-html",
+        await answerCopy(sent, {
+          html: "<p>Det har ar ett helt annat brev till styrelsen.</p>",
+        }),
+      ),
+      // The answer word for word under another subject line.
+      borrowed(
+        "lanat-amne",
+        await answerCopy(sent, { subject: `Nytt arende ${subject}` }),
+      ),
+      // The answer, then a gap longer than the reader keeps, then another
+      // letter. A client shows all of it; the reader keeps the answer and the
+      // gap, and is told the letter goes on.
+      borrowed(
+        "lanat-utfyllnad",
+        await answerCopy(sent, {
+          text: `${rendered.text}${" ".repeat(MAX_TEXT_CHARACTERS)}Det har ar ett annat brev.`,
+        }),
+      ),
+      // The same in HTML: the answer's first word, then a comment longer than
+      // the reader reads, then another letter.
+      borrowed(
+        "lanat-kommentar",
+        await answerCopy(sent, {
+          html: `<p>${firstWord}<!--${" ".repeat(4 * MAX_TEXT_CHARACTERS)}-->Det har ar ett annat brev.</p>`,
+        }),
+      ),
+      // Another letter as a picture in the HTML, which has no words at all.
+      borrowed(
+        "lanat-bild",
+        await answerCopy(sent, {
+          html: '<img src="data:image/png;base64,iVBORw0KGgo=">',
+        }),
+      ),
+      // Another letter written by a style sheet, which has no words either.
+      borrowed(
+        "lanat-stil",
+        await answerCopy(sent, {
+          html: '<style>body::before { content: "Det har ar ett annat brev."; }</style>',
+        }),
+      ),
+      // The answer's HTML word for word, and a picture among its words.
+      borrowed(
+        "lanat-bild-i-svaret",
+        await answerCopy(sent, {
+          html: rendered.html.replace(
+            "</body>",
+            '<img src="data:image/png;base64,iVBORw0KGgo="></body>',
+          ),
+        }),
+      ),
+    ]);
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.collected).toBe(10);
+
+      const stored = await prisma.boardMailboxMessage.findMany({
+        where: {
+          sourceUid: { endsWith: `-${suffix}`, contains: "uid-lanat-" },
+        },
+        select: { direction: true },
+      });
+      expect(stored).toHaveLength(10);
+      expect(stored.every((row) => row.direction === "INBOUND")).toBe(true);
+
+      // The second text is in the letter the board reads, not left out of it.
+      const withPart = await prisma.boardMailboxMessage.findFirst({
+        where: { sourceUid: { endsWith: `uid-lanat-del-${suffix}` } },
+        select: { body: true },
+      });
+      expect(withPart?.body).toContain("Och en sak till.");
+
+      // And the answer itself is not marked as any of them.
+      const answer = await prisma.boardMailboxMessage.findUnique({
+        where: { id: replyMessageId },
+        select: { sourceUid: true },
+      });
+      expect(answer?.sourceUid).toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("recognises a copy of an answer longer than the reader keeps", async () => {
+    const subject = `Langt-svar ${suffix}`;
+    // As long as the board may write. With the greeting and the closing line
+    // around it, the answer is longer than the reader keeps of a letter.
+    const words = "Vi har gatt igenom ert brev. ";
+    const { replyMessageId } = await threadWithReply(
+      subject,
+      words
+        .repeat(Math.ceil(MAX_REPLY_CHARACTERS / words.length))
+        .slice(0, MAX_REPLY_CHARACTERS),
+    );
+    const copy = await answerCopy(await sendAnswer(replyMessageId));
+    // What the test is about: the copy is read cut.
+    expect(readMessage(Buffer.from(copy, "utf8")).textTruncated).toBe(true);
+
+    const server = await serveMailbox([
+      { uid: `uid-langt-svar-${suffix}`, raw: copy },
+    ]);
+    try {
+      const summary = await collector.collect();
+      expect(summary.collected).toBe(0);
+
+      const answer = await prisma.boardMailboxMessage.findUnique({
+        where: { id: replyMessageId },
+        select: { sourceUid: true },
+      });
+      expect(answer?.sourceUid).toContain(`uid-langt-svar-${suffix}`);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("fetches no copy of the board's own answer twice, however many come back", async () => {
+    const subject = `Kopior ${suffix}`;
+    const { replyMessageId } = await threadWithReply(subject);
+
+    /*
+     * A provider that files sent mail, and a board that copies its own address
+     * on the answer, leave two copies of it in the mailbox. The first is held
+     * under the answer itself. The second has no row of its own to be held
+     * under, and was fetched again on every run for as long as the mailbox
+     * kept it.
+     */
+    const copy = await answerCopy(await sendAnswer(replyMessageId));
+    const server = await serveMailbox([
+      { uid: `uid-kopia-1-${suffix}`, raw: copy },
+      { uid: `uid-kopia-2-${suffix}`, raw: copy },
+    ]);
+    const retrievals = (): number =>
+      server.received.filter((line) => line.startsWith("RETR ")).length;
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(0);
+      expect(retrievals()).toBe(2);
+
+      const second = await collector.collect();
+      expect(second.collected).toBe(0);
+      expect(second.alreadyHeld).toBe(2);
+      expect(retrievals()).toBe(2);
+
+      const recorded = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:uid-kopia-2-${suffix}` } },
+        select: { reason: true, retryAfter: true },
+      });
+      expect(recorded).toEqual({ reason: "own-answer-copy", retryAfter: null });
+      // Not a letter for the board to go and open, so not listed as one.
+      expect(
+        (await mailboxStatus()).setAside.map((row) => row.reason),
+      ).not.toContain("own-answer-copy");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("reaches a letter behind more copies of an answer than one collection fetches", async () => {
+    const subject = `Kopiehog ${suffix}`;
+    const { replyMessageId } = await threadWithReply(subject);
+    const copy = await answerCopy(await sendAnswer(replyMessageId));
+
+    const behind = `Bakom kopiorna ${suffix}`;
+    const server = await serveMailbox([
+      ...Array.from(
+        { length: MAX_MESSAGES_PER_COLLECTION + 1 },
+        (_, index) => ({
+          uid: `uid-kopiehog-${String(index)}-${suffix}`,
+          raw: copy,
+        }),
+      ),
+      {
+        uid: `uid-bakom-kopiorna-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: behind,
+          body: "Hej styrelsen.",
+          messageId: `${identifierOf(behind)}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    try {
+      // The first run spends every fetch it has on the copies. The second
+      // fetches none of them again, so it reaches the letter.
+      await collector.collect();
+      await collector.collect();
+
+      expect((await threadBySubject(behind)).subject).toBe(behind);
     } finally {
       await server.close();
     }
@@ -3133,9 +3552,10 @@ describe("the purge", () => {
     expect(replied.statusCode, replied.body).toBe(201);
     const answer = await prisma.boardMailboxMessage.findFirst({
       where: { threadId: thread.id, direction: "OUTBOUND" },
-      select: { messageId: true },
+      select: { id: true, messageId: true },
     });
-    expect(answer?.messageId).toBeTruthy();
+    expect(answer).not.toBeNull();
+    const answerSent = await sendAnswer(answer?.id ?? "");
 
     // The whole conversation as a mailbox holds it: the opening letter, the
     // correspondent's follow-up, and the board's own answer filed back into the
@@ -3154,12 +3574,7 @@ describe("the purge", () => {
       },
       {
         uid: `uid-samtal-svar-${suffix}`,
-        raw: letter({
-          from: BOARD_ADDRESS,
-          subject: `Sv: ${subject}`,
-          body: "Tack, vi tittar pa det.",
-          messageId: answer?.messageId ?? "",
-        }),
+        raw: await answerCopy(answerSent),
       },
     ];
 

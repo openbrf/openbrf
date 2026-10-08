@@ -52,7 +52,8 @@ export class ThemeSourceError extends DomainError {
       | "catalog-invalid"
       | "package-unreachable"
       | "package-too-large"
-      | "checksum-mismatch",
+      | "checksum-mismatch"
+      | "malformed-digest",
   ) {
     super(message);
     // Refusing an index the configuration names is the instance's own
@@ -123,6 +124,14 @@ export class CatalogThemeSource implements ThemeSource {
       if (cause instanceof IntegrityError) {
         // Nothing has been written anywhere yet: verification happens on the
         // downloaded bytes, before the installer is allowed to see them.
+        if (cause.reason === "malformed-digest") {
+          // The entry is written wrongly; the bytes were never compared, so
+          // they are not reported as tampered with.
+          throw new ThemeSourceError(
+            `The catalog states a digest for ${entry.id} that is not written as sha512-<base64> or 128 hex characters.`,
+            "malformed-digest",
+          );
+        }
         throw new ThemeSourceError(
           `The package for ${entry.id} does not match the checksum the catalog states.`,
           "checksum-mismatch",

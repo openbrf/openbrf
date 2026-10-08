@@ -80,9 +80,22 @@ export const COLLECTION_REFUSALS = {
    * read.
    *
    * Storing it would keep a letter the purge is due to erase that night, and
-   * time only moves one way, so no later run would decide differently.
+   * time only moves one way, so no later run would decide differently. The
+   * date is held to when the mailbox received the letter, so a sender cannot
+   * put a letter here by dating it in the past.
    */
   pastRetention: "past-retention",
+
+  /**
+   * The message is a further copy of an answer the board sent from here.
+   *
+   * The first copy is held under the answer itself, which has room for one. A
+   * mailbox can hold more - a provider that files sent mail, a board that
+   * copied its own address - and each of the others is recorded here, so it is
+   * not fetched again on every run. It is the board's own words, so there is
+   * nothing for the board to go and read.
+   */
+  ownAnswerCopy: "own-answer-copy",
 
   /**
    * The letter could not be stored.
@@ -110,7 +123,8 @@ export type CollectionRefusal =
  *
  * Not a letter the purge erased, which the board did read and the association
  * no longer keeps, nor one already past the retention window when it was first
- * read, which it was never to keep. Those rows are there so the collector does
+ * read, which it was never to keep, nor a copy of the board's own answer, which
+ * it wrote. Those rows are there so the collector does
  * not store the letter again, and a screen that listed them would fill with
  * every thread the purge has taken.
  */
