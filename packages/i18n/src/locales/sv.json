@@ -2263,7 +2263,7 @@
       "invalidBody": "Kontrollera datumen och priset. Ett datum måste finnas i kalendern, och ett pris skrivs med punkt, till exempel 2150000.50.",
       "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
       "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
-      "transferWithoutTenantOwnership": "En överlåtelse eller upplåtelse kan bara registreras för en bostadsrättshavare. Registrera flytten som medlem, eller ta bort överlåtelsen.",
+      "transferWithoutTenantOwnership": "En överlåtelse eller upplåtelse kan bara registreras för en bostadsrättshavare. Registrera flytten som medlem, eller ta bort överlåtelsen eller upplåtelsen.",
       "alreadyGranted": "Lägenheten är redan upplåten. Ett senare ägarbyte är en överlåtelse.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
@@ -4418,7 +4418,7 @@
       "dueBeforePeriod": "Förfallodagen kan inte ligga före perioden den avser.",
       "nothingToBill": "Ingen lägenhet har en avgift som gäller under perioden.",
       "tooManyNotices": "Fler avier än formatet för betalningsreferenser rymmer.",
-      "amountTooLarge": "En avi skulle avisera mer än ett belopp rymmer. Kontrollera avgifterna efter en felskriven siffra.",
+      "amountTooLarge": "Beloppet på avin överskrider det högsta tillåtna beloppet. Kontrollera avgifterna efter en felskriven siffra.",
       "periodPastRetention": "Perioden är äldre än den tid föreningen sparar avier.",
       "paymentReferenceReused": "En avisering från samma månad hundra år tidigare använder redan de här betalningsreferenserna. Kontrollera året.",
       "invalidBody": "Något i formuläret gick inte att läsa.",

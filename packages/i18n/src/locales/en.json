@@ -2263,7 +2263,7 @@
       "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
-      "transferWithoutTenantOwnership": "A transfer or a grant can only be recorded for a tenant-owner. Record the move as a member, or leave the transfer out.",
+      "transferWithoutTenantOwnership": "A transfer or a grant can only be recorded for a tenant-owner. Record the move as a member, or leave the transfer or grant out.",
       "alreadyGranted": "This apartment has already been granted. A later change of hands is a transfer.",
       "unknown": "That could not be saved just now. Please try again."
     }
@@ -4418,7 +4418,7 @@
       "dueBeforePeriod": "The due date cannot fall before the period it bills.",
       "nothingToBill": "No apartment has a fee in force for that period.",
       "tooManyNotices": "More notices than the payment reference format can number.",
-      "amountTooLarge": "One notice would bill more than an amount can hold. Check the fees for a mistyped figure.",
+      "amountTooLarge": "The notice amount exceeds the highest amount allowed. Check the fees for a mistyped figure.",
       "periodPastRetention": "That period is older than the association keeps fee notices for.",
       "paymentReferenceReused": "A run from the same month a hundred years apart already uses these payment references. Check the year.",
       "invalidBody": "Something in the form could not be read.",
