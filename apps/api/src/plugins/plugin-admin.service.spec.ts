@@ -250,18 +250,26 @@ describe("the consent echo gate", () => {
   it("refuses a version other than the one the operator was shown", async () => {
     // The declaration is unchanged, so only the version tells the release the
     // operator read about from the one the catalog now names.
-    await expect(
-      service.install(
-        {
-          id: "occupancy",
-          expectedVersion: "0.9.0",
-          permissions: ["addressBook:read", "mail:send"],
-          personalData: ["name", "apartment"],
-        },
-        null,
-        "SYSTEM",
-      ),
-    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    const refusal = service.install(
+      {
+        id: "occupancy",
+        expectedVersion: "0.9.0",
+        permissions: ["addressBook:read", "mail:send"],
+        personalData: ["name", "apartment"],
+      },
+      null,
+      "SYSTEM",
+    );
+    await expect(refusal).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    // A command-line operator never opened a screen, and only the release
+    // changed: the message must say neither of the wrong things.
+    await expect(refusal).rejects.toMatchObject({
+      reason: "plugin-consent-mismatch",
+      message: expect.stringMatching(/release/),
+    });
+    await expect(refusal).rejects.toMatchObject({
+      message: expect.not.stringMatching(/screen/),
+    });
     expect(consent).not.toHaveBeenCalled();
   });
 

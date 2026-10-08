@@ -114,8 +114,9 @@ export class PluginConsentMismatchError extends DomainError {
 
   constructor() {
     super(
-      "The permissions or personal data the catalog lists have changed since " +
-        "this screen was opened. Review them again.",
+      "The catalog entry has changed since it was shown: the release, the " +
+        "permissions or the personal data it lists are not the ones that were " +
+        "reviewed. Look at the entry again and retry.",
     );
   }
 }
