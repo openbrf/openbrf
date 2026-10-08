@@ -470,6 +470,29 @@ describe("reporting a message", () => {
     expect(reports).toHaveLength(1);
   });
 
+  it("refuses a report that waited while the board struck the message", async () => {
+    /*
+     * The strike closes every open report on the message under the message's
+     * lock. A report inserted after that would stay open on a struck message,
+     * and dismissing it later would record the board leaving standing a
+     * message that carries a strike.
+     */
+    const { service, reports, locks } = build({
+      whileWaiting: (_reports, messages) => {
+        const message = messages[0];
+        if (message !== undefined) {
+          message.struckAt = new Date();
+        }
+      },
+    });
+
+    await expect(
+      service.report(principal(NILS, ["chat:participate"]), MESSAGE_ID, null),
+    ).rejects.toMatchObject({ reason: "report-resolved" });
+    expect(locks).toEqual([`chat-message:${MESSAGE_ID}`]);
+    expect(reports).toHaveLength(0);
+  });
+
   it("writes no audit entry, because the report row is the record", async () => {
     const { service, audit } = build({});
 

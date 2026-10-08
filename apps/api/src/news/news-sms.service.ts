@@ -155,11 +155,11 @@ export class NewsSmsService implements OnModuleInit {
     });
 
     if (news === null || !news.published || news.smsQueuedAt === null) {
-      // The item was taken down or removed between the publish and this run.
-      // Nothing to do, and nothing wrong: the ledger keeps its record of who
-      // the board had addressed.
+      // Taken down or removed between the publish and this run. The rows wait
+      // for the item to be put back up, which queues this job again, exactly
+      // as the mailer beside this does.
       this.logger.warn(
-        `News SMS mailing skipped: ${newsId} is not a published, texted item.`,
+        `News SMS mailing held: ${newsId} is not a published, texted item.`,
       );
       return { sent: 0, failed: 0 };
     }

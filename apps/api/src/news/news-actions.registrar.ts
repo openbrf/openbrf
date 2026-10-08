@@ -306,13 +306,15 @@ export class NewsActionsRegistrar implements OnModuleInit {
             .max(50)
             .default(20)
             .describe("How many items to fetch, at most fifty."),
+          // An instant, a separator and the id of the last item read, so
+          // bounded above an id's own length.
           cursor: z
             .string()
             .min(1)
-            .max(64)
+            .max(100)
             .optional()
             .describe(
-              "Where to carry on from, as the previous answer's nextCursor.",
+              "Where to carry on from, as the previous answer's nextCursor. A cursor from an earlier release of OpenBRF answers not-found; start the list again without one.",
             ),
           publishedOnly: z
             .boolean()
