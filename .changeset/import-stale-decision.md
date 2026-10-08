@@ -15,7 +15,7 @@ possibly a member register entry, which cannot be removed. The import now
 stops at that chunk, records it as "register-changed-during-apply" and writes
 nothing from that chunk. The screen then says the register changed while the
 import ran and asks the board to import the rest as a new file: the session
-cannot be previewed again, so the new file's preview shows the match. This
-differs from a request that arrives with decisions the preview does not need,
+cannot be previewed again, and the new file's preview shows what the row
+matches at that time. This differs from a request that arrives with decisions the preview does not need,
 which is still refused at once as "preview-outdated" ("Your choices change what
 other rows match. Preview the import again.") before anything is written.
