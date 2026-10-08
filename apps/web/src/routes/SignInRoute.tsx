@@ -4,7 +4,11 @@ import { useTranslation } from "react-i18next";
 
 import { fetchSignupState } from "../api/signup";
 import { SignInScreen } from "../auth/SignInScreen";
-import { authorizationRequestIn, consentHref } from "./authorization-request";
+import {
+  authorizationRequestIn,
+  consentHref,
+  requestSearch,
+} from "./authorization-request";
 import { safeReturnTo } from "./return-to";
 
 /**
@@ -52,13 +56,13 @@ export function SignInRoute(): ReactElement {
    * passkey or a code, and a destination worked out on only the first of them
    * would send anybody with an authenticator app to the wrong place.
    *
-   * The authorization request is read from the unparsed search string and
-   * appended to the consent screen's address as it stands, and the hop is a
-   * document navigation - see the note in authorization-request.ts for what
-   * the router would otherwise do to it.
+   * The authorization request is read from the search string this page was
+   * loaded with and appended to the consent screen's address as it stands,
+   * and the hop is a document navigation - see the note in
+   * authorization-request.ts for what the router would otherwise do to it.
    */
   const onSignedIn = (): void => {
-    const request = authorizationRequestIn(window.location.search);
+    const request = authorizationRequestIn(requestSearch());
     if (request !== null) {
       void navigate({ href: consentHref(request), reloadDocument: true });
       return;

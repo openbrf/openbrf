@@ -27,7 +27,56 @@ import { safeReturnTo } from "./return-to";
  * consent screen is built from the unparsed search string and taken as a
  * document navigation, and why the consent screen reads the same unparsed
  * string rather than anything the router has rebuilt.
+ *
+ * And the address bar itself is not that string for long. When the router
+ * mounts it builds the location it would have written for the page it was
+ * loaded on, and when that differs from the one in the address bar it
+ * replaces the history entry with its own - so by the time a screen renders,
+ * `window.location.search` already holds the re-spelled request. The
+ * unparsed string is therefore taken once, as the document arrives and before
+ * the router exists, and read from there (`requestSearch` below).
  */
+
+/** Where the browser is, as far as an authorization request is concerned. */
+interface DocumentAddress {
+  pathname: string;
+  search: string;
+}
+
+/**
+ * The address this document was loaded at, before the router rewrote it.
+ *
+ * Taken when this module is first evaluated, which is while the application's
+ * entry point is still importing the router: nothing has replaced a history
+ * entry yet.
+ */
+const LOADED_AT: DocumentAddress = {
+  pathname: window.location.pathname,
+  search: window.location.search,
+};
+
+/**
+ * The search string a screen reads the request from, given where the document
+ * was loaded and where the browser is now.
+ *
+ * The search the document was loaded with, as long as the browser is still on
+ * the page it was loaded at. Every way onto the sign-in and consent screens
+ * with a request is a document load - the provider's redirect, and the hops
+ * between the two - so that is where the request is. Anywhere else the
+ * document's search belongs to another page, and the address bar is all there
+ * is.
+ */
+export function requestSearchOf(
+  loaded: DocumentAddress,
+  current: DocumentAddress,
+): string {
+  return loaded.pathname === current.pathname ? loaded.search : current.search;
+}
+
+/** The search string a screen reads the request from, here and now. */
+export function requestSearch(): string {
+  return requestSearchOf(LOADED_AT, window.location);
+}
 
 /**
  * Where this application is served.

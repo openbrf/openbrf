@@ -1,13 +1,20 @@
 import {
+  createRootRoute,
+  createRoute,
+  createRouter,
   defaultParseSearch,
   defaultStringifySearch,
+  RouterProvider,
 } from "@tanstack/react-router";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
   consentHref,
+  requestSearchOf,
   signInHref,
   validateAuthorizationSearch,
 } from "./authorization-request";
@@ -158,5 +165,74 @@ describe("what the sign-in and consent routes declare", () => {
         undefined,
       );
     }
+  });
+});
+
+describe("where a screen reads the request from", () => {
+  const CONSENT = `${APP_BASE_PATH}/oauth/consent`;
+
+  it("is the search the page was loaded with, while the browser is still on it", () => {
+    const respelled = `?${defaultStringifySearch(defaultParseSearch(REQUEST))}`;
+
+    expect(
+      requestSearchOf(
+        { pathname: CONSENT, search: REQUEST },
+        { pathname: CONSENT, search: respelled },
+      ),
+    ).toBe(REQUEST);
+  });
+
+  it("is the address bar's once the browser has moved to another page", () => {
+    expect(
+      requestSearchOf(
+        { pathname: CONSENT, search: REQUEST },
+        { pathname: `${APP_BASE_PATH}/sign-in`, search: "?returnTo=%2F" },
+      ),
+    ).toBe("?returnTo=%2F");
+  });
+});
+
+describe("the request on the consent screen, once the router has mounted", () => {
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", "/");
+  });
+
+  /*
+   * The seam itself, with the router this application uses. Mounting it on a
+   * page carrying a signed request rewrites the address bar into the router's
+   * own spelling before any screen renders, and the screen has to read the
+   * request as it arrived regardless. The module is evaluated afresh after the
+   * page is "loaded", which is the order an entry point imports it in.
+   */
+  it("is still the one the page was loaded with", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `${APP_BASE_PATH}/oauth/consent${REQUEST}`,
+    );
+    vi.resetModules();
+    const fresh = await import("./authorization-request");
+
+    const rootRoute = createRootRoute();
+    const consentRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/oauth/consent",
+      validateSearch: fresh.validateAuthorizationSearch,
+      component: () => null,
+    });
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([consentRoute]),
+      basepath: APP_BASE_PATH,
+    });
+    render(createElement(RouterProvider, { router }));
+
+    await waitFor(() => {
+      expect(window.location.search).not.toBe(REQUEST);
+    });
+    expect(
+      new URLSearchParams(window.location.search).getAll("ba_param"),
+    ).toHaveLength(1);
+    expect(fresh.requestSearch()).toBe(REQUEST);
   });
 });
