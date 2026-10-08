@@ -2383,7 +2383,7 @@
       "date-not-iso": "Dates have to be written as YYYY-MM-DD.",
       "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
       "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
-      "personal-identity-number-needs-century": "Write this personal identity number with its century (YYYYMMDD-NNNN). Without one, it would name a different person within a year.",
+      "personal-identity-number-needs-century": "Write this personal identity number with its century (YYYYMMDD-NNNN), so that it always names the same person.",
       "invalid-email": "That is not an email address the register can store.",
       "garbled-characters": "A character was already lost in the file (shown as �). Correct it in the file and upload it again.",
       "unknown": "The row could not be read."

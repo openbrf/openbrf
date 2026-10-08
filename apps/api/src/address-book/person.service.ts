@@ -581,8 +581,9 @@ export class PersonService {
         );
       }
       if (personalIdentityNumberNeedsCentury(input.personalIdentityNumber)) {
-        // Ten digits that name another person a few months from now: which one
-        // was meant is not something to guess about a register entry.
+        // Ten digits read as another person less than a year before or after
+        // today: which one was meant is not something to guess about a
+        // register entry.
         throw new PersonError(
           "Write that personal identity number with its century.",
           "personal-identity-number-needs-century",
