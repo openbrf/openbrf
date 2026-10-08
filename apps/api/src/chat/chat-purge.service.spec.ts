@@ -94,6 +94,8 @@ function build(options: {
   refusedChatId?: string;
   /** Places in a group held by people who no longer live here. */
   formerMembers?: { chatId: string; personId: string }[];
+  /** The people whose place the database refuses to delete, every time. */
+  refusedMemberPersonIds?: string[];
   /**
    * The person whose move-in commits the moment the sweep takes their
    * residency key: the move-in held it, and the sweep waited for it.
@@ -199,7 +201,10 @@ function build(options: {
       }),
     },
     chatGroupMember: {
-      deleteMany: vi.fn(async () => {
+      deleteMany: vi.fn(async (args: { where: { personId: string } }) => {
+        if (options.refusedMemberPersonIds?.includes(args.where.personId)) {
+          throw new Error("refused");
+        }
         calls.push("deleteMember");
         return { count: 1 };
       }),
@@ -341,7 +346,38 @@ function build(options: {
       ),
     },
     chatGroupMember: {
-      findMany: vi.fn(async () => options.formerMembers ?? []),
+      /*
+       * Paged as the database pages it, by the key and the bound: a fake that
+       * answered every page with every row would never tell a sweep that reads
+       * past its first page from one that does not.
+       */
+      findMany: vi.fn(
+        async (args: {
+          where: {
+            OR?: [
+              { chatId: { gt: string } },
+              { chatId: string; personId: { gt: string } },
+            ];
+          };
+          take: number;
+        }) => {
+          const after = args.where.OR?.[1];
+          return [...(options.formerMembers ?? [])]
+            .sort(
+              (a, b) =>
+                a.chatId.localeCompare(b.chatId) ||
+                a.personId.localeCompare(b.personId),
+            )
+            .filter(
+              (place) =>
+                after === undefined ||
+                place.chatId > after.chatId ||
+                (place.chatId === after.chatId &&
+                  place.personId > after.personId.gt),
+            )
+            .slice(0, args.take);
+        },
+      ),
     },
     legalHold: {
       findMany: vi.fn(async () => held.map((personId) => ({ personId }))),
@@ -853,5 +889,31 @@ describe("a place held by somebody who has moved out", () => {
     expect(calls).not.toContain("deleteMember");
     expect(calls).not.toContain("deleteReadMarkers");
     expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("reaches the places after a full page the database refuses", async () => {
+    /*
+     * A refused place is still stale, so every night's scan finds it again.
+     * Read as one page, a full page of them sorting first would keep every
+     * place after them in its room for as long as they kept failing.
+     */
+    const refused = Array.from(
+      { length: MAX_PERSONS_PER_RUN },
+      (_, index) => `refused-${String(index).padStart(4, "0")}`,
+    );
+    const { service, audit } = build({
+      messages: [],
+      formerMembers: [
+        ...refused.map((personId) => ({ chatId: "chat-1", personId })),
+        { chatId: "chat-2", personId: "aa" },
+      ],
+      refusedMemberPersonIds: refused,
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.formerResidentsRemoved).toBe(1);
+    expect(audit.record).toHaveBeenCalledOnce();
+    expect(audit.record.mock.calls[0]?.[0].targetPersonId).toBe("aa");
   });
 });

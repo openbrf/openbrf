@@ -271,13 +271,56 @@ export class ChatPurgeService implements OnModuleInit {
     const withheld = await withheldPersonIds(this.prisma);
     const kept = [...residents.map((person) => person.id), ...withheld];
 
-    const stale = await this.prisma.chatGroupMember.findMany({
-      where: kept.length > 0 ? { personId: { notIn: kept } } : {},
-      orderBy: [{ chatId: "asc" }, { personId: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-      select: { chatId: true, personId: true },
-    });
+    /*
+     * Page by page, each starting after the last place the one before it read,
+     * until a page comes back short. A place the database refuses to delete is
+     * still a stale place, so the scan finds it again every night; read as one
+     * page of five hundred, five hundred such places sorting first would keep
+     * every place after them in its room for as long as they kept failing.
+     *
+     * The key compared in the query rather than handed over as Prisma's
+     * `cursor`: that one looks its row up, and the row is usually a place this
+     * run has just deleted.
+     */
+    let removed = 0;
+    let after: { chatId: string; personId: string } | undefined;
+    for (;;) {
+      const stale = await this.prisma.chatGroupMember.findMany({
+        where: {
+          ...(kept.length > 0 ? { personId: { notIn: kept } } : {}),
+          ...(after === undefined
+            ? {}
+            : {
+                OR: [
+                  { chatId: { gt: after.chatId } },
+                  { chatId: after.chatId, personId: { gt: after.personId } },
+                ],
+              }),
+        },
+        orderBy: [{ chatId: "asc" }, { personId: "asc" }],
+        take: MAX_PERSONS_PER_RUN,
+        select: { chatId: true, personId: true },
+      });
+      removed += await this.removeFormerResidentPlaces(stale, now);
+      if (stale.length < MAX_PERSONS_PER_RUN) {
+        break;
+      }
+      after = stale[stale.length - 1];
+    }
 
+    if (removed > 0) {
+      this.logger.log(
+        `Took ${String(removed)} former residents out of group chats`,
+      );
+    }
+    return removed;
+  }
+
+  /** One page of {@link removeFormerResidents}: each place in its own transaction. */
+  private async removeFormerResidentPlaces(
+    stale: readonly { chatId: string; personId: string }[],
+    now: Date,
+  ): Promise<number> {
     let removed = 0;
     for (const { chatId, personId } of stale) {
       try {
@@ -328,12 +371,6 @@ export class ChatPurgeService implements OnModuleInit {
           `Taking a former resident out of group chat ${chatId} failed: ${failureName(error)}`,
         );
       }
-    }
-
-    if (removed > 0) {
-      this.logger.log(
-        `Took ${String(removed)} former residents out of group chats`,
-      );
     }
     return removed;
   }
