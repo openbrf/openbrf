@@ -72,6 +72,11 @@ import {
  *   gives one the chunk creates an address or a residency - is checked against
  *   the register once the chunk holds its locks. Somebody added in between
  *   stops the import rather than being entered a second time.
+ * - **A decision holds only for the persons it was made between.** The
+ *   preview records who each row it asks about could be, and a chunk that
+ *   finds anybody else for a row the board decided to write - when it plans,
+ *   or once it holds its locks - stops rather than carry out an answer to a
+ *   question the board was not asked.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -401,6 +406,7 @@ export class ImportApplyService implements OnModuleInit {
       changedSincePreview(
         plan,
         readPreviewedCandidates(session.ambiguousRows),
+        decisions,
         new Set(created.values()),
       )
     ) {
@@ -449,13 +455,14 @@ export class ImportApplyService implements OnModuleInit {
         // committed since - added from the address book, linked by a sign-up
         // approval, moved in - is not in it. A row that writes a new person
         // would enter that human being a second time, and an access report or
-        // an erasure asked for by person would find one of the two. Thrown
-        // rather than returned, so the cursor claim rolls back with the chunk:
-        // the worker does not decide who the row is about, and the board does
-        // on a fresh preview.
-        if (await newPersonsMatchedSincePlan(tx, plan, decisions, encrypted)) {
+        // an erasure asked for by person would find one of the two. A row the
+        // board gave to a person it chose would carry out a choice made without
+        // them. Thrown rather than returned, so the cursor claim rolls back with
+        // the chunk: the worker does not decide who the row is about, and the
+        // board does on a fresh preview.
+        if (await matchedSincePlan(tx, plan, decisions, encrypted)) {
           throw new ImportError(
-            "A row that writes a new person matches somebody the register gained since the plan.",
+            "A row that writes a new person, or one the board decided, matches somebody the register gained since the plan.",
             "register-changed-during-apply",
           );
         }
@@ -991,17 +998,21 @@ function writtenEmailIndexes(
 }
 
 /**
- * Whether a row that writes a person the chunk creates matches somebody in the
- * register the plan did not find for it.
+ * Whether a row that writes a person the chunk creates, or one the board
+ * decided, matches somebody in the register the plan did not find for it.
  *
  * Asked of every row whose writes go to a new person: one planned as `create`,
  * one the board decided to enter as a new person, and one that reaches the
  * person an earlier row of the chunk creates and may give them an address or a
- * residency. The keys are the planner's own - the identity number, the email
- * address, and the name of somebody whose residency in the row's apartment has
- * not ended - and a row is asked under the keys the plan looked under for it:
- * all three when it found nobody, and otherwise the ones up to the key it found
- * its candidates under. Under those the plan found the row's candidates and
+ * residency. Asked too of a row the board gave to a person it chose: the board
+ * chose between the persons the preview showed, and somebody who joined them
+ * since is one it never weighed.
+ *
+ * The keys are the planner's own - the identity number, the email address, and
+ * the name of somebody whose residency in the row's apartment has not ended -
+ * and a row is asked under the keys the plan looked under for it: all three
+ * when it found nobody, and otherwise the ones up to the key it found its
+ * candidates under. Under those the plan found the row's candidates and
  * nobody else in the register, so anybody else found now was added, or given
  * that address or that residency, after the plan read the register. The keys
  * after that one were never looked under, and a person found there would not
@@ -1016,14 +1027,14 @@ function writtenEmailIndexes(
  * so on that key the read narrows the gap to the length of the transaction
  * rather than closing it.
  */
-async function newPersonsMatchedSincePlan(
+async function matchedSincePlan(
   tx: Prisma.TransactionClient,
   plan: ImportPlan,
   decisions: ImportDecisions,
   encrypted: ReadonlyMap<number, EncryptedRowValues>,
 ): Promise<boolean> {
   const asked = plan.rows.flatMap((row) =>
-    writesNewPerson(row, decisions)
+    askedAgain(row, decisions)
       ? [askedKeys(row, encrypted.get(row.rowNumber))]
       : [],
   );
@@ -1103,16 +1114,19 @@ async function newPersonsMatchedSincePlan(
 }
 
 /**
- * Whether a row's writes go to a person the chunk creates: a row planned as
- * one, one the board decided to enter as one, or one that reaches the person
- * an earlier row of the chunk creates.
+ * Whether a row is looked up again inside the chunk's transaction: a row
+ * planned as a new person, an ambiguous row the board decided to write - to a
+ * new person or to one it chose - and one that reaches the person an earlier
+ * row of the chunk creates. A row decided to be skipped writes nothing, and an
+ * update of a register person matched under the plan's keys writes no one new.
  */
-function writesNewPerson(row: PlannedRow, decisions: ImportDecisions): boolean {
+function askedAgain(row: PlannedRow, decisions: ImportDecisions): boolean {
   if (row.outcome === "create") {
     return true;
   }
   if (row.outcome === "ambiguous") {
-    return decisions[String(row.rowNumber)]?.action === "create";
+    const action = decisions[String(row.rowNumber)]?.action;
+    return action === "create" || action === "use-person";
   }
   return row.outcome === "update" && row.matchedPersonId === null;
 }

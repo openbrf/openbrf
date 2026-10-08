@@ -95,6 +95,8 @@ const apartments = {
   n: `imp-apartment-n-${suffix}`,
   /** Where a person is entered while a chunk is applied. */
   o: `imp-apartment-o-${suffix}`,
+  /** Where somebody joins the candidates of a row the board decided. */
+  p: `imp-apartment-p-${suffix}`,
 };
 
 const actors = {
@@ -502,6 +504,7 @@ beforeAll(async () => {
       { id: apartments.m, addressId, number: "2113", floor: 1 },
       { id: apartments.n, addressId, number: "2114", floor: 1 },
       { id: apartments.o, addressId, number: "2115", floor: 1 },
+      { id: apartments.p, addressId, number: "2116", floor: 1 },
     ],
   });
 
@@ -639,6 +642,7 @@ afterAll(async () => {
           apartments.m,
           apartments.n,
           apartments.o,
+          apartments.p,
         ],
       },
     },
@@ -3817,6 +3821,329 @@ describe("a decided row that matches more people between chunks", () => {
       result: { personsCreated: 2 },
     });
   }, 120_000);
+});
+
+describe("a decided row somebody joins the candidates of", () => {
+  // Two people of one name live in 2116, and a row naming them waits for the
+  // board. A third of that name moves in after the board decided. The row is
+  // still ambiguous and the person the board chose is still a candidate, so
+  // only the candidates the board decided against tell the newcomer apart from
+  // the two it saw.
+  async function twoOfAName(label: string): Promise<{
+    cookie: string;
+    sessionId: string;
+    firstName: string;
+    personIds: string[];
+  }> {
+    const cookie = await signIn(actors.board.email);
+    const firstName = `Trilling${label}`;
+    const personIds = [
+      `imp-trio-${label}-a-${suffix}`,
+      `imp-trio-${label}-b-${suffix}`,
+    ];
+    for (const personId of personIds) {
+      await moveIn(personId, firstName);
+    }
+    const session = await uploadAndPreview(cookie, `trilling-${label}.csv`, [
+      HEADERS,
+      [
+        addressLabel,
+        "2116",
+        firstName,
+        surname,
+        "Boende",
+        "",
+        "070-444 00 44",
+        "2024-02-01",
+      ],
+    ]);
+    return { cookie, sessionId: session.sessionId, firstName, personIds };
+  }
+
+  async function moveIn(
+    personId: string,
+    firstName: string,
+    client: Prisma.TransactionClient = prisma,
+  ): Promise<void> {
+    await createPerson({ personId, firstName }, client);
+    await client.residency.create({
+      data: {
+        personId,
+        apartmentId: apartments.p,
+        role: "RESIDENT",
+        movedInOn: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    });
+  }
+
+  function decision(
+    action: "create" | "use-person",
+    personIds: readonly string[],
+  ): Record<string, unknown> {
+    return {
+      "1":
+        action === "create"
+          ? { action }
+          : { action, personId: personIds[0] ?? "" },
+    };
+  }
+
+  async function expectStoppedUnwritten(
+    cookie: string,
+    sessionId: string,
+    firstName: string,
+    personIds: readonly string[],
+  ): Promise<void> {
+    const run = await waitForRun(
+      cookie,
+      sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+    );
+    expect(run).toMatchObject({
+      status: "FAILED",
+      failureReason: "register-changed-during-apply",
+      rowsDone: 0,
+      result: { personsCreated: 0, personsUpdated: 0 },
+    });
+    // The three who live there, and nobody the row entered beside them.
+    expect(
+      await prisma.person.count({ where: { firstName, lastName: surname } }),
+    ).toBe(3);
+    // Nor did the row reach the person the board chose.
+    expect(
+      await prisma.person.findUniqueOrThrow({
+        where: { id: personIds[0] },
+        select: { phoneCipher: true },
+      }),
+    ).toEqual({ phoneCipher: null });
+  }
+
+  it.each(["create", "use-person"] as const)(
+    "stops a decision to %s when somebody joins before the chunk plans",
+    async (action) => {
+      const { cookie, sessionId, firstName, personIds } = await twoOfAName(
+        `plan-${action}`,
+      );
+
+      // The apply request has checked the decision against the register by
+      // the time it creates the queues, and the chunk plans only once the job
+      // is queued after that. The third of the name moves in in between.
+      const ensureQueues = applies.ensureQueues.bind(applies);
+      const paused = vi
+        .spyOn(applies, "ensureQueues")
+        .mockImplementationOnce(async () => {
+          await moveIn(`imp-trio-plan-${action}-c-${suffix}`, firstName);
+          await ensureQueues();
+        });
+      try {
+        const response = await applyImport(
+          cookie,
+          sessionId,
+          decision(action, personIds),
+        );
+        expect(response.statusCode).toBe(202);
+      } finally {
+        paused.mockRestore();
+      }
+
+      await expectStoppedUnwritten(cookie, sessionId, firstName, personIds);
+    },
+    60_000,
+  );
+
+  it.each(["create", "use-person"] as const)(
+    "stops a decision to %s when somebody joins while the chunk waits for its locks",
+    async (action) => {
+      const { cookie, sessionId, firstName, personIds } = await twoOfAName(
+        `lock-${action}`,
+      );
+
+      // A move-in takes the apartment's lock before it writes the residency,
+      // as every writer of a residency does. This one holds it with the third
+      // of the name written, so the apply request and the chunk's plan both
+      // read the register without them, and commits only once the chunk is
+      // waiting for that lock.
+      const lockKey = `residency-apartment:${apartments.p}`;
+      let entered!: () => void;
+      const written = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const other = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+          await moveIn(`imp-trio-lock-${action}-c-${suffix}`, firstName, tx);
+          entered();
+          await held;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+
+      try {
+        await written;
+        const response = await applyImport(
+          cookie,
+          sessionId,
+          decision(action, personIds),
+        );
+        expect(response.statusCode).toBe(202);
+        await waitFor(
+          async () => (await advisoryLockCount(prisma, lockKey, false)) > 0n,
+        );
+      } finally {
+        release();
+        await other;
+      }
+
+      await expectStoppedUnwritten(cookie, sessionId, firstName, personIds);
+    },
+    60_000,
+  );
+
+  it("knows the person an earlier chunk created for a row it offers", async () => {
+    // Row 1 and a row of the second chunk both name one of the two, and the
+    // board makes each a person of their own. The preview offers the later row
+    // the two and the person row 1 creates; the second chunk meets that person
+    // in the register, by an id the preview never had, and must not take them
+    // for a newcomer.
+    const { cookie, firstName, personIds } = await twoOfAName("chunks");
+    const later = IMPORT_CHUNK_ROWS + 50;
+    const row = (rowNumber: number): string[] =>
+      rowNumber === 1 || rowNumber === later
+        ? [
+            addressLabel,
+            "2116",
+            firstName,
+            surname,
+            "Boende",
+            "",
+            "",
+            "2024-02-01",
+          ]
+        : // A date nobody can read: a row with a problem, which writes
+          // nothing and needs no decision.
+          [
+            addressLabel,
+            "2102",
+            `Fyrling${String(rowNumber)}`,
+            surname,
+            "Boende",
+            "",
+            "",
+            "01/03/2020",
+          ];
+    const rows: string[][] = [HEADERS];
+    for (let rowNumber = 1; rowNumber <= IMPORT_CHUNK_ROWS + 60; rowNumber++) {
+      rows.push(row(rowNumber));
+    }
+    const session = await upload(cookie, "fyrling.csv", encode(writeCsv(rows)));
+    const decisions = {
+      "1": { action: "create" },
+      [String(later)]: { action: "create" },
+    };
+    const preview = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping, decisions },
+      headers: { cookie },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(
+      (JSON.parse(preview.body) as ImportPreview).rows.find(
+        ({ rowNumber }) => rowNumber === later,
+      ),
+    ).toMatchObject({
+      outcome: "ambiguous",
+      candidates: expect.arrayContaining(
+        personIds.map((personId) => expect.objectContaining({ personId })),
+      ) as unknown,
+    });
+
+    const response = await applyImport(cookie, session.sessionId, decisions);
+    expect(response.statusCode).toBe(202);
+
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+    );
+    expect(run).toMatchObject({
+      status: "APPLIED",
+      result: { personsCreated: 2 },
+    });
+    expect(
+      await prisma.person.count({ where: { firstName, lastName: surname } }),
+    ).toBe(4);
+  }, 120_000);
+
+  it("writes past a row left out when somebody joins its candidates", async () => {
+    // A row the board decided to skip writes nothing whoever it matches, so a
+    // third of the name moving in before the chunk plans stops nothing.
+    const { cookie, sessionId, firstName } = await twoOfAName("skip");
+
+    const ensureQueues = applies.ensureQueues.bind(applies);
+    const paused = vi
+      .spyOn(applies, "ensureQueues")
+      .mockImplementationOnce(async () => {
+        await moveIn(`imp-trio-skip-c-${suffix}`, firstName);
+        await ensureQueues();
+      });
+    try {
+      const response = await applyImport(cookie, sessionId, {
+        "1": { action: "skip" },
+      });
+      expect(response.statusCode).toBe(202);
+    } finally {
+      paused.mockRestore();
+    }
+
+    const run = await waitForRun(
+      cookie,
+      sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+    );
+    expect(run).toMatchObject({
+      status: "APPLIED",
+      result: { personsCreated: 0, personsUpdated: 0, skipped: 1 },
+    });
+    expect(
+      await prisma.person.count({ where: { firstName, lastName: surname } }),
+    ).toBe(3);
+  }, 60_000);
+
+  it("writes a decided row whose candidates are the ones the board saw", async () => {
+    // The same file, and nobody moves in: the check stops nothing it should
+    // not.
+    const { cookie, sessionId, firstName, personIds } =
+      await twoOfAName("unchanged");
+
+    const response = await applyImport(
+      cookie,
+      sessionId,
+      decision("create", personIds),
+    );
+    expect(response.statusCode).toBe(202);
+
+    const run = await waitForRun(
+      cookie,
+      sessionId,
+      (candidate) =>
+        candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+    );
+    expect(run).toMatchObject({
+      status: "APPLIED",
+      result: { personsCreated: 1 },
+    });
+    expect(
+      await prisma.person.count({ where: { firstName, lastName: surname } }),
+    ).toBe(3);
+  }, 60_000);
 });
 
 describe("a row after one the board decided", () => {
