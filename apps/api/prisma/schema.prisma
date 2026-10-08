@@ -4213,10 +4213,17 @@ model ContactSubmission {
   /// data has to be purgeable without negotiating with the board's inbox.
   handledByPersonId String?
 
+  /// When the board was queued to be mailed about it. Null while it has not
+  /// been, and for good when the hourly bound left the mail out. The bound
+  /// counts these, so a burst that was not mailed does not keep the next
+  /// message from being.
+  notifiedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([handled, createdAt])
   @@index([emailIndex])
+  @@index([notifiedAt])
   @@map("contact_submission")
 }
 
