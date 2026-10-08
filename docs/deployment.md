@@ -148,7 +148,12 @@ changes nothing but the owner's password, which it sets from
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
-5. The job queue schema is installed or migrated, as the owner.
+5. The job queue schema is installed or migrated, as the owner. An upgrade
+   that adds an index to the job tables builds it here too, and the step waits
+   until every build has finished: the application never runs pg-boss
+   migrations, so nothing would finish one later. A build that fails stops the
+   deploy with its error, which also stays in `pgboss.bam`, and the next deploy
+   retries it.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
