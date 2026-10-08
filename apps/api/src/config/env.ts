@@ -319,8 +319,8 @@ export const envSchema = z.object({
    * then only the hops these proxies wrote, from the right: the rest of the
    * header is whatever the client sent. Empty, the header is not read and the
    * rate limits on the public forms count every request by the address it came
-   * from, which behind an unnamed proxy is the proxy's. Better Auth is given the
-   * same list for its own limiter.
+   * from, which behind an unnamed proxy is the proxy's. The sign-in endpoints'
+   * limiter is handed the address resolved from the same list.
    */
   TRUSTED_PROXIES: z
     .string()

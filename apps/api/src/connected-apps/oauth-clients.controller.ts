@@ -137,7 +137,7 @@ export class OAuthClientsController {
      * session from them and asks its clientPrivileges hook whether that person
      * may manage clients; a call without them is refused as unauthenticated.
      */
-    const headers = forwardHeaders(request);
+    const headers = forwardHeaders(request, this.auth.trustedProxies);
 
     const created = await this.createClient(headers, input);
 

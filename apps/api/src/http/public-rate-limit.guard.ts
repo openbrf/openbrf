@@ -72,9 +72,10 @@ function refusedFor(tokens: number, perMinute: number): RateLimitDecision {
 /**
  * The proxies whose word about the client is taken, from `TRUSTED_PROXIES`.
  *
- * The same list Better Auth is given for its own limiter (auth-options.ts), so
- * the two limiters cannot disagree about who a client is. The entries were
- * validated with the rest of the environment.
+ * The same list the Fastify bridge resolves the client address against before
+ * a request reaches Better Auth's own limiter (fastify-bridge.ts), so the two
+ * limiters cannot disagree about who a client is. The entries were validated
+ * with the rest of the environment.
  */
 export function trustedProxyList(entries: readonly string[]): BlockList {
   const list = new BlockList();

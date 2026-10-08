@@ -171,7 +171,9 @@ export class OAuthConsentController {
       new URL(PROVIDER_CONSENT_PATH, originOf(request)),
       {
         method: "POST",
-        headers: withJsonBody(forwardHeaders(request)),
+        headers: withJsonBody(
+          forwardHeaders(request, this.auth.trustedProxies),
+        ),
         body: JSON.stringify({ accept: true, oauth_query: query }),
       },
     );

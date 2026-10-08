@@ -634,18 +634,14 @@ visitor can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
 application from, separated by commas. A proxy on the host that reaches the
 port bound to loopback arrives from the gateway of the stack's Docker network,
 which `docker network inspect openbrf-prod_default` shows; a proxy in a
-container on that network arrives from its own address. The forms read the
-header only on a request from one of these, and then only from the right, past
-the hops the named proxies wrote: everything to the left of them is what the
-client sent. So a proxy that appends to the header, as nginx's
-`$proxy_add_x_forwarded_for` does, is as safe as one that overwrites it.
-
-The sign-in endpoints read it the same way, from the right past the named
-proxies, but they see the header and not the connection: they cannot tell a
-request the proxy forwarded from one sent to the application's port directly,
-with a header of the caller's choosing. Keep that port reachable only through
-the proxy, which binding it to loopback, as the production compose file does,
-already ensures.
+container on that network arrives from its own address. The application reads
+the header only on a request from one of these, and then only from the right,
+past the hops the named proxies wrote: everything to the left of them is what
+the client sent. So a proxy that appends to the header, as nginx's
+`$proxy_add_x_forwarded_for` does, is as safe as one that overwrites it. The
+forms and the sign-in endpoints count the same address, and a request sent to
+the application's port directly, past the proxy, is counted by the address it
+came from whatever header it carries.
 
 Left empty, the header is not read for the forms at all, and every visitor
 behind the proxy shares its budget: a busy afternoon can then refuse a contact

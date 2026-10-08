@@ -1,6 +1,9 @@
+import type { BlockList } from "node:net";
+
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it } from "vitest";
 
+import { trustedProxyList } from "../http/public-rate-limit.guard";
 import { AuthController } from "./auth.controller";
 import type { AuthService } from "./auth.service";
 
@@ -20,13 +23,17 @@ interface Captured {
   taken: () => Request;
 }
 
-function controllerCapturing(response = new Response(null)): Captured {
+function controllerCapturing(
+  response = new Response(null),
+  trustedProxies: BlockList | null = null,
+): Captured {
   let seen: Request | undefined;
   const auth = {
     handler: (request: Request) => {
       seen = request;
       return Promise.resolve(response);
     },
+    trustedProxies,
   } as unknown as AuthService;
 
   return {
@@ -218,5 +225,51 @@ describe("AuthController body encoding", () => {
     const headers = taken().headers;
     expect(headers.get("content-encoding")).toBeNull();
     expect(headers.get("content-length")).not.toBe("9999");
+  });
+});
+
+describe("AuthController client address", () => {
+  const proxy = trustedProxyList(["10.0.0.0/8"]);
+
+  async function forwardedFor(
+    trustedProxies: BlockList | null,
+    ip: string,
+    header: string,
+  ): Promise<string | null> {
+    const { controller, taken } = controllerCapturing(
+      new Response(null),
+      trustedProxies,
+    );
+    await controller.handle(
+      fastifyRequest({
+        ip,
+        headers: { host: "brf.example", "x-forwarded-for": header },
+      }),
+      reply(),
+    );
+    return taken().headers.get("x-forwarded-for");
+  }
+
+  it("hands the library the address past the named proxies", async () => {
+    // An appending proxy: the left entry is the client's own claim.
+    expect(
+      await forwardedFor(proxy, "10.0.0.7", "192.0.2.1, 198.51.100.4"),
+    ).toBe("198.51.100.4");
+  });
+
+  it("counts a caller that bypasses the proxy by its own address", async () => {
+    // The sign-in limiter sees only this header, so a header of the caller's
+    // choosing would otherwise buy a fresh budget on every attempt.
+    expect(await forwardedFor(proxy, "203.0.113.9", "192.0.2.1")).toBe(
+      "203.0.113.9",
+    );
+  });
+
+  it("leaves the header as sent when no proxy is named", async () => {
+    // The library then takes a header holding one address, which is what an
+    // overwriting proxy nobody named still gives it.
+    expect(await forwardedFor(null, "172.18.0.1", "198.51.100.4")).toBe(
+      "198.51.100.4",
+    );
   });
 });

@@ -90,7 +90,7 @@ export class WellKnownController {
   ): Promise<void> {
     await sendWebResponse(
       reply,
-      await this.auth.handler(toWebRequest(request)),
+      await this.auth.handler(toWebRequest(request, this.auth.trustedProxies)),
     );
   }
 
@@ -114,7 +114,7 @@ export class WellKnownController {
       // Only the handler is inside the try. Sending is not: a failure part way
       // through writing the reply would otherwise be answered by writing a
       // second one, and the error that produces says nothing about the first.
-      response = await handler(toWebRequest(request));
+      response = await handler(toWebRequest(request, this.auth.trustedProxies));
     } catch (cause) {
       const status = statusOf(cause);
       if (status === null) {

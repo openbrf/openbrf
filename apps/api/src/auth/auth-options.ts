@@ -314,15 +314,18 @@ export function buildAuthOptions(
         // rate-limit bucket for the whole instance, where a single resident
         // failing to sign in would throttle the entire board.
         //
-        // Better Auth reads the header alone and never sees the connection.
-        // With the proxies named it takes the right-most hop they did not
-        // write, as the public forms' limiter does (clientAddressOf); with
-        // none it takes a header holding one address and refuses one holding
-        // several, so it relies on the proxy OVERWRITING the header, as nginx,
-        // Caddy and Traefik do by default. An instance reachable without a
-        // proxy lets a caller set that one address itself.
+        // Better Auth reads the header alone and never sees the connection,
+        // so with the proxies named the header it gets is not the one that
+        // arrived: the Fastify bridge has already replaced it with the single
+        // address the public forms' limiter resolves (clientAddressOf), from
+        // the connection and the hops the named proxies wrote. No proxy list
+        // here, then - one would make it skip that address whenever it is a
+        // proxy's own. With none named the header reaches it as sent, and it
+        // takes one holding a single address and refuses one holding several,
+        // so it relies on the proxy OVERWRITING the header, as nginx, Caddy
+        // and Traefik do by default. An instance reachable without a proxy
+        // lets a caller set that one address itself.
         ipAddressHeaders: ["x-forwarded-for"],
-        trustedProxies: [...env.TRUSTED_PROXIES],
       },
     },
 

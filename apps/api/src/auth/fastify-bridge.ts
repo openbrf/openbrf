@@ -1,4 +1,8 @@
+import { type BlockList, isIP } from "node:net";
+
 import type { FastifyReply, FastifyRequest } from "fastify";
+
+import { clientAddressOf } from "../http/public-rate-limit.guard";
 
 /**
  * Translating between Fastify and the Web Fetch pair the sign-in library
@@ -11,7 +15,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
  * different copy of this translation is how one of them would start accepting
  * a body the other rejects.
  *
- * Four details matter and are easy to get wrong:
+ * Five details matter and are easy to get wrong:
  *
  *   The request URL is rebuilt from the incoming host rather than from a
  *   configured base, so the library sees the origin the browser actually used.
@@ -28,6 +32,12 @@ import type { FastifyReply, FastifyRequest } from "fastify";
  *   Set-Cookie must be copied with getSetCookie(), which preserves multiple
  *   cookies. Iterating headers normally collapses them into one comma-joined
  *   value, and a browser then silently drops the session.
+ *
+ *   X-Forwarded-For is replaced by the client address the application itself
+ *   resolved, when the operator named their proxies. The library's own rate
+ *   limiter sees only the header and never the connection, so it cannot tell a
+ *   request the proxy forwarded from one sent to the port directly with a
+ *   header of the caller's choosing.
  */
 
 /** Headers that describe the incoming transfer and never survive re-encoding. */
@@ -44,8 +54,14 @@ const TRANSPORT_HEADERS = new Set([
  * library still has to carry the browser's own cookie and Origin: the library
  * refuses a state-changing request that presents a cookie and no Origin, which
  * a browser always sends and a hand-built request easily forgets.
+ *
+ * `proxies` is AuthService.trustedProxies: the proxies named in
+ * TRUSTED_PROXIES, or null when none are.
  */
-export function forwardHeaders(request: FastifyRequest): Headers {
+export function forwardHeaders(
+  request: FastifyRequest,
+  proxies: BlockList | null,
+): Headers {
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (value === undefined) {
@@ -65,7 +81,35 @@ export function forwardHeaders(request: FastifyRequest): Headers {
       headers.append(name, value);
     }
   }
+  if (proxies !== null) {
+    replaceForwardedFor(headers, request, proxies);
+  }
   return headers;
+}
+
+/**
+ * Puts the one client address the application resolved where the library
+ * looks for it.
+ *
+ * Read the way the public forms read it (clientAddressOf): past the named
+ * proxies from the right, and only on a request that arrived from one of them.
+ * A caller that reaches the port directly is counted by its own address
+ * whatever header it sends. With no proxy named the header is left alone, and
+ * the library takes it only when it holds a single address (auth-options.ts),
+ * so a proxy that overwrites it still gives each visitor a budget of their
+ * own.
+ */
+function replaceForwardedFor(
+  headers: Headers,
+  request: FastifyRequest,
+  proxies: BlockList,
+): void {
+  const address = clientAddressOf(request, proxies);
+  if (isIP(address) === 0) {
+    headers.delete("x-forwarded-for");
+  } else {
+    headers.set("x-forwarded-for", address);
+  }
 }
 
 /** The origin this request arrived on, to build a URL against. */
@@ -74,9 +118,12 @@ export function originOf(request: FastifyRequest): string {
   return `${request.protocol}://${host}`;
 }
 
-export function toWebRequest(request: FastifyRequest): Request {
+export function toWebRequest(
+  request: FastifyRequest,
+  proxies: BlockList | null,
+): Request {
   const url = new URL(request.url, originOf(request));
-  const headers = forwardHeaders(request);
+  const headers = forwardHeaders(request, proxies);
 
   const method = request.method.toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";

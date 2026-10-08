@@ -1,3 +1,5 @@
+import type { BlockList } from "node:net";
+
 import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import { betterAuth } from "better-auth";
 
@@ -6,6 +8,7 @@ import { PrincipalService } from "../authorization/principal.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import { trustedProxyList } from "../http/public-rate-limit.guard";
 import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
@@ -40,6 +43,12 @@ export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   readonly instance: AuthInstance;
+  /**
+   * The proxies named in TRUSTED_PROXIES, or null when none are: what the
+   * Fastify bridge resolves the client address against before a request
+   * reaches the library (fastify-bridge.ts, forwardHeaders).
+   */
+  readonly trustedProxies: BlockList | null;
   /** Magic-link deliveries still running after their response. */
   private readonly deliveries = new Set<Promise<void>>();
 
@@ -50,6 +59,10 @@ export class AuthService {
     private readonly principals: PrincipalService,
     @Inject(PROTECTED_RESOURCE) resource: ProtectedResource,
   ) {
+    this.trustedProxies =
+      env.TRUSTED_PROXIES.length === 0
+        ? null
+        : trustedProxyList(env.TRUSTED_PROXIES);
     this.instance = betterAuth(
       buildAuthOptions(
         env,

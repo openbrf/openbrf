@@ -511,12 +511,12 @@ describe("who may manage an OAuth client", () => {
 });
 
 describe("the client address the sign-in limiter counts", () => {
-  it("is read past the proxies the operator named, as the public forms read it", () => {
-    // Without the list a header holding more than one address resolves to
-    // nobody, and every client behind an appending proxy shares one bucket.
+  it("is the one address in the header, which the bridge has already resolved", () => {
+    // fastify-bridge.ts replaces the header with the address clientAddressOf
+    // resolves past the named proxies. A proxy list here as well would make
+    // the library skip that address whenever it is a proxy's own.
     expect(options.advanced.ipAddress).toEqual({
       ipAddressHeaders: ["x-forwarded-for"],
-      trustedProxies: ["172.16.0.0/12"],
     });
   });
 });
