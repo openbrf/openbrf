@@ -359,14 +359,37 @@ export class ProcessorAgreementService {
    * answer a question the product has already answered. Everything else -
    * a bucket, a mail server, whoever runs the machine - depends on who they
    * are, which the instance cannot know.
+   *
+   * Runs at every start, so it writes only when the answer changes: a second
+   * run with the same driver finds the row it wrote and leaves it. A row the
+   * board recorded is the board's answer and is never closed or written over,
+   * whichever driver the instance has.
+   *
+   * Audited under SYSTEM with no actor, as a command-line install's
+   * classification is. The record of processing seeds without an entry because
+   * it refreshes its own wording on every start; this writes a dated row, at
+   * most once per driver change, and every other row in this record has an
+   * entry saying how it got there.
    */
   async seed(facts: ProcessorFacts, t: TFunction): Promise<void> {
-    const open = await this.openRows();
-    const storage = open.find((row) => row.processorKey === "storage");
+    await this.prisma.$transaction(async (tx) => {
+      /*
+       * The read is inside the lock, not before it. Two starts seeding at once
+       * would otherwise both find no row and both insert, and a board member
+       * classifying storage while the instance starts would have the seed's row
+       * written beside theirs.
+       */
+      await lockProcessorAgreement(tx, "storage");
+      const storage = await tx.processorAgreement.findFirst({
+        where: { processorKey: "storage", endedAt: null },
+        select: { id: true, recordedByPersonId: true },
+      });
 
-    if (facts.storageDriver === "local") {
-      if (storage === undefined) {
-        await this.prisma.processorAgreement.create({
+      if (facts.storageDriver === "local") {
+        if (storage !== null) {
+          return;
+        }
+        const created = await tx.processorAgreement.create({
           data: {
             processorKind: "STORAGE",
             processorKey: "storage",
@@ -375,23 +398,61 @@ export class ProcessorAgreementService {
             // No actor: the instance answered this, not a board member.
             recordedByPersonId: null,
           },
+          select: { id: true },
         });
+        await this.audit.record(
+          {
+            action: "PROCESSOR_AGREEMENT_RECORDED",
+            channel: "SYSTEM",
+            actorPersonId: null,
+            targetKind: "processorAgreement",
+            targetId: created.id,
+            context: {
+              processorKind: "STORAGE",
+              processorKey: "storage",
+              classification: "NOT_A_PROCESSOR",
+              status: null,
+              replaced: false,
+            },
+          },
+          tx,
+        );
+        return;
       }
-      return;
-    }
 
-    /*
-     * The driver changed to a bucket the association does not run. A seeded
-     * "no processor" row would now be describing the wrong thing, so it is
-     * closed and the state falls back to not recorded - which is the screen
-     * asking the board a question rather than answering it wrongly.
-     */
-    if (storage !== undefined && storage.recordedByPersonId === null) {
-      await this.prisma.processorAgreement.update({
-        where: { id: storage.id },
+      if (storage === null || storage.recordedByPersonId !== null) {
+        return;
+      }
+
+      /*
+       * The driver changed to a bucket the association does not run. A seeded
+       * "no processor" row would now be describing the wrong thing, so it is
+       * closed and the state falls back to not recorded - which is the screen
+       * asking the board a question rather than answering it wrongly.
+       *
+       * Still open and still the instance's own are asked as part of the write,
+       * so the close can only ever reach the row the seed wrote.
+       */
+      const { count } = await tx.processorAgreement.updateMany({
+        where: { id: storage.id, endedAt: null, recordedByPersonId: null },
         data: { endedAt: new Date(), endReason: "driver-changed" },
       });
-    }
+      if (count === 0) {
+        return;
+      }
+      await this.audit.record(
+        {
+          action: "PROCESSOR_AGREEMENT_ENDED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetKind: "processorAgreement",
+          targetId: storage.id,
+          // A code the instance wrote, unlike the board's own reason on `end`.
+          context: { endReason: "driver-changed" },
+        },
+        tx,
+      );
+    });
   }
 
   private async openRows() {

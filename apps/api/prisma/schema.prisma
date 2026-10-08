@@ -2763,6 +2763,14 @@ model ImportSession {
   /// row stating it reaches the same person instead of creating them again.
   unwrittenIdentityNumbers Json?
 
+  /// Rows the apply wrote as a new person: row number to that person. The
+  /// preview cannot list a person the file creates among a row's candidates,
+  /// having no id for them yet, and a later chunk finds them in the register. A
+  /// chunk sets these aside when it checks that a row the board answered still
+  /// matches the persons the preview showed, and takes anybody else it finds
+  /// for somebody the register gained since.
+  createdPersons Json?
+
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
   /// so a chunk is either wholly applied and counted or not applied at all.
@@ -4205,10 +4213,17 @@ model ContactSubmission {
   /// data has to be purgeable without negotiating with the board's inbox.
   handledByPersonId String?
 
+  /// When the board was queued to be mailed about it. Null while it has not
+  /// been, and for good when the hourly bound left the mail out. The bound
+  /// counts these, so a burst that was not mailed does not keep the next
+  /// message from being.
+  notifiedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([handled, createdAt])
   @@index([emailIndex])
+  @@index([notifiedAt])
   @@map("contact_submission")
 }
 

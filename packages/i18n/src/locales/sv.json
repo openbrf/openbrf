@@ -1387,6 +1387,14 @@
       "delete": "Radera",
       "deleting": "Raderar...",
       "deleteHint": "Tar bort meddelandet från instansen. Det går inte att ångra.",
+      "counts": "Väntar: {{unhandled}}. Totalt: {{total}}.",
+      "showMore": "Visa fler meddelanden",
+      "loadingMore": "Hämtar...",
+      "moreFailed": "Fler meddelanden kunde inte hämtas just nu. De som visas är kvar, och du kan försöka igen.",
+      "select": "Välj meddelandet från {{name}}",
+      "selectAll": "Välj alla meddelanden som visas",
+      "deleteSelected": "Radera markerade ({{count}})",
+      "deleteSelectedHint": "Tar bort de markerade meddelandena från instansen. Det går inte att ångra.",
       "errors": {
         "notFound": "Meddelandet finns inte kvar. Listan är hämtad på nytt.",
         "unknown": "Meddelandet kunde inte uppdateras just nu. Försök igen."
@@ -2436,6 +2444,7 @@
       "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
       "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
+      "registerChangedDuringApply": "Registret ändrades medan importen pågick: någon lades till, flyttade in eller fick nya uppgifter, och en rad i filen matchar nu den personen. Importen stoppades i stället för att lägga in personen två gånger. Det som skrevs innan dess finns i registret; importera resten som en ny fil, så visar förhandsgranskningen matchningen.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "sessionNotRunning": "Den importen pågår inte längre.",
@@ -2890,6 +2899,7 @@
       "alreadyReported": "Du har redan anmält det meddelandet. Styrelsen har det.",
       "tooManyGroups": "Kontot är redan med i så många grupper som ett konto får vara med i.",
       "groupFull": "Gruppen är redan så stor som en grupp får bli.",
+      "groupNamePersonalIdentityNumber": "Gruppens namn innehåller ett personnummer och kan inte användas. Ta bort det: alla i rummet läser namnet, och det gör styrelsen också när ett meddelande där anmäls.",
       "personalIdentityNumber": "Meddelandet innehåller ett personnummer och kan inte skickas. Ta bort det: ett nummer som skrivs här är en andra kopia som lägenhetsförteckningen inte kan svara för.",
       "tooManyMessages": "Du har skrivit väldigt många meddelanden på kort tid. Vänta några minuter och skicka det här igen.",
       "invalidBody": "Ett meddelande behöver text, och inte mer än formuläret tillåter.",
@@ -3076,6 +3086,7 @@
       "tooLarge": "Filen är större än vad den här instansen tar emot.",
       "empty": "Filen är tom.",
       "noFile": "Ingen fil är vald.",
+      "personalIdentityNumber": "Titeln, pärmen eller filnamnet innehåller ett personnummer. Ett dokument för medlemmarna eller allmänheten listas på webbplatsen, så ta bort det först - en fil behöver döpas om och arkiveras igen.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

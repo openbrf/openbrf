@@ -25,19 +25,29 @@ export interface ContactSubmission {
   createdAt: string;
 }
 
-export function fetchContactSubmissions(): Promise<
-  ApiResult<ContactSubmission[]>
-> {
-  return apiRequest("GET", "/api/contact-submissions");
+/** One page of the inbox, and what is behind it. */
+export interface ContactInboxPage {
+  submissions: ContactSubmission[];
+  /** Every unhandled message, on this page or not. */
+  unhandled: number;
+  /** Every message the inbox holds. */
+  total: number;
+  /** Where the next page starts, or null when this is the last one. */
+  nextCursor: string | null;
 }
 
-/**
- * Marks a message dealt with, or puts it back.
- *
- * Both directions, because a board member who ticks the wrong row has to be
- * able to untick it: the flag is the board's note to itself about its own
- * inbox, not a record of anything that happened.
- */
+/** A page of the inbox: the first, or the one after the cursor. */
+export function fetchContactSubmissions(
+  cursor?: string,
+): Promise<ApiResult<ContactInboxPage>> {
+  return apiRequest(
+    "GET",
+    cursor === undefined
+      ? "/api/contact-submissions"
+      : `/api/contact-submissions?cursor=${encodeURIComponent(cursor)}`,
+  );
+}
+
 /**
  * Removes a message for good.
  *
@@ -55,6 +65,23 @@ export function deleteContactSubmission(
   );
 }
 
+/**
+ * Removes several messages for good, and answers how many were there. The
+ * server takes at most `MAX_CONTACT_SUBMISSIONS_PER_REMOVAL` at a time.
+ */
+export function deleteContactSubmissions(
+  ids: readonly string[],
+): Promise<ApiResult<{ removed: number }>> {
+  return apiRequest("POST", "/api/contact-submissions/remove", { ids });
+}
+
+/**
+ * Marks a message dealt with, or puts it back.
+ *
+ * Both directions, because a board member who ticks the wrong row has to be
+ * able to untick it: the flag is the board's note to itself about its own
+ * inbox, not a record of anything that happened.
+ */
 export function setContactSubmissionHandled(
   id: string,
   handled: boolean,
