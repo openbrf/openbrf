@@ -2436,6 +2436,7 @@
       "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
       "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
+      "registerChangedDuringApply": "The register changed while the import ran: somebody was added, moved in or given new details, and a row of the file now matches them. The import stopped rather than enter that person twice. What it wrote before that is in the register; import the rest as a new file, and its preview shows the match.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "applyAbandoned": "An administrator abandoned the import before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "sessionNotRunning": "That import is no longer running.",
