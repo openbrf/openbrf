@@ -84,6 +84,7 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
   "term-overlaps": "register.person.roles.errors.termOverlaps",
   "elected-too-far-ahead": "register.person.roles.errors.electedTooFarAhead",
+  "recovery-dated-ahead": "register.person.roles.errors.recoveryDatedAhead",
   "board-seat-required": "register.person.roles.errors.boardSeatRequired",
   "board-not-vacant": "register.person.roles.errors.boardNotVacant",
   "reason-required": "register.person.roles.recoveryReasonRequired",

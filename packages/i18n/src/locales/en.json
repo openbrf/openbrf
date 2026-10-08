@@ -316,6 +316,7 @@
           "positionAlreadyHeld": "This person already holds that position. End the term before recording a new election to it.",
           "termOverlaps": "An earlier term in that position runs past this election date. Check the date.",
           "electedTooFarAhead": "An election cannot be dated that far into the future. Check the year.",
+          "recoveryDatedAhead": "A recovered seat cannot be dated after today. Write the day the general meeting elected the board.",
           "boardSeatRequired": "The board records its own seats. Without a seat you can record a seat only while no board is on the register, and never your own.",
           "boardNotVacant": "A board is on the register now, so the board records its seats. Reload the page.",
           "termAlreadyEnded": "That term has already ended. Its dates are the record of a period that has run and they stand.",

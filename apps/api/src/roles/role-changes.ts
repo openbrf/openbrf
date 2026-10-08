@@ -23,6 +23,7 @@ export type RoleChangeReason =
   | "position-already-held"
   | "term-overlaps"
   | "elected-too-far-ahead"
+  | "recovery-dated-ahead"
   | "board-seat-required"
   | "board-not-vacant"
   | "reason-required"
@@ -48,6 +49,7 @@ const ROLE_CHANGE_STATUS: Record<RoleChangeReason, number> = {
   "position-already-held": HttpStatus.CONFLICT,
   "term-overlaps": HttpStatus.CONFLICT,
   "elected-too-far-ahead": HttpStatus.CONFLICT,
+  "recovery-dated-ahead": HttpStatus.CONFLICT,
   "term-already-ended": HttpStatus.CONFLICT,
   "ended-before-elected": HttpStatus.CONFLICT,
   "ended-too-far-ahead": HttpStatus.CONFLICT,

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn, localDayOf } from "@openbrf/shared";
+import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -196,6 +196,9 @@ export class BoardPositionService {
    * - only while the register is vacant, read under the register lock: no seat
    *   held today and none recorded ahead. An incoming board recorded from a
    *   later date is a board, and the days before it begins are not a way in;
+   * - only seats dated today or earlier: a seat dated ahead would end the
+   *   vacancy while nobody holds a seat, and with nobody to record, end or
+   *   recover a term the register would stay shut until that day;
    * - never the actor's own seat, so nobody holds a seat by their own hand;
    * - always with a stated reason, kept with every seat in the audit log under
    *   an action of its own, so the log tells a recovery from an election the
@@ -227,7 +230,7 @@ export class BoardPositionService {
     const seats = input.seats.map((seat) => ({
       personId: seat.personId,
       position: seat.position,
-      electedOn: parseElectionDate(seat.electedOn, now),
+      electedOn: parseRecoveredElectionDate(seat.electedOn, now),
     }));
 
     const recorded = await this.prisma.$transaction(async (tx) => {
@@ -421,6 +424,27 @@ function parseElectionDate(value: string, now: Date): Date {
     throw new RoleChangeError(
       "An election cannot be dated that far into the future. Check the year.",
       "elected-too-far-ahead",
+    );
+  }
+  return electedOn;
+}
+
+/**
+ * The election date of a recovered seat: an election date that is not after
+ * today either.
+ *
+ * A recovery records a board that holds its seats now. A seat dated ahead
+ * would end the vacancy without seating anybody, and until its day arrived
+ * nobody could record, end or recover a term. An incoming board recorded
+ * ahead is the board's to record once it has a seat.
+ */
+function parseRecoveredElectionDate(value: string, now: Date): Date {
+  const electedOn = parseElectionDate(value, now);
+  if (electedOn.getTime() > dateColumnOf(localDayOf(now)).getTime()) {
+    throw new RoleChangeError(
+      "A recovered seat cannot be dated after today. Record the day the " +
+        "meeting elected the board.",
+      "recovery-dated-ahead",
     );
   }
   return electedOn;

@@ -245,6 +245,32 @@ describe("a register on which every term has ended", () => {
     ).resolves.toBe(0);
   });
 
+  it("refuses a recovery dated after today, and writes no seat and no audit entry", async () => {
+    // Two days and not one: the register counts days on the association's
+    // calendar, which is ahead of UTC, and tomorrow by UTC can be today there.
+    const response = await recover(adminCookie, {
+      seats: [
+        ...electedBoard,
+        {
+          personId: deputy.personId,
+          position: "DEPUTY_BOARD_MEMBER",
+          electedOn: daysFromToday(2),
+        },
+      ],
+      reason: REASON,
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "recovery-dated-ahead" });
+    await expect(prisma.boardPosition.count()).resolves.toBe(1);
+    await expect(
+      prisma.auditLogEntry.count({
+        where: { action: "BOARD_RECOVERY_RECORDED" },
+      }),
+    ).resolves.toBe(0);
+    await expect(vacant(adminCookie)).resolves.toBe(true);
+  });
+
   it("records the board the meeting elected, with its own audit entries", async () => {
     const response = await recover(adminCookie, {
       seats: electedBoard,
