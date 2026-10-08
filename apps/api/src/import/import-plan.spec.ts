@@ -720,11 +720,16 @@ describe("an identity number an earlier row states without writing it", () => {
     // Named after row 1 either way, but found under different keys: the apply
     // looks for persons added since the plan under the keys the plan looked
     // under, and no further.
-    expect(plan.rows[0]).toMatchObject({ outcome: "create", foundUnder: null });
+    expect(plan.rows[0]).toMatchObject({
+      outcome: "create",
+      foundUnder: null,
+      foundInRegister: [],
+    });
     expect(plan.rows[1]).toMatchObject({
       outcome: "update",
       matchedBy: "earlierRow",
       foundUnder: "email",
+      foundInRegister: [],
       sameAsRowNumber: 1,
     });
     expect(plan.rows[2]).toMatchObject({
@@ -732,6 +737,7 @@ describe("an identity number an earlier row states without writing it", () => {
       matchedPersonId: null,
       matchedBy: "earlierRow",
       foundUnder: "personalIdentityNumber",
+      foundInRegister: [],
       sameAsRowNumber: 1,
     });
   });
@@ -799,6 +805,17 @@ describe("an identity number an earlier row states without writing it", () => {
     expect(plan("person-other")).toMatchObject({
       outcome: "ambiguous",
       matchedBy: "personalIdentityNumber",
+    });
+    // Both are candidates, but only one holds the number in the register: the
+    // apply's second look there finds Anna under it only through row 1, and
+    // must not take her absence for her having left.
+    expect(plan("person-anna")).toMatchObject({
+      foundUnder: "personalIdentityNumber",
+      candidates: [
+        expect.objectContaining({ personId: "person-other" }),
+        expect.objectContaining({ personId: "person-anna" }),
+      ] as unknown,
+      foundInRegister: ["person-other"],
     });
   });
 

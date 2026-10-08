@@ -107,12 +107,13 @@ export interface ImportSessionView {
  *
  * The personal identity number is reported as present or absent and never sent.
  * A preview is not a register view, and DESIGN.md keeps identity numbers out of
- * every screen that is not one. Which keys the plan looked under is the apply's
- * business: the screen names the match by `matchedBy`.
+ * every screen that is not one. Which keys the plan looked under, and whom it
+ * found in the register under them, is the apply's business: the screen names
+ * the match by `matchedBy`.
  */
 export interface ImportPreviewRow extends Omit<
   PlannedRow,
-  "person" | "problems" | "foundUnder"
+  "person" | "problems" | "foundUnder" | "foundInRegister"
 > {
   person: {
     firstName: string;
@@ -912,7 +913,12 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
 }
 
 function toPreviewRow(row: PlannedRow): ImportPreviewRow {
-  const { person, foundUnder: _foundUnder, ...rest } = row;
+  const {
+    person,
+    foundUnder: _foundUnder,
+    foundInRegister: _foundInRegister,
+    ...rest
+  } = row;
   return {
     ...rest,
     person: {

@@ -33,6 +33,7 @@ import {
   type ImportDecision,
   type ImportDecisions,
   type ImportPlan,
+  type ImportSearchKey,
   type PlannedRow,
   push,
   readPreviewedCandidates,
@@ -74,9 +75,9 @@ import {
  *   stops the import rather than being entered a second time.
  * - **A decision holds only for the persons it was made between.** The
  *   preview records who each row it asks about could be, and a chunk that
- *   finds anybody else for a row the board decided to write - when it plans,
- *   or once it holds its locks - stops rather than carry out an answer to a
- *   question the board was not asked.
+ *   finds anybody else for a row the board decided to write, or misses one of
+ *   them - when it plans, or once it holds its locks - stops rather than carry
+ *   out an answer to a question the board was not asked.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -451,22 +452,6 @@ export class ImportApplyService implements OnModuleInit {
         // order person-email-lock.ts gives.
         await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
 
-        // The plan was read before this transaction opened, and a person
-        // committed since - added from the address book, linked by a sign-up
-        // approval, moved in - is not in it. A row that writes a new person
-        // would enter that human being a second time, and an access report or
-        // an erasure asked for by person would find one of the two. A row the
-        // board gave to a person it chose would carry out a choice made without
-        // them. Thrown rather than returned, so the cursor claim rolls back with
-        // the chunk: the worker does not decide who the row is about, and the
-        // board does on a fresh preview.
-        if (await matchedSincePlan(tx, plan, decisions, encrypted)) {
-          throw new ImportError(
-            "A row that writes a new person, or one the board decided, matches somebody the register gained since the plan.",
-            "register-changed-during-apply",
-          );
-        }
-
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
         // tenant-ownerships as the chunk reads them, and a move-in or move-out
@@ -474,10 +459,32 @@ export class ImportApplyService implements OnModuleInit {
         // write - which would append
         // a second ENTRY to a register that refuses to have rows removed. In a
         // fixed order, because a chunk holds many of these locks at once.
-        await lockResidencyTransitionsInOrder(
-          tx,
-          existingTargets(plan, decisions),
-        );
+        //
+        // Taken too for every candidate of a row the board decided, written to
+        // or not: a move-out, an erasure and a purge each take it before they
+        // take a person out of the register, so the look below either sees
+        // them gone or they wait for this chunk to commit.
+        await lockResidencyTransitionsInOrder(tx, [
+          ...existingTargets(plan, decisions),
+          ...decidedCandidates(plan, decisions),
+        ]);
+
+        // The plan was read before this transaction opened, and a person
+        // committed since - added from the address book, linked by a sign-up
+        // approval, moved in - is not in it. A row that writes a new person
+        // would enter that human being a second time, and an access report or
+        // an erasure asked for by person would find one of the two. A row the
+        // board decided would carry out a choice made between other persons
+        // than the register now holds: somebody joined them, or one of them
+        // left. Thrown rather than returned, so the cursor claim rolls back
+        // with the chunk: the worker does not decide who the row is about, and
+        // the board does on a fresh preview.
+        if (await matchedSincePlan(tx, plan, decisions, encrypted)) {
+          throw new ImportError(
+            "A row that writes a new person, or one the board decided, matches other persons in the register than the plan found.",
+            "register-changed-during-apply",
+          );
+        }
 
         const written = await this.write(
           tx,
@@ -999,33 +1006,42 @@ function writtenEmailIndexes(
 
 /**
  * Whether a row that writes a person the chunk creates, or one the board
- * decided, matches somebody in the register the plan did not find for it.
+ * decided, matches other persons in the register than the plan found for it.
  *
  * Asked of every row whose writes go to a new person: one planned as `create`,
  * one the board decided to enter as a new person, and one that reaches the
  * person an earlier row of the chunk creates and may give them an address or a
  * residency. Asked too of a row the board gave to a person it chose: the board
  * chose between the persons the preview showed, and somebody who joined them
- * since is one it never weighed.
+ * since is one it never weighed, as one who left is a choice it no longer has.
  *
  * The keys are the planner's own - the identity number, the email address, and
  * the name of somebody whose residency in the row's apartment has not ended -
  * and a row is asked under the keys the plan looked under for it: all three
  * when it found nobody, and otherwise the ones up to the key it found its
- * candidates under. Under those the plan found the row's candidates and
- * nobody else in the register, so anybody else found now was added, or given
- * that address or that residency, after the plan read the register. The keys
- * after that one were never looked under, and a person found there would not
- * change the plan. A row the board decided has the candidates the preview
- * showed for it, and besides them only persons earlier chunks created: the
- * chunk made sure of that before the transaction opened.
+ * candidates under. The keys after that one were never looked under, and a
+ * person found there would not change the plan. Under the keys before it the
+ * plan found nobody, so anybody found there now was added, or given that
+ * number, address or residency, after the plan read the register, and takes
+ * the row's match to a key the board was not shown.
  *
- * Read through the chunk's transaction, after its apartment and email locks.
- * Every writer of an address takes the email lock and every writer of a
- * residency the apartment lock, so on those two keys nobody can match a row
- * between this read and the commit. An identity number has no lock of its own,
- * so on that key the read narrows the gap to the length of the transaction
- * rather than closing it.
+ * Under the key itself the register must still hold the persons the plan found
+ * in it, and nobody besides the row's candidates. A candidate the plan found
+ * only through what an earlier row of the file writes - this chunk's or, for
+ * an identity number the apply does not write, an earlier chunk's - is not in
+ * the register to be found, and need not be. A row the board decided has the
+ * candidates the preview showed for it, and besides them only persons earlier
+ * chunks created: the chunk made sure of that before the transaction opened.
+ *
+ * Read through the chunk's transaction, after its apartment, email and
+ * transition locks. Every writer of an address takes the email lock and every
+ * writer of a residency the apartment lock, so on those two keys nobody can
+ * join a row's candidates between this read and the commit; and whatever takes
+ * a person out of the register - a move-out, an erasure, a purge - takes their
+ * transition lock, which the chunk holds for every candidate of a decided row.
+ * An identity number has no lock of its own, so on that key the read narrows
+ * the gap for a newcomer to the length of the transaction rather than closing
+ * it.
  */
 async function matchedSincePlan(
   tx: Prisma.TransactionClient,
@@ -1039,11 +1055,13 @@ async function matchedSincePlan(
       : [],
   );
 
-  const identityNumberIndexes = asked.flatMap(({ identityNumberIndex }) =>
-    identityNumberIndex === null ? [] : [identityNumberIndex],
+  const identityNumberIndexes = asked.flatMap(({ values }) =>
+    values.personalIdentityNumber === null
+      ? []
+      : [values.personalIdentityNumber],
   );
-  const emailIndexes = asked.flatMap(({ emailIndex }) =>
-    emailIndex === null ? [] : [emailIndex],
+  const emailIndexes = asked.flatMap(({ values }) =>
+    values.email === null ? [] : [values.email],
   );
   const apartmentIds = [
     ...new Set(
@@ -1056,6 +1074,11 @@ async function matchedSincePlan(
   const byIdentityNumber = new Map<string, string[]>();
   const byEmail = new Map<string, string[]>();
   const byName = new Map<string, string[]>();
+  const register: Record<ImportSearchKey, ReadonlyMap<string, string[]>> = {
+    personalIdentityNumber: byIdentityNumber,
+    email: byEmail,
+    apartmentAndName: byName,
+  };
 
   if (identityNumberIndexes.length > 0 || emailIndexes.length > 0) {
     const persons = await tx.person.findMany({
@@ -1105,11 +1128,16 @@ async function matchedSincePlan(
   }
 
   return asked.some((row) =>
-    [
-      ...under(byIdentityNumber, row.identityNumberIndex),
-      ...under(byEmail, row.emailIndex),
-      ...under(byName, row.nameKey),
-    ].some((personId) => !row.candidates.has(personId)),
+    IMPORT_SEARCH_KEYS.some((key) => {
+      const found = under(register[key], row.values[key]);
+      if (key !== row.foundUnder) {
+        return found.length > 0;
+      }
+      return (
+        found.some((personId) => !row.candidates.has(personId)) ||
+        row.foundInRegister.some((personId) => !found.includes(personId))
+      );
+    }),
   );
 }
 
@@ -1131,14 +1159,32 @@ function askedAgain(row: PlannedRow, decisions: ImportDecisions): boolean {
   return row.outcome === "update" && row.matchedPersonId === null;
 }
 
+/**
+ * The candidates, written to or not, of every row the board decided to write.
+ * A row decided to be skipped writes nothing whoever it matches, and is not
+ * asked again.
+ */
+function decidedCandidates(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): string[] {
+  return plan.rows.flatMap((row) =>
+    row.outcome === "ambiguous" && askedAgain(row, decisions)
+      ? row.candidates.map(({ personId }) => personId)
+      : [],
+  );
+}
+
 /** A row's values under the keys the plan looked under for it. */
 interface AskedKeys {
-  identityNumberIndex: string | null;
-  emailIndex: string | null;
+  /** Null under a key the plan did not look under, or the row has no value for. */
+  values: Record<ImportSearchKey, string | null>;
   apartmentId: string | null;
-  nameKey: string | null;
+  foundUnder: ImportSearchKey | null;
   /** The register persons the plan found under them. */
   candidates: ReadonlySet<string>;
+  /** Those of them the register itself held under `foundUnder`. */
+  foundInRegister: readonly string[];
 }
 
 function askedKeys(
@@ -1155,20 +1201,24 @@ function askedKeys(
   );
   const apartment = searched.has("apartmentAndName") ? row.apartment : null;
   return {
-    identityNumberIndex: searched.has("personalIdentityNumber")
-      ? (values?.personalIdentityNumber?.index ?? null)
-      : null,
-    emailIndex: searched.has("email") ? (values?.email?.index ?? null) : null,
+    values: {
+      personalIdentityNumber: searched.has("personalIdentityNumber")
+        ? (values?.personalIdentityNumber?.index ?? null)
+        : null,
+      email: searched.has("email") ? (values?.email?.index ?? null) : null,
+      apartmentAndName:
+        apartment === null
+          ? null
+          : apartmentNameKey(
+              apartment.id,
+              row.person.firstName,
+              row.person.lastName,
+            ),
+    },
     apartmentId: apartment?.id ?? null,
-    nameKey:
-      apartment === null
-        ? null
-        : apartmentNameKey(
-            apartment.id,
-            row.person.firstName,
-            row.person.lastName,
-          ),
+    foundUnder: row.foundUnder,
     candidates: new Set(row.candidates.map(({ personId }) => personId)),
+    foundInRegister: row.foundInRegister,
   };
 }
 

@@ -25,6 +25,7 @@ import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
 import { IMPORT_CHUNK_ROWS, ImportApplyService } from "./import-apply.service";
 import type { ImportField } from "./import-columns";
+import { ImportPlannerService } from "./import-planner.service";
 import type { ImportRunView } from "./import-run";
 import {
   type ImportPreview,
@@ -3893,6 +3894,7 @@ describe("a decided row somebody joins the candidates of", () => {
     sessionId: string,
     firstName: string,
     personIds: readonly string[],
+    persons = 3,
   ): Promise<void> {
     const run = await waitForRun(
       cookie,
@@ -3906,10 +3908,11 @@ describe("a decided row somebody joins the candidates of", () => {
       rowsDone: 0,
       result: { personsCreated: 0, personsUpdated: 0 },
     });
-    // The three who live there, and nobody the row entered beside them.
+    // The ones who live or lived there, and nobody the row entered beside
+    // them.
     expect(
       await prisma.person.count({ where: { firstName, lastName: surname } }),
-    ).toBe(3);
+    ).toBe(persons);
     // Nor did the row reach the person the board chose.
     expect(
       await prisma.person.findUniqueOrThrow({
@@ -4000,6 +4003,112 @@ describe("a decided row somebody joins the candidates of", () => {
       }
 
       await expectStoppedUnwritten(cookie, sessionId, firstName, personIds);
+    },
+    60_000,
+  );
+
+  /** Ends the residency in 2116 of the candidate the board decided against. */
+  async function moveOut(
+    personId: string,
+    client: Prisma.TransactionClient = prisma,
+  ): Promise<void> {
+    const ended = await client.residency.updateMany({
+      where: { personId, apartmentId: apartments.p, movedOutOn: null },
+      data: { movedOutOn: new Date("2024-01-01T00:00:00.000Z") },
+    });
+    expect(ended.count).toBe(1);
+  }
+
+  it.each(["create", "use-person"] as const)(
+    "stops a decision to %s when a candidate leaves after the chunk plans",
+    async (action) => {
+      const { cookie, sessionId, firstName, personIds } = await twoOfAName(
+        `left-${action}`,
+      );
+
+      // The chunk's plan still finds both of them. The one the board decided
+      // against moves out before its transaction opens, which leaves the row
+      // with a single person of the name - a question the board was not asked.
+      const planner = app.get(ImportPlannerService);
+      const plan = planner.plan.bind(planner);
+      const planned = vi
+        .spyOn(planner, "plan")
+        .mockImplementation(async (request) => {
+          const result = await plan(request);
+          if (request.window !== undefined) {
+            planned.mockRestore();
+            await moveOut(personIds[1] ?? "");
+          }
+          return result;
+        });
+      try {
+        const response = await applyImport(
+          cookie,
+          sessionId,
+          decision(action, personIds),
+        );
+        expect(response.statusCode).toBe(202);
+        await expectStoppedUnwritten(
+          cookie,
+          sessionId,
+          firstName,
+          personIds,
+          2,
+        );
+      } finally {
+        planned.mockRestore();
+      }
+    },
+    60_000,
+  );
+
+  it.each(["create", "use-person"] as const)(
+    "stops a decision to %s when a candidate leaves while the chunk waits for its locks",
+    async (action) => {
+      const { cookie, sessionId, firstName, personIds } = await twoOfAName(
+        `leave-${action}`,
+      );
+      const leaving = personIds[1] ?? "";
+
+      // A move-out takes the person's transition lock before it ends the
+      // residency, as everything that takes a person out of the register
+      // does. This one holds it with the residency ended, so the apply request
+      // and the chunk's plan both still find them, and commits only once the
+      // chunk is waiting for that lock: the chunk takes it for every candidate
+      // of a row the board decided, written to or not.
+      let entered!: () => void;
+      const ended = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const other = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`residency:${leaving}`}))`;
+          await moveOut(leaving, tx);
+          entered();
+          await held;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+
+      try {
+        await ended;
+        const response = await applyImport(
+          cookie,
+          sessionId,
+          decision(action, personIds),
+        );
+        expect(response.statusCode).toBe(202);
+        await waitFor(() => waitsForTransitionLock(leaving));
+      } finally {
+        release();
+        await other;
+      }
+
+      await expectStoppedUnwritten(cookie, sessionId, firstName, personIds, 2);
     },
     60_000,
   );
