@@ -21,6 +21,7 @@ import {
 } from "../testing/integration-env";
 import { NEWS_MAILING_QUEUE, NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
+import { paragraphsContent } from "../site/page-content";
 import { NEWS_INDEX_PAGE_SIZE } from "../site/site-news.service";
 import { NewsWriteService } from "./news-write.service";
 
@@ -115,6 +116,12 @@ const slugs = {
   notProse: `news-not-prose-${suffix}`,
   draft: `news-draft-${suffix}`,
   objected: `news-objected-${suffix}`,
+  edited: `news-edited-${suffix}`,
+  editedUnderPublish: `news-edited-under-publish-${suffix}`,
+  publishedUnderEdit: `news-published-under-edit-${suffix}`,
+  renamedUnderMailing: `news-renamed-under-mailing-${suffix}`,
+  /** The address the rename above asks for, and must not get. */
+  renamedTo: `news-renamed-to-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -177,6 +184,7 @@ interface NewsBody {
   emailQueuedAt: string | null;
   smsQueuedAt: string | null;
   delivery: { email: ChannelReport; sms: ChannelReport };
+  revision: number;
 }
 
 function paragraph(text: string) {
@@ -1220,6 +1228,200 @@ describe("the publication guardrails", () => {
     expect((response.json() as { reason: string }).reason).toBe(
       "unsupported-block",
     );
+  });
+});
+
+describe("two board members editing the same item", () => {
+  it("refuses the second save built on the same copy, and keeps the first", async () => {
+    const item = await createNews(boardCookie, slugs.edited);
+
+    const save = (text: string) =>
+      inject({
+        method: "PUT",
+        url: `/api/news/${item.id}`,
+        payload: {
+          slug: slugs.edited,
+          title: `Nyhet ${slugs.edited}`,
+          content: { blocks: [paragraph(text)] },
+          expectedRevision: item.revision,
+        },
+        headers: { cookie: boardCookie },
+      });
+
+    const first = await save("Den första versionen.");
+    expect(first.statusCode).toBe(200);
+    expect(first.json<NewsBody>().revision).toBe(item.revision + 1);
+
+    const second = await save("Den andra versionen.");
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { reason: string }).reason).toBe("news-changed");
+
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { content: true, revision: true },
+    });
+    expect(JSON.stringify(stored.content)).toContain("Den första versionen.");
+    expect(stored.revision).toBe(item.revision + 1);
+  });
+});
+
+/**
+ * Holds an item's row the way a publish or a save in flight does, writes
+ * `change` under it, and commits when `release` is called.
+ *
+ * Resolves once the change is written and the lock is held, so whatever the
+ * test starts next reads the item before the change is committed - which is
+ * the window a decision taken outside the lock would be taken in.
+ */
+async function holdingTheRow(
+  id: string,
+  change: { published?: boolean; emailQueuedAt?: Date; content?: object },
+): Promise<{
+  pid: number;
+  release: () => void;
+  committed: Promise<unknown>;
+}> {
+  let pid = 0;
+  let release = (): void => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = (): void => undefined;
+  const holding = new Promise<void>((resolve) => {
+    held = resolve;
+  });
+  const committed = prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
+      const [session] = await tx.$queryRaw<
+        { pid: number }[]
+      >`SELECT pg_backend_pid() AS pid`;
+      pid = session?.pid ?? 0;
+      await tx.news.update({ where: { id }, data: change });
+      held();
+      await released;
+    },
+    { timeout: 20_000 },
+  );
+  await holding;
+  return { pid, release, committed };
+}
+
+/**
+ * Waits until another session is blocked on the lock the holder has.
+ *
+ * That is the write under test reaching the row the holder has, and only
+ * then is the holder released: releasing earlier would let the write read the
+ * committed change and pass for a reason that has nothing to do with the
+ * lock. It asks for sessions blocked by the holder's own backend, not for any
+ * lock wait in the database: the suites share it, and a wait elsewhere would
+ * release the holder early.
+ */
+async function untilSomebodyWaits(holderPid: number): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting FROM pg_stat_activity
+      WHERE ${holderPid}::int = ANY(pg_blocking_pids(pid))`;
+    if (row !== undefined && row.waiting > 0n) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("Nothing came to wait on the held row.");
+}
+
+describe("a save and a publish racing each other", () => {
+  const actor = { personId: boardMember.personId, channel: "WEB" as const };
+
+  it("scans the save against an item the publish made readable", async () => {
+    const item = await createNews(boardCookie, slugs.editedUnderPublish);
+    const holder = await holdingTheRow(item.id, { published: true });
+
+    const outcome = writes
+      .update(
+        item.id,
+        {
+          slug: slugs.editedUnderPublish,
+          title: `Nyhet ${slugs.editedUnderPublish}`,
+          content: paragraphsContent([SENTENCE_WITH_A_NUMBER]),
+        },
+        actor,
+      )
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    await untilSomebodyWaits(holder.pid);
+    holder.release();
+    await holder.committed;
+
+    expect(await outcome).toMatchObject({
+      reason: "personal-identity-number",
+    });
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { content: true },
+    });
+    expect(JSON.stringify(stored.content)).not.toContain(
+      LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER,
+    );
+  });
+
+  it("scans the publish against the words the save wrote", async () => {
+    const item = await createNews(boardCookie, slugs.publishedUnderEdit);
+    const holder = await holdingTheRow(item.id, {
+      content: paragraphsContent([SENTENCE_WITH_A_NUMBER]),
+    });
+
+    const outcome = writes.publish(item.id, { published: true }, actor).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+    await untilSomebodyWaits(holder.pid);
+    holder.release();
+    await holder.committed;
+
+    expect(await outcome).toMatchObject({
+      reason: "personal-identity-number",
+    });
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { published: true },
+    });
+    expect(stored.published).toBe(false);
+  });
+
+  it("refuses the rename of an item whose address the mailing sent", async () => {
+    const item = await createNews(boardCookie, slugs.renamedUnderMailing);
+    const holder = await holdingTheRow(item.id, {
+      published: true,
+      emailQueuedAt: new Date(),
+    });
+
+    const outcome = writes
+      .update(
+        item.id,
+        {
+          slug: slugs.renamedTo,
+          title: `Nyhet ${slugs.renamedUnderMailing}`,
+          content: paragraphsContent(["Hej."]),
+        },
+        actor,
+      )
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    await untilSomebodyWaits(holder.pid);
+    holder.release();
+    await holder.committed;
+
+    expect(await outcome).toMatchObject({ reason: "address-mailed" });
+    const stored = await prisma.news.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { slug: true },
+    });
+    expect(stored.slug).toBe(slugs.renamedUnderMailing);
   });
 });
 

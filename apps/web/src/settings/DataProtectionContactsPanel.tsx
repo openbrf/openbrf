@@ -8,7 +8,18 @@ import {
 import { FIELD, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { useSaveAction } from "../ui/save-state";
+import type { TranslationKey } from "../i18n/translation-key";
+import { failureMessage, useSaveAction } from "../ui/save-state";
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  "controller.contactEmail": "settings.dataProtectionContacts.contactEmail",
+  "controller.postalAddress": "settings.dataProtectionContacts.postalAddress",
+  "officer.name": "settings.dataProtectionContacts.officerName",
+  "officer.email": "settings.dataProtectionContacts.officerEmail",
+  "officer.phone": "settings.dataProtectionContacts.officerPhone",
+  "jointController.name": "settings.dataProtectionContacts.jointName",
+  "jointController.contact": "settings.dataProtectionContacts.jointContact",
+};
 
 export interface DataProtectionContactsPanelProps {
   contacts: DataProtectionContacts;
@@ -85,6 +96,7 @@ export function DataProtectionContactsPanel({
             {t("settings.dataProtectionContacts.contactEmail")}
           </span>
           <input
+            type="email"
             className={FIELD}
             value={contactEmail}
             disabled={!mayManage}
@@ -131,6 +143,7 @@ export function DataProtectionContactsPanel({
             {t("settings.dataProtectionContacts.officerEmail")}
           </span>
           <input
+            type="email"
             className={FIELD}
             value={officerEmail}
             disabled={!mayManage}
@@ -196,9 +209,16 @@ export function DataProtectionContactsPanel({
 
         {save.state.kind === "failed" ? (
           <Notice tone="danger" live>
-            {save.state.failure.reason === "joint-controller-incomplete"
-              ? t("settings.dataProtectionContacts.errors.jointIncomplete")
-              : t("settings.dataProtectionContacts.errors.unknown")}
+            {failureMessage(
+              t,
+              save.state.failure,
+              {
+                "joint-controller-incomplete":
+                  "settings.dataProtectionContacts.errors.jointIncomplete",
+              },
+              "settings.dataProtectionContacts.errors.unknown",
+              FIELD_LABELS,
+            )}
           </Notice>
         ) : null}
       </form>

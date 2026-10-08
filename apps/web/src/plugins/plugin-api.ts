@@ -26,7 +26,19 @@ export interface PluginSummary {
   enabled: boolean;
   /** PENDING, INSTALLED or FAILED. */
   status: string;
+  /**
+   * What the last failed install threw, in the server's English. Shown only
+   * for a row that failed before failures carried a code, for which it is the
+   * whole of the reason.
+   */
   lastError: string | null;
+  /**
+   * Why the last install failed, as a code and the values its sentence needs.
+   * `reason` is a string for the reason a finding's is: the browser applies
+   * what the API sent, and the table that turns it into a sentence is typed
+   * against the union.
+   */
+  failure: { reason: string; detail: Record<string, string | number> } | null;
   /** Whether the plugin's code is running in the current server process. */
   loaded: boolean;
   permissions: PluginPermission[];

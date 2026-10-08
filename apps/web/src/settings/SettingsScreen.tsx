@@ -6,6 +6,7 @@ import type { AddressView, InstanceSettings, Viewer } from "../api/instance";
 import { fetchAddresses, fetchSettings } from "../api/instance";
 import { useSession } from "../auth/auth-client";
 import { SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { AddressesPanel } from "./AddressesPanel";
 import { ApartmentsPanel } from "./ApartmentsPanel";
@@ -28,6 +29,7 @@ import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmsPanel } from "./SmsPanel";
 import { SmtpPanel } from "./SmtpPanel";
 import { ThemesPanel } from "../themes/ThemesPanel";
+import { useFocusAcrossReload } from "./use-focus-across-reload";
 
 export interface SettingsScreenProps {
   viewer: Viewer;
@@ -141,15 +143,28 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
     };
   }, [read]);
 
+  // A panel keyed on what a save changes is built again by the reload, and
+  // would take the focus of whoever sent it with Enter along.
+  const { rootRef, remember } = useFocusAcrossReload(loaded);
+
   const reload = (): void => {
-    void read().then(setLoaded);
+    void read().then((next) => {
+      remember();
+      setLoaded(next);
+    });
   };
 
   const { ready, settings, addresses, loadFailed } = loaded;
-  // Gated on the read too: an unset completion date is unknown until then, so
-  // without this the resume notice flashes on every settings visit.
+  /*
+   * Only a read that answered decides this. Before it lands an unset completion
+   * date is unknown, and after one that failed it still is. A null `settings`
+   * without a failure is the answer "no cooperative yet", which is unfinished.
+   */
   const setupUnfinished =
-    canRead && ready && settings?.housingCooperative.setupCompletedAt == null;
+    canRead &&
+    ready &&
+    !loadFailed &&
+    settings?.housingCooperative.setupCompletedAt == null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -161,9 +176,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
       {loadFailed ? (
         // Its own sentence: this notice reports a failed READ, and the shared
         // "could not be saved" would tell a board their settings had been lost.
-        <Notice tone="danger" live>
-          {t("settings.errors.loadFailed")}
-        </Notice>
+        <LoadFailure messageKey="settings.errors.loadFailed" onRetry={reload} />
       ) : null}
 
       {setupUnfinished && canManage ? (
@@ -183,8 +196,11 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
         </p>
       ) : null}
 
-      {canRead && ready ? (
-        <>
+      {/* Not after a failed read either. The panels are seeded from it and
+          editable, and the cooperative write upserts: a blank form saved over
+          a cooperative that exists would clear its organisation number. */}
+      {canRead && ready && !loadFailed ? (
+        <div ref={rootRef} className="contents">
           <HousingCooperativePanel
             key={settings?.housingCooperative.name ?? "unnamed"}
             value={settings?.housingCooperative ?? null}
@@ -328,7 +344,7 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
               {canManage ? <ThemesPanel /> : null}
             </>
           )}
-        </>
+        </div>
       ) : null}
 
       <ProfilePanel viewer={viewer} />
