@@ -1,6 +1,14 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { CipherSweet, EncryptedField, StringProvider } from "ciphersweet-js";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { EncryptionKeyProvider } from "../crypto/encryption-key.provider";
@@ -207,8 +215,13 @@ describe("a number stored without its century", () => {
     });
   });
 
-  afterAll(async () => {
+  // Some tests freeze the clock; give the next one the real one back
+  // even when an assertion throws.
+  afterEach(() => {
     vi.useRealTimers();
+  });
+
+  afterAll(async () => {
     await prisma.person.deleteMany({
       where: { id: { in: [id, filledIn, flagged] } },
     });
