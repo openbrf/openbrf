@@ -3,7 +3,15 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import {
@@ -17,6 +25,7 @@ import {
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { HONEYPOT_FIELD } from "../http/honeypot";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 
@@ -53,6 +62,7 @@ let prisma: PrismaService;
 let encryption: FieldEncryptionService;
 let mail: MailService;
 let contact: ContactService;
+let jobs: JobQueueService;
 
 const suffix = process.hrtime.bigint().toString(36);
 
@@ -176,6 +186,7 @@ beforeAll(async () => {
   encryption = app.get(FieldEncryptionService);
   mail = app.get(MailService);
   contact = app.get(ContactService);
+  jobs = app.get(JobQueueService);
 
   await prisma.association.upsert({
     where: { id: 1 },
@@ -731,8 +742,8 @@ describe("the board's switch for public reports", () => {
 
 describe("telling the board", () => {
   beforeAll(async () => {
-    // The hourly bound counts every message stored, and the limiter's test
-    // above stored a minute's worth. Those have been asserted on already.
+    // The limiter's test above stored a minute's worth of messages, which have
+    // been asserted on already and are no part of what follows.
     await prisma.contactSubmission.deleteMany({
       where: { message: { contains: suffix } },
     });
@@ -854,6 +865,218 @@ describe("telling the board", () => {
         where: { message: { in: filler } },
       });
     }
+  });
+
+  describe("the hourly bound", () => {
+    const MINUTE_MS = 60 * 1000;
+    const minutesAgo = (minutes: number): Date =>
+      new Date(Date.now() - minutes * MINUTE_MS);
+
+    /*
+     * Each case starts from an hour in which the board was mailed about
+     * nothing. This suite is the only one that writes to the inbox, so its own
+     * rows are all the bound can count.
+     */
+    beforeEach(async () => {
+      await prisma.contactSubmission.deleteMany({
+        where: { message: { contains: suffix } },
+      });
+    });
+
+    /**
+     * Stores messages straight into the inbox, as the form would have, with
+     * the times a case needs. Answers their ids in the order given.
+     */
+    async function store(
+      label: string,
+      rows: ReadonlyArray<{ createdAt: Date; notifiedAt: Date | null }>,
+    ): Promise<string[]> {
+      const email = await encryption.encrypt(
+        "contactSubmission.email",
+        "bo@exempel.se",
+      );
+      const ids: string[] = [];
+      for (const [index, row] of rows.entries()) {
+        const created = await prisma.contactSubmission.create({
+          data: {
+            emailCipher: email.cipher,
+            emailIndex: email.index,
+            message: `${label} ${String(index)} ${suffix}.`,
+            ...row,
+          },
+          select: { id: true },
+        });
+        ids.push(created.id);
+      }
+      return ids;
+    }
+
+    function many(
+      count: number,
+      row: { createdAt: Date; notifiedAt: Date | null },
+    ): Array<{ createdAt: Date; notifiedAt: Date | null }> {
+      return Array.from({ length: count }, () => ({ ...row }));
+    }
+
+    async function notifiedAtOf(id: string): Promise<Date | null> {
+      const row = await prisma.contactSubmission.findUniqueOrThrow({
+        where: { id },
+        select: { notifiedAt: true },
+      });
+      return row.notifiedAt;
+    }
+
+    it("counts the messages the board was mailed about, not every one stored", async () => {
+      /*
+       * A burst left out of the mail, and rows from before the marker existed,
+       * which carry no marker at all. Neither was mailed, so neither spends
+       * the hour.
+       */
+      const unmailed = await store("Utelämnad", [
+        ...many(NOTIFIED_SUBMISSIONS_PER_HOUR, {
+          createdAt: minutesAgo(5),
+          notifiedAt: null,
+        }),
+        ...many(3, { createdAt: minutesAgo(30), notifiedAt: null }),
+      ]);
+      const [next = ""] = await store("Nästa", [
+        { createdAt: new Date(), notifiedAt: null },
+      ]);
+
+      const before = new Date();
+      const queued = await contact.fanOutToBoard(next);
+
+      expect(queued).toBeGreaterThan(0);
+      expect(await queuedFor(CONTACT_NOTICE_QUEUE, next)).toHaveLength(queued);
+      // The marker is what the next fan-out counts, so it has to be there.
+      const marker = await notifiedAtOf(next);
+      expect(marker).not.toBeNull();
+      expect(marker?.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      // And only on the message that was mailed about.
+      for (const id of unmailed) {
+        expect(await notifiedAtOf(id)).toBeNull();
+      }
+    });
+
+    it("lets the messages it mailed about spend the hour", async () => {
+      const ids = await store(
+        "Inom timmen",
+        many(NOTIFIED_SUBMISSIONS_PER_HOUR + 1, {
+          createdAt: new Date(),
+          notifiedAt: null,
+        }),
+      );
+      const last = ids.at(-1) ?? "";
+
+      for (const id of ids.slice(0, -1)) {
+        expect(await contact.fanOutToBoard(id)).toBeGreaterThan(0);
+      }
+
+      expect(await contact.fanOutToBoard(last)).toBe(0);
+      expect(await queuedFor(CONTACT_NOTICE_QUEUE, last)).toHaveLength(0);
+      expect(await notifiedAtOf(last)).toBeNull();
+    });
+
+    it("leaves no marker when the notice jobs do not commit", async () => {
+      const [id = ""] = await store("Kön nere", [
+        { createdAt: new Date(), notifiedAt: null },
+      ]);
+      const send = vi
+        .spyOn(jobs, "sendInTransaction")
+        .mockRejectedValueOnce(new Error("The queue is down."));
+      try {
+        await expect(contact.fanOutToBoard(id)).rejects.toThrow(
+          "The queue is down.",
+        );
+      } finally {
+        send.mockRestore();
+      }
+
+      // Rolled back together: no job, and no marker spending the hour on a
+      // message the board will not hear about.
+      expect(await notifiedAtOf(id)).toBeNull();
+      expect(await queuedFor(CONTACT_NOTICE_QUEUE, id)).toHaveLength(0);
+
+      // So the retry is the mailing.
+      const queued = await contact.fanOutToBoard(id);
+      expect(queued).toBeGreaterThan(0);
+      expect(await notifiedAtOf(id)).not.toBeNull();
+    });
+
+    it("counts a message by when the board was mailed, not when it arrived", async () => {
+      // Messages from two hours ago whose fan-out ran late, a few minutes ago.
+      await store(
+        "Försenad",
+        many(NOTIFIED_SUBMISSIONS_PER_HOUR, {
+          createdAt: minutesAgo(120),
+          notifiedAt: minutesAgo(5),
+        }),
+      );
+      const [next = ""] = await store("Nästa", [
+        { createdAt: new Date(), notifiedAt: null },
+      ]);
+
+      expect(await contact.fanOutToBoard(next)).toBe(0);
+      expect(await queuedFor(CONTACT_NOTICE_QUEUE, next)).toHaveLength(0);
+      expect(await notifiedAtOf(next)).toBeNull();
+    });
+
+    it("forgets what it mailed more than an hour ago", async () => {
+      await store(
+        "Förra timmen",
+        many(NOTIFIED_SUBMISSIONS_PER_HOUR, {
+          createdAt: minutesAgo(61),
+          notifiedAt: minutesAgo(61),
+        }),
+      );
+      const [next = ""] = await store("Nästa", [
+        { createdAt: new Date(), notifiedAt: null },
+      ]);
+
+      expect(await contact.fanOutToBoard(next)).toBeGreaterThan(0);
+    });
+
+    it("drains a backlog from earlier hours at the bound for this one, in any order", async () => {
+      /*
+       * A queue that was down for hours, catching up: two earlier hours of
+       * messages, each hour inside the bound on its own, run now and newest
+       * first. Measured from when each arrived they would all be mailed; the
+       * mail account is spending them in this hour.
+       */
+      const perHour = NOTIFIED_SUBMISSIONS_PER_HOUR / 2 + 1;
+      const older = await store(
+        "Fem timmar",
+        many(perHour, { createdAt: minutesAgo(300), notifiedAt: null }),
+      );
+      const newer = await store(
+        "Tre timmar",
+        many(perHour, { createdAt: minutesAgo(180), notifiedAt: null }),
+      );
+
+      const before = new Date();
+      const answers: number[] = [];
+      for (const id of [...newer, ...older]) {
+        answers.push(await contact.fanOutToBoard(id));
+      }
+
+      const mailed = answers.filter((queued) => queued > 0);
+      expect(mailed).toHaveLength(NOTIFIED_SUBMISSIONS_PER_HOUR);
+      expect(answers.slice(NOTIFIED_SUBMISSIONS_PER_HOUR)).toEqual(
+        Array.from(
+          { length: answers.length - NOTIFIED_SUBMISSIONS_PER_HOUR },
+          () => 0,
+        ),
+      );
+      // Marked with the time of the fan-out, which is what the next one counts.
+      for (const id of [...newer, ...older].slice(
+        0,
+        NOTIFIED_SUBMISSIONS_PER_HOUR,
+      )) {
+        expect((await notifiedAtOf(id))?.getTime()).toBeGreaterThanOrEqual(
+          before.getTime(),
+        );
+      }
+    });
   });
 
   it("keeps the message when this instance cannot send mail at all", async () => {

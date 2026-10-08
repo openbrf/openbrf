@@ -731,10 +731,9 @@ export class NewsWriteService {
      * afterthought: a board that published without sending and comes back to
      * press it again is asking for the one thing this call could still do.
      *
-     * Not decided from this read alone when a mailing is claimed. The read took
-     * no lock, and a take-down that committed after it leaves rows waiting that
-     * only a publish can queue again; whether there is anything to do is
-     * settled on the locked row below.
+     * Decided on the locked row below. A publish of an item that is already up
+     * changes nothing there; a publish of an item that is down puts it back up,
+     * and queues again whatever its claimed mailings left waiting.
      */
     const changesNothing = (news: {
       published: boolean;
@@ -747,13 +746,7 @@ export class NewsWriteService {
         news.published === input.published &&
         news.visibility === (input.visibility ?? news.visibility) &&
         !mailing &&
-        !texting &&
-        // A held mailing is picked up again by a publish, so it is not a no-op.
-        !(
-          input.published &&
-          !news.published &&
-          (news.emailQueuedAt !== null || news.smsQueuedAt !== null)
-        )
+        !texting
       );
     };
 
@@ -765,9 +758,17 @@ export class NewsWriteService {
      * once set, so this read can only ask for a queue the locked one below
      * turns out not to need, never miss one it does. A claimed mailing may be
      * queued again by a publish, so its queue is created too.
+     *
+     * Not a no-op on this read alone when a mailing is claimed and this is a
+     * publish. The read took no lock, and a take-down that committed after it
+     * leaves rows waiting that only a publish can queue again: an item that
+     * reads as up here may be down under the lock, so such a publish always
+     * goes on to the locked read, which decides.
      */
     const before = await this.require(id);
-    if (changesNothing(before)) {
+    const holdsClaim =
+      before.emailQueuedAt !== null || before.smsQueuedAt !== null;
+    if (changesNothing(before) && !(input.published && holdsClaim)) {
       return { ...(await this.viewOf(before)), mailedTo: null, textedTo: null };
     }
     const planned = sends(before);

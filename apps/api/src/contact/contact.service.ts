@@ -371,7 +371,7 @@ export class ContactService implements OnModuleInit {
   async fanOutToBoard(submissionId: string): Promise<number> {
     const submission = await this.prisma.contactSubmission.findUnique({
       where: { id: submissionId },
-      select: { id: true, createdAt: true },
+      select: { id: true },
     });
     if (submission === null) {
       // Nothing to tell anybody about. A submission can be gone by the time
@@ -391,14 +391,18 @@ export class ContactService implements OnModuleInit {
      * The bound is approximate: the count and the marker are not serialized,
      * so parallel jobs can overshoot it by a message or two. It limits spam;
      * the inbox still holds every message.
+     *
+     * The hour is the one before this fan-out, and the marker carries this
+     * fan-out's own time, because what the bound protects is the mail account
+     * this hour. Measured from when each message arrived instead, a queue that
+     * ran late or out of order would judge every message against its own past
+     * hour and could mail the board ten times over within one.
      */
+    const now = new Date();
     const earlier = await this.prisma.contactSubmission.count({
       where: {
-        notifiedAt: { not: null },
-        createdAt: {
-          gte: new Date(submission.createdAt.getTime() - HOUR_MS),
-          lt: submission.createdAt,
-        },
+        id: { not: submissionId },
+        notifiedAt: { gte: new Date(now.getTime() - HOUR_MS) },
       },
     });
     if (earlier >= NOTIFIED_SUBMISSIONS_PER_HOUR) {
@@ -437,7 +441,7 @@ export class ContactService implements OnModuleInit {
     await this.prisma.$transaction(async (tx) => {
       await tx.contactSubmission.updateMany({
         where: { id: submissionId, notifiedAt: null },
-        data: { notifiedAt: new Date() },
+        data: { notifiedAt: now },
       });
       for (const personId of board) {
         await this.jobs.sendInTransaction<ContactNoticeJob>(

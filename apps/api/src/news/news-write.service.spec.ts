@@ -727,28 +727,75 @@ describe("the mailing, which happens once", () => {
     expect(news.updateMany).not.toHaveBeenCalled();
   });
 
-  it("queues a held mailing again when the item was taken down after it was read", async () => {
+  /*
+   * The audience is left as it was. Read without the lock, the call asks for
+   * nothing the item does not already have, so only the claim tells it to go
+   * on to the locked row - where the take-down has landed.
+   */
+  it.each([
+    {
+      channel: "EMAIL",
+      claim: "emailQueuedAt",
+      order: ["ensureQueues", "enqueue"],
+    },
+    {
+      channel: "SMS",
+      claim: "smsQueuedAt",
+      order: ["ensureSmsQueues", "enqueueSms"],
+    },
+  ] as const)(
+    "queues a held $channel mailing again when the item was taken down after it was read",
+    async ({ channel, claim, order }) => {
+      const mailed = new Date("2026-09-01T09:00:00.000Z");
+      const fakes = build();
+      // Another board member takes the item down between this publish's read
+      // and its lock, and the worker holds the rows that were still waiting.
+      changedOnceLocked(
+        fakes,
+        { published: true, [claim]: mailed },
+        { published: false, [claim]: mailed },
+      );
+      fakes.newsDelivery.count.mockResolvedValue(3);
+
+      const published = await fakes.service.publish(
+        "news-1",
+        { published: true },
+        { personId: "board-1", channel: "WEB" },
+      );
+
+      expect(fakes.lock).toHaveBeenCalled();
+      expect(fakes.order).toEqual(order);
+      expect(fakes.newsDelivery.count).toHaveBeenCalledWith({
+        where: { newsId: "news-1", channel, status: "PENDING" },
+      });
+      expect(published.published).toBe(true);
+      // Queued again, and not claimed again: the snapshot already stands.
+      expect(fakes.news.updateMany).not.toHaveBeenCalled();
+      expect(fakes.newsDelivery.createMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("writes nothing for a publish of a claimed item that is still up under the lock", async () => {
     const mailed = new Date("2026-09-01T09:00:00.000Z");
-    const fakes = build();
-    // Another board member takes the item down between this publish's read and
-    // its lock, and the worker holds the rows that were still waiting.
-    changedOnceLocked(
-      fakes,
-      { published: true, emailQueuedAt: mailed },
-      { published: false, emailQueuedAt: mailed },
-    );
+    const fakes = build({
+      published: true,
+      emailQueuedAt: mailed,
+      smsQueuedAt: mailed,
+    });
     fakes.newsDelivery.count.mockResolvedValue(3);
 
     await fakes.service.publish(
       "news-1",
-      { published: true, visibility: "PUBLIC" },
+      { published: true, sendEmail: true, sendSms: true },
       { personId: "board-1", channel: "WEB" },
     );
 
-    expect(fakes.order).toEqual(["ensureQueues", "enqueue"]);
-    expect(fakes.newsDelivery.count).toHaveBeenCalledWith({
-      where: { newsId: "news-1", channel: "EMAIL", status: "PENDING" },
-    });
+    expect(fakes.lock).toHaveBeenCalled();
+    expect(fakes.news.update).not.toHaveBeenCalled();
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+    expect(fakes.newsDelivery.count).not.toHaveBeenCalled();
+    expect(fakes.mailer.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(fakes.texter.enqueueInTransaction).not.toHaveBeenCalled();
   });
 
   it("leaves a held mailing to the publish that put the item back up first", async () => {
