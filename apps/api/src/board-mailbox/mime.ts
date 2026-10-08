@@ -37,7 +37,48 @@
  * matter here (ISO-8859-1 and Windows-1252).
  */
 
-import { CONTROL_CHARACTERS, oneLine } from "../mail/header-text";
+import {
+  CONTROL_CHARACTERS,
+  hasControlCharacter,
+  oneLine,
+} from "../mail/header-text";
+import { prefix } from "../text/prefix";
+
+/**
+ * How much of one letter is read.
+ *
+ * Long enough for anything a person writes to their board, and short enough that
+ * a machine-generated message with a megabyte of quoted history does not become
+ * a row nothing can render. What is cut is recorded on the message, so the board
+ * is told it is reading part of a letter rather than shown a truncated one that
+ * reads as complete.
+ */
+export const MAX_TEXT_CHARACTERS = 20_000;
+
+/**
+ * How much of a body's decoded text is read to produce that much.
+ *
+ * A body is as long as the sender chose, up to the size the collector will
+ * fetch, and every pass below runs over all of it. None of them costs more than
+ * the length of what it is given, and this is what keeps that length the
+ * reader's choice rather than the sender's: a letter is stored at
+ * MAX_TEXT_CHARACTERS, so there is no reason to read ten mebibytes of it. Four
+ * times as much, because an HTML letter spends characters on markup and
+ * entities that are not text, and a plain one on line endings and control
+ * characters that are dropped.
+ */
+const MAX_BODY_INPUT = 4 * MAX_TEXT_CHARACTERS;
+
+/**
+ * How many of a body's bytes are decoded to produce that much text.
+ *
+ * The cut above bounds the passes over the text, but the transfer and charset
+ * decoding before it would still run over every byte the sender sent. This
+ * bounds them too, with room for the most a character can cost: four bytes in
+ * any charset the decoder knows, three times that written as quoted-printable,
+ * and a margin for the line breaks around it.
+ */
+const MAX_BODY_BYTES = 16 * MAX_BODY_INPUT;
 
 /** One file that arrived attached to a message. */
 export interface MimeAttachment {
@@ -79,11 +120,75 @@ export interface ParsedMessage {
    * the caller decides how far to trust it.
    */
   readonly date: Date | null;
-  /** The message as text, with newlines normalised. */
+  /**
+   * When the last mail server on the way says it took the message in: the date
+   * on the topmost Received header.
+   *
+   * Every SMTP server that accepts a message has to put one at the top of it
+   * (RFC 5321 section 4.4), so on a letter delivered to the board's mailbox
+   * the topmost is written by the mailbox's own provider. A sender can write
+   * Received headers of their own, but only below that one. Null when the
+   * message carries none or its date cannot be read, which is a message that
+   * did not arrive through a mail server. It is still a clock somebody else
+   * keeps, so the caller decides how far to trust it.
+   */
+  readonly receivedAt: Date | null;
+  /**
+   * The message as text, with newlines normalised, and at most
+   * {@link MAX_TEXT_CHARACTERS} of it. A letter written in several text parts
+   * reads as all of them, in the order they stand.
+   */
   readonly text: string;
+  /**
+   * Whether the letter held more than {@link text} gives: its text ran past the
+   * bound, or its body was longer than the reader reads.
+   */
+  readonly textTruncated: boolean;
   /** Whether {@link text} was derived from an HTML part rather than sent as text. */
   readonly textFromHtml: boolean;
+  /**
+   * The HTML {@link text} was read from, as far as the reader read it, when it
+   * was read from one HTML part. Null otherwise.
+   */
+  readonly textHtml: string | null;
   readonly attachments: readonly MimeAttachment[];
+  /**
+   * The other forms of the body: every text part of a `multipart/alternative`
+   * the reader chose another part of, read as it would have read that part.
+   *
+   * Not the letter as the board sees it, which is {@link text}. A mail client
+   * may show any one of the forms, and the sender decides what each says, so
+   * a caller that judges a letter by its text reads these as well.
+   */
+  readonly alternatives: readonly ReadText[];
+  /**
+   * How many parts the message holds that are neither its body, nor another
+   * text form of the body, nor an attachment - inline content this reader does
+   * not read.
+   *
+   * Counted so a caller that judges a letter by its text can tell when the
+   * text is not all the letter says.
+   */
+  readonly unreadParts: number;
+}
+
+/** One form of a letter's body, as the reader reads it. */
+export interface ReadText {
+  /** At most {@link MAX_TEXT_CHARACTERS} of it. */
+  readonly text: string;
+  /** Whether the form held more than {@link text} gives. */
+  readonly truncated: boolean;
+  /** Whether it was read from HTML. */
+  readonly fromHtml: boolean;
+  /**
+   * The HTML it was read from, as far as the reader read it, when it was read
+   * from one HTML part. Null for plain text, and for text joined from several
+   * parts.
+   *
+   * The words are not all an HTML form says: a picture, or text a style sheet
+   * writes, is shown by a mail client and is no word of it.
+   */
+  readonly html: string | null;
 }
 
 /** A parsed content type: "text/plain; charset=utf-8" and its parameters. */
@@ -117,6 +222,7 @@ interface MimePart {
 export function readMessage(raw: Buffer): ParsedMessage {
   const part = parsePart(raw);
   const body = chooseBody(part);
+  const unread = unreadContent(part, body?.parts ?? []);
 
   return {
     subject: oneLine(decodeEncodedWords(part.headers.get("subject") ?? "")),
@@ -129,9 +235,15 @@ export function readMessage(raw: Buffer): ParsedMessage {
       identifierFrom(part.headers.get("in-reply-to") ?? "") ??
       lastIdentifierFrom(part.headers.get("references") ?? ""),
     date: dateFrom(part.headers.get("date") ?? ""),
+    // The first occurrence is the topmost, which is what the header map keeps.
+    receivedAt: receivedDateFrom(part.headers.get("received") ?? ""),
     text: body?.text ?? "",
+    textTruncated: body?.truncated ?? false,
     textFromHtml: body?.fromHtml ?? false,
-    attachments: collectAttachments(part, body?.part ?? null),
+    textHtml: body?.html ?? null,
+    attachments: collectAttachments(part),
+    alternatives: unread.alternatives,
+    unreadParts: unread.parts,
   };
 }
 
@@ -481,14 +593,13 @@ function trimLineBreak(body: Buffer, at: number): number {
 // The body.
 // ---------------------------------------------------------------------------
 
-interface ChosenBody {
-  readonly part: MimePart;
-  readonly text: string;
-  readonly fromHtml: boolean;
+interface ChosenBody extends ReadText {
+  /** The leaves the text was read from, in the order it reads them. */
+  readonly parts: readonly MimePart[];
 }
 
 /**
- * The part a reader is meant to read.
+ * The parts a reader is meant to read.
  *
  * `multipart/alternative` is the case the rest follows from: its children are
  * the same message written twice, so exactly one of them is the body and the
@@ -496,56 +607,214 @@ interface ChosenBody {
  * what the sender typed rather than a rendering of it, and the last matching
  * child is preferred over the first because a client puts its richest
  * alternative last.
+ *
+ * `multipart/related` is one document and the resources it refers to - an HTML
+ * letter and the pictures it shows - so its first readable part is the body,
+ * and a text part among the resources is not the letter.
+ *
+ * Every other multipart is a sequence a mail client shows in order, and each
+ * readable part of it is part of the letter. Apple Mail writes the text around
+ * an inline picture as one text part before it and another after it, and a
+ * reader that stopped at the first would give the board half the letter.
+ *
+ * A part is readable when it is plain text or HTML: see {@link isReadable}.
  */
 function chooseBody(part: MimePart): ChosenBody | null {
   if (part.children !== null) {
     if (part.contentType.subtype === "alternative") {
-      return (
-        lastBody(part.children, (candidate) => candidate.fromHtml === false) ??
-        lastBody(part.children, () => true)
-      );
+      return lastBody(part.children);
     }
-    for (const child of part.children) {
-      const chosen = chooseBody(child);
-      if (chosen !== null) {
-        return chosen;
-      }
+    if (part.contentType.subtype === "related") {
+      return firstBody(part.children);
     }
-    return null;
+    return joinedBody(part.children);
   }
 
-  if (isAttachment(part) || part.contentType.type !== "text") {
+  if (!isReadable(part)) {
     return null;
   }
 
   const charset = part.contentType.parameters.get("charset") ?? "utf-8";
-  const decoded = decodeBytes(decodeTransfer(part), charset);
+  const cut = part.body.length > MAX_BODY_BYTES;
+  const decoded = decodeBytes(
+    decodeTransfer(
+      cut ? { ...part, body: part.body.subarray(0, MAX_BODY_BYTES) } : part,
+    ),
+    charset,
+  );
+  const read = readBody(decoded, part.contentType.subtype === "html");
 
-  if (part.contentType.subtype === "html") {
-    return { part, text: htmlToText(decoded), fromHtml: true };
-  }
+  return { ...read, parts: [part], truncated: cut || read.truncated };
+}
+
+/**
+ * A body's decoded text, read as the reader reads one: plain text with its
+ * newlines normalised and its control characters dropped, HTML as the text it
+ * shows, and either held to the bounds above.
+ *
+ * Exported so that what this instance sent can be read the way a copy of it
+ * that comes back is read.
+ */
+export function readBody(decoded: string, fromHtml: boolean): ReadText {
+  const read = prefix(decoded, MAX_BODY_INPUT);
+  const text = fromHtml
+    ? htmlToText(read)
+    : withoutControlCharacters(normaliseNewlines(read));
+
   return {
-    part,
-    text: withoutControlCharacters(normaliseNewlines(decoded)),
-    fromHtml: false,
+    text: prefix(text, MAX_TEXT_CHARACTERS),
+    // Either cut counts. A body cut before it was read can still come out
+    // shorter than the bound - an HTML letter whose text sat behind its markup -
+    // and the board is owed the same notice for it.
+    truncated:
+      read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
+    fromHtml,
+    html: fromHtml ? read : null,
   };
 }
 
-function lastBody(
-  children: readonly MimePart[],
-  accept: (candidate: ChosenBody) => boolean,
-): ChosenBody | null {
+/**
+ * The body of a `multipart/alternative`: the last plain-text child, or else the
+ * last child with a body at all.
+ *
+ * One pass, reading each child once. Two passes - one for plain text, one for
+ * anything - would read every child of an HTML-only alternative twice, and an
+ * alternative nested inside another as often as the sender cares to: twenty
+ * levels, the most the walk allows, read the HTML at the bottom a million times.
+ */
+function lastBody(children: readonly MimePart[]): ChosenBody | null {
+  let last: ChosenBody | null = null;
   for (let index = children.length - 1; index >= 0; index -= 1) {
     const child = children[index];
     if (child === undefined) {
       continue;
     }
     const chosen = chooseBody(child);
-    if (chosen !== null && accept(chosen)) {
+    if (chosen === null) {
+      continue;
+    }
+    if (!chosen.fromHtml) {
+      return chosen;
+    }
+    last ??= chosen;
+  }
+  return last;
+}
+
+/** The body of the first child that has one. */
+function firstBody(children: readonly MimePart[]): ChosenBody | null {
+  for (const child of children) {
+    const chosen = chooseBody(child);
+    if (chosen !== null) {
       return chosen;
     }
   }
   return null;
+}
+
+/**
+ * The bodies of every child that has one, as one text in the order they stand.
+ *
+ * A letter with one body comes back exactly as that body reads, so joining
+ * changes nothing for the letters that never needed it. Several are joined
+ * with a blank line between them, where a client shows the picture or file
+ * that stood between them, and the whole is held to the same bound as one body.
+ *
+ * Reading stops once the text has reached that bound. A sender decides how many
+ * parts a letter has, and reading the rest would only produce text that is cut
+ * again; a part left behind with text in it is recorded as a cut instead, so the
+ * board is told the letter goes on.
+ */
+function joinedBody(children: readonly MimePart[]): ChosenBody | null {
+  const read: ChosenBody[] = [];
+  let length = 0;
+  let cut = false;
+
+  for (const child of children) {
+    if (length >= MAX_TEXT_CHARACTERS) {
+      if (holdsText(child)) {
+        cut = true;
+        break;
+      }
+      continue;
+    }
+    const chosen = chooseBody(child);
+    if (chosen === null) {
+      continue;
+    }
+    read.push(chosen);
+    length += chosen.text.length;
+  }
+
+  const [first] = read;
+  if (first === undefined || (read.length === 1 && !cut)) {
+    return first ?? null;
+  }
+
+  const said = read.filter(
+    (chosen) => withoutOuterLineBreaks(chosen.text) !== "",
+  );
+  const text = said
+    .map((chosen) => withoutOuterLineBreaks(chosen.text))
+    .join("\n\n");
+
+  return {
+    parts: read.flatMap((chosen) => chosen.parts),
+    text: prefix(text, MAX_TEXT_CHARACTERS),
+    truncated:
+      cut ||
+      text.length > MAX_TEXT_CHARACTERS ||
+      read.some((chosen) => chosen.truncated),
+    fromHtml: said.some((chosen) => chosen.fromHtml),
+    html: null,
+  };
+}
+
+/**
+ * Whether a part holds a leaf the body could be read from, judged by its
+ * structure alone and without decoding anything.
+ */
+function holdsText(part: MimePart): boolean {
+  return leavesOf(part).some(
+    (leaf) => isReadable(leaf) && leaf.body.length > 0,
+  );
+}
+
+/**
+ * Whether a leaf is one the reader reads as the letter: plain text or HTML,
+ * and not a file.
+ *
+ * The other text types are data a mail client hands to something else - an
+ * invitation to its calendar, a contact card to its address book, the headers
+ * of a bounced letter, a table - and shows as that, or offers as a file. Read
+ * into the text, they would put a contact card's fields in the middle of what
+ * somebody wrote to the board.
+ */
+function isReadable(part: MimePart): boolean {
+  return (
+    !isAttachment(part) &&
+    part.contentType.type === "text" &&
+    (part.contentType.subtype === "plain" ||
+      part.contentType.subtype === "html")
+  );
+}
+
+/**
+ * The text without the line breaks that open and close it.
+ *
+ * A scan rather than a pattern, for the reason {@link withoutTrailingBlanks}
+ * gives.
+ */
+function withoutOuterLineBreaks(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === "\n") {
+    start += 1;
+  }
+  while (end > start && text[end - 1] === "\n") {
+    end -= 1;
+  }
+  return text.slice(start, end);
 }
 
 /**
@@ -557,10 +826,7 @@ function lastBody(
  * into files would give the board an "attachment" on every message a mail client
  * ever sent it.
  */
-function collectAttachments(
-  part: MimePart,
-  body: MimePart | null,
-): readonly MimeAttachment[] {
+function collectAttachments(part: MimePart): readonly MimeAttachment[] {
   const attachments: MimeAttachment[] = [];
 
   const walk = (candidate: MimePart): void => {
@@ -570,7 +836,8 @@ function collectAttachments(
       }
       return;
     }
-    if (candidate === body || !isAttachment(candidate)) {
+    // A body is never one: the reader does not read an attachment as text.
+    if (!isAttachment(candidate)) {
       return;
     }
     const bytes = decodeTransfer(candidate);
@@ -586,6 +853,75 @@ function collectAttachments(
 
   walk(part);
   return attachments;
+}
+
+/**
+ * What the message holds beside its body and its files: the other forms of the
+ * body, read, and a count of the leaves that are not read at all.
+ *
+ * The other forms are the readable leaves under an outermost
+ * `multipart/alternative` that holds a part that was read: the same message
+ * written again, which the body is meant to say already. Each is read as the
+ * body would have been, because nothing but the sender makes it so. Anything
+ * else that is not an attachment - a text part among the resources of a
+ * `multipart/related`, one past the bound on the text, a text type that is not
+ * the letter, a form that is not text - is content this reader leaves unread.
+ * An empty part says nothing and is not counted.
+ *
+ * One walk over the structure, whatever number of parts were read: a sender
+ * decides how many there are, and a search for each of them from the top would
+ * cost the square of that. Each form is read once, and bounded as the body is.
+ */
+function unreadContent(
+  part: MimePart,
+  read: readonly MimePart[],
+): { alternatives: readonly ReadText[]; parts: number } {
+  const said = new Set<MimePart>(read);
+  const forms = new Set<MimePart>();
+
+  const walk = (candidate: MimePart): void => {
+    if (candidate.children === null) {
+      return;
+    }
+    if (candidate.contentType.subtype === "alternative") {
+      const leaves = leavesOf(candidate);
+      if (leaves.some((leaf) => said.has(leaf))) {
+        for (const leaf of leaves) {
+          forms.add(leaf);
+        }
+      }
+      return;
+    }
+    for (const child of candidate.children) {
+      walk(child);
+    }
+  };
+  walk(part);
+
+  const alternatives: ReadText[] = [];
+  let unread = 0;
+  for (const leaf of leavesOf(part)) {
+    if (said.has(leaf) || isAttachment(leaf) || leaf.body.length === 0) {
+      continue;
+    }
+    const form = forms.has(leaf) ? chooseBody(leaf) : null;
+    if (form === null) {
+      unread += 1;
+    } else {
+      alternatives.push({
+        text: form.text,
+        truncated: form.truncated,
+        fromHtml: form.fromHtml,
+        html: form.html,
+      });
+    }
+  }
+  return { alternatives, parts: unread };
+}
+
+/** Every leaf under a part, the part itself when it is one. */
+function leavesOf(part: MimePart): MimePart[] {
+  return part.children === null ? [part] : part.children.flatMap(leavesOf);
 }
 
 function isAttachment(part: MimePart): boolean {
@@ -612,7 +948,10 @@ function fileNameOf(part: MimePart, position: number): string {
      */
     const segments = decoded.split(/[/\\]/);
     const last = segments[segments.length - 1] ?? "";
-    const cleaned = last.replaceAll(CONTROL_CHARACTERS, "").trim();
+    const cleaned = last
+      .replaceAll(CONTROL_CHARACTERS, "")
+      .replaceAll(BIDI_CONTROLS, "")
+      .trim();
     if (cleaned !== "" && cleaned !== "." && cleaned !== "..") {
       return cleaned.slice(0, 200);
     }
@@ -620,6 +959,16 @@ function fileNameOf(part: MimePart, position: number): string {
 
   return `bilaga-${String(position + 1)}`;
 }
+
+/**
+ * The characters that reorder the text around them without being seen.
+ *
+ * In a file name they are a spoof and nothing else: a right-to-left override
+ * shows `invoice\u202Efdp.exe` as "invoiceexe.pdf", and a board member decides
+ * whether to open an attachment by its name. The embeddings, overrides and
+ * isolates, and the three invisible marks that set a direction.
+ */
+const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g;
 
 // ---------------------------------------------------------------------------
 // Encodings.
@@ -753,10 +1102,15 @@ export function addressFrom(raw: string): string | null {
   const angled = /<([^<>]*)>/.exec(raw);
   const candidate = (angled?.[1] ?? raw).trim().replaceAll(/^["']|["']$/g, "");
 
-  // One "@" with something either side, and no whitespace. Deliberately not a
-  // full RFC 5322 address grammar: what this decides is whether the value can be
-  // stored and replied to, and the mail server is the authority on the rest.
-  return /^[^\s@]+@[^\s@]+$/.test(candidate) ? candidate.toLowerCase() : null;
+  // One "@" with something either side, and no whitespace or other control
+  // character. Deliberately not a full RFC 5322 address grammar: what this
+  // decides is whether the value can be stored and replied to, and the mail
+  // server is the authority on the rest. A control character is refused here
+  // rather than left to it, because the address becomes the recipient of the
+  // board's answer, and what a mail server makes of one is its own business.
+  return /^[^\s@]+@[^\s@]+$/.test(candidate) && !hasControlCharacter(candidate)
+    ? candidate.toLowerCase()
+    : null;
 }
 
 /** The display name out of a From header, decoded, or null. */
@@ -828,6 +1182,18 @@ function dateFrom(raw: string): Date | null {
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * The date on a Received header, or null.
+ *
+ * It follows the last semicolon (RFC 5322 section 3.6.7): what comes before it
+ * names the servers and the connection, and may hold semicolons of its own in
+ * a comment, while a date-time never does.
+ */
+function receivedDateFrom(raw: string): Date | null {
+  const semicolon = raw.lastIndexOf(";");
+  return semicolon === -1 ? null : dateFrom(raw.slice(semicolon + 1));
 }
 
 // ---------------------------------------------------------------------------

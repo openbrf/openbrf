@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { boardSeatHeldOn, isResidencyHeldOn, residencyHeldOn } from "./held-on";
+import {
+  boardSeatHeldOn,
+  hasMovedOut,
+  isResidencyHeldOn,
+  residencyHeldOn,
+  residencyNotEndedOn,
+} from "./held-on";
 
 /**
  * Which residencies and seats are held on a day.
@@ -78,5 +84,39 @@ describe("isResidencyHeldOn", () => {
 
   it("holds a residency on no day when it moves out on the day it moved in", () => {
     expect(held("2026-06-22", "2026-06-22")).toBe(false);
+  });
+});
+
+describe("residencyNotEndedOn", () => {
+  it("asks for a move-out after the day and nothing of the move-in", () => {
+    // A household recorded as moving in later has not moved out either.
+    expect(residencyNotEndedOn(DAY)).toEqual({
+      OR: [{ movedOutOn: null }, { movedOutOn: { gt: column("2026-06-22") } }],
+    });
+  });
+});
+
+describe("hasMovedOut", () => {
+  const NOW = new Date("2026-06-22T10:00:00.000Z");
+
+  it("counts a move-out date of today as moved out", () => {
+    expect(hasMovedOut(column("2026-06-22"), NOW)).toBe(true);
+  });
+
+  it("counts a future date as still resident", () => {
+    expect(hasMovedOut(column("2026-06-23"), NOW)).toBe(false);
+  });
+
+  it("counts no date as still resident", () => {
+    expect(hasMovedOut(null, NOW)).toBe(false);
+  });
+
+  it("counts a move-out as happened from the association's midnight", () => {
+    // 00:30 on the 22nd here is 22:30 on the 21st in UTC. A move-out dated the
+    // 22nd has happened here; read against the instant, it would not have
+    // until midnight UTC.
+    expect(
+      hasMovedOut(column("2026-06-22"), new Date("2026-06-21T22:30:00.000Z")),
+    ).toBe(true);
   });
 });

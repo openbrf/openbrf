@@ -93,6 +93,22 @@ export interface UploadedFile {
 }
 
 /**
+ * A letter put into the mailbox the board mailbox collects from.
+ *
+ * Written out here for the reason an uploaded file is: what the screen is
+ * photographed reading can be checked against the publishing rules in the
+ * diff. Composed and stored by mailpit, which is the stack's mail provider, so
+ * the application collects it by the path a real letter takes.
+ */
+export interface DeliveredLetter {
+  /** The envelope sender, as the From header will carry it. */
+  readonly from: string;
+  readonly to: string;
+  readonly subject: string;
+  readonly text: string;
+}
+
+/**
  * A personal data breach, written up over the API.
  *
  * There is no screen that records one, deliberately: a breach is discovered in
@@ -113,17 +129,43 @@ export interface RecordedBreach {
   readonly measures: string;
 }
 
+/**
+ * A message written to the board through the website's contact form.
+ *
+ * Like everything a capture can photograph, it is published: an address on the
+ * reserved `.test` domain, and nothing that could be about anybody.
+ */
+export interface ContactMessage {
+  /** Optional on the form, so optional here: the inbox names who left none. */
+  readonly name?: string;
+  readonly email: string;
+  readonly message: string;
+  /** Ticked off by the board once it is in the inbox. */
+  readonly handled?: true;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
   | { readonly fill: Target; readonly value: string }
   | { readonly select: Target; readonly option: string }
   | { readonly upload: Target; readonly file: UploadedFile }
+  | { readonly deliver: DeliveredLetter }
   /**
    * Record a breach as whoever is signed in, then reopen the screen, which
    * reads the register when it opens.
    */
   | { readonly recordBreach: RecordedBreach }
+  /**
+   * Post these messages through the public contact form, then reopen the
+   * screen, which reads the inbox when it opens.
+   *
+   * Over HTTP as a visitor would: the form is plain HTML on a page of the
+   * association's own, and the wizard seeds no page that carries one. A page
+   * with the form is written for the purpose and removed again afterwards, so
+   * the screens after it photograph the website as it was.
+   */
+  | { readonly postContactMessages: readonly ContactMessage[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -208,6 +250,12 @@ const MOTION = {
  * that route offers a save of its own.
  */
 const MOTION_DEADLINE_CARD = "Sista dag för motioner";
+
+/** The settings card the board mailbox is set up in, named once. */
+const BOARD_MAILBOX_CARD = "Styrelsens gemensamma brevlåda";
+
+/** The address the board publishes, on the reserved domain the walk uses. */
+const BOARD_MAILBOX_ADDRESS = "styrelsen@eksemplet.test";
 
 /**
  * The subletting application the andrahand screens are photographed against.
@@ -726,20 +774,43 @@ export const SCREENS: readonly Screen[] = [
   })),
   {
     /*
-     * The board's inbox for the website's contact form, empty.
+     * The board's inbox for the website's contact form, with three messages in
+     * it: one waiting, one from somebody who left no name, and one the board
+     * has already dealt with.
      *
-     * Empty because nothing in this walk can put a message in it: the form
-     * lives on a page of the association's own, placed there by the board, and
-     * the wizard seeds no page that carries one. The empty state is the honest
-     * picture of this card on a fresh instance, and it is the one a board sees
-     * before anybody has written to them.
+     * The messages are posted through the form as a visitor would, because the
+     * inbox is the other end of a form the board never sees the code of. The
+     * handled one is marked over the board's own API, as a board member would
+     * tick it.
      *
      * Its own entry rather than a row in SETTINGS_PANELS above, because the
      * marker has to be something that exists only once the card's own read has
-     * come back - and for an empty inbox that is the sentence saying so.
+     * come back - and here that is the first message's own words.
      */
     name: "settings-contact-inbox",
-    waitFor: { text: "Inga meddelanden har kommit in." },
+    prepare: [
+      {
+        postContactMessages: [
+          {
+            name: "Greta Holm",
+            email: "greta.holm@exempel.test",
+            message:
+              "Porten mot gatan går inte att stänga.\nDen står på glänt på nätterna.",
+          },
+          {
+            email: "granne@exempel.test",
+            message: "Kan styrelsen ta upp tvättstugans tider på nästa möte?",
+          },
+          {
+            name: "Sven Berg",
+            email: "sven.berg@exempel.test",
+            message: "Tack för beskedet om stambytet!",
+            handled: true,
+          },
+        ],
+      },
+    ],
+    waitFor: { text: /Porten mot gatan går inte att stänga\./ },
     capture: { panel: "Meddelanden från webbplatsen" },
   },
 
@@ -1830,6 +1901,87 @@ export const SCREENS: readonly Screen[] = [
     // screen mid-load.
     waitFor: { text: "Ingenting har skrivits till styrelsens adress." },
     capture: "page",
+  },
+  {
+    /*
+     * The board mailbox's settings card, filled in, with a letter waiting.
+     *
+     * Pointed at mailpit, which is this stack's mail provider and speaks POP3
+     * as well as SMTP, so the next entry collects over the path a real
+     * association's mailbox takes. Cleartext and port 1110, because that is
+     * what the port inside the compose network is: a fresh instance ticks
+     * "Krypterad anslutning", so the click below clears it.
+     *
+     * The letter is delivered here because the next entry starts from the
+     * mailbox screen. Its sender is an address mailpit accepts and the
+     * collector cannot answer - a quoted local part with spaces in it - which
+     * is the one kind of letter the collector sets aside that a mail provider
+     * will compose: the others are refusals by the database, which nothing in
+     * a walk can cause.
+     */
+    name: "settings-board-mailbox-configured",
+    as: "administrator",
+    goto: appPath("/settings"),
+    prepare: [
+      {
+        fill: { label: "Styrelsens adress", within: BOARD_MAILBOX_CARD },
+        value: BOARD_MAILBOX_ADDRESS,
+      },
+      {
+        fill: { label: "E-postserver (POP3)", within: BOARD_MAILBOX_CARD },
+        value: "mailpit",
+      },
+      {
+        click: { label: "Krypterad anslutning", within: BOARD_MAILBOX_CARD },
+      },
+      {
+        fill: { label: "Port", within: BOARD_MAILBOX_CARD },
+        value: "1110",
+      },
+      {
+        fill: {
+          label: "Användarnamn till brevlådan",
+          within: BOARD_MAILBOX_CARD,
+        },
+        value: "styrelsen",
+      },
+      {
+        fill: { label: "Lösenord till brevlådan", within: BOARD_MAILBOX_CARD },
+        value: "brevladelosen",
+      },
+      { click: { button: "Spara", within: BOARD_MAILBOX_CARD } },
+      { see: { text: /^Brevlådan är inställd/ } },
+      {
+        deliver: {
+          from: '"granne i huset"@eksemplet.test',
+          to: BOARD_MAILBOX_ADDRESS,
+          subject: "Fuktfläck i källaren",
+          text: "Det har kommit en fuktfläck på väggen i källarförrådet.",
+        },
+      },
+    ],
+    waitFor: { text: /^Brevlådan är inställd/ },
+    capture: { panel: BOARD_MAILBOX_CARD },
+  },
+  {
+    /*
+     * A letter the collection set aside, as the board is told about it.
+     *
+     * Collected from the board's own control rather than by waiting out the
+     * schedule. The letter is not in the inbox - it was never stored - so this
+     * notice is the only place the board learns it is there: why it was left,
+     * the date it carried, and that it is still in the mailbox to be opened in
+     * a mail client.
+     *
+     * The mailbox card and not the page: collecting also brings in the mail
+     * this walk has sent to mailpit so far, which is the inbox's picture and
+     * not this one's.
+     */
+    name: "board-mailbox-set-aside",
+    goto: appPath("/board-mailbox"),
+    prepare: [{ click: { button: "Hämta nu" } }],
+    waitFor: { text: /^Ett brev kunde inte hämtas\./ },
+    capture: { panel: "Brevlådan" },
   },
   {
     /*

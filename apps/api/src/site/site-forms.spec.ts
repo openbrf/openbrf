@@ -1,3 +1,4 @@
+import { PIPES_METADATA } from "@nestjs/common/constants";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { HONEYPOT_FIELD } from "../http/honeypot";
@@ -5,6 +6,7 @@ import { I18nService } from "../i18n/i18n.service";
 import type { PageBlock } from "./page-content";
 import type { SitePage } from "./pages.service";
 import type { SiteFormState } from "./site-forms";
+import { LineBreaksAsOne, SiteFormsController } from "./site-forms.controller";
 import { renderPage, type SiteChrome } from "./site-html";
 
 /**
@@ -220,5 +222,31 @@ describe("the issue report form", () => {
     // The contact form on the same page is untouched by it.
     expect(html).toContain('action="/kontakta-oss/kontakt"');
     expect(html.includes('action="/kontakta-oss/felanmalan"')).toBe(false);
+  });
+});
+
+describe("what a submitted body is read as", () => {
+  it("is normalised for every form on the controller, not in each handler", () => {
+    // A form added later is read the same way without anybody remembering to.
+    const pipes: unknown = Reflect.getMetadata(
+      PIPES_METADATA,
+      SiteFormsController,
+    );
+    expect(pipes).toContain(LineBreaksAsOne);
+  });
+
+  it("counts each line break as the one character the form counted", () => {
+    expect(
+      new LineBreaksAsOne().transform(
+        { message: "Hej\r\npå\rer\n", honeypot: "" },
+        { type: "body" },
+      ),
+    ).toEqual({ message: "Hej\npå\ner\n", honeypot: "" });
+  });
+
+  it("leaves the address alone", () => {
+    expect(
+      new LineBreaksAsOne().transform("om\r\noss", { type: "param" }),
+    ).toBe("om\r\noss");
   });
 });
