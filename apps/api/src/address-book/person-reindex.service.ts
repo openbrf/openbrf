@@ -20,6 +20,7 @@ const IDENTITY_NUMBER: EncryptedFieldId = "person.personalIdentityNumber";
 
 /** What the reindex reads of a person. */
 interface StoredPerson {
+  id: string;
   personalIdentityNumberCipher: string | null;
   personalIdentityNumberIndex: string | null;
   createdAt: Date;
@@ -154,41 +155,69 @@ export class PersonReindexService implements OnModuleInit {
    *
    * Read today it could be somebody else: 260301-1234 entered in 2025 meant
    * 1926, and reads as 2026 since 1 March 2026. The row does not record the day
-   * the number was written, but it was no earlier than the row's creation and
-   * no later than its last change, and the index stored beside it is the one
-   * the number was given then. So of the readings on those two days, the one
-   * that index matches is the number as written. When neither does - an index
-   * from rules that read a birthday still to come as this century, which is
-   * what version 2 corrects - the reading on the day the row was created is
-   * taken. Each reading is a birth date no later than its day, so a person is
-   * never made younger than the row that records them.
+   * the number was written, only that it was no earlier than the row's
+   * creation and no later than its last change, and a change of the row is
+   * not a change of the number: setting the protected personal data flag moves
+   * the last change and leaves the number alone. So the number is taken as
+   * written when the row was created, unless the index stored beside it shows
+   * it came later.
+   *
+   * That index is the one version 1 computed on the day the number was
+   * written, by the year alone (byYearAlone): every day of one year gives the
+   * same reading, and the reading moves on 1 January of the year the birth
+   * date carries (of the year the person turns 100, for a number written with
+   * a plus). When the two days fall on either side of that 1 January, the
+   * index says which side the number was written on. Matching it against
+   * today's readings instead would say nothing about the day: 261201-1235
+   * written in March 2026 was indexed as 2026, which is what today's rules
+   * read on any day from 1 December 2026, so an unrelated change made after
+   * that day would pass for the day the number was written.
+   *
+   * What the row cannot tell apart is logged, so somebody can check the
+   * century with the person. A number whose index matches the year the row
+   * was created in, but whose last change came after its birthday that year -
+   * 261201-1235 in a row created in March 2026 and changed in December - was
+   * either written when the row was made, a person born in 1926, or added in
+   * December, a person born in 2026: it is read as written when the row was
+   * made. A number whose index shows it was added after the row was made, at
+   * some point before the last change that the birthday falls within, keeps
+   * the reading that index carries, the one the register has found the person
+   * by since.
    */
   private async withCenturyAsWritten(
     entered: string,
     person: StoredPerson,
   ): Promise<string> {
-    const readings = [
-      ...new Set(
-        [person.createdAt, person.updatedAt].map((day) =>
-          withPersonalIdentityNumberCentury(entered, day),
-        ),
-      ),
-    ];
-    const [first] = readings;
-    if (first === undefined || readings.length === 1) {
-      // Written with its century, or read the same on both days.
-      return first ?? entered;
-    }
-    for (const reading of readings) {
+    const { createdAt, updatedAt } = person;
+    const atChange = byYearAlone(entered, updatedAt);
+    // The days the number can have been written on.
+    let from = createdAt;
+    let to = updatedAt;
+    if (byYearAlone(entered, createdAt) !== atChange) {
+      // Version 1's reading moved on a 1 January between the two days, and
+      // the index says on which side the number was written.
+      let year = updatedAt.getFullYear();
+      while (byYearAlone(entered, new Date(year - 1, 0, 1)) === atChange) {
+        year--;
+      }
       if (
         person.personalIdentityNumberIndex !== null &&
-        (await this.encryption.computeIndex(IDENTITY_NUMBER, reading)) ===
+        (await this.encryption.computeIndex(IDENTITY_NUMBER, atChange)) ===
           person.personalIdentityNumberIndex
       ) {
-        return reading;
+        from = new Date(year, 0, 1);
+      } else {
+        to = new Date(year - 1, 11, 31);
       }
     }
-    return first;
+    const first = withPersonalIdentityNumberCentury(entered, from);
+    const last = withPersonalIdentityNumberCentury(entered, to);
+    if (first !== last) {
+      this.logger.warn(
+        `Person ${person.id}: the century of their personal identity number cannot be told from their record, and was taken from ${from === createdAt ? "the day they were added" : "its stored index"}. Check its century with them.`,
+      );
+    }
+    return from === createdAt ? first : last;
   }
 
   private async indexOf(
@@ -202,4 +231,17 @@ export class PersonReindexService implements OnModuleInit {
           await this.encryption.decrypt(id, cipher),
         );
   }
+}
+
+/**
+ * The number with the century version 1 read it with on a day: the latest
+ * year not after that day's, judged by the year alone and not the birthday.
+ * That is today's reading on the last day of the same year, when every birth
+ * date of the year has come.
+ */
+function byYearAlone(entered: string, day: Date): string {
+  return withPersonalIdentityNumberCentury(
+    entered,
+    new Date(day.getFullYear(), 11, 31),
+  );
 }

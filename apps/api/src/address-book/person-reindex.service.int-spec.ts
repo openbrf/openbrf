@@ -2,6 +2,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { CipherSweet, EncryptedField, StringProvider } from "ciphersweet-js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import { EncryptionKeyProvider } from "../crypto/encryption-key.provider";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
@@ -14,6 +15,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { PersonReindexService } from "./person-reindex.service";
+import { PersonService } from "./person.service";
 
 /**
  * A person indexed under older normalisation rules is found again once the
@@ -158,6 +160,7 @@ describe("a number stored without its century", () => {
   const DAY_OF = new Date(2026, 11, 1, 12);
   const id = `reindex-short-${suffix}`;
   const filledIn = `reindex-filled-in-${suffix}`;
+  const flagged = `reindex-flagged-${suffix}`;
   const addressId = `reindex-address-${suffix}`;
   const street = `Omindexgatan ${suffix}`;
 
@@ -206,7 +209,9 @@ describe("a number stored without its century", () => {
 
   afterAll(async () => {
     vi.useRealTimers();
-    await prisma.person.deleteMany({ where: { id: { in: [id, filledIn] } } });
+    await prisma.person.deleteMany({
+      where: { id: { in: [id, filledIn, flagged] } },
+    });
     await prisma.apartment.deleteMany({ where: { addressId } });
     await prisma.address.deleteMany({ where: { id: addressId } });
   });
@@ -272,6 +277,83 @@ describe("a number stored without its century", () => {
           reason: "personal-identity-number-needs-century",
         },
       ],
+    });
+  });
+
+  it("is not moved by a change to the person after the birthday", async () => {
+    // Entered in March, before its birthday, as 1926; the board then marks
+    // the person protected in December, after it. The row's last change is
+    // that December day, which reads the digits as 2026, and version 1's
+    // index of a birthday still to come said 2026 as well.
+    const written = "261115-1230";
+    await prisma.person.create({
+      data: {
+        id: flagged,
+        firstName: "Ebba",
+        lastName: "Holm",
+        personalIdentityNumberCipher: await legacy.encryptValue(written),
+        personalIdentityNumberIndex: await encryption.computeIndex(
+          "person.personalIdentityNumber",
+          `20${written}`,
+        ),
+        blindIndexVersion: 1,
+        createdAt: WRITTEN_ON,
+        updatedAt: WRITTEN_ON,
+      },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 11, 2, 12));
+    await new PersonService(
+      prisma as unknown as PrismaService,
+      encryption,
+      new AuditLogService(prisma as unknown as PrismaService),
+    ).setProtectedPersonalData({
+      personId: flagged,
+      protectedPersonalData: true,
+      actorPersonId: flagged,
+    });
+    expect(
+      (await prisma.person.findUniqueOrThrow({ where: { id: flagged } }))
+        .updatedAt,
+    ).toEqual(new Date(2026, 11, 2, 12));
+
+    await service.run();
+
+    const person = await prisma.person.findUniqueOrThrow({
+      where: { id: flagged },
+    });
+    await expect(
+      encryption.decrypt(
+        "person.personalIdentityNumber",
+        person.personalIdentityNumberCipher ?? "",
+      ),
+    ).resolves.toBe(`19${written}`);
+    expect(person.personalIdentityNumberIndex).toBe(
+      await encryption.computeIndex(
+        "person.personalIdentityNumber",
+        `19${written}`,
+      ),
+    );
+    const plan = await new ImportPlannerService(
+      prisma as unknown as PrismaService,
+      encryption,
+    ).plan({
+      rows: [[`${street} 1`, "1101", "Ebba Holm", `19${written}`]],
+      columnCount: 4,
+      mapping: [
+        "addressLabel",
+        "apartmentNumber",
+        "fullName",
+        "personalIdentityNumber",
+      ],
+      defaultRole: "MEMBER",
+      defaultMovedInOn: "2026-01-01",
+      indexEveryIdentityNumber: false,
+      indexes: new Map(),
+    });
+    expect(plan.rows[0]).toMatchObject({
+      matchedBy: "personalIdentityNumber",
+      matchedPersonId: flagged,
     });
   });
 

@@ -29,8 +29,18 @@ Each person now records the normalisation rules their blind indexes were
 computed under. After the upgrade the instance recomputes the indexes of every
 person stored before it, from the encrypted values, in a job queued at start,
 and writes the century into each stored personal identity number that lacks
-one: the century it was written with, judged from when the person's record was
-made and last changed and from the index stored beside it, not from the day of
-the upgrade. There is nothing to do by hand; until the job has finished, a
-search by phone number or personal identity number can miss a person stored
-before the upgrade.
+one: the century it was written with, not the one it reads as on the day of
+the upgrade. A number is taken as written when the person was added, unless
+the index stored beside it shows it was added later; a later change to the
+person, such as marking them protected, does not move it. Until the job has
+finished, a search by phone number or personal identity number can miss a
+person stored before the upgrade.
+
+A few stored numbers cannot be settled from the record: a number whose
+birthday falls between the day it could first have been written and the
+person's last change, such as `261201-1235` for a person added in March 2026
+and changed in December, could be either century. The job reads such a number
+as written when the person was added, or, when its index shows it came later,
+keeps the century that index carries, and logs a warning naming the person.
+Look for warnings from `PersonReindexService` after the upgrade, and check the
+century of those people's numbers with them.
