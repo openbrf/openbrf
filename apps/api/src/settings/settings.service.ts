@@ -1530,13 +1530,14 @@ function readGiro(value: string | null): string | null {
  * server it authenticates to stays the same and wrong the moment it moves: the
  * next send would present the association's credential to whatever answers at
  * the new address. So a changed host, port, driver or gateway address needs the
- * secret typed again, or cleared, in the same save, and so does an encrypted
- * connection turned off: the same host and port would then receive the
- * password in clear text, which is not how it was entered. A host is compared as
- * stored, without normalising: one merely spelled in another case is asked for
- * again, which costs one retyped password and never sends one anywhere. A port
- * is compared as the one connected to, so a stored null and the default the
- * screen fills in for it are the same server.
+ * secret typed again, or cleared, in the same save, and so does a change to the
+ * encrypted connection. Turned off, the same host and port would receive the
+ * password in clear text, which is not how it was entered; turned on, it is
+ * asked for as well, which costs a retyped password and nothing else. A host is
+ * compared as stored, without normalising: one merely spelled in another case
+ * is asked for again, which costs one retyped password and never sends one
+ * anywhere. A port is compared as the one connected to, so a stored null and
+ * the default the screen fills in for it are the same server.
  */
 function requireSecretForNewEndpoint(
   secret: string | null | undefined,
