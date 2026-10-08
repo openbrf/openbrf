@@ -108,11 +108,13 @@ describe("while an entry is being filed", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
       await waitFor(() => {
         expect(title.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(title);
       });
-      expect(refocus).toHaveBeenCalledTimes(1);
-      expect(document.activeElement).toBe(title);
     },
   );
 });

@@ -5,6 +5,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { hasMovedOut } from "../registers/held-on";
 import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
@@ -15,6 +16,7 @@ import {
   type ImportRole,
   planImport,
   type PreparedRow,
+  push,
   readRow,
   type RegisterResidency,
   type RegisterSnapshot,
@@ -211,7 +213,8 @@ export class ImportPlannerService {
   ): Promise<RegisterSnapshot> {
     // Today as the date column holds it (ADR 0013): a move-out date is a day,
     // and compared with a moment it would end a residency hours early.
-    const today = dateColumnOf(localDayOf(new Date()));
+    const now = new Date();
+    const today = dateColumnOf(localDayOf(now));
 
     // One after the other: a transaction is one connection, and runs one query
     // at a time however the calls are awaited.
@@ -282,10 +285,7 @@ export class ImportPlannerService {
           person.firstName,
           person.lastName,
         );
-        if (
-          residency.movedOutOn === null ||
-          residency.movedOutOn.getTime() > today.getTime()
-        ) {
+        if (!hasMovedOut(residency.movedOutOn, now)) {
           push(personsByApartmentAndName, key, person.id);
         }
         // Once per person and key: a person who moved out and back in is
@@ -364,15 +364,6 @@ export function assertMappingApplies(
       `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
       "mapping-invalid",
     );
-  }
-}
-
-function push(map: Map<string, string[]>, key: string, value: string): void {
-  const existing = map.get(key);
-  if (existing === undefined) {
-    map.set(key, [value]);
-  } else {
-    existing.push(value);
   }
 }
 

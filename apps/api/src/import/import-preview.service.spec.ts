@@ -120,6 +120,7 @@ function planned(
     matchedPersonId: null,
     matchedPersonName: null,
     matchedBy: null,
+    foundUnder: outcome === "ambiguous" ? "apartmentAndName" : null,
     mismatch: null,
     sameAsRowNumber: null,
     candidates:

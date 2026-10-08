@@ -92,11 +92,12 @@ interface ImportPreviewJob {
  *
  * The personal identity number is reported as present or absent and never sent.
  * A preview is not a register view, and DESIGN.md keeps identity numbers out of
- * every screen that is not one.
+ * every screen that is not one. Which keys the plan looked under is the apply's
+ * business: the screen names the match by `matchedBy`.
  */
 export interface ImportPreviewRow extends Omit<
   PlannedRow,
-  "person" | "problems" | "movedInStated"
+  "person" | "problems" | "movedInStated" | "foundUnder"
 > {
   person: {
     firstName: string;
@@ -547,7 +548,12 @@ function current(
 }
 
 function toPreviewRow(row: PlannedRow): ImportPreviewRow {
-  const { person, movedInStated: _movedInStated, ...rest } = row;
+  const {
+    person,
+    movedInStated: _movedInStated,
+    foundUnder: _foundUnder,
+    ...rest
+  } = row;
   return {
     ...rest,
     person: {
