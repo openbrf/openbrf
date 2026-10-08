@@ -432,6 +432,23 @@ export class ProcessorAgreementService {
       });
       replaced = closed.count > 0;
 
+      /*
+       * A recipient the board recorded itself exists only while its row is
+       * open, so for one of those the close is also the check that it still
+       * exists. `record` looked before this transaction, and an `end` that
+       * commits in between - which takes no lock, because it only closes -
+       * would otherwise see the recipient it ended written back as a new row.
+       * Asked of the write rather than of a read beside it, as `end` asks its
+       * own: an `end` still in flight holds the row, and this waits for it and
+       * then finds the row closed.
+       */
+      if (processorKey.startsWith("external:") && !replaced) {
+        throw new ProcessorAgreementError(
+          "This instance hands nothing to that recipient.",
+          "processor-not-found",
+        );
+      }
+
       const created = await tx.processorAgreement.create({
         data: {
           processorKind,
