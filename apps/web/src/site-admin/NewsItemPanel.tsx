@@ -89,6 +89,12 @@ export interface NewsItemPanelProps {
   /** Who a mailing would reach right now, per channel. Null while unread. */
   recipients: NewsRecipients | null;
   onEdit: (item: NewsItem) => void;
+  /**
+   * Held while the editor is saving. Opening another item then would send the
+   * answer to that save, which can be a refusal, to the item that is open
+   * instead.
+   */
+  editDisabled?: boolean;
   onChanged: () => void;
 }
 
@@ -96,6 +102,7 @@ export function NewsItemPanel({
   item,
   recipients,
   onEdit,
+  editDisabled = false,
   onChanged,
 }: NewsItemPanelProps): ReactElement {
   const { t, i18n } = useTranslation();
@@ -419,6 +426,7 @@ export function NewsItemPanel({
 
         <button
           type="button"
+          disabled={editDisabled}
           onClick={() => {
             onEdit(item);
           }}

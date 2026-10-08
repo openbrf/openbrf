@@ -151,6 +151,81 @@ describe("what a row shows", () => {
 });
 
 describe("approving", () => {
+  it("names a failed apartment read and offers to read it again", async () => {
+    // An empty select would leave Approve disabled for good, with nothing on
+    // screen saying why.
+    fetchApartments.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    expect(
+      within(row()).getByText(/Lägenheterna på adressen kunde inte hämtas/),
+    ).toBeTruthy();
+
+    await session.click(retry);
+
+    await waitForTheRow();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("drops the chosen apartment as soon as the address changes", async () => {
+    // The second address's apartments are still on their way. Until they
+    // arrive, an apartment picked at the first address must not be approvable:
+    // the screen shows the second address, and the approval would put the
+    // applicant in the first.
+    const SECOND: AddressView = {
+      ...ADDRESSES[0]!,
+      id: "address-14",
+      number: "14",
+      sortOrder: 2,
+    };
+    let arrive = (): void => undefined;
+    fetchApartments.mockImplementation((addressId: string) =>
+      addressId === SECOND.id
+        ? new Promise((resolve) => {
+            arrive = () => {
+              resolve({
+                ok: true,
+                value: [{ id: "apartment-1401", number: "1401", floor: 1 }],
+              });
+            };
+          })
+        : Promise.resolve({
+            ok: true,
+            value: [{ id: "apartment-1203", number: "1203", floor: 2 }],
+          }),
+    );
+
+    const session = userEvent.setup();
+    render(<SignupRequestQueuePanel addresses={[...ADDRESSES, SECOND]} />);
+    await waitForTheRow();
+    const apartment = screen.getByLabelText("Lägenhet i registret");
+    await session.selectOptions(apartment, "apartment-1203");
+    expect(approveButton()).toHaveProperty("disabled", false);
+
+    await session.selectOptions(
+      screen.getByLabelText("Adress i registret"),
+      SECOND.id,
+    );
+
+    expect(approveButton()).toHaveProperty("disabled", true);
+    expect(apartment).toHaveProperty("value", "");
+    expect(
+      within(apartment).queryByRole("option", { name: "1203" }),
+    ).toBeNull();
+    await session.click(approveButton());
+    expect(approveSignupRequest).not.toHaveBeenCalled();
+
+    arrive();
+    await within(apartment).findByRole("option", { name: "1401" });
+    expect(approveButton()).toHaveProperty("disabled", true);
+  });
+
   it("waits for a real apartment before it offers the decision", async () => {
     renderPanel();
 
@@ -230,6 +305,32 @@ describe("approving", () => {
       );
     });
     expect(fetchSignupRequests).toHaveBeenCalledTimes(2);
+  });
+
+  it("points the board at rejecting when the address already has an account", async () => {
+    // Every retry would get the same refusal, so "try again" is the one thing
+    // this must not say.
+    approveSignupRequest.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "already-has-account" },
+    });
+
+    const session = userEvent.setup();
+    renderPanel();
+
+    await waitForTheRow();
+    await session.selectOptions(
+      screen.getByLabelText("Lägenhet i registret"),
+      "apartment-1203",
+    );
+    await session.click(approveButton());
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain(
+        "har redan ett konto",
+      );
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Avslå ansökan");
   });
 });
 
