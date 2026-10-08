@@ -1039,6 +1039,64 @@ describe("applying", () => {
     });
   });
 
+  it("refuses while a previewed row is left without a decision", async () => {
+    // Two Dubbel rows with addresses of their own: each asks for a decision,
+    // and neither answer changes the other. Deciding row 1 alone leaves row 2
+    // asking, and nothing else in the plan has moved.
+    const cookie = await signIn(actors.board.email);
+    const row = (email: string) => [
+      addressLabel,
+      "2103",
+      twinFirstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      "2021-04-01",
+    ];
+    const session = await upload(
+      cookie,
+      "tva-tvetydiga.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          row(`imp-undecided-a-${suffix}@exempel.se`),
+          row(`imp-undecided-b-${suffix}@exempel.se`),
+        ]),
+      ),
+    );
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(200);
+    expect(
+      (JSON.parse(previewed.body) as ImportPreview).rows.map(
+        (planned) => planned.outcome,
+      ),
+    ).toEqual(["ambiguous", "ambiguous"]);
+
+    const response = await applyImport(cookie, session.sessionId, {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("ambiguous-rows-undecided");
+    // Nothing was queued and nothing was written.
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(
+      await prisma.person.findUniqueOrThrow({
+        where: { id: actors.twinA.personId },
+        select: { emailIndex: true },
+      }),
+    ).toEqual({ emailIndex: null });
+  });
+
   it("refuses a decision naming somebody the row did not match", async () => {
     const cookie = await signIn(actors.board.email);
     const session = await uploadAndPreview(
@@ -3551,6 +3609,59 @@ describe("a row after one the board decided", () => {
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
     });
+  });
+
+  it("is refused when a decision settles a row left without one", async () => {
+    // As above, but the board answers row 1 only. Row 2 is no longer asking
+    // once row 1 is a new person, so that is what is refused - not the lack of
+    // an answer for a row that has stopped needing one.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-unanswered-${suffix}@exempel.se`;
+    const row = [
+      addressLabel,
+      "2103",
+      twinFirstName,
+      surname,
+      "Boende",
+      email,
+      "",
+      "2021-04-01",
+    ];
+    const session = await upload(
+      cookie,
+      "obesvarad-rad.csv",
+      encode(writeCsv([HEADERS, row, row])),
+    );
+    const previewed = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+    expect(previewed.statusCode).toBe(200);
+    expect(
+      (JSON.parse(previewed.body) as ImportPreview).rows.map(
+        (planned) => planned.outcome,
+      ),
+    ).toEqual(["ambiguous", "ambiguous"]);
+
+    const dubbels = () =>
+      prisma.person.count({
+        where: { lastName: surname, firstName: twinFirstName },
+      });
+    const before = await dubbels();
+
+    const response = await applyImport(cookie, session.sessionId, {
+      "1": { action: "create" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+    expect(await dubbels()).toBe(before);
   });
 
   it("is refused when the people a row matches are not the ones the preview named", async () => {

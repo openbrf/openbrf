@@ -8,7 +8,7 @@ import { FIELD, LABEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 export interface AddressesPanelProps {
   addresses: readonly AddressView[];
@@ -23,7 +23,13 @@ const ADDRESS_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "address-exists": "settings.addresses.errors.exists",
   "has-apartments": "settings.addresses.errors.hasApartments",
   "not-found": "settings.addresses.errors.notFound",
-  "invalid-body": "settings.addresses.errors.unknown",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  street: "settings.addresses.street",
+  number: "settings.addresses.number",
+  postalCode: "settings.addresses.postalCode",
+  city: "settings.addresses.city",
 };
 
 /**
@@ -78,12 +84,12 @@ export function AddressesPanel({
       notice={
         failure === null ? null : (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                ADDRESS_FAILURES,
-                "settings.addresses.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              ADDRESS_FAILURES,
+              "settings.addresses.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         )
@@ -146,6 +152,8 @@ export function AddressesPanel({
                 ref={streetRef}
                 type="text"
                 name="street"
+                required
+                maxLength={200}
                 autoComplete="off"
                 value={draft.street}
                 onChange={(event) => {
@@ -160,6 +168,8 @@ export function AddressesPanel({
               <input
                 type="text"
                 name="streetNumber"
+                required
+                maxLength={20}
                 autoComplete="off"
                 value={draft.number}
                 onChange={(event) => {
@@ -175,6 +185,8 @@ export function AddressesPanel({
                 type="text"
                 name="postalCode"
                 inputMode="numeric"
+                required
+                pattern="\d{3} ?\d{2}"
                 autoComplete="off"
                 value={draft.postalCode}
                 onChange={(event) => {
@@ -189,6 +201,8 @@ export function AddressesPanel({
               <input
                 type="text"
                 name="city"
+                required
+                maxLength={100}
                 autoComplete="off"
                 value={draft.city}
                 onChange={(event) => {

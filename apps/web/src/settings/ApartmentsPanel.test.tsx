@@ -417,11 +417,13 @@ describe("while the table is being committed", () => {
 
     settle({ ok: false, failure: { status: 500, reason: "unknown" } });
 
+    // The hand-back runs in an effect after the field is enabled again, so it is
+    // awaited together with the enabled state.
     await waitFor(() => {
       expect(button.matches(":disabled")).toBe(false);
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(button);
     });
-    expect(refocus).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(button);
     expect(numberFields()).toHaveLength(2);
   });
 

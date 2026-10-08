@@ -11,9 +11,14 @@ import type { Prisma } from "../generated/prisma/client";
  * the row it finds absent cannot be written by the data protection screen
  * before the install's insert commits.
  *
- * An advisory lock rather than a constraint: the rule is a partial uniqueness
- * Prisma's schema cannot state, and the rows are few and written by hand, so a
- * writer waiting a moment for another is never felt. Taken for the
+ * The friendly path, with a constraint behind it. The partial unique index
+ * `processor_agreement_one_open` (one row per `processorKey` WHERE `endedAt` IS
+ * NULL, written by hand in its migration) refuses a second open row whatever
+ * the writer did, so one that skips this lock or reads before taking it fails
+ * on a unique violation instead of leaving two classifications standing. The
+ * lock is what keeps a writer that follows the rules from meeting that error:
+ * it waits a moment for the other, which with rows this few and written by
+ * hand is never felt, and then reads a state it can act on. Taken for the
  * transaction, so the commit or the rollback releases it.
  *
  * Taken by `ProcessorAgreementService.record` and by

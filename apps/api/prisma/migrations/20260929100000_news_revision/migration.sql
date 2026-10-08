@@ -1,0 +1,17 @@
+-- What a news item save is claimed against.
+--
+-- The same column page carries, for the same reason and with the same rule: a
+-- save carries the whole item, so two board members who each read it and then
+-- wrote would leave the second one's text standing and the first one's gone.
+-- The writer increments it in the statement that changes the content, and a
+-- caller that read the item earlier sends the number it saw, so a save composed
+-- on a copy somebody else has replaced is refused rather than applied.
+--
+-- Default 1, matching page.revision. Every existing item takes the default, and
+-- a caller that sends no revision is not refused, so nothing is refused by this
+-- migration landing.
+--
+-- Service tier: a news item is the association's own writing, and this column
+-- is bookkeeping about a save. No append-only guard and no REVOKE in
+-- harden-runtime-role.sql.
+ALTER TABLE "news" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 1;
