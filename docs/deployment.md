@@ -634,11 +634,18 @@ visitor can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
 application from, separated by commas. A proxy on the host that reaches the
 port bound to loopback arrives from the gateway of the stack's Docker network,
 which `docker network inspect openbrf-prod_default` shows; a proxy in a
-container on that network arrives from its own address. The application reads
-the header only on a request from one of these, and then only from the right,
-past the hops the named proxies wrote: everything to the left of them is what
-the client sent. So a proxy that appends to the header, as nginx's
+container on that network arrives from its own address. The forms read the
+header only on a request from one of these, and then only from the right, past
+the hops the named proxies wrote: everything to the left of them is what the
+client sent. So a proxy that appends to the header, as nginx's
 `$proxy_add_x_forwarded_for` does, is as safe as one that overwrites it.
+
+The sign-in endpoints read it the same way, from the right past the named
+proxies, but they see the header and not the connection: they cannot tell a
+request the proxy forwarded from one sent to the application's port directly,
+with a header of the caller's choosing. Keep that port reachable only through
+the proxy, which binding it to loopback, as the production compose file does,
+already ensures.
 
 Left empty, the header is not read for the forms at all, and every visitor
 behind the proxy shares its budget: a busy afternoon can then refuse a contact
@@ -943,9 +950,16 @@ An app the association does not want anybody to connect can be turned away for
 the whole instance by somebody who may manage the association:
 `DELETE /api/oauth-clients/<client id>`, with the client id as
 `GET /api/connected-apps` lists it, cuts every member's connection to it and
-refuses it at sign-in from then on, and the audit log records who did it. There is no screen
-for it yet, and no way back short of the database: a client registered by hand
+refuses that client id at sign-in from then on, and the audit log records who
+did it. There is no screen for it yet, and no way back: the database keeps a
+disabled client disabled, whoever writes its row. A client registered by hand
 can be registered again under a new id.
+
+What is refused is the client id, not the program behind it. A program that
+identifies itself by its metadata document can publish the same document at
+another address and arrive as a new client; it then has no member's consent,
+so nobody is connected to it until they agree again. To keep such a program
+out for good, also limit the hosts below.
 
 `OPENBRF_OAUTH_CLIENT_METADATA_HOSTS` narrows which programs can be connected in
 the first place. A program usually identifies itself by the https address of
