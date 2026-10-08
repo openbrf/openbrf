@@ -37,6 +37,7 @@ import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
 } from "../crypto/personal-data";
+import { hasMovedOut } from "../registers/held-on";
 import {
   type ImportField,
   type ImportMapping,
@@ -51,6 +52,15 @@ export type ImportOutcome = "create" | "update" | "ambiguous" | "error";
 
 export type ImportMatchKey =
   "personalIdentityNumber" | "email" | "apartmentAndName" | "earlierRow";
+
+/** The keys a row is matched under, in the order the plan tries them. */
+export const IMPORT_SEARCH_KEYS = [
+  "personalIdentityNumber",
+  "email",
+  "apartmentAndName",
+] as const satisfies readonly ImportMatchKey[];
+
+export type ImportSearchKey = (typeof IMPORT_SEARCH_KEYS)[number];
 
 /** What a row states differently from the one person it matched. */
 export type ImportMismatch = "personalIdentityNumber" | "name";
@@ -79,7 +89,12 @@ export interface RegisterSnapshot {
   apartments: readonly RegisterApartment[];
   personsByIdentityNumber: ReadonlyMap<string, readonly string[]>;
   personsByEmail: ReadonlyMap<string, readonly string[]>;
-  /** Key from {@link apartmentNameKey}. */
+  /**
+   * Key from {@link apartmentNameKey}. Only residencies that have not ended,
+   * by `hasMovedOut` on the day the snapshot was taken: a household recorded
+   * as moving in later counts, and one whose move-out date has arrived does
+   * not.
+   */
   personsByApartmentAndName: ReadonlyMap<string, readonly string[]>;
   personNames: ReadonlyMap<string, string>;
   /** Blind index of each person's identity number, for those that have one. */
@@ -88,7 +103,11 @@ export interface RegisterSnapshot {
   personsWithEmail: ReadonlySet<string>;
   /** Every apartment each person has a residency in, past ones included. */
   apartmentsByPerson: ReadonlyMap<string, ReadonlySet<string>>;
-  /** When the snapshot was read: a residency counts as current until then. */
+  /**
+   * When the snapshot was read. A residency the file writes is findable by
+   * apartment and name if it has not ended by the association's day this falls
+   * on, the rule the snapshot read the register's residencies by.
+   */
   takenAt: Date;
 }
 
@@ -143,6 +162,13 @@ export interface PlannedRow {
    */
   matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
+  /**
+   * The key the row's candidates were found under, also when `matchedBy` names
+   * the row after an earlier one. The plan stops at the first key that finds
+   * anybody, so the keys after it were not looked under. Null when no key found
+   * anybody, and on a row with problems. Not sent to the preview.
+   */
+  foundUnder: ImportSearchKey | null;
   /**
    * Why a row that matched one person still waits for a decision. Null when it
    * is ambiguous because it matched several, and on every other outcome.
@@ -346,7 +372,7 @@ interface FileWrites {
 }
 
 interface PersonMatch {
-  key: ImportMatchKey | null;
+  key: ImportSearchKey | null;
   candidates: readonly FilePerson[];
 }
 
@@ -405,6 +431,7 @@ function planRow(
     matchedPersonId: null,
     matchedPersonName: null,
     matchedBy: null,
+    foundUnder: null,
     mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
@@ -475,6 +502,7 @@ function planRow(
       outcome: "ambiguous",
       matchedBy:
         earlier === null && !throughUnwrittenNumber ? match.key : "earlierRow",
+      foundUnder: match.key,
       mismatch,
       sameAsRowNumber: earlier,
       // A person an earlier row creates has no id yet to be chosen by. The
@@ -532,12 +560,17 @@ function planRow(
       (only.personId === null && match.key !== "personalIdentityNumber")
         ? "earlierRow"
         : match.key,
+    foundUnder: match.key,
     sameAsRowNumber:
       only.createdByRow ??
       (throughUnwrittenNumber ? only.identityNumberFromRow : null),
   };
 }
 
+/**
+ * The persons a row could be, under the first key in {@link IMPORT_SEARCH_KEYS}
+ * that finds anybody. The keys after it are not looked under.
+ */
 function matchPerson(
   row: PreparedRow,
   identityNumber: string | null,
@@ -546,51 +579,52 @@ function matchPerson(
   snapshot: RegisterSnapshot,
   written: FileWrites,
 ): PersonMatch {
-  const byNumber = candidatesUnder(
-    snapshot.personsByIdentityNumber,
-    row.identityNumberIndex,
-    written.byIdentityNumber,
-    identityNumber,
-    snapshot,
-    written,
-  );
-  if (byNumber.length > 0) {
-    return { key: "personalIdentityNumber", candidates: byNumber };
-  }
-
-  const byEmail = candidatesUnder(
-    snapshot.personsByEmail,
-    row.emailIndex,
-    written.byEmail,
-    row.emailIndex,
-    snapshot,
-    written,
-  );
-  if (byEmail.length > 0) {
-    return { key: "email", candidates: byEmail };
-  }
-
   const nameKey = apartmentNameKey(
     apartment.id,
     person.firstName,
     person.lastName,
   );
-  const byName = candidatesUnder(
-    snapshot.personsByApartmentAndName,
-    nameKey,
-    written.byApartmentAndName,
-    nameKey,
-    snapshot,
-    written,
-  );
-  if (byName.length > 0) {
-    return { key: "apartmentAndName", candidates: byName };
-  }
+  // Looked up one key at a time, in the constant's order, so the apply asks
+  // its second look under the same keys this one stopped at.
+  const lookUp: Record<ImportSearchKey, () => FilePerson[]> = {
+    personalIdentityNumber: () =>
+      candidatesUnder(
+        snapshot.personsByIdentityNumber,
+        row.identityNumberIndex,
+        written.byIdentityNumber,
+        identityNumber,
+        snapshot,
+        written,
+      ),
+    email: () =>
+      candidatesUnder(
+        snapshot.personsByEmail,
+        row.emailIndex,
+        written.byEmail,
+        row.emailIndex,
+        snapshot,
+        written,
+      ),
+    apartmentAndName: () =>
+      candidatesUnder(
+        snapshot.personsByApartmentAndName,
+        nameKey,
+        written.byApartmentAndName,
+        nameKey,
+        snapshot,
+        written,
+      ),
+  };
 
+  for (const key of IMPORT_SEARCH_KEYS) {
+    const candidates = lookUp[key]();
+    if (candidates.length > 0) {
+      return { key, candidates };
+    }
+  }
   return { key: null, candidates: [] };
 }
 
-/** The register's persons under one key and the file's, each person once. */
 function candidatesUnder(
   inRegister: ReadonlyMap<string, readonly string[]>,
   registerKey: string | null,
@@ -668,8 +702,8 @@ function recordCreated(
  * The same fields the apply's own rules write: an email address only onto a
  * person who has none, a residency only in an apartment the person has never
  * had one in, and no identity number onto anyone who already exists. The
- * residency is findable by apartment and name only while it is current, as the
- * register snapshot reads it. The row's identity number is recorded too,
+ * residency is findable by apartment and name only while it has not ended, as
+ * the register snapshot reads it. The row's identity number is recorded too,
  * although it is not written, for the rows after it that state it.
  */
 function recordWrites(
@@ -695,8 +729,10 @@ function recordWrites(
   if (!target.apartmentIds.has(apartment.id)) {
     target.apartmentIds.add(apartment.id);
     if (
-      movedOutOn === null ||
-      new Date(`${movedOutOn}T00:00:00.000Z`) > snapshot.takenAt
+      !hasMovedOut(
+        movedOutOn === null ? null : new Date(`${movedOutOn}T00:00:00.000Z`),
+        snapshot.takenAt,
+      )
     ) {
       push(
         written.byApartmentAndName,
@@ -851,11 +887,79 @@ export function findUndecided(
   return null;
 }
 
+/**
+ * The persons the preview listed for each row it asked the board about, as row
+ * number to their ids. A person an earlier row of the file creates has no id
+ * yet, and is not listed.
+ */
+export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
+
+/**
+ * Whether a row the preview asked the board about no longer needs a decision,
+ * or now matches other people than the preview listed.
+ *
+ * The board answered each of those rows by the persons it was shown, and its
+ * answer fits that question only. A row it made a new person, planned again
+ * after somebody with the row's address was added, matches a person it never
+ * chose against, and writing the row would enter that human being a second
+ * time. A candidate who has left the register takes away a choice it weighed.
+ * Asked when the apply is requested, of the whole file, and again by every
+ * chunk of its own rows, because the register keeps changing for as long as
+ * the apply runs.
+ *
+ * @param createdByApply The persons earlier chunks of this apply created. The
+ *   preview could list none of them, having no id for a person the file has
+ *   not written yet, and a later chunk finds them in the register: they are set
+ *   aside rather than taken for somebody new.
+ */
+export function changedSincePreview(
+  plan: ImportPlan,
+  previewed: PreviewedCandidates,
+  createdByApply: ReadonlySet<string> = new Set(),
+): boolean {
+  return plan.rows.some((row) => {
+    const listed = previewed[String(row.rowNumber)];
+    if (listed === undefined) {
+      return false;
+    }
+    if (row.outcome !== "ambiguous") {
+      return true;
+    }
+    const found = row.candidates.flatMap(({ personId }) =>
+      createdByApply.has(personId) ? [] : [personId],
+    );
+    return !samePeople(listed, found);
+  });
+}
+
+/** The rows the preview asked about, read back from the session. */
+export function readPreviewedCandidates(value: unknown): PreviewedCandidates {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const rows: Record<string, string[]> = {};
+  for (const [rowNumber, candidates] of Object.entries(value)) {
+    if (Array.isArray(candidates)) {
+      rows[rowNumber] = candidates.filter(
+        (candidate): candidate is string => typeof candidate === "string",
+      );
+    }
+  }
+  return rows;
+}
+
+/** Whether two lists of person ids name the same people. */
+function samePeople(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((personId) => b.includes(personId));
+}
+
 function differs(row: string | null, registered: string | undefined): boolean {
   return row !== null && registered !== undefined && registered !== row;
 }
 
-function push<T>(map: Map<string, T[]>, key: string, value: T): void {
+/** Adds a value to the list a key holds, starting the list if need be. */
+export function push<T>(map: Map<string, T[]>, key: string, value: T): void {
   const existing = map.get(key);
   if (existing === undefined) {
     map.set(key, [value]);
