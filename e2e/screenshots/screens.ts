@@ -1935,6 +1935,102 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: /^Ett brev kunde inte hämtas\./ },
     capture: { panel: "Brevlådan" },
   },
+  // --- a stored secret asked for again ----------------------------------------
+  // Three cards holding a secret for a server, each refusing a save that moves
+  // the server and leaves the secret field empty: the stored secret was typed
+  // for the old server, and keeping it would hand it to the new one.
+  //
+  // After the board mailbox above, because that is where its password was
+  // stored, and after every screen that reads the mail or SMS settings back -
+  // the news composer, the processors and the access report are all above. A
+  // refused save writes nothing, so what the three leave behind is the two
+  // secrets stored on the way: an SMTP password with no user name, which the
+  // driver never presents and mailpit would accept anyway, and an SMS gateway
+  // on `.test` that nothing below sends to.
+  {
+    /*
+     * The board mailbox's card, moved to another server without its password.
+     *
+     * The password the entry above saved is still stored, and the hint under
+     * the field saying so is what the first step waits for: it is read from the
+     * stored settings, so it proves the card the fill lands in is the one those
+     * settings seeded rather than one about to be replaced by them.
+     */
+    name: "settings-board-mailbox-secret-required",
+    goto: appPath("/settings"),
+    prepare: [
+      {
+        see: { text: /^Ett lösenord är sparat/, within: BOARD_MAILBOX_CARD },
+      },
+      {
+        fill: { label: "E-postserver (POP3)", within: BOARD_MAILBOX_CARD },
+        value: "pop3.eksemplet.test",
+      },
+      { click: { button: "Spara", within: BOARD_MAILBOX_CARD } },
+    ],
+    // The part of the sentence that tells the board what to do, rather than the
+    // whole of it.
+    waitFor: { text: /Ange lösenordet igen/, within: BOARD_MAILBOX_CARD },
+    capture: { panel: BOARD_MAILBOX_CARD },
+  },
+  {
+    /*
+     * The email card, moved to another server without its password.
+     *
+     * The wizard stored no password - mailpit asks for none - so one is saved
+     * first, against the server the instance already sends through. The hint
+     * under the field arrives with the settings read back after that save,
+     * which also replaces the card, so the server is filled in only once it
+     * is there.
+     */
+    name: "settings-email-secret-required",
+    prepare: [
+      {
+        fill: { label: "Lösenord", within: "E-post" },
+        value: "epostlosen",
+      },
+      { click: { button: "Spara", within: "E-post" } },
+      { see: { text: /^Ett lösenord är sparat/, within: "E-post" } },
+      {
+        fill: { label: "Server", within: "E-post" },
+        value: "smtp.eksemplet.test",
+      },
+      { click: { button: "Spara", within: "E-post" } },
+    ],
+    waitFor: { text: /Ange lösenordet igen/, within: "E-post" },
+    capture: { panel: "E-post" },
+  },
+  {
+    /*
+     * The SMS card, pointed at another gateway without its credential.
+     *
+     * A fresh instance has no SMS provider, so one is set up first - the
+     * gateway driver, an address on the reserved domain and a credential -
+     * and then the address is changed, which is the move a board makes when
+     * it changes provider.
+     */
+    name: "settings-sms-secret-required",
+    prepare: [
+      {
+        select: { combobox: "Leverantör", within: "Sms" },
+        option: "HTTP-gateway",
+      },
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://sms.eksemplet.test/skicka",
+      },
+      { fill: { label: "Gatewaynyckel", within: "Sms" }, value: "smsnyckel" },
+      { click: { button: "Spara", within: "Sms" } },
+      { see: { text: /^En nyckel är sparad/, within: "Sms" } },
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://gateway.eksemplet.test/skicka",
+      },
+      { click: { button: "Spara", within: "Sms" } },
+    ],
+    waitFor: { text: /Ange nyckeln igen/, within: "Sms" },
+    capture: { panel: "Sms" },
+  },
   {
     /*
      * The board's chat, as an account with no seat meets it.
