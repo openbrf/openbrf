@@ -317,8 +317,10 @@ export class ConnectedAppsService {
    *
    * Disabled rather than deleted. A client that identifies itself by the URL
    * of its own metadata document would come straight back on its next
-   * authorization if its row were gone, while a disabled row is kept disabled
-   * when the provider fetches that document again.
+   * authorization if its row were gone. A disabled row stays disabled: the
+   * provider rewrites it whenever it fetches that document again, with what it
+   * read before the fetch, and a trigger on the table refuses to turn a
+   * disabled client back on (migration 20261008100100).
    */
   async revokeClient(clientId: string, actor: ActorContext): Promise<void> {
     await this.prisma.$transaction(async (tx) => {

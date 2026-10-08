@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import { createCimdClientDiscovery } from "@better-auth/cimd";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -19,6 +20,7 @@ import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { BearerPrincipalService } from "../auth/bearer-principal.service";
+import { hashOpaqueToken } from "../auth/opaque-token";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PrismaService } from "../database/prisma.service";
@@ -828,6 +830,143 @@ describe("turning a client away for the whole instance", () => {
     expect(
       await prisma.auditLogEntry.count({ where: { targetId: clientId } }),
     ).toBe(0);
+  });
+
+  it("keeps a client disabled whoever writes its row afterwards", async () => {
+    const { clientId } = await registerClient("written back", redirectUri);
+    const revoked = await inject({
+      method: "DELETE",
+      url: `/api/oauth-clients/${encodeURIComponent(clientId)}`,
+      headers: { cookie: adminCookie, origin: env.APP_URL },
+    });
+    expect(revoked.statusCode).toBe(200);
+
+    await prisma.oauthClient.update({
+      where: { clientId },
+      data: { disabled: false, name: `${NAME_PREFIX} written back again` },
+    });
+
+    expect(
+      await prisma.oauthClient.findUniqueOrThrow({ where: { clientId } }),
+    ).toMatchObject({
+      disabled: true,
+      name: `${NAME_PREFIX} written back again`,
+    });
+  });
+
+  it("keeps a client turned away when a metadata refresh begun before the cut ends after it", async () => {
+    /*
+     * A client that identifies itself by its metadata document, as the
+     * discovery plugin stores one. The refresh below is the plugin's own: it
+     * reads the row, fetches the document, and writes the row back with what
+     * it read. The fetch is held open until the revoke has committed.
+     */
+    const clientId = `https://registrerad-${suffix}.exempel.se/id`;
+    const origin = new URL(clientId).origin;
+    await prisma.oauthClient.create({
+      data: {
+        clientId,
+        name: `${NAME_PREFIX} by its metadata`,
+        clientDiscoveryId: "cimd",
+        scopes: ["mcp:read", "mcp:write"],
+        contacts: [],
+        redirectUris: [`${origin}/cb`],
+        postLogoutRedirectUris: [],
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        tokenEndpointAuthMethod: "none",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    let fetchStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      fetchStarted = resolve;
+    });
+    let releaseFetch!: () => void;
+    const released = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const discovery = createCimdClientDiscovery({
+      fetchClientMetadataResource: async () => {
+        fetchStarted();
+        await released;
+        return new Response(
+          JSON.stringify({
+            client_id: clientId,
+            client_name: `${NAME_PREFIX} by its metadata`,
+            redirect_uris: [`${origin}/cb`],
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            token_endpoint_auth_method: "none",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    try {
+      const context = await auth.instance.$context;
+      const before = await context.adapter.findOne<Record<string, unknown>>({
+        model: "oauthClient",
+        where: [{ field: "clientId", value: clientId }],
+      });
+      expect(before).toMatchObject({ disabled: false });
+
+      const refresh = discovery.resolve(
+        { context } as unknown as Parameters<typeof discovery.resolve>[0],
+        clientId,
+        before as Parameters<typeof discovery.resolve>[2],
+      );
+      await started;
+
+      const revoked = await inject({
+        method: "DELETE",
+        url: `/api/oauth-clients/${encodeURIComponent(clientId)}`,
+        headers: { cookie: adminCookie, origin: env.APP_URL },
+      });
+      expect(revoked.statusCode).toBe(200);
+
+      releaseFetch();
+      await refresh;
+
+      expect(
+        await prisma.oauthClient.findUniqueOrThrow({ where: { clientId } }),
+      ).toMatchObject({ disabled: true });
+
+      // What an exchange finishing after the cut could leave: a consent and a
+      // token, both newer than the revoke.
+      const token = `token-after-cut-${suffix}`;
+      const now = new Date();
+      await prisma.oauthConsent.create({
+        data: {
+          clientId,
+          userId: adminUserId,
+          resources: [resource.url],
+          requestedUserInfoClaims: [],
+          scopes: ["mcp:read"],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      await prisma.oauthAccessToken.create({
+        data: {
+          token: hashOpaqueToken(token),
+          clientId,
+          userId: adminUserId,
+          resources: [resource.url],
+          requestedUserInfoClaims: [],
+          scopes: ["mcp:read"],
+          expiresAt: new Date(Date.now() + 900_000),
+          createdAt: now,
+        },
+      });
+      expect(await app.get(BearerPrincipalService).resolve(token)).toBeNull();
+    } finally {
+      releaseFetch();
+      await prisma.oauthClient.deleteMany({ where: { clientId } });
+    }
   });
 });
 
