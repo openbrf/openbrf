@@ -5022,6 +5022,7 @@
       "noSecret": "This app was given no secret.",
       "errors": {
         "invalidRedirectUri": "One of the addresses to send the answer back to is incomplete or not allowed. An address has to be https, or http for an app on this machine. Write one address per line, at most eight.",
+        "invalidBody": "The app could not be registered as filled in. Give it a name, and write one to eight addresses to send the answer back to, one per line.",
         "nameTaken": "An app by that name already exists. Choose another.",
         "resourceMissing": "This instance advertises no address for connected apps to sign in to, so the app could not be tied to one. Install a plugin that serves that address first.",
         "failed": "The app could not be registered just now. Try again."
