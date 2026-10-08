@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { useViewerCapabilities } from "../shell/use-viewer-capabilities";
 import {
+  CAUTION_BUTTON,
   FIELD,
   FIELD_DATA,
   HINT,
@@ -15,6 +17,7 @@ import {
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
+  abandonImport,
   applyImport,
   fetchActiveImport,
   fetchImportRun,
@@ -93,6 +96,7 @@ const DATA_CELL = `${CELL} font-data text-data text-ink`;
 
 export function ImportScreen(): ReactElement {
   const { t } = useTranslation();
+  const canAbandon = useViewerCapabilities().includes("association:manage");
 
   const [step, setStep] = useState<Step>("upload");
   const [session, setSession] = useState<ImportSessionView | null>(null);
@@ -110,6 +114,7 @@ export function ImportScreen(): ReactElement {
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
+  const [activeImportKnown, setActiveImportKnown] = useState(false);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -122,17 +127,29 @@ export function ImportScreen(): ReactElement {
    * nothing that identifies the import they started. The API answers that
    * question instead, so what they see is the import rather than an empty form
    * suggesting nothing ever happened.
+   *
+   * The upload form is not shown until the answer is in; a status line stands
+   * in for it meanwhile. The answer decides whether there is a form to fill in
+   * at all: when it names an import, running or finished, the screen shows
+   * that import instead, and a file sent before the answer arrived could
+   * become a second write into the register. Waiting for
+   * the answer also means it never lands on top of a mapping step the board
+   * member has already reached. An answer that does not come through shows
+   * the form as well, since a failed request says nothing about an import.
    */
   useEffect(() => {
     let abandoned = false;
 
     void (async () => {
       const response = await fetchActiveImport();
-      if (abandoned || !response.ok || response.value === null) {
+      if (abandoned) {
         return;
       }
-      setRun(response.value);
-      setStep("apply");
+      if (response.ok && response.value !== null) {
+        setRun(response.value);
+        setStep("apply");
+      }
+      setActiveImportKnown(true);
     })();
 
     return () => {
@@ -335,7 +352,15 @@ export function ImportScreen(): ReactElement {
         </Notice>
       )}
 
-      {step === "upload" ? <UploadStep busy={busy} onUpload={upload} /> : null}
+      {step === "upload" && !activeImportKnown ? (
+        <p role="status" className="text-body text-ink-muted">
+          {t("import.loading")}
+        </p>
+      ) : null}
+
+      {step === "upload" && activeImportKnown ? (
+        <UploadStep busy={busy} onUpload={upload} />
+      ) : null}
 
       {step === "mapping" && session !== null ? (
         <MappingStep
@@ -381,7 +406,12 @@ export function ImportScreen(): ReactElement {
       ) : null}
 
       {step === "apply" && run !== null && run.status !== "MAPPING" ? (
-        <ApplyStep run={{ ...run, status: run.status }} onRestart={restart} />
+        <ApplyStep
+          run={{ ...run, status: run.status }}
+          canAbandon={canAbandon}
+          onAbandoned={setRun}
+          onRestart={restart}
+        />
       ) : null}
     </div>
   );
@@ -850,14 +880,36 @@ function PreviewRow({
  */
 function ApplyStep({
   run,
+  canAbandon,
+  onAbandoned,
   onRestart,
 }: {
   run: StartedImportRun;
+  /** Whether the viewer may abandon a running import: an administrator. */
+  canAbandon: boolean;
+  onAbandoned: (run: ImportRunView) => void;
   onRestart: () => void;
 }): ReactElement {
   const { t } = useTranslation();
+  const [confirmingAbandon, setConfirmingAbandon] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
+  /** The reason the API refused the abandon, if it did. */
+  const [abandonRefusal, setAbandonRefusal] = useState<string | null>(null);
 
   const running = isImportRunning(run.status);
+
+  const abandon = async (): Promise<void> => {
+    setAbandoning(true);
+    setAbandonRefusal(null);
+    const response = await abandonImport(run.sessionId);
+    setAbandoning(false);
+    setConfirmingAbandon(false);
+    if (!response.ok) {
+      setAbandonRefusal(response.failure.reason);
+      return;
+    }
+    onAbandoned(response.value);
+  };
   const percent =
     run.rowsTotal === 0 ? 0 : Math.round((run.rowsDone / run.rowsTotal) * 100);
 
@@ -920,6 +972,78 @@ function ApplyStep({
       {running ? (
         <Notice tone="info">{t("import.run.keepsGoing")}</Notice>
       ) : null}
+
+      {/*
+       * Only while it runs, and only for an administrator: the API refuses
+       * everybody else, so offering the control would only produce a refusal.
+       * Two presses rather than one, because it stops an import part way
+       * through a register that cannot be edited.
+       */}
+      {running && canAbandon ? (
+        <div className="flex flex-col gap-3 border-t border-line pt-4">
+          <p className={HINT}>{t("import.abandon.description")}</p>
+          {confirmingAbandon ? (
+            <>
+              <Notice tone="warn" live>
+                {t("import.abandon.warning")}
+              </Notice>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={abandoning}
+                  onClick={() => {
+                    void abandon();
+                  }}
+                  className={CAUTION_BUTTON}
+                >
+                  {abandoning
+                    ? t("import.abandon.working")
+                    : t("import.abandon.confirm")}
+                </button>
+                <button
+                  type="button"
+                  disabled={abandoning}
+                  onClick={() => {
+                    setConfirmingAbandon(false);
+                  }}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("import.abandon.cancel")}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setAbandonRefusal(null);
+                  setConfirmingAbandon(true);
+                }}
+                className={CAUTION_BUTTON}
+              >
+                {t("import.abandon.start")}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/*
+       * Outside the control, because the commonest refusal outlives it:
+       * "session-not-running" is the import having ended on its own a moment
+       * before the press, and the next poll brings that state in and takes the
+       * control away. The notice stays to say why the press did nothing. That
+       * one is information, not an error; anything else the press met is one.
+       */}
+      {abandonRefusal === null ? null : (
+        <Notice
+          tone={abandonRefusal === "session-not-running" ? "info" : "danger"}
+          live
+        >
+          {t(failureMessage(abandonRefusal))}
+        </Notice>
+      )}
 
       {run.status === "FAILED" ? (
         <Notice tone="danger" live>

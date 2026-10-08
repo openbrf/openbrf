@@ -579,7 +579,7 @@ The pieces:
   before it.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
-  `{ requestAuthorization }` or `{ see }`. An
+  `{ requestAuthorization }`, `{ postContactMessages }` or `{ see }`. An
   uploaded file is written out in the manifest - a name, a media type and its
   text - rather than read from disk, so what a screen is photographed reading
   can be checked against the publishing rules in the diff. A delivered letter is
@@ -590,7 +590,11 @@ The pieces:
   client as the administrator and opens its authorization request in the
   current session, which the instance answers with the consent screen and the
   signed request in its address: no address written in the manifest reaches
-  that screen. A screen needing a kind that is not there adds it to the
+  that screen. `{ postContactMessages }` posts messages through the public
+  contact form on a page written for the purpose and removed again, as a
+  visitor would, and reopens the screen; that is how `settings-contact-inbox`
+  shows an inbox with messages in it. A screen needing a kind that is not there
+  adds it to the
   `Action` union and to `perform` in `capture.spec.ts`, once, and every later
   screen has it.
 
@@ -620,11 +624,6 @@ changes the screen, not later:
 - **The theme admin screen, its preview and its lint refusal.** Including the
   refusal, which is a screen in its own right: what a board sees when a theme is
   rejected at install time.
-- **The contact inbox with a message in it.** `settings-contact-inbox`
-  photographs the card empty, which is what a board sees before anybody has
-  written to them. A populated one needs a published page carrying the contact
-  block, and the walk has no way to place one until the page editor offers the
-  form blocks.
 - **The association's website with a form on it.** The contact form and the
   issue report form as a visitor meets them, for the same reason: the walk
   photographs the seeded front page, which carries neither.

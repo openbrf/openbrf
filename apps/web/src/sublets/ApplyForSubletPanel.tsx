@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { applyForSublet, type SubletApartment } from "../api/sublets";
@@ -9,6 +9,7 @@ import {
   LABEL,
   PRIMARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -60,6 +61,7 @@ export function ApplyForSubletPanel({
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
   const [apartmentId, setApartmentId] = useState("");
+  const periodFromRef = useRef<HTMLInputElement>(null);
 
   const send = useSaveAction(applyForSublet, () => {
     setDraft(EMPTY);
@@ -138,11 +140,12 @@ export function ApplyForSubletPanel({
         </>
       }
     >
-      <form
+      <LockedForm
         id="apply-for-sublet"
+        locked={send.state.kind === "saving"}
+        focusFallback={periodFromRef}
         className="flex flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        onSend={() => {
           void send.submit({ ...draft, apartmentId: chosen });
         }}
       >
@@ -169,6 +172,7 @@ export function ApplyForSubletPanel({
           <label className={`${LABEL} max-w-48`}>
             {t("sublets.apply.fromField")}
             <input
+              ref={periodFromRef}
               type="date"
               className={FIELD_DATA}
               value={draft.periodFrom}
@@ -210,7 +214,7 @@ export function ApplyForSubletPanel({
           />
         </label>
         <p className={HINT}>{t("sublets.apply.reasonHint")}</p>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

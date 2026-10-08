@@ -302,6 +302,16 @@ export const envSchema = z.object({
    * what a token would otherwise reach.
    */
   OPENBRF_ACTIONS_READ_ONLY: envBoolean(false),
+  /**
+   * Print a message this instance has no mail to send through to the log, in
+   * full - sign-in and invitation links included.
+   *
+   * For a developer following a link on their own machine and for nothing else,
+   * and never in production, where a message with no mail to send it is
+   * refused instead. Off unless asked for, so an instance whose NODE_ENV was
+   * left unset does not write live sign-in links into its log.
+   */
+  OPENBRF_MAIL_LOG_BODY: envBoolean(false),
 
   /**
    * Where the instance's mail goes out (ADR 0024).

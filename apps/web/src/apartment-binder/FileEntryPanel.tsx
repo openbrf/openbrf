@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChangeEvent, ReactElement } from "react";
 
@@ -11,6 +11,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -88,6 +89,7 @@ export function FileEntryPanel({
   const fieldId = useId();
   const kinds = kindsFiledBy(filer);
   const first = kinds[0] ?? "OTHER";
+  const titleRef = useRef<HTMLInputElement>(null);
 
   const [kind, setKind] = useState<BinderKind>(first);
   const [title, setTitle] = useState("");
@@ -141,185 +143,199 @@ export function FileEntryPanel({
   const failure = save.state.kind === "failed" ? save.state.failure : null;
   const scanned = failure === null ? [] : scannedBinderParts(failure);
 
+  /*
+   * The whole panel is one form while an entry is filed. The fields are cleared
+   * once the filing succeeds, so what is typed while the request runs is refused
+   * rather than taken and wiped; the form wraps the panel, and `contents` keeps
+   * the panel's own box as the layout sees it.
+   */
   return (
-    <Panel
-      title={t(
-        filer === "BOARD"
-          ? "apartmentBinder.file.headingBoard"
-          : "apartmentBinder.file.heading",
-      )}
-      description={t(
-        filer === "BOARD"
-          ? "apartmentBinder.file.descriptionBoard"
-          : "apartmentBinder.file.description",
-      )}
-      actions={
-        <>
-          <button
-            type="button"
-            disabled={!complete || save.state.kind === "saving"}
-            onClick={() => {
-              if (chosen !== null) {
-                void save.submit(chosen);
-              }
-            }}
-            className={PRIMARY_BUTTON}
-          >
-            {save.state.kind === "saving"
-              ? t("apartmentBinder.file.working")
-              : t("apartmentBinder.file.submit")}
-          </button>
-
-          {save.state.kind === "saved" ? (
-            <Notice tone="ok" live>
-              {t("apartmentBinder.file.saved")}
-            </Notice>
-          ) : null}
-
-          {/*
-           * The refusal stands with the control that caused it, inside this
-           * panel: what was refused is this filing, and the two things the
-           * person can do about it - retype the title, choose the file again -
-           * are both in the fields above.
-           */}
-          {failure === null ? null : (
-            <Notice tone="danger" live>
-              {t(binderFailureKey(failure))}
-              {scanned.map((part) => ` ${t(PART_SENTENCE[part])}`).join("")}
-            </Notice>
-          )}
-        </>
-      }
+    <LockedForm
+      locked={save.state.kind === "saving"}
+      focusFallback={titleRef}
+      className="contents"
+      onSend={() => {
+        if (chosen !== null) {
+          void save.submit(chosen);
+        }
+      }}
     >
-      <label className={LABEL} htmlFor={`${fieldId}-kind`}>
-        {t("apartmentBinder.file.kind")}
-        <select
-          id={`${fieldId}-kind`}
-          value={kind}
-          onChange={(event) => {
-            onKindChange(event.target.value as BinderKind);
-          }}
-          className={FIELD}
-        >
-          {kinds.map((candidate) => (
-            <option key={candidate} value={candidate}>
-              {t(KIND_LABEL[candidate])}
-            </option>
-          ))}
-        </select>
-      </label>
-      {/*
-       * Every hint on this form sits under its field rather than inside its
-       * label, as the subletting and key order forms already place theirs: a
-       * label is set in the board's own lettering, which is uppercase, and a
-       * sentence inherits it and stops reading as help.
-       */}
-      <p className={HINT}>{t("apartmentBinder.file.transferNote")}</p>
-
-      <label className={LABEL}>
-        {t("apartmentBinder.file.title")}
-        <input
-          type="text"
-          value={title}
-          maxLength={200}
-          onChange={(event) => {
-            setTitle(event.target.value);
-          }}
-          className={FIELD}
-        />
-      </label>
-      <p className={HINT}>{t("apartmentBinder.file.titleHint")}</p>
-
-      <label className={LABEL}>
-        {t(
-          dayRequired
-            ? "apartmentBinder.file.datedOnRequired"
-            : "apartmentBinder.file.datedOn",
+      <Panel
+        title={t(
+          filer === "BOARD"
+            ? "apartmentBinder.file.headingBoard"
+            : "apartmentBinder.file.heading",
         )}
-        <input
-          type="date"
-          value={datedOn}
-          onChange={(event) => {
-            setDatedOn(event.target.value);
-          }}
-          className={`${FIELD_DATA} max-w-48`}
-        />
-      </label>
-      <p className={HINT}>
-        {t(
-          dayRequired
-            ? "apartmentBinder.file.datedOnHintRequired"
-            : "apartmentBinder.file.datedOnHint",
+        description={t(
+          filer === "BOARD"
+            ? "apartmentBinder.file.descriptionBoard"
+            : "apartmentBinder.file.description",
         )}
-      </p>
+        actions={
+          <>
+            <button
+              type="submit"
+              disabled={!complete || save.state.kind === "saving"}
+              className={PRIMARY_BUTTON}
+            >
+              {save.state.kind === "saving"
+                ? t("apartmentBinder.file.working")
+                : t("apartmentBinder.file.submit")}
+            </button>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className={LABEL}>{t("apartmentBinder.file.audience")}</legend>
-        {BINDER_AUDIENCES.map((candidate) => (
-          <label
-            key={candidate}
-            className="flex min-h-11 items-start gap-2 text-small text-ink"
+            {save.state.kind === "saved" ? (
+              <Notice tone="ok" live>
+                {t("apartmentBinder.file.saved")}
+              </Notice>
+            ) : null}
+
+            {/*
+             * The refusal stands with the control that caused it, inside this
+             * panel: what was refused is this filing, and the two things the
+             * person can do about it - retype the title, choose the file again -
+             * are both in the fields above.
+             */}
+            {failure === null ? null : (
+              <Notice tone="danger" live>
+                {t(binderFailureKey(failure))}
+                {scanned.map((part) => ` ${t(PART_SENTENCE[part])}`).join("")}
+              </Notice>
+            )}
+          </>
+        }
+      >
+        <label className={LABEL} htmlFor={`${fieldId}-kind`}>
+          {t("apartmentBinder.file.kind")}
+          <select
+            id={`${fieldId}-kind`}
+            value={kind}
+            onChange={(event) => {
+              onKindChange(event.target.value as BinderKind);
+            }}
+            className={FIELD}
           >
+            {kinds.map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {t(KIND_LABEL[candidate])}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/*
+         * Every hint on this form sits under its field rather than inside its
+         * label, as the subletting and key order forms already place theirs: a
+         * label is set in the board's own lettering, which is uppercase, and a
+         * sentence inherits it and stops reading as help.
+         */}
+        <p className={HINT}>{t("apartmentBinder.file.transferNote")}</p>
+
+        <label className={LABEL}>
+          {t("apartmentBinder.file.title")}
+          <input
+            ref={titleRef}
+            type="text"
+            value={title}
+            maxLength={200}
+            onChange={(event) => {
+              setTitle(event.target.value);
+            }}
+            className={FIELD}
+          />
+        </label>
+        <p className={HINT}>{t("apartmentBinder.file.titleHint")}</p>
+
+        <label className={LABEL}>
+          {t(
+            dayRequired
+              ? "apartmentBinder.file.datedOnRequired"
+              : "apartmentBinder.file.datedOn",
+          )}
+          <input
+            type="date"
+            value={datedOn}
+            onChange={(event) => {
+              setDatedOn(event.target.value);
+            }}
+            className={`${FIELD_DATA} max-w-48`}
+          />
+        </label>
+        <p className={HINT}>
+          {t(
+            dayRequired
+              ? "apartmentBinder.file.datedOnHintRequired"
+              : "apartmentBinder.file.datedOnHint",
+          )}
+        </p>
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className={LABEL}>
+            {t("apartmentBinder.file.audience")}
+          </legend>
+          {BINDER_AUDIENCES.map((candidate) => (
+            <label
+              key={candidate}
+              className="flex min-h-11 items-start gap-2 text-small text-ink"
+            >
+              <input
+                type="radio"
+                name={`${fieldId}-audience`}
+                value={candidate}
+                checked={audience === candidate}
+                onChange={() => {
+                  setAudience(candidate);
+                }}
+                className="mt-1 size-4 accent-trust"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span>{t(AUDIENCE_LABEL[candidate])}</span>
+                <span className={HINT}>{t(AUDIENCE_HINT[candidate])}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="cursor-pointer">
             <input
-              type="radio"
-              name={`${fieldId}-audience`}
-              value={candidate}
-              checked={audience === candidate}
-              onChange={() => {
-                setAudience(candidate);
-              }}
-              className="mt-1 size-4 accent-trust"
+              type="file"
+              accept={ACCEPTED_TYPES}
+              aria-label={t("apartmentBinder.file.file")}
+              className="peer sr-only"
+              onChange={onPick}
             />
-            <span className="flex flex-col gap-0.5">
-              <span>{t(AUDIENCE_LABEL[candidate])}</span>
-              <span className={HINT}>{t(AUDIENCE_HINT[candidate])}</span>
+            {/*
+             * The input is visually hidden, so the focus ring and the disabled
+             * state both have to be drawn on the part the viewer can see.
+             */}
+            <span
+              className={[
+                SECONDARY_BUTTON,
+                "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
+                "peer-focus-visible:outline-trust",
+                "peer-disabled:opacity-60",
+              ].join(" ")}
+            >
+              {t("apartmentBinder.file.choose")}
             </span>
           </label>
-        ))}
-      </fieldset>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer">
-          <input
-            type="file"
-            accept={ACCEPTED_TYPES}
-            disabled={save.state.kind === "saving"}
-            aria-label={t("apartmentBinder.file.file")}
-            className="peer sr-only"
-            onChange={onPick}
-          />
-          {/*
-           * The input is visually hidden, so the focus ring and the disabled
-           * state both have to be drawn on the part the viewer can see.
-           */}
-          <span
-            className={[
-              SECONDARY_BUTTON,
-              "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
-              "peer-focus-visible:outline-trust",
-              "peer-disabled:opacity-60",
-            ].join(" ")}
-          >
-            {t("apartmentBinder.file.choose")}
-          </span>
-        </label>
+          {chosen === null ? null : (
+            <span className="min-w-0 truncate text-small text-ink">
+              {t("apartmentBinder.file.chosen", { fileName: chosen.name })}
+            </span>
+          )}
+        </div>
 
-        {chosen === null ? null : (
-          <span className="min-w-0 truncate text-small text-ink">
-            {t("apartmentBinder.file.chosen", { fileName: chosen.name })}
-          </span>
-        )}
-      </div>
+        <Notice tone="info">{t("apartmentBinder.file.notScanned")}</Notice>
 
-      <Notice tone="info">{t("apartmentBinder.file.notScanned")}</Notice>
-
-      <p className={HINT}>
-        {t(
-          filer === "BOARD"
-            ? "apartmentBinder.file.staysBoard"
-            : "apartmentBinder.file.stays",
-        )}
-      </p>
-    </Panel>
+        <p className={HINT}>
+          {t(
+            filer === "BOARD"
+              ? "apartmentBinder.file.staysBoard"
+              : "apartmentBinder.file.stays",
+          )}
+        </p>
+      </Panel>
+    </LockedForm>
   );
 }
