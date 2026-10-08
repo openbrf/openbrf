@@ -2769,6 +2769,14 @@ model ImportSession {
   /// row stating it reaches the same person instead of creating them again.
   unwrittenIdentityNumbers Json?
 
+  /// Rows the apply wrote as a new person: row number to that person. The
+  /// preview cannot list a person the file creates among a row's candidates,
+  /// having no id for them yet, and a later chunk finds them in the register. A
+  /// chunk sets these aside when it checks that a row the board answered still
+  /// matches the persons the preview showed, and takes anybody else it finds
+  /// for somebody the register gained since.
+  createdPersons Json?
+
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
   /// so a chunk is either wholly applied and counted or not applied at all.
@@ -3990,6 +3998,9 @@ model ProcessorAgreement {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// At most one open row per processorKey is a partial unique index written
+  /// by hand in the migration, with no @@unique counterpart here: a closed row
+  /// is history, and a recipient has one for every classification it has had.
   @@index([processorKind, processorKey, endedAt])
   @@map("processor_agreement")
 }
@@ -4208,10 +4219,17 @@ model ContactSubmission {
   /// data has to be purgeable without negotiating with the board's inbox.
   handledByPersonId String?
 
+  /// When the board was queued to be mailed about it. Null while it has not
+  /// been, and for good when the hourly bound left the mail out. The bound
+  /// counts these, so a burst that was not mailed does not keep the next
+  /// message from being.
+  notifiedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([handled, createdAt])
   @@index([emailIndex])
+  @@index([notifiedAt])
   @@map("contact_submission")
 }
 
@@ -4293,6 +4311,16 @@ model News {
   mailingRequestedByPersonId String?
 
   authorPersonId String?
+
+  /// The optimistic token a save is claimed on, as Page.revision is.
+  ///
+  /// A save carries the whole item, so a board member saving a copy read
+  /// before somebody else's save would replace that text with no error and
+  /// nothing to recover from. The caller sends the revision it read and the
+  /// write matches on it, so the second save is refused rather than applied.
+  /// A counter and not `updatedAt`, and incremented by the writer in the same
+  /// statement as the content, for the reasons Page.revision gives.
+  revision Int @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

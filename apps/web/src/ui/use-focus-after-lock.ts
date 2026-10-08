@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 
 /** In the form, or a control outside it that is tied to it by `form="…"`. */
@@ -55,7 +55,9 @@ export function useFocusAfterLock(
     [formRef],
   );
 
-  useEffect(() => {
+  // A layout effect, so focus is back in the commit that lifts the lock: no frame
+  // with focus on the page, and nothing left to flush once the fieldset is enabled.
+  useLayoutEffect(() => {
     if (locked) {
       return;
     }

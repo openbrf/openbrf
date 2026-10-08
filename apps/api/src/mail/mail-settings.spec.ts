@@ -262,6 +262,27 @@ describe("the settings", () => {
     });
   });
 
+  it("decrypt the password once per stored value, not once per message", async () => {
+    // A mailing resolves the mail once per recipient.
+    const { resolver: mail, decrypt, findUnique } = resolver(BASE_ENV);
+
+    await mail.current();
+    await mail.current();
+    expect(decrypt).toHaveBeenCalledTimes(1);
+
+    // A new password saved by the board is decrypted when it is first used.
+    findUnique.mockResolvedValue({
+      ...STORED,
+      smtpPasswordCipher: "brf:new-ciphertext",
+    });
+    await mail.current();
+    expect(decrypt).toHaveBeenCalledTimes(2);
+    expect(decrypt).toHaveBeenLastCalledWith(
+      "association.smtpPassword",
+      "brf:new-ciphertext",
+    );
+  });
+
   it("are none until a host and a sender are both stored", async () => {
     expect(await resolver(BASE_ENV, NOTHING_STORED).resolver.current()).toBe(
       null,

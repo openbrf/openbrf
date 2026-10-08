@@ -8,7 +8,11 @@ import {
 import type { PrismaService } from "../database/prisma.service";
 import type { DocumentAudience } from "../generated/prisma/enums";
 import type { MediaService } from "../media/media.service";
-import { audiencesFor, DocumentsService } from "./documents.service";
+import {
+  audiencesFor,
+  type DocumentError,
+  DocumentsService,
+} from "./documents.service";
 
 /**
  * The archive over a fake database and a fake media layer.
@@ -111,9 +115,10 @@ function makeFakes(): Fakes {
               .map(withFile),
           ),
       ),
-      findUnique: vi.fn(({ where }: { where: { id: string } }) =>
-        Promise.resolve(documents.get(where.id) ?? null),
-      ),
+      findUnique: vi.fn(({ where }: { where: { id: string } }) => {
+        const row = documents.get(where.id);
+        return Promise.resolve(row === undefined ? null : withFile(row));
+      }),
       create: vi.fn(
         ({ data }: { data: Omit<DocumentRow, "id" | "createdAt"> }) => {
           if (createFails) {
@@ -392,6 +397,128 @@ describe("changing who a document is for", () => {
       }),
     ).rejects.toMatchObject({ reason: "not-found", status: 404 });
 
+    expect(fakes.writes).toEqual([]);
+  });
+});
+
+describe("the personal identity number guardrail", () => {
+  /*
+   * A document list on the website prints the title, the binder and the file
+   * name of every document for the members or the public, so those are
+   * published text like a page's own.
+   */
+  const NUMBER = "19811218-9876";
+
+  it("refuses a public document that names one, saying where and never what", async () => {
+    const refusal: unknown = await fakes.service
+      .add({
+        title: `Överlåtelse ${NUMBER}`,
+        category: `Avtal ${NUMBER}`,
+        audience: "PUBLIC",
+        bytes: Buffer.from("%PDF-1.7"),
+        fileName: `${NUMBER}.pdf`,
+        actorPersonId: "person-1",
+      })
+      .catch((cause: unknown) => cause);
+
+    expect(refusal).toMatchObject({
+      reason: "personal-identity-number",
+      status: 422,
+    });
+    expect((refusal as DocumentError).details()).toEqual({
+      locations: [
+        { field: "title", offset: 12 },
+        { field: "category", offset: 6 },
+        { field: "fileName", offset: 0 },
+      ],
+    });
+    // Refused before the upload, so nothing is left behind to clean up.
+    expect(fakes.upload).not.toHaveBeenCalled();
+  });
+
+  it("refuses one for the members as well", async () => {
+    await expect(
+      fakes.service.add({
+        title: "Protokoll",
+        category: "Protokoll",
+        audience: "MEMBER",
+        bytes: Buffer.from("%PDF-1.7"),
+        fileName: `protokoll ${NUMBER}.pdf`,
+        actorPersonId: "person-1",
+      }),
+    ).rejects.toMatchObject({ reason: "personal-identity-number" });
+  });
+
+  it.each([
+    ["an asterisk", "19811218*9876.pdf"],
+    ["a zero-width space", "19811218\u200B-9876.pdf"],
+  ])(
+    "refuses a file name whose number %s splits until it is stored",
+    async (_split, fileName) => {
+      // The scan reads the name as it will be listed. Storing it strips the
+      // character that kept the number apart.
+      await expect(
+        fakes.service.add({
+          title: "Avtal",
+          category: "Avtal",
+          audience: "PUBLIC",
+          bytes: Buffer.from("%PDF-1.7"),
+          fileName,
+          actorPersonId: "person-1",
+        }),
+      ).rejects.toMatchObject({
+        reason: "personal-identity-number",
+        status: 422,
+      });
+      expect(fakes.upload).not.toHaveBeenCalled();
+    },
+  );
+
+  it("files a board document whatever it names, since no page lists it", async () => {
+    const document = await fakes.service.add({
+      title: `Överlåtelse ${NUMBER}`,
+      category: "Avtal",
+      audience: "BOARD",
+      bytes: Buffer.from("%PDF-1.7"),
+      fileName: "avtal.pdf",
+      actorPersonId: "person-1",
+    });
+
+    expect(document.audience).toBe("BOARD");
+  });
+
+  it("refuses to move a board document that names one onto a listed shelf", async () => {
+    const document = await fakes.service.add({
+      title: "Avtal",
+      category: "Avtal",
+      audience: "BOARD",
+      bytes: Buffer.from("%PDF-1.7"),
+      fileName: `${NUMBER}.pdf`,
+      actorPersonId: "person-1",
+    });
+
+    await expect(
+      fakes.service.edit(document.id, {
+        title: "Avtal",
+        category: "Avtal",
+        audience: "PUBLIC",
+      }),
+    ).rejects.toMatchObject({ reason: "personal-identity-number" });
+    // Nothing written: the file is still the board's.
+    expect(fakes.writes).toEqual([]);
+    expect(fakes.files.get("file-1")).toMatchObject({ visibility: "INTERNAL" });
+  });
+
+  it("refuses a rename that writes one into a public document", async () => {
+    const document = await file("PUBLIC");
+
+    await expect(
+      fakes.service.edit(document.id, {
+        title: `Stadgar ${NUMBER}`,
+        category: document.category,
+        audience: "PUBLIC",
+      }),
+    ).rejects.toMatchObject({ reason: "personal-identity-number" });
     expect(fakes.writes).toEqual([]);
   });
 });

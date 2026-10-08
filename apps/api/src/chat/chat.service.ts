@@ -4,13 +4,14 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { ChatKind } from "../generated/prisma/enums";
-import { lockChat } from "./chat-lock";
+import { lockChat, lockChatPerson } from "./chat-lock";
 import {
   groupsFor,
   holdsBoardSeat,
   livesHere,
   roomFor,
   ROOM_COLUMNS,
+  type ChatDbClient,
   type ChatRoom,
 } from "./chat-membership";
 import { ChatError, type ChatTextLocation } from "./chat.error";
@@ -563,10 +564,17 @@ export class ChatService {
       input.chatId,
       input.authorPersonId,
     );
-    await this.refuseTooManyMessages(input.authorPersonId);
+    await refuseTooManyMessages(this.prisma, input.authorPersonId);
     refusePersonalIdentityNumbers(input.body);
 
     const row = await this.prisma.$transaction(async (tx) => {
+      /*
+       * Counted again under the writer's own lock, which is what makes the
+       * allowance a bound: the count above is the cheap answer for the
+       * ordinary case, and parallel requests can all pass it.
+       */
+      await lockChatPerson(tx, input.authorPersonId);
+      await refuseTooManyMessages(tx, input.authorPersonId);
       await lockChat(tx, chat.id);
 
       /*
@@ -583,11 +591,31 @@ export class ChatService {
         throw new ChatError("There is no such chat.", "chat-not-found");
       }
 
+      /*
+       * Later than every message already in the room, by a millisecond if the
+       * clock has not moved on. A screen polls with the newest message it holds
+       * as its cursor, so a message stamped at or before that instant - two
+       * writers in the same millisecond, or a transaction that waited on this
+       * lock - would never be delivered to it. Under the room's lock, so the
+       * order the instants say is the order the messages were committed in.
+       */
+      const newest = await tx.chatMessage.findFirst({
+        where: { chatId: chat.id },
+        orderBy: [{ createdAt: "desc" }],
+        select: { createdAt: true },
+      });
+      const now = new Date();
+      const createdAt =
+        newest !== null && newest.createdAt.getTime() >= now.getTime()
+          ? new Date(newest.createdAt.getTime() + 1)
+          : now;
+
       return tx.chatMessage.create({
         data: {
           chatId: chat.id,
           authorPersonId: input.authorPersonId,
           body: input.body,
+          createdAt,
         },
         select: MESSAGE_COLUMNS,
       });
@@ -764,20 +792,6 @@ export class ChatService {
     return this.requireMembershipById(chatId, reader.personId);
   }
 
-  /** Refuses a person who has written their allowance for the window. */
-  private async refuseTooManyMessages(authorPersonId: string): Promise<void> {
-    const since = new Date(Date.now() - WRITE_WINDOW_MINUTES * 60 * 1000);
-    const written = await this.prisma.chatMessage.count({
-      where: { authorPersonId, createdAt: { gte: since } },
-    });
-    if (written >= MESSAGES_PER_WRITE_WINDOW) {
-      throw new ChatError(
-        "Too many messages in too short a time. Try again shortly.",
-        "too-many-messages",
-      );
-    }
-  }
-
   /** Every view in a page, with the authors resolved in one read. */
   private async toViews(
     rows: readonly MessageRow[],
@@ -951,6 +965,23 @@ export function authorViewOf(
     personId,
     name: `${person.firstName} ${person.lastName}`.trim(),
   };
+}
+
+/** Refuses a person who has written their allowance for the window. */
+async function refuseTooManyMessages(
+  db: ChatDbClient,
+  authorPersonId: string,
+): Promise<void> {
+  const since = new Date(Date.now() - WRITE_WINDOW_MINUTES * 60 * 1000);
+  const written = await db.chatMessage.count({
+    where: { authorPersonId, createdAt: { gte: since } },
+  });
+  if (written >= MESSAGES_PER_WRITE_WINDOW) {
+    throw new ChatError(
+      "Too many messages in too short a time. Try again shortly.",
+      "too-many-messages",
+    );
+  }
 }
 
 /**
