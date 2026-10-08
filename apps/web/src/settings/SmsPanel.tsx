@@ -37,6 +37,9 @@ const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // left empty.
   "secret-required-for-new-endpoint":
     "settings.sms.errors.secretRequiredForNewEndpoint",
+  // Another save moved the server or the stored secret while this one ran.
+  "secret-endpoint-changed-during-save":
+    "settings.sms.errors.secretEndpointChangedDuringSave",
 };
 
 const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {

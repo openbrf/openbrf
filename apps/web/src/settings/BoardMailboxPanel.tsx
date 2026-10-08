@@ -17,9 +17,13 @@ export interface BoardMailboxPanelProps {
 }
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
-  // The host or port changed while the password field was left empty.
+  // The host, port or encryption changed while the password field was left
+  // empty.
   "secret-required-for-new-endpoint":
     "settings.boardMailbox.errors.secretRequiredForNewEndpoint",
+  // Another save moved the server or the stored secret while this one ran.
+  "secret-endpoint-changed-during-save":
+    "settings.boardMailbox.errors.secretEndpointChangedDuringSave",
 };
 
 /**

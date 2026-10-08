@@ -460,11 +460,13 @@ describe("SMTP settings", () => {
   it.each([
     ["host", { host: "smtp.elsewhere.example" }],
     ["port", { port: 2525 }],
+    // Same host and port, and the password would cross the network in clear.
+    ["connection without encryption", { secure: false }],
   ])(
     "refuses to keep the stored password for a new %s, and writes nothing",
     async (_, change) => {
       // The next send would hand the association's password to whatever
-      // answers at the new address.
+      // answers at the new address, or in a way it was not entered for.
       const { service, current } = build({
         smtpHost: filled.host,
         smtpPort: filled.port,
@@ -535,6 +537,20 @@ describe("SMTP settings", () => {
         smtpPasswordCipher: "brf:existing-ciphertext",
       },
     ],
+    [
+      // Nothing about the server moved, so the refusal cannot say it did.
+      "another password for the same host",
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      },
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:stored-meanwhile",
+      },
+    ],
   ])(
     "refuses to keep the password after another save wrote %s in between",
     async (_, seen, meanwhile) => {
@@ -542,11 +558,18 @@ describe("SMTP settings", () => {
       // another administrator's, and the kept password would go to a host
       // nobody typed it for.
       const { service, prisma, current } = build(meanwhile);
-      prisma.association.findUniqueOrThrow.mockResolvedValueOnce(seen);
+      // The row as read always carries the encryption flag the guard compares.
+      prisma.association.findUniqueOrThrow.mockResolvedValueOnce({
+        smtpSecure: filled.secure,
+        ...seen,
+      });
 
       await expect(
         service.updateSmtp({ ...filled, user: "kassoren" }),
-      ).rejects.toMatchObject({ reason: "secret-required-for-new-endpoint" });
+      ).rejects.toMatchObject({
+        reason: "secret-endpoint-changed-during-save",
+        status: 409,
+      });
       expect(current()).toMatchObject({ ...meanwhile, smtpUser: null });
     },
   );
@@ -889,6 +912,7 @@ describe("board mailbox settings", () => {
   it.each([
     ["host", { host: "pop.elsewhere.example" }],
     ["port", { port: 1110 }],
+    ["connection without encryption", { port: 995, secure: false }],
   ])("refuses to keep the stored password for a new %s", async (_, change) => {
     const { service, current } = build(stored);
 

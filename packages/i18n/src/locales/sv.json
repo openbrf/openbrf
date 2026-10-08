@@ -1138,7 +1138,8 @@
         "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
         "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
-        "secretRequiredForNewEndpoint": "Servern har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar."
+        "secretRequiredForNewEndpoint": "Servern, porten eller krypteringen har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Servern eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen."
       },
       "test": {
         "subject": "Testmeddelande från {{association}}",
@@ -1161,7 +1162,8 @@
       "configured": "Brevlådan är inställd. Instansen hämtar den var femte minut, och styrelsen kan hämta den från sin egen skärm.",
       "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är.",
       "errors": {
-        "secretRequiredForNewEndpoint": "Brevlådans server har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar."
+        "secretRequiredForNewEndpoint": "Brevlådans server, port eller kryptering har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Brevlådans server eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen."
       }
     },
     "sms": {
@@ -1187,7 +1189,8 @@
         "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln.",
-        "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar."
+        "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans medan det här sparades. Ange nyckeln igen, eller ta bort den sparade, och spara igen."
       }
     },
     "retention": {

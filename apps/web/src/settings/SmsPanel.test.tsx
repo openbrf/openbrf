@@ -310,19 +310,32 @@ describe("while the SMS settings are being saved", () => {
   );
 });
 
-describe("a save that moves the gateway", () => {
-  it("asks for the credential again rather than a generic failure", async () => {
-    saveSms.mockResolvedValue({
-      ok: false,
-      failure: { status: 400, reason: "secret-required-for-new-endpoint" },
-    });
-    const session = userEvent.setup();
-    render(<SmsPanel value={CONFIGURED} />);
+describe("a save the stored credential does not follow", () => {
+  it.each([
+    [
+      "the provider or gateway it changed",
+      400,
+      "secret-required-for-new-endpoint",
+      /^leverantören eller gatewayadressen har ändrats\. ange nyckeln igen/i,
+    ],
+    [
+      "a change saved elsewhere meanwhile",
+      409,
+      "secret-endpoint-changed-during-save",
+      /^leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans.*ange nyckeln igen/i,
+    ],
+  ])(
+    "names %s and asks for the credential again",
+    async (_, status, reason, message) => {
+      saveSms.mockResolvedValue({ ok: false, failure: { status, reason } });
+      const session = userEvent.setup();
+      render(<SmsPanel value={CONFIGURED} />);
 
-    await save(session);
+      await save(session);
 
-    await waitFor(() => {
-      expect(screen.getByText(/ange nyckeln igen/i)).toBeTruthy();
-    });
-  });
+      await waitFor(() => {
+        expect(screen.getByText(message)).toBeTruthy();
+      });
+    },
+  );
 });

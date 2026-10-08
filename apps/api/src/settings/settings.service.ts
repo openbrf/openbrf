@@ -66,14 +66,16 @@ export class SettingsError extends DomainError {
       | "giro-not-a-number"
       | "joint-controller-incomplete"
       | "mail-managed-by-environment"
-      | "secret-required-for-new-endpoint",
+      | "secret-required-for-new-endpoint"
+      | "secret-endpoint-changed-during-save",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
     super(message);
     this.status =
       reason === "housing-cooperative-missing" ||
-      reason === "mail-managed-by-environment"
+      reason === "mail-managed-by-environment" ||
+      reason === "secret-endpoint-changed-during-save"
         ? HttpStatus.CONFLICT
         : reason === "person-not-found"
           ? HttpStatus.NOT_FOUND
@@ -856,8 +858,12 @@ export class SettingsService {
     requireSecretForNewEndpoint(
       input.password,
       stored.smtpPasswordCipher,
-      [stored.smtpHost, stored.smtpPort ?? defaultPortFor(stored.smtpSecure)],
-      [input.host, input.port ?? defaultPortFor(input.secure)],
+      [
+        stored.smtpHost,
+        stored.smtpPort ?? defaultPortFor(stored.smtpSecure),
+        stored.smtpSecure,
+      ],
+      [input.host, input.port ?? defaultPortFor(input.secure), input.secure],
     );
 
     const passwordCipher =
@@ -925,8 +931,9 @@ export class SettingsService {
         stored.boardMailboxPop3Host,
         stored.boardMailboxPop3Port ??
           defaultPop3Port(stored.boardMailboxPop3Secure),
+        stored.boardMailboxPop3Secure,
       ],
-      [input.host, input.port ?? defaultPop3Port(input.secure)],
+      [input.host, input.port ?? defaultPop3Port(input.secure), input.secure],
     );
 
     const passwordCipher =
@@ -1423,8 +1430,10 @@ export class SettingsService {
    * would then go to an endpoint nobody typed it for. While the secret is
    * kept, the write therefore lands only on a row whose endpoint and secret
    * are still the ones the guard saw, and asks for the secret again when they
-   * are not. A save that sends the secret writes it with the endpoint in one
-   * statement, so it needs no condition.
+   * are not. That refusal has a reason of its own, because the save may have
+   * changed nothing about the endpoint: it can be the stored secret that moved.
+   * A save that sends the secret writes it with the endpoint in one statement,
+   * so it needs no condition.
    */
   private async writeEndpointBlock(
     keepsSecret: boolean,
@@ -1438,7 +1447,7 @@ export class SettingsService {
     if (count === 0) {
       throw new SettingsError(
         "The server or its secret changed during this save; enter the secret again.",
-        "secret-required-for-new-endpoint",
+        "secret-endpoint-changed-during-save",
       );
     }
   }
@@ -1521,7 +1530,9 @@ function readGiro(value: string | null): string | null {
  * server it authenticates to stays the same and wrong the moment it moves: the
  * next send would present the association's credential to whatever answers at
  * the new address. So a changed host, port, driver or gateway address needs the
- * secret typed again, or cleared, in the same save. A host is compared as
+ * secret typed again, or cleared, in the same save, and so does an encrypted
+ * connection turned off: the same host and port would then receive the
+ * password in clear text, which is not how it was entered. A host is compared as
  * stored, without normalising: one merely spelled in another case is asked for
  * again, which costs one retyped password and never sends one anywhere. A port
  * is compared as the one connected to, so a stored null and the default the
@@ -1530,8 +1541,8 @@ function readGiro(value: string | null): string | null {
 function requireSecretForNewEndpoint(
   secret: string | null | undefined,
   storedSecret: string | null,
-  storedEndpoint: readonly (string | number | null)[],
-  nextEndpoint: readonly (string | number | null)[],
+  storedEndpoint: readonly (string | number | boolean | null)[],
+  nextEndpoint: readonly (string | number | boolean | null)[],
 ): void {
   if (
     secret === undefined &&

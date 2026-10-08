@@ -1138,7 +1138,8 @@
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
         "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
-        "secretRequiredForNewEndpoint": "The server changed. Enter its password again, or remove the stored one, before saving."
+        "secretRequiredForNewEndpoint": "The server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again."
       },
       "test": {
         "subject": "Test message from {{association}}",
@@ -1161,7 +1162,8 @@
       "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
       "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is.",
       "errors": {
-        "secretRequiredForNewEndpoint": "The mailbox server changed. Enter its password again, or remove the stored one, before saving."
+        "secretRequiredForNewEndpoint": "The mailbox server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The mailbox server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again."
       }
     },
     "sms": {
@@ -1187,7 +1189,8 @@
         "notConfigured": "Save a provider and a gateway address before sending a test.",
         "noPhone": "Your own record has no phone number to send the test to.",
         "unknown": "The message could not be sent. Check the gateway address and the credential.",
-        "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving."
+        "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The provider, the gateway address or the stored credential was changed elsewhere while this was saved. Enter the credential again, or remove the stored one, and save again."
       }
     },
     "retention": {

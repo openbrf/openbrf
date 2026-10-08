@@ -436,21 +436,36 @@ describe("while the email settings are being saved", () => {
   );
 });
 
-describe("a save that moves the server", () => {
-  it("asks for the password again rather than a generic failure", async () => {
-    // The stored password is not sent to a new host on the strength of an
-    // empty field, and the refusal has to say what to do about it.
-    saveSmtp.mockResolvedValue({
-      ok: false,
-      failure: { status: 400, reason: "secret-required-for-new-endpoint" },
-    });
-    const session = userEvent.setup();
-    render(<SmtpPanel value={CONFIGURED} />);
+describe("a save the stored password does not follow", () => {
+  // The stored password is not sent to a new host on the strength of an empty
+  // field, and the refusal has to say what to do about it. A save that changed
+  // nothing about the server and met another save's password is not told that
+  // the server changed.
+  it.each([
+    [
+      "the server, port or encryption it changed",
+      400,
+      "secret-required-for-new-endpoint",
+      /^servern, porten eller krypteringen har ändrats\. ange lösenordet igen/i,
+    ],
+    [
+      "a change saved elsewhere meanwhile",
+      409,
+      "secret-endpoint-changed-during-save",
+      /^servern eller det sparade lösenordet ändrades någon annanstans.*ange lösenordet igen/i,
+    ],
+  ])(
+    "names %s and asks for the password again",
+    async (_, status, reason, message) => {
+      saveSmtp.mockResolvedValue({ ok: false, failure: { status, reason } });
+      const session = userEvent.setup();
+      render(<SmtpPanel value={CONFIGURED} />);
 
-    await save(session);
+      await save(session);
 
-    await waitFor(() => {
-      expect(screen.getByText(/ange lösenordet igen/i)).toBeTruthy();
-    });
-  });
+      await waitFor(() => {
+        expect(screen.getByText(message)).toBeTruthy();
+      });
+    },
+  );
 });
