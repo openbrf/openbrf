@@ -44,6 +44,11 @@ const bodySchema = z.object({
   content: submittedContentSchema,
 });
 
+/** A save also names the copy it was built on; see UpdateNewsInput. */
+const updateSchema = bodySchema.extend({
+  expectedRevision: z.int().nonnegative().optional(),
+});
+
 const publishSchema = z.object({
   published: z.boolean(),
   visibility: z.enum(["PUBLIC", "MEMBER"]).optional(),
@@ -135,13 +140,16 @@ export class NewsAdminController {
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<NewsAdminView> {
-    const input = bodySchema.parse(body);
+    const input = updateSchema.parse(body);
     return this.news.update(
       id,
       {
         slug: input.slug,
         title: input.title,
         content: submittedContent(input.content),
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
       },
       webActor(request),
     );
