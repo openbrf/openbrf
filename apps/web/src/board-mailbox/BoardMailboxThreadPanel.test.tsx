@@ -100,11 +100,13 @@ describe("while a reply is being sent", () => {
 
     settle({ ok: true, value: { id: "message-1" } });
 
+    // The hand-back runs in an effect after the field is enabled again, so it is
+    // awaited together with the enabled state.
     await waitFor(() => {
       expect(draft.matches(":disabled")).toBe(false);
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(draft);
     });
-    expect(refocus).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(draft);
   });
 
   it("hands focus back to the button when the reply is refused", async () => {
@@ -125,12 +127,14 @@ describe("while a reply is being sent", () => {
 
     settle({ ok: false, failure: { status: 422, reason: "empty-reply" } });
 
+    // The hand-back runs in an effect after the field is enabled again, so it is
+    // awaited together with the enabled state.
     await waitFor(() => {
       expect(draft.matches(":disabled")).toBe(false);
+      expect(refocus).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(send);
     });
     // The draft is kept, so the button can be pressed again where it was.
     expect(draft.value).toBe("Tack för ditt brev.");
-    expect(refocus).toHaveBeenCalledTimes(1);
-    expect(document.activeElement).toBe(send);
   });
 });

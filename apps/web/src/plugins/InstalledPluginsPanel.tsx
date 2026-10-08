@@ -1,3 +1,4 @@
+import { pluginInstallFailureValues } from "@openbrf/shared";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,7 +13,11 @@ import {
   setPluginEnabled,
   uninstallPlugin,
 } from "./plugin-api";
-import { permissionLabel, personalDataLabel } from "./plugin-labels";
+import {
+  installFailureLabel,
+  permissionLabel,
+  personalDataLabel,
+} from "./plugin-labels";
 import { PluginSettingsForm } from "./PluginSettingsForm";
 
 export interface InstalledPluginsPanelProps {
@@ -180,9 +185,18 @@ function InstalledPluginRow({
         />
       </div>
 
-      {plugin.lastError === null ? null : (
+      {plugin.failure !== null ? (
+        <Notice tone="danger">
+          {t(installFailureLabel(plugin.failure.reason), {
+            ...pluginInstallFailureValues(plugin.failure.detail),
+            reason: plugin.failure.reason,
+          })}
+        </Notice>
+      ) : plugin.lastError !== null ? (
+        // A row that failed before failures carried a code: what the server
+        // wrote is the only reason there is, so it is shown as it stands.
         <Notice tone="danger">{plugin.lastError}</Notice>
-      )}
+      ) : null}
 
       {failed ? (
         <Notice tone="danger" live>

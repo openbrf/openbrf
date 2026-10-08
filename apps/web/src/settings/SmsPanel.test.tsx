@@ -159,6 +159,26 @@ describe("choosing a provider", () => {
       );
     });
   });
+
+  it("names the field the API refused rather than asking for a retry", async () => {
+    // An ftp:// address passes the browser's url check and never the API's.
+    saveSms.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "gatewayUrl", message: "Invalid URL" }],
+      },
+    });
+    const session = userEvent.setup();
+    render(<SmsPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Gatewayadress godtogs inte/)).toBeTruthy();
+    });
+  });
 });
 
 describe("the test message", () => {
@@ -279,11 +299,13 @@ describe("while the SMS settings are being saved", () => {
 
       settle(outcome);
 
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
       await waitFor(() => {
         expect(secret.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(secret);
       });
-      expect(refocus).toHaveBeenCalledTimes(1);
-      expect(document.activeElement).toBe(secret);
     },
   );
 });

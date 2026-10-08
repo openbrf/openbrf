@@ -174,6 +174,10 @@ function assertNumericFields(header: Uint8Array): void {
  *
  * Cheap, and it turns "this is not a tar archive at all" into a clear refusal
  * rather than a nonsensical path or a huge size read out of arbitrary bytes.
+ *
+ * Only the unsigned sum is accepted: node-tar computes just that one, so a
+ * header that matches only the signed sum is skipped by it and the tools list
+ * different files.
  */
 function checksumMatches(block: Uint8Array): boolean {
   // node-tar reads the checksum over 12 bytes, so it must end at the field.
@@ -181,14 +185,12 @@ function checksumMatches(block: Uint8Array): boolean {
     return false;
   }
   const stated = decodeOctal(block, 148, 8);
-  let signed = 0;
   let unsigned = 0;
   for (let index = 0; index < BLOCK_SIZE; index += 1) {
     const byte = index >= 148 && index < 156 ? 0x20 : (block[index] ?? 0);
     unsigned += byte;
-    signed += byte > 127 ? byte - 256 : byte;
   }
-  return stated === unsigned || stated === signed;
+  return stated === unsigned;
 }
 
 function isZeroBlock(block: Uint8Array): boolean {
