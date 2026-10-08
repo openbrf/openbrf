@@ -3156,6 +3156,121 @@ describe("a decision for a row that does not need one", () => {
   });
 });
 
+describe("a decided row the register stops asking about between chunks", () => {
+  // Row 150, in the second chunk, reaches a register person by email but gives
+  // them another first name, so it waits for a decision. Between the chunks the
+  // register's name is corrected to the file's, and the row then matches that
+  // person and nobody else.
+  it.each(["skip", "create"] as const)(
+    "stops the apply rather than write a row decided %s to the person it now matches",
+    async (action) => {
+      const cookie = await signIn(actors.board.email);
+      const person = {
+        personId: `imp-stale-${action}-${suffix}`,
+        firstName: `Tidigare${action}`,
+        email: `imp-stale-${action}-${suffix}@exempel.se`,
+      };
+      await createPerson(person);
+      const corrected = `Rattad${action}`;
+
+      const rows: string[][] = [HEADERS];
+      for (
+        let rowNumber = 1;
+        rowNumber <= IMPORT_CHUNK_ROWS + 60;
+        rowNumber++
+      ) {
+        rows.push(
+          rowNumber === 150
+            ? [
+                addressLabel,
+                "2113",
+                corrected,
+                surname,
+                "Boende",
+                person.email,
+                "070-333 00 33",
+                "2021-04-01",
+              ]
+            : // A date nobody can read: a row with a problem, which writes
+              // nothing and needs no decision.
+              [
+                addressLabel,
+                "2102",
+                `Inaktuell${String(rowNumber)}`,
+                surname,
+                "Boende",
+                "",
+                "",
+                "01/03/2020",
+              ],
+        );
+      }
+      const session = await upload(
+        cookie,
+        `inaktuellt-val-${action}.csv`,
+        encode(writeCsv(rows)),
+      );
+      const response = await inject({
+        method: "POST",
+        url: `/api/import/sessions/${session.sessionId}/preview`,
+        payload: { mapping: session.suggestedMapping },
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(
+        (JSON.parse(response.body) as ImportPreview).rows.find(
+          (row) => row.rowNumber === 150,
+        ),
+      ).toMatchObject({
+        outcome: "ambiguous",
+        matchedBy: "email",
+        mismatch: "name",
+        candidates: [{ personId: person.personId }],
+      });
+
+      // Stored as an apply accepts it, with no job behind it, so the test runs
+      // the chunks itself.
+      await prisma.importSession.update({
+        where: { id: session.sessionId },
+        data: { status: "QUEUED", decisions: { "150": { action } } },
+      });
+      expect(await applies.applyNextChunk(session.sessionId)).toBe(true);
+      await prisma.person.update({
+        where: { id: person.personId },
+        data: { firstName: corrected },
+      });
+      expect(await applies.applyNextChunk(session.sessionId)).toBe(false);
+
+      expect(await readRun(cookie, session.sessionId)).toMatchObject({
+        status: "FAILED",
+        failureReason: "preview-outdated",
+        rowsDone: IMPORT_CHUNK_ROWS,
+        result: { personsCreated: 0, personsUpdated: 0 },
+      });
+      expect(
+        await prisma.person.findUniqueOrThrow({
+          where: { id: person.personId },
+          select: {
+            phoneCipher: true,
+            residencies: { select: { id: true } },
+            memberRegisterEntries: { select: { id: true } },
+          },
+        }),
+      ).toEqual({
+        phoneCipher: null,
+        residencies: [],
+        memberRegisterEntries: [],
+      });
+      expect(
+        await prisma.person.count({
+          where: { firstName: corrected, lastName: surname },
+        }),
+      ).toBe(1);
+    },
+    120_000,
+  );
+});
+
 describe("a row after one the board decided", () => {
   function reasonOf(response: { body: string }): string {
     return (JSON.parse(response.body) as { reason: string }).reason;

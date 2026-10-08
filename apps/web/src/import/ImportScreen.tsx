@@ -114,6 +114,7 @@ export function ImportScreen(): ReactElement {
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
+  const [activeImportKnown, setActiveImportKnown] = useState(false);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
   const needsDefaultRole = !mapped.has("role");
@@ -126,17 +127,29 @@ export function ImportScreen(): ReactElement {
    * nothing that identifies the import they started. The API answers that
    * question instead, so what they see is the import rather than an empty form
    * suggesting nothing ever happened.
+   *
+   * The upload form is not shown until the answer is in; a status line stands
+   * in for it meanwhile. The answer decides whether there is a form to fill in
+   * at all: when it names an import, running or finished, the screen shows
+   * that import instead, and a file sent before the answer arrived could
+   * become a second write into the register. Waiting for
+   * the answer also means it never lands on top of a mapping step the board
+   * member has already reached. An answer that does not come through shows
+   * the form as well, since a failed request says nothing about an import.
    */
   useEffect(() => {
     let abandoned = false;
 
     void (async () => {
       const response = await fetchActiveImport();
-      if (abandoned || !response.ok || response.value === null) {
+      if (abandoned) {
         return;
       }
-      setRun(response.value);
-      setStep("apply");
+      if (response.ok && response.value !== null) {
+        setRun(response.value);
+        setStep("apply");
+      }
+      setActiveImportKnown(true);
     })();
 
     return () => {
@@ -339,7 +352,15 @@ export function ImportScreen(): ReactElement {
         </Notice>
       )}
 
-      {step === "upload" ? <UploadStep busy={busy} onUpload={upload} /> : null}
+      {step === "upload" && !activeImportKnown ? (
+        <p role="status" className="text-body text-ink-muted">
+          {t("import.loading")}
+        </p>
+      ) : null}
+
+      {step === "upload" && activeImportKnown ? (
+        <UploadStep busy={busy} onUpload={upload} />
+      ) : null}
 
       {step === "mapping" && session !== null ? (
         <MappingStep

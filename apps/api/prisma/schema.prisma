@@ -2117,8 +2117,8 @@ enum InstalledPluginStatus {
   /// Present on the data volume and eligible to load at the next boot.
   INSTALLED
 
-  /// The install job could not converge. lastError says why, and the row
-  /// stays so the board can retry or withdraw it rather than having the
+  /// The install job could not converge. lastErrorReason says why, and the
+  /// row stays so the board can retry or withdraw it rather than having the
   /// failure disappear.
   FAILED
 }
@@ -2148,9 +2148,22 @@ model InstalledPlugin {
 
   status InstalledPluginStatus @default(PENDING)
 
-  /// Why the last install attempt failed, for the admin screen. Cleared on
-  /// the next successful reconcile.
+  /// What the last failed install attempt threw, in the server's own
+  /// English, for whoever operates the instance. Rows written before
+  /// lastErrorReason existed hold their reason here and nowhere else, and are
+  /// shown as they are. Cleared on the next successful reconcile, with the
+  /// two columns below.
   lastError String?
+
+  /// Why the last install attempt failed, as one of
+  /// PLUGIN_INSTALL_FAILURE_REASONS in @openbrf/shared rather than as a
+  /// sentence, so the admin screen and the command-line tool can say it in
+  /// the reader's language. A code is never renamed or reused once written.
+  lastErrorReason String?
+
+  /// The values that reason's sentence is completed with: identifiers and
+  /// numbers in the units the code works in, never a sentence or a URL.
+  lastErrorDetail Json?
 
   /// Permissions and personal data categories as consented at install time.
   ///
