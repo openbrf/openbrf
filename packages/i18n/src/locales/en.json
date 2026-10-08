@@ -1387,6 +1387,14 @@
       "delete": "Delete",
       "deleting": "Deleting...",
       "deleteHint": "Removes the message from the instance. There is no undoing it.",
+      "counts": "Waiting: {{unhandled}}. In all: {{total}}.",
+      "showMore": "Show more messages",
+      "loadingMore": "Loading...",
+      "moreFailed": "More messages could not be read just now. The ones shown are still here, and you can try again.",
+      "select": "Select the message from {{name}}",
+      "selectAll": "Select every message shown",
+      "deleteSelected": "Delete selected ({{count}})",
+      "deleteSelectedHint": "Removes the selected messages from the instance. There is no undoing it.",
       "errors": {
         "notFound": "That message is gone. The list has been read again.",
         "unknown": "The message could not be updated just now. Please try again."
@@ -2900,6 +2908,7 @@
       "alreadyReported": "You have already reported that message. The board has it.",
       "tooManyGroups": "This account is already in as many groups as one account may be in.",
       "groupFull": "This group is already as large as a group may be.",
+      "groupNamePersonalIdentityNumber": "The group's name carries a personal identity number and cannot be used. Take it out: everybody in the room reads the name, and so does the board when a message in it is reported.",
       "personalIdentityNumber": "The message carries a personal identity number and cannot be sent. Take it out: a number written here is a second copy the apartment register cannot account for.",
       "tooManyMessages": "You have written a great many messages in a short while. Wait a few minutes and send this one again.",
       "invalidBody": "A message needs some text, and no more than the form allows.",
@@ -3086,6 +3095,7 @@
       "tooLarge": "That file is larger than this instance accepts.",
       "empty": "That file is empty.",
       "noFile": "No file was chosen.",
+      "personalIdentityNumber": "The title, the binder or the file name carries a personal identity number. A document for the members or the public is listed on the website, so take it out first - a file has to be renamed and filed again.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },

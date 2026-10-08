@@ -184,14 +184,38 @@ export class ChatReportService {
       );
     }
 
-    const created = await this.prisma.chatMessageReport
-      .create({
-        data: {
-          messageId: message.id,
-          reporterPersonId: reporter.personId,
-          note,
-        },
-        select: { id: true },
+    const created = await this.prisma
+      .$transaction(async (tx) => {
+        /*
+         * Inserted under the lock the board takes to answer a report, with the
+         * strike-through read again under it. A report arriving while a strike
+         * commits would otherwise be inserted after the strike closed every
+         * open report, and a later dismissal of it would record the board
+         * leaving standing a message that carries a strike.
+         */
+        await lockChatMessage(tx, message.id);
+        const current = await tx.chatMessage.findUnique({
+          where: { id: message.id },
+          select: { struckAt: true },
+        });
+        if (current === null) {
+          throw new ChatError("There is no such message.", "message-not-found");
+        }
+        if (current.struckAt !== null) {
+          throw new ChatError(
+            "The board has already struck this message through.",
+            "report-resolved",
+          );
+        }
+
+        return tx.chatMessageReport.create({
+          data: {
+            messageId: message.id,
+            reporterPersonId: reporter.personId,
+            note,
+          },
+          select: { id: true },
+        });
       })
       .catch((cause: unknown) => {
         /*

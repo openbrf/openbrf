@@ -27,7 +27,7 @@ export const moveOutMail: MailTemplate<MoveOutMailProps> = {
     t("email.moveOut.subject", { association: brand.associationName }),
 
   body: (props, context): ReactElement => {
-    const { t, brand, formatDate } = context;
+    const { t, brand, formatDateColumn } = context;
 
     return (
       <MailLayout
@@ -48,7 +48,7 @@ export const moveOutMail: MailTemplate<MoveOutMailProps> = {
         >
           {t("email.moveOut.body", {
             apartment: props.apartmentNumber,
-            movedOutOn: formatDate(props.movedOutOn),
+            movedOutOn: formatDateColumn(props.movedOutOn),
           })}
         </Text>
 
@@ -61,7 +61,7 @@ export const moveOutMail: MailTemplate<MoveOutMailProps> = {
           }}
         >
           {t("email.moveOut.retentionNotice", {
-            purgeOn: formatDate(props.purgeOn),
+            purgeOn: formatDateColumn(props.purgeOn),
           })}
         </Text>
       </MailLayout>

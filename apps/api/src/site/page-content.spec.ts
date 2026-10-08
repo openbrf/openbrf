@@ -373,9 +373,14 @@ describe("what a body puts in front of a reader", () => {
     // The image's alternative text and caption are in here too: they are
     // published prose whatever they describe, so the guardrails scan them.
     expect(pageTextParts(content)).toEqual([
-      { index: 0, text: "Styrelsen" },
-      { index: 1, text: "Hej alla" },
-      { index: 2, text: "Garden Varen" },
+      { index: 0, text: "Styrelsen", addresses: [], unreadableAddress: false },
+      { index: 1, text: "Hej alla", addresses: [], unreadableAddress: false },
+      {
+        index: 2,
+        text: "Garden Varen",
+        addresses: [],
+        unreadableAddress: false,
+      },
     ]);
   });
 
@@ -508,8 +513,13 @@ describe("the form blocks", () => {
     // are chrome, translated rather than written by the board, so they are not
     // the board's text to be scanned or held against them.
     expect(pageTextParts(content)).toEqual([
-      { index: 0, text: "Skriv till oss" },
-      { index: 1, text: "" },
+      {
+        index: 0,
+        text: "Skriv till oss",
+        addresses: [],
+        unreadableAddress: false,
+      },
+      { index: 1, text: "", addresses: [], unreadableAddress: false },
     ]);
   });
 
@@ -582,7 +592,9 @@ describe("the news teaser block", () => {
       pageTextParts(
         readPageContent({ blocks: [{ type: "newsTeaser", count: 3 }] }),
       ),
-    ).toEqual([{ index: 0, text: "" }]);
+    ).toEqual([
+      { index: 0, text: "", addresses: [], unreadableAddress: false },
+    ]);
   });
 });
 
@@ -639,7 +651,9 @@ describe("the event calendar block", () => {
       pageTextParts(
         readPageContent({ blocks: [{ type: "eventCalendar", count: 3 }] }),
       ),
-    ).toEqual([{ index: 0, text: "" }]);
+    ).toEqual([
+      { index: 0, text: "", addresses: [], unreadableAddress: false },
+    ]);
   });
 });
 
@@ -900,7 +914,14 @@ describe("the FAQ block", () => {
           ],
         }),
       ),
-    ).toEqual([{ index: 0, text: "Vem är ordförande? Anna." }]);
+    ).toEqual([
+      {
+        index: 0,
+        text: "Vem är ordförande? Anna.",
+        addresses: [],
+        unreadableAddress: false,
+      },
+    ]);
   });
 });
 
@@ -928,19 +949,61 @@ describe("the addresses a body links to", () => {
     });
 
     expect(pageTextParts(content)).toEqual([
-      { index: 0, text: `Skriv ${MAILTO}` },
-      { index: 1, text: "Hem /hem" },
-      { index: 2, text: `Eller ${MAILTO}` },
-      { index: 3, text: `Vem? Anna ${MAILTO}` },
+      {
+        index: 0,
+        text: "Skriv",
+        addresses: [MAILTO],
+        unreadableAddress: false,
+      },
+      { index: 1, text: "Hem", addresses: ["/hem"], unreadableAddress: false },
+      {
+        index: 2,
+        text: "Eller",
+        addresses: [MAILTO],
+        unreadableAddress: false,
+      },
+      {
+        index: 3,
+        text: "Vem? Anna",
+        addresses: [MAILTO],
+        unreadableAddress: false,
+      },
     ]);
     for (const part of pageTextParts(content)) {
       if (part.index !== 1) {
         expect(
-          scanForPersonalIdentityNumbers(part.text),
+          part.addresses.flatMap((address) =>
+            scanForPersonalIdentityNumbers(address),
+          ),
           `block ${part.index}`,
         ).toHaveLength(1);
       }
     }
+  });
+
+  it("keeps every FAQ item's words ahead of any address", () => {
+    // An offset into a later item's words means what it means without links:
+    // an address in an earlier answer does not push it along.
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          {
+            type: "faq",
+            items: [
+              { question: "Vem?", answer: [{ text: "Anna", link: MAILTO }] },
+              { question: "Var?", answer: [{ text: "Här." }] },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(part).toEqual({
+      index: 0,
+      text: "Vem? Anna Var? Här.",
+      addresses: [MAILTO],
+      unreadableAddress: false,
+    });
   });
 
   it("reads an address decoded, so an escaped hyphen hides nothing", () => {
@@ -960,7 +1023,35 @@ describe("the addresses a body links to", () => {
       }),
     );
 
-    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+    expect(
+      (part?.addresses ?? []).flatMap((address) =>
+        scanForPersonalIdentityNumbers(address),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("reads an escaped hyphen even beside a % that begins no escape", () => {
+    const [part] = pageTextParts(
+      readPageContent({
+        blocks: [
+          {
+            type: "paragraph",
+            runs: [
+              {
+                text: "Skriv",
+                link: "mailto:anna@exempel.se?subject=50%&body=19811218%2D9876",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(
+      (part?.addresses ?? []).flatMap((address) =>
+        scanForPersonalIdentityNumbers(address),
+      ),
+    ).toHaveLength(1);
   });
 
   it("leaves a paragraph with no links scanned exactly as before", () => {
@@ -974,7 +1065,9 @@ describe("the addresses a body links to", () => {
           ],
         }),
       ),
-    ).toEqual([{ index: 0, text: "Hej alla" }]);
+    ).toEqual([
+      { index: 0, text: "Hej alla", addresses: [], unreadableAddress: false },
+    ]);
   });
 });
 
@@ -991,9 +1084,9 @@ describe("the blocks that name what the instance already holds", () => {
         }),
       ),
     ).toEqual([
-      { index: 0, text: "" },
-      { index: 1, text: "" },
-      { index: 2, text: "" },
+      { index: 0, text: "", addresses: [], unreadableAddress: false },
+      { index: 1, text: "", addresses: [], unreadableAddress: false },
+      { index: 2, text: "", addresses: [], unreadableAddress: false },
     ]);
   });
 
