@@ -578,14 +578,19 @@ The pieces:
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
-  `{ upload, file }`, `{ deliver }`, `{ recordBreach }` or `{ see }`. An
+  `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
+  `{ requestAuthorization }` or `{ see }`. An
   uploaded file is written out in the manifest - a name, a media type and its
   text - rather than read from disk, so what a screen is photographed reading
   can be checked against the publishing rules in the diff. A delivered letter is
   written out the same way and put into mailpit, the mailbox the board mailbox
   collects from. `{ recordBreach }` writes up a personal data breach over the
   API and reopens the screen, because no screen records one; it is written out
-  in the manifest for the same reason. A screen needing a kind that is not there adds it to the
+  in the manifest for the same reason. `{ requestAuthorization }` registers a
+  client as the administrator and opens its authorization request in the
+  current session, which the instance answers with the consent screen and the
+  signed request in its address: no address written in the manifest reaches
+  that screen. A screen needing a kind that is not there adds it to the
   `Action` union and to `perform` in `capture.spec.ts`, once, and every later
   screen has it.
 
@@ -637,8 +642,8 @@ changes the screen, not later:
   capability deliberately withholds (ADR 0017), and this walk elects nobody -
   the board chat entry gives that rule, and the register screens it
   photographs are why. An entry needs a seat recorded before it, which is
-  either an `Action` kind that asks the instance for something, as the two
-  entries below need, or an election driven through the person panel in the
+  either an `Action` kind that asks the instance for something, as the entry
+  below needs, or an election driven through the person panel in the
   address book; either way it belongs with the pull request that next changes
   this screen. `specs/44-apartment-binder.spec.ts` covers the board's half,
   including the permission only it can file.
@@ -653,18 +658,3 @@ changes the screen, not later:
   to the union and to `perform` in `capture.spec.ts` once, as the section above
   describes; the entry itself is then three lines. `36-action-registry.spec.ts`
   covers the state.
-- **The consent screen a member answers for a connected app.**
-  `connected-app-consent`: which app is asking, where its answer goes, what it
-  could do with this person's own standing, and the acknowledgement and button
-  that grant it. The walk cannot reach the address. The screen renders from a
-  signed authorization request in its query string, which takes a registered
-  client - `POST /api/oauth-clients`, or a metadata document the instance
-  fetches - and a call to the authorize endpoint with a code challenge, which
-  answers with the address the request is carried on. An entry in `screens.ts`
-  declares clicks and fills rather than calls, so it needs the same `Action`
-  kind the mailing request above needs, and one thing beyond it: the address to
-  navigate to is composed by that call, while `goto` is a string written in the
-  manifest - so the kind has to be able to hand its answer to the navigation.
-  `apps/web/src/connected-apps/OAuthConsentScreen.test.tsx` covers the screen,
-  and `37-mcp-sign-in.spec.ts` covers the route sending somebody with no session
-  to sign in first.

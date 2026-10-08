@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -279,7 +280,17 @@ function locate(page: Page, target: Target): Locator {
   return target.first === true ? found.first() : found;
 }
 
-async function perform(page: Page, action: Action): Promise<void> {
+/**
+ * Takes one step.
+ *
+ * `board` is the walk's own API context, signed in as the administrator, for
+ * the step that has to be the board's whoever the screen belongs to.
+ */
+async function perform(
+  page: Page,
+  action: Action,
+  board: APIRequestContext,
+): Promise<void> {
   if ("click" in action) {
     await locate(page, action.click).click();
     return;
@@ -307,6 +318,33 @@ async function perform(page: Page, action: Action): Promise<void> {
       measures: breach.measures,
     });
     await page.reload();
+    return;
+  }
+  if ("requestAuthorization" in action) {
+    const asked = action.requestAuthorization;
+    const { clientId } = await api.registerOAuthClient(board, stack.baseUrl, {
+      clientName: asked.clientName,
+      redirectUris: [asked.redirectUri],
+    });
+    // A challenge the instance requires and nothing will ever redeem: the
+    // walk photographs the question and never answers it.
+    const challenge = createHash("sha256")
+      .update(randomBytes(32).toString("base64url"))
+      .digest("base64url");
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: asked.redirectUri,
+      scope: "mcp:read mcp:write",
+      state: "skarmbild",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      resource: await api.protectedResource(board, stack.baseUrl),
+    });
+    // The instance signs the request and sends the browser on to the consent
+    // screen with it, which is the only way that screen is reached.
+    await page.goto(`/api/auth/oauth2/authorize?${query.toString()}`);
+    await expect(page).toHaveURL(/\/app\/oauth\/consent\?/);
     return;
   }
   if ("upload" in action) {
@@ -574,7 +612,7 @@ test("captures every declared screen in light and dark", async ({
         );
       }
       for (const action of screen.prepare ?? []) {
-        await perform(page, action);
+        await perform(page, action, request);
       }
       // Before the photographs rather than after them: a screen reached without
       // a session is the sign-in form, and the safety checks below would find
