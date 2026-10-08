@@ -28,7 +28,12 @@ export function loadEnvForIntegrationTests(): Env & { DATABASE_URL: string } {
   // members behind a proxy there, each with an address of its own in the
   // forwarded header. Without the proxy named, the header is not read and one
   // suite's requests would all spend a single budget on the public routes.
-  process.env.TRUSTED_PROXIES ||= "127.0.0.1";
+  const proxies = (process.env.TRUSTED_PROXIES ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  if (!proxies.includes("127.0.0.1")) proxies.push("127.0.0.1");
+  process.env.TRUSTED_PROXIES = proxies.join(",");
 
   let env: Env;
   try {
