@@ -397,6 +397,18 @@ describe("pluginPackageProblems", () => {
       "a division after a name outside the Basic Multilingual Plane",
       'const \u{10400} = 1; \u{10400} / 2; require("lodash");',
     ],
+    [
+      "a division after a property named `of`",
+      'const o = { of: 6 }; o.of / 2; require("lodash");',
+    ],
+    [
+      "a division after a property named `return` reached by `?.`",
+      'const o = { return: 6 }; o?.return / 2; require("lodash");',
+    ],
+    [
+      "a division after a property named `typeof` and a line break",
+      'const o = { typeof: 6 }; o.\ntypeof / 2; require("lodash");',
+    ],
     ["a line comment ended by CR", '// note\rrequire("lodash");'],
     ["a line comment ended by U+2028", '// note\u2028require("lodash");'],
     ["a line comment ended by U+2029", '// note\u2029require("lodash");'],

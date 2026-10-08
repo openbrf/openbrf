@@ -406,7 +406,7 @@ function requireCalls(source: string): {
       remember("literal");
     } else if (char === "`") {
       index = templateText(index + 1);
-    } else if (char === "/" && startsExpression(previous(1))) {
+    } else if (char === "/" && startsExpression(previous)) {
       // After a word the guess can be wrong: in `o.of / 2` the `/` divides.
       if (isWord(previous(1))) {
         slashes += 1;
@@ -479,7 +479,7 @@ function requireCalls(source: string): {
       const postfix =
         (punctuator === "++" || punctuator === "--") &&
         !lineBreak &&
-        !startsExpression(previous(1));
+        !startsExpression(previous);
       remember(postfix ? "postfix" : punctuator);
       index += punctuator.length;
     }
@@ -533,8 +533,11 @@ function opensBody(source: string, from: number): boolean {
   return source[end] === "{" && !LINE_TERMINATOR.test(source.slice(from, end));
 }
 
-/** Whether a `/` after this token opens a regular expression. */
-function startsExpression(token: string | undefined): boolean {
+/** Whether a `/` after the newest token opens a regular expression. */
+function startsExpression(
+  previous: (back: number) => string | undefined,
+): boolean {
+  const token = previous(1);
   if (token === undefined) {
     return true;
   }
@@ -542,7 +545,12 @@ function startsExpression(token: string | undefined): boolean {
     return false;
   }
   if (isWord(token)) {
-    return KEYWORDS_BEFORE_EXPRESSION.has(token);
+    // After a `.`, a word is a property name, whatever it is spelled:
+    // `o.of / 2` divides.
+    return (
+      !(previous(2) === "." || previous(2) === "?.") &&
+      KEYWORDS_BEFORE_EXPRESSION.has(token)
+    );
   }
   return true;
 }
