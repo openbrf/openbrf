@@ -173,7 +173,13 @@ async function runMemberRegister(
     );
   }
   if (report.disagreements.length === 0) {
-    console.log("The register agrees with the tenant-ownerships held.");
+    // Rows with no tenant-ownership to check against were not verified, so
+    // "agrees" would overstate what the run established.
+    console.log(
+      report.unverifiable.length === 0
+        ? "The register agrees with the tenant-ownerships held."
+        : "No missing rows were found. The rows listed above could not be checked.",
+    );
   } else if (!report.applied) {
     console.log(
       "Nothing was written. Run again with --apply to append these rows.",
