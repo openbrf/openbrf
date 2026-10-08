@@ -4,11 +4,13 @@ import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import type { ImportField, ImportMapping } from "./import-columns";
 import {
   apartmentNameKey,
+  changedSincePreview,
   findUndecided,
   type ImportDecisions,
   type ImportDefaults,
   planImport,
   type PreparedRow,
+  type PreviewedCandidates,
   readRow,
   type RegisterSnapshot,
 } from "./import-plan";
@@ -56,7 +58,7 @@ function snapshot(overrides: Partial<RegisterSnapshot> = {}): RegisterSnapshot {
     // Everyone found by an address has one, unless a case says otherwise.
     personsWithEmail: new Set([...personsByEmail.values()].flat()),
     apartmentsByPerson: new Map(),
-    takenOn: new Date("2026-01-01T00:00:00.000Z"),
+    takenAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -715,15 +717,21 @@ describe("an identity number an earlier row states without writing it", () => {
       DEFAULTS,
     );
 
+    // Named after row 1 either way, but found under different keys: the apply
+    // looks for persons added since the plan under the keys the plan looked
+    // under, and no further.
+    expect(plan.rows[0]).toMatchObject({ outcome: "create", foundUnder: null });
     expect(plan.rows[1]).toMatchObject({
       outcome: "update",
       matchedBy: "earlierRow",
+      foundUnder: "email",
       sameAsRowNumber: 1,
     });
     expect(plan.rows[2]).toMatchObject({
       outcome: "update",
       matchedPersonId: null,
       matchedBy: "earlierRow",
+      foundUnder: "personalIdentityNumber",
       sameAsRowNumber: 1,
     });
   });
@@ -1199,5 +1207,69 @@ describe("finding a row the board has not answered for", () => {
       "create",
     ]);
     expect(findUndecided(plan, decisions, 3)).toBe(expected);
+  });
+});
+
+describe("a row the preview asked about, planned again", () => {
+  // The same chunk: row 1 now matches person-a and person-b, row 2 nobody. The
+  // board answered row 1 by the persons the preview listed for it.
+  const plan = planImport(
+    [
+      prepared(COMPLETE),
+      prepared({ ...COMPLETE, firstName: "Bo" }, { rowNumber: 2 }),
+    ],
+    snapshot({
+      personsByApartmentAndName: new Map([
+        [
+          apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+          ["person-a", "person-b"],
+        ],
+      ]),
+      personNames: new Map([
+        ["person-a", "Anna Lindqvist"],
+        ["person-b", "Anna Lindqvist"],
+      ]),
+    }),
+    DEFAULTS,
+  );
+
+  it.each<[string, PreviewedCandidates, readonly string[], boolean]>([
+    ["the same persons", { "1": ["person-b", "person-a"] }, [], false],
+    [
+      // Added since the preview: the board never chose against them.
+      "one more person",
+      { "1": ["person-a"] },
+      [],
+      true,
+    ],
+    [
+      // Created by an earlier chunk, so the preview could not list them.
+      "one more person the apply created",
+      { "1": ["person-a"] },
+      ["person-b"],
+      false,
+    ],
+    [
+      "one person fewer",
+      { "1": ["person-a", "person-b", "person-c"] },
+      [],
+      true,
+    ],
+    [
+      "a row that no longer asks",
+      { "1": ["person-a", "person-b"], "2": [] },
+      [],
+      true,
+    ],
+    [
+      "a row of another chunk",
+      { "1": ["person-a", "person-b"], "3": ["person-c"] },
+      [],
+      false,
+    ],
+  ])("tells %s", (_, previewed, createdByApply, expected) => {
+    expect(changedSincePreview(plan, previewed, new Set(createdByApply))).toBe(
+      expected,
+    );
   });
 });

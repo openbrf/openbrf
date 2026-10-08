@@ -41,6 +41,8 @@ export type NewsWriteReason =
   | "already-mailed"
   | "personal-identity-number"
   | "unsupported-block"
+  /** Somebody else saved the item after the caller read it. */
+  | "news-changed"
   /**
    * Comments stand under the item. They are erased by their own purge, never
    * with the item, so it can be taken down but not removed until they are gone.
@@ -62,7 +64,9 @@ export class NewsWriteError extends DomainError {
     this.status =
       reason === "not-found"
         ? HttpStatus.NOT_FOUND
-        : reason === "slug-taken"
+        : // A conflict rather than a refusal on the merits, as for a page:
+          // somebody else wrote first, and the caller reads the item again.
+          reason === "slug-taken" || reason === "news-changed"
           ? HttpStatus.CONFLICT
           : reason === "invalid-slug"
             ? HttpStatus.BAD_REQUEST
@@ -140,6 +144,11 @@ export interface NewsAdminView {
    * requester would invite them to answer "who asked" instead.
    */
   mailingRequested: boolean;
+  /**
+   * What this copy of the item is, for a caller that means to write it back
+   * as `expectedRevision`. It is not a version anybody displays.
+   */
+  revision: number;
   updatedAt: string;
 }
 
@@ -147,6 +156,19 @@ export interface NewsInput {
   slug: string;
   title: string;
   content: PageContent;
+}
+
+/** What an ordinary save carries beyond the item's words. */
+export interface UpdateNewsInput extends NewsInput {
+  /**
+   * The item's `revision` as the caller last read it, and the save is refused
+   * with `news-changed` if somebody else has saved since.
+   *
+   * Optional, as it is on a page, and absent means write: a caller written
+   * before the field existed keeps working rather than failing on a
+   * precondition it does not know about.
+   */
+  expectedRevision?: number;
 }
 
 /** What writing a new item needs beyond an ordinary save. */
@@ -224,6 +246,7 @@ const NEWS_COLUMNS = {
   emailQueuedAt: true,
   smsQueuedAt: true,
   mailingRequestedAt: true,
+  revision: true,
   updatedAt: true,
 } as const;
 
@@ -427,33 +450,61 @@ export class NewsWriteService {
    */
   async update(
     id: string,
-    input: NewsInput,
+    input: UpdateNewsInput,
     actor: ActorContext,
   ): Promise<NewsAdminView> {
-    const news = await this.require(id);
-    const addressSent =
-      news.emailQueuedAt !== null || news.smsQueuedAt !== null;
-    if (addressSent && input.slug !== news.slug) {
-      throw new NewsWriteError(
-        "The address was sent to the members and cannot be changed.",
-        "address-mailed",
-      );
-    }
+    const content = onlyProse(input.content);
     await this.requireFreeSlug(input.slug, id);
 
-    const content = onlyProse(input.content);
-    if (news.published) {
-      this.refusePersonalIdentityNumbers(input.title, content);
-    }
-
     const row = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.news.update({
-        where: { id },
+      /*
+       * Decided on the item as it stands under the lock, not as it was read
+       * before the transaction. A publish or a mailing landing in between
+       * moves none of the revision, so the claim below would still match, and
+       * a decision taken on the earlier read would write a personal identity
+       * number into an item that had just become readable, or rename one
+       * whose address had just gone out.
+       */
+      const news = await this.lockAndRead(tx, id);
+      const addressSent =
+        news.emailQueuedAt !== null || news.smsQueuedAt !== null;
+      if (addressSent && input.slug !== news.slug) {
+        throw new NewsWriteError(
+          "The address was sent to the members and cannot be changed.",
+          "address-mailed",
+        );
+      }
+      if (news.published) {
+        this.refusePersonalIdentityNumbers(input.title, content);
+      }
+
+      /*
+       * Claimed against the copy the caller read, when they said which: one
+       * conditional statement either matches the item as it still stands or
+       * matches nothing, as a page save does. Without a revision it writes,
+       * and the revision still moves, so a copy read before this save cannot
+       * match afterwards.
+       */
+      const claimed = await tx.news.updateMany({
+        where:
+          input.expectedRevision === undefined
+            ? { id }
+            : { id, revision: input.expectedRevision },
         data: {
           slug: input.slug,
           title: input.title,
           content: asJson(content),
+          revision: { increment: 1 },
         },
+      });
+      if (claimed.count === 0) {
+        throw new NewsWriteError(
+          "The news item changed after it was read.",
+          "news-changed",
+        );
+      }
+      const updated = await tx.news.findUniqueOrThrow({
+        where: { id },
         select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
       });
 
@@ -615,34 +666,28 @@ export class NewsWriteService {
     input: PublishNewsInput,
     actor: ActorContext,
   ): Promise<PublishNewsResult> {
-    const news = await this.require(id);
-    const visibility = input.visibility ?? news.visibility;
-    const content = readNewsContent(news.content);
-
-    if (input.published) {
-      this.refusePersonalIdentityNumbers(news.title, content);
-    }
-
     /*
      * Whether this call is the mailing, and whether it is the SMS mailing.
      *
      * Only a publish sends, only when the board asked, and only while that
      * channel's column is still null. The last of the three is re-checked
-     * inside the transaction by the claim itself - these are here so an
-     * ordinary republish does not open a transaction that reads the register
-     * for nothing.
+     * inside the transaction by the claim itself.
      *
      * Two independent tests, because the two channels are two decisions. A
      * board that emailed the members in the morning may text them in the
      * afternoon about the same notice, and neither claim can be taken twice.
      */
-    const mailing =
-      input.published &&
-      input.sendEmail === true &&
-      news.emailQueuedAt === null;
-
-    const texting =
-      input.published && input.sendSms === true && news.smsQueuedAt === null;
+    const sends = (news: {
+      emailQueuedAt: Date | null;
+      smsQueuedAt: Date | null;
+    }) => ({
+      mailing:
+        input.published &&
+        input.sendEmail === true &&
+        news.emailQueuedAt === null,
+      texting:
+        input.published && input.sendSms === true && news.smsQueuedAt === null,
+    });
 
     /*
      * A write that changes nothing writes nothing.
@@ -653,22 +698,38 @@ export class NewsWriteService {
      * afterthought: a board that published without sending and comes back to
      * press it again is asking for the one thing this call could still do.
      */
-    if (
-      news.published === input.published &&
-      news.visibility === visibility &&
-      !mailing &&
-      !texting
-    ) {
-      return { ...toAdminView(news), mailedTo: null, textedTo: null };
-    }
+    const changesNothing = (news: {
+      published: boolean;
+      visibility: string;
+      emailQueuedAt: Date | null;
+      smsQueuedAt: Date | null;
+    }): boolean => {
+      const { mailing, texting } = sends(news);
+      return (
+        news.published === input.published &&
+        news.visibility === (input.visibility ?? news.visibility) &&
+        !mailing &&
+        !texting
+      );
+    };
 
-    // Before the transaction opens: creating a queue is the queue backend's own
-    // work on its own connection, and it has no business inside somebody else's
-    // transaction.
-    if (mailing) {
+    /*
+     * Read once before the transaction, so an ordinary republish does not open
+     * one, and so the queues are created outside it: creating a queue is the
+     * queue backend's own work on its own connection, and it has no business
+     * inside somebody else's transaction. A channel's column is never cleared
+     * once set, so this read can only ask for a queue the locked one below
+     * turns out not to need, never miss one it does.
+     */
+    const before = await this.require(id);
+    if (changesNothing(before)) {
+      return { ...toAdminView(before), mailedTo: null, textedTo: null };
+    }
+    const planned = sends(before);
+    if (planned.mailing) {
       await this.mailer.ensureQueues();
     }
-    if (texting) {
+    if (planned.texting) {
       await this.texter.ensureQueues();
     }
 
@@ -677,13 +738,33 @@ export class NewsWriteService {
     const { row, mailedTo, textedTo } = await this.prisma.$transaction(
       async (tx) => {
         /*
+         * Everything below is decided on the item as it stands under the lock.
+         * An edit landing after the read above changes the words this publish
+         * would make readable, and the scan has to be of those words: the
+         * earlier copy may have been clean while the current one is not.
+         */
+        const news = await this.lockAndRead(tx, id);
+        const visibility = input.visibility ?? news.visibility;
+        if (input.published) {
+          this.refusePersonalIdentityNumbers(
+            news.title,
+            readNewsContent(news.content),
+          );
+        }
+        if (changesNothing(news)) {
+          return { row: news, mailedTo: null, textedTo: null };
+        }
+        const { mailing, texting } = sends(news);
+
+        /*
          * The claims, and the only writers of these two columns in the codebase.
          *
-         * Conditional on the column still being null, because the read above ran
-         * before this transaction and is only as fresh as the moment it was
-         * taken. Two publishes racing each other both reach here; the second
-         * blocks on the row until the first commits and then matches nothing, so
-         * it claims no mailing, writes no ledger and enqueues no job.
+         * Conditional on the column still being null, which the locked read
+         * above already says, and which is kept so the guarantee does not rest
+         * on a lock alone: this statement is what claims, and it cannot claim a
+         * column that is set. Two publishes racing each other queue on the row;
+         * the second reads the first's claim once it commits, so it claims no
+         * mailing, writes no ledger and enqueues no job.
          *
          * One row, two columns, two conditions. A publish that claims the SMS
          * mailing cannot take the email one with it, and vice versa: each update
@@ -950,6 +1031,27 @@ export class NewsWriteService {
   }
 
   /**
+   * The item as it stands, with its row locked until the transaction ends.
+   *
+   * A row lock rather than an advisory key, so that every writer of the row
+   * waits for it without having to know it is there: a publish, a save, a
+   * mailing request and a removal all update or delete the row, and each of
+   * them waits until this transaction ends. The read after the lock sees
+   * whatever the writer before it committed.
+   */
+  private async lockAndRead(tx: Prisma.TransactionClient, id: string) {
+    await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
+    const row = await tx.news.findUnique({
+      where: { id },
+      select: { ...NEWS_COLUMNS, deliveries: { select: DELIVERY_COLUMNS } },
+    });
+    if (row === null) {
+      throw new NewsWriteError("There is no such news item.", "not-found");
+    }
+    return row;
+  }
+
+  /**
    * Refuses an address a news item may not have, or already has.
    *
    * The shape rule only, and not the reserved list: a news item lives under
@@ -1072,6 +1174,7 @@ function toAdminView(row: {
   emailQueuedAt: Date | null;
   smsQueuedAt: Date | null;
   mailingRequestedAt: Date | null;
+  revision: number;
   updatedAt: Date;
   deliveries: readonly {
     channel: string;
@@ -1104,6 +1207,7 @@ function toAdminView(row: {
         DELIVERY_FAILURES.smsNotConfigured,
       ),
     },
+    revision: row.revision,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

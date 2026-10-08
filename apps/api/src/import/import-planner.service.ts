@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
+import { hasMovedOut } from "../registers/held-on";
 import { ImportError } from "./import-errors";
 import { type ImportMapping, validateMapping } from "./import-columns";
 import {
@@ -14,6 +14,7 @@ import {
   type ImportRole,
   planImport,
   type PreparedRow,
+  push,
   readRow,
   type RegisterSnapshot,
   type UnwrittenIdentityNumber,
@@ -202,13 +203,7 @@ export class ImportPlannerService {
    * and every apartment each person has lived in.
    */
   private async snapshot(): Promise<RegisterSnapshot> {
-    /*
-     * Today on the association's own calendar, as a date column (ADR 0014):
-     * at half past midnight in Stockholm it is already the next day, and a
-     * residency whose move-out is dated today has ended, although the instant
-     * is still the evening before in UTC.
-     */
-    const today = dateColumnOf(localDayOf(new Date()));
+    const now = new Date();
 
     const [apartments, persons, withEmail] = await Promise.all([
       this.prisma.apartment.findMany({
@@ -269,7 +264,7 @@ export class ImportPlannerService {
         new Set(person.residencies.map((residency) => residency.apartmentId)),
       );
       for (const residency of person.residencies) {
-        if (residency.movedOutOn !== null && residency.movedOutOn <= today) {
+        if (hasMovedOut(residency.movedOutOn, now)) {
           continue;
         }
         push(
@@ -298,7 +293,7 @@ export class ImportPlannerService {
       identityNumberIndexByPerson,
       personsWithEmail: new Set(withEmail.map((person) => person.id)),
       apartmentsByPerson,
-      takenOn: today,
+      takenAt: now,
     };
   }
 }
@@ -321,13 +316,4 @@ function unwrittenIdentityNumbers(
     }
   }
   return unwritten;
-}
-
-function push(map: Map<string, string[]>, key: string, value: string): void {
-  const existing = map.get(key);
-  if (existing === undefined) {
-    map.set(key, [value]);
-  } else {
-    existing.push(value);
-  }
 }

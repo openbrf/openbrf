@@ -99,8 +99,9 @@ export async function lockResidencyTransitionsInOrder(
  * purge and the erasure request already take a person's legal hold key and then
  * their transition key; a writer taking the transition key and then this one
  * would close that into a cycle of three transactions each waiting on the next.
- * Apartment, then legal hold, then transition is an order every one of them
- * keeps.
+ * Apartment, then person email, then legal hold, then transition is an order
+ * every one of them keeps; the person email key is the one `lockPersonEmail`
+ * describes.
  */
 export async function lockApartmentResidencies(
   tx: Prisma.TransactionClient,

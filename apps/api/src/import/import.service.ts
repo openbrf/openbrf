@@ -28,12 +28,14 @@ import {
 import { ImportError } from "./import-errors";
 import { lockImportApply } from "./import-lock";
 import {
+  changedSincePreview,
   findUndecided,
   type ImportDecisions,
   type ImportOutcome,
   type ImportPlan,
   type ImportRole,
   type PlannedRow,
+  readPreviewedCandidates,
 } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import {
@@ -106,11 +108,12 @@ export interface ImportSessionView {
  *
  * The personal identity number is reported as present or absent and never sent.
  * A preview is not a register view, and DESIGN.md keeps identity numbers out of
- * every screen that is not one.
+ * every screen that is not one. Which keys the plan looked under is the apply's
+ * business: the screen names the match by `matchedBy`.
  */
 export interface ImportPreviewRow extends Omit<
   PlannedRow,
-  "person" | "problems"
+  "person" | "problems" | "foundUnder"
 > {
   person: {
     firstName: string;
@@ -680,7 +683,7 @@ export class ImportService implements OnModuleInit {
     },
     decisions: ImportDecisions,
   ): Promise<void> {
-    const previewed = readAmbiguousRows(session.ambiguousRows);
+    const previewed = readPreviewedCandidates(session.ambiguousRows);
     if (Object.keys(decisions).length === 0) {
       if (Object.keys(previewed).length > 0) {
         throw new ImportError(
@@ -703,19 +706,7 @@ export class ImportService implements OnModuleInit {
       indexes: new Map(),
     });
 
-    if (
-      plan.rows.some((row) => {
-        const candidates = previewed[String(row.rowNumber)];
-        return (
-          candidates !== undefined &&
-          (row.outcome !== "ambiguous" ||
-            !samePeople(
-              candidates,
-              row.candidates.map((candidate) => candidate.personId),
-            ))
-        );
-      })
-    ) {
+    if (changedSincePreview(plan, previewed)) {
       throw new ImportError(
         "Given these decisions, a row the preview showed as needing a " +
           "decision no longer does, or matches other people.",
@@ -871,28 +862,6 @@ function planDigest(plan: ImportPlan): string {
   return hash.digest("hex");
 }
 
-/** Whether two lists of person ids name the same people. */
-function samePeople(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((personId) => b.includes(personId));
-}
-
-/** The rows the preview could not resolve, read back from the session. */
-function readAmbiguousRows(value: unknown): Record<string, string[]> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  const rows: Record<string, string[]> = {};
-  for (const [rowNumber, candidates] of Object.entries(value)) {
-    if (Array.isArray(candidates)) {
-      rows[rowNumber] = candidates.filter(
-        (candidate): candidate is string => typeof candidate === "string",
-      );
-    }
-  }
-  return rows;
-}
-
 /** Columns of the downloadable template, in the order they are written. */
 const TEMPLATE_COLUMNS = [
   "addressLabel",
@@ -992,7 +961,7 @@ function toPreviewRow(
   row: PlannedRow,
   sourceRows: readonly number[],
 ): ImportPreviewRow {
-  const { person, ...rest } = row;
+  const { person, foundUnder: _foundUnder, ...rest } = row;
   return {
     ...rest,
     // The header is the sheet's first row, so without blank rows recorded a

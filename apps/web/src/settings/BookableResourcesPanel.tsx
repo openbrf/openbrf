@@ -31,7 +31,7 @@ import {
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 const MODE_LABEL: Readonly<Record<BookingResourceMode, TranslationKey>> = {
   TIME_SLOTS: "settings.bookableResources.mode.TIME_SLOTS",
@@ -69,7 +69,17 @@ const RESOURCE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "resource-not-found": "settings.bookableResources.errors.resourceNotFound",
   "resource-deactivated": "settings.bookableResources.errors.resourceWithdrawn",
   "resource-in-use": "settings.bookableResources.errors.resourceInUse",
-  "invalid-body": "settings.bookableResources.errors.unknown",
+};
+
+/** The form's label for each field a schema refusal can name. */
+const INPUT_LABELS: Readonly<Record<string, TranslationKey>> = {
+  name: "settings.bookableResources.name",
+  description: "settings.bookableResources.descriptionLabel",
+  slotMinutes: "settings.bookableResources.slotMinutes",
+  opensAtMinute: "settings.bookableResources.opensAt",
+  closesAtMinute: "settings.bookableResources.closesAt",
+  maxConcurrentBookings: "settings.bookableResources.maxConcurrentBookings",
+  maxBookingsPerWeek: "settings.bookableResources.maxBookingsPerWeek",
 };
 
 /**
@@ -329,12 +339,12 @@ export function BookableResourcesPanel(): ReactElement {
           </Notice>
         ) : failure === null ? null : (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                RESOURCE_FAILURES,
-                "settings.bookableResources.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              RESOURCE_FAILURES,
+              "settings.bookableResources.errors.unknown",
+              INPUT_LABELS,
             )}
             {scanned.length === 0
               ? null
@@ -470,6 +480,26 @@ function ResourceRow({
 }): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<Draft>(() => draftOf(resource));
+  /*
+   * Two presses, as disconnecting an app asks for: the API has no route back
+   * from a withdrawal. The confirm button takes focus as it appears, because the
+   * button that was pressed is gone and the browser would drop focus to the body.
+   * Declining hands focus back to the withdraw button for the same reason, once
+   * the question has been asked; not when the row first renders.
+   */
+  const [confirming, setConfirming] = useState(false);
+  const confirmButton = useRef<HTMLButtonElement | null>(null);
+  const withdrawButton = useRef<HTMLButtonElement | null>(null);
+  const asked = useRef(false);
+
+  useEffect(() => {
+    if (confirming) {
+      asked.current = true;
+      confirmButton.current?.focus();
+    } else if (asked.current) {
+      withdrawButton.current?.focus();
+    }
+  }, [confirming]);
 
   return (
     <form
@@ -508,20 +538,55 @@ function ResourceRow({
           })}
         </span>
 
-        <button
-          type="button"
-          disabled={busy}
-          // The name carries the resource, because every row offers the same
-          // act and "withdraw" on its own does not say which one goes.
-          aria-label={t("settings.bookableResources.withdrawNamed", {
+        {confirming ? (
+          <span className="ml-auto flex flex-wrap gap-2">
+            <button
+              type="button"
+              ref={confirmButton}
+              disabled={busy}
+              onClick={onWithdraw}
+              className={QUIET_BUTTON}
+            >
+              {t("settings.bookableResources.withdrawConfirm")}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+              }}
+              className={QUIET_BUTTON}
+            >
+              {t("settings.bookableResources.withdrawCancel")}
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            ref={withdrawButton}
+            disabled={busy}
+            // The name carries the resource, because every row offers the same
+            // act and "withdraw" on its own does not say which one goes.
+            aria-label={t("settings.bookableResources.withdrawNamed", {
+              resource: resource.name,
+            })}
+            onClick={() => {
+              setConfirming(true);
+            }}
+            className={`${QUIET_BUTTON} ml-auto`}
+          >
+            {t("settings.bookableResources.withdraw")}
+          </button>
+        )}
+      </div>
+
+      {confirming ? (
+        <Notice tone="warn" live>
+          {t("settings.bookableResources.withdrawWarning", {
             resource: resource.name,
           })}
-          onClick={onWithdraw}
-          className={`${QUIET_BUTTON} ml-auto`}
-        >
-          {t("settings.bookableResources.withdraw")}
-        </button>
-      </div>
+        </Notice>
+      ) : null}
     </form>
   );
 }
@@ -555,6 +620,8 @@ function ResourceFields({
             ref={nameRef}
             type="text"
             name="resourceName"
+            required
+            maxLength={100}
             autoComplete="off"
             placeholder={t("settings.bookableResources.namePlaceholder")}
             value={draft.name}
@@ -594,6 +661,7 @@ function ResourceFields({
         <textarea
           name="resourceDescription"
           rows={2}
+          maxLength={1000}
           value={draft.description}
           disabled={disabled}
           onChange={(event) => {
