@@ -29,6 +29,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "another-import-running": "import.errors.anotherImportRunning",
   "ambiguous-rows-undecided": "import.errors.ambiguousRowsUndecided",
   "decision-not-a-candidate": "import.errors.decisionNotACandidate",
+  "register-changed-during-apply": "import.errors.registerChangedDuringApply",
   "apply-interrupted": "import.errors.applyInterrupted",
   "apply-abandoned": "import.errors.applyAbandoned",
   "session-not-running": "import.errors.sessionNotRunning",

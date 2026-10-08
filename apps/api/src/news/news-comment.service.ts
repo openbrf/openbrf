@@ -778,8 +778,11 @@ interface CommentRow {
  *
  * The index on `(newsId, createdAt)` answers the first branch. The second only
  * ever sorts rows sharing one instant, which is a handful at most.
+ *
+ * Exported because the board's list of news items pages by the same two
+ * columns in the same order, and has the same reason not to name a row.
  */
-function olderThan(cursor: ThreadCursor) {
+export function olderThan(cursor: ThreadCursor) {
   return {
     OR: [
       { createdAt: { lt: cursor.createdAt } },

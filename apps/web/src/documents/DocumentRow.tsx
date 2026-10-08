@@ -25,6 +25,7 @@ import {
 
 const CHANGE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-found": "documents.errors.notFound",
+  "personal-identity-number": "documents.errors.personalIdentityNumber",
   "invalid-body": "documents.errors.unknown",
 };
 

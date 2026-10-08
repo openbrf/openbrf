@@ -12,12 +12,19 @@ import { residencyHeldOn } from "../registers/held-on";
 import {
   isTextBlock,
   type PageContent,
-  pageTextParts,
   readPageContent,
   textBlocksOnly,
 } from "../site/page-content";
 import { isSlugShaped } from "../site/pages.service";
-import type { PageTextLocation } from "../site/pages-write.service";
+import {
+  identityNumbersInBody,
+  type PageTextLocation,
+} from "../site/pages-write.service";
+import {
+  olderThan,
+  parseThreadCursor,
+  threadCursor,
+} from "./news-comment.service";
 import { DELIVERY_FAILURES } from "./news-delivery";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
@@ -320,22 +327,24 @@ export class NewsWriteService {
    * pages have one: the board's screen shows every item, and this answers a
    * caller that may be a model reading into a context window. Summary rows, so
    * reading a body is a second, deliberate call.
+   *
+   * The cursor is the position of the last item returned rather than the item
+   * itself, as a comment thread's is and for the same reason: a cursor naming a
+   * row answers nothing once that row is gone, so a caller paging through while
+   * somebody removed the item it stopped at was told the list had ended.
    */
   async listSummaries(options: {
     limit: number;
     cursor?: string | undefined;
     publishedOnly?: boolean | undefined;
   }): Promise<{ news: NewsSummary[]; nextCursor: string | null }> {
-    /*
-     * The cursor is the last row's own sort key rather than its identifier, so
-     * an item removed since the last page leaves the list where it was instead
-     * of ending it.
-     */
     const after =
-      options.cursor === undefined ? null : readListCursor(options.cursor);
+      options.cursor === undefined ? null : parseThreadCursor(options.cursor);
     if (options.cursor !== undefined && after === null) {
+      // Refused rather than read as the start of the list, which would hand
+      // the caller the first items again as if they were the next ones.
       throw new NewsWriteError(
-        "There is no such place in the list of news. Start it again without a cursor.",
+        "There is no such place in the list of news items. Start it again without a cursor.",
         "not-found",
       );
     }
@@ -343,16 +352,11 @@ export class NewsWriteService {
     const rows = await this.prisma.news.findMany({
       where: {
         ...(options.publishedOnly === true ? { published: true } : {}),
-        ...(after === null
-          ? {}
-          : {
-              OR: [
-                { createdAt: { lt: after.createdAt } },
-                { createdAt: after.createdAt, id: { gt: after.id } },
-              ],
-            }),
+        // Everything after that position in the order below, whether or not
+        // the item that stood there still does.
+        ...(after === null ? {} : olderThan(after)),
       },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: options.limit + 1,
       select: {
         id: true,
@@ -382,7 +386,7 @@ export class NewsWriteService {
       })),
       nextCursor:
         rows.length > options.limit && last !== undefined
-          ? listCursor(last)
+          ? threadCursor(last)
           : null,
     };
   }
@@ -1080,15 +1084,7 @@ export class NewsWriteService {
         index: 0,
         offset: hit.index,
       })),
-      ...pageTextParts(content).flatMap((part) =>
-        scanForPersonalIdentityNumbers(part.text).map(
-          (hit): NewsTextLocation => ({
-            part: "block",
-            index: part.index,
-            offset: hit.index,
-          }),
-        ),
-      ),
+      ...identityNumbersInBody(content),
     ];
 
     if (locations.length > 0) {
@@ -1214,38 +1210,6 @@ export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
       some: { role: "MEMBER" as const, ...residencyHeldOn(localDayOf(now)) },
     },
   };
-}
-
-/**
- * The cursor for the list page ending at this item: its instant and its
- * identifier, both of which the caller was just shown.
- *
- * The same two columns as the comment thread's cursor and deliberately not the
- * same code, for the reason `chat.service.ts` gives for its own: a cursor is the
- * wire format of the endpoint that issues it, and a change to how a thread pages
- * must not silently change how `news_list` does.
- */
-function listCursor(row: { id: string; createdAt: Date }): string {
-  return `${row.createdAt.toISOString()}|${row.id}`;
-}
-
-/**
- * The cursor a caller handed back, or null when it is not one this service
- * issued. The instant has to come back out exactly as it went in, so a value
- * `new Date` merely tolerates does not name a place in the list.
- */
-function readListCursor(value: string): { createdAt: Date; id: string } | null {
-  const [instant = "", id = "", ...rest] = value.split("|");
-  const createdAt = new Date(instant);
-  if (
-    rest.length > 0 ||
-    id === "" ||
-    Number.isNaN(createdAt.getTime()) ||
-    createdAt.toISOString() !== instant
-  ) {
-    return null;
-  }
-  return { createdAt, id };
 }
 
 /** A news item's columns as NEWS_COLUMNS selects them. */
