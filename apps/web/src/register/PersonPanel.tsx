@@ -1084,6 +1084,7 @@ export function PersonPanel({
                           value={recoveryReason}
                           onChange={(event) => {
                             setRecoveryReason(event.target.value);
+                            setBoardFailure(null);
                           }}
                           className="min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink"
                         />
