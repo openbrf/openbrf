@@ -320,8 +320,17 @@ function parsePart(raw: Buffer, depth = 0): MimePart {
  * A blank line, in either line ending. Messages use CRLF by the specification
  * and some clients send LF anyway, and a reader that insisted on CRLF would
  * treat one of those letters as a single header block with no body at all.
+ *
+ * A part that starts with the blank line has no headers, which RFC 2046
+ * allows and reads as plain text. Searching for the next blank line instead
+ * would find one inside the body and read its first paragraph as headers.
  */
 function findHeaderEnd(raw: Buffer): { headerEnd: number; bodyStart: number } {
+  const leadingBreak = skipLineBreak(raw, 0);
+  if (leadingBreak > 0) {
+    return { headerEnd: 0, bodyStart: leadingBreak };
+  }
+
   const crlf = raw.indexOf("\r\n\r\n");
   const lf = raw.indexOf("\n\n");
 

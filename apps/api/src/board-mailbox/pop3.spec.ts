@@ -145,7 +145,66 @@ describe("openPop3Session", () => {
 
     // While it is being read, not after: the whole point of a limit on input
     // from outside the association is that the process never holds the excess.
-    await expect(session.retrieve(1, 500)).rejects.toBeInstanceOf(Pop3Error);
+    // And said as its own reason, because the letter is what is at fault and
+    // the caller records it rather than fetching it again on every run.
+    await expect(session.retrieve(1, 500)).rejects.toMatchObject({
+      reason: "too-large",
+    });
+    // The rest of the response was not read, so the session cannot be asked
+    // anything else, and says so rather than failing the next command.
+    expect(session.isOpen()).toBe(false);
+  });
+
+  it("stays open after the mailbox refuses one message", async () => {
+    server = await startPop3TestServer({
+      user: CREDENTIALS.user,
+      password: CREDENTIALS.password,
+      messages: [message("uid-one", "Hej")],
+    });
+
+    const session = await openPop3Session({
+      ...CREDENTIALS,
+      port: server.port,
+    });
+    try {
+      // A refusal is a whole answer: nothing is left unread on the connection,
+      // so the letters behind this one can still be fetched.
+      await expect(session.retrieve(2, 1_000_000)).rejects.toBeInstanceOf(
+        Pop3Error,
+      );
+      expect(session.isOpen()).toBe(true);
+      const raw = await session.retrieve(1, 1_000_000);
+      expect(raw.toString("utf8")).toContain("Hej");
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("lists a mailbox whose listing runs past a mebibyte", async () => {
+    // About 17,000 letters under identifiers as long as a large provider's. A
+    // board mailbox that has received for a decade holds that many, and a
+    // listing bound below it would refuse the mailbox on every run for good.
+    const uidTail = "x".repeat(60);
+    const messages = Array.from({ length: 17_000 }, (_, index) => ({
+      uid: `${String(index)}-${uidTail}`,
+      raw: "From: <a@example.test>\r\n\r\nHej",
+    }));
+    server = await startPop3TestServer({
+      user: CREDENTIALS.user,
+      password: CREDENTIALS.password,
+      messages,
+    });
+
+    const session = await openPop3Session({
+      ...CREDENTIALS,
+      port: server.port,
+    });
+    try {
+      const listings = await session.list();
+      expect(listings).toHaveLength(messages.length);
+    } finally {
+      await session.close();
+    }
   });
 
   it("reports a refused sign-in as its own kind of failure", async () => {

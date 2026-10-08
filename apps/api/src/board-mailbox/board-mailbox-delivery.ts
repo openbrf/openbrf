@@ -38,6 +38,17 @@ export const REPLY_DELIVERY_FAILURES = {
 
   /** The sending was given up on before it reached this reply. */
   interrupted: "reply-sending-interrupted",
+
+  /**
+   * The sending was given up on after an attempt had claimed this reply.
+   *
+   * That attempt stopped somewhere between the claim and the record of its
+   * outcome - before the handover, during it, or after it with the record
+   * failing - and nothing on the row says which. So the board is told that
+   * nobody knows whether the answer went out, rather than that it did not:
+   * a board told the latter sends it again.
+   */
+  unconfirmed: "reply-delivery-unconfirmed",
 } as const;
 
 export type ReplyDeliveryFailure =
@@ -59,8 +70,10 @@ export type ReplyDeliveryFailure =
  * in the mailbox and would otherwise be collected again.
  *
  * Only reasons that cannot change. A message this instance would store if it ran
- * again - one too large to fetch, one a retrieval failed on - is not written
+ * again - one a retrieval failed on because the connection did - is not written
  * here at all, because a row saying so would make a temporary refusal permanent.
+ * Nor is one whose listed size is over the limit: it is never fetched, so it
+ * costs a run nothing.
  */
 export const COLLECTION_REFUSALS = {
   /**
@@ -119,6 +132,17 @@ export const COLLECTION_REFUSALS = {
    * `database-refusal.ts`.
    */
   unstorable: "unstorable",
+
+  /**
+   * The mailbox sent more of the message than this instance fetches, in bytes
+   * or in time, though its listing said it was small enough to ask for.
+   *
+   * The response is abandoned part-way, which ends the session, so a letter
+   * left to be fetched again would end every run at the same place and the
+   * mail behind it would never be collected. It stays in the mailbox, where a
+   * letter over the size limit is left too.
+   */
+  tooLarge: "too-large",
 } as const;
 
 export type CollectionRefusal =
@@ -138,4 +162,5 @@ export type CollectionRefusal =
 export const LISTED_REFUSALS: readonly CollectionRefusal[] = [
   COLLECTION_REFUSALS.noSenderAddress,
   COLLECTION_REFUSALS.unstorable,
+  COLLECTION_REFUSALS.tooLarge,
 ];

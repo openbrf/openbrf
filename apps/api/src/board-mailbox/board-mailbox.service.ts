@@ -8,6 +8,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type {
   BoardMailboxDeliveryStatus,
   BoardMailboxMessageDirection,
@@ -642,47 +643,31 @@ export class BoardMailboxService {
     await this.prisma.$transaction(async (tx) => {
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
-        select: {
-          id: true,
-          status: true,
-          takenByPersonId: true,
-          messages: {
-            where: { direction: "OUTBOUND" },
-            take: 1,
-            select: { id: true },
-          },
-        },
+        select: { id: true, status: true },
       });
       if (thread === null) {
         throw new BoardMailboxError("No such thread.", "thread-not-found");
       }
 
-      await tx.boardMailboxThread.update({
-        where: { id: thread.id },
-        data: closed
-          ? {
-              status: "CLOSED",
-              closedAt: new Date(),
-              closedByPersonId: principal.personId,
-            }
-          : {
-              /*
-               * Reopening puts the thread back where it stood, which the row
-               * still knows: a thread the board answered goes back to answered,
-               * one somebody had taken goes back to taken, and one nobody had
-               * touched goes back to new. Reopening everything to new would ask
-               * the board to answer letters it had already answered.
-               */
-              status:
-                thread.messages.length > 0
-                  ? "ANSWERED"
-                  : thread.takenByPersonId === null
-                    ? "NEW"
-                    : "TAKEN",
-              closedAt: null,
-              closedByPersonId: null,
-            },
-      });
+      if (closed) {
+        await tx.boardMailboxThread.update({
+          where: { id: thread.id },
+          data: {
+            status: "CLOSED",
+            closedAt: new Date(),
+            closedByPersonId: principal.personId,
+          },
+        });
+      } else if (!(await this.reopen(tx, thread.id))) {
+        /*
+         * Not closed, so there is nothing to reopen. A screen that still
+         * showed the thread closed - after a follow-up reopened it, or another
+         * seat did - asks for what has already happened, and the thread as it
+         * stands is the answer. Recomputing its status here would overwrite
+         * one the collector or a reply has just set.
+         */
+        return;
+      }
 
       await this.audit.record(
         {
@@ -700,6 +685,59 @@ export class BoardMailboxService {
     });
 
     return this.readThread(threadId);
+  }
+
+  /**
+   * Opens a closed thread again, where it stood. False when it was not closed.
+   *
+   * The condition on CLOSED is in the update itself, which also takes the
+   * row's lock: a follow-up being collected into this thread holds the same
+   * lock until its letter is written, so what is read below includes it, and
+   * a follow-up that already reopened the thread makes this a no-op.
+   *
+   * Where it stood is read from the conversation rather than from whether it
+   * was ever answered. The newest message is the board's own when the board
+   * spoke last, and the thread goes back to answered; it is the
+   * correspondent's when they wrote after the answer, and the reply that is
+   * owed goes back to whoever had the thread, or to every seat. Newest by
+   * when this instance wrote the row, which a sender's Date header does not
+   * move.
+   */
+  private async reopen(
+    tx: Prisma.TransactionClient,
+    threadId: string,
+  ): Promise<boolean> {
+    const locked = await tx.boardMailboxThread.updateMany({
+      where: { id: threadId, status: "CLOSED" },
+      data: { closedAt: null, closedByPersonId: null },
+    });
+    if (locked.count === 0) {
+      return false;
+    }
+
+    const thread = await tx.boardMailboxThread.findUniqueOrThrow({
+      where: { id: threadId },
+      select: {
+        takenByPersonId: true,
+        messages: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 1,
+          select: { direction: true },
+        },
+      },
+    });
+    await tx.boardMailboxThread.update({
+      where: { id: threadId },
+      data: {
+        status:
+          thread.messages[0]?.direction === "OUTBOUND"
+            ? "ANSWERED"
+            : thread.takenByPersonId === null
+              ? "NEW"
+              : "TAKEN",
+      },
+    });
+    return true;
   }
 
   /**

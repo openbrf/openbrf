@@ -37,6 +37,7 @@ const COLLECT_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const SET_ASIDE_REASONS: Readonly<Record<string, TranslationKey>> = {
   "no-sender-address": "boardMailbox.setAside.reasons.noSenderAddress",
   unstorable: "boardMailbox.setAside.reasons.unstorable",
+  "too-large": "boardMailbox.setAside.reasons.tooLarge",
 };
 
 /** Everything one load produces, applied to the screen in one step. */

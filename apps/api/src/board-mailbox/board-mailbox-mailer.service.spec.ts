@@ -22,21 +22,23 @@ import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 
 const MINTED = "0f8e2c1a-minted@eksemplet.example";
 
+const REPLY = {
+  id: "reply-1",
+  body: "Tack for ditt brev.",
+  messageId: MINTED,
+  inReplyTo: "fraga-1@utanfor.example",
+  thread: {
+    subject: "Fraga om balkongen",
+    correspondentEmailCipher: "brf:email",
+    correspondentNameCipher: null,
+  },
+};
+
 function build(sent: SentMail) {
   const update = vi.fn().mockResolvedValue({});
   const prisma = {
     boardMailboxMessage: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: "reply-1",
-        body: "Tack for ditt brev.",
-        messageId: MINTED,
-        inReplyTo: "fraga-1@utanfor.example",
-        thread: {
-          subject: "Fraga om balkongen",
-          correspondentEmailCipher: "brf:email",
-          correspondentNameCipher: null,
-        },
-      }),
+      findUnique: vi.fn().mockResolvedValue(REPLY),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       update,
     },
@@ -63,7 +65,7 @@ function build(sent: SentMail) {
     mail as unknown as MailService,
     {} as JobQueueService,
   );
-  return { mailer, update, mail };
+  return { mailer, update, mail, prisma };
 }
 
 afterEach(() => {
@@ -127,13 +129,54 @@ describe("marking an answer sent", () => {
     const { mailer, update } = build({ messageId: "abc@getpost.se" });
     update.mockRejectedValueOnce(new Error("connection lost"));
 
-    // Sent is still the answer: the handover happened.
-    expect(await mailer.sendReply("reply-1")).toBe("sent");
+    /*
+     * The job fails rather than completing. A completed job is never looked at
+     * again, and the row would say "on its way" for good; a failed one is
+     * retried and then dead-lettered, and the handler there settles the row.
+     */
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow();
 
     // Nothing else holds the identifier the correspondent's reply will name,
     // so the log line is what the row is repaired from.
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining("delivered as <abc@getpost.se>"),
     );
+  });
+});
+
+describe("a reply another attempt claimed", () => {
+  it("fails the job while the claim is unresolved, so the queue can settle it", async () => {
+    /*
+     * An attempt claimed the row and stopped: the process was restarted during
+     * the handover, or the job expired under it. Its retry finds the row
+     * claimed. Answering "skipped" would complete the job, and the reply would
+     * read as on its way for good; failing it leaves the queue's retries and its
+     * dead letter to resolve the row.
+     */
+    const { mailer, mail, prisma } = build({ messageId: null });
+    prisma.boardMailboxMessage.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.boardMailboxMessage.findUnique
+      .mockResolvedValueOnce(REPLY)
+      .mockResolvedValueOnce({
+        deliveryStatus: "PENDING",
+        sentAt: new Date("2026-10-05T08:00:00.000Z"),
+      });
+
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow();
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+
+  it("skips a reply whose delivery is already settled", async () => {
+    const { mailer, mail, prisma } = build({ messageId: null });
+    prisma.boardMailboxMessage.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.boardMailboxMessage.findUnique
+      .mockResolvedValueOnce(REPLY)
+      .mockResolvedValueOnce({
+        deliveryStatus: "SENT",
+        sentAt: new Date("2026-10-05T08:00:00.000Z"),
+      });
+
+    expect(await mailer.sendReply("reply-1")).toBe("skipped");
+    expect(mail.send).not.toHaveBeenCalled();
   });
 });
