@@ -3077,6 +3077,7 @@
       "tooLarge": "That file is larger than this instance accepts.",
       "empty": "That file is empty.",
       "noFile": "No file was chosen.",
+      "personalIdentityNumber": "The title, the binder or the file name carries a personal identity number. A document for the members or the public is listed on the website, so take it out first - a file has to be renamed and filed again.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },

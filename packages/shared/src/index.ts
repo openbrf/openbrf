@@ -37,6 +37,8 @@ export type {
   PersonalIdentityNumberMatch,
   PersonalIdentityNumberParts,
 } from "./personal-identity-number.ts";
+export { scannableRuns } from "./scannable-text.ts";
+export type { ScannableRun, ScannableText } from "./scannable-text.ts";
 export {
   PLUGIN_INSTALL_FAILURE_REASONS,
   pluginInstallFailureReason,
@@ -46,8 +48,6 @@ export type {
   PluginInstallFailureDetail,
   PluginInstallFailureReason,
 } from "./plugin-install-failures.ts";
-export { scannableRunsText } from "./scannable-text.ts";
-export type { ScannableRun } from "./scannable-text.ts";
 export {
   addLocalDays,
   ASSOCIATION_TIME_ZONE,

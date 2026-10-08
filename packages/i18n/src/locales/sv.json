@@ -3077,6 +3077,7 @@
       "tooLarge": "Filen är större än vad den här instansen tar emot.",
       "empty": "Filen är tom.",
       "noFile": "Ingen fil är vald.",
+      "personalIdentityNumber": "Titeln, pärmen eller filnamnet innehåller ett personnummer. Ett dokument för medlemmarna eller allmänheten listas på webbplatsen, så ta bort det först - en fil behöver döpas om och arkiveras igen.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },

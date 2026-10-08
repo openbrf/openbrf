@@ -1161,6 +1161,45 @@ describe("the publication guardrails", () => {
   });
 });
 
+describe("reading the news items a few at a time", () => {
+  it("carries on past an item removed since the last call", async () => {
+    // Written after everything else on the instance, so the first call from
+    // the start of the list reads them newest first.
+    const listed = [0, 1, 2].map((n) => `news-listed-${suffix}-${String(n)}`);
+    await prisma.news.createMany({
+      data: listed.map((slug, n) => ({
+        slug,
+        title: slug,
+        content: { version: 1, blocks: [] },
+        createdAt: new Date(Date.UTC(2099, 0, 1, 0, 3 - n)),
+      })),
+    });
+    try {
+      const first = await writes.listSummaries({ limit: 1 });
+      expect(first.news.map((item) => item.slug)).toEqual([listed[0]]);
+      expect(first.nextCursor).not.toBeNull();
+
+      // Somebody removes the item the caller stopped at before it asks again.
+      await prisma.news.delete({ where: { slug: listed[0] } });
+
+      const second = await writes.listSummaries({
+        limit: 1,
+        cursor: first.nextCursor ?? undefined,
+      });
+      expect(second.news.map((item) => item.slug)).toEqual([listed[1]]);
+      expect(second.nextCursor).not.toBeNull();
+    } finally {
+      await prisma.news.deleteMany({ where: { slug: { in: listed } } });
+    }
+  });
+
+  it("refuses a cursor it did not write rather than starting over", async () => {
+    await expect(
+      writes.listSummaries({ limit: 1, cursor: "no-such-place" }),
+    ).rejects.toMatchObject({ reason: "not-found" });
+  });
+});
+
 describe("two board members editing the same item", () => {
   it("refuses the second save built on the same copy, and keeps the first", async () => {
     const item = await createNews(boardCookie, slugs.edited);
