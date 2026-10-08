@@ -24,6 +24,7 @@ import {
   type MaskableField,
 } from "./address-book-view";
 import { lockPersonEmail } from "./person-email-lock";
+import { lockPersonIdentityNumber } from "./person-identity-number-lock";
 import {
   consentStateFor,
   type PublicationConsentView,
@@ -589,6 +590,12 @@ export class PersonService {
       // person or finishes before it exists.
       if (email !== null && email.index !== null) {
         await lockPersonEmail(tx, email.index);
+      }
+      // And so an import chunk entering a row with the same number as a new
+      // person either sees this one or finishes before it exists. After the
+      // email key, the order person-identity-number-lock.ts gives.
+      if (identityNumber !== null && identityNumber.index !== null) {
+        await lockPersonIdentityNumber(tx, identityNumber.index);
       }
 
       const created = await tx.person.create({

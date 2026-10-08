@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { localDayOf } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
+import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -444,6 +445,15 @@ export class ImportApplyService implements OnModuleInit {
         // it does. After the apartments and before the transition locks, the
         // order person-email-lock.ts gives.
         await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
+
+        // The identity numbers likewise, so a person the address book adds
+        // with one of them is either seen by the check below or committed after
+        // this chunk. After the email keys and before the transition locks, the
+        // order person-identity-number-lock.ts gives.
+        await lockPersonIdentityNumbersInOrder(
+          tx,
+          writtenIdentityNumberIndexes(encrypted),
+        );
 
         // The plan was read before this transaction opened, and a person
         // committed since - added from the address book, linked by a sign-up
@@ -991,6 +1001,27 @@ function writtenEmailIndexes(
 }
 
 /**
+ * The identity number indexes a chunk may write, or match a new person
+ * against.
+ *
+ * Read off the encrypted values like the addresses, so every row that will
+ * write is covered: the rows entered as a new person, which the chunk checks
+ * against the register under these keys, and the rows that may fill in a
+ * number on a person the register holds. A row whose number is not written
+ * costs a lock nobody else was waiting for; one missed would be a person
+ * entered past a match that never saw them.
+ */
+function writtenIdentityNumberIndexes(
+  encrypted: ReadonlyMap<number, EncryptedRowValues>,
+): string[] {
+  return [...encrypted.values()].flatMap(({ personalIdentityNumber }) =>
+    personalIdentityNumber === null || personalIdentityNumber.index === null
+      ? []
+      : [personalIdentityNumber.index],
+  );
+}
+
+/**
  * Whether a row that writes a person the chunk creates matches somebody in the
  * register the plan did not find for it.
  *
@@ -1009,12 +1040,11 @@ function writtenEmailIndexes(
  * showed for it, and besides them only persons earlier chunks created: the
  * chunk made sure of that before the transaction opened.
  *
- * Read through the chunk's transaction, after its apartment and email locks.
- * Every writer of an address takes the email lock and every writer of a
- * residency the apartment lock, so on those two keys nobody can match a row
- * between this read and the commit. An identity number has no lock of its own,
- * so on that key the read narrows the gap to the length of the transaction
- * rather than closing it.
+ * Read through the chunk's transaction, after its apartment, email and identity
+ * number locks. Every writer of a residency takes the apartment lock, every
+ * writer of an address the email lock and every writer of an identity number
+ * the identity number lock, so on none of the three keys can anybody match a
+ * row between this read and the commit.
  */
 async function newPersonsMatchedSincePlan(
   tx: Prisma.TransactionClient,
