@@ -361,11 +361,17 @@ export class ImportApplyService implements OnModuleInit {
     }
 
     // Checked again although the request already checked it against the
-    // preview: the register can have changed since, and a row that has become
-    // ambiguous must not be resolved by a worker guessing.
-    const undecided = findUndecided(plan, decisions);
+    // preview: the register can have changed since. A row that has become
+    // ambiguous must not be resolved by a worker guessing, and a row that no
+    // longer is must not be written to the person it now matches when the board
+    // chose to skip it or to make it somebody new. Either way the board's
+    // answers no longer fit the file, and it previews again.
+    const undecided = findUndecided(plan, decisions, session.rowCount);
     if (undecided !== null) {
-      await this.stop(sessionId, undecided);
+      await this.stop(
+        sessionId,
+        undecided === "decision-not-needed" ? "preview-outdated" : undecided,
+      );
       return false;
     }
 
@@ -973,8 +979,10 @@ function existingTargets(
  * The person a row writes to.
  *
  * An ambiguous row is decided by the board and by nothing else - the apply
- * refuses to run at all while one is unanswered. A row that shares a new person
- * with an earlier row follows that row, and is skipped when the earlier one was.
+ * refuses to run at all while one is unanswered, and stops at a decision for a
+ * row that is not ambiguous rather than drop it here. A row that shares a new
+ * person with an earlier row follows that row, and is skipped when the earlier
+ * one was.
  */
 function resolveTarget(
   row: PlannedRow,

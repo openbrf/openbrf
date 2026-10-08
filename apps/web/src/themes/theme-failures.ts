@@ -16,6 +16,7 @@ const FAILURE_KEYS: Readonly<Record<string, TranslationKey>> = {
   "package-unreachable": "themeCatalog.errors.packageUnreachable",
   "package-too-large": "themeCatalog.errors.packageTooLarge",
   "checksum-mismatch": "themeCatalog.errors.checksumMismatch",
+  "malformed-digest": "themeCatalog.errors.malformedDigest",
   "package-unreadable": "themeCatalog.errors.packageUnreadable",
   "manifest-invalid": "themeCatalog.errors.manifestInvalid",
   "identity-mismatch": "themeCatalog.errors.identityMismatch",

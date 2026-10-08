@@ -56,8 +56,11 @@ const SECONDARY_BUTTON =
  */
 export function SignInScreen({
   onSignedIn,
+  linkDestination,
 }: {
   onSignedIn?: () => void;
+  /** Where an emailed sign-in link lands, which this tab never sees. */
+  linkDestination?: string;
 }): ReactElement {
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
@@ -120,7 +123,7 @@ export function SignInScreen({
 
   const onRequestLink = async (): Promise<void> => {
     setStatus({ kind: "working" });
-    apply(await requestMagicLink({ email }));
+    apply(await requestMagicLink({ email, destination: linkDestination }));
   };
 
   const onUsePasskey = async (): Promise<void> => {
