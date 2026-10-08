@@ -12,5 +12,10 @@ matched was removed, the import used to drop the board's decision and write the
 row to the one person it then matched: a row the board chose to skip, or to
 make a new person, became an update of that person, with a residency and
 possibly a member register entry, which cannot be removed. The import now
-stops at that chunk with "Your choices change what other rows match. Preview
-the import again.", and nothing from that chunk is written.
+stops at that chunk, records it as "register-changed-during-apply" and writes
+nothing from that chunk. The screen then says the register changed while the
+import ran and asks the board to import the rest as a new file: the session
+cannot be previewed again, so the new file's preview shows the match. This
+differs from a request that arrives with decisions the preview does not need,
+which is still refused at once as "preview-outdated" ("Your choices change what
+other rows match. Preview the import again.") before anything is written.
