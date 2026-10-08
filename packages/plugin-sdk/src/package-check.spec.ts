@@ -334,8 +334,9 @@ describe("pluginPackageProblems", () => {
     expect(problemsWith('require("lodash"')).toEqual([COMPUTED]);
   });
 
-  // The scanner takes each of these regular expressions for a division, so
-  // the `)` inside it closes the call's parenthesis before a `{`.
+  // The scanner takes each of these regular expressions for a division, or
+  // these divisions after a keyword-like word for a regular expression, so a
+  // `)` inside it closes the call's parenthesis before a `{`.
   it.each([
     ["an arrow function", "require(name, () => { if (a) /) {/.test(b); });"],
     [
@@ -346,6 +347,9 @@ describe("pluginPackageProblems", () => {
       "a statement after a semicolon",
       "start(); require(name, () => { if (a) /) {/.test(b); });",
     ],
+    ["a division after `of`", 'x; require(o.of / 2 + "/) {");'],
+    ["a division after `return`", 'x; require(o.return / 2 + "/) {");'],
+    ["a division after `await`", ";require(await / function (a = 1 / 2) {});"],
   ])(
     "counts a call whose argument holds a regular expression misread in %s",
     (_how, line) => {
@@ -440,24 +444,60 @@ describe("pluginPackageProblems", () => {
     ).toEqual([expect.stringMatching(FOREIGN)]);
   });
 
+  /**
+   * How many times longer the check takes on a bundle four times the size:
+   * about 4 when it reads in linear time and about 16 when in quadratic, on a
+   * fast machine or a loaded runner alike. Each size counts its fastest of a
+   * few runs, so one pause does not decide the answer.
+   */
+  function growth(hostile: (copies: number) => string, copies: number): number {
+    const fastest = (source: string): number => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let run = 0; run < 3; run += 1) {
+        const started = performance.now();
+        problemsWith(source);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+    const small = fastest(hostile(copies));
+    return fastest(hostile(copies * 4)) / small;
+  }
+
+  /** Between the growth of a linear reading and that of a quadratic one. */
+  const LINEAR_GROWTH = 8;
+
   // Comments between the word and its parenthesis once made the reading
   // backtrack exponentially: forty of them ran for hours.
   it("reads a bundle of adjacent comments in linear time", () => {
-    const hostile = `require${"/**/".repeat(50_000)}x`;
-    const started = performance.now();
-    expect(problemsWith(hostile)).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(5_000);
+    const hostile = (copies: number): string =>
+      `require${"/**/".repeat(copies)}x`;
+    expect(problemsWith(hostile(100_000))).toEqual([]);
+    expect(growth(hostile, 100_000)).toBeLessThan(LINEAR_GROWTH);
   });
 
+  // Each count makes the smaller bundle take a few milliseconds, long enough
+  // for its timing to be steady.
   it.each([
-    ["nested calls", `${"require(".repeat(50_000)}"x"${")".repeat(50_000)}`],
-    ["line comments", "// c\n".repeat(50_000)],
-    ["escaped names", "requ\\u0069re;".repeat(50_000)],
-    ["method parameter lists", "({ require() /**/ {} });".repeat(100_000)],
-  ])("reads a bundle of many %s in linear time", (_what, hostile) => {
-    const started = performance.now();
-    problemsWith(hostile);
-    expect(performance.now() - started).toBeLessThan(5_000);
+    [
+      "nested calls",
+      25_000,
+      (copies: number) =>
+        `${"require(".repeat(copies)}"x"${")".repeat(copies)}`,
+    ],
+    ["line comments", 200_000, (copies: number) => "// c\n".repeat(copies)],
+    [
+      "escaped names",
+      25_000,
+      (copies: number) => "requ\\u0069re;".repeat(copies),
+    ],
+    [
+      "method parameter lists",
+      25_000,
+      (copies: number) => "({ require() /**/ {} });".repeat(copies),
+    ],
+  ])("reads a bundle of many %s in linear time", (_what, copies, hostile) => {
+    expect(growth(hostile, copies)).toBeLessThan(LINEAR_GROWTH);
   });
 
   it("still reports a package that only shares a built-in's name as a prefix", () => {

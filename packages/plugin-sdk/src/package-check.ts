@@ -157,7 +157,7 @@ interface PendingCall {
   specifier: string | null;
   /** Whether a method name could stand where the word is. */
   mayBeMethod: boolean;
-  /** How many `/` punctuators the scanner had read when it reached the word. */
+  /** How many `/` that could be misread the scanner had read at the word. */
   slashes: number;
 }
 
@@ -321,9 +321,12 @@ function isHostPackage(specifier: string): boolean {
  *   `class A extends require("x") {}` the `{` opens the class body.
  * - The `{` must be on the same line: there a line break may be the end of a
  *   statement.
- * - No `/` may stand between the parentheses. The scanner can take a regular
- *   expression for a division, and a `)` inside it would then close the call
- *   early.
+ * - No `/` that the scanner may have misread may stand between the
+ *   parentheses, since a `)` inside a misread regular expression or division
+ *   would close the call early. That is every `/` read as a division, and a
+ *   regular expression read after a word, as in `o.of / 2`. A regular
+ *   expression after a punctuator, as in `require(pattern = /x/) {}`, cannot
+ *   be a division.
  */
 function requireCalls(source: string): {
   specifiers: string[];
@@ -348,7 +351,10 @@ function requireCalls(source: string): {
   let awaiting: PendingCall | undefined;
   const parentheses: (PendingCall | undefined)[] = [];
 
-  /** How many `/` punctuators the scanner has read. */
+  /**
+   * How many `/` the scanner has read that could be misread: divisions, and
+   * regular expressions after a word.
+   */
   let slashes = 0;
 
   /**
@@ -401,6 +407,10 @@ function requireCalls(source: string): {
     } else if (char === "`") {
       index = templateText(index + 1);
     } else if (char === "/" && startsExpression(previous(1))) {
+      // After a word the guess can be wrong: in `o.of / 2` the `/` divides.
+      if (isWord(previous(1))) {
+        slashes += 1;
+      }
       index = afterRegularExpression(source, index);
       remember("literal");
     } else if (char === "#" && startsIdentifier(source, index + 1)) {
@@ -531,10 +541,22 @@ function startsExpression(token: string | undefined): boolean {
   if (TOKENS_BEFORE_DIVISION.has(token)) {
     return false;
   }
-  if (token.startsWith("#") || IDENTIFIER_START.test(characterAt(token, 0))) {
+  if (isWord(token)) {
     return KEYWORDS_BEFORE_EXPRESSION.has(token);
   }
   return true;
+}
+
+/**
+ * Whether a remembered token is a name or a keyword, rather than a punctuator
+ * or one of the stand-ins "literal" and "postfix".
+ */
+function isWord(token: string | undefined): boolean {
+  return (
+    token !== undefined &&
+    !TOKENS_BEFORE_DIVISION.has(token) &&
+    (token.startsWith("#") || IDENTIFIER_START.test(characterAt(token, 0)))
+  );
 }
 
 /**
