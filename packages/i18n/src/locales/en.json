@@ -1117,7 +1117,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Encrypted connection (TLS)",
-      "secureHint": "Ticked, the connection is encrypted from the start (implicit TLS, usually port 465). Unticked, it is upgraded with STARTTLS (usually port 587), and nothing is sent to a server that does not offer that, unless it runs on this machine.",
+      "secureHint": "Ticked, the connection is encrypted from the start (implicit TLS, usually port 465). Unticked, it is upgraded with STARTTLS (usually port 587). Once these settings are saved, nothing is sent to a server that does not offer STARTTLS, unless it runs on this machine.",
       "user": "User name",
       "password": "Password",
       "passwordKept": "A password is stored. Leave this empty to keep it, or clear it to remove it.",
