@@ -3656,7 +3656,7 @@ describe("a decided row the register stops asking about between chunks", () => {
 
       expect(await readRun(cookie, session.sessionId)).toMatchObject({
         status: "FAILED",
-        failureReason: "preview-outdated",
+        failureReason: "register-changed-during-apply",
         rowsDone: IMPORT_CHUNK_ROWS,
         result: { personsCreated: 0, personsUpdated: 0 },
       });
