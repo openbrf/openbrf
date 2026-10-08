@@ -11,7 +11,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { JobQueueService } from "../jobs/job-queue.service";
-import { decodeCsv, parseCsv, writeCsv } from "./csv";
+import { decodeCsv, MixedEncodingError, parseCsv, writeCsv } from "./csv";
 import {
   finishImport,
   ImportApplyService,
@@ -27,12 +27,14 @@ import {
 import { ImportError } from "./import-errors";
 import { lockImportApply } from "./import-lock";
 import {
+  changedSincePreview,
   findUndecided,
   type ImportDecisions,
   type ImportOutcome,
   type ImportPlan,
   type ImportRole,
   type PlannedRow,
+  readPreviewedCandidates,
 } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import {
@@ -105,11 +107,12 @@ export interface ImportSessionView {
  *
  * The personal identity number is reported as present or absent and never sent.
  * A preview is not a register view, and DESIGN.md keeps identity numbers out of
- * every screen that is not one.
+ * every screen that is not one. Which keys the plan looked under is the apply's
+ * business: the screen names the match by `matchedBy`.
  */
 export interface ImportPreviewRow extends Omit<
   PlannedRow,
-  "person" | "problems"
+  "person" | "problems" | "foundUnder"
 > {
   person: {
     firstName: string;
@@ -596,7 +599,13 @@ export class ImportService implements OnModuleInit {
         return parseCsv(decodeCsv(bytes)).rows;
       }
       return await parseWorkbook(bytes);
-    } catch {
+    } catch (error) {
+      if (error instanceof MixedEncodingError) {
+        throw new ImportError(
+          "That file mixes UTF-8 and another encoding. Save it again as UTF-8 or as CSV (semikolonavgränsad).",
+          "file-mixed-encoding",
+        );
+      }
       throw new ImportError(
         "That file could not be read as a spreadsheet.",
         "file-unreadable",
@@ -662,7 +671,7 @@ export class ImportService implements OnModuleInit {
     },
     decisions: ImportDecisions,
   ): Promise<void> {
-    const previewed = readAmbiguousRows(session.ambiguousRows);
+    const previewed = readPreviewedCandidates(session.ambiguousRows);
     if (Object.keys(decisions).length === 0) {
       if (Object.keys(previewed).length > 0) {
         throw new ImportError(
@@ -685,19 +694,7 @@ export class ImportService implements OnModuleInit {
       indexes: new Map(),
     });
 
-    if (
-      plan.rows.some((row) => {
-        const candidates = previewed[String(row.rowNumber)];
-        return (
-          candidates !== undefined &&
-          (row.outcome !== "ambiguous" ||
-            !samePeople(
-              candidates,
-              row.candidates.map((candidate) => candidate.personId),
-            ))
-        );
-      })
-    ) {
+    if (changedSincePreview(plan, previewed)) {
       throw new ImportError(
         "Given these decisions, a row the preview showed as needing a " +
           "decision no longer does, or matches other people.",
@@ -705,23 +702,18 @@ export class ImportService implements OnModuleInit {
       );
     }
 
-    // A decision is an answer to a row that asks for one, and to nothing else.
-    // One kept for a row that needs none would be carried into the job, where
-    // a register that changed between chunks could make that row need it, and
-    // the worker would then write what nobody was shown.
-    const decidable = new Set(
-      plan.rows
-        .filter((row) => row.outcome === "ambiguous")
-        .map((row) => String(row.rowNumber)),
-    );
-    if (Object.keys(decisions).some((rowNumber) => !decidable.has(rowNumber))) {
+    // The same rules the worker applies to each chunk, here to the whole file,
+    // which this plan holds every row of. A decision kept for a row that needs
+    // none would be carried into the job, where a register that changed between
+    // chunks could make that row need it, and the worker would then write what
+    // nobody was shown.
+    const undecided = findUndecided(plan, decisions, plan.rows.length);
+    if (undecided === "decision-not-needed") {
       throw new ImportError(
         "Given these decisions, a decision answers a row that does not need one.",
         "preview-outdated",
       );
     }
-
-    const undecided = findUndecided(plan, decisions);
     if (undecided === "ambiguous-rows-undecided") {
       throw new ImportError(
         "Given these decisions, more rows match more than one person or " +
@@ -858,28 +850,6 @@ function planDigest(plan: ImportPlan): string {
   return hash.digest("hex");
 }
 
-/** Whether two lists of person ids name the same people. */
-function samePeople(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((personId) => b.includes(personId));
-}
-
-/** The rows the preview could not resolve, read back from the session. */
-function readAmbiguousRows(value: unknown): Record<string, string[]> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  const rows: Record<string, string[]> = {};
-  for (const [rowNumber, candidates] of Object.entries(value)) {
-    if (Array.isArray(candidates)) {
-      rows[rowNumber] = candidates.filter(
-        (candidate): candidate is string => typeof candidate === "string",
-      );
-    }
-  }
-  return rows;
-}
-
 /** Columns of the downloadable template, in the order they are written. */
 const TEMPLATE_COLUMNS = [
   "addressLabel",
@@ -942,7 +912,7 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
 }
 
 function toPreviewRow(row: PlannedRow): ImportPreviewRow {
-  const { person, ...rest } = row;
+  const { person, foundUnder: _foundUnder, ...rest } = row;
   return {
     ...rest,
     person: {

@@ -35,6 +35,10 @@ import {
   INSTALL_LOCK_FILE,
   type InstallLock,
 } from "./install-lock";
+import {
+  PluginInstallError,
+  pluginInstallFailure,
+} from "./plugin-install-failure";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -340,9 +344,11 @@ export class PluginInstallerService
       try {
         const remaining = fetchDeadline - Date.now();
         if (remaining <= 0) {
-          throw new Error(
+          throw new PluginInstallError(
             `The plugin downloads used their ${String(FETCH_BUDGET_MS)} ms ` +
               "before this one could start.",
+            "download-budget-spent",
+            { budgetMs: FETCH_BUDGET_MS },
           );
         }
         const archive = await ensureArchive(
@@ -360,12 +366,12 @@ export class PluginInstallerService
         versions.set(record.packageName, record.version);
         outcome.installed.push(record.id);
       } catch (cause) {
-        const error = String(cause);
+        const failure = pluginInstallFailure(cause, "download");
         this.logger.error(
-          `Plugin "${record.id}" could not be fetched: ${error}`,
+          `Plugin "${record.id}" could not be fetched: ${failure.cause}`,
         );
-        await this.registry.markFailed(record.id, error);
-        outcome.failed.push({ id: record.id, error });
+        await this.registry.markFailed(record.id, failure);
+        outcome.failed.push({ id: record.id, error: failure.cause });
         // The tree is left as it is from here whatever the rest would do, so
         // the rest are not fetched: a host that stalls one tarball usually
         // stalls the next. Their rows keep the status they had.
@@ -407,14 +413,16 @@ export class PluginInstallerService
         lock,
       );
     } catch (cause) {
-      const error = String(cause);
-      this.logger.error(`The plugin installation could not be built: ${error}`);
+      const failure = pluginInstallFailure(cause, "build");
+      this.logger.error(
+        `The plugin installation could not be built: ${failure.cause}`,
+      );
       for (const id of outcome.installed) {
-        await this.registry.markFailed(id, error);
+        await this.registry.markFailed(id, failure);
       }
       return {
         installed: [],
-        failed: outcome.installed.map((id) => ({ id, error })),
+        failed: outcome.installed.map((id) => ({ id, error: failure.cause })),
         changed: false,
       };
     }
@@ -716,14 +724,23 @@ function assertConsentedPackage(
     const issues = parsed.error.issues.map(
       (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
     );
-    throw new Error(
+    throw new PluginInstallError(
       `The archive for ${packageName} is not an installable plugin package: ${issues.join("; ")}.`,
+      "archive-not-a-plugin",
+      { packageName },
     );
   }
   if (parsed.data.name !== packageName || parsed.data.version !== version) {
-    throw new Error(
+    throw new PluginInstallError(
       `The archive for ${packageName}@${version} holds ` +
         `${parsed.data.name}@${parsed.data.version}.`,
+      "archive-package-mismatch",
+      {
+        packageName,
+        version,
+        heldName: parsed.data.name,
+        heldVersion: parsed.data.version,
+      },
     );
   }
 }
@@ -749,8 +766,10 @@ export async function assertArchivedPackages(
     try {
       raw = await readArchivePackageJson(archive, scratch);
     } catch (cause) {
-      throw new Error(
+      throw new PluginInstallError(
         `The archive for ${packageName} could not be read: ${(cause as Error).message}`,
+        "archive-unreadable",
+        { packageName },
       );
     }
     assertConsentedPackage(packageName, versions.get(packageName) ?? "", raw);
@@ -778,8 +797,10 @@ export async function assertStagedPackages(
         await readFile(join(modules, packageName, "package.json"), "utf8"),
       );
     } catch {
-      throw new Error(
+      throw new PluginInstallError(
         `The archive for ${packageName} was not installed as a package.`,
+        "package-not-installed",
+        { packageName },
       );
     }
     assertConsentedPackage(packageName, version, raw);
@@ -789,8 +810,10 @@ export async function assertStagedPackages(
     (name) => !versions.has(name),
   );
   if (extra.length > 0) {
-    throw new Error(
+    throw new PluginInstallError(
       `npm installed packages no archive was consented for: ${extra.join(", ")}.`,
+      "unconsented-packages",
+      { packages: extra.join(", ") },
     );
   }
 }

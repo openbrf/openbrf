@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { formatSha512 } from "@openbrf/plugin-sdk";
 import {
   afterAll,
   afterEach,
@@ -129,7 +131,7 @@ async function fixturePluginEntry(): Promise<Record<string, unknown>> {
     oauthProtectedResource: manifest["oauthProtectedResource"],
     artifact: {
       url: "https://github.com/openbrf/example-plugin/releases/download/v1.0.0/plugin.tgz",
-      sha512: `sha512-${createHash("sha512").update("plugin").digest("base64")}`,
+      sha512: formatSha512(createHash("sha512").update("plugin").digest()),
     },
   };
 }
@@ -276,6 +278,19 @@ describe("fetching a package", () => {
         artifact: { ...exampleTheme.artifact, sha512: "b".repeat(128) },
       }),
     ).rejects.toMatchObject({ reason: "checksum-mismatch" });
+  });
+
+  it("reports a badly spelled digest as the entry's fault, not as tampered bytes", async () => {
+    // The catalog schema refuses such an entry when an index is read, so only a
+    // hand-built entry reaches here. The bytes were never compared, so
+    // calling the refusal a mismatch would tell the board the package was
+    // tampered with when the catalog entry is what needs correcting.
+    await expect(
+      sourceOverFile(catalogPath).fetchPackage({
+        ...exampleTheme,
+        artifact: { ...exampleTheme.artifact, sha512: "sha512-nonsense" },
+      }),
+    ).rejects.toMatchObject({ reason: "malformed-digest" });
   });
 
   it("reads only https on a curated instance, whatever the entry names", async () => {

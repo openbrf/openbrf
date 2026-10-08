@@ -1,4 +1,4 @@
-import { dateColumnOf, type LocalDay } from "@openbrf/shared";
+import { dateColumnOf, type LocalDay, localDayOf } from "@openbrf/shared";
 
 import type { Prisma } from "../generated/prisma/client";
 
@@ -66,6 +66,49 @@ export function boardSeatNotEndedOn(
 ): Prisma.BoardPositionWhereInput {
   const on = dateColumnOf(day);
   return { OR: [{ endedOn: null }, { endedOn: { gt: on } }] };
+}
+
+/**
+ * The residencies that have not ended by a day: held on it, or recorded from a
+ * day still to come.
+ *
+ * The query form of {@link hasMovedOut}, and the same rule: a move-out dated
+ * the day has happened.
+ */
+export function residencyNotEndedOn(day: LocalDay): Prisma.ResidencyWhereInput {
+  const on = dateColumnOf(day);
+  return { OR: [{ movedOutOn: null }, { movedOutOn: { gt: on } }] };
+}
+
+/**
+ * Whether a residency has ended by the association's day an instant falls on.
+ *
+ * The move-out date is the first day a residency is no longer held, so a
+ * move-out dated today has happened, and one dated in the future is a scheduled
+ * move-out: the person is still resident until it arrives. This is the end
+ * half of the rule PrincipalService decides access by ({@link residencyHeldOn}),
+ * and the two must agree: a row shown as moved out while the account still has
+ * resident access would be a lie in whichever direction the reader trusted.
+ *
+ * Not the negation of "held today": a household whose move-in date has not
+ * arrived has not moved out either. The board's screens list it among an
+ * apartment's residents rather than in its history, and an import matches a row
+ * to it by apartment and name.
+ *
+ * Takes an instant rather than a `LocalDay`, unlike the rest of this module,
+ * and reads the day it falls on here itself, so the instant cannot be compared
+ * with the column directly.
+ *
+ * @param now An instant; the day it falls on here is the day asked about.
+ */
+export function hasMovedOut(
+  movedOutOn: Date | null,
+  now: Date,
+): movedOutOn is Date {
+  return (
+    movedOutOn !== null &&
+    movedOutOn.getTime() <= dateColumnOf(localDayOf(now)).getTime()
+  );
 }
 
 /**

@@ -57,7 +57,17 @@ export interface PluginSummary {
   version: string;
   enabled: boolean;
   status: string;
+  /**
+   * What the last failed install threw, in English, for the operator. On a
+   * row that failed before failures carried a code, the only reason there is.
+   */
   lastError: string | null;
+  /**
+   * Why the last install failed, as a code and the values its sentence needs,
+   * for the screen to say in the reader's language. Null when it did not fail,
+   * or failed before codes were recorded.
+   */
+  failure: { reason: string; detail: Record<string, string | number> } | null;
   /** Whether the plugin's code is running in this process. */
   loaded: boolean;
   permissions: string[];
@@ -339,6 +349,7 @@ export class PluginAdminService {
           enabled: record.enabled,
           status: record.status,
           lastError: record.lastError,
+          failure: record.failure,
           loaded: loaded !== null,
           permissions: record.consentedPermissions,
           personalData: record.declaredPersonalData,

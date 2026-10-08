@@ -263,3 +263,91 @@ describe("a catalogue that could not be read", () => {
     expect(screen.queryByText(LOADING)).toBeNull();
   });
 });
+
+describe("while a type is being added", () => {
+  /** Holds the request open, so the form is observed mid-save. */
+  function holdRequest(): (outcome: unknown) => void {
+    let settle: (outcome: unknown) => void = () => undefined;
+    createIssueType.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return (outcome) => {
+      settle(outcome);
+    };
+  }
+
+  const OUTCOMES = [
+    ["once the type is stored", { ok: true, value: type() }],
+    [
+      "when the type is refused",
+      { ok: false, failure: { status: 422, reason: "invalid-body" } },
+    ],
+  ] as const;
+
+  it("locks the form, so nothing typed is lost when the name is cleared", async () => {
+    const session = userEvent.setup();
+    const settle = holdRequest();
+    render(<IssueTypesPanel />);
+    await waitFor(() => {
+      expect(screen.getByText("Vatten")).toBeTruthy();
+    });
+
+    const name = screen.getByLabelText<HTMLInputElement>("Namn");
+    const audience = screen
+      .getAllByLabelText<HTMLSelectElement>(/^erbjuds$/i)
+      .slice(-1)[0]!;
+    await session.type(name, "Värme");
+    expect(name.matches(":disabled")).toBe(false);
+
+    await session.click(screen.getByRole("button", { name: "Lägg till typ" }));
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(true);
+    });
+    expect(audience.matches(":disabled")).toBe(true);
+    await session.type(name, "x");
+    expect(name.value).toBe("Värme");
+
+    settle({ ok: true, value: type() });
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(false);
+    });
+    expect(name.value).toBe("");
+  });
+
+  it.each(OUTCOMES)(
+    "keeps focus in the name field after Enter, %s",
+    async (_case, outcome) => {
+      const session = userEvent.setup();
+      const settle = holdRequest();
+      render(<IssueTypesPanel />);
+      await waitFor(() => {
+        expect(screen.getByText("Vatten")).toBeTruthy();
+      });
+
+      const name = screen.getByLabelText<HTMLInputElement>("Namn");
+      await session.type(name, "Värme{Enter}");
+
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(name, "focus");
+
+      settle(outcome);
+
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(name);
+      });
+    },
+  );
+});

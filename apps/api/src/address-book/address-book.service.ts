@@ -9,7 +9,11 @@ import {
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import { boardSeatHeldOn, residencyHeldOn } from "../registers/held-on";
+import {
+  boardSeatHeldOn,
+  hasMovedOut,
+  residencyHeldOn,
+} from "../registers/held-on";
 import { computePurgeDate } from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -22,7 +26,6 @@ import {
   type AddressBookAudience,
   type AddressBookRecord,
   type AddressBookRow,
-  hasMovedOut,
   isVisibleToResidents,
   type ResidentDirectoryRow,
   toAddressBookRow,

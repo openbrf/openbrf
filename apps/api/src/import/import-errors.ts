@@ -26,6 +26,12 @@ export type ImportErrorReason =
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
+  /**
+   * A CSV without a byte order mark that is UTF-8 and another encoding at once.
+   * Its own code, because the board can fix it by saving the file again, and
+   * the generic "unreadable" message does not say how.
+   */
+  | "file-mixed-encoding"
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
@@ -38,6 +44,15 @@ export type ImportErrorReason =
   | "preview-replaced"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
+  /**
+   * A row the chunk was about to write to a new person now matches somebody in
+   * the register the plan did not find: the person was added, moved in or given
+   * the row's address after the chunk was planned. Or a row the board answered
+   * now matches other persons than the preview showed for it. Recorded by the
+   * job, which stops without writing the chunk rather than enter one human
+   * being twice. The chunks before it are written.
+   */
+  | "register-changed-during-apply"
   | "apply-interrupted"
   /**
    * Recorded on a session an administrator abandoned while it was queued or

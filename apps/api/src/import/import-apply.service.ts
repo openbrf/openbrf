@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { localDayOf } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { ENV } from "../config/config.module";
@@ -12,6 +13,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { residencyNotEndedOn } from "../registers/held-on";
 import {
   appendOwedMembershipEvents,
   type MemberResidencySpan,
@@ -24,11 +26,16 @@ import {
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import {
+  apartmentNameKey,
+  changedSincePreview,
   findUndecided,
+  IMPORT_SEARCH_KEYS,
   type ImportDecision,
   type ImportDecisions,
   type ImportPlan,
   type PlannedRow,
+  push,
+  readPreviewedCandidates,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
@@ -60,6 +67,11 @@ import {
  *   it wrote is in the snapshot, so a person listed twice in one file is matched
  *   the second time rather than created twice - by the same match-key precedence
  *   the preview used.
+ * - **A new person is looked for again before it is written.** The plan is
+ *   read before the transaction opens, so a row that writes a new person - or
+ *   gives one the chunk creates an address or a residency - is checked against
+ *   the register once the chunk holds its locks. Somebody added in between
+ *   stops the import rather than being entered a second time.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -292,7 +304,9 @@ export class ImportApplyService implements OnModuleInit {
         defaultRole: true,
         defaultMovedInOn: true,
         decisions: true,
+        ambiguousRows: true,
         unwrittenIdentityNumbers: true,
+        createdPersons: true,
       },
     });
     if (session === null) {
@@ -328,9 +342,8 @@ export class ImportApplyService implements OnModuleInit {
     }
 
     const decisions = readDecisions(session.decisions);
-    const unwritten = readUnwrittenIdentityNumbers(
-      session.unwrittenIdentityNumbers,
-    );
+    const unwritten = readRowPersons(session.unwrittenIdentityNumbers);
+    const created = readRowPersons(session.createdPersons);
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -361,11 +374,37 @@ export class ImportApplyService implements OnModuleInit {
     }
 
     // Checked again although the request already checked it against the
-    // preview: the register can have changed since, and a row that has become
-    // ambiguous must not be resolved by a worker guessing.
-    const undecided = findUndecided(plan, decisions);
+    // preview: the register can have changed since. A row that has become
+    // ambiguous must not be resolved by a worker guessing, and a row that no
+    // longer is must not be written to the person it now matches when the board
+    // chose to skip it or to make it somebody new. Either way the board's
+    // answers no longer fit the file, and it previews again.
+    const undecided = findUndecided(plan, decisions, session.rowCount);
     if (undecided !== null) {
-      await this.stop(sessionId, undecided);
+      await this.stop(
+        sessionId,
+        undecided === "decision-not-needed" ? "preview-outdated" : undecided,
+      );
+      return false;
+    }
+
+    // And each of those rows still matches the persons the preview showed the
+    // board, which the request also checked, but a chunk is planned as long
+    // after it as the apply has run. A row the board made a new person that now
+    // also matches somebody added since would enter them a second time, and the
+    // check inside the transaction below cannot tell, because it allows the
+    // persons this plan found. The persons earlier chunks created are set
+    // aside: the preview could not list them. Recorded as the register having
+    // changed rather than as an outdated preview: the session cannot be
+    // previewed again, and the board imports the rest as a new file.
+    if (
+      changedSincePreview(
+        plan,
+        readPreviewedCandidates(session.ambiguousRows),
+        new Set(created.values()),
+      )
+    ) {
+      await this.stop(sessionId, "register-changed-during-apply");
       return false;
     }
 
@@ -406,6 +445,21 @@ export class ImportApplyService implements OnModuleInit {
         // order person-email-lock.ts gives.
         await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
 
+        // The plan was read before this transaction opened, and a person
+        // committed since - added from the address book, linked by a sign-up
+        // approval, moved in - is not in it. A row that writes a new person
+        // would enter that human being a second time, and an access report or
+        // an erasure asked for by person would find one of the two. Thrown
+        // rather than returned, so the cursor claim rolls back with the chunk:
+        // the worker does not decide who the row is about, and the board does
+        // on a fresh preview.
+        if (await newPersonsMatchedSincePlan(tx, plan, decisions, encrypted)) {
+          throw new ImportError(
+            "A row that writes a new person matches somebody the register gained since the plan.",
+            "register-changed-during-apply",
+          );
+        }
+
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
         // tenant-ownerships as the chunk reads them, and a move-in or move-out
@@ -424,11 +478,13 @@ export class ImportApplyService implements OnModuleInit {
           decisions,
           encrypted,
           unwritten,
+          created,
         );
         await tx.importSession.update({
           where: { id: sessionId },
           data: {
             unwrittenIdentityNumbers: Object.fromEntries(unwritten),
+            createdPersons: Object.fromEntries(created),
             personsCreated: { increment: written.personsCreated },
             personsUpdated: { increment: written.personsUpdated },
             residenciesCreated: { increment: written.residenciesCreated },
@@ -536,6 +592,7 @@ export class ImportApplyService implements OnModuleInit {
     decisions: ImportDecisions,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     unwritten: Map<number, string>,
+    created: Map<number, string>,
   ): Promise<ImportApplyResult> {
     const result: ImportApplyResult = {
       personsCreated: 0,
@@ -582,6 +639,9 @@ export class ImportApplyService implements OnModuleInit {
       }
 
       await this.writeResidency(tx, row, personId, membersBefore, result);
+    }
+    for (const [rowNumber, personId] of createdByRow) {
+      created.set(rowNumber, personId);
     }
 
     // After every row, so a file listing a person's newest apartment first
@@ -848,22 +908,23 @@ function readDecisions(value: unknown): ImportDecisions {
 }
 
 /**
- * The rows of earlier chunks whose identity number was not written, read back
- * as row number to the person each was written to. Narrowed rather than cast,
+ * Rows of earlier chunks, read back as row number to a person: those whose
+ * identity number was not written, to the person each was written to, and
+ * those written as a new person, to that person. Narrowed rather than cast,
  * like the decisions.
  */
-function readUnwrittenIdentityNumbers(value: unknown): Map<number, string> {
-  const unwritten = new Map<number, string>();
+function readRowPersons(value: unknown): Map<number, string> {
+  const persons = new Map<number, string>();
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return unwritten;
+    return persons;
   }
   for (const [rowNumber, personId] of Object.entries(value)) {
     const row = Number(rowNumber);
     if (Number.isInteger(row) && row > 0 && typeof personId === "string") {
-      unwritten.set(row, personId);
+      persons.set(row, personId);
     }
   }
-  return unwritten;
+  return persons;
 }
 
 function readDecision(raw: unknown): ImportDecision | null {
@@ -929,6 +990,181 @@ function writtenEmailIndexes(
   );
 }
 
+/**
+ * Whether a row that writes a person the chunk creates matches somebody in the
+ * register the plan did not find for it.
+ *
+ * Asked of every row whose writes go to a new person: one planned as `create`,
+ * one the board decided to enter as a new person, and one that reaches the
+ * person an earlier row of the chunk creates and may give them an address or a
+ * residency. The keys are the planner's own - the identity number, the email
+ * address, and the name of somebody whose residency in the row's apartment has
+ * not ended - and a row is asked under the keys the plan looked under for it:
+ * all three when it found nobody, and otherwise the ones up to the key it found
+ * its candidates under. Under those the plan found the row's candidates and
+ * nobody else in the register, so anybody else found now was added, or given
+ * that address or that residency, after the plan read the register. The keys
+ * after that one were never looked under, and a person found there would not
+ * change the plan. A row the board decided has the candidates the preview
+ * showed for it, and besides them only persons earlier chunks created: the
+ * chunk made sure of that before the transaction opened.
+ *
+ * Read through the chunk's transaction, after its apartment and email locks.
+ * Every writer of an address takes the email lock and every writer of a
+ * residency the apartment lock, so on those two keys nobody can match a row
+ * between this read and the commit. An identity number has no lock of its own,
+ * so on that key the read narrows the gap to the length of the transaction
+ * rather than closing it.
+ */
+async function newPersonsMatchedSincePlan(
+  tx: Prisma.TransactionClient,
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+  encrypted: ReadonlyMap<number, EncryptedRowValues>,
+): Promise<boolean> {
+  const asked = plan.rows.flatMap((row) =>
+    writesNewPerson(row, decisions)
+      ? [askedKeys(row, encrypted.get(row.rowNumber))]
+      : [],
+  );
+
+  const identityNumberIndexes = asked.flatMap(({ identityNumberIndex }) =>
+    identityNumberIndex === null ? [] : [identityNumberIndex],
+  );
+  const emailIndexes = asked.flatMap(({ emailIndex }) =>
+    emailIndex === null ? [] : [emailIndex],
+  );
+  const apartmentIds = [
+    ...new Set(
+      asked.flatMap(({ apartmentId }) =>
+        apartmentId === null ? [] : [apartmentId],
+      ),
+    ),
+  ];
+
+  const byIdentityNumber = new Map<string, string[]>();
+  const byEmail = new Map<string, string[]>();
+  const byName = new Map<string, string[]>();
+
+  if (identityNumberIndexes.length > 0 || emailIndexes.length > 0) {
+    const persons = await tx.person.findMany({
+      where: {
+        OR: [
+          { personalIdentityNumberIndex: { in: identityNumberIndexes } },
+          { emailIndex: { in: emailIndexes } },
+        ],
+      },
+      select: { id: true, personalIdentityNumberIndex: true, emailIndex: true },
+    });
+    for (const person of persons) {
+      if (person.personalIdentityNumberIndex !== null) {
+        push(byIdentityNumber, person.personalIdentityNumberIndex, person.id);
+      }
+      if (person.emailIndex !== null) {
+        push(byEmail, person.emailIndex, person.id);
+      }
+    }
+  }
+
+  if (apartmentIds.length > 0) {
+    // The residencies that have not ended, the rule the plan's snapshot reads
+    // the register by, and asked of the database: an apartment's past
+    // residents are no match, and need not be read under the chunk's locks.
+    const residencies = await tx.residency.findMany({
+      where: {
+        apartmentId: { in: apartmentIds },
+        ...residencyNotEndedOn(localDayOf(new Date())),
+      },
+      select: {
+        apartmentId: true,
+        person: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+    for (const residency of residencies) {
+      push(
+        byName,
+        apartmentNameKey(
+          residency.apartmentId,
+          residency.person.firstName,
+          residency.person.lastName,
+        ),
+        residency.person.id,
+      );
+    }
+  }
+
+  return asked.some((row) =>
+    [
+      ...under(byIdentityNumber, row.identityNumberIndex),
+      ...under(byEmail, row.emailIndex),
+      ...under(byName, row.nameKey),
+    ].some((personId) => !row.candidates.has(personId)),
+  );
+}
+
+/**
+ * Whether a row's writes go to a person the chunk creates: a row planned as
+ * one, one the board decided to enter as one, or one that reaches the person
+ * an earlier row of the chunk creates.
+ */
+function writesNewPerson(row: PlannedRow, decisions: ImportDecisions): boolean {
+  if (row.outcome === "create") {
+    return true;
+  }
+  if (row.outcome === "ambiguous") {
+    return decisions[String(row.rowNumber)]?.action === "create";
+  }
+  return row.outcome === "update" && row.matchedPersonId === null;
+}
+
+/** A row's values under the keys the plan looked under for it. */
+interface AskedKeys {
+  identityNumberIndex: string | null;
+  emailIndex: string | null;
+  apartmentId: string | null;
+  nameKey: string | null;
+  /** The register persons the plan found under them. */
+  candidates: ReadonlySet<string>;
+}
+
+function askedKeys(
+  row: PlannedRow,
+  values: EncryptedRowValues | undefined,
+): AskedKeys {
+  const searched = new Set(
+    row.foundUnder === null
+      ? IMPORT_SEARCH_KEYS
+      : IMPORT_SEARCH_KEYS.slice(
+          0,
+          IMPORT_SEARCH_KEYS.indexOf(row.foundUnder) + 1,
+        ),
+  );
+  const apartment = searched.has("apartmentAndName") ? row.apartment : null;
+  return {
+    identityNumberIndex: searched.has("personalIdentityNumber")
+      ? (values?.personalIdentityNumber?.index ?? null)
+      : null,
+    emailIndex: searched.has("email") ? (values?.email?.index ?? null) : null,
+    apartmentId: apartment?.id ?? null,
+    nameKey:
+      apartment === null
+        ? null
+        : apartmentNameKey(
+            apartment.id,
+            row.person.firstName,
+            row.person.lastName,
+          ),
+    candidates: new Set(row.candidates.map(({ personId }) => personId)),
+  };
+}
+
+function under(
+  map: ReadonlyMap<string, readonly string[]>,
+  key: string | null,
+): readonly string[] {
+  return key === null ? [] : (map.get(key) ?? []);
+}
+
 /** Where a row's writes go, once the board's decisions are taken into account. */
 type RowTarget =
   | { action: "skip" }
@@ -973,8 +1209,10 @@ function existingTargets(
  * The person a row writes to.
  *
  * An ambiguous row is decided by the board and by nothing else - the apply
- * refuses to run at all while one is unanswered. A row that shares a new person
- * with an earlier row follows that row, and is skipped when the earlier one was.
+ * refuses to run at all while one is unanswered, and stops at a decision for a
+ * row that is not ambiguous rather than drop it here. A row that shares a new
+ * person with an earlier row follows that row, and is skipped when the earlier
+ * one was.
  */
 function resolveTarget(
   row: PlannedRow,

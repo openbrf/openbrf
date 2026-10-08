@@ -1,3 +1,4 @@
+import { APP_BASE_PATH } from "../routes/authorization-request";
 import { authClient } from "./auth-client";
 
 /**
@@ -56,6 +57,24 @@ function toFailure(error: { code?: string | undefined }): SignInOutcome {
   return { status: "failed", code: code ?? "unknown" };
 }
 
+/*
+ * The auth client resolves with `error` for anything the server answered, but
+ * rejects when the request itself fails - offline, or a dropped connection.
+ * Every form awaiting one of these would then stay on "working" for good, so a
+ * rejection is read as an answer without a code, which is the generic failure.
+ */
+const UNANSWERED = { data: null, error: {} } as const;
+
+async function answered<T>(
+  request: () => Promise<T>,
+): Promise<T | typeof UNANSWERED> {
+  try {
+    return await request();
+  } catch {
+    return UNANSWERED;
+  }
+}
+
 /**
  * Signs in with an email address and password.
  *
@@ -67,10 +86,12 @@ export async function signInWithPassword(input: {
   email: string;
   password: string;
 }): Promise<SignInOutcome> {
-  const { data, error } = await authClient.signIn.email({
-    email: input.email,
-    password: input.password,
-  });
+  const { data, error } = await answered(() =>
+    authClient.signIn.email({
+      email: input.email,
+      password: input.password,
+    }),
+  );
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
@@ -90,9 +111,11 @@ export async function signInWithPassword(input: {
 export async function verifySecondFactor(input: {
   code: string;
 }): Promise<SignInOutcome> {
-  const { error } = await authClient.twoFactor.verifyTotp({
-    code: input.code,
-  });
+  const { error } = await answered(() =>
+    authClient.twoFactor.verifyTotp({
+      code: input.code,
+    }),
+  );
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
@@ -118,17 +141,19 @@ export async function signInWithPasskey(): Promise<SignInOutcome> {
     return { status: "failed", code: "passkey-cancelled" };
   }
 
-  const result = await authClient.signIn.passkey();
+  const result = await answered(() => authClient.signIn.passkey());
   const error = result?.error;
   if (error !== null && error !== undefined) {
-    // Better Auth reports a dismissed or timed-out WebAuthn prompt with no
-    // HTTP status, because no request was ever made.
-    if (error.status === 0 || error.status === undefined) {
-      return { status: "failed", code: "passkey-cancelled" };
-    }
     // The passkey endpoints answer with a bare HTTP status on some paths and
     // with a named code on others, so the code is read defensively.
-    return toFailure("code" in error ? { code: error.code } : {});
+    const code = "code" in error ? error.code : undefined;
+    // A prompt that produced no credential - dismissed, timed out or refused
+    // by the browser - comes back as a 400 with AUTH_CANCELLED or one of the
+    // WebAuthn library's ERROR_ codes, although no request was made.
+    if (code === "AUTH_CANCELLED" || code?.startsWith("ERROR_") === true) {
+      return { status: "failed", code: "passkey-cancelled" };
+    }
+    return toFailure({ code });
   }
   return { status: "signed-in" };
 }
@@ -143,17 +168,28 @@ export async function signInWithPasskey(): Promise<SignInOutcome> {
  * that account has a second factor. The refusal is explained in an email to the
  * mailbox owner, so the copy shown here says a link has been sent *if* the
  * address is known rather than promising one unconditionally.
+ *
+ * `destination` is where the link lands once opened, as an address under this
+ * application; the start of the application unless the caller says otherwise.
  */
 export async function requestMagicLink(input: {
   email: string;
+  destination?: string;
 }): Promise<SignInOutcome> {
-  const { error } = await authClient.signIn.magicLink({
-    email: input.email,
-    // Where the verification lands. Better Auth's magic-link plugin has no
-    // instance-wide default for this, and its own is the origin's root - which
-    // is the association's public website, not the application.
-    callbackURL: "/app",
-  });
+  const { error } = await answered(() =>
+    authClient.signIn.magicLink({
+      email: input.email,
+      // Where the verification lands. Better Auth's magic-link plugin has no
+      // instance-wide default for this, and its own is the origin's root - which
+      // is the association's public website, not the application.
+      //
+      // The plugin decodes the address once more than it encodes it, which
+      // would turn a consent screen's `client_id=https%3A%2F%2F...` into
+      // `client_id=https://...` and break the request's signature. Escaping
+      // the percent signs here is what that extra decode takes off again.
+      callbackURL: (input.destination ?? APP_BASE_PATH).replaceAll("%", "%25"),
+    }),
+  );
 
   if (error !== null && error !== undefined) {
     return toFailure(error);
