@@ -17,6 +17,7 @@ const FAILURES: Record<string, TranslationKey> = {
   "file-empty": "import.errors.fileEmpty",
   "file-too-large": "import.errors.fileTooLarge",
   "file-unreadable": "import.errors.fileUnreadable",
+  "file-mixed-encoding": "import.errors.fileMixedEncoding",
   "too-many-rows": "import.errors.tooManyRows",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
@@ -29,6 +30,8 @@ const FAILURES: Record<string, TranslationKey> = {
   "ambiguous-rows-undecided": "import.errors.ambiguousRowsUndecided",
   "decision-not-a-candidate": "import.errors.decisionNotACandidate",
   "apply-interrupted": "import.errors.applyInterrupted",
+  "apply-abandoned": "import.errors.applyAbandoned",
+  "session-not-running": "import.errors.sessionNotRunning",
 };
 
 export function failureMessage(reason: string): TranslationKey {

@@ -37,7 +37,48 @@
  * matter here (ISO-8859-1 and Windows-1252).
  */
 
-import { CONTROL_CHARACTERS, oneLine } from "../mail/header-text";
+import {
+  CONTROL_CHARACTERS,
+  hasControlCharacter,
+  oneLine,
+} from "../mail/header-text";
+import { prefix } from "../text/prefix";
+
+/**
+ * How much of one letter is read.
+ *
+ * Long enough for anything a person writes to their board, and short enough that
+ * a machine-generated message with a megabyte of quoted history does not become
+ * a row nothing can render. What is cut is recorded on the message, so the board
+ * is told it is reading part of a letter rather than shown a truncated one that
+ * reads as complete.
+ */
+export const MAX_TEXT_CHARACTERS = 20_000;
+
+/**
+ * How much of a body's decoded text is read to produce that much.
+ *
+ * A body is as long as the sender chose, up to the size the collector will
+ * fetch, and every pass below runs over all of it. None of them costs more than
+ * the length of what it is given, and this is what keeps that length the
+ * reader's choice rather than the sender's: a letter is stored at
+ * MAX_TEXT_CHARACTERS, so there is no reason to read ten mebibytes of it. Four
+ * times as much, because an HTML letter spends characters on markup and
+ * entities that are not text, and a plain one on line endings and control
+ * characters that are dropped.
+ */
+const MAX_BODY_INPUT = 4 * MAX_TEXT_CHARACTERS;
+
+/**
+ * How many of a body's bytes are decoded to produce that much text.
+ *
+ * The cut above bounds the passes over the text, but the transfer and charset
+ * decoding before it would still run over every byte the sender sent. This
+ * bounds them too, with room for the most a character can cost: four bytes in
+ * any charset the decoder knows, three times that written as quoted-printable,
+ * and a margin for the line breaks around it.
+ */
+const MAX_BODY_BYTES = 16 * MAX_BODY_INPUT;
 
 /** One file that arrived attached to a message. */
 export interface MimeAttachment {
@@ -79,8 +120,16 @@ export interface ParsedMessage {
    * the caller decides how far to trust it.
    */
   readonly date: Date | null;
-  /** The message as text, with newlines normalised. */
+  /**
+   * The message as text, with newlines normalised, and at most
+   * {@link MAX_TEXT_CHARACTERS} of it.
+   */
   readonly text: string;
+  /**
+   * Whether the letter held more than {@link text} gives: its text ran past the
+   * bound, or its body was longer than the reader reads.
+   */
+  readonly textTruncated: boolean;
   /** Whether {@link text} was derived from an HTML part rather than sent as text. */
   readonly textFromHtml: boolean;
   readonly attachments: readonly MimeAttachment[];
@@ -130,6 +179,7 @@ export function readMessage(raw: Buffer): ParsedMessage {
       lastIdentifierFrom(part.headers.get("references") ?? ""),
     date: dateFrom(part.headers.get("date") ?? ""),
     text: body?.text ?? "",
+    textTruncated: body?.truncated ?? false,
     textFromHtml: body?.fromHtml ?? false,
     attachments: collectAttachments(part, body?.part ?? null),
   };
@@ -484,6 +534,7 @@ function trimLineBreak(body: Buffer, at: number): number {
 interface ChosenBody {
   readonly part: MimePart;
   readonly text: string;
+  readonly truncated: boolean;
   readonly fromHtml: boolean;
 }
 
@@ -500,10 +551,7 @@ interface ChosenBody {
 function chooseBody(part: MimePart): ChosenBody | null {
   if (part.children !== null) {
     if (part.contentType.subtype === "alternative") {
-      return (
-        lastBody(part.children, (candidate) => candidate.fromHtml === false) ??
-        lastBody(part.children, () => true)
-      );
+      return lastBody(part.children);
     }
     for (const child of part.children) {
       const chosen = chooseBody(child);
@@ -519,33 +567,58 @@ function chooseBody(part: MimePart): ChosenBody | null {
   }
 
   const charset = part.contentType.parameters.get("charset") ?? "utf-8";
-  const decoded = decodeBytes(decodeTransfer(part), charset);
+  const cut = part.body.length > MAX_BODY_BYTES;
+  const decoded = decodeBytes(
+    decodeTransfer(
+      cut ? { ...part, body: part.body.subarray(0, MAX_BODY_BYTES) } : part,
+    ),
+    charset,
+  );
+  const read = prefix(decoded, MAX_BODY_INPUT);
 
-  if (part.contentType.subtype === "html") {
-    return { part, text: htmlToText(decoded), fromHtml: true };
-  }
+  const fromHtml = part.contentType.subtype === "html";
+  const text = fromHtml
+    ? htmlToText(read)
+    : withoutControlCharacters(normaliseNewlines(read));
+
   return {
     part,
-    text: withoutControlCharacters(normaliseNewlines(decoded)),
-    fromHtml: false,
+    text: prefix(text, MAX_TEXT_CHARACTERS),
+    // Either cut counts. A body cut before it was read can still come out
+    // shorter than the bound - an HTML letter whose text sat behind its markup -
+    // and the board is owed the same notice for it.
+    truncated:
+      cut || read.length < decoded.length || text.length > MAX_TEXT_CHARACTERS,
+    fromHtml,
   };
 }
 
-function lastBody(
-  children: readonly MimePart[],
-  accept: (candidate: ChosenBody) => boolean,
-): ChosenBody | null {
+/**
+ * The body of a `multipart/alternative`: the last plain-text child, or else the
+ * last child with a body at all.
+ *
+ * One pass, reading each child once. Two passes - one for plain text, one for
+ * anything - would read every child of an HTML-only alternative twice, and an
+ * alternative nested inside another as often as the sender cares to: twenty
+ * levels, the most the walk allows, read the HTML at the bottom a million times.
+ */
+function lastBody(children: readonly MimePart[]): ChosenBody | null {
+  let last: ChosenBody | null = null;
   for (let index = children.length - 1; index >= 0; index -= 1) {
     const child = children[index];
     if (child === undefined) {
       continue;
     }
     const chosen = chooseBody(child);
-    if (chosen !== null && accept(chosen)) {
+    if (chosen === null) {
+      continue;
+    }
+    if (!chosen.fromHtml) {
       return chosen;
     }
+    last ??= chosen;
   }
-  return null;
+  return last;
 }
 
 /**
@@ -612,7 +685,10 @@ function fileNameOf(part: MimePart, position: number): string {
      */
     const segments = decoded.split(/[/\\]/);
     const last = segments[segments.length - 1] ?? "";
-    const cleaned = last.replaceAll(CONTROL_CHARACTERS, "").trim();
+    const cleaned = last
+      .replaceAll(CONTROL_CHARACTERS, "")
+      .replaceAll(BIDI_CONTROLS, "")
+      .trim();
     if (cleaned !== "" && cleaned !== "." && cleaned !== "..") {
       return cleaned.slice(0, 200);
     }
@@ -620,6 +696,16 @@ function fileNameOf(part: MimePart, position: number): string {
 
   return `bilaga-${String(position + 1)}`;
 }
+
+/**
+ * The characters that reorder the text around them without being seen.
+ *
+ * In a file name they are a spoof and nothing else: a right-to-left override
+ * shows `invoice\u202Efdp.exe` as "invoiceexe.pdf", and a board member decides
+ * whether to open an attachment by its name. The embeddings, overrides and
+ * isolates, and the three invisible marks that set a direction.
+ */
+const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g;
 
 // ---------------------------------------------------------------------------
 // Encodings.
@@ -753,10 +839,15 @@ export function addressFrom(raw: string): string | null {
   const angled = /<([^<>]*)>/.exec(raw);
   const candidate = (angled?.[1] ?? raw).trim().replaceAll(/^["']|["']$/g, "");
 
-  // One "@" with something either side, and no whitespace. Deliberately not a
-  // full RFC 5322 address grammar: what this decides is whether the value can be
-  // stored and replied to, and the mail server is the authority on the rest.
-  return /^[^\s@]+@[^\s@]+$/.test(candidate) ? candidate.toLowerCase() : null;
+  // One "@" with something either side, and no whitespace or other control
+  // character. Deliberately not a full RFC 5322 address grammar: what this
+  // decides is whether the value can be stored and replied to, and the mail
+  // server is the authority on the rest. A control character is refused here
+  // rather than left to it, because the address becomes the recipient of the
+  // board's answer, and what a mail server makes of one is its own business.
+  return /^[^\s@]+@[^\s@]+$/.test(candidate) && !hasControlCharacter(candidate)
+    ? candidate.toLowerCase()
+    : null;
 }
 
 /** The display name out of a From header, decoded, or null. */

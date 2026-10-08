@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,11 +20,13 @@ import { SettingsScreen } from "./SettingsScreen";
 
 const fetchSettings = vi.fn();
 const fetchAddresses = vi.fn();
+const saveSmtp = vi.fn();
 
 vi.mock("../api/instance", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/instance")>()),
   fetchSettings: () => fetchSettings(),
   fetchAddresses: () => fetchAddresses(),
+  saveSmtp: (input: unknown) => saveSmtp(input),
 }));
 
 // The queue self-loads. This file is about which panels a viewer is offered,
@@ -176,6 +179,7 @@ const issueTypesHeading = () =>
 beforeEach(() => {
   fetchSettings.mockReset().mockResolvedValue({ ok: true, value: SETTINGS });
   fetchAddresses.mockReset().mockResolvedValue({ ok: true, value: [] });
+  saveSmtp.mockReset();
 });
 
 describe("a resident", () => {
@@ -396,5 +400,41 @@ describe("a failed load", () => {
     await waitFor(() => {
       expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
     });
+  });
+});
+
+describe("a panel that a save rebuilds", () => {
+  it("keeps focus in the same field when the SMTP host changes and the panel is keyed on it", async () => {
+    // The panel is keyed on the host, so the save that changes it builds the
+    // panel again and the field that had focus is gone with the old one.
+    const user = userEvent.setup();
+    const saved = {
+      ...SETTINGS.smtp,
+      host: "smtp.nytt.se",
+    };
+    saveSmtp.mockResolvedValue({ ok: true, value: saved });
+    renderScreen([
+      "association:read",
+      "association:manage",
+      "addressBook:read",
+      "addressBook:write",
+      "self:manage",
+    ]);
+
+    const host = await screen.findByLabelText<HTMLInputElement>(/^server$/i);
+    await user.clear(host);
+    await user.type(host, "smtp.nytt.se");
+    fetchSettings.mockResolvedValue({
+      ok: true,
+      value: { ...SETTINGS, smtp: saved },
+    });
+    await user.type(host, "{Enter}");
+
+    await waitFor(() => {
+      expect(host.isConnected).toBe(false);
+    });
+    const rebuilt = screen.getByLabelText<HTMLInputElement>(/^server$/i);
+    expect(rebuilt.value).toBe("smtp.nytt.se");
+    expect(document.activeElement).toBe(rebuilt);
   });
 });

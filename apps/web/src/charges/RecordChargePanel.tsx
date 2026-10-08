@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
@@ -13,6 +13,7 @@ import {
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
+import { LockedForm } from "../ui/LockedForm";
 import { chargeFailureKey, refusedIdentityNumbers } from "./charge-failures";
 import type { ChargeablePerson, ChargeParties } from "./charge-parties";
 import {
@@ -99,6 +100,8 @@ export function RecordChargePanel({
   const [vatRatePercent, setVatRatePercent] = useState("");
   const [handedToManagerOn, setHandedToManagerOn] = useState("");
 
+  const amountRef = useRef<HTMLInputElement>(null);
+
   const { state, submit } = useSaveAction(recordCharge, (row) => {
     // The party and the date stay: a board recording a batch of charges enters
     // several against one day, and clearing them would make the second one a
@@ -107,6 +110,8 @@ export function RecordChargePanel({
     setReason("");
     onRecorded(row);
   });
+
+  const saving = state.kind === "saving";
 
   const chosen = partyKind === "person" ? personId : apartmentId;
 
@@ -117,10 +122,11 @@ export function RecordChargePanel({
         <p className={HINT}>{t("charges.record.description")}</p>
       </div>
 
-      <form
+      <LockedForm
+        locked={saving}
+        focusFallback={amountRef}
         className="flex flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        onSend={() => {
           void submit({
             personId: partyKind === "person" ? personId : null,
             apartmentId: partyKind === "apartment" ? apartmentId : null,
@@ -225,6 +231,7 @@ export function RecordChargePanel({
           <label className={LABEL}>
             {t("charges.record.amount")}
             <input
+              ref={amountRef}
               type="text"
               inputMode="decimal"
               value={amount}
@@ -311,12 +318,10 @@ export function RecordChargePanel({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={state.kind === "saving" || chosen === ""}
+            disabled={saving || chosen === ""}
             className={PRIMARY_BUTTON}
           >
-            {state.kind === "saving"
-              ? t("charges.record.saving")
-              : t("charges.record.submit")}
+            {saving ? t("charges.record.saving") : t("charges.record.submit")}
           </button>
           {state.kind === "saved" ? (
             <span role="status" className={HINT}>
@@ -335,7 +340,7 @@ export function RecordChargePanel({
               : null}
           </Notice>
         ) : null}
-      </form>
+      </LockedForm>
     </section>
   );
 }

@@ -5,16 +5,17 @@ import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { lockMenu } from "./menu-lock";
 import {
   imageReferences,
   type PageContent,
   pageTextParts,
   readPageContent,
 } from "./page-content";
-import { isUsableSlug } from "./pages.service";
+import { isUsableSlug, PRIVACY_NOTICE_SLUG } from "./pages.service";
 
 /**
  * Where in a page a refused value sits.
@@ -280,21 +281,38 @@ export class PagesWriteService {
    * ceiling alone is 200 blocks of 200 runs of 5000 characters.
    *
    * Summary rows, so reading a body is a second, deliberate call.
+   *
+   * The cursor is the position of the last page returned rather than the
+   * page itself. A cursor naming a row answers nothing once that row is gone:
+   * a caller paging through while somebody deleted the page it stopped at was
+   * told the list had ended, and silently missed every page after it.
    */
   async listSummaries(options: {
     limit: number;
     cursor?: string | undefined;
     publishedOnly?: boolean | undefined;
   }): Promise<{ pages: PageSummary[]; nextCursor: string | null }> {
+    const after =
+      options.cursor === undefined ? null : readPageCursor(options.cursor);
+
     // One more than asked for, so "is there another page" is answered by the
     // read rather than by a second count query.
     const rows = await this.prisma.page.findMany({
-      where: options.publishedOnly === true ? { published: true } : {},
+      where: {
+        ...(options.publishedOnly === true ? { published: true } : {}),
+        // Everything after that position in the order below, whether or not
+        // the page that stood there still does.
+        ...(after === null
+          ? {}
+          : {
+              OR: [
+                { sortOrder: { gt: after.sortOrder } },
+                { sortOrder: after.sortOrder, id: { gt: after.id } },
+              ],
+            }),
+      },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
       take: options.limit + 1,
-      ...(options.cursor === undefined
-        ? {}
-        : { cursor: { id: options.cursor }, skip: 1 }),
       select: {
         id: true,
         slug: true,
@@ -309,6 +327,7 @@ export class PagesWriteService {
     });
 
     const page = rows.slice(0, options.limit);
+    const last = page.at(-1);
     return {
       pages: page.map((row) => ({
         id: row.id,
@@ -322,7 +341,9 @@ export class PagesWriteService {
         updatedAt: row.updatedAt.toISOString(),
       })),
       nextCursor:
-        rows.length > options.limit ? (page.at(-1)?.id ?? null) : null,
+        rows.length > options.limit && last !== undefined
+          ? `${String(last.sortOrder)}:${last.id}`
+          : null,
     };
   }
 
@@ -341,19 +362,30 @@ export class PagesWriteService {
     await this.requireFreeSlug(input.slug, null);
 
     const row = await this.prisma.$transaction(async (tx) => {
-      const highest = await tx.page.aggregate({ _max: { sortOrder: true } });
-
-      const created = await tx.page.create({
-        data: {
-          slug: input.slug,
-          title: input.title,
-          content: asJson(input.content),
-          visibility: input.visibility,
-          published: false,
-          sortOrder: (highest._max.sortOrder ?? 0) + 1,
-        },
-        select: PAGE_COLUMNS,
+      /*
+       * After the last page, not counting the privacy notice, so the notice
+       * stays at the end of the board's list where it was seeded. The root's
+       * fallback leaves the notice out by its slug, so this placement is about
+       * the list and not about which page is the front page.
+       */
+      const highest = await tx.page.aggregate({
+        where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+        _max: { sortOrder: true },
       });
+
+      const created = await tx.page
+        .create({
+          data: {
+            slug: input.slug,
+            title: input.title,
+            content: asJson(input.content),
+            visibility: input.visibility,
+            published: false,
+            sortOrder: (highest._max.sortOrder ?? 0) + 1,
+          },
+          select: PAGE_COLUMNS,
+        })
+        .catch(refuseTakenSlug(input.slug));
 
       await this.audit.record(
         {
@@ -436,7 +468,7 @@ export class PagesWriteService {
             revision: { increment: 1 },
           },
         }),
-      );
+      ).catch(refuseTakenSlug(input.slug));
     }
 
     /*
@@ -458,7 +490,7 @@ export class PagesWriteService {
           revision: { increment: 1 },
         },
       }),
-    );
+    ).catch(refuseTakenSlug(input.slug));
   }
 
   /**
@@ -774,9 +806,21 @@ export class PagesWriteService {
    * The precondition matters most here of the four writes that take one,
    * because this is the one with nothing to read again afterwards: a board
    * member deleting a page on the strength of a copy somebody else has since
-   * rewritten is deleting work they never saw. `deleteMany` rather than
-   * `delete`, so the revision can sit in the predicate and a claim that matches
-   * nothing is a refusal rather than a thrown record-not-found.
+   * rewritten is deleting work they never saw. The revision sits in the
+   * delete's own predicate, so a claim that matches nothing is a refusal.
+   *
+   * Whether the page was published is read off the row the delete took rather
+   * than off the read above. A page published between the two would otherwise
+   * leave the website with no entry saying so - the one record ADR 0006 asks
+   * of every publication change.
+   *
+   * The page's menu entries go with it, by cascade, and so do the entries
+   * hanging under them. Each entry pointing at the page is recorded as the
+   * removal it is, with how many hung under it, exactly as the menu's own
+   * removal records one: every menu write is audited, and this is one reached
+   * through the page rather than through the menu. The menu lock is what makes
+   * the record true - nothing can be hung under those entries, or pointed at
+   * this page, between the read that finds them and the delete that takes them.
    */
   async remove(
     id: string,
@@ -786,40 +830,81 @@ export class PagesWriteService {
     },
     actor: ActorContext,
   ): Promise<void> {
-    const page = await this.require(id);
+    await this.require(id);
 
-    await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.page.deleteMany({
-        where: {
-          id,
-          ...(input.expectedRevision === undefined
-            ? {}
-            : { revision: input.expectedRevision }),
+    const removed = await this.prisma.$transaction(async (tx) => {
+      await lockMenu(tx);
+      const entries = await tx.menuItem.findMany({
+        where: { pageId: id },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          kind: true,
+          _count: { select: { children: true } },
         },
       });
 
-      if (claimed.count === 0) {
-        throw new PageWriteError(
-          "The page changed after it was read.",
-          "page-changed",
-        );
+      let deleted: { slug: string; published: boolean };
+      try {
+        deleted = await tx.page.delete({
+          where: {
+            id,
+            ...(input.expectedRevision === undefined
+              ? {}
+              : { revision: input.expectedRevision }),
+          },
+          select: { slug: true, published: true },
+        });
+      } catch (cause) {
+        // Nothing matched: the page is not the one the caller read, or it is
+        // no longer there at all.
+        if (
+          cause instanceof Prisma.PrismaClientKnownRequestError &&
+          cause.code === "P2025"
+        ) {
+          throw new PageWriteError(
+            "The page changed after it was read.",
+            "page-changed",
+          );
+        }
+        throw cause;
       }
 
-      if (page.published) {
+      if (deleted.published) {
         await this.audit.record(
           {
             action: "PAGE_PUBLISHED",
             ...auditActor(actor),
             targetKind: "page",
             targetId: id,
-            context: { slug: page.slug, published: false, deleted: true },
+            context: { slug: deleted.slug, published: false, deleted: true },
           },
           tx,
         );
       }
+
+      for (const entry of entries) {
+        await this.audit.record(
+          {
+            action: "MENU_ITEM_REMOVED",
+            ...auditActor(actor),
+            targetKind: "menuItem",
+            targetId: entry.id,
+            context: {
+              kind: entry.kind,
+              childrenRemoved: entry._count.children,
+              // Why it went, since nobody removed it from the menu itself.
+              withPage: id,
+            },
+          },
+          tx,
+        );
+      }
+
+      return deleted;
     });
 
-    this.logger.log(`Removed the page at /${page.slug}`);
+    this.logger.log(`Removed the page at /${removed.slug}`);
   }
 
   /**
@@ -990,6 +1075,50 @@ export class PagesWriteService {
       );
     }
   }
+}
+
+/**
+ * Answers a lost race for an address with the refusal `requireFreeSlug` gives.
+ *
+ * The read there narrows the window and the unique index closes it. Two
+ * creates or renames to one address at the same moment both pass the read, and
+ * the second write raises P2002 - which, unanswered, reaches the caller as a
+ * 500 for a conflict its client already knows how to show.
+ */
+function refuseTakenSlug(slug: string): (cause: unknown) => never {
+  return (cause) => {
+    if (
+      cause instanceof Prisma.PrismaClientKnownRequestError &&
+      cause.code === "P2002"
+    ) {
+      throw new PageWriteError(
+        `The address /${slug} is already a page.`,
+        "slug-taken",
+      );
+    }
+    throw cause;
+  };
+}
+
+/**
+ * The position a `listSummaries` cursor names: a sort order and an id.
+ *
+ * Refused as a page that is not there when it is not one this service wrote,
+ * rather than read as the start of the list - which would hand a caller that
+ * sent a stale or mangled cursor the first pages again as if they were the
+ * next ones.
+ */
+function readPageCursor(cursor: string): { sortOrder: number; id: string } {
+  const match = /^(-?\d{1,10}):([^:]+)$/.exec(cursor);
+  const sortOrder = Number(match?.[1]);
+  const id = match?.[2];
+  if (id === undefined || !Number.isSafeInteger(sortOrder)) {
+    throw new PageWriteError(
+      "There is no such place in the list of pages. Start it again without a cursor.",
+      "not-found",
+    );
+  }
+  return { sortOrder, id };
 }
 
 /** The blocks at these positions, as the one location shape. */

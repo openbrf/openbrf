@@ -1,14 +1,43 @@
 # The production stack: one application container and one database, per
-# decision 32. This is the file a housing cooperative runs.
+# decision 32, and two containers that run the deploy steps on every `up` and
+# exit. This is the file a housing cooperative runs.
 #
 #   cp .env.production.example .env.production
-#   # fill in the four secrets it asks for, and the release line to run
+#   # fill in the five secrets it asks for, and the release line to run
 #   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 #
 # The project name is set here so a production stack can never share containers
 # or volumes with the development database in docker-compose.yml, which lives
 # in the same checkout and uses the service name "db" as well.
 name: openbrf-prod
+
+# The one image the instance's own three services run: schema-owner and migrate
+# with those commands, the application with its default one. The published
+# image, at the release line or the exact version OPENBRF_VERSION names: `0.1`
+# follows that line's patch releases on every `pull`, `0.1.0` stays where it is
+# (docs/deployment.md, "Versions and upgrades").
+x-openbrf-image: &openbrf-image
+  image: ghcr.io/openbrf/openbrf:${OPENBRF_VERSION:?set OPENBRF_VERSION to the release line to run, for example 0.1}
+
+# None of the instance's own containers needs a capability, a privilege it
+# could gain through a setuid binary, or a root filesystem it can write: the
+# code is the image's, and /data is the only place any of them writes. /tmp is
+# a tmpfs for the npm cache the plugin install job uses and for scratch files.
+x-openbrf-hardening: &openbrf-hardening
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+# The two deploy steps run once and exit, so the image's health check, which
+# asks a server they never start, has nothing to say about them.
+x-openbrf-one-shot: &openbrf-one-shot
+  restart: "no"
+  healthcheck:
+    disable: true
 
 services:
   db:
@@ -17,9 +46,20 @@ services:
     image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     restart: unless-stopped
     environment:
+      # The database's superuser. Its password goes to this container and to
+      # the schema-owner service, which runs one script and exits: the
+      # instance's other services connect as the schema owner and the runtime
+      # role, neither of which is a superuser. Optional here so that an
+      # instance on a database server of its own (docs/deployment.md) need not
+      # invent one; the image refuses to initialise an empty volume without it.
       POSTGRES_USER: openbrf
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       POSTGRES_DB: openbrf
+    # The image starts as root to prepare its data directory and then drops to
+    # the postgres user, so its capabilities stay; what it can be stopped from
+    # doing is gaining any back.
+    security_opt:
+      - no-new-privileges:true
     # No published port. The application reaches the database over the compose
     # network; nothing outside the host has any business connecting to it.
     volumes:
@@ -31,21 +71,95 @@ services:
       # exits before initialising.
       - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openbrf -d openbrf"]
+      # Over TCP, the way every other service connects. On a first start the
+      # image initialises the volume with a temporary server that listens on
+      # its socket alone, so a check over the socket could pass before anything
+      # on the network can connect.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U openbrf -d openbrf"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  # The schema owner: creates it, gives it the database, and sets its password,
+  # as the superuser (docker/schema-owner.sql). Runs on every `up`, before the
+  # migrate service, and changes nothing once the owner is in place but the
+  # password. This and the database are the only containers given the
+  # superuser's password.
+  schema-owner:
+    <<: [*openbrf-image, *openbrf-hardening, *openbrf-one-shot]
+    command: ["schema-owner"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+
+      # The parts rather than a connection URL, for the reason given on the
+      # migrate service.
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-openbrf}
+      POSTGRES_USER: ${POSTGRES_USER:-openbrf}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+
+      # The owner it creates, openbrf_owner unless OWNER_DB_USER names another,
+      # and the runtime role's name, so that it can refuse the two being one.
+      OWNER_DB_USER: ${OWNER_DB_USER:-}
+      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:?set OWNER_DB_PASSWORD in the env file}
+      RUNTIME_DB_ROLE: ${RUNTIME_DB_ROLE:-}
+
+  # The deploy steps: the field encryption key on a first boot, migrations, the
+  # job queue schema and the application's own database role, all as the schema
+  # owner. Runs on every `up`, does its work and exits; the application starts
+  # only once it has succeeded. This is the only container that is given the
+  # owner's password besides schema-owner, which sets it.
+  migrate:
+    <<: [*openbrf-image, *openbrf-hardening, *openbrf-one-shot]
+    command: ["migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+      schema-owner:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+
+      # The parts rather than the connection URLs: a password is a URL
+      # component, one holding :, /, @, ? or # has to be percent-encoded, and
+      # interpolation here cannot encode anything. The entrypoint assembles the
+      # URLs from these, encoding as it goes.
+      #
+      # The bundled database unless the env file names another server
+      # (docs/deployment.md, "Several instances on one database server").
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-openbrf}
+      OWNER_DB_USER: ${OWNER_DB_USER:-}
+      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:?set OWNER_DB_PASSWORD in the env file}
+
+      # The application's own role, which this service creates from the password
+      # and constrains - or, with DATABASE_URL_RUNTIME set instead, leaves to the
+      # operator who manages it. See the app service below. The role's name and
+      # the pool size it is limited by are explained there as well.
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
+      DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
+      RUNTIME_DB_ROLE: ${RUNTIME_DB_ROLE:-}
+      OPENBRF_DATABASE_POOL_SIZE: ${OPENBRF_DATABASE_POOL_SIZE:-}
+
+      # Read to tell a first boot from a missing key; see the app service.
+      OPENBRF_ENCRYPTION_KEY: ${OPENBRF_ENCRYPTION_KEY:-}
+    volumes:
+      # The field encryption key is generated here on a first boot.
+      - instance-data:/data
+
   app:
-    # The published image, at the release line or the exact version
-    # OPENBRF_VERSION names: `0.1` follows that line's patch releases on every
-    # `pull`, `0.1.0` stays where it is (docs/deployment.md, "Versions and
-    # upgrades").
-    image: ghcr.io/openbrf/openbrf:${OPENBRF_VERSION:?set OPENBRF_VERSION to the release line to run, for example 0.1}
+    <<: [*openbrf-image, *openbrf-hardening]
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -55,25 +169,16 @@ services:
       # produces links that go nowhere.
       APP_URL: ${APP_URL:?set APP_URL to the address this instance is reached at}
 
-      # Two roles, because a table owner can disable the triggers that keep the
-      # member register and the audit log append-only. The owner runs
-      # migrations; the application connects as the runtime role, openbrf_app
-      # unless RUNTIME_DB_ROLE names another.
+      # The application connects as the runtime role, never as the schema
+      # owner: a table owner can disable the triggers that keep the member
+      # register and the audit log append-only. No owner credential is given to
+      # this container, and its entrypoint refuses to start if one is.
       #
-      # The parts rather than the two connection URLs: a password is a URL
-      # component, one holding :, /, @, ? or # has to be percent-encoded, and
-      # interpolation here cannot encode anything. The entrypoint assembles
-      # both URLs from these, encoding as it goes.
-      #
-      # The bundled database unless the env file names another server: an
-      # instance on a shared server sets all four there and starts the app
-      # service alone (docs/deployment.md, "Several instances on one database
-      # server").
+      # The parts rather than the connection URL, for the reason given on the
+      # migrate service.
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-openbrf}
-      POSTGRES_USER: ${POSTGRES_USER:-openbrf}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the env file}
 
       # Two ways to give the application its own connection, and exactly one of
       # them has to arrive. Neither is required here, because requiring either
@@ -83,11 +188,13 @@ services:
       # what refuses a production start that has neither, and its message names
       # both, so the check stays in the one place that can see which arrived.
       #
-      # RUNTIME_DB_PASSWORD is the ordinary path: the entrypoint creates
-      # the runtime role from it and reapplies its constraints on every start.
+      # RUNTIME_DB_PASSWORD is the ordinary path: the migrate service creates
+      # the runtime role from it and reapplies its constraints on every deploy.
       # DATABASE_URL_RUNTIME is for an operator who manages that role
-      # themselves; the entrypoint leaves the role alone and uses the URL as
-      # written, so its password has to be percent-encoded already.
+      # themselves; the role is left alone and the URL used as written, so its
+      # password has to be percent-encoded already. Either way the application
+      # asks the database at start whether the role it connected as is a
+      # constrained one, and refuses to serve if it is not.
       RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
       DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
 
@@ -96,7 +203,9 @@ services:
       # whole server, so each instance there names its own. And the size of
       # the application's connection pool, ten unless set, out of the server's
       # max_connections (docs/deployment.md, "Several instances on one
-      # database server").
+      # database server"). The owner's name is here only so that the start can
+      # refuse a runtime role that is the owner.
+      OWNER_DB_USER: ${OWNER_DB_USER:-}
       RUNTIME_DB_ROLE: ${RUNTIME_DB_ROLE:-}
       OPENBRF_DATABASE_POOL_SIZE: ${OPENBRF_DATABASE_POOL_SIZE:-}
 
@@ -108,7 +217,7 @@ services:
       # that link can create the first administrator (ADR 0023).
       OPENBRF_SETUP_TOKEN_DIGEST: ${OPENBRF_SETUP_TOKEN_DIGEST:-}
 
-      # Left unset on purpose: the entrypoint generates a key into
+      # Left unset on purpose: the migrate service generates a key into
       # /data/keys on first boot and refuses to invent one afterwards. Set it
       # only when a hosting platform injects the key instead of mounting a
       # volume, and then keep the env file with the key's copies, out of the
@@ -165,7 +274,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-      # Migrations and the role hardening run before the server listens.
+      # Migrations and the role hardening have already run, in the migrate
+      # service, by the time this container starts.
       start_period: 90s
     # The job queue drains on SIGTERM rather than losing in-flight work.
     stop_grace_period: 30s

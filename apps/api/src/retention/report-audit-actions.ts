@@ -147,6 +147,7 @@ export const REPORT_AUDIT_ACTIONS = [
   "CHAT_GROUP_MEMBER_ADDED",
   "CHAT_GROUP_MEMBER_REMOVED",
   "CHAT_MESSAGE_STRUCK",
+  "IMPORT_ABANDONED",
 ] as const;
 
 export type ReportAuditAction = (typeof REPORT_AUDIT_ACTIONS)[number];
