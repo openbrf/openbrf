@@ -1,10 +1,13 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CipherSweet, EncryptedField, StringProvider } from "ciphersweet-js";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { EncryptionKeyProvider } from "../crypto/encryption-key.provider";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
+import { ImportPlannerService } from "../import/import-planner.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
   loadEnvForIntegrationTests,
@@ -145,5 +148,121 @@ describe("reindexing people at boot", () => {
     } finally {
       await prisma.person.delete({ where: { id } });
     }
+  });
+});
+
+describe("a number stored without its century", () => {
+  // 261201-1235 reads as 1926 until 1 December 2026 and as 2026 from then on.
+  const WRITTEN = "261201-1235";
+  const DAY_BEFORE = new Date(2026, 10, 30, 12);
+  const DAY_OF = new Date(2026, 11, 1, 12);
+  const id = `reindex-short-${suffix}`;
+  const addressId = `reindex-address-${suffix}`;
+  const street = `Omindexgatan ${suffix}`;
+
+  beforeAll(async () => {
+    // As a release before this one stored it: the value as entered, without
+    // its century, in the library's own format. Written with the library
+    // directly because the service no longer stores a number this way.
+    const legacy = new EncryptedField(
+      new CipherSweet(new StringProvider(EncryptionKeyProvider.resolve(env))),
+      "person",
+      "personalIdentityNumber",
+    );
+    await prisma.person.create({
+      data: {
+        id,
+        firstName: "Greta",
+        lastName: "Holm",
+        personalIdentityNumberCipher: await legacy.encryptValue(WRITTEN),
+        personalIdentityNumberIndex: "stale",
+        blindIndexVersion: 1,
+      },
+    });
+    await prisma.address.create({
+      data: {
+        id: addressId,
+        street,
+        number: "1",
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 931,
+      },
+    });
+    await prisma.apartment.create({
+      data: { id: `reindex-apartment-${suffix}`, addressId, number: "1101" },
+    });
+  });
+
+  afterAll(async () => {
+    vi.useRealTimers();
+    await prisma.person.deleteMany({ where: { id } });
+    await prisma.apartment.deleteMany({ where: { addressId } });
+    await prisma.address.deleteMany({ where: { id: addressId } });
+  });
+
+  it("is the same person on either side of the day it would flip", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+
+    // Reindexed the day before: the century it was read with goes into the
+    // ciphertext.
+    vi.setSystemTime(DAY_BEFORE);
+    await service.run();
+    const before = await prisma.person.findUniqueOrThrow({ where: { id } });
+    await expect(
+      encryption.decrypt(
+        "person.personalIdentityNumber",
+        before.personalIdentityNumberCipher ?? "",
+      ),
+    ).resolves.toBe(`19${WRITTEN}`);
+
+    // Reindexed again on the day itself, it is still that person.
+    vi.setSystemTime(DAY_OF);
+    await prisma.person.update({
+      where: { id },
+      data: { blindIndexVersion: 1 },
+    });
+    await service.run();
+    const after = await prisma.person.findUniqueOrThrow({ where: { id } });
+    expect(after.personalIdentityNumberIndex).toBe(
+      before.personalIdentityNumberIndex,
+    );
+
+    // And an import on that day finds them by the number with its century,
+    // while the ten digits alone, which now read as a newborn, are refused
+    // rather than matched to anyone.
+    const plan = await new ImportPlannerService(
+      prisma as unknown as PrismaService,
+      encryption,
+    ).plan({
+      rows: [
+        [`${street} 1`, "1101", "Greta Holm", `19${WRITTEN}`],
+        [`${street} 1`, "1101", "Greta Holm", WRITTEN],
+      ],
+      columnCount: 4,
+      mapping: [
+        "addressLabel",
+        "apartmentNumber",
+        "fullName",
+        "personalIdentityNumber",
+      ],
+      defaultRole: "MEMBER",
+      defaultMovedInOn: "2026-01-01",
+      indexEveryIdentityNumber: false,
+      indexes: new Map(),
+    });
+    expect(plan.rows[0]).toMatchObject({
+      matchedBy: "personalIdentityNumber",
+      matchedPersonId: id,
+    });
+    expect(plan.rows[1]).toMatchObject({
+      outcome: "error",
+      problems: [
+        {
+          field: "personalIdentityNumber",
+          reason: "personal-identity-number-needs-century",
+        },
+      ],
+    });
   });
 });

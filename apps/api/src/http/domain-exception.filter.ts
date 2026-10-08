@@ -216,6 +216,7 @@ function personStatus(reason: PersonError["reason"]): number {
       return HttpStatus.NOT_FOUND;
     case "invalid-email":
     case "invalid-personal-identity-number":
+    case "personal-identity-number-needs-century":
       return HttpStatus.BAD_REQUEST;
     case "field-not-masked":
       // The request was understood and refused on its merits: there is nothing

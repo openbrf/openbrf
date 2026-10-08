@@ -31,7 +31,9 @@ export {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 export type {
   PersonalIdentityNumberMatch,

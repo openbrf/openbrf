@@ -4,6 +4,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import {
   type EncryptedFieldId,
+  type EncryptedValue,
   FieldEncryptionService,
 } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
@@ -28,6 +29,13 @@ const BATCH = 100;
  * duplicate check misses them. Only the application holds the key, so the indexes are
  * recomputed here, from the ciphertexts, which hold each value as entered. The
  * email is left alone because its rules have not changed.
+ *
+ * A personal identity number is encrypted again as well. One entered without
+ * its century was stored that way, and an index computed from it holds only
+ * until the day it is read on passes the birthday it carries: from then on the
+ * same digits are read as another person. So the century it is read with now is
+ * written into the ciphertext, the form every number has been stored in since,
+ * and a later reindex reads the same person from it whatever the date.
  *
  * A row records the version it was indexed under, and one below
  * NORMALIZATION_VERSION is what this looks for, so a run that finds nothing
@@ -79,14 +87,16 @@ export class PersonReindexService implements OnModuleInit {
         break;
       }
       for (const person of people) {
+        const identityNumber = await this.reencrypt(
+          "person.personalIdentityNumber",
+          person.personalIdentityNumberCipher,
+        );
         const { count } = await this.prisma.person.updateMany({
           where: person,
           data: {
             phoneIndex: await this.indexOf("person.phone", person.phoneCipher),
-            personalIdentityNumberIndex: await this.indexOf(
-              "person.personalIdentityNumber",
-              person.personalIdentityNumberCipher,
-            ),
+            personalIdentityNumberCipher: identityNumber?.cipher ?? null,
+            personalIdentityNumberIndex: identityNumber?.index ?? null,
             blindIndexVersion: NORMALIZATION_VERSION,
           },
         });
@@ -99,6 +109,16 @@ export class PersonReindexService implements OnModuleInit {
       );
     }
     return reindexed;
+  }
+
+  /** Encrypted again in the form encrypt stores it today, with its index. */
+  private async reencrypt(
+    id: EncryptedFieldId,
+    cipher: string | null,
+  ): Promise<EncryptedValue | null> {
+    return cipher === null
+      ? null
+      : this.encryption.encrypt(id, await this.encryption.decrypt(id, cipher));
   }
 
   private async indexOf(

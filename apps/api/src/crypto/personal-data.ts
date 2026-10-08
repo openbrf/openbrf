@@ -24,7 +24,9 @@ export {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "@openbrf/shared";
 export type {
   PersonalIdentityNumberMatch,
@@ -37,7 +39,9 @@ export type {
  * indexes from an older rule set.
  *
  * 2: a ten-digit personal identity number's century is judged by the whole
- * birth date, and a phone number's trunk zero after +46 is dropped.
+ * birth date, and a phone number's trunk zero after +46 is dropped. A personal
+ * identity number is stored with the century it was read with, so the reindex
+ * writes that century into the ciphertexts stored under version 1.
  */
 export const NORMALIZATION_VERSION = 2;
 

@@ -4,7 +4,9 @@ import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 
 /**
@@ -71,6 +73,73 @@ describe("normalizePersonalIdentityNumber", () => {
   it("returns null rather than an unmatchable index for bad input", () => {
     expect(normalizePersonalIdentityNumber("nonsense", REFERENCE)).toBeNull();
     expect(normalizePersonalIdentityNumber("12121-1212", REFERENCE)).toBeNull();
+  });
+});
+
+describe("a number written without its century", () => {
+  // 261201-1235 is 1926 until 1 December 2026 and 2026 from then on.
+  const DAY_BEFORE = new Date(2026, 10, 30);
+  const DAY_OF = new Date(2026, 11, 1);
+
+  it("is stored with the century it was read with", () => {
+    expect(withPersonalIdentityNumberCentury("261201-1235", DAY_BEFORE)).toBe(
+      "19261201-1235",
+    );
+    expect(withPersonalIdentityNumberCentury(" 8112289874 ", REFERENCE)).toBe(
+      "198112289874",
+    );
+    // Already carrying one, or not a number at all: as it was.
+    expect(withPersonalIdentityNumberCentury("19811228-9874", REFERENCE)).toBe(
+      "19811228-9874",
+    );
+    expect(withPersonalIdentityNumberCentury("nonsense", REFERENCE)).toBe(
+      "nonsense",
+    );
+  });
+
+  it("is still the same person once the day it would flip has passed", () => {
+    // Stored the day before; looked up on the day itself.
+    const stored = withPersonalIdentityNumberCentury("261201-1235", DAY_BEFORE);
+    expect(normalizePersonalIdentityNumber(stored, DAY_OF)).toBe(
+      normalizePersonalIdentityNumber("19261201-1235", DAY_BEFORE),
+    );
+    // Read without a century on that day, the same digits are somebody else,
+    // which is why they are refused on either side of it.
+    expect(normalizePersonalIdentityNumber("261201-1235", DAY_OF)).toBe(
+      "202612011235",
+    );
+    expect(personalIdentityNumberNeedsCentury("261201-1235", DAY_BEFORE)).toBe(
+      true,
+    );
+    expect(personalIdentityNumberNeedsCentury("261201-1235", DAY_OF)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    // A year either side of the flip, the reading holds for a year.
+    ["261201-1235", "2025-11-30", false],
+    ["261201-1235", "2027-12-01", false],
+    // Born less than a year ago.
+    ["251201-1236", "2026-11-30", true],
+    // Turning 100 within a year, written without the plus.
+    ["270801-1230", "2026-08-27", true],
+    // A plus in the year it starts to apply, which read 18xx a year earlier.
+    ["261201+1235", "2026-08-27", true],
+    ["251201+1236", "2026-08-27", false],
+    ["811228-9874", "2026-08-27", false],
+    ["121212-1212", "2026-08-27", false],
+    // A century, or not a number at all, is never asked for one.
+    ["19261201-1235", "2026-11-30", false],
+    ["nonsense", "2026-08-27", false],
+  ])("asks for the century of %s on %s: %s", (written, on, needs) => {
+    const [year, month, day] = on.split("-").map(Number);
+    expect(
+      personalIdentityNumberNeedsCentury(
+        written,
+        new Date(year ?? 0, (month ?? 0) - 1, day),
+      ),
+    ).toBe(needs);
   });
 });
 
