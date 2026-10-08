@@ -71,3 +71,23 @@ export async function lockChatMessage(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`chat-message:${messageId}`}))`;
 }
+
+/**
+ * The lock a transaction takes before it counts what one person has written,
+ * or how many rooms they are in, and then adds to it.
+ *
+ * The write limits are a bound over a set of rows - a person's messages in the
+ * window, their memberships - and no row carries it, so a count taken outside
+ * the insert lets a burst of parallel requests each count under the limit and
+ * all be stored. Counting under this lock serialises one person's writes and
+ * nobody else's.
+ *
+ * Taken before any room's lock wherever a transaction takes both, so two
+ * transactions never wait on each other's locks in opposite orders.
+ */
+export async function lockChatPerson(
+  tx: Prisma.TransactionClient,
+  personId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`chat-person:${personId}`}))`;
+}

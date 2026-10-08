@@ -4,6 +4,7 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import {
   type PageContent,
   readPageContent,
@@ -13,6 +14,7 @@ import {
   NewsCommentError,
   type NewsCommentTextLocation,
 } from "./news-comment.error";
+import { lockNewsCommentAuthor } from "./news-comment-lock";
 
 /**
  * The longest comment this application stores.
@@ -512,10 +514,17 @@ export class NewsCommentService {
     actor: ActorContext,
   ): Promise<NewsCommentView> {
     const news = await this.requireCommentableNews(input.newsId);
-    await this.refuseTooManyComments(actor.personId);
+    await refuseTooManyComments(this.prisma, actor.personId);
     refusePersonalIdentityNumbers(input.body);
 
     const row = await this.prisma.$transaction(async (tx) => {
+      /*
+       * Counted again under the author's own lock, which is what makes the
+       * allowance a bound: parallel requests can all pass the count above.
+       */
+      await lockNewsCommentAuthor(tx, actor.personId);
+      await refuseTooManyComments(tx, actor.personId);
+
       const created = await tx.newsComment.create({
         data: {
           newsId: input.newsId,
@@ -698,20 +707,6 @@ export class NewsCommentService {
     return { id: news.id, slug: news.slug };
   }
 
-  /** Refuses a person who has written their allowance for the window. */
-  private async refuseTooManyComments(authorPersonId: string): Promise<void> {
-    const since = new Date(Date.now() - WRITE_WINDOW_MINUTES * 60 * 1000);
-    const written = await this.prisma.newsComment.count({
-      where: { authorPersonId, createdAt: { gte: since } },
-    });
-    if (written >= COMMENTS_PER_WRITE_WINDOW) {
-      throw new NewsCommentError(
-        "Too many comments in too short a time. Try again shortly.",
-        "too-many-comments",
-      );
-    }
-  }
-
   /** Every view in a thread, with the authors resolved in one read. */
   private async toViews(
     rows: readonly CommentRow[],
@@ -872,6 +867,23 @@ export function refusePersonalIdentityNumbers(body: string): void {
       "The comment carries a personal identity number and cannot be written.",
       "personal-identity-number",
       locations,
+    );
+  }
+}
+
+/** Refuses a person who has written their allowance for the window. */
+async function refuseTooManyComments(
+  db: Pick<Prisma.TransactionClient, "newsComment">,
+  authorPersonId: string,
+): Promise<void> {
+  const since = new Date(Date.now() - WRITE_WINDOW_MINUTES * 60 * 1000);
+  const written = await db.newsComment.count({
+    where: { authorPersonId, createdAt: { gte: since } },
+  });
+  if (written >= COMMENTS_PER_WRITE_WINDOW) {
+    throw new NewsCommentError(
+      "Too many comments in too short a time. Try again shortly.",
+      "too-many-comments",
     );
   }
 }

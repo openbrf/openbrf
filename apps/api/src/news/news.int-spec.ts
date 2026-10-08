@@ -19,7 +19,7 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import { NewsMailerService } from "./news-mailer.service";
+import { NEWS_MAILING_QUEUE, NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
 import { paragraphsContent } from "../site/page-content";
 import { NEWS_INDEX_PAGE_SIZE } from "../site/site-news.service";
@@ -104,6 +104,9 @@ const slugs = {
   mailed: `news-mailed-${suffix}`,
   raced: `news-raced-${suffix}`,
   abandoned: `news-abandoned-${suffix}`,
+  takenDown: `news-taken-down-${suffix}`,
+  pagedOlder: `news-paged-older-${suffix}`,
+  pagedNewer: `news-paged-newer-${suffix}`,
   texted: `news-texted-${suffix}`,
   smsUnconfigured: `news-sms-unconfigured-${suffix}`,
   smsAbandoned: `news-sms-abandoned-${suffix}`,
@@ -786,6 +789,40 @@ describe("the worker that mails it", () => {
     expect(ledger.every((one) => one.sentAt !== null)).toBe(true);
   });
 
+  it("holds a mailing while the item is down, and sends it once it is back up", async () => {
+    const item = await createNews(boardCookie, slugs.takenDown);
+    const actor = { personId: boardMember.personId, channel: "WEB" } as const;
+    await writes.publish(item.id, { published: true, sendEmail: true }, actor);
+
+    // Taken down to correct a typo before the worker got to it.
+    await writes.publish(item.id, { published: false }, actor);
+    expect(await mailer.runMailing(item.id)).toEqual({ sent: 0, failed: 0 });
+    const waiting = await prisma.newsDelivery.findMany({
+      where: { newsId: item.id },
+      select: { status: true },
+    });
+    expect(waiting.length).toBeGreaterThanOrEqual(1);
+    expect(waiting.every((one) => one.status === "PENDING")).toBe(true);
+    expect(await queuedMailings(item.id)).toBe(1);
+
+    // Put back up without asking again: the mailing was asked for once.
+    const republished = await writes.publish(
+      item.id,
+      { published: true },
+      actor,
+    );
+    expect(republished.mailedTo).toBeNull();
+    expect(await queuedMailings(item.id)).toBe(2);
+
+    const resumed = await mailer.runMailing(item.id);
+    expect(resumed.sent).toBe(waiting.length);
+    expect(
+      await prisma.newsDelivery.count({
+        where: { newsId: item.id, status: { not: "SENT" } },
+      }),
+    ).toBe(0);
+  });
+
   it("marks what is left of an abandoned mailing as interrupted", async () => {
     const item = await createNews(boardCookie, slugs.abandoned);
     await writes.publish(
@@ -811,6 +848,16 @@ describe("the worker that mails it", () => {
     ).toBe(true);
   });
 });
+
+/** How many email mailing jobs have been queued for one item. */
+async function queuedMailings(newsId: string): Promise<number> {
+  const rows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+    "SELECT count(*) AS count FROM pgboss.job WHERE name = $1 AND data->>'newsId' = $2",
+    NEWS_MAILING_QUEUE,
+    newsId,
+  );
+  return Number(rows[0]?.count ?? 0);
+}
 
 /**
  * Points the instance at the in-process gateway for the duration of one case.
@@ -1086,6 +1133,29 @@ describe("the worker that texts it", () => {
           one.failureReason === "mailing-interrupted",
       ),
     ).toBe(true);
+  });
+});
+
+describe("the list a connected app pages through", () => {
+  it("carries on past an item removed since the last page", async () => {
+    const older = await createNews(boardCookie, slugs.pagedOlder);
+    const newer = await createNews(boardCookie, slugs.pagedNewer);
+
+    const first = await writes.listSummaries({ limit: 1 });
+    expect(first.news[0]?.id).toBe(newer.id);
+    expect(first.nextCursor).not.toBeNull();
+
+    await removeNews(boardCookie, newer.id);
+
+    const second = await writes.listSummaries({
+      limit: 1,
+      cursor: first.nextCursor ?? "",
+    });
+    expect(second.news[0]?.id).toBe(older.id);
+
+    await expect(
+      writes.listSummaries({ limit: 1, cursor: newer.id }),
+    ).rejects.toMatchObject({ reason: "not-found" });
   });
 });
 
