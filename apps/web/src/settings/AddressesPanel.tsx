@@ -1,13 +1,14 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AddressView } from "../api/instance";
 import { createAddress, removeAddress } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, LABEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 export interface AddressesPanelProps {
   addresses: readonly AddressView[];
@@ -22,7 +23,13 @@ const ADDRESS_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "address-exists": "settings.addresses.errors.exists",
   "has-apartments": "settings.addresses.errors.hasApartments",
   "not-found": "settings.addresses.errors.notFound",
-  "invalid-body": "settings.addresses.errors.unknown",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  street: "settings.addresses.street",
+  number: "settings.addresses.number",
+  postalCode: "settings.addresses.postalCode",
+  city: "settings.addresses.city",
 };
 
 /**
@@ -40,6 +47,7 @@ export function AddressesPanel({
 }: AddressesPanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
+  const streetRef = useRef<HTMLInputElement>(null);
 
   const add = useSaveAction(createAddress, () => {
     setDraft(EMPTY);
@@ -54,8 +62,7 @@ export function AddressesPanel({
         ? remove.state.failure
         : null;
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const onSend = (): void => {
     void add.submit({
       street: draft.street.trim(),
       number: draft.number.trim(),
@@ -77,12 +84,12 @@ export function AddressesPanel({
       notice={
         failure === null ? null : (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                ADDRESS_FAILURES,
-                "settings.addresses.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              ADDRESS_FAILURES,
+              "settings.addresses.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         )
@@ -132,16 +139,21 @@ export function AddressesPanel({
       )}
 
       {editable ? (
-        <form
+        <LockedForm
+          locked={add.state.kind === "saving"}
+          focusFallback={streetRef}
           className="flex flex-col gap-4 border-t border-line pt-4"
-          onSubmit={onSubmit}
+          onSend={onSend}
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={LABEL}>
               {t("settings.addresses.street")}
               <input
+                ref={streetRef}
                 type="text"
                 name="street"
+                required
+                maxLength={200}
                 autoComplete="off"
                 value={draft.street}
                 onChange={(event) => {
@@ -156,6 +168,8 @@ export function AddressesPanel({
               <input
                 type="text"
                 name="streetNumber"
+                required
+                maxLength={20}
                 autoComplete="off"
                 value={draft.number}
                 onChange={(event) => {
@@ -171,6 +185,8 @@ export function AddressesPanel({
                 type="text"
                 name="postalCode"
                 inputMode="numeric"
+                required
+                pattern="\d{3} ?\d{2}"
                 autoComplete="off"
                 value={draft.postalCode}
                 onChange={(event) => {
@@ -185,6 +201,8 @@ export function AddressesPanel({
               <input
                 type="text"
                 name="city"
+                required
+                maxLength={100}
                 autoComplete="off"
                 value={draft.city}
                 onChange={(event) => {
@@ -206,7 +224,7 @@ export function AddressesPanel({
                 : t("settings.addresses.add")}
             </button>
           </div>
-        </form>
+        </LockedForm>
       ) : null}
     </Panel>
   );

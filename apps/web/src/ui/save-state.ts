@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { useCallback, useState } from "react";
 
 import type { ApiFailure, ApiResult } from "../api/client";
@@ -75,4 +76,55 @@ export function failureMessageKey(
   }
 
   return reasons[failure.reason] ?? shared[failure.reason] ?? fallback;
+}
+
+/**
+ * The fields a schema refusal named, as dotted paths with list indexes dropped.
+ *
+ * The API answers a body that fails its schema with `invalid-body` and each
+ * refused field's path, never its value. `apartments.3.number` reads as
+ * `apartments.number`: a form labels the column, not the row.
+ */
+export function refusedFields(failure: ApiFailure): readonly string[] {
+  if (failure.reason !== "invalid-body" || !Array.isArray(failure.detail)) {
+    return [];
+  }
+  return failure.detail.flatMap((issue: unknown) => {
+    const path = (issue as { path?: unknown } | null)?.path;
+    return typeof path === "string" ? [path.replace(/\.\d+(?=\.|$)/g, "")] : [];
+  });
+}
+
+/**
+ * The translated sentence for a failure, naming the fields a schema refused.
+ *
+ * A refused field is not a moment's trouble, so "try again" is the wrong
+ * advice: the same input is refused every time. A path the form has no label
+ * for is left out rather than guessed at, and with none left the sentence says
+ * only that something in the form was not accepted.
+ */
+export function failureMessage(
+  t: TFunction,
+  failure: ApiFailure,
+  reasons: Readonly<Record<string, TranslationKey>>,
+  fallback: TranslationKey,
+  fieldLabels: Readonly<Record<string, TranslationKey>> = {},
+): string {
+  if (failure.reason !== "invalid-body") {
+    return t(failureMessageKey(failure, reasons, fallback));
+  }
+  const labels = [
+    ...new Set(
+      refusedFields(failure).flatMap((path) => {
+        const key = fieldLabels[path];
+        return key === undefined ? [] : [t(key)];
+      }),
+    ),
+  ];
+  return labels.length === 0
+    ? t("settings.errors.invalidBody")
+    : t("settings.errors.fieldsRefused", {
+        fields: labels.join(", "),
+        count: labels.length,
+      });
 }

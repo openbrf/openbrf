@@ -107,7 +107,7 @@ describe("the three-way answer", () => {
     render(<AssociationFactsPanel />);
 
     await waitFor(() => {
-      expect(fetchAssociationFacts).toHaveBeenCalled();
+      expect(save()).toHaveProperty("disabled", false);
     });
     await session.selectOptions(
       screen.getByLabelText(/^Marken/),
@@ -118,9 +118,9 @@ describe("the three-way answer", () => {
     await waitFor(() => {
       expect(saveAssociationFacts).toHaveBeenCalled();
     });
-    expect(saveAssociationFacts.mock.calls[0]?.[0]).toMatchObject({
+    // The other flag was not touched, so it is not sent at all.
+    expect(saveAssociationFacts.mock.calls[0]?.[0]).toEqual({
       siteLeasehold: false,
-      legalPersonOwners: null,
     });
   });
 
@@ -161,7 +161,7 @@ describe("what the board is told afterwards", () => {
     render(<AssociationFactsPanel />);
 
     await waitFor(() => {
-      expect(fetchAssociationFacts).toHaveBeenCalled();
+      expect(save()).toHaveProperty("disabled", false);
     });
     await session.click(save());
 
@@ -175,7 +175,7 @@ describe("what the board is told afterwards", () => {
     render(<AssociationFactsPanel />);
 
     await waitFor(() => {
-      expect(fetchAssociationFacts).toHaveBeenCalled();
+      expect(save()).toHaveProperty("disabled", false);
     });
     await session.type(screen.getByLabelText(/^Byggår/), "48");
     await session.click(save());
@@ -184,7 +184,8 @@ describe("what the board is told afterwards", () => {
     expect(saveAssociationFacts).not.toHaveBeenCalled();
   });
 
-  it("says so when the facts could not be read at all", async () => {
+  it("says so when the facts could not be read at all, and keeps saving off", async () => {
+    // A save sent without the stored facts would clear every one of them.
     fetchAssociationFacts.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
@@ -194,6 +195,40 @@ describe("what the board is told afterwards", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/kunde inte läsas just nu/)).toBeTruthy();
+    });
+    expect(save()).toHaveProperty("disabled", true);
+  });
+});
+
+describe("what a save carries", () => {
+  it("keeps saving off until the stored facts have been read", () => {
+    fetchAssociationFacts.mockReturnValue(new Promise(() => undefined));
+
+    render(<AssociationFactsPanel />);
+
+    expect(save()).toHaveProperty("disabled", true);
+  });
+
+  it("sends only the fields the board changed", async () => {
+    // An absent field is one the server leaves alone, so a fact nobody touched
+    // cannot be cleared by a save it took no part in.
+    fetchAssociationFacts.mockResolvedValue({
+      ok: true,
+      value: recorded({ parking: "Tolv platser i garaget.", buildYear: 1911 }),
+    });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByDisplayValue("Tolv platser i garaget.");
+    await session.type(screen.getByLabelText(/^Förråd/), "Ett per lägenhet.");
+    await session.click(save());
+
+    await waitFor(() => {
+      expect(saveAssociationFacts).toHaveBeenCalled();
+    });
+    expect(saveAssociationFacts.mock.calls[0]?.[0]).toEqual({
+      storage: "Ett per lägenhet.",
     });
   });
 });
@@ -210,15 +245,26 @@ describe("a read that lands after the board has started typing", () => {
       }),
     );
 
+    const session = userEvent.setup();
     render(<AssociationFactsPanel />);
     const buildYear = screen.getByLabelText(/^Byggår/);
-    await userEvent.type(buildYear, "1948");
+    await session.type(buildYear, "1948");
 
-    land({ ok: true, value: recorded({ buildYear: 1911 }) });
-
-    await waitFor(() => {
-      expect(fetchAssociationFacts).toHaveBeenCalled();
+    land({
+      ok: true,
+      value: recorded({ buildYear: 1911, parking: "Tolv platser i garaget." }),
     });
+
+    // The read has reached the form once a field nobody typed in shows it.
+    await screen.findByDisplayValue("Tolv platser i garaget.");
     expect(buildYear).toHaveProperty("value", "1948");
+
+    await session.click(save());
+    await waitFor(() => {
+      expect(saveAssociationFacts).toHaveBeenCalled();
+    });
+    expect(saveAssociationFacts.mock.calls[0]?.[0]).toEqual({
+      buildYear: 1948,
+    });
   });
 });

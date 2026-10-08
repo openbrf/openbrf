@@ -1,9 +1,11 @@
 import {
+  Component as ReactComponent,
   Suspense,
   useEffect,
   useState,
   type ComponentType,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -20,6 +22,28 @@ type LoadState =
   | { kind: "loading" }
   | { kind: "ready"; Component: ComponentType }
   | { kind: "failed" };
+
+/**
+ * Catches what a plugin's component throws while rendering.
+ *
+ * A class because React offers no other way to catch a render error. Without
+ * it the error would reach the router, which replaces the whole route - the
+ * frame and the navigation included - with its own error screen.
+ */
+class PluginViewBoundary extends ReactComponent<
+  { fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override render(): ReactNode {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
 
 /**
  * Renders one plugin's view.
@@ -57,12 +81,14 @@ export function PluginView({ view }: PluginViewProps): ReactElement {
     };
   }, [view]);
 
+  const failed = (
+    <Notice tone="danger" live>
+      {t("plugins.view.loadFailed", { plugin: view.id })}
+    </Notice>
+  );
+
   if (state.kind === "failed") {
-    return (
-      <Notice tone="danger" live>
-        {t("plugins.view.loadFailed", { plugin: view.id })}
-      </Notice>
-    );
+    return failed;
   }
 
   if (state.kind === "loading") {
@@ -75,15 +101,18 @@ export function PluginView({ view }: PluginViewProps): ReactElement {
 
   const { Component } = state;
 
+  // Keyed by the view, so moving to another plugin starts without the error.
   return (
-    <Suspense
-      fallback={
-        <p role="status" className="text-body text-ink-muted">
-          {t("plugins.view.loading")}
-        </p>
-      }
-    >
-      <Component />
-    </Suspense>
+    <PluginViewBoundary key={view.id} fallback={failed}>
+      <Suspense
+        fallback={
+          <p role="status" className="text-body text-ink-muted">
+            {t("plugins.view.loading")}
+          </p>
+        }
+      >
+        <Component />
+      </Suspense>
+    </PluginViewBoundary>
   );
 }

@@ -1,3 +1,7 @@
+import {
+  PLUGIN_INSTALL_FAILURE_REASONS,
+  type PluginInstallFailureReason,
+} from "@openbrf/shared";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,6 +44,7 @@ function pluginWith(overrides: Partial<PluginSummary> = {}): PluginSummary {
     enabled: true,
     status: "INSTALLED",
     lastError: null,
+    failure: null,
     loaded: true,
     permissions: ["addressBook:read", "mail:send"],
     personalData: ["name", "email"],
@@ -115,9 +120,10 @@ describe("a row", () => {
     expect(screen.getByText("Inga.")).toBeTruthy();
   });
 
-  it("shows the failure the loader recorded", () => {
+  it("shows a failure recorded before failures carried a code as it stands", () => {
     // Without it the row says only that the install failed, and the board has
-    // nothing to give the plugin's author.
+    // nothing to give the plugin's author. A row written before the reason
+    // column existed has nothing else to show.
     renderPanel([
       pluginWith({
         status: "FAILED",
@@ -127,6 +133,121 @@ describe("a row", () => {
     ]);
 
     expect(screen.getByText("Cannot find module './entry.js'")).toBeTruthy();
+  });
+});
+
+/**
+ * The values each reason's sentence is completed with, as the installer
+ * records them. Typed against the union, so a reason added there needs an
+ * entry here before this file compiles.
+ */
+const DETAIL: Readonly<
+  Record<PluginInstallFailureReason, Record<string, string | number>>
+> = {
+  "download-budget-spent": { budgetMs: 480_000 },
+  "download-timed-out": { timeoutMs: 300_000 },
+  "source-not-allowed": {},
+  "source-unreachable": {},
+  "source-answered-error": { status: 404 },
+  "archive-too-large": { maxBytes: 64 * 1024 * 1024 },
+  "checksum-malformed": {},
+  "checksum-mismatch": {},
+  "download-failed": {},
+  "archive-unreadable": { packageName: "@openbrf/plugin-grannsamverkan" },
+  "archive-not-a-plugin": { packageName: "@openbrf/plugin-grannsamverkan" },
+  "archive-package-mismatch": {
+    packageName: "@openbrf/plugin-grannsamverkan",
+    version: "1.2.0",
+    heldName: "@openbrf/plugin-grannsamverkan",
+    heldVersion: "1.1.0",
+  },
+  "npm-install-failed": {},
+  "package-not-installed": { packageName: "@openbrf/plugin-grannsamverkan" },
+  "unconsented-packages": { packages: "left-pad, is-odd" },
+  "installation-claim-lost": {},
+  "build-failed": {},
+};
+
+function failedWith(
+  reason: string,
+  detail: Record<string, string | number> = {},
+): PluginSummary {
+  return pluginWith({
+    status: "FAILED",
+    loaded: false,
+    lastError: "PluginInstallError: what the server threw, in English.",
+    failure: { reason, detail },
+  });
+}
+
+describe("a failed install", () => {
+  it.each([...PLUGIN_INSTALL_FAILURE_REASONS])(
+    "reads %s as a sentence in the board's language",
+    (reason) => {
+      const { container } = renderPanel([failedWith(reason, DETAIL[reason])]);
+
+      const text = container.textContent ?? "";
+      // Nothing left to interpolate, and not the key itself, which is what
+      // i18next renders for a key missing from the resources.
+      expect(text).not.toContain("{{");
+      expect(text).not.toContain("plugins.installed.failure");
+      expect(text).not.toContain(reason);
+      // What the server threw is the operator's, and stays off this screen.
+      expect(text).not.toContain("what the server threw");
+    },
+  );
+
+  it("gives each reason a sentence that is not another reason's", () => {
+    const sentences = PLUGIN_INSTALL_FAILURE_REASONS.map((reason) => {
+      const view = renderPanel([failedWith(reason, DETAIL[reason])]);
+      const text = view.container.textContent ?? "";
+      view.unmount();
+      return text;
+    });
+
+    expect(new Set(sentences).size).toBe(PLUGIN_INSTALL_FAILURE_REASONS.length);
+  });
+
+  it("states the download budget in seconds rather than milliseconds", () => {
+    renderPanel([failedWith("download-budget-spent", { budgetMs: 480_000 })]);
+
+    expect(
+      screen.getByText(
+        "Körningens nedladdningar hade använt sina 480 sekunder innan det här tillägget stod på tur, så det hämtades inte. En ny installation startar en ny körning.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says one second, not one seconds, when a deadline was cut that short", () => {
+    renderPanel([failedWith("download-timed-out", { timeoutMs: 400 })]);
+
+    expect(
+      screen.getByText(
+        "Tilläggets arkiv blev inte färdighämtat inom 1 sekund. Servern som har det kan vara långsam eller otillgänglig.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("states the size cap in MiB rather than bytes", () => {
+    renderPanel([
+      failedWith("archive-too-large", { maxBytes: 64 * 1024 * 1024 }),
+    ]);
+
+    expect(
+      screen.getByText(
+        "Tilläggets arkiv är större än de 64 MiB som en instans tar emot.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names a reason this version has no sentence for rather than hiding it", () => {
+    renderPanel([failedWith("registry-on-fire")]);
+
+    expect(
+      screen.getByText(
+        "Installationen misslyckades av en anledning som den här versionen saknar formulering för: registry-on-fire",
+      ),
+    ).toBeTruthy();
   });
 });
 

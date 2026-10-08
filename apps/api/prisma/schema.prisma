@@ -2117,8 +2117,8 @@ enum InstalledPluginStatus {
   /// Present on the data volume and eligible to load at the next boot.
   INSTALLED
 
-  /// The install job could not converge. lastError says why, and the row
-  /// stays so the board can retry or withdraw it rather than having the
+  /// The install job could not converge. lastErrorReason says why, and the
+  /// row stays so the board can retry or withdraw it rather than having the
   /// failure disappear.
   FAILED
 }
@@ -2148,9 +2148,22 @@ model InstalledPlugin {
 
   status InstalledPluginStatus @default(PENDING)
 
-  /// Why the last install attempt failed, for the admin screen. Cleared on
-  /// the next successful reconcile.
+  /// What the last failed install attempt threw, in the server's own
+  /// English, for whoever operates the instance. Rows written before
+  /// lastErrorReason existed hold their reason here and nowhere else, and are
+  /// shown as they are. Cleared on the next successful reconcile, with the
+  /// two columns below.
   lastError String?
+
+  /// Why the last install attempt failed, as one of
+  /// PLUGIN_INSTALL_FAILURE_REASONS in @openbrf/shared rather than as a
+  /// sentence, so the admin screen and the command-line tool can say it in
+  /// the reader's language. A code is never renamed or reused once written.
+  lastErrorReason String?
+
+  /// The values that reason's sentence is completed with: identifiers and
+  /// numbers in the units the code works in, never a sentence or a URL.
+  lastErrorDetail Json?
 
   /// Permissions and personal data categories as consented at install time.
   ///
@@ -2759,6 +2772,14 @@ model ImportSession {
   /// to that person. A chunk reads the number back from the row, so a later
   /// row stating it reaches the same person instead of creating them again.
   unwrittenIdentityNumbers Json?
+
+  /// Rows the apply wrote as a new person: row number to that person. The
+  /// preview cannot list a person the file creates among a row's candidates,
+  /// having no id for them yet, and a later chunk finds them in the register. A
+  /// chunk sets these aside when it checks that a row the board answered still
+  /// matches the persons the preview showed, and takes anybody else it finds
+  /// for somebody the register gained since.
+  createdPersons Json?
 
   /// Rows whose writes are committed. The cursor a chunk claims and a restart
   /// resumes from: a chunk advances this in the same transaction as its writes,
@@ -4005,6 +4026,9 @@ model ProcessorAgreement {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// At most one open row per processorKey is a partial unique index written
+  /// by hand in the migration, with no @@unique counterpart here: a closed row
+  /// is history, and a recipient has one for every classification it has had.
   @@index([processorKind, processorKey, endedAt])
   @@map("processor_agreement")
 }
@@ -4308,6 +4332,16 @@ model News {
   mailingRequestedByPersonId String?
 
   authorPersonId String?
+
+  /// The optimistic token a save is claimed on, as Page.revision is.
+  ///
+  /// A save carries the whole item, so a board member saving a copy read
+  /// before somebody else's save would replace that text with no error and
+  /// nothing to recover from. The caller sends the revision it read and the
+  /// write matches on it, so the second save is refused rather than applied.
+  /// A counter and not `updatedAt`, and incremented by the writer in the same
+  /// statement as the content, for the reasons Page.revision gives.
+  revision Int @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
