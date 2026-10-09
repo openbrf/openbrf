@@ -74,3 +74,41 @@ function decimalSeparatorFor(locale: string): string {
   }).formatToParts(1.1);
   return parts.find((part) => part.type === "decimal")?.value ?? ".";
 }
+
+/**
+ * An amount as a board types it, in the form the server reads.
+ *
+ * The other direction from {@link formatAmount}, and it has to accept what that
+ * one prints: "3 450,50" is how these screens show a sum, and a comma is what a
+ * Swedish phone's decimal pad offers. Every space goes, the no-break kinds the
+ * locale groups with included, and a decimal comma becomes a point. Nothing
+ * else is guessed at: a third decimal, a second separator or a sign answers
+ * null, so the form can say so at the field rather than send a figure nobody
+ * stated. The bound is the servers' own pattern, `DECIMAL(14, 2)`.
+ *
+ * @returns The amount as "1234.50", or null where it is not a sum.
+ */
+export function normalizeAmount(typed: string): string | null {
+  const amount = typed.replaceAll(/\s/gu, "").replace(",", ".");
+  return /^\d{1,12}(?:\.\d{1,2})?$/u.test(amount) ? amount : null;
+}
+
+/**
+ * A VAT rate as a board types it, in the form the server reads.
+ *
+ * Null where none was typed, which the server answers with the sentence asking
+ * for one, and undefined where what was typed is not a whole percentage.
+ * `Number("25,5")` is NaN, which JSON sends as null, and the board would be
+ * asked for a rate it had typed. The fee and charge forms both say so at the
+ * field on undefined rather than send it.
+ */
+export function vatRateOf(typed: string): number | null | undefined {
+  const rate = typed.replaceAll(/\s/gu, "");
+  if (rate === "") {
+    return null;
+  }
+  const percent = Number(rate);
+  return /^\d{1,3}$/u.test(rate) && percent >= 1 && percent <= 100
+    ? percent
+    : undefined;
+}

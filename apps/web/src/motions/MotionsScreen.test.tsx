@@ -811,3 +811,81 @@ describe("a queue longer than one page", () => {
     });
   });
 });
+
+describe("a re-read that fails", () => {
+  /*
+   * Every act ends in a re-read, and that read can fail. What the screen
+   * showed is then the last thing it knew, and the failure notice says it could
+   * not read again. Emptying the lists instead put sentences under the notice
+   * that were not true: that the member had sent no motion, that the bylaws
+   * set no deadline, that nothing was waiting for the board.
+   */
+  const FAILED = {
+    ok: false,
+    failure: { status: 503, reason: "unexpected" },
+  };
+
+  it("keeps a member's own motions and the deadline", async () => {
+    fetchMotionIntake
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { deadline: DEADLINE, motions: [OWN_MOTION] },
+      })
+      .mockResolvedValueOnce(FAILED);
+
+    render(<MotionsScreen viewer={viewer(["motions:submit"])} />);
+    await screen.findByText("Dina motioner");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: `Återkalla motionen ${OWN_MOTION.title}`,
+      }),
+    );
+
+    await screen.findByText("Motionerna kunde inte läsas just nu.");
+    expect(screen.getByText(OWN_MOTION.title)).not.toBeNull();
+    expect(screen.getByText(/senast 2027-01-31/u)).not.toBeNull();
+    expect(
+      screen.queryByText("Du har inte lämnat in någon motion."),
+    ).toBeNull();
+    expect(screen.queryByText(/stadgar anger ingen tid/u)).toBeNull();
+  });
+
+  it("keeps the board's queue", async () => {
+    fetchMotionQueue
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          deadline: DEADLINE,
+          motions: [
+            {
+              ...OWN_MOTION,
+              submitter: {
+                kind: "member",
+                personId: "person-maja",
+                name: "Maja Medlem",
+              },
+              closedByPersonId: null,
+            },
+          ],
+          nextCursor: null,
+        },
+      })
+      .mockResolvedValueOnce(FAILED);
+
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await screen.findByText("Motioner från medlemmarna");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: `Anteckna motionen ${OWN_MOTION.title} som mottagen`,
+      }),
+    );
+
+    await screen.findByText("Motionerna kunde inte läsas just nu.");
+    expect(screen.getByText(OWN_MOTION.title)).not.toBeNull();
+    expect(
+      screen.queryByText("Inga motioner har lämnats in till stämman."),
+    ).toBeNull();
+  });
+});

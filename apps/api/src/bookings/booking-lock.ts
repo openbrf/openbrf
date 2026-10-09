@@ -25,6 +25,10 @@ import type { Prisma } from "../generated/prisma/client";
  * and a transaction that has already taken its apartment lock never waits for
  * another apartment - so one order, stated here and taken nowhere else, is
  * enough.
+ *
+ * Between the two, a claim takes the resource's row for share. The board's
+ * edits take that row for update before anything else and neither of these
+ * locks after it, so the row adds no second order.
  */
 
 /**

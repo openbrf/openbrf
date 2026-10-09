@@ -726,6 +726,8 @@ export class DataSubjectReportService {
         status: true,
         submittedAt: true,
         closedAt: true,
+        meetingId: true,
+        meeting: { select: { concludedAt: true } },
       },
     });
 
@@ -1602,10 +1604,17 @@ export class DataSubjectReportService {
          *
          * An instant and not a date column, read on the association's calendar
          * exactly as the booking's is.
+         *
+         * Null as well while the motion is on the agenda of a meeting not yet
+         * held: the purge and an erasure both keep it until then
+         * (MOTIONS_OFF_AGENDAS_TO_COME), so a date from the closing alone could
+         * name a day nothing is going to happen on. Once the meeting is held
+         * the date is the closing's again.
          */
-        erasableFrom: formatDayOfInstant(
-          computeMotionPurgeDate(motion.closedAt),
-        ),
+        erasableFrom:
+          motion.meetingId !== null && motion.meeting?.concludedAt === null
+            ? null
+            : formatDayOfInstant(computeMotionPurgeDate(motion.closedAt)),
       })),
       subletApplications: subletApplications.map((application) => ({
         applicationId: application.id,

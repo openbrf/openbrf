@@ -1520,7 +1520,8 @@ export function DataSubjectReport({
                      * closed, on the same reasoning the bookings column above
                      * carries - and absent while the motion is open, because there
                      * is no closing date to count from and the association is still
-                     * processing it.
+                     * processing it, and while it is on the agenda of a meeting not
+                     * yet held, which keeps it until then.
                      */}
                     <td className={DATA_CELL}>
                       {motion.erasableFrom ?? nothing}
