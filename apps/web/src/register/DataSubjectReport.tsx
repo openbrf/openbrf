@@ -2459,7 +2459,7 @@ export function DataSubjectReport({
                         nothing
                       ) : (
                         <ExtensionNote
-                          labelKey="register.person.report.extendedLabel"
+                          label={t("register.person.report.extendedLabel")}
                           date={request.extendedOn}
                           reason={request.extensionReason ?? ""}
                         />

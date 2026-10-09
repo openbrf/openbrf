@@ -14,4 +14,5 @@ time. The entry in the audit log names the request and the new due day and
 leaves the reason on the request, and the access report carries both.
 
 The date of an extension is set in the register face on the request and in the
-access report, with the reason left in the ordinary one.
+access report, with the reason left in the ordinary one. The access report
+labels it in the subject's language, like the rest of the document.

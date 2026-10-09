@@ -208,7 +208,7 @@ function RequestRow({
       {request.extendedOn === null ? null : (
         <p className="text-small text-ink-muted">
           <ExtensionNote
-            labelKey="register.person.requests.extendedLabel"
+            label={t("register.person.requests.extendedLabel")}
             date={request.extendedOn}
             reason={request.extensionReason ?? ""}
           />

@@ -1828,6 +1828,30 @@ describe("what the person asked about their own data", () => {
     expect(date.parentElement?.className ?? "").not.toContain("font-data");
   });
 
+  it("labels an extension in the subject's language, not the reader's", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      renderReport({
+        ...FULL_REPORT,
+        person: { ...FULL_REPORT.person, preferredLocale: "sv" },
+        dataSubjectRequests: [
+          {
+            ...FULL_REPORT.dataSubjectRequests[0]!,
+            extendedOn: "2026-03-20",
+            extensionReason: "Begäran gäller flera system.",
+          },
+        ],
+      });
+      await screen.findByText("Brf Eksemplet");
+
+      expect(screen.getByText("2026-03-20").parentElement?.textContent).toBe(
+        "Förlängd 2026-03-20: Begäran gäller flera system.",
+      );
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
+  });
+
   it("prints the request, both grounds and the board's reasons", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
