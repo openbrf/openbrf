@@ -323,6 +323,7 @@ export function PersonPanel({
         ]);
         setPerson(detail);
         setRegisterVacant(recovery.vacant);
+        setFailed(false);
         /*
          * Whether an outstanding invitation has expired is decided here, at the
          * moment the register was read, rather than during a render: a render
@@ -356,6 +357,13 @@ export function PersonPanel({
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
+        /*
+         * Nothing from an earlier read is kept. A form built on the previous
+         * vacancy answer would offer an act the server may now refuse, and the
+         * board cannot tell a stale form from a current one.
+         */
+        setPerson(null);
+        setRegisterVacant(false);
         setFailed(true);
       }
     })();

@@ -355,6 +355,38 @@ describe("recording a board on a register that has none", () => {
     ).toBeNull();
   });
 
+  it("withdraws the form when a refresh cannot read the vacancy again", async () => {
+    // The first read said vacant; the form built on it must not outlive a
+    // refresh that cannot confirm it.
+    fetchBoardRecoveryState
+      .mockResolvedValueOnce({ vacant: true })
+      .mockRejectedValue(new Error("network"));
+    recoverBoard.mockResolvedValue([]);
+    renderPanel(PERSON, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Uppdrag"),
+      "Ordförande",
+    );
+    await userEvent.type(screen.getByLabelText("Vald den"), "2026-04-14");
+    await userEvent.type(
+      screen.getByLabelText(/^Varför styrelsen antecknas/),
+      "Hela styrelsen avgick.",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anteckna styrelsen" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /kunde inte/i,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Anteckna styrelsen" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Anteckna valet" })).toBeNull();
+  });
+
   it("asks for the reason rather than sending the recovery without one", async () => {
     renderPanel(PERSON, BOARD_POSITIONS);
     await screen.findByText("Elsa Nyman");
