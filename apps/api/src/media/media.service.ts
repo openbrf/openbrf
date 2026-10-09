@@ -324,25 +324,25 @@ export class MediaService {
       file = await this.prisma.$transaction(async (tx) => {
         const created = await tx.mediaFile.create({
           data: {
-          storageKey,
-          encryption: "SECRETSTREAM_64K",
-          dataKeyCipher: sealed.dataKeyCipher,
-          contentType: identified.contentType,
-          byteSize: input.bytes.length,
-          checksum: sealed.checksum,
-          fileName: safeFileName(input.fileName),
-          width: identified.width,
-          height: identified.height,
-          // Null for anything that is not an image, whatever the caller
-          // passed: the column records a declaration about a picture, and a
-          // PDF has nobody's face in it to declare.
-          showsIdentifiablePersons: identified.isImage
-            ? (input.showsIdentifiablePersons ?? null)
-            : null,
-          visibility: input.visibility,
-          requiredCapability: input.requiredCapability ?? null,
-          apartmentId,
-          uploadedByPersonId: input.uploadedByPersonId ?? null,
+            storageKey,
+            encryption: "SECRETSTREAM_64K",
+            dataKeyCipher: sealed.dataKeyCipher,
+            contentType: identified.contentType,
+            byteSize: input.bytes.length,
+            checksum: sealed.checksum,
+            fileName: safeFileName(input.fileName),
+            width: identified.width,
+            height: identified.height,
+            // Null for anything that is not an image, whatever the caller
+            // passed: the column records a declaration about a picture, and a
+            // PDF has nobody's face in it to declare.
+            showsIdentifiablePersons: identified.isImage
+              ? (input.showsIdentifiablePersons ?? null)
+              : null,
+            visibility: input.visibility,
+            requiredCapability: input.requiredCapability ?? null,
+            apartmentId,
+            uploadedByPersonId: input.uploadedByPersonId ?? null,
           },
         });
         await this.audit.record(

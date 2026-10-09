@@ -475,8 +475,7 @@ function CatalogRow({
   // Deprecated means "not installed anew": an instance that already has the
   // theme may still take its update.
   const closedToNewInstalls =
-    (entry.deprecated && entry.installedVersion === null) ||
-    entry.composedHere;
+    (entry.deprecated && entry.installedVersion === null) || entry.composedHere;
 
   return (
     <li className="flex flex-col gap-2 rounded-control border border-line p-4">

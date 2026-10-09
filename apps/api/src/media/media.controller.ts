@@ -98,9 +98,7 @@ function cacheHeaders(file: ServedFile): Record<string, string> {
   return {
     etag: `"${file.checksum}"`,
     "cache-control":
-      file.visibility === "PUBLIC"
-        ? "public, no-cache"
-        : "private, no-store",
+      file.visibility === "PUBLIC" ? "public, no-cache" : "private, no-store",
   };
 }
 

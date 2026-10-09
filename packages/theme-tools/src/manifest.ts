@@ -106,11 +106,16 @@ export const themeFontDeclarationSchema = z.object({
     .min(1)
     .max(80)
     .refine(
-      (family) =>
-        [...family].every((character) => {
-          const code = character.codePointAt(0) ?? 0;
-          return code >= 0x20 && code !== 0x7f;
-        }),
+      (family) => {
+        // Code units rather than characters: every control character is one.
+        for (let index = 0; index < family.length; index += 1) {
+          const code = family.charCodeAt(index);
+          if (code < 0x20 || code === 0x7f) {
+            return false;
+          }
+        }
+        return true;
+      },
       { message: "A font family may not contain a control character." },
     ),
   /**

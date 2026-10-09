@@ -81,7 +81,9 @@ describe("buildFontFaceStylesheet", () => {
     ]);
 
     expect(css).not.toContain("broken.woff2");
-    expect(css).toContain('src: url("/fonts/inter-bold.woff2") format("woff2");');
+    expect(css).toContain(
+      'src: url("/fonts/inter-bold.woff2") format("woff2");',
+    );
   });
 
   it("renders a face the browser can load", () => {

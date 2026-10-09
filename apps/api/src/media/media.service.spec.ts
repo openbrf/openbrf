@@ -1137,11 +1137,11 @@ describe("removing", () => {
 
   it("does nothing when a deletion alongside it removed the row first", async () => {
     const id = await stored();
-    fakes.mediaFile.findUnique.mockImplementationOnce(async () => {
-      const row = fakes.rows.get(id) ?? null;
-      fakes.rows.delete(id);
-      return row;
-    });
+    // The read outside the transaction still sees the row; the other
+    // deletion has removed it by the time the transaction looks.
+    const row = fakes.rows.get(id);
+    fakes.rows.delete(id);
+    fakes.mediaFile.findUnique.mockResolvedValueOnce(row);
 
     await expect(
       fakes.service.remove(id, "person-1", "WEB"),

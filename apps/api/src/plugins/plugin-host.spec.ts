@@ -240,10 +240,11 @@ describe("the late-bound host object", () => {
       ...context,
       consented: ["jobs:schedule"],
     });
+    const send = vi.spyOn(bound.jobs, "send");
 
     await host.jobs.send("nightly", { at: 1 });
 
-    expect(bound.jobs.send).toHaveBeenCalledWith("plugin/occupancy/nightly", {
+    expect(send).toHaveBeenCalledWith("plugin/occupancy/nightly", {
       at: 1,
     });
     await expect(host.jobs.send("a:b", {})).rejects.toBeInstanceOf(RangeError);

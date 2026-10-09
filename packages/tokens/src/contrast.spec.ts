@@ -34,12 +34,9 @@ describe("parseColor", () => {
     "rgb(256, 0, 0)",
     // Not a number at all.
     "rgb(1.2.3, 0, 0)",
-  ])(
-    "returns null for %s rather than guessing",
-    (input) => {
-      expect(parseColor(input)).toBeNull();
-    },
-  );
+  ])("returns null for %s rather than guessing", (input) => {
+    expect(parseColor(input)).toBeNull();
+  });
 
   // A colour that is not fully opaque has no contrast of its own: what it sits
   // on decides that. Discarding the alpha channel would score #F4F2EC00 at
