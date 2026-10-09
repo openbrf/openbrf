@@ -57,3 +57,56 @@ export function computePurgeDate(
       Math.round(retentionDaysAfterMoveOut) * MILLISECONDS_PER_DAY,
   );
 }
+
+/** What the scheduled purge asks about a person before it acts on them. */
+export interface PersonPurgeFacts {
+  residencies: readonly { movedOutOn: Date | null }[];
+  boardPositions: readonly { endedOn: Date | null }[];
+  /** Granted system roles, however many. */
+  systemRoles: number;
+  /** A legal hold stands, or a restriction of processing does. */
+  withheld: boolean;
+}
+
+/**
+ * The date the scheduled purge erases a person's service data, or null while
+ * something stands in its way.
+ *
+ * The purge acts on the person, not on one residency: it waits for the last
+ * residency to end, and leaves a person alone while they hold a board seat or a
+ * system role, or while a legal hold or a restriction stands. A date taken from
+ * one residency's move-out promised an erasure that was not coming, for a
+ * person who had moved to another apartment. The conditions are the ones
+ * `purgeRefusal` applies to the scheduled run, and a change to one is a change
+ * to the other.
+ *
+ * @param now Judges whether a board seat has ended.
+ */
+export function computePersonPurgeDate(
+  person: PersonPurgeFacts,
+  retentionDaysAfterMoveOut: number,
+  now: Date,
+): Date | null {
+  if (
+    person.withheld ||
+    person.systemRoles > 0 ||
+    person.boardPositions.some(
+      (position) =>
+        position.endedOn === null || position.endedOn.getTime() > now.getTime(),
+    ) ||
+    person.residencies.length === 0
+  ) {
+    return null;
+  }
+
+  let lastMoveOut: Date | null = null;
+  for (const { movedOutOn } of person.residencies) {
+    if (movedOutOn === null) {
+      return null;
+    }
+    if (lastMoveOut === null || movedOutOn.getTime() > lastMoveOut.getTime()) {
+      lastMoveOut = movedOutOn;
+    }
+  }
+  return computePurgeDate(lastMoveOut, retentionDaysAfterMoveOut);
+}

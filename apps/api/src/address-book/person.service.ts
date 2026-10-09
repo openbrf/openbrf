@@ -16,7 +16,7 @@ import {
   toDataSubjectRequestView,
   type DataSubjectRequestView,
 } from "../data-protection/data-subject-request";
-import { computePurgeDate } from "../retention/purge-date";
+import { computePersonPurgeDate } from "../retention/purge-date";
 import { isErasureInForce } from "../retention/withheld-persons";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -321,6 +321,21 @@ export class PersonService {
 
     const protectedData = person.protectedPersonalData;
 
+    const purgeOn = formatDateColumn(
+      computePersonPurgeDate(
+        {
+          residencies: person.residencies,
+          boardPositions: person.boardPositions,
+          systemRoles: person.systemRoles.length,
+          withheld:
+            person.legalHolds.length > 0 ||
+            person.processingRestrictedAt !== null,
+        },
+        retentionDays,
+        now,
+      ),
+    );
+
     const contact: AddressBookContact = protectedData
       ? {
           state: "masked",
@@ -383,9 +398,9 @@ export class PersonService {
         role: residency.role,
         movedInOn: formatDateColumn(residency.movedInOn),
         movedOutOn: formatDateColumn(residency.movedOutOn),
-        purgeOn: formatDateColumn(
-          computePurgeDate(residency.movedOutOn, retentionDays),
-        ),
+        // The person's date, on every residency that has ended: the purge acts
+        // on the person, after the last residency, and not on this one alone.
+        purgeOn: residency.movedOutOn === null ? null : purgeOn,
       })),
       boardPositions: person.boardPositions.map((position) => ({
         boardPositionId: position.id,

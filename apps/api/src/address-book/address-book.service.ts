@@ -15,7 +15,10 @@ import {
   hasMovedOut,
   residencyHeldOn,
 } from "../registers/held-on";
-import { computePurgeDate } from "../retention/purge-date";
+import {
+  computePersonPurgeDate,
+  type PersonPurgeFacts,
+} from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
   APARTMENT_FIELDS,
@@ -142,7 +145,9 @@ export class AddressBookService {
         toAddressBookRow(record, {
           today: now,
           purgeOn: formatDateColumn(
-            computePurgeDate(record.movedOutOn, retentionDays),
+            record.purgeFacts === undefined
+              ? null
+              : computePersonPurgeDate(record.purgeFacts, retentionDays, now),
           ),
         }),
     });
@@ -458,6 +463,10 @@ export class AddressBookService {
       boardPositions: {
         position: AddressBookRecord["boardPositions"][number];
       }[];
+      // Selected for the board audience only.
+      residencies?: { movedOutOn: Date | null }[];
+      systemRoles?: { role: string }[];
+      legalHolds?: { id: string }[];
     };
   }): AddressBookRecord & {
     emailCipher?: string | null;
@@ -470,6 +479,7 @@ export class AddressBookService {
       lastName: input.person.lastName,
       protectedPersonalData: input.person.protectedPersonalData,
       processingRestricted: input.person.processingRestrictedAt != null,
+      purgeFacts: purgeFactsOf(input.person),
       apartment: input.apartment,
       role: input.role,
       movedInOn: input.movedInOn,
@@ -860,5 +870,34 @@ function residentVisibilityWhere(
       { protectedPersonalData: false, processingRestrictedAt: null },
       { id: viewerPersonId },
     ],
+  };
+}
+
+/**
+ * What the purge asks about a person, from the board's person projection, or
+ * undefined for the audience that is not shown the date.
+ *
+ * The seats are those held today, which is all the purge asks of them.
+ */
+function purgeFactsOf(person: {
+  processingRestrictedAt: Date | null;
+  boardPositions: readonly unknown[];
+  residencies?: { movedOutOn: Date | null }[];
+  systemRoles?: unknown[];
+  legalHolds?: unknown[];
+}): PersonPurgeFacts | undefined {
+  if (
+    person.residencies === undefined ||
+    person.systemRoles === undefined ||
+    person.legalHolds === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    residencies: person.residencies,
+    boardPositions: person.boardPositions.map(() => ({ endedOn: null })),
+    systemRoles: person.systemRoles.length,
+    withheld:
+      person.legalHolds.length > 0 || person.processingRestrictedAt !== null,
   };
 }

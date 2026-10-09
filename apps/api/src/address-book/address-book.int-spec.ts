@@ -5,7 +5,15 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -573,6 +581,80 @@ describe("the board's view", () => {
     const expected = computePurgeDate(MOVED_OUT_ON, retentionDays);
     expect(row.signs).toContain("MOVED_OUT");
     expect(row.purgeOn).toBe(expected?.toISOString().slice(0, 10));
+  });
+
+  describe("the purge date of a person who has lived in more than one apartment", () => {
+    const mover = `ab-mover-${suffix}`;
+    const FIRST_MOVE_OUT = new Date("2018-01-01T00:00:00.000Z");
+    const SECOND_MOVE_OUT = new Date("2021-06-01T00:00:00.000Z");
+
+    afterEach(async () => {
+      await prisma.residency.deleteMany({ where: { personId: mover } });
+      await prisma.person.deleteMany({ where: { id: mover } });
+    });
+
+    async function moverRows() {
+      const cookie = await signIn(actors.board.email);
+      const { rows } = await boardRows(cookie, "&filter=all");
+      return rows.filter((row) => row.personId === mover);
+    }
+
+    it("shows the date after the last residency on each of the person's rows", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.createMany({
+        data: [
+          {
+            personId: mover,
+            apartmentId: apartments.third,
+            role: "RESIDENT",
+            movedInOn: new Date("2010-01-01T00:00:00.000Z"),
+            movedOutOn: FIRST_MOVE_OUT,
+          },
+          {
+            personId: mover,
+            apartmentId: apartments.first,
+            role: "RESIDENT",
+            movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+            movedOutOn: SECOND_MOVE_OUT,
+          },
+        ],
+      });
+
+      const rows = await moverRows();
+
+      // The first row's own date is long past, and the purge does not act on it.
+      const expected = computePurgeDate(SECOND_MOVE_OUT, retentionDays)
+        ?.toISOString()
+        .slice(0, 10);
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.purgeOn)).toEqual([expected, expected]);
+    });
+
+    it("shows no date while the person still lives in another apartment", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.createMany({
+        data: [
+          {
+            personId: mover,
+            apartmentId: apartments.third,
+            role: "RESIDENT",
+            movedInOn: new Date("2010-01-01T00:00:00.000Z"),
+            movedOutOn: FIRST_MOVE_OUT,
+          },
+          {
+            personId: mover,
+            apartmentId: apartments.first,
+            role: "RESIDENT",
+            movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+          },
+        ],
+      });
+
+      const rows = await moverRows();
+
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.purgeOn)).toEqual([null, null]);
+    });
   });
 
   it("orders rows by apartment number, the way the name board reads", async () => {

@@ -41,6 +41,7 @@ import type {
   ResidencyRole,
 } from "../generated/prisma/enums";
 import { hasMovedOut } from "../registers/held-on";
+import type { PersonPurgeFacts } from "../retention/purge-date";
 
 /**
  * Who is looking.
@@ -112,9 +113,11 @@ export interface ResidentDirectoryRow {
 export interface AddressBookRow extends ResidentDirectoryRow {
   contact: AddressBookContact;
   /**
-   * Date the service-tier data is erased, derived from the retention policy.
-   * Null while the residency is current. The statutory member register entry is
-   * exempt and is never erased on this date.
+   * Date the person's service-tier data is erased, derived from the retention
+   * policy. The date of the person, the same on each of their rows: null while
+   * any residency, board seat, system role, legal hold or restriction stands in
+   * the way of the purge. The statutory member register entry is exempt and is
+   * never erased on this date.
    */
   purgeOn: string | null;
   protectedPersonalData: boolean;
@@ -148,6 +151,12 @@ export interface AddressBookRecord {
   /** Whether an encrypted value is stored, known without decrypting it. */
   hasEmail: boolean;
   hasPhone: boolean;
+  /**
+   * What the scheduled purge asks about the person, when the audience is the
+   * board and is shown the date. Not the row's own residency: see
+   * `computePersonPurgeDate`.
+   */
+  purgeFacts?: PersonPurgeFacts;
 }
 
 /** Fields that a person with protected personal data has masked. */
