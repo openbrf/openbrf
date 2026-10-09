@@ -91,7 +91,7 @@ describe("withdrawing a consent the audit log could not record", () => {
     expect(line).not.toContain(CLIENT_QUERY);
   });
 
-  it("falls back on the person when the grant could not even be read", async () => {
+  it("falls back on the account when the grant could not even be read, and never on recency", async () => {
     const logged = vi
       .spyOn(Logger.prototype, "error")
       .mockImplementation(() => undefined);
@@ -104,6 +104,11 @@ describe("withdrawing a consent the audit log could not record", () => {
 
     const line = written(logged);
     expect(line).toContain(PERSON_ID);
+    expect(line).toContain(ACCOUNT_ID);
+    // The person's newest consent can be another app's, so the line must not
+    // send anybody to delete it.
+    expect(line).not.toMatch(/newest/i);
+    expect(line).toContain("never by date");
     expect(line).not.toContain("kalender.exempel.se");
     expect(line).not.toContain(CLIENT_PATH);
     expect(line).not.toContain(CLIENT_QUERY);
