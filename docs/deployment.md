@@ -730,11 +730,17 @@ that only these containers share. The instance logs a warning at start while it
 is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
 loopback too.
 
-A server the board enters in the settings is held to the same rule once the
-settings are saved. Settings saved by an earlier version keep sending as they
-did, STARTTLS or not, and the SMTP card says so until they are saved again; save
-them and send a test message after upgrading. A test that fails because the
-server offers no TLS says that, and nothing, the password included, was sent.
+A server the board enters in the settings is held to the same rule, loopback
+exemption included. Settings saved by an earlier version are moved to it by the
+upgrade's migration, so a server that offered no STARTTLS and received mail
+before the upgrade receives none after it: every send fails with the reason
+`mail-tls-unavailable`, and nothing, the password included, is sent. Send a test
+message from the SMTP card after upgrading. If it fails that way, have the board
+switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
+587). Settings that do not require STARTTLS anyway, such as those a data-only
+restore of an older backup brings back, are flagged on the SMTP card until they
+are saved again, and the instance logs a warning naming the server the first
+time it sends through them.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that

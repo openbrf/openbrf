@@ -233,7 +233,7 @@ describe("the settings", () => {
         host: "smtp.stored.example",
         port: 465,
         secure: true,
-        // Saved before saving required TLS, so used as it always was.
+        // As stored, never changed on the way.
         requireTls: false,
         user: "styrelsen",
         password: "stored-password",
@@ -294,6 +294,68 @@ describe("the settings", () => {
       }).resolver.current(),
     ).toBe(null);
     expect(await resolver(BASE_ENV, null).resolver.describe()).toBe(null);
+  });
+});
+
+describe("the warning at the first send", () => {
+  /** Stored settings that do not require STARTTLS of a server elsewhere. */
+  const TLS_OPTIONAL = {
+    ...STORED,
+    smtpPort: 25,
+    smtpSecure: false,
+    smtpRequireTls: false,
+  };
+
+  async function warnings(
+    row: object,
+    sends = 1,
+    env: Env = BASE_ENV,
+  ): Promise<unknown[][]> {
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      const { resolver: mail } = resolver(env, row);
+      mail.onModuleInit();
+      for (let send = 0; send < sends; send += 1) {
+        await mail.current();
+      }
+      return warn.mock.calls;
+    } finally {
+      warn.mockRestore();
+    }
+  }
+
+  it("names the server whose settings do not require STARTTLS, once", async () => {
+    // A mailing resolves the mail once per recipient.
+    const logged = await warnings(TLS_OPTIONAL, 3);
+
+    expect(logged).toHaveLength(1);
+    const message = String(logged[0]?.[0]);
+    expect(message).toContain("smtp.stored.example:25");
+    expect(message).toContain("cleartext");
+    // Neither the user nor the password, nor what the password is stored as.
+    expect(message).not.toContain("styrelsen");
+    expect(message).not.toContain("stored-password");
+    expect(message).not.toContain("ciphertext");
+  });
+
+  it.each(["localhost", "127.0.0.1", "::1", "[::1]"])(
+    "says nothing of a server on loopback (%s)",
+    async (host) => {
+      expect(await warnings({ ...TLS_OPTIONAL, smtpHost: host })).toEqual([]);
+    },
+  );
+
+  it("says nothing when STARTTLS is required or the connection is TLS from the start", async () => {
+    expect(await warnings({ ...TLS_OPTIONAL, smtpRequireTls: true })).toEqual(
+      [],
+    );
+    expect(await warnings({ ...TLS_OPTIONAL, smtpSecure: true })).toEqual([]);
+  });
+
+  it("says nothing while the environment sets the mail", async () => {
+    expect(await warnings(TLS_OPTIONAL, 1, SMTP_ENV)).toEqual([]);
   });
 });
 

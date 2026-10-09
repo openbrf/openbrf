@@ -12,7 +12,7 @@ import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings"
 import { PrismaService } from "../database/prisma.service";
 import { blankToNull } from "../http/blank-to-null";
 import { DomainError } from "../http/domain-error";
-import { MailSettingsResolver } from "../mail/mail-settings";
+import { MailSettingsResolver, storedTlsOptional } from "../mail/mail-settings";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { smtpTestMail } from "../mail/templates";
 import { mediaUrl, MediaService } from "../media/media.service";
@@ -170,11 +170,13 @@ export interface StoredSmtpSettingsView {
    */
   passwordSet: boolean;
   /**
-   * Whether the sign-in can go out unencrypted: the settings were saved before
-   * saving required TLS, name no implicit TLS, and the host is not on loopback.
-   * A server that offers no STARTTLS, or an attacker on the path who strips the
-   * offer, then receives the password in the clear. Saving the settings again
-   * requires TLS, so the screen says that.
+   * Whether the sign-in can go out unencrypted: the settings do not require
+   * STARTTLS, name no implicit TLS, and the host is not on loopback. A server
+   * that offers no STARTTLS, or an attacker on the path who strips the offer,
+   * then receives the password in the clear. Every save requires TLS, and the
+   * upgrade required it of settings saved before, so this is true only of a row
+   * that came back some other way. Saving the settings again requires TLS, so
+   * the screen says that.
    */
   tlsOptional: boolean;
   /**
@@ -819,11 +821,7 @@ export class SettingsService {
       user: association.smtpUser,
       fromAddress: association.smtpFromAddress,
       passwordSet: association.smtpPasswordCipher !== null,
-      tlsOptional:
-        association.smtpHost !== null &&
-        !association.smtpSecure &&
-        !association.smtpRequireTls &&
-        !isLoopbackHost(association.smtpHost),
+      tlsOptional: storedTlsOptional(association),
       configured:
         association.smtpHost !== null && association.smtpFromAddress !== null,
     };
