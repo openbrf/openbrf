@@ -1,3 +1,5 @@
+import { localDayOf } from "./stockholm-calendar.ts";
+
 /**
  * The Swedish personal identity number (personnummer), as parsed, normalized,
  * checksum-verified and searched for in free text.
@@ -70,25 +72,33 @@ export function parsePersonalIdentityNumber(
   const monthNumber = Number(month);
   const dayNumber = Number(day);
 
+  const isCoordinationNumber = dayNumber > 60;
+  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
+
   let fullYear: number;
   if (century !== undefined) {
     // Written with the century, so take it at face value.
     fullYear = Number(century) * 100 + twoDigitYear;
   } else {
-    // Without a century, the most recent year that is not in the future wins,
-    // and a plus separator means the person has turned 100.
-    const referenceYear = referenceDate.getFullYear();
+    /*
+     * Without a century, the most recent birth date that is not in the future
+     * wins, and a plus separator means the person has turned 100. The whole
+     * date and not the year alone: on 27 August 2026, 261215 is a person
+     * born on 15 December 1926, since 15 December 2026 has not come.
+     */
+    const referenceDay = localDayOf(referenceDate);
+    const referenceYear = referenceDay.year;
     fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
-    if (fullYear > referenceYear) {
+    const birthday = fullYear * 10000 + monthNumber * 100 + actualDay;
+    const reference =
+      referenceYear * 10000 + referenceDay.month * 100 + referenceDay.day;
+    if (birthday > reference) {
       fullYear -= 100;
     }
     if (separator === "+") {
       fullYear -= 100;
     }
   }
-
-  const isCoordinationNumber = dayNumber > 60;
-  const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
 
   if (monthNumber < 1 || monthNumber > 12 || actualDay < 1) {
     return null;
@@ -351,6 +361,22 @@ export function scanForPersonalIdentityNumbers(
   }
 
   return found;
+}
+
+/**
+ * Finds every run of digits shaped like a personal identity number, valid or
+ * not.
+ *
+ * For hiding rather than refusing: a number mistyped so that its date or check
+ * digit fails is still a person's number with a typo, and a screen that must
+ * not show identity numbers must not show it either.
+ */
+export function scanForPersonalIdentityNumberCandidates(
+  text: string,
+): PersonalIdentityNumberMatch[] {
+  return [...text.matchAll(new RegExp(CANDIDATE_PATTERN.source, "g"))].map(
+    (match) => ({ value: match[0], index: match.index }),
+  );
 }
 
 /** Days in a month, honouring the Gregorian leap-year rule. */

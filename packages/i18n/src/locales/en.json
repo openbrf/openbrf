@@ -2290,6 +2290,8 @@
       "priceNotAnAmount": "State the price in kronor, with at most two decimal places, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
+      "transferWithoutTenantOwnership": "A transfer or a grant can only be recorded for a tenant-owner. Record the move as a member, or leave the transfer or grant out.",
+      "alreadyGranted": "This apartment has already been granted. A later change of hands is a transfer.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },
@@ -3707,6 +3709,7 @@
       "alreadyClosed": "The board has answered this application, so there is nothing to change.",
       "notRefused": "A rent tribunal decision can be recorded only against an application the board has refused.",
       "invalidPeriod": "The period ends before it begins.",
+      "periodTooFarAhead": "The period may end at most five years from today.",
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
@@ -4300,6 +4303,7 @@
       "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
       "dateNotACalendarDate": "That is not a date.",
       "dateInTheFuture": "A charge cannot be dated ahead of today.",
+      "dateBeyondRetention": "A charge cannot be dated before the seven years the association keeps charges for.",
       "amountNotASum": "State the amount in kronor, with at most two decimal places.",
       "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
       "reasonRequired": "State what the charge is for.",
@@ -4458,6 +4462,7 @@
       "feeAlreadyRecordedLater": "A later fee of the same kind is already recorded for that apartment. Remove it first.",
       "feeAlreadyInForce": "A fee of this kind already applies to that apartment on that day. Start the new fee the day after it ends, or remove it first.",
       "feeNotified": "That fee has already been billed and cannot be removed. It is the basis for money you asked for.",
+      "periodAlreadyNotified": "A notification run has already billed this apartment from that day. Record the new fee from the first month no run has billed.",
       "periodNotWholeMonths": "The period opens on the first of a month and closes on the last of one.",
       "periodTooLong": "The period is too long. A financial year is at most eighteen months.",
       "periodAlreadyIssued": "That period has already been issued.",
@@ -4465,6 +4470,9 @@
       "dueBeforePeriod": "The due date cannot fall before the period it bills.",
       "nothingToBill": "No apartment has a fee in force for that period.",
       "tooManyNotices": "More notices than the payment reference format can number.",
+      "amountTooLarge": "The amount on the fee notice exceeds the highest amount allowed. Check the fees for a mistyped figure.",
+      "periodPastRetention": "That period is older than the association keeps fee notices for.",
+      "paymentReferenceReused": "A run from the same month a hundred years apart already uses these payment references. Check the year.",
       "invalidBody": "Something in the form could not be read.",
       "unknown": "That did not work just now. Try again."
     }

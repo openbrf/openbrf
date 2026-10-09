@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { cellText } from "./workbook";
+import { buildWorkbook } from "../testing/xlsx-fixture";
+import { cellText, parseWorkbook } from "./workbook";
 
 /**
  * The one date conversion in the import path, pinned.
@@ -22,21 +23,34 @@ describe("reading a date cell", () => {
     expect(cellText(new Date(Date.UTC(2026, 2, 5)))).toBe("2026-03-05");
   });
 
-  it("reads UTC fields, which is what an Excel date serial carries", () => {
+  it("reads the day a date cell holds through the library itself", async () => {
     /*
-     * A serial decoded to local midnight in Stockholm would arrive as the
-     * evening before in UTC. Asserting the whole instant rather than the text
-     * is what makes this a statement about the library's contract: the day the
-     * cell holds opens at midnight UTC and nowhere else.
+     * A real workbook with a real date cell - a day serial in the built-in date
+     * format, as Excel writes it - read by `read-excel-file`. A serial decoded
+     * to local midnight east of Greenwich would arrive as the evening before in
+     * UTC and read as the day before here, so this is the statement about the
+     * library's contract the paragraph above relies on.
      */
-    const decoded = new Date(Date.UTC(2026, 5, 22));
+    const { rows } = await parseWorkbook(
+      buildWorkbook([["Inflyttningsdatum"], [{ date: "2026-06-22" }]]),
+    );
 
-    expect(decoded.toISOString()).toBe("2026-06-22T00:00:00.000Z");
-    expect(cellText(decoded)).toBe("2026-06-22");
+    expect(rows[1]).toEqual(["2026-06-22"]);
   });
 
   it("pads a single-digit month and day", () => {
     expect(cellText(new Date(Date.UTC(2026, 0, 9)))).toBe("2026-01-09");
+  });
+});
+
+describe("numbering the rows", () => {
+  it("counts the blank rows it leaves out, so a row keeps its sheet number", async () => {
+    const { rows, sourceRows } = await parseWorkbook(
+      buildWorkbook([["Namn"], ["Anna"], [""], ["Bo"]]),
+    );
+
+    expect(rows).toEqual([["Namn"], ["Anna"], ["Bo"]]);
+    expect(sourceRows).toEqual([1, 2, 4]);
   });
 });
 

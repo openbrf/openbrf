@@ -2290,6 +2290,8 @@
       "priceNotAnAmount": "Ange priset i kronor, med högst två decimaler, till exempel 2 150 000,50.",
       "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
       "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
+      "transferWithoutTenantOwnership": "En överlåtelse eller upplåtelse kan bara registreras för en bostadsrättshavare. Registrera flytten som medlem, eller ta bort överlåtelsen eller upplåtelsen.",
+      "alreadyGranted": "Lägenheten är redan upplåten. Ett senare ägarbyte är en överlåtelse.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },
@@ -3707,6 +3709,7 @@
       "alreadyClosed": "Styrelsen har svarat på den här ansökan, så det finns inget att ändra.",
       "notRefused": "Ett beslut från hyresnämnden kan bara antecknas på en ansökan som styrelsen har vägrat.",
       "invalidPeriod": "Perioden slutar innan den börjar.",
+      "periodTooFarAhead": "Perioden får sluta högst fem år från i dag.",
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
@@ -4300,6 +4303,7 @@
       "personalIdentityNumberCount_other": "{{count}} nummer hittades i texten.",
       "dateNotACalendarDate": "Det är inget datum.",
       "dateInTheFuture": "En debitering kan inte dateras framåt i tiden.",
+      "dateBeyondRetention": "En debitering kan inte dateras före de sju år som föreningen sparar debiteringar.",
       "amountNotASum": "Ange beloppet i kronor, med högst två decimaler.",
       "amountNotPositive": "En debitering är ett positivt belopp. En kreditering görs i bokföringssystemet.",
       "reasonRequired": "Ange vad debiteringen avser.",
@@ -4458,6 +4462,7 @@
       "feeAlreadyRecordedLater": "Det finns redan en senare avgift av samma slag för lägenheten. Ta bort den först.",
       "feeAlreadyInForce": "En avgift av samma slag gäller redan för lägenheten den dagen. Låt den nya börja dagen efter att den slutar, eller ta bort den först.",
       "feeNotified": "Avgiften är redan aviserad och kan inte tas bort. Den är underlaget för pengar ni har begärt in.",
+      "periodAlreadyNotified": "En avisering har redan aviserat lägenheten från den dagen. Registrera den nya avgiften från första månaden som ingen avisering har aviserat.",
       "periodNotWholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad.",
       "periodTooLong": "Perioden är för lång. Ett räkenskapsår är högst arton månader.",
       "periodAlreadyIssued": "Perioden är redan aviserad.",
@@ -4465,6 +4470,9 @@
       "dueBeforePeriod": "Förfallodagen kan inte ligga före perioden den avser.",
       "nothingToBill": "Ingen lägenhet har en avgift som gäller under perioden.",
       "tooManyNotices": "Fler avier än formatet för betalningsreferenser rymmer.",
+      "amountTooLarge": "Beloppet på avin överskrider det högsta tillåtna beloppet. Kontrollera avgifterna efter en felskriven siffra.",
+      "periodPastRetention": "Perioden är äldre än den tid föreningen sparar avier.",
+      "paymentReferenceReused": "En avisering från samma månad hundra år tidigare använder redan de här betalningsreferenserna. Kontrollera året.",
       "invalidBody": "Något i formuläret gick inte att läsa.",
       "unknown": "Det gick inte just nu. Försök igen."
     }

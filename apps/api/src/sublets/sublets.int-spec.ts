@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -518,6 +519,27 @@ describe("who may ask for the board's consent", () => {
     expect(response.statusCode).toBe(422);
     expect(response.json<{ reason: string }>().reason).toBe("invalid-period");
   });
+
+  it("refuses a period whose end is a mistyped year", async () => {
+    // The end the application is erased after, so an end in 9999 would keep
+    // the applicant's reason for good.
+    const response = await apply(memberCookie, {
+      periodFrom: dayText(30),
+      periodTo: "9999-12-31",
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "period-too-far-ahead",
+    );
+
+    // Four years out is a letting somebody may plan, and is taken.
+    const planned = await apply(memberCookie, {
+      periodFrom: dayText(30),
+      periodTo: dayText(4 * 365),
+    });
+    expect(planned.statusCode).toBe(201);
+  });
 });
 
 describe("who may read which half", () => {
@@ -706,6 +728,58 @@ describe("the personal identity number guardrail", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json<{ periodTo: string }>().periodTo).toBe(dayText(240));
   });
+
+  it("refuses a revision once the applicant no longer holds the apartment", async () => {
+    const created = await apply(memberCookie);
+    expect(created.statusCode).toBe(201);
+    const id = created.json<{ id: string }>().id;
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: member.personId, apartmentId },
+      select: { id: true },
+    });
+    /*
+     * Moved out of this apartment today, while still holding the other one: the
+     * capability to order and apply stays, so only the service's own check
+     * stands between the revision and an apartment the caller has left.
+     */
+    await prisma.residency.update({
+      where: { id: residency.id },
+      data: { movedOutOn: dateColumnOf(localDayOf(new Date())) },
+    });
+    const elsewhere = await prisma.residency.create({
+      data: {
+        personId: member.personId,
+        apartmentId: otherApartmentId,
+        role: "MEMBER",
+        movedInOn: new Date("2025-01-01"),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const response = await inject({
+        method: "PUT",
+        url: `/api/sublet-applications/${id}`,
+        payload: {
+          periodFrom: dayText(60),
+          periodTo: dayText(240),
+          reason: "Provbo pa annan ort.",
+        },
+        headers: { cookie: memberCookie },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "apartment-not-found",
+      );
+    } finally {
+      await prisma.residency.delete({ where: { id: elsewhere.id } });
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: null },
+      });
+    }
+  });
 });
 
 describe("the board's answer", () => {
@@ -741,22 +815,46 @@ describe("the board's answer", () => {
     const created = await apply(memberCookie);
     const id = created.json<{ id: string }>().id;
 
-    const first = await inject({
-      method: "POST",
-      url: `/api/sublet-queue/${id}/decision`,
-      payload: { consent: false, note: null },
-      headers: { cookie: boardCookie },
-    });
-    expect(first.statusCode).toBe(201);
+    // Both answers at once, so the conditional update is what decides between
+    // them rather than the read before it.
+    const answers = await Promise.all(
+      [false, true].map((consent) =>
+        inject({
+          method: "POST",
+          url: `/api/sublet-queue/${id}/decision`,
+          payload: { consent, note: null },
+          headers: { cookie: boardCookie },
+        }),
+      ),
+    );
+    expect(
+      answers
+        .map((answer) => answer.statusCode)
+        .sort((left, right) => left - right),
+    ).toEqual([201, 409]);
+    const refused = answers.find((answer) => answer.statusCode === 409);
+    expect(refused?.json<{ reason: string }>().reason).toBe("already-closed");
 
-    const second = await inject({
-      method: "POST",
-      url: `/api/sublet-queue/${id}/decision`,
-      payload: { consent: true, note: null },
-      headers: { cookie: boardCookie },
+    // One answer on the row and one in the log, and they agree.
+    const stored = await prisma.subletApplication.findUniqueOrThrow({
+      where: { id },
+      select: { status: true },
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.json<{ reason: string }>().reason).toBe("already-closed");
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        targetId: id,
+        action: {
+          in: ["SUBLET_APPLICATION_CONSENTED", "SUBLET_APPLICATION_REFUSED"],
+        },
+      },
+      select: { action: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe(
+      stored.status === "CONSENTED"
+        ? "SUBLET_APPLICATION_CONSENTED"
+        : "SUBLET_APPLICATION_REFUSED",
+    );
   });
 
   it("refuses a withdrawal once the board has answered", async () => {

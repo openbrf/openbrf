@@ -41,6 +41,7 @@ export {
   normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
 } from "./personal-identity-number.ts";
 export type {
