@@ -51,10 +51,19 @@ const installSchema = z.object({ id: z.string().min(1).max(120) });
  * Held to the same caps the manifest schema states, so a value this route
  * accepts is one the manifest can carry. Names are not checked against the
  * contract here - the lint reports an unknown token and resolution ignores it,
- * which is the same treatment a theme package gets.
+ * which is the same treatment a theme package gets - but they are held to the
+ * characters a token name is written in, since the composer reads them back
+ * into a stylesheet.
  */
 const tokenOverridesSchema = z
-  .record(z.string().min(1).max(64), z.string().min(1).max(200))
+  .record(
+    z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9-]+$/),
+    z.string().min(1).max(200),
+  )
   .default({});
 
 const composeSchema = z.object({

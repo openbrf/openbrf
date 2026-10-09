@@ -6,6 +6,10 @@ import {
   type TokenSet,
 } from "./contract.ts";
 
+const KNOWN_TOKEN_NAMES: ReadonlySet<string> = new Set(
+  TOKENS.map((token) => token.name),
+);
+
 /**
  * Completes a partial token set into a full one.
  *
@@ -266,7 +270,10 @@ export function tokensToCssDeclarations(tokens: PartialTokenSet): string {
   const offending: { token: string; reason: string }[] = [];
 
   const declarations = Object.entries(tokens).flatMap(([name, value]) => {
-    if (value === undefined) {
+    // A name is written into the stylesheet as it stands, so only the
+    // contract's own are: one the contract does not have means nothing to any
+    // view, and one a composer typed could close the declaration around it.
+    if (value === undefined || !KNOWN_TOKEN_NAMES.has(name)) {
       return [];
     }
     const problem = tokenValueProblem(value);
