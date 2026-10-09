@@ -259,8 +259,15 @@ export interface ReportDataSubjectRequest {
   requestId: string;
   kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
   requestedOn: string | null;
-  /** The art. 12(3) month, derived from the request date. */
+  /**
+   * The art. 12(3) month, derived from the request date: three months where
+   * the association extended it, one where it did not.
+   */
   dueOn: string | null;
+  /** The day the association extended the month by two, or null. */
+  extendedOn: string | null;
+  /** What the association told them the extension was for. */
+  extensionReason: string | null;
   ground: string;
   /**
    * The art. 17(1) ground an erasure rests on.

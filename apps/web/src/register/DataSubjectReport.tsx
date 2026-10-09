@@ -459,6 +459,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.DATA_SUBJECT_REQUEST_DECIDED",
   DATA_SUBJECT_REQUEST_CLOSED:
     "register.person.report.action.DATA_SUBJECT_REQUEST_CLOSED",
+  DATA_SUBJECT_REQUEST_EXTENDED:
+    "register.person.report.action.DATA_SUBJECT_REQUEST_EXTENDED",
   DATA_PORTABILITY_EXPORTED:
     "register.person.report.action.DATA_PORTABILITY_EXPORTED",
   ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED:
@@ -2423,6 +2425,7 @@ export function DataSubjectReport({
                   "register.person.report.field.requestKind",
                   "register.person.report.field.requestedOn",
                   "register.person.report.field.dueOn",
+                  "register.person.report.field.extension",
                   "register.person.report.field.requestGround",
                   "register.person.report.field.erasureGround",
                   "register.person.report.field.decision",
@@ -2443,6 +2446,14 @@ export function DataSubjectReport({
                       {request.requestedOn ?? nothing}
                     </td>
                     <td className={DATA_CELL}>{request.dueOn ?? nothing}</td>
+                    <td className={TEXT_CELL}>
+                      {request.extendedOn === null
+                        ? nothing
+                        : t("register.person.report.extended", {
+                            date: request.extendedOn,
+                            reason: request.extensionReason ?? "",
+                          })}
+                    </td>
                     <td className={TEXT_CELL}>{request.ground}</td>
                     <td className={TEXT_CELL}>
                       {request.erasureGround === null

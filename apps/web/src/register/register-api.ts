@@ -392,6 +392,7 @@ export type ReportAuditAction =
   | "DATA_SUBJECT_REQUEST_RECORDED"
   | "DATA_SUBJECT_REQUEST_DECIDED"
   | "DATA_SUBJECT_REQUEST_CLOSED"
+  | "DATA_SUBJECT_REQUEST_EXTENDED"
   | "DATA_PORTABILITY_EXPORTED"
   | "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED"
   | "PRIVACY_NOTICE_HEADINGS_ADDED"
@@ -1093,8 +1094,12 @@ export interface DataSubjectReport {
     requestId: string;
     kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
     requestedOn: string | null;
-    /** The month GDPR art. 12(3) gives, derived from the request date. */
+    /** The month GDPR art. 12(3) gives, or three where it was extended. */
     dueOn: string | null;
+    /** The day the association extended the month by two, or null. */
+    extendedOn: string | null;
+    /** What the association told the person the extension was for. */
+    extensionReason: string | null;
     ground: string;
     /** The art. 17(1) alternative the person invoked. */
     erasureGround:

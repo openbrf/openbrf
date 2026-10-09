@@ -292,6 +292,8 @@ export class PersonService {
             decisionGround: true,
             decidedAt: true,
             decidedByPersonId: true,
+            extendedAt: true,
+            extensionReason: true,
             executedAt: true,
             closedAt: true,
             closeReason: true,

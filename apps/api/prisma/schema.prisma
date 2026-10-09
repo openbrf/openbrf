@@ -1937,6 +1937,7 @@ enum AuditAction {
   /// overtaken by the person moving in again. The entry says whether it was
   /// executed.
   DATA_SUBJECT_REQUEST_CLOSED
+  DATA_SUBJECT_REQUEST_EXTENDED
 
   /// A person exported their own data (GDPR art. 20). Actor and subject are the
   /// same person, which is what distinguishes it from the board-produced access
@@ -4061,6 +4062,13 @@ model DataSubjectRequest {
 
   decidedAt         DateTime?
   decidedByPersonId String?
+
+  /// GDPR art. 12(3): the association may extend the month by two further
+  /// months where the request is complex or there are many, if it tells the
+  /// person within the first month and says why. Set once, before the first due
+  /// day, and what moves the due date; the reason is what the person was told.
+  extendedAt      DateTime?
+  extensionReason String?
 
   /// The night the purge executed a granted erasure.
   executedAt DateTime?

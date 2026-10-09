@@ -798,6 +798,8 @@ const FULL_REPORT: Report = {
       kind: "ERASURE",
       requestedOn: "2026-03-01",
       dueOn: "2026-04-01",
+      extendedOn: null,
+      extensionReason: null,
       ground: "Jag har flyttat och vill inte finnas kvar.",
       erasureGround: "NO_LONGER_NECESSARY",
       // Refused, so the board's reasons print: art. 12(4) requires them, and
