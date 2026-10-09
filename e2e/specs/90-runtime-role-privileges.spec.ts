@@ -95,6 +95,9 @@ async function sqlStateOf(statement: string): Promise<string | undefined> {
 /** PostgreSQL's insufficient_privilege. */
 const PERMISSION_DENIED = "42501";
 
+/** PostgreSQL's check_violation, which the queue guard raises. */
+const CHECK_VIOLATION = "23514";
+
 /**
  * A rewrite of the statutory member register, which nothing may be allowed to
  * do. The WHERE matches nothing on purpose: the refusal is on the privilege,
@@ -319,13 +322,12 @@ test("nor queue an index build for the owner's job schema install to run", async
   ).toBeUndefined();
 });
 
-test("a queue the application's role rewrote stops the owner's job schema install", async () => {
-  test.setTimeout(120_000);
-
+test("the application's role cannot write a partitioned queue or one with a job table of its own", async () => {
   // A queue's job table name is spliced into the SQL pg-boss runs as the owner
   // for a partitioned queue. The application declares its queues at runtime,
-  // so it keeps writing queue rows, and the install refuses one it could have
-  // turned into the owner's SQL before pg-boss reads it.
+  // so it keeps writing queue rows, and a trigger the owner installed refuses
+  // one the owner's migration would turn into SQL. The check below it is what
+  // stops the install for a row already there.
   const queue = `runtime-role-rewritten-${suffix}`;
   await asRuntimeRole((client) =>
     client.query(
@@ -334,16 +336,88 @@ test("a queue the application's role rewrote stops the owner's job schema instal
     ),
   );
   try {
+    const refusedRows = [
+      [
+        "a queue cannot be given a job table of its own",
+        `UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = '${queue}'`,
+      ],
+      [
+        "a queue cannot be made a partitioned one",
+        `UPDATE pgboss.queue SET partition = true WHERE name = '${queue}'`,
+      ],
+      [
+        "a partitioned queue cannot be declared",
+        `SELECT pgboss.create_queue('${queue}-partitioned', '{"policy": "standard", "partition": true}'::jsonb)`,
+      ],
+      [
+        "a queue row with a job table of its own cannot be inserted",
+        `INSERT INTO pgboss.queue (name, policy, retry_limit, retry_delay, retry_backoff, expire_seconds, retention_seconds, deletion_seconds, partition, table_name) VALUES ('${queue}-inserted', 'standard', 0, 0, false, 900, 900, 900, false, 'job_e2e')`,
+      ],
+    ] as const;
+    for (const [what, statement] of refusedRows) {
+      expect(await sqlStateOf(statement), what).toBe(CHECK_VIOLATION);
+    }
     expect(
       await asRuntimeRole(async (client) => {
         const result = await client.query(
-          `UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = $1`,
+          `SELECT table_name, partition FROM pgboss.queue WHERE name = $1`,
           [queue],
         );
-        return result.rowCount;
+        return result.rows;
       }),
-      "the application's role can still rewrite its queue",
-    ).toBe(1);
+      "the queue is unchanged",
+    ).toEqual([{ table_name: "job_common", partition: false }]);
+
+    // Nor can the application take the trigger away: that needs to own the
+    // table.
+    for (const [what, statement] of [
+      [
+        "the trigger cannot be disabled",
+        "ALTER TABLE pgboss.queue DISABLE TRIGGER refuse_own_job_table",
+      ],
+      [
+        "the trigger cannot be dropped",
+        "DROP TRIGGER refuse_own_job_table ON pgboss.queue",
+      ],
+    ] as const) {
+      expect(await sqlStateOf(statement), what).toBe(PERMISSION_DENIED);
+    }
+  } finally {
+    await connectedAs(stack.databaseUrl, (client) =>
+      client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
+    );
+  }
+});
+
+test("a queue already rewritten stops the owner's job schema install", async () => {
+  test.setTimeout(120_000);
+
+  // A row that got in before the trigger did, or while it was switched off, is
+  // what the install's own check stops for. Written here by the owner with the
+  // trigger disabled for the one transaction, which is also how it stays out
+  // of reach of the application.
+  const queue = `runtime-role-planted-${suffix}`;
+  await asRuntimeRole((client) =>
+    client.query(
+      `SELECT pgboss.create_queue($1, '{"policy": "standard"}'::jsonb)`,
+      [queue],
+    ),
+  );
+  try {
+    await connectedAs(stack.databaseUrl, async (client) => {
+      await client.query("BEGIN");
+      await client.query(
+        "ALTER TABLE pgboss.queue DISABLE TRIGGER refuse_own_job_table",
+      );
+      await client.query(
+        "UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = $1",
+        [queue],
+      );
+      await client.query(
+        "ALTER TABLE pgboss.queue ENABLE TRIGGER refuse_own_job_table",
+      );
+      await client.query("COMMIT");
+    });
 
     const refused = runInAppContainer(
       ["node", "/app/apps/api/scripts/install-job-schema.mjs"],
