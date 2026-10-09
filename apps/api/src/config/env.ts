@@ -115,6 +115,12 @@ function isAddressOrRange(entry: string): boolean {
   );
 }
 
+/** A range of every address of its family, such as `0.0.0.0/0` or `::/0`. */
+function isWholeFamily(entry: string): boolean {
+  const prefix = entry.split("/")[1];
+  return prefix !== undefined && Number(prefix) === 0;
+}
+
 /**
  * Whether a client could reach this instance at the address given.
  *
@@ -321,6 +327,12 @@ export const envSchema = z.object({
    * rate limits on the public forms count every request by the address it came
    * from, which behind an unnamed proxy is the proxy's. The sign-in endpoints'
    * limiter is handed the address resolved from the same list.
+   *
+   * A range must not take in the clients too: a client it covers is believed
+   * about the hop before it, so it can name any address it likes and start a
+   * fresh budget with each. A range of every address of its family is refused
+   * for that reason; a narrower one that still covers clients cannot be told
+   * from a proxy network here, and the deployment guide warns against it.
    */
   TRUSTED_PROXIES: z
     .string()
@@ -333,6 +345,10 @@ export const envSchema = z.object({
     .refine(
       (entries) => entries.every(isAddressOrRange),
       "must be IP addresses or CIDR ranges, separated by commas",
+    )
+    .refine(
+      (entries) => !entries.some(isWholeFamily),
+      "must not include a range of every address, such as 0.0.0.0/0 or ::/0, which would trust every client",
     )
     .default([]),
 

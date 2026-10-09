@@ -643,6 +643,12 @@ forms and the sign-in endpoints count the same address, and a request sent to
 the application's port directly, past the proxy, is counted by the address it
 came from whatever header it carries.
 
+Name only the proxies, never the clients. A client inside a listed range is
+believed when it says which address it came from, so it can claim a new one for
+every request and never run out of budget. Keep each range to the network the
+proxy sits on; a range of every address, such as `0.0.0.0/0` or `::/0`, is
+refused at start.
+
 Left empty, the header is not read for the forms at all, and every visitor
 behind the proxy shares its budget: a busy afternoon can then refuse a contact
 form to somebody who never sent one. The sign-in endpoints keep taking a header

@@ -537,6 +537,16 @@ describe("the trusted proxies", () => {
       expect(() => withProxies(value), value).toThrow(EnvValidationError);
     }
   });
+
+  /*
+   * A range that takes in every address trusts every client as a proxy, so a
+   * client could name any address in X-Forwarded-For and be counted by it.
+   */
+  it("refuses a range of every address in either family", () => {
+    for (const value of ["0.0.0.0/0", "::/0", "127.0.0.1, 10.0.0.0/00"]) {
+      expect(() => withProxies(value), value).toThrow(EnvValidationError);
+    }
+  });
 });
 
 describe("the hosts a connected app may identify itself from", () => {
