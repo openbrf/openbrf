@@ -1464,8 +1464,16 @@ export interface DataSubjectReport {
   /** What the association keeps, and until when. */
   retention: {
     daysAfterMoveOut: number;
-    /** The latest purge date across this person's residencies. */
+    /**
+     * The latest purge date across this person's residencies: what the policy
+     * sets, not a promise. The purge does not act on the person while a legal
+     * hold or a restriction of processing stands, and the two flags below say
+     * whether one does.
+     */
     purgeOn: string | null;
+    /** A legal hold stands (art. 17(3)(e)): the purge leaves the person alone. */
     onLegalHold: boolean;
+    /** A restriction of processing stands (art. 18): the purge leaves the person alone. */
+    processingRestricted: boolean;
   };
 }

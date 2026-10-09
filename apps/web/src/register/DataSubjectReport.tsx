@@ -2550,6 +2550,14 @@ export function DataSubjectReport({
                       : "register.person.report.no",
                   )}
                 />
+                <Field
+                  labelKey="register.person.report.field.processingRestricted"
+                  value={t(
+                    report.retention.processingRestricted
+                      ? "register.person.report.yes"
+                      : "register.person.report.no",
+                  )}
+                />
               </dl>
             </Section>
 

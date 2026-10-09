@@ -124,7 +124,12 @@ const EMPTY_REPORT: Report = {
   auditEntries: [],
   dataSubjectRequests: [],
   personalDataBreaches: [],
-  retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
+  retention: {
+    daysAfterMoveOut: 365,
+    purgeOn: null,
+    onLegalHold: false,
+    processingRestricted: false,
+  },
 };
 
 const FULL_REPORT: Report = {
@@ -821,6 +826,7 @@ const FULL_REPORT: Report = {
     daysAfterMoveOut: 365,
     purgeOn: "2027-02-01",
     onLegalHold: true,
+    processingRestricted: true,
   },
 };
 
@@ -1119,6 +1125,8 @@ describe("what the document prints", () => {
     // test that only looked for the heading - and that is the disclosure the
     // column above is worded around.
     expect(fieldValue("Rättsligt bevarandekrav")).toBe("Ja");
+    // A restriction suspends the purge as a hold does, and says so beside it.
+    expect(fieldValue("Begränsning av behandling")).toBe("Ja");
   });
 
   it("prints a motion in the member's own words, with its own erasure date", async () => {

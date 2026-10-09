@@ -312,6 +312,7 @@ export class DataSubjectReportService {
         phoneCipher: true,
         personalIdentityNumberCipher: true,
         protectedPersonalData: true,
+        processingRestrictedAt: true,
         preferredLocale: true,
         createdAt: true,
         residencies: {
@@ -2022,6 +2023,7 @@ export class DataSubjectReportService {
           computePurgeDate(lastMovedOutOn, retentionDays),
         ),
         onLegalHold: person.legalHolds.some((hold) => hold.releasedAt === null),
+        processingRestricted: person.processingRestrictedAt !== null,
       },
     };
   }

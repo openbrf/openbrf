@@ -1134,6 +1134,7 @@ export interface DataSubjectReport {
     daysAfterMoveOut: number;
     purgeOn: string | null;
     onLegalHold: boolean;
+    processingRestricted: boolean;
   };
 }
 

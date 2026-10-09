@@ -1686,6 +1686,31 @@ describe("what the report contains", () => {
     expect(report.retention.onLegalHold).toBe(true);
   });
 
+  it("says a restriction of processing suspends the purge, as a legal hold does", async () => {
+    // Art. 18(2) lets the association keep the data and do nothing else with
+    // it, which includes erasing it on the policy's date. Told only about
+    // holds, a person under a restriction read a purge date and the sessions'
+    // next-night deletion as things that were going to happen.
+    expect((await reportFor(boardCookie)).retention.processingRestricted).toBe(
+      false,
+    );
+
+    await prisma.person.update({
+      where: { id: subject.personId },
+      data: { processingRestrictedAt: new Date("2026-03-01") },
+    });
+    try {
+      const report = await reportFor(boardCookie);
+
+      expect(report.retention.processingRestricted).toBe(true);
+    } finally {
+      await prisma.person.update({
+        where: { id: subject.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
   it("lists the motions, and states an erasure date only for the closed one", async () => {
     const report = await reportFor(boardCookie);
 

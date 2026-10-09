@@ -478,6 +478,7 @@
           "twoFactor": "Authenticator app",
           "retentionDays": "Days after move-out",
           "onLegalHold": "Legal hold",
+          "processingRestricted": "Restriction of processing",
           "creditor": "Lienholder",
           "amount": "Amount",
           "noted": "Noted",
