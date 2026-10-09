@@ -67,3 +67,34 @@ export async function lockFeeNotifications(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"fee-notifications"}))`;
 }
+
+/**
+ * The database's clock, read inside a transaction that already holds
+ * {@link lockFeeNotifications}.
+ *
+ * What a rate's `createdAt` and a run's `issuedAt` are stamped with, instead of
+ * a default. Removing a rate asks whether a run issued at or after the rate's
+ * `createdAt` billed it, so a run that billed the rate must never be stamped
+ * before it. Neither default promises that. Prisma fills `@default(now())` from
+ * the clock of the API process that writes the row, and two processes, or one
+ * whose clock is stepped back, can stamp a later run before an earlier rate.
+ * The column's own default, which a write outside Prisma gets, is
+ * `CURRENT_TIMESTAMP`: when the transaction started, before it waited for the
+ * lock. Either way a run could bill a rate under an earlier stamp than the
+ * rate's, and the rate would be removed from under its frozen notices.
+ *
+ * Read after the lock, the stamps follow the order in which the writers held
+ * it, which is the order they decided in, and they come from one clock. The
+ * column keeps millisecond precision, so two writers within one millisecond
+ * tie, and the tie reads as billed: the removal is refused, which is the safe
+ * side.
+ */
+export async function lockedNow(tx: Prisma.TransactionClient): Promise<Date> {
+  const [row] = await tx.$queryRaw<
+    { now: Date }[]
+  >`SELECT clock_timestamp() AS now`;
+  if (row === undefined) {
+    throw new Error("The database returned no clock reading.");
+  }
+  return row.now;
+}

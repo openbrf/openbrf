@@ -3,7 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -21,10 +21,12 @@ import type {
 } from "./fee-notification.service";
 import type { FeeRegister, FeeRow } from "./fee.service";
 import {
+  advisoryLockCount,
   holdLockCount,
   residencyApartmentLockCount,
   waitFor,
 } from "../testing/advisory-locks";
+import { lockedNow } from "./fee-lock";
 
 /**
  * Fees and their notices, against a real database.
@@ -1090,7 +1092,15 @@ describe("rates and the runs that billed them", () => {
      * A parking rate written inside the billed period after the run was
      * issued, as a row recorded before the refusal above existed: the run
      * cannot have billed it, and its notice is the annual fee's alone.
+     *
+     * Stamped after the run by the run's own stamp. Left to its default, Prisma
+     * would stamp it from this process's clock, and the run was stamped from
+     * the database's, which need not agree.
      */
+    const run = await prisma.feeNotification.findFirstOrThrow({
+      where: { notices: { some: { apartmentId } } },
+      select: { issuedAt: true },
+    });
     const parking = await prisma.fee.create({
       data: {
         apartmentId,
@@ -1100,6 +1110,7 @@ describe("rates and the runs that billed them", () => {
         vatTreatment: "EXEMPT",
         financialYearStartMonth: 1,
         recordedByPersonId: board.personId,
+        createdAt: new Date(run.issuedAt.getTime() + 1),
       },
       select: { id: true },
     });
@@ -1130,6 +1141,74 @@ describe("rates and the runs that billed them", () => {
     }
 
     await clearFees();
+  });
+
+  it("refuses to remove a rate a run billed after waiting for it to be recorded", async () => {
+    /*
+     * A run's transaction begins, then waits for the notifications lock while
+     * a rate is recorded and committed, and bills that rate once it has the
+     * lock. Stamped by any clock other than the one the rate was stamped by,
+     * after the lock, the run could read as issued before the rate existed,
+     * and removing the rate would take it from under the notice it billed. The
+     * transaction below stands in for the recording: it holds the lock until
+     * the run is queued behind it, then writes the rate stamped as the service
+     * stamps it.
+     *
+     * This process's clock is set a minute behind the database's, as an API
+     * process's may be. Prisma stamps a default from it, so a run left to its
+     * default would be stamped a minute before the rate it billed.
+     */
+    let holding = (): void => undefined;
+    const locked = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(Date.now() - 60_000);
+
+    try {
+      const recording = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"fee-notifications"}))`;
+          holding();
+          await waitFor(
+            async () =>
+              (await advisoryLockCount(prisma, "fee-notifications", false)) ===
+              1n,
+          );
+          const fee = await tx.fee.create({
+            data: {
+              apartmentId,
+              kind: "ANNUAL_FEE",
+              appliesFrom: new Date("2026-01-01T00:00:00.000Z"),
+              monthlyAmount: "3000.00",
+              vatTreatment: "EXEMPT",
+              financialYearStartMonth: 1,
+              recordedByPersonId: board.personId,
+              createdAt: await lockedNow(tx),
+            },
+            select: { id: true },
+          });
+          return fee.id;
+        },
+        { timeout: 30_000 },
+      );
+
+      await locked;
+      const run = issue("2026-01-01", "2026-01-31");
+      const feeId = await recording;
+      expect((await run).statusCode).toBe(201);
+
+      const response = await inject({
+        method: "DELETE",
+        url: `/api/fees/${feeId}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe("fee-notified");
+    } finally {
+      vi.useRealTimers();
+      await clearFees();
+    }
   });
 
   it("re-stamps a rate's financial year when the next rate closes it", async () => {

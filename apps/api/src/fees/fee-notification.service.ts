@@ -31,7 +31,7 @@ import {
 } from "./fee-notice";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
 import { feePurgeCutoff } from "./fee-retention";
-import { lockFeeNotifications } from "./fee-lock";
+import { lockedNow, lockFeeNotifications } from "./fee-lock";
 import { FeeError } from "./fee.error";
 import { MAX_NOTICES_PER_RUN, paymentReferenceFor } from "./payment-reference";
 
@@ -300,6 +300,9 @@ export class FeeNotificationService {
           // The books this run is entered in, which its notices are preserved
           // by. A later change to the setting does not reach back into them.
           financialYearStartMonth,
+          // Stamped under the lock, after the rates it billed were committed,
+          // so removing a rate can tell this run billed it. See `lockedNow`.
+          issuedAt: await lockedNow(tx),
         },
         select: { id: true, issuedAt: true },
       });

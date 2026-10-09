@@ -13,7 +13,7 @@ import {
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
-import { lockFeeNotifications, lockFeeRates } from "./fee-lock";
+import { lockedNow, lockFeeNotifications, lockFeeRates } from "./fee-lock";
 import { firstMonthBilled, sumAmounts } from "./fee-period";
 import { FeeError } from "./fee.error";
 
@@ -405,6 +405,10 @@ export class FeeService {
           // The books this rate is entered in, so its erasure is counted from
           // them and not from whatever the setting says later.
           financialYearStartMonth,
+          // Stamped under the notifications lock, not by the column default,
+          // so a run that billed this rate is never stamped before it. See
+          // `lockedNow`.
+          createdAt: await lockedNow(tx),
         },
         select: FEE_FIELDS,
       });
