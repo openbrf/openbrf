@@ -229,6 +229,27 @@ describe("the late-bound host object", () => {
     );
   });
 
+  /**
+   * The job queue refuses a name outside `[A-Za-z0-9_.\-/]`, the rule pg-boss
+   * applies in `createQueue`. A `:` in the prefix failed every call.
+   */
+  it("names a plugin's queue in characters the job queue accepts", async () => {
+    const { bound } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["jobs:schedule"],
+    });
+
+    await host.jobs.send("nightly", { at: 1 });
+
+    expect(bound.jobs.send).toHaveBeenCalledWith("plugin/occupancy/nightly", {
+      at: 1,
+    });
+    await expect(host.jobs.send("a:b", {})).rejects.toBeInstanceOf(RangeError);
+    await expect(host.jobs.send("../x", {})).rejects.toBeInstanceOf(RangeError);
+  });
+
   it("refuses a service the manifest did not declare", async () => {
     const host = createPluginHost(binding, context);
     binding.bind(services().bound);

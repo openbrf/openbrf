@@ -291,18 +291,34 @@ function pluginSmsService(
   };
 }
 
+/** One segment of a queue name, in the characters the job queue accepts. */
+const PLUGIN_QUEUE_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
+
 /**
  * Background work, on queues named for the plugin.
  *
  * The prefix is applied here rather than trusted to the plugin, so two plugins
  * cannot collide on a queue name and no plugin can subscribe to a core queue
  * and consume the association's move-out reminders.
+ *
+ * Separated by `/`, which no core queue name contains and the job queue
+ * accepts - it refuses a `:`, which is what every plugin queue name used to
+ * carry. The plugin's own part is one segment, so it cannot add a level of its
+ * own to the prefix.
  */
 function pluginJobService(
   pluginId: string,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginJobs {
-  const queue = (name: string): string => `plugin:${pluginId}:${name}`;
+  const queue = (name: string): string => {
+    if (!PLUGIN_QUEUE_NAME.test(name)) {
+      throw new RangeError(
+        `Plugin "${pluginId}" named a job queue ${JSON.stringify(name)}; ` +
+          "a queue name is 1-64 letters, digits, '_', '.' or '-'.",
+      );
+    }
+    return `plugin/${pluginId}/${name}`;
+  };
 
   return {
     work: async (name, handler) => {
