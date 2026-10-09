@@ -171,11 +171,20 @@ the dump describe the same moment. Versioning or replication inside the same
 bucket or account is not a backup of it: it goes when the bucket or the account
 does.
 
+The bucket in `OPENBRF_S3_BUCKET` has to hold this instance's objects and
+nothing else. The copy takes the whole bucket, and the restore below puts the
+whole bucket back and deletes every object the copy does not hold, another
+application's included.
+
 Add this to the script above before the `echo`, with `BACKUP_BUCKET` naming the
-bucket the copies go to. The AWS CLI is one way; any S3 client that copies every
-object will do, and `--endpoint-url` points it at a provider other than AWS.
+bucket the copies go to. Both names have to be set in the shell that runs the
+script: `--env-file` hands `.env.production` to Compose, not to the shell. The
+AWS CLI is one way; any S3 client that copies every object will do, and
+`--endpoint-url` points it at a provider other than AWS.
 
 ```sh
+: "${OPENBRF_S3_BUCKET:?set OPENBRF_S3_BUCKET in this shell}"
+: "${BACKUP_BUCKET:?set BACKUP_BUCKET in this shell}"
 aws s3 sync "s3://${OPENBRF_S3_BUCKET}" "s3://${BACKUP_BUCKET}/${STAMP}/"
 ```
 
@@ -240,10 +249,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 With S3 storage, put the bucket back before step 5, from the copy with the same
-stamp as the dump. `--delete` removes objects written after that backup, which
-no restored row names:
+stamp as the dump, with both bucket names set in the shell as for the backup.
+`--delete` removes objects written after that backup, which no restored row
+names, and anything else in the bucket, which is why the bucket holds this
+instance's objects alone:
 
 ```sh
+: "${OPENBRF_S3_BUCKET:?set OPENBRF_S3_BUCKET in this shell}"
+: "${BACKUP_BUCKET:?set BACKUP_BUCKET in this shell}"
 aws s3 sync --delete "s3://${BACKUP_BUCKET}/<stamp>/" "s3://${OPENBRF_S3_BUCKET}"
 ```
 
