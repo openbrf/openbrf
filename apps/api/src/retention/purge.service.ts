@@ -8,7 +8,6 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -21,12 +20,14 @@ import {
   remainingRunBound,
   type ErasureRemainder,
 } from "./erasure-domains";
+import { lockErasureEligibility } from "./erasure-lock";
 import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
 import { purgeCutoff } from "./purge-window";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 import {
   erasureRequestedPersonIds,
+  grantedErasurePersonIds,
   withheldPersonIds,
 } from "./withheld-persons";
 
@@ -454,7 +455,7 @@ export class PurgeService implements OnModuleInit {
     failedPersonIds: ReadonlySet<string>,
   ): Promise<OpenErasureRequest[]> {
     const open: OpenErasureRequest[] = [];
-    for (const personId of await erasureRequestedPersonIds(this.prisma)) {
+    for (const personId of await grantedErasurePersonIds(this.prisma)) {
       const remainder = await erasureRemainder(this.prisma, personId, now);
       const described = remainder.map(describeRemainder).join("; ");
 
@@ -557,8 +558,15 @@ export class PurgeService implements OnModuleInit {
    * A person with no residency at all is not selected. There is no move-out to
    * anchor a purge date on, so nothing has run out: an external board member or
    * an administrator who never lived here is not a former resident.
+   *
+   * @param maxPersons The per-run bound. A parameter so a test can make it
+   *   smaller than the number of granted requests and see them all taken.
    */
-  async eligible(now: Date, retentionDays: number): Promise<string[]> {
+  async eligible(
+    now: Date,
+    retentionDays: number,
+    maxPersons: number = MAX_PERSONS_PER_RUN,
+  ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
     const defaultLocale = await this.defaultLocale();
 
@@ -572,7 +580,7 @@ export class PurgeService implements OnModuleInit {
      */
     const referencedIds = await this.referencedPersonIds();
 
-    const requested = await erasureRequestedPersonIds(this.prisma);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
     const withheld = new Set(await withheldPersonIds(this.prisma));
 
     /*
@@ -582,10 +590,12 @@ export class PurgeService implements OnModuleInit {
      * an external board member, an administrator - has service data like
      * anybody else and no move-out to anchor a date on.
      *
-     * Every other refusal still stands, which is why this is a query of its own
-     * rather than a relaxed version of the one below: a person who still lives
-     * here, sits on the board, holds a system role or is under a hold is not
-     * erased because they asked, and the board is told which of those it was.
+     * Every other refusal still stands, and `erasureRequestedPersonIds` is
+     * where it is applied - the same predicate every job that erases on a
+     * request selects on, so none of them can have started an erasure this
+     * job then refuses. A person who still lives here, sits on the board,
+     * holds a system role or is under a hold is not erased because they asked,
+     * and the account below tells the board which of those it was.
      *
      * Taken first, and what is left of the bound is what the query below may
      * take. These people are selected by a flag that this job clears, so one
@@ -597,28 +607,12 @@ export class PurgeService implements OnModuleInit {
       requested.length === 0
         ? []
         : await this.prisma.person.findMany({
-            where: {
-              id: { in: requested },
-              NOT: {
-                residencies: {
-                  some: {
-                    OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-                  },
-                },
-              },
-              boardPositions: {
-                none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-              },
-              systemRoles: { none: {} },
-              legalHolds: { none: { releasedAt: null } },
-              processingRestrictedAt: null,
-            },
+            where: { id: { in: requested } },
             orderBy: [{ createdAt: "asc" }],
-            take: requested.length,
             select: { id: true },
           });
 
-    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const bound = remainingRunBound(onRequest.length, maxPersons);
     const persons =
       bound === 0
         ? []
@@ -736,19 +730,21 @@ export class PurgeService implements OnModuleInit {
 
     return this.prisma.$transaction(async (tx) => {
       /*
-       * Both locks, in this order, before the read. The lock file's own comment
-       * describes the gap this closes: without them a hold placed, or a
-       * residency reopened, between the read below and the writes that follow
-       * would be decided by whichever transaction committed last.
+       * The hold, then what refuses an erasure, before the read. The lock
+       * files' own comments describe the gap this closes: without them a hold
+       * placed, a residency reopened, a board seat or a system role granted
+       * between the read below and the writes that follow would be decided by
+       * whichever transaction committed last.
        *
-       * The order is fixed across the product - hold, then residency - and
-       * every other writer takes at most one of them: LegalHoldService takes
-       * the hold lock, MoveService the residency lock. So no transaction ever
-       * holds the second while waiting for the first, and the pair cannot
-       * deadlock.
+       * The order is fixed across the product - hold, then residency, then the
+       * seat and the roles (`erasure-lock.ts`) - and no writer of one of the
+       * later keys takes an earlier one after it: LegalHoldService takes the
+       * hold lock, MoveService the residency lock, the role services their
+       * own. So no transaction ever holds a later key while waiting for an
+       * earlier one, and the set cannot deadlock.
        */
       await lockLegalHold(tx, personId);
-      await lockResidencyTransitions(tx, personId);
+      await lockErasureEligibility(tx, personId);
 
       const request = await tx.dataSubjectRequest.findFirst({
         where: {

@@ -247,6 +247,111 @@ export interface PersonalIdentityNumberMatch {
 }
 
 /**
+ * A character that is not on screen: the Unicode "other" category (control,
+ * format, surrogate, private-use, unassigned) and the default-ignorable code
+ * points, which include marks a renderer draws as nothing - the combining
+ * grapheme joiner, the variation selectors - and the byte order mark.
+ */
+const INVISIBLE = /[\p{C}\p{Default_Ignorable_Code_Point}]/u;
+
+/**
+ * What separates one thing from the next: spaces, tabs, line breaks. The byte
+ * order mark is not one, although a JavaScript `\s` says it is.
+ */
+const SEPARATOR = /[\t\n\v\f\r\u0085\p{Z}]/u;
+
+/** {@link SEPARATOR} as a run, for collapsing to one space. */
+const SEPARATOR_RUN = new RegExp(`${SEPARATOR.source}+`, "gu");
+
+/**
+ * Whether a character is dropped from free text before it is stored or scanned.
+ *
+ * Invisible, and not a separator: dropping a separator would join the two
+ * halves either side of it into one run, which is how a number written across
+ * a line break would become a number. One rule for the stored form and the
+ * scanned form, so the scanner cannot be blind to what the store would join.
+ */
+function isDropped(character: string): boolean {
+  return INVISIBLE.test(character) && !SEPARATOR.test(character);
+}
+
+/**
+ * Free text as it is stored and scanned: the invisible removed, compatibility
+ * forms folded.
+ *
+ * A soft hyphen, a zero-width space or a byte order mark is invisible on
+ * screen and splits a number the scanner would otherwise see; a fullwidth
+ * digit reads as a digit and is not one to a pattern written for ASCII. The
+ * strip drops the first kind and NFKC turns the second into ASCII. The strip
+ * runs first, so that a character removed from between a letter and a
+ * combining mark lets the two compose in this call and not in the next: the
+ * result is its own normal form. Line breaks and other separators stay, so two
+ * lines do not join into one run of digits. Use it for a value that is written
+ * to the database, so that what is stored is what was checked. The scanner
+ * applies the same rule to what it is given and reports where the number sits
+ * in the original.
+ */
+export function normalizeFreeText(text: string): string {
+  let kept = "";
+  for (const character of text) {
+    if (!isDropped(character)) {
+      kept += character;
+    }
+  }
+  return kept.normalize("NFKC");
+}
+
+/**
+ * {@link normalizeFreeText} for a value that is one line, a title or a name:
+ * every run of separators, line breaks included, becomes one space, and the
+ * ends are trimmed.
+ */
+export function normalizeSingleLineText(text: string): string {
+  return normalizeFreeText(text).replace(SEPARATOR_RUN, " ").trim();
+}
+
+/** Text folded for scanning, with where each folded character came from. */
+interface FoldedText {
+  text: string;
+  /** For every character of `text`: the span of the original it stands for. */
+  starts: number[];
+  ends: number[];
+}
+
+/**
+ * {@link normalizeFreeText} for a scan, keeping a way back to the original.
+ *
+ * A line break stays: whitespace is a boundary in free text, and dropping it
+ * would let any two runs of digits either side of it join. The candidate
+ * pattern decides the one place a separator may sit inside a number.
+ * What is dropped is decided by the same rule as in `normalizeFreeText`.
+ * Folded one code point at a time so every character of the result has a known
+ * origin; a compatibility form that expands to several characters (a ligature,
+ * a circled digit) has them share one.
+ */
+function foldForScan(text: string): FoldedText {
+  const folded: FoldedText = { text: "", starts: [], ends: [] };
+  let offset = 0;
+
+  for (const character of text) {
+    const start = offset;
+    offset += character.length;
+
+    if (isDropped(character)) {
+      continue;
+    }
+    const form = character.normalize("NFKC");
+    folded.text += form;
+    for (let position = 0; position < form.length; position++) {
+      folded.starts.push(start);
+      folded.ends.push(offset);
+    }
+  }
+
+  return folded;
+}
+
+/**
  * Every candidate shape a personal identity number is written in, unanchored.
  *
  * Ten or twelve digits with an optional separator before the last four. The
@@ -254,12 +359,24 @@ export interface PersonalIdentityNumberMatch {
  * number, a reference - from yielding a ten-digit window out of its middle:
  * a candidate must not touch a digit on either side.
  *
- * Whitespace inside a number is deliberately not accepted here, although the
- * parser tolerates it in a single value a person typed into a field. In free
- * text a space is a boundary, and honouring it inside a number would let a
- * phone number and the figure after it join into a false match.
+ * Whitespace is accepted in one place only: between the date and the last
+ * four, around the separator or instead of it (`811228 - 9874`, `811228 9874`,
+ * the two halves on two lines). The parser takes those forms as a number, and a
+ * reader does too, so a scan that let them through would let the number be
+ * published. The date and the last four must each still be one run of digits:
+ * accepting a space anywhere would let a phone number written in groups join
+ * the figure after it, and the calendar and the Luhn check are what keep the
+ * one place that is accepted from reporting a false match.
+ *
+ * The whitespace after the sign belongs to the sign. Two runs that could both
+ * take the same whitespace, as `\s*[-+]?\s*` would, make a date followed by a
+ * long run of spaces cost quadratic time before the match fails, and the text
+ * scanned is a whole page block, which can be a megabyte.
  */
-const CANDIDATE_PATTERN = /(?<!\d)(?:\d{2})?\d{6}[-+]?\d{4}(?!\d)/g;
+const CANDIDATE_PATTERN = new RegExp(
+  `(?<!\\d)(?:\\d{2})?\\d{6}${SEPARATOR.source}*(?:[-+]${SEPARATOR.source}*)?\\d{4}(?!\\d)`,
+  "gu",
+);
 
 /**
  * Finds the personal identity numbers in a piece of free text.
@@ -281,6 +398,10 @@ const CANDIDATE_PATTERN = /(?<!\d)(?:\d{2})?\d{6}[-+]?\d{4}(?!\d)/g;
  * the third digit pair of an organisation number is always 20 or more, which
  * is never a month.
  *
+ * The text is folded first ({@link normalizeFreeText}), so a number cannot be
+ * hidden behind an invisible character or written in fullwidth digits. `index`
+ * and `value` still describe the text that was passed in.
+ *
  * @param referenceDate Date the century inference is judged against, injected
  *   for the same reason as in the parser.
  */
@@ -291,15 +412,21 @@ export function scanForPersonalIdentityNumbers(
   const found: PersonalIdentityNumberMatch[] = [];
   // A fresh regex per call: the global flag carries lastIndex, and a shared
   // instance would make one scan depend on the one before it.
-  const pattern = new RegExp(CANDIDATE_PATTERN.source, "g");
+  const pattern = new RegExp(CANDIDATE_PATTERN.source, CANDIDATE_PATTERN.flags);
 
-  let match = pattern.exec(text);
+  const folded = foldForScan(text);
+  let match = pattern.exec(folded.text);
   while (match !== null) {
-    const [value] = match;
-    if (isValidPersonalIdentityNumber(value, referenceDate)) {
-      found.push({ value, index: match.index });
+    const [candidate] = match;
+    // The parser drops what JavaScript calls whitespace, which a next-line
+    // character is not, so the separators the pattern let through go first.
+    const compact = candidate.replace(SEPARATOR_RUN, "");
+    if (isValidPersonalIdentityNumber(compact, referenceDate)) {
+      const start = folded.starts[match.index] ?? 0;
+      const end = folded.ends[match.index + candidate.length - 1] ?? start;
+      found.push({ value: text.slice(start, end), index: start });
     }
-    match = pattern.exec(text);
+    match = pattern.exec(folded.text);
   }
 
   return found;

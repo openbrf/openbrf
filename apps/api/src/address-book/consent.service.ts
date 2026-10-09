@@ -1,4 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
+import {
+  normalizeFreeText,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -16,7 +20,10 @@ export interface SetPublicationConsentInput {
   /** True records a consent, false withdraws the one in force. */
   granted: boolean;
   actorPersonId: string;
-  /** What the person said, kept with the grant it describes. */
+  /**
+   * What the person said, kept with the grant it describes. Only with
+   * `granted: true`: a withdrawal closes a row and writes no note.
+   */
   note?: string;
 }
 
@@ -80,6 +87,19 @@ export class ConsentService {
     input: SetPublicationConsentInput,
     now: Date = new Date(),
   ): Promise<PublicationConsentView> {
+    // The note is shown on the person's page and printed on their access
+    // report, and a personal identity number has no business in either. It is
+    // folded once and that is what is both scanned and stored, so what is
+    // stored is what was checked.
+    const note =
+      input.note === undefined ? undefined : normalizeFreeText(input.note);
+    if (note !== undefined && scanForPersonalIdentityNumbers(note).length > 0) {
+      throw new PersonError(
+        "Write the note without a personal identity number in it.",
+        "personal-identity-number",
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const person = await tx.person.findUnique({
         where: { id: input.personId },
@@ -114,7 +134,7 @@ export class ConsentService {
             scope: input.scope,
             grantedAt: now,
             recordedByPersonId: input.actorPersonId,
-            note: input.note ?? null,
+            note: note ?? null,
           },
           select: CONSENT_VIEW_COLUMNS,
         });
@@ -125,9 +145,16 @@ export class ConsentService {
             channel: "WEB",
             actorPersonId: input.actorPersonId,
             targetPersonId: input.personId,
+            /*
+             * Whether the board wrote a note, never the note. The log outlives
+             * every purge and erasure (ADR 0007), and what a board writes about
+             * a consent is free text about a named household - a child in a
+             * photograph, say. The note itself stays on the consent row, which
+             * an erasure reaches.
+             */
             context: {
               scope: input.scope,
-              ...(input.note === undefined ? {} : { note: input.note }),
+              ...(note === undefined ? {} : { hasNote: true }),
             },
           },
           tx,
@@ -190,7 +217,6 @@ export class ConsentService {
             // The period the consent covered, which is what a later question
             // about an already published page is asked against.
             grantedAt: standing.grantedAt.toISOString(),
-            ...(input.note === undefined ? {} : { note: input.note }),
           },
         },
         tx,

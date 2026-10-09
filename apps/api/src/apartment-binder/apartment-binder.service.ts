@@ -1,10 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   dateColumnOf,
   formatLocalDay,
   type LocalDay,
   localDayOf,
   localDayOfColumn,
+  normalizeSingleLineText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
@@ -18,6 +19,7 @@ import type {
   ApartmentDocumentFiler,
   ApartmentDocumentKind,
 } from "../generated/prisma/enums";
+import { failureName } from "../logging/failure";
 import { MediaService, mediaUrl, safeFileName } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -110,7 +112,11 @@ export interface BinderEntryView {
    * them.
    */
   filedAs: ApartmentDocumentFiler;
-  /** Whether the reader filed it themselves, which is what offers "Ta ut". */
+  /**
+   * Whether the reader filed it themselves as a tenant-owner, which is what
+   * offers "Ta ut". One a board member filed into their own apartment through
+   * the board is the board's to remove, and offering it would answer 404.
+   */
   filedByYou: boolean;
   fileName: string;
   contentType: string;
@@ -200,6 +206,8 @@ export interface FileEntryInput {
  */
 @Injectable()
 export class ApartmentBinderService {
+  private readonly logger = new Logger(ApartmentBinderService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
@@ -269,7 +277,9 @@ export class ApartmentBinderService {
         .filter((row) => row.apartmentId === apartmentId)
         .map((row) => ({
           ...toEntryView(row),
-          filedByYou: row.filedByPersonId === viewer.personId,
+          filedByYou:
+            row.filedByPersonId === viewer.personId &&
+            row.filedAs === "TENANT_OWNER",
         })),
     }));
   }
@@ -522,6 +532,14 @@ export class ApartmentBinderService {
     }
 
     /*
+     * The title as the shared rule folds it: what is invisible on screen gone,
+     * fullwidth forms in their ordinary shape, and a line break a space.
+     * Scanned and stored as it is here. The route has already refused a title
+     * that nothing is left of.
+     */
+    const title = normalizeSingleLineText(input.title);
+
+    /*
      * The name as it will be stored, not as it arrived. `safeFileName` strips
      * the Unicode "other" category and path punctuation, and stripping a
      * character joins what it separated: "1981:1218-9876.pdf" carries no
@@ -529,7 +547,7 @@ export class ApartmentBinderService {
      * stored name is what every later household reads, so it is the value the
      * rule has to be true of.
      */
-    refusePersonalIdentityNumbers(input.title, safeFileName(input.fileName));
+    refusePersonalIdentityNumbers(title, safeFileName(input.fileName));
 
     /*
      * Counted from what is stored rather than from a running total, and counted
@@ -566,7 +584,7 @@ export class ApartmentBinderService {
           apartmentId: input.apartmentId,
           kind: input.kind,
           audience: input.audience,
-          title: input.title.trim(),
+          title,
           datedOn: input.datedOn === null ? null : dateColumnOf(input.datedOn),
           filedAs,
           filedByPersonId: input.actor.personId,
@@ -575,7 +593,10 @@ export class ApartmentBinderService {
         select: ENTRY_SELECT,
       });
 
-      return { ...toEntryView(entry), filedByYou: true };
+      return {
+        ...toEntryView(entry),
+        filedByYou: filedAs === "TENANT_OWNER",
+      };
     } catch (cause) {
       // The upload is already in the audit log, and so is this removal. That
       // pair is the honest record of what happened.
@@ -583,9 +604,13 @@ export class ApartmentBinderService {
         .remove(file.id, input.actor.personId, "WEB", {
           recordFileName: false,
         })
-        .catch(() => {
-          /* Reported by the media service; the original failure is the one to
-             raise. */
+        .catch((removal: unknown) => {
+          // The original failure is the one to raise, but a file left behind
+          // is one nothing references, so its id goes to the log. Never its
+          // name, which is the household's own words.
+          this.logger.error(
+            `Removing file ${file.id} after a failed filing failed: ${failureName(removal)}`,
+          );
         });
       throw cause;
     }
