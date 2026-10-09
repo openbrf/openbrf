@@ -147,14 +147,16 @@ Settings saved before that are migrated to the same rule: the upgrade sets
 `smtpRequireTls` on every row whose host is not on loopback. A connection that
 starts in cleartext to a server that offers no STARTTLS then stops sending mail
 until the board switches to implicit TLS or a port that offers STARTTLS. A row
-with implicit TLS is unaffected: its connection never asks for STARTTLS. A row that does not require it
-anyway, such as one a data-only restore of an older backup brought back, is
-used as stored. The SMTP card warns that the password can go out unencrypted
+with implicit TLS is unaffected: its connection never asks for STARTTLS. A row
+that does not require it anyway, such as one a data-only restore of an older
+backup brought back, is used as stored. The SMTP card warns that the password can go out unencrypted
 until the board saves the settings again, and the instance logs a warning
 naming the host and port, never the user or the password, the first time it
 sends through it. Where STARTTLS is required, a send that finds no TLS fails
 with the reason `mail-tls-unavailable`, which the card explains as a port and
-TLS mode to fix rather than a password.
+TLS mode to fix rather than a password. The SMTP driver also reports the `Message-ID` it handed
+over as the delivered one, so the environment's relay must keep it; one that
+rewrites it belongs behind `http-api`.
 
 _Amended 2026-10-09._ Settings saved before saving required TLS were first left
 as they were and only flagged, so that an instance whose server offers no
@@ -163,10 +165,7 @@ password that could go out in the clear for as long as nobody opened the SMTP
 card, and an attacker on the path who strips STARTTLS is not something a board
 would notice. A send that fails says why, on the card's test message and in the
 reason `mail-tls-unavailable`, so the migration trades a silent exposure for a
-failure that names its fix. The SMTP driver
-also reports the `Message-ID` it handed over as the delivered one, so the
-environment's relay must keep it; one that rewrites it belongs behind
-`http-api`.
+failure that names its fix.
 
 ### The sender a host sets
 

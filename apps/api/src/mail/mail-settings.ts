@@ -260,9 +260,9 @@ export class MailSettingsResolver implements OnModuleInit {
     this.tlsOptionalWarned = true;
     this.logger.warn(
       `The SMTP settings do not require STARTTLS of ${host}:${port}: when it ` +
-        "offers no STARTTLS, or something on the path removes the offer, the " +
-        "sign-in and every message go to it in cleartext. Saving the SMTP " +
-        "settings again requires it.",
+        "offers no STARTTLS, or something on the path removes the offer, every " +
+        "message goes to it in cleartext. Saving the SMTP settings again " +
+        "requires it.",
     );
   }
 

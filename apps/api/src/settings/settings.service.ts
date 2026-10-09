@@ -169,15 +169,7 @@ export interface StoredSmtpSettingsView {
    * turns every board member's browser session into a way to read it.
    */
   passwordSet: boolean;
-  /**
-   * Whether the sign-in can go out unencrypted: the settings do not require
-   * STARTTLS, name no implicit TLS, and the host is not on loopback. A server
-   * that offers no STARTTLS, or an attacker on the path who strips the offer,
-   * then receives the password in the clear. Every save requires TLS, and the
-   * upgrade required it of settings saved before, so this is true only of a row
-   * that came back some other way. Saving the settings again requires TLS, so
-   * the screen says that.
-   */
+  /** Whether the sign-in can go out unencrypted; see {@link storedTlsOptional}. */
   tlsOptional: boolean;
   /**
    * Whether the instance can send mail at all. Invitations, activation links
