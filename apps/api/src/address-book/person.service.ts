@@ -37,6 +37,7 @@ export class PersonError extends Error {
       | "person-not-found"
       | "invalid-personal-identity-number"
       | "invalid-email"
+      | "invalid-phone"
       | "field-not-masked"
       | "personal-identity-number",
   ) {
@@ -603,6 +604,15 @@ export class PersonService {
       input.phone === undefined || input.phone.trim() === ""
         ? null
         : await this.encryption.encrypt("person.phone", input.phone);
+    if (phone !== null && phone.index === null) {
+      // As an address that cannot be read is refused: a number that normalizes
+      // to nothing is stored, unmatched by any search, and looks like a number
+      // on file.
+      throw new PersonError(
+        "That phone number could not be read.",
+        "invalid-phone",
+      );
+    }
 
     let identityNumber = null;
     if (

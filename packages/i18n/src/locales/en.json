@@ -877,7 +877,9 @@
       "submit": "Add to the register",
       "cancel": "Cancel",
       "working": "Adding",
-      "failed": "The person could not be added."
+      "failed": "The person could not be added.",
+      "invalidEmail": "That email address could not be read.",
+      "invalidPhone": "That phone number could not be read."
     },
     "apartment": {
       "heading": "Apartment {{number}}",

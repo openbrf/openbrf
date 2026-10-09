@@ -1628,6 +1628,30 @@ describe("adding a person", () => {
     expect(personIdsIn(rows)).toEqual([personId]);
   });
 
+  it("refuses a phone number that normalizes to nothing, and stores no person", async () => {
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/address-book/persons",
+      payload: {
+        firstName: "Ringa",
+        lastName: surname,
+        phone: "ring mig",
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const failure = JSON.parse(response.body) as { reason: string };
+    expect(failure.reason).toBe("invalid-phone");
+    // Not stored as a number nothing can match: no row, however it looks.
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: "Ringa" },
+      }),
+    ).toBe(0);
+  });
+
   it("refuses a personal identity number that fails its own checksum", async () => {
     const cookie = await signIn(actors.board.email);
     const response = await inject({

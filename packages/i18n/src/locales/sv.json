@@ -877,7 +877,9 @@
       "submit": "Lägg till i registret",
       "cancel": "Avbryt",
       "working": "Lägger till",
-      "failed": "Personen kunde inte läggas till."
+      "failed": "Personen kunde inte läggas till.",
+      "invalidEmail": "E-postadressen gick inte att läsa.",
+      "invalidPhone": "Telefonnumret gick inte att läsa."
     },
     "apartment": {
       "heading": "Lägenhet {{number}}",
