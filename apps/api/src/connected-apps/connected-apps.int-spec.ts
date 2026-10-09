@@ -555,6 +555,40 @@ describe("resolving a token", () => {
     await disconnectAll(member.personId);
   });
 
+  it("grants only what consents changed in the same second all grant", async () => {
+    // Better Auth stamps a consent change to the whole second, so a duplicate
+    // and the narrowing of the other row can tie, and the order of tied rows
+    // says nothing about which changed last. Both orders of writing them, so
+    // that neither the first nor the last row written can carry the answer.
+    const tied = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
+    for (const [index, order] of [
+      [["mcp:read", "mcp:write"], ["mcp:read"]],
+      [["mcp:read"], ["mcp:read", "mcp:write"]],
+    ].entries()) {
+      const token = `token-tied-${index}-${suffix}`;
+      await grant({ personId: member.personId, client: clientId, token });
+      const userId = await accountIdFor(member.personId);
+      await prisma.oauthConsent.deleteMany({ where: { userId, clientId } });
+      for (const scopes of order) {
+        await prisma.oauthConsent.create({
+          data: {
+            clientId,
+            userId,
+            resources: [resource.url],
+            requestedUserInfoClaims: [],
+            scopes,
+            createdAt: tied,
+            updatedAt: tied,
+          },
+        });
+      }
+
+      expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
+
+      await disconnectAll(member.personId);
+    }
+  });
+
   it("stops resolving the moment the connection is cut", async () => {
     const token = `token-cutoff-${suffix}`;
     await grant({ personId: member.personId, client: clientId, token });
