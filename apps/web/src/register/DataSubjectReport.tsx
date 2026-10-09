@@ -522,6 +522,7 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.CONNECTED_APP_DISCONNECTED",
   OAUTH_CLIENT_REGISTERED:
     "register.person.report.action.OAUTH_CLIENT_REGISTERED",
+  OAUTH_CLIENT_REVOKED: "register.person.report.action.OAUTH_CLIENT_REVOKED",
   CHAT_GROUP_CREATED: "register.person.report.action.CHAT_GROUP_CREATED",
   CHAT_GROUP_MEMBER_ADDED:
     "register.person.report.action.CHAT_GROUP_MEMBER_ADDED",

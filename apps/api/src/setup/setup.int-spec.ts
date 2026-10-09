@@ -446,6 +446,47 @@ describe("claiming an instance whose host set the link's digest", () => {
   });
 });
 
+describe("two first-administrator submissions at the same instant", () => {
+  const TOKEN = "host-minted-setup-token-for-this-suite-0002";
+
+  let instance: Awaited<ReturnType<typeof unclaimedInstance>>;
+
+  beforeAll(async () => {
+    instance = await unclaimedInstance("concurrent", hashOpaqueToken(TOKEN));
+  });
+
+  afterAll(async () => {
+    await instance?.close();
+  });
+
+  it("lets exactly one of them create an administrator", async () => {
+    // Both pass the claimed check before either has written anything, and the
+    // account of the first is only created after its transaction, so only the
+    // grant it committed can turn the second away.
+    const responses = await Promise.all(
+      [0, 1, 2].map(() =>
+        inject(
+          {
+            method: "POST",
+            url: "/api/setup/administrator",
+            payload: administrator(TOKEN),
+          },
+          instance.app,
+        ),
+      ),
+    );
+
+    expect(responses.map((r) => r.statusCode).sort((a, b) => a - b)).toEqual([
+      201, 409, 409,
+    ]);
+    expect(
+      await instance.prisma.systemRole.count({ where: { role: "ADMIN" } }),
+    ).toBe(1);
+    expect(await instance.prisma.person.count()).toBe(1);
+    expect(await instance.prisma.user.count()).toBe(1);
+  });
+});
+
 describe("claiming an instance that printed its own link", () => {
   let instance: Awaited<ReturnType<typeof unclaimedInstance>>;
   let link: URL;

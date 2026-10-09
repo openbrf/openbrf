@@ -4,6 +4,7 @@ import {
   dateColumnOf,
   formatDateColumn,
   localDayOfColumn,
+  type MoveErrorReason,
   parseLocalDay,
 } from "@openbrf/shared";
 
@@ -67,22 +68,6 @@ import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
  * the move-out closes the residency with a conditional update so a second one
  * is refused rather than writing a second EXIT.
  */
-
-export type MoveErrorReason =
-  | "person-not-found"
-  | "apartment-not-found"
-  | "residency-not-found"
-  | "already-resident"
-  | "already-moved-out"
-  | "moved-out-before-moved-in"
-  | "transfer-person-not-found"
-  | "transfer-reference-required"
-  | "grant-has-no-seller"
-  | "date-not-a-calendar-date"
-  | "seller-is-acquirer"
-  | "seller-not-tenant-owner"
-  | "transfer-without-tenant-ownership"
-  | "already-granted";
 
 /**
  * The status each refusal answers with.

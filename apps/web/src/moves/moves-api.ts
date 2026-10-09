@@ -12,30 +12,6 @@ import { apiRequest, type ApiResult } from "../api/client";
 
 export type MoveRole = "MEMBER" | "RESIDENT";
 
-/**
- * The machine-readable reasons the move endpoints answer with.
- *
- * Mirrors `MoveErrorReason` in `apps/api/src/moves/move.service.ts`. Held here
- * so the message map can be keyed on the union rather than on `string`: a
- * reason added on the API and forgotten here would otherwise still compile,
- * and every board member would read the fallback instead of what went wrong.
- */
-export type MoveErrorReason =
-  | "person-not-found"
-  | "apartment-not-found"
-  | "residency-not-found"
-  | "already-resident"
-  | "already-moved-out"
-  | "moved-out-before-moved-in"
-  | "transfer-person-not-found"
-  | "transfer-reference-required"
-  | "grant-has-no-seller"
-  | "date-not-a-calendar-date"
-  | "seller-is-acquirer"
-  | "seller-not-tenant-owner"
-  | "transfer-without-tenant-ownership"
-  | "already-granted";
-
 /** An upplatelse under BRL 4 kap., or an overgang under 6 kap. */
 export type TransferKind = "GRANT" | "TRANSFER";
 
