@@ -281,6 +281,12 @@ it against the themes it may extend, with the function the instance runs at
 install, and answers either the reader's refusal or the manifest with every
 lint finding.
 
+The archive reader and writer, and `lintThemePackage`, `lintThemeAgainst` and
+`readThemePackage` built on them, run in Node only: they unpack with
+`node:zlib`. A bundler that resolves the `browser` export condition, as Vite
+does, gets the package without them, so a theme preview in a browser can still
+parse, lint and resolve a manifest.
+
 ## What is themeable, and what is not
 
 **Themeable:** colours, fonts, shape (radii and shadow), motion, the logo, and
