@@ -73,6 +73,7 @@ function build(options: { standingBookings?: number } = {}) {
   }));
 
   const tx = {
+    $queryRaw: vi.fn(async () => []),
     bookableResource: {
       findUnique: vi.fn(async () => LAUNDRY),
       create,

@@ -754,6 +754,30 @@ describe("a refusal", () => {
     expect(panel?.textContent).not.toContain("Ditt meddelande");
   });
 
+  it("says it is the name that carries a personal identity number", async () => {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [], mayCreateGroup: true },
+    });
+    createChatGroup.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "personal-identity-number" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await userEvent.type(
+      await screen.findByLabelText("Gruppens namn"),
+      "Uppgång C",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    expect(
+      await screen.findByText(/Gruppens namn innehåller ett personnummer/),
+    ).not.toBeNull();
+  });
+
   it("is said out loud when a group's member list cannot be read", async () => {
     /*
      * A read this panel owns. Dropped, it left the panel saying it was reading

@@ -28,10 +28,13 @@ import { RecordChargePanel } from "./RecordChargePanel";
  */
 
 const recordCharge = vi.fn();
+const correctCharge = vi.fn();
 
 vi.mock("./charges-api", () => ({
   VAT_TREATMENTS: ["EXEMPT", "RATE"],
   recordCharge: (input: unknown) => recordCharge(input),
+  correctCharge: (chargeId: string, input: unknown) =>
+    correctCharge(chargeId, input),
 }));
 
 const PARTIES: ChargeParties = {
@@ -102,6 +105,41 @@ describe("the charged party", () => {
         handedToManagerOn: null,
       }),
     );
+  });
+});
+
+describe("the amount", () => {
+  async function recordWith(amount: string): Promise<void> {
+    panel();
+    await userEvent.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await userEvent.type(screen.getByLabelText("Belopp i kronor"), amount);
+    await userEvent.type(
+      screen.getByLabelText("Vad debiteringen avser"),
+      "Byte av lås",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    );
+  }
+
+  it("reads an amount typed the Swedish way", async () => {
+    // The way the screens print an amount, and what a Swedish phone offers.
+    await recordWith("1 234,50");
+
+    expect(recordCharge).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: "1234.50" }),
+    );
+  });
+
+  it("says at the field what is wrong with an amount, and sends nothing", async () => {
+    // A third decimal is a figure nobody can have meant; the server would
+    // refuse it with a sentence about the whole form.
+    await recordWith("12,345");
+
+    expect(recordCharge).not.toHaveBeenCalled();
+    const field = screen.getByLabelText("Belopp i kronor");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toMatch(/två decimaler/u);
   });
 });
 
@@ -212,6 +250,68 @@ describe("value added tax", () => {
     expect(recordCharge).toHaveBeenCalledWith(
       expect.objectContaining({ vatTreatment: "RATE", vatRatePercent: 25 }),
     );
+  });
+
+  it("says at the field that it cannot read a rate, and sends nothing", async () => {
+    /*
+     * "25,5" is not a whole percentage. Sent as Number("25,5"), NaN went over
+     * the wire as null and the server asked for a rate the board had typed.
+     */
+    panel();
+
+    await userEvent.selectOptions(screen.getByLabelText("Medlem"), "person-1");
+    await userEvent.type(screen.getByLabelText("Belopp i kronor"), "1000.00");
+    await userEvent.type(
+      screen.getByLabelText("Vad debiteringen avser"),
+      "Uthyrd parkeringsplats",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Moms"), "RATE");
+    await userEvent.type(screen.getByLabelText("Sats i procent"), "25,5");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    );
+
+    expect(recordCharge).not.toHaveBeenCalled();
+    const field = screen.getByLabelText("Sats i procent");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toMatch(/helt procenttal/u);
+  });
+});
+
+describe("a correction", () => {
+  it("says it is saving while the correction is on its way", async () => {
+    // The button is disabled meanwhile, and a disabled button that still
+    // reads "Save" tells the board nothing about why it does not answer.
+    correctCharge.mockReturnValue(new Promise(() => undefined));
+    render(
+      <RecordChargePanel
+        parties={PARTIES}
+        today="2026-06-01"
+        onRecorded={() => undefined}
+        correcting={{
+          chargeId: "charge-1",
+          chargedOn: "2026-03-05",
+          chargedTo: {
+            kind: "apartment",
+            apartmentId: "apartment-1",
+            apartment: { state: "visible", label: "Storgatan 12 1002" },
+          },
+          amount: "450.00",
+          vatTreatment: "EXEMPT",
+          vatRatePercent: null,
+          reason: "Nyckel till cykelrummet",
+          handedToManagerOn: null,
+        }}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara rättelsen" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Sparar rättelsen" }),
+    ).toBeTruthy();
   });
 });
 

@@ -1,4 +1,5 @@
 import {
+  fireEvent,
   getDefaultNormalizer,
   render,
   screen,
@@ -11,7 +12,10 @@ import type { DataSubjectReportSection } from "@openbrf/shared";
 
 import i18n from "../i18n";
 import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
-import type { DataSubjectReport as Report } from "./register-api";
+import {
+  RegisterRequestError,
+  type DataSubjectReport as Report,
+} from "./register-api";
 
 /**
  * The data subject access report as a document.
@@ -938,6 +942,34 @@ describe("producing the report", () => {
         screen.getByText("Registerutdraget kunde inte tas fram. Försök igen."),
       ).not.toBeNull();
     });
+  });
+
+  it("says the instance is busy when every report slot is taken, and asks again on request", async () => {
+    // The few slots are shared with the members' own downloads, so the board
+    // member is told to wait a moment rather than that something broke.
+    fetchDataSubjectReport.mockRejectedValueOnce(
+      new RegisterRequestError(429, "export-busy"),
+    );
+    fetchDataSubjectReport.mockResolvedValueOnce(EMPTY_REPORT);
+    render(<DataSubjectReport personId="person-siv" onClose={noop} />);
+
+    await screen.findByText(
+      "Flera registerutdrag och exporter för dataportabilitet tas fram just nu. Vänta en stund och försök igen.",
+    );
+    expect(
+      screen.queryByText("Registerutdraget kunde inte tas fram. Försök igen."),
+    ).toBeNull();
+    // Asked once, and not again until the board member says so: every request
+    // decrypts a personal identity number and writes an audit entry.
+    expect(fetchDataSubjectReport).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await screen.findByText("Brf Eksemplet");
+    expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByText(/Flera registerutdrag och hämtningar/),
+    ).toBeNull();
   });
 });
 

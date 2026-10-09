@@ -839,16 +839,74 @@ export type ContactSubmissionRow = {
   readonly email: string;
   readonly message: string;
   readonly handled: boolean;
+  readonly createdAt: string;
 };
 
-/** The board's inbox for the website's contact form. */
+/**
+ * The board's inbox for the website's contact form, every page of it.
+ *
+ * Read to the end rather than stopping at the first page: a stack kept between
+ * runs holds what earlier runs left, and a message just sent can sort past it.
+ */
 export async function listContactSubmissions(
   request: APIRequestContext,
   baseUrl: string,
 ): Promise<readonly ContactSubmissionRow[]> {
-  const response = await request.get(`${baseUrl}/api/contact-submissions`);
-  await expectOk(response, "GET /api/contact-submissions");
-  return (await response.json()) as readonly ContactSubmissionRow[];
+  const rows: ContactSubmissionRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string =
+      cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+    const response = await request.get(
+      `${baseUrl}/api/contact-submissions${query}`,
+    );
+    await expectOk(response, "GET /api/contact-submissions");
+    const page = (await response.json()) as {
+      readonly submissions: readonly ContactSubmissionRow[];
+      readonly nextCursor: string | null;
+    };
+    rows.push(...page.submissions);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return rows;
+}
+
+/**
+ * Posts a message through the contact form on a published page, as a visitor
+ * would: a plain form post, answered with a redirect back to the page.
+ */
+export async function postContactForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { name?: string; email: string; message: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/kontakt`, {
+    form: {
+      ...(input.name === undefined ? {} : { name: input.name }),
+      email: input.email,
+      message: input.message,
+    },
+    maxRedirects: 0,
+  });
+  if (response.status() !== 303) {
+    throw new Error(
+      `POST /${slug}/kontakt answered ${String(response.status())}, not the redirect a stored message gets`,
+    );
+  }
+}
+
+/** Ticks a message in the board's inbox off as dealt with. */
+export async function markContactSubmissionHandled(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/contact-submissions/${id}/handled`,
+    { data: { handled: true } },
+  );
+  await expectOk(response, "PUT /api/contact-submissions/:id/handled");
 }
 
 /**

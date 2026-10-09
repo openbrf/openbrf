@@ -69,7 +69,7 @@ export class ThemeSourceError extends DomainError {
 export interface ThemeSource {
   /** Every theme in the catalog, read afresh. Plugins are filtered out here. */
   listThemes(): Promise<CatalogThemeEntry[]>;
-  /** The theme listed under this id, from the cached index; null if none. */
+  /** The theme listed under this id, read afresh; null if none. */
   theme(id: string): Promise<CatalogThemeEntry | null>;
   /** The entry's package, with its sha512 already verified. */
   fetchPackage(entry: CatalogThemeEntry): Promise<Uint8Array>;
@@ -94,12 +94,14 @@ export class CatalogThemeSource implements ThemeSource {
   }
 
   /**
-   * The cached index, as the plugin install reads it: the board chose the
-   * entry from a listing a moment ago, and the digest pins the bytes whatever
-   * the index says by now.
+   * Refreshed, as the plugin install reads it: the install refuses an entry
+   * the curator has deprecated, and one deprecated since the board browsed
+   * the listing must not slip in from the cached index.
    */
   async theme(id: string): Promise<CatalogThemeEntry | null> {
-    const entry = await this.read(() => this.catalog.entry(id));
+    const entry = await this.read(() =>
+      this.catalog.entry(id, { refresh: true }),
+    );
     return entry?.type === "theme" ? entry : null;
   }
 

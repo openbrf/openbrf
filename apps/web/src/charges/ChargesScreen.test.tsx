@@ -6,7 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { ChargesScreen } from "./ChargesScreen";
@@ -38,6 +38,7 @@ const fetchDebitingList = vi.fn();
 const exportDebitingList = vi.fn();
 const removeCharge = vi.fn();
 const recordCharge = vi.fn();
+const correctCharge = vi.fn();
 const loadChargeParties = vi.fn();
 
 vi.mock("./charges-api", () => ({
@@ -47,6 +48,8 @@ vi.mock("./charges-api", () => ({
     exportDebitingList(from, to),
   removeCharge: (chargeId: string) => removeCharge(chargeId),
   recordCharge: (input: unknown) => recordCharge(input),
+  correctCharge: (chargeId: string, input: unknown) =>
+    correctCharge(chargeId, input),
 }));
 
 vi.mock("./charge-parties", () => ({
@@ -132,10 +135,23 @@ const LIST: DebitingList = {
   ],
 };
 
+/** The open correction form, by its heading. */
+function correctionForm(): HTMLElement {
+  const form = screen
+    .getByRole("heading", { name: "Rätta en debitering" })
+    .closest("section");
+  expect(form).not.toBeNull();
+  return form as HTMLElement;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   fetchDebitingList.mockResolvedValue({ ok: true, value: LIST });
   loadChargeParties.mockResolvedValue(PARTIES);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("the debiting list", () => {
@@ -282,6 +298,7 @@ describe("the file", () => {
     // A charge is removed while the file is being produced, which reads the
     // period again. The period is unchanged, so nothing about the dates says
     // the rows moved - but they did, and the file was produced before it.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     removeCharge.mockResolvedValue({ ok: true, value: undefined });
     const row = (await screen.findByText("Nyckel till cykelrummet")).closest(
       "tr",
@@ -316,6 +333,128 @@ describe("when the read fails", () => {
     await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
 
     expect(await screen.findByText("Astrid Vallin")).toBeTruthy();
+  });
+
+  it("says so when the parties cannot be read, even after the list arrives", async () => {
+    /*
+     * The list lands after the parties have failed. With one flag for both
+     * reads it cleared the failure, and the board was offered neither the form
+     * nor a retry and was not told why.
+     */
+    let answerList: (value: unknown) => void = () => undefined;
+    fetchDebitingList.mockReturnValue(
+      new Promise((resolve) => {
+        answerList = resolve;
+      }),
+    );
+    loadChargeParties.mockRejectedValue(new Error("offline"));
+    render(<ChargesScreen />);
+    await waitFor(() => {
+      expect(loadChargeParties).toHaveBeenCalled();
+    });
+    answerList({ ok: true, value: LIST });
+    await screen.findByText("Astrid Vallin");
+
+    loadChargeParties.mockResolvedValue(PARTIES);
+    fetchDebitingList.mockResolvedValue({ ok: true, value: LIST });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Registrera debiteringen" }),
+    ).toBeTruthy();
+  });
+
+  it("does not read a period while one of its dates is empty", async () => {
+    /*
+     * Emptying a date field on the way to typing another is not a period. Sent,
+     * the server refused it as a malformed request, the screen called that a
+     * failed read, and the retry asked for the same empty period again.
+     */
+    fetchDebitingList.mockImplementation((from: string) =>
+      Promise.resolve(
+        from === ""
+          ? { ok: false, failure: { status: 400, reason: "invalid-body" } }
+          : { ok: true, value: LIST },
+      ),
+    );
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    fireEvent.change(screen.getByLabelText("Från"), { target: { value: "" } });
+    await waitFor(() => {
+      expect(screen.queryByText("Astrid Vallin")).toBeNull();
+    });
+
+    expect(fetchDebitingList).not.toHaveBeenCalledWith("", "2026-12-31");
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("does not say it is reading when a retry has no period to read", async () => {
+    /*
+     * The retry turned the reading status on, and the read it started stopped
+     * at the empty date before it could turn it off again.
+     */
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ChargesScreen />);
+    await screen.findByText(/kunde inte l.sas just nu/i);
+
+    fireEvent.change(screen.getByLabelText("Från"), { target: { value: "" } });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(screen.queryByText("Läser in debiteringarna")).toBeNull();
+  });
+
+  it("treats a period the request schema refuses as something to correct", async () => {
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+    render(<ChargesScreen />);
+
+    expect(await screen.findByText(/Något i formuläret/u)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("drops the retry when the next period is refused after a failed read", async () => {
+    // The retry is for a read that failed; a period the server then refuses is
+    // for the board to correct, and the failed read's notice no longer applies.
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ChargesScreen />);
+    await screen.findByText(/kunde inte l.sas just nu/i);
+
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "range-invalid" },
+    });
+    fireEvent.change(screen.getByLabelText("Från"), {
+      target: { value: "2026-04-01" },
+    });
+
+    expect(
+      await screen.findByText("Perioden kan inte sluta innan den börjar."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/kunde inte l.sas just nu/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("keeps the form when the list cannot be read", async () => {
+    // A charge half typed is not lost to a read of the list failing.
+    fetchDebitingList.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<ChargesScreen />);
+
+    await screen.findByText(/kunde inte l.sas just nu/i);
+    expect(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    ).toBeTruthy();
   });
 
   it("takes the document away when the read is refused after a permitted one", async () => {
@@ -378,8 +517,135 @@ describe("when the read fails", () => {
   });
 });
 
+describe("correcting a charge", () => {
+  it("corrects the charge in place, which recording it again could not", async () => {
+    /*
+     * The contract says a charge is correctable on this screen. A charge
+     * recorded before it was handed over could otherwise never be given that
+     * date: removing and recording it again changes its id and loses the
+     * audit trail.
+     */
+    correctCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    const form = correctionForm();
+    expect(
+      within(form).getByLabelText<HTMLInputElement>("Vad debiteringen avser")
+        .value,
+    ).toBe("Nyckel till cykelrummet");
+    // The party is not on the form: the server does not move it.
+    expect(within(form).queryByLabelText("Medlem")).toBeNull();
+
+    fireEvent.change(
+      within(form).getByLabelText(/^Skickat till ekonomisk förvaltare/u),
+      { target: { value: "2026-04-01" } },
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Spara rättelsen" }),
+    );
+
+    expect(correctCharge).toHaveBeenCalledWith("charge-1", {
+      chargedOn: "2026-03-05",
+      amount: "450.00",
+      reason: "Nyckel till cykelrummet",
+      vatTreatment: "EXEMPT",
+      vatRatePercent: null,
+      handedToManagerOn: "2026-04-01",
+    });
+    expect(recordCharge).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("heading", { name: "Registrera en debitering" }),
+    ).toBeTruthy();
+    expect(fetchDebitingList.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("confirms a saved correction, and keeps a charge half typed meanwhile", async () => {
+    /*
+     * The form was one panel keyed by the charge it corrected, so a save
+     * remounted it as an empty "record a charge": the confirmation went with
+     * the correction form, and opening a correction threw away whatever was
+     * typed into the new charge.
+     */
+    correctCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    await userEvent.type(
+      screen.getByLabelText("Vad debiteringen avser"),
+      "Halvskriven debitering",
+    );
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    await userEvent.click(
+      within(correctionForm()).getByRole("button", { name: "Spara rättelsen" }),
+    );
+
+    expect(await screen.findByText("Debiteringen är rättad.")).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Rätta en debitering" }),
+    ).toBeNull();
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Vad debiteringen avser").value,
+    ).toBe("Halvskriven debitering");
+  });
+
+  it("closes when the charge it corrects is removed", async () => {
+    // Left open, saving it would post a correction to a charge that is gone.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    removeCharge.mockResolvedValue({ ok: true, value: undefined });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    correctionForm();
+
+    fetchDebitingList.mockResolvedValue({
+      ok: true,
+      value: { ...LIST, rows: LIST.rows.slice(1) },
+    });
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { name: "Rätta en debitering" }),
+      ).toBeNull();
+    });
+    expect(correctCharge).not.toHaveBeenCalled();
+  });
+});
+
 describe("removing a charge", () => {
+  it("asks first, and removes nothing when the board declines", async () => {
+    // The server deletes the row for good, so a misclick has no undo.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Ta bort" }),
+    );
+
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining("Nyckel till cykelrummet"),
+    );
+    expect(removeCharge).not.toHaveBeenCalled();
+  });
+
   it("re-reads the list, so the document matches what is stored", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     removeCharge.mockResolvedValue({ ok: true, value: undefined });
     render(<ChargesScreen />);
     await screen.findByText("Astrid Vallin");

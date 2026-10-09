@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -16,6 +16,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { normalizeAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import {
   moveIn,
@@ -91,6 +92,8 @@ export function MoveInPanel({
   const [transferredOn, setTransferredOn] = useState("");
   const [fromPersonId, setFromPersonId] = useState("");
   const [price, setPrice] = useState("");
+  const [priceInvalid, setPriceInvalid] = useState(false);
+  const priceErrorId = useId();
   const [agreementReference, setAgreementReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
@@ -235,6 +238,14 @@ export function MoveInPanel({
       setFailure("moves.errors.transferReferenceRequired");
       return;
     }
+    // Said at the field rather than by the request schema, whose refusal can
+    // only point at the whole form. A price is optional, so only a typed one
+    // that is not an amount is refused.
+    const typedPrice = price.trim() === "" ? null : normalizeAmount(price);
+    if (recordTransfer && price.trim() !== "" && typedPrice === null) {
+      setPriceInvalid(true);
+      return;
+    }
     setSubmitting(true);
     setFailure(null);
 
@@ -256,7 +267,7 @@ export function MoveInPanel({
             // seller, and the field is not offered for a grant either.
             fromPersonId:
               submittedKind === "GRANT" || seller === "" ? null : seller,
-            price: price.trim() === "" ? null : price.trim(),
+            price: typedPrice,
             agreementReference: agreementReference.trim(),
           }
         : undefined,
@@ -517,19 +528,33 @@ export function MoveInPanel({
                   />
                 ) : null}
 
-                <label className={LABEL} htmlFor="move-in-price">
-                  {t("moves.transfer.price")}
-                  <input
-                    id="move-in-price"
-                    type="text"
-                    inputMode="decimal"
-                    value={price}
-                    onChange={(event) => {
-                      setPrice(event.target.value);
-                    }}
-                    className={FIELD_DATA}
-                  />
-                </label>
+                <div className="flex flex-col gap-1">
+                  <label className={LABEL} htmlFor="move-in-price">
+                    {t("moves.transfer.price")}
+                    <input
+                      id="move-in-price"
+                      type="text"
+                      inputMode="decimal"
+                      value={price}
+                      onChange={(event) => {
+                        setPrice(event.target.value);
+                        setPriceInvalid(false);
+                      }}
+                      aria-invalid={priceInvalid}
+                      aria-describedby={priceInvalid ? priceErrorId : undefined}
+                      className={FIELD_DATA}
+                    />
+                  </label>
+                  {priceInvalid ? (
+                    <p
+                      id={priceErrorId}
+                      role="alert"
+                      className="text-small text-danger"
+                    >
+                      {t("moves.errors.priceNotAnAmount")}
+                    </p>
+                  ) : null}
+                </div>
 
                 <div className="flex flex-col gap-1">
                   <label className={LABEL} htmlFor="move-in-agreement">

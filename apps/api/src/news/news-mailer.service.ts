@@ -161,11 +161,15 @@ export class NewsMailerService implements OnModuleInit {
     });
 
     if (news === null || !news.published || news.emailQueuedAt === null) {
-      // The item was taken down or removed between the publish and this run.
-      // Nothing to do, and nothing wrong: the ledger keeps its record of who
-      // the board had addressed.
+      /*
+       * The item was taken down or removed between the publish and this run.
+       * Nothing is sent and nothing is failed: the rows wait, and putting the
+       * item back up queues this job again (NewsWriteService.publish), so a
+       * board that takes a notice down to correct it still reaches the members
+       * it addressed. A removed item takes its rows with it.
+       */
       this.logger.warn(
-        `News mailing skipped: ${newsId} is not a published, mailed item.`,
+        `News mailing held: ${newsId} is not a published, mailed item.`,
       );
       return { sent: 0, failed: 0 };
     }
