@@ -764,8 +764,9 @@ export interface ReportMemberCharge {
  * Reached through the residency, exactly as an apartment-keyed charge is and by
  * the same rule: a fee names an apartment and never a person, so which of them
  * is this person's is an inference, and the inference is the overlap between
- * the rate's period and the residency's. Both boundaries are closed, for the
- * reason `charges/apartment-charges.ts` argues.
+ * the rate's period and the residency's. The residency ends on the day before
+ * its move-out date and the rate's own period ends on its last day, the rule
+ * `overlapsResidency` states and `charges/apartment-charges.ts` argues.
  *
  * A rate is not necessarily this person's to pay: a household is several people
  * and the association fixes the fee on the flat. It is on the report regardless,

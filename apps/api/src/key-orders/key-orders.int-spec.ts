@@ -10,6 +10,8 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import type { KeyOrderStatus } from "../generated/prisma/enums";
 import {
   loadEnvForIntegrationTests,
@@ -1082,6 +1084,66 @@ describe("the purge", () => {
       });
     }
   }, 60_000);
+
+  it("erases a closed order at once on a granted erasure request, and keeps an open one", async () => {
+    /*
+     * A granted request brings this purge forward like every other, and the
+     * service-data purge closes the request only once nothing is owed here:
+     * before, it found no key order domain to ask and called the request
+     * carried out with the orders still standing.
+     */
+    const closed = `ko-requested-closed-${suffix}`;
+    const open = `ko-requested-open-${suffix}`;
+    await seedOrder({
+      id: closed,
+      personId: lodger.personId,
+      closedAt: daysBefore(2),
+      status: "HANDED_OVER",
+    });
+    await seedOrder({
+      id: open,
+      personId: lodger.personId,
+      closedAt: null,
+      status: "SUBMITTED",
+    });
+    // A request is carried out only for somebody who no longer lives here.
+    await prisma.residency.updateMany({
+      where: { personId: lodger.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      lodger.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.keyOrder.findUnique({ where: { id: closed } }),
+      ).toBeNull();
+      expect(
+        await prisma.keyOrder.findUnique({ where: { id: open } }),
+      ).not.toBeNull();
+      // Nothing owed, and the open ones - this one among them - kept, so the
+      // request stays open rather than being called carried out.
+      expect(await erasureRemainder(prisma, lodger.personId, NOW)).toEqual([
+        expect.objectContaining({
+          domain: "key orders",
+          owed: 0,
+          keptBecause: "an open key order is still with the board",
+        }),
+      ]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: lodger.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
 });
 
 describe("the data subject access report", () => {
