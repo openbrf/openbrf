@@ -103,7 +103,6 @@ export type RegisterContact =
 /** Common to both audiences. */
 export interface DirectoryRow {
   key: string;
-  personId: string;
   name: string;
   apartment: RegisterApartment | null;
   signs: RegisterSign[];
@@ -113,6 +112,8 @@ export interface DirectoryRow {
 
 /** The board's row: contact data, masked where the person is protected. */
 export interface BoardRow extends DirectoryRow {
+  /** Only the board's rows name a person: a neighbour's carry no id. */
+  personId: string;
   contact: RegisterContact;
   purgeOn: string | null;
   protectedPersonalData: boolean;

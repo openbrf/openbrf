@@ -164,6 +164,17 @@ const MOVED_OUT_ON = new Date("2020-01-01T00:00:00.000Z");
 
 const personIds = Object.values(actors).map((actor) => actor.personId);
 
+/**
+ * How the resident directory names each person. Its rows carry no id, so a
+ * neighbour's view is read by the name on the row.
+ */
+const named = {
+  resident: `Rita ${surname}`,
+  protectedPerson: `Petra ${surname}`,
+  movedOut: `Ulla ${surname}`,
+  external: `Xenia ${surname}`,
+} as const;
+
 let ipCounter = 0;
 function inject(options: {
   method: "GET" | "POST" | "PATCH";
@@ -816,6 +827,31 @@ describe("the resident-facing directory", () => {
     expect(response.body).not.toContain("purgeOn");
   });
 
+  it("names no person's id, in a row or in its key", async () => {
+    // The directory says who lives where. An id is a handle on a person - the
+    // address book, the chat and every route that takes one - and a neighbour
+    // has no use for it.
+    const cookie = await signIn(actors.resident.email);
+    const response = await inject({
+      method: "GET",
+      url: "/api/resident-directory?filter=all&pageSize=100",
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+
+    expect(response.body).not.toContain("personId");
+    for (const actor of Object.values(actors)) {
+      expect(response.body).not.toContain(actor.personId);
+    }
+    const { rows } = JSON.parse(response.body) as {
+      rows: { key: string; name: string }[];
+    };
+    // The external board member has no residency, and is keyed without an id.
+    expect(rows.find((row) => row.name === named.external)?.key).toMatch(
+      /^person:[\w-]{22}$/,
+    );
+  });
+
   it("excludes a person with protected personal data entirely", async () => {
     const cookie = await signIn(actors.resident.email);
     const response = await inject({
@@ -824,13 +860,11 @@ describe("the resident-facing directory", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(response.body) as {
-      rows: { personId: string }[];
+      rows: { name: string }[];
     };
 
-    expect(rows.map((row) => row.personId)).not.toContain(
-      actors.protectedPerson.personId,
-    );
-    expect(rows.map((row) => row.personId)).toContain(actors.resident.personId);
+    expect(rows.map((row) => row.name)).not.toContain(named.protectedPerson);
+    expect(rows.map((row) => row.name)).toContain(named.resident);
   });
 
   it("excludes somebody who asked for a restriction, and shows them themselves", async () => {
@@ -863,14 +897,14 @@ describe("the resident-facing directory", () => {
       });
 
       const seenByNeighbour = (
-        JSON.parse(asNeighbour.body) as { rows: { personId: string }[] }
-      ).rows.map((row) => row.personId);
+        JSON.parse(asNeighbour.body) as { rows: { name: string }[] }
+      ).rows.map((row) => row.name);
       const seenByThemselves = (
-        JSON.parse(asThemselves.body) as { rows: { personId: string }[] }
-      ).rows.map((row) => row.personId);
+        JSON.parse(asThemselves.body) as { rows: { name: string }[] }
+      ).rows.map((row) => row.name);
 
-      expect(seenByNeighbour).not.toContain(actors.resident.personId);
-      expect(seenByThemselves).toContain(actors.resident.personId);
+      expect(seenByNeighbour).not.toContain(named.resident);
+      expect(seenByThemselves).toContain(named.resident);
     } finally {
       await prisma.person.update({
         where: { id: actors.resident.personId },
@@ -982,7 +1016,7 @@ describe("the resident-facing directory", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(response.body) as {
-      rows: { personId: string }[];
+      rows: { name: string }[];
     };
 
     expect(rows).toEqual([]);
@@ -1035,12 +1069,10 @@ describe("the resident-facing directory", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(response.body) as {
-      rows: { personId: string }[];
+      rows: { name: string }[];
     };
 
-    expect(rows.map((row) => row.personId)).toContain(
-      actors.protectedPerson.personId,
-    );
+    expect(rows.map((row) => row.name)).toContain(named.protectedPerson);
   });
 
   it("lists who lives here today and the board, and nobody else", async () => {
@@ -1069,15 +1101,15 @@ describe("the resident-facing directory", () => {
         });
         expect(response.statusCode).toBe(200);
         return (
-          JSON.parse(response.body) as { rows: { personId: string }[] }
-        ).rows.map((row) => row.personId);
+          JSON.parse(response.body) as { rows: { name: string }[] }
+        ).rows.map((row) => row.name);
       };
 
       const all = await listed("all");
-      expect(all).toContain(actors.resident.personId);
+      expect(all).toContain(named.resident);
       // A board member who lives nowhere here is somebody to find.
-      expect(all).toContain(actors.external.personId);
-      expect(all).not.toContain(actors.movedOut.personId);
+      expect(all).toContain(named.external);
+      expect(all).not.toContain(named.movedOut);
 
       expect(await listed("movedOut")).toEqual([]);
     } finally {
@@ -1110,12 +1142,12 @@ describe("the resident-facing directory", () => {
         });
         expect(response.statusCode).toBe(200);
         return (
-          JSON.parse(response.body) as { rows: { personId: string }[] }
-        ).rows.map((row) => row.personId);
+          JSON.parse(response.body) as { rows: { name: string }[] }
+        ).rows.map((row) => row.name);
       };
 
-      expect(await listed("all")).toContain(actors.movedOut.personId);
-      expect(await listed("board")).toContain(actors.movedOut.personId);
+      expect(await listed("all")).toContain(named.movedOut);
+      expect(await listed("board")).toContain(named.movedOut);
 
       const future = await prisma.residency.create({
         data: {
@@ -1127,8 +1159,8 @@ describe("the resident-facing directory", () => {
         select: { id: true },
       });
       try {
-        expect(await listed("all")).toContain(actors.movedOut.personId);
-        expect(await listed("board")).toContain(actors.movedOut.personId);
+        expect(await listed("all")).toContain(named.movedOut);
+        expect(await listed("board")).toContain(named.movedOut);
       } finally {
         await prisma.residency.delete({ where: { id: future.id } });
       }
@@ -1166,12 +1198,12 @@ describe("the resident-facing directory", () => {
           headers: { cookie },
         });
         expect(response.statusCode).toBe(200);
-        const ids = (
-          JSON.parse(response.body) as { rows: { personId: string }[] }
-        ).rows.map((row) => row.personId);
+        const names = (
+          JSON.parse(response.body) as { rows: { name: string }[] }
+        ).rows.map((row) => row.name);
 
-        expect(ids).not.toContain(bystander);
-        expect(ids).not.toContain(former);
+        expect(names).not.toContain(`Bo ${surname}`);
+        expect(names).not.toContain(`Fia ${surname}`);
       }
 
       // The board sees the person with no residency, which is what separates
