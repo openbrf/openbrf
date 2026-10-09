@@ -51,7 +51,6 @@ vi.mock("../api/instance", async (importOriginal) => ({
           user: null,
           fromAddress: null,
           passwordSet: false,
-          tlsOptional: false,
           configured: false,
         },
         retention: { daysAfterMoveOut: 365 },
