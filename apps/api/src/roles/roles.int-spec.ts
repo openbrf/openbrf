@@ -542,21 +542,21 @@ describe("ending a term", () => {
       boardCookie,
       electee.personId,
       "BOARD_MEMBER",
-      "2024-04-14",
+      daysFromToday(-730),
     );
 
     const response = await inject({
       method: "POST",
       url: `/api/board-positions/${seat.boardPositionId}/end`,
-      payload: { endedOn: "2026-04-14" },
+      payload: { endedOn: daysFromToday(-30) },
       headers: { cookie: boardCookie },
     });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       boardPositionId: seat.boardPositionId,
-      electedOn: "2024-04-14",
-      endedOn: "2026-04-14",
+      electedOn: daysFromToday(-730),
+      endedOn: daysFromToday(-30),
     });
 
     /*
@@ -569,7 +569,9 @@ describe("ending a term", () => {
       where: { id: seat.boardPositionId },
     });
     expect(stored.endedOn).not.toBeNull();
-    expect(stored.electedOn.toISOString()).toBe("2024-04-14T00:00:00.000Z");
+    expect(stored.electedOn.toISOString()).toBe(
+      `${daysFromToday(-730)}T00:00:00.000Z`,
+    );
 
     const entry = await prisma.auditLogEntry.findFirstOrThrow({
       where: {
@@ -579,25 +581,25 @@ describe("ending a term", () => {
     });
     expect(entry.context).toMatchObject({
       position: "BOARD_MEMBER",
-      electedOn: "2024-04-14",
-      endedOn: "2026-04-14",
+      electedOn: daysFromToday(-730),
+      endedOn: daysFromToday(-30),
     });
   });
 
   it("refuses ending a term twice", async () => {
-    // Somebody else's seat: the electee's term in this position ran from
-    // 2024, and an election from 2022 would overlap it.
+    // Somebody else's seat: the electee's term in this position ran until a
+    // month ago, and an election before it, open until ended, would overlap it.
     const seat = await elect(
       boardCookie,
       misdated.personId,
       "BOARD_MEMBER",
-      "2022-04-14",
+      daysFromToday(-365 * 4),
     );
     const end = () =>
       inject({
         method: "POST",
         url: `/api/board-positions/${seat.boardPositionId}/end`,
-        payload: { endedOn: "2023-04-14" },
+        payload: { endedOn: daysFromToday(-365 * 3) },
         headers: { cookie: boardCookie },
       });
 
@@ -612,13 +614,13 @@ describe("ending a term", () => {
       boardCookie,
       electee.personId,
       "BOARD_MEMBER",
-      "2026-04-14",
+      daysFromToday(-10),
     );
 
     const response = await inject({
       method: "POST",
       url: `/api/board-positions/${seat.boardPositionId}/end`,
-      payload: { endedOn: "2025-04-14" },
+      payload: { endedOn: daysFromToday(-20) },
       headers: { cookie: boardCookie },
     });
 
@@ -857,6 +859,23 @@ describe("an election dated in the wrong year", () => {
     expect(response.json()).toMatchObject({ reason: "elected-too-far-ahead" });
   });
 
+  it("is refused when it lies further back than a term may run", async () => {
+    const seats = () =>
+      prisma.boardPosition.count({ where: { personId: misdated.personId } });
+    const before = await seats();
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/board-positions/persons/${misdated.personId}`,
+      payload: { position: "CHAIR", electedOn: daysFromToday(-365 * 6) },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "elected-too-far-back" });
+    expect(await seats()).toBe(before);
+  });
+
   it("can be withdrawn before it begins, and the position recorded again", async () => {
     // Written as it was before the bound existed: every end date used to be
     // either before the election or past the term horizon.
@@ -927,15 +946,18 @@ describe("an election that overlaps an earlier term", () => {
       data: {
         personId: misdated.personId,
         position: "DEPUTY_BOARD_MEMBER",
-        electedOn: new Date("2022-04-14"),
-        endedOn: new Date("2023-04-14"),
+        electedOn: new Date(`${daysFromToday(-365 * 4)}T00:00:00Z`),
+        endedOn: new Date(`${daysFromToday(-365 * 3)}T00:00:00Z`),
       },
     });
 
     const response = await inject({
       method: "POST",
       url: `/api/board-positions/persons/${misdated.personId}`,
-      payload: { position: "DEPUTY_BOARD_MEMBER", electedOn: "2022-06-01" },
+      payload: {
+        position: "DEPUTY_BOARD_MEMBER",
+        electedOn: daysFromToday(-365 * 4 + 48),
+      },
       headers: { cookie: boardCookie },
     });
 

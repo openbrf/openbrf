@@ -262,6 +262,7 @@
       "inviteFailed": "The invitation could not be sent. Try again.",
       "inviteNoEmail": "The register holds no email address for this person, so no invitation can be sent.",
       "inviteMailNotConfigured": "The email settings are missing, so the invitation could not be sent. Fill them in under Settings.",
+      "inviteEmailInUse": "Another account already signs in with this person's email address. Give the person an address of their own in the register, then send the invitation.",
       "invitationExpiresAt": "Invitation valid until",
       "invitationExpired": "The invitation has expired. Send a new one.",
       "publicationConsent": "Publication consent",
@@ -316,6 +317,7 @@
           "positionAlreadyHeld": "This person already holds that position. End the term before recording a new election to it.",
           "termOverlaps": "An earlier term in that position runs past this election date. Check the date.",
           "electedTooFarAhead": "An election cannot be dated that far into the future. Check the year.",
+          "electedTooFarBack": "An election cannot be dated that far back. Check the year.",
           "recoveryDatedAhead": "A recovered seat cannot be dated after today. Write the day the general meeting elected the board.",
           "boardSeatRequired": "The board records its own seats. Without a seat you can record a seat only while no board is on the register, and never your own.",
           "boardNotVacant": "A board is on the register now, so the board records its seats. Reload the page.",
@@ -2644,7 +2646,7 @@
     "submit": "Send the request",
     "working": "Sending...",
     "receivedTitle": "The request has been received",
-    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. While a request from an email address is waiting, the first one stands, and a later request from the same address is considered only after it has been decided.",
+    "receivedBody": "The board decides it. Until someone approves it there is no account and no entry in the register, and when that happens you get an email with a link for choosing a password. While a request from an email address is waiting, the first one stands and a later one from the same address is not kept, so send a new request once the first has been decided.",
     "closed": "This housing cooperative is not accepting account requests at the moment. Ask the board, who can invite you instead.",
     "errors": {
       "invalid": "Something in the form could not be read. Check the email address and that every field is filled in.",
@@ -2666,6 +2668,7 @@
       "alreadyHasAccount": "You already have an account in the housing cooperative. Sign in instead.",
       "expired": "The invitation has expired. Ask the board to send a new invitation.",
       "noEmail": "The register holds no email address for you, so the account cannot be activated. Contact the board.",
+      "emailInUse": "Another account already signs in with your email address. Ask the board to record an address of your own for you and then send you a new invitation.",
       "unknown": "The account could not be activated just now. Please try again."
     }
   },
@@ -5096,8 +5099,10 @@
       "someApp": "An app",
       "clientHost": "The app is at",
       "redirectHost": "The answer is sent to",
+      "redirectApp": "The app {{scheme}} on this device",
       "hostUnknown": "No address to show.",
       "loopbackWarning": "The answer is sent to this computer. That is how it should be for an app running on your own machine. If you do not recognise the app, cancel.",
+      "appSchemeWarning": "The answer is handed to whichever app on this device has claimed the name {{scheme}}. Any app you install can claim a name, so continue only if you started this from an app you installed yourself and recognise.",
       "actionsTitle": "What the app would be able to do",
       "noActions": "Nothing. With the permissions you hold today there is nothing an app could do on your behalf.",
       "scopeNotice": "The list shows what the app can do right now. The app acts as you and can never do more than you may do yourself. If the association switches more actions on later, the app reaches those as well. You can disconnect the app at any time under Settings, Sign-in and security.",

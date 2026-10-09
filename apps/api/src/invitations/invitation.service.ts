@@ -24,7 +24,8 @@ export class InvitationError extends Error {
       | "already-has-account"
       | "invalid-token"
       | "expired"
-      | "already-accepted",
+      | "already-accepted"
+      | "email-in-use",
   ) {
     super(message);
     this.name = "InvitationError";
@@ -105,6 +106,7 @@ export class InvitationService {
       "person.email",
       person.emailCipher,
     );
+    await this.refuseAddressInUse(email);
 
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(
@@ -225,6 +227,9 @@ export class InvitationService {
       "person.email",
       invitation.person.emailCipher,
     );
+    // Asked again here, since another account may have taken the address
+    // after the invitation was sent.
+    await this.refuseAddressInUse(email);
 
     await this.auth.createAccountForPerson({
       personId: invitation.personId,
@@ -254,6 +259,27 @@ export class InvitationService {
 
     this.logger.log(`Person ${invitation.personId} activated their account`);
     return { personId: invitation.personId, email };
+  }
+
+  /**
+   * Refuses an address another person's account already signs in with.
+   *
+   * A household may share one address in the register, but an account is
+   * found by its address at sign-in, so two accounts cannot share one. Asked
+   * before the account is created rather than left to the account table's
+   * unique address, whose refusal would reach the person as a fault.
+   */
+  private async refuseAddressInUse(email: string): Promise<void> {
+    const holder = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: { id: true },
+    });
+    if (holder !== null) {
+      throw new InvitationError(
+        "Another account already signs in with this email address.",
+        "email-in-use",
+      );
+    }
   }
 
   private activationUrl(token: string): string {

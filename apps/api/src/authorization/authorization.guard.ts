@@ -45,6 +45,22 @@ const BEARER_SCHEME = "bearer ";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
+ * The bodies a page may send to another origin without the browser asking
+ * that origin first (the Fetch standard's CORS-safelisted request types).
+ */
+const FORM_ENCODINGS = new Set([
+  "application/x-www-form-urlencoded",
+  "multipart/form-data",
+  "text/plain",
+]);
+
+/** Whether a request's body is one a form on another origin could send. */
+function isFormEncoding(contentType: string | undefined): boolean {
+  const essence = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
+  return essence !== undefined && FORM_ENCODINGS.has(essence);
+}
+
+/**
  * What a bearer token established about the caller.
  *
  * Present only on the resource route, and only from the guard: the caller
@@ -188,8 +204,16 @@ export class AuthorizationGuard implements CanActivate {
    * registrable domain, which is how instances are often hosted. A browser
    * names where a request came from in `Origin` on every POST, PUT, PATCH and
    * DELETE, and in `Sec-Fetch-Site`, so a change whose page was not this
-   * application is refused here. A request carrying neither was not sent by a
-   * page at all, and a page cannot make a browser drop them.
+   * application is refused here.
+   *
+   * A change that carries the cookie and neither header is refused too when
+   * it is in one of the encodings an HTML form sends. Every browser in use
+   * sends `Origin` on these methods, but one old enough not to would send the
+   * cookie with a sibling's form and nothing here to tell where it came from,
+   * and `Referer` is no help, since the page that posts the form decides
+   * whether it is sent. A page on another origin can send no other body
+   * without asking first, and this application answers no such question, so
+   * a JSON change that names no origin was not sent by a page.
    *
    * Reads are left alone: they change nothing, and the answer is not readable
    * across origins. The sign-in routes under /api/auth are the library's own,
@@ -204,7 +228,12 @@ export class AuthorizationGuard implements CanActivate {
     const foreignOrigin = origin !== undefined && origin !== this.appOrigin;
     const foreignSite =
       site !== undefined && site !== "same-origin" && site !== "none";
-    if (foreignOrigin || foreignSite) {
+    const unnamed =
+      origin === undefined &&
+      site === undefined &&
+      request.headers.cookie !== undefined &&
+      isFormEncoding(request.headers["content-type"]);
+    if (foreignOrigin || foreignSite || unnamed) {
       throw new ForbiddenException(
         "A change has to be made from this application's own pages.",
       );

@@ -36,14 +36,16 @@ export class SignupRequestError extends Error {
 /**
  * Whether an approval's invitation failed for a reason the board can act on
  * from the person's view: the mail not leaving, or a person the approval has
- * just created or linked who has no address or already has an account. Any
- * other InvitationError straight after the approval (the person not found, for
- * one) is our own fault.
+ * just created or linked who has no address, already has an account, or has an
+ * address another account signs in with. Any other InvitationError straight
+ * after the approval (the person not found, for one) is our own fault.
  */
 function invitationNotDelivered(cause: unknown): boolean {
   if (cause instanceof InvitationError) {
     return (
-      cause.reason === "no-email" || cause.reason === "already-has-account"
+      cause.reason === "no-email" ||
+      cause.reason === "already-has-account" ||
+      cause.reason === "email-in-use"
     );
   }
   return isDeliveryFailure(cause);
@@ -69,10 +71,10 @@ export interface SubmitSignupRequestInput {
  *
  * The address and apartment are captured as free text on purpose. The form is
  * served before sign-in, and everything on this platform sits behind a login
- * (decision 28), so it must not offer a picker that enumerates the association's
- * addresses and apartments to anyone who loads the page. Matching the claim to a
- * real apartment is the board's job at approval time, where a human can see
- * whether the claim is plausible.
+ * (decision 28), so it must not offer a picker that enumerates the
+ * association's addresses and apartments to anyone who loads the page.
+ * Matching the claim to a real apartment is the board's job at approval time,
+ * where a human can see whether the claim is plausible.
  */
 @Injectable()
 export class SignupRequestService {

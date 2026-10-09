@@ -47,6 +47,13 @@ const MAX_IDENTIFIER = 60;
 const MAX_FRAMES = 20;
 
 /**
+ * The longest line taken as a call frame. A frame is a function name and a
+ * path, a few hundred characters at the most; a longer line is message text,
+ * and is not worth matching.
+ */
+const MAX_FRAME_LINE = 1000;
+
+/**
  * The class of the failure, with the runtime's code where it carries one.
  *
  * `name` and `code` are identifiers rather than prose - `TypeError`,
@@ -84,8 +91,24 @@ export function failureName(cause: unknown): string {
   return code === "" || code === name ? name : `${name} (${code})`;
 }
 
-/** A V8 call frame: `at ` indented by exactly four spaces. */
-const FRAME = /^ {4}at \S/;
+/**
+ * Where a V8 call frame says it ran: `file:line:column`, or one of the places
+ * V8 names instead of a file. The file begins as a path or a URL does, so a
+ * message line that merely ends in two numbers - a clock time, `12:30:45` -
+ * is not one.
+ */
+const LOCATION = String.raw`(?:(?:\/|[A-Za-z]:\\|file:\/\/|node:|https?:\/\/|webpack:)[^()]*:\d+:\d+|native|<anonymous>|index \d+)`;
+
+/**
+ * A V8 call frame: `at ` indented by exactly four spaces, then a location,
+ * bare or in parentheses after the function's name. Neither the name nor the
+ * path may hold a parenthesis, which keeps the match linear in the line's
+ * length: with `.+` in both places a long line that is not a frame took time
+ * in its square.
+ */
+const FRAME = new RegExp(
+  String.raw`^ {4}at (?:${LOCATION}|[^()]+ \(${LOCATION}\))$`,
+);
 
 /**
  * The stack's call frames, without any of its message lines.
@@ -93,9 +116,12 @@ const FRAME = /^ {4}at \S/;
  * A V8 stack begins with `Name: message` and a multi-line message runs on over
  * the lines below it. That block is cut off first, since a message line can
  * itself be indented like a frame - "    at anna@example.se" is one - and then
- * only a line with the indentation of a V8 frame is kept. A stack whose head
- * cannot be found gives no frames at all, because then no line of it can be
- * told apart from the message.
+ * only a line with the shape of a V8 frame is kept: its indentation, and a
+ * location at the end. The shape is what still holds when the head was found
+ * but the message was shortened after the stack was read, which leaves the
+ * lines it lost below the head. A stack whose head cannot be found gives no
+ * frames at all, because then no line of it can be told apart from the
+ * message.
  *
  * What survives is function names and file paths. Those are in the same
  * category as a class name - written into the source, not composed from the
@@ -115,7 +141,7 @@ export function failureFrames(cause: unknown): string | undefined {
 
   const frames = stack
     .split("\n")
-    .filter((line) => FRAME.test(line))
+    .filter((line) => line.length <= MAX_FRAME_LINE && FRAME.test(line))
     .slice(0, MAX_FRAMES);
 
   return frames.length === 0 ? undefined : frames.join("\n");
@@ -129,7 +155,10 @@ export function failureFrames(cause: unknown): string | undefined {
  * text unless the error changed after that. A rename is the change that
  * happens - a subclass naming itself, a library relabelling what it caught -
  * so the head is also found by the message it still carries after a name on
- * the first line. A message that changed leaves nothing to find the head by.
+ * the first line. A message that was rewritten leaves nothing to find the head
+ * by. One that was cut down to its own beginning still matches, and then what
+ * follows the head starts with the lines it lost, so the stack returned here
+ * is not yet free of the message: the caller keeps only frame-shaped lines.
  */
 function afterHead(cause: Error, stack: string): string | undefined {
   const head = String(cause);

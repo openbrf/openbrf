@@ -84,6 +84,7 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
   "term-overlaps": "register.person.roles.errors.termOverlaps",
   "elected-too-far-ahead": "register.person.roles.errors.electedTooFarAhead",
+  "elected-too-far-back": "register.person.roles.errors.electedTooFarBack",
   "recovery-dated-ahead": "register.person.roles.errors.recoveryDatedAhead",
   "board-seat-required": "register.person.roles.errors.boardSeatRequired",
   "board-not-vacant": "register.person.roles.errors.boardNotVacant",
@@ -94,6 +95,16 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "last-administrator": "register.person.roles.errors.lastAdministrator",
   "person-not-found": "register.person.roles.errors.notFound",
   "board-position-not-found": "register.person.roles.errors.notFound",
+};
+
+/**
+ * The refusals of an invitation that have a sentence of their own, because
+ * the fix is somewhere other than trying again: in settings for the mail, in
+ * the register for an address another account already signs in with.
+ */
+const INVITE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "mail-not-configured": "register.person.inviteMailNotConfigured",
+  "email-in-use": "register.person.inviteEmailInUse",
 };
 
 function roleErrorMessage(error: unknown): TranslationKey {
@@ -473,10 +484,9 @@ export function PersonPanel({
       setInviteStatus({
         kind: "failed",
         messageKey:
-          error instanceof RegisterRequestError &&
-          error.reason === "mail-not-configured"
-            ? "register.person.inviteMailNotConfigured"
-            : "register.person.inviteFailed",
+          (error instanceof RegisterRequestError && error.reason !== null
+            ? INVITE_FAILURES[error.reason]
+            : undefined) ?? "register.person.inviteFailed",
       });
       return;
     }

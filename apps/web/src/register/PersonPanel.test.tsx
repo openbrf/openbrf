@@ -478,6 +478,24 @@ describe("inviting a person to activate an account", () => {
     ).not.toBeNull();
   });
 
+  it("names an address another account signs in with", async () => {
+    // A household can share an address in the register but not an account,
+    // and the fix is the person's address, not another try.
+    sendInvitation.mockRejectedValue(
+      new RegisterRequestError(409, "email-in-use"),
+    );
+    renderPanel(UNINVITED);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka inbjudan" }),
+    );
+
+    expect(
+      await screen.findByText(/Ett annat konto loggar redan in med personens/),
+    ).not.toBeNull();
+  });
+
   it("says so when the invitation could not be sent at all", async () => {
     sendInvitation.mockRejectedValue(new Error("network"));
     renderPanel(UNINVITED);

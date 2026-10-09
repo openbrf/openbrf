@@ -604,6 +604,29 @@ describe("who may put somebody into a group", () => {
     expect(members).toHaveLength(1);
   });
 
+  it("refuses somebody who has moved out, though their row is still there", async () => {
+    /*
+     * They are not in the room and not in its list, so a second press on them
+     * is not answered with the list as though it put them back. It gets the
+     * refusal anybody who does not live here gets.
+     */
+    const moved = movedOut();
+    const { service, audit, members } = build({
+      chats: [GARDEN],
+      persons: [NILS, moved],
+      members: [
+        { chatId: GROUP_ID, personId: NILS.id },
+        { chatId: GROUP_ID, personId: moved.id },
+      ],
+    });
+
+    await expect(
+      service.addMember(principal(NILS.id), GROUP_ID, moved.id),
+    ).rejects.toMatchObject({ reason: "not-a-resident" });
+    expect(members).toHaveLength(2);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it("refuses somebody with protected personal data exactly as a stranger", async () => {
     /*
      * The picker never offers them, so an identifier naming them is one the
@@ -649,6 +672,34 @@ describe("who may put somebody into a group", () => {
     // Not a second act, and an audit log saying it was would be saying somebody
     // was admitted to a room twice.
     expect(after).toHaveLength(2);
+    expect(members).toHaveLength(2);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("answers a second press on somebody since protected as it answers anybody", async () => {
+    /*
+     * They are in the list the room already shows. Refused here instead, the
+     * caller would learn that this one person, among everybody pressed twice,
+     * has had their personal data protected since.
+     */
+    const { service, audit, members } = build({
+      chats: [GARDEN],
+      persons: [NILS, PROTECTED],
+      members: [
+        { chatId: GROUP_ID, personId: NILS.id },
+        { chatId: GROUP_ID, personId: PROTECTED.id },
+      ],
+    });
+
+    const after = await service.addMember(
+      principal(NILS.id),
+      GROUP_ID,
+      PROTECTED.id,
+    );
+
+    expect(after).toEqual(
+      await service.membersFor(GROUP_ID, principal(NILS.id)),
+    );
     expect(members).toHaveLength(2);
     expect(audit.record).not.toHaveBeenCalled();
   });

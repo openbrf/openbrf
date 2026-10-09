@@ -16,7 +16,7 @@ import { npmInstall } from "./npm-install";
 const HOST_SECRETS = {
   DATABASE_URL: "postgres://owner:owner-password@db/openbrf",
   DATABASE_URL_RUNTIME: "postgres://app:app-password@db/openbrf",
-  BETTER_AUTH_SECRET: "a-session-signing-secret-of-some-length",
+  BETTER_AUTH_SECRET: "a-session-signing-secret",
   OPENBRF_ENCRYPTION_KEY: "an-encryption-key",
   OPENBRF_S3_SECRET_ACCESS_KEY: "an-object-store-secret",
   NPM_TOKEN: "a-registry-token",

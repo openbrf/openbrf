@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   chmodSync,
   mkdirSync,
@@ -73,8 +74,28 @@ const COMPOSE_ARGS = [
  */
 const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls", PROJECT_NAME);
 
-/** The environment of every compose call that reads the overlay. */
-const COMPOSE_ENV = { ...process.env, OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR };
+/**
+ * The sign-in secret of this run's stack.
+ *
+ * Generated rather than read from the env file: the application refuses a
+ * secret that is short, has too few different characters or is written into the
+ * repository, and the stack runs in production mode. The value lives only in
+ * this process and in the stack it starts, and the volumes it signed anything
+ * into are destroyed with it. Compose gives the environment precedence over
+ * `--env-file`, so no entry is needed there.
+ */
+const AUTH_SECRET = randomBytes(48).toString("base64");
+
+/**
+ * The environment of every `docker compose` call against the suite's stack.
+ * Each one interpolates the compose files again, `logs` and `exec` included, so
+ * a call without these fails on the overlay's required variables.
+ */
+const COMPOSE_ENV = {
+  ...process.env,
+  BETTER_AUTH_SECRET: AUTH_SECRET,
+  OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR,
+};
 
 /** Reads stack.env so the suite and the stack cannot drift apart. */
 function readStackEnv(): Readonly<Record<string, string>> {

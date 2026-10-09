@@ -227,6 +227,11 @@ jobs:
           # provisioning, every migration, the job schema and the runtime role
           # as that owner; then the server, given neither password.
           postgres="$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
+          # Generated for this run, as an operator is told to: the image runs
+          # in production mode, which refuses a short or published secret.
+          # Nothing prints it, and it signs nothing beyond this throwaway
+          # container.
+          auth_secret="$(openssl rand -base64 48)"
           docker network create openbrf-smoke
           docker volume create openbrf-smoke-data
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \
@@ -254,7 +259,7 @@ jobs:
             --volume openbrf-smoke-data:/data \
             --env APP_URL=http://localhost:3000 \
             --env RUNTIME_DB_PASSWORD=smoke-runtime \
-            --env BETTER_AUTH_SECRET=smoke-secret-0123456789abcdef \
+            --env BETTER_AUTH_SECRET="${auth_secret}" \
             --env OPENBRF_ENCRYPTION_KEY= \
             "${IMAGE}@${DIGEST}"
 

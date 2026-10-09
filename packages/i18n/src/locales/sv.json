@@ -262,6 +262,7 @@
       "inviteFailed": "Inbjudan kunde inte skickas. Försök igen.",
       "inviteNoEmail": "Registret har ingen e-postadress för den här personen, så ingen inbjudan kan skickas.",
       "inviteMailNotConfigured": "E-postinställningarna saknas, så inbjudan kunde inte skickas. Fyll i dem under Inställningar.",
+      "inviteEmailInUse": "Ett annat konto loggar redan in med personens e-postadress. Ge personen en egen adress i registret och skicka sedan inbjudan.",
       "invitationExpiresAt": "Inbjudan giltig till",
       "invitationExpired": "Inbjudan har gått ut. Skicka en ny.",
       "publicationConsent": "Publiceringssamtycke",
@@ -316,6 +317,7 @@
           "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
           "termOverlaps": "Ett tidigare uppdrag på samma post löper förbi det här valdatumet. Kontrollera datumet.",
           "electedTooFarAhead": "Ett val kan inte dateras så långt fram i tiden. Kontrollera årtalet.",
+          "electedTooFarBack": "Ett val kan inte dateras så långt bakåt i tiden. Kontrollera årtalet.",
           "recoveryDatedAhead": "Ett uppdrag som återställs kan inte dateras efter dagens datum. Skriv datumet då föreningsstämman valde styrelsen.",
           "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du anteckna ett uppdrag bara när ingen styrelse finns i registret, och aldrig ditt eget.",
           "boardNotVacant": "Nu finns en styrelse i registret, så det är styrelsen som antecknar uppdragen. Ladda om sidan.",
@@ -2644,7 +2646,7 @@
     "submit": "Skicka ansökan",
     "working": "Skickar...",
     "receivedTitle": "Ansökan är mottagen",
-    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan en ansökan från en e-postadress väntar gäller den första, och en senare ansökan från samma adress prövas först när den har avgjorts.",
+    "receivedBody": "Styrelsen avgör den. Innan någon har godkänt ansökan finns varken konto eller post i registret, och när det sker får du ett e-postmeddelande med en länk där du väljer lösenord. Medan en ansökan från en e-postadress väntar gäller den första, och en senare från samma adress sparas inte. Skicka en ny ansökan när den första har avgjorts.",
     "closed": "Föreningen tar inte emot ansökningar om konto just nu. Hör av dig till styrelsen, som kan bjuda in dig i stället.",
     "errors": {
       "invalid": "Något i formuläret gick inte att läsa. Kontrollera e-postadressen och att alla fält är ifyllda.",
@@ -2666,6 +2668,7 @@
       "alreadyHasAccount": "Du har redan ett konto i föreningen. Logga in i stället.",
       "expired": "Inbjudan har gått ut. Be styrelsen skicka en ny inbjudan.",
       "noEmail": "Registret har ingen e-postadress för dig, så kontot kan inte aktiveras. Kontakta styrelsen.",
+      "emailInUse": "Ett annat konto loggar redan in med din e-postadress. Be styrelsen att lägga in en egen adress för dig och sedan skicka en ny inbjudan.",
       "unknown": "Kontot kunde inte aktiveras just nu. Försök igen."
     }
   },
@@ -5096,8 +5099,10 @@
       "someApp": "En app",
       "clientHost": "Appen finns på",
       "redirectHost": "Svaret skickas till",
+      "redirectApp": "Appen {{scheme}} på den här enheten",
       "hostUnknown": "Ingen adress går att visa.",
       "loopbackWarning": "Svaret skickas till den här datorn. Så ska det vara för en app som körs på din egen dator. Känner du inte igen appen ska du avbryta.",
+      "appSchemeWarning": "Svaret lämnas till den app på den här enheten som har tagit namnet {{scheme}}. Vilken app du installerar som helst kan ta ett namn, så fortsätt bara om du startade det här från en app som du själv har installerat och känner igen.",
       "actionsTitle": "Det här skulle appen kunna göra",
       "noActions": "Ingenting. Med de behörigheter du har i dag finns det inget en app kan göra åt dig.",
       "scopeNotice": "Listan visar vad appen kan göra just nu. Appen agerar som du och kan aldrig göra mer än du själv får göra. Slår föreningen på fler åtgärder senare når appen även dem. Du kan koppla bort appen när som helst under Inställningar, Inloggning och säkerhet.",

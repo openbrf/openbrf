@@ -18,12 +18,19 @@
 # for the screenshot walk, so neither build retags the other's image while it
 # runs, and neither is a tag anything else on the machine uses.
 #
-#   OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e \
+#   export BETTER_AUTH_SECRET="$(openssl rand -base64 48)"
+#   export OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
 #     --env-file e2e/stack.env up -d
 #
-# The suite sets OPENBRF_E2E_MAIL_TLS_DIR itself and writes mailpit's
+# Export both rather than prefixing `up`: every later Compose command (logs,
+# exec, down) interpolates the files again and fails on a missing required
+# variable.
+#
+# The sign-in secret is not in stack.env: the application refuses a published
+# one in production, so the suite generates one for every run (src/stack.ts).
+# The suite sets OPENBRF_E2E_MAIL_TLS_DIR itself too, and writes mailpit's
 # certificate there before it starts the stack.
 #
 # The project name is always openbrf-e2e, so the suite can recreate its own

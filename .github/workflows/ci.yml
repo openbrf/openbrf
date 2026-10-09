@@ -92,7 +92,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://openbrf:openbrf@localhost:5432/openbrf
-      BETTER_AUTH_SECRET: ci-secret-at-least-16-characters
+      # Shorter than production takes, so nobody can run an instance on it.
+      BETTER_AUTH_SECRET: ci-only-sign-in-secret
       # Fixed test key: never used outside CI.
       OPENBRF_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
 

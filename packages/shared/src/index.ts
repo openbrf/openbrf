@@ -35,7 +35,9 @@ export type {
 } from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
+export { isLoopbackHost } from "./loopback-host.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
+export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
   isValidPersonalIdentityNumber,
   normalizeFreeText,

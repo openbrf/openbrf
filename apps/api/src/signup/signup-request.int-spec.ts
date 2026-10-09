@@ -65,6 +65,7 @@ const extraEmails = [
   `returning-${suffix}@exempel.se`,
   `midnight-${suffix}@exempel.se`,
   `unsent-${suffix}@exempel.se`,
+  `taken-${suffix}@exempel.se`,
   `broken-${suffix}@exempel.se`,
   `lost-${suffix}@exempel.se`,
   `member-${suffix}@exempel.se`,
@@ -574,6 +575,15 @@ describe("approval", () => {
       cause: Object.assign(new Error("550 recipient refused"), {
         code: "EENVELOPE",
       }),
+      level: "warn",
+    },
+    {
+      name: "another account signing in with the address",
+      applicant: "taken",
+      cause: new InvitationError(
+        "Another account already signs in with this email address.",
+        "email-in-use",
+      ),
       level: "warn",
     },
     {

@@ -322,6 +322,29 @@ describe("a board recovery on a vacant register", () => {
     expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
 
+  it("refuses an election dated further back than a sitting board's", async () => {
+    // A board recovered now holds its seats now, so it cannot have been
+    // elected before the longest term that could still be running.
+    const { positions, tx } = service([]);
+
+    await expect(
+      positions.recoverBoard(
+        {
+          ...recovery("admin", []),
+          seats: [
+            {
+              personId: "chair",
+              position: "CHAIR",
+              electedOn: "2021-05-31",
+            },
+          ],
+        },
+        NOW,
+      ),
+    ).rejects.toMatchObject({ reason: "elected-too-far-back" });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
   it("does not count a withdrawn election that is still dated ahead as a board", async () => {
     const { positions, seats } = service([
       seatOf("withdrawn", "2026-07-01", "2026-06-15"),

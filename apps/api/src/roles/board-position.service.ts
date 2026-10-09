@@ -10,6 +10,7 @@ import { boardSeatNotEndedOn } from "../registers/held-on";
 import {
   type BoardPositionView,
   hasTermEnded,
+  earliestElection,
   latestElection,
   overlapsRecordedTerm,
   parseCalendarDate,
@@ -418,13 +419,22 @@ export class BoardPositionService {
 const OWN_SEAT_MESSAGE =
   "A seat on the board is recorded by the board, not by the person it seats.";
 
-/** An election date, refused when it lies past the election horizon. */
+/**
+ * An election date, refused when it lies past the election horizon or further
+ * back than a sitting board can have been elected.
+ */
 function parseElectionDate(value: string, now: Date): Date {
   const electedOn = parseCalendarDate(value);
   if (electedOn.getTime() > latestElection(now).getTime()) {
     throw new RoleChangeError(
       "An election cannot be dated that far into the future. Check the year.",
       "elected-too-far-ahead",
+    );
+  }
+  if (electedOn.getTime() < earliestElection(now).getTime()) {
+    throw new RoleChangeError(
+      "An election cannot be dated that far back. Check the year.",
+      "elected-too-far-back",
     );
   }
   return electedOn;

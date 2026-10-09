@@ -1,11 +1,11 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { isLoopbackHost } from "@openbrf/shared";
 import {
   normalizeColor,
   PORTTAVLAN,
   primaryColorOverride,
 } from "@openbrf/tokens";
 
-import { isLoopbackHost } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { AuditLogService } from "../audit/audit-log.service";

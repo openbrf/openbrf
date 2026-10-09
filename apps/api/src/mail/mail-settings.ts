@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { isLoopbackHost } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
-import { type Env, isLoopbackHost } from "../config/env";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";

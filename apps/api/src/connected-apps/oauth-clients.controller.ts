@@ -8,6 +8,7 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
+import { isAcceptableRedirectUri } from "@openbrf/shared";
 import { isAPIError } from "better-auth/api";
 import { z } from "zod";
 
@@ -16,7 +17,6 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { AuthService } from "../auth/auth.service";
-import { isLoopbackHost } from "../config/env";
 import { forwardHeaders } from "../auth/fastify-bridge";
 import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
@@ -43,16 +43,17 @@ export class InvalidRedirectUriError extends DomainError {
  * The kind of client the addresses describe, in the provider's terms.
  *
  * The provider has one set of rules for a client at a web address (https, and
- * never this machine) and another for an app on the member's own machine
- * (http on a loopback host, RFC 8252 7.3). It refuses a loopback address for
- * the first, so a client that names one has to be registered as the second.
+ * never this machine) and another for an app on the member's own device (http
+ * on a loopback host, RFC 8252 7.3, or the app's own scheme, 7.1). It refuses
+ * either of those for the first, so a client that names one has to be
+ * registered as the second.
  * The kind is read only by that check on the addresses: it changes neither the
  * grants, nor the secret, nor the consent every member is still asked for.
  */
 export function applicationTypeFor(
   redirectUris: readonly string[],
 ): "web" | "native" {
-  return redirectUris.some((uri) => new URL(uri).protocol === "http:")
+  return redirectUris.some((uri) => new URL(uri).protocol !== "https:")
     ? "native"
     : "web";
 }
@@ -68,37 +69,13 @@ const registerSchema = z.strictObject({
   redirectUris: z
     .array(
       z.url().refine(isAcceptableRedirectUri, {
-        message: "A redirect URI is https, or http on this machine.",
+        message:
+          "A redirect URI is https, http on this machine, or an app's own reverse-domain scheme.",
       }),
     )
     .min(1)
     .max(8),
 });
-
-/**
- * Where an authorization code may be sent: https, or plain http on a loopback
- * host for a client running on the member's own machine (RFC 8252 7.3), with
- * no credentials and no fragment in it.
- *
- * Every other scheme is refused. The consent screen navigates to this address
- * with the code in it, so a script or data URL would run in this application's
- * origin, and plain http elsewhere would send the code in clear text.
- */
-export function isAcceptableRedirectUri(value: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  if (url.username !== "" || url.password !== "" || url.hash !== "") {
-    return false;
-  }
-  if (url.protocol === "https:") {
-    return true;
-  }
-  return url.protocol === "http:" && isLoopbackHost(url.hostname);
-}
 
 /**
  * Registering a client by hand.

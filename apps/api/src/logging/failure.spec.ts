@@ -131,6 +131,75 @@ describe("failureFrames", () => {
     expect(failureFrames(error)).toBeUndefined();
   });
 
+  it("keeps no line a message lost when it was cut down after the stack was read", () => {
+    // The head still matches, since the message kept its own beginning, so
+    // the lines it lost are left below the head. Only the frame shape - a
+    // location at the end - tells them from the frames.
+    const error = new Error("Recipient refused\n    at anna@example.se");
+    void error.stack;
+    error.message = "Recipient refused";
+
+    const frames = failureFrames(error) ?? "";
+
+    expect(frames).not.toContain("anna");
+    expect(frames).toContain("failure.spec.ts");
+  });
+
+  it("knows the places V8 names instead of a file", () => {
+    const cause = new Error("x");
+    cause.stack = [
+      "Error: x",
+      "    at Array.map (<anonymous>)",
+      "    at JSON.parse (native)",
+      "    at async Promise.all (index 0)",
+      "    at file:///app/dist/main.js:3:7",
+      "    at somebody@example.se",
+    ].join("\n");
+
+    expect(failureFrames(cause)?.split("\n")).toEqual([
+      "    at Array.map (<anonymous>)",
+      "    at JSON.parse (native)",
+      "    at async Promise.all (index 0)",
+      "    at file:///app/dist/main.js:3:7",
+    ]);
+  });
+
+  it("takes a location that begins like a path or a URL, and no other", () => {
+    const cause = new Error("x");
+    cause.stack = [
+      "Error: x",
+      "    at Module._compile (node:internal/modules/cjs/loader:1554:14)",
+      "    at handler (/app/dist/main.js:12:5)",
+      "    at handler (C:\\app\\dist\\main.js:12:5)",
+      "    at https://brf.example/assets/index.js:1:2",
+      // Message lines a shortened message can leave below the head.
+      "    at Storgatan 4, 12:30:45",
+      "    at the meeting (kl 18:30:00)",
+    ].join("\n");
+
+    expect(failureFrames(cause)?.split("\n")).toEqual([
+      "    at Module._compile (node:internal/modules/cjs/loader:1554:14)",
+      "    at handler (/app/dist/main.js:12:5)",
+      "    at handler (C:\\app\\dist\\main.js:12:5)",
+      "    at https://brf.example/assets/index.js:1:2",
+    ]);
+  });
+
+  it("passes over a line too long to be a frame, and quickly", () => {
+    // Long enough that a pattern quadratic in the line's length would take
+    // seconds over it, and shaped to make one backtrack: many " (" and no
+    // closing location.
+    const long = `    at ${"a (".repeat(40_000)}/app/f.js:1:1`;
+    const cause = new Error("x");
+    cause.stack = ["Error: x", long, "    at f (/app/f.js:1:1)"].join("\n");
+
+    const started = performance.now();
+    const frames = failureFrames(cause);
+
+    expect(performance.now() - started).toBeLessThan(100);
+    expect(frames).toBe("    at f (/app/f.js:1:1)");
+  });
+
   it("keeps only the call frames", () => {
     const frames = failureFrames(new Error(REVEALING)) ?? "";
 
@@ -167,7 +236,7 @@ describe("failureFrames", () => {
     const deep = new Error("x");
     deep.stack = [
       "Error: x",
-      ...Array.from({ length: 500 }, () => "    at f"),
+      ...Array.from({ length: 500 }, () => "    at f (/app/f.js:1:1)"),
     ].join("\n");
 
     expect((failureFrames(deep) ?? "").split("\n")).toHaveLength(20);

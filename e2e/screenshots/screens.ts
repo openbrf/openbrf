@@ -130,6 +130,23 @@ export interface RecordedBreach {
 }
 
 /**
+ * An app asking the signed-in person to let it act for them.
+ *
+ * The consent screen opens only from an authorization request the instance
+ * signed, for a client it knows, so no address written here could reach it.
+ * The walk registers the client as the administrator and then opens the
+ * request in the current session, which the instance answers by sending the
+ * browser to the consent screen with the signed request in its address.
+ *
+ * Both values are published: a made-up app, on a scheme under a reserved
+ * name.
+ */
+export interface AuthorizationRequest {
+  readonly clientName: string;
+  readonly redirectUri: string;
+}
+
+/**
  * A message written to the board through the website's contact form.
  *
  * Like everything a capture can photograph, it is published: an address on the
@@ -156,6 +173,8 @@ export type Action =
    * reads the register when it opens.
    */
   | { readonly recordBreach: RecordedBreach }
+  /** Register a client and open its authorization request. */
+  | { readonly requestAuthorization: AuthorizationRequest }
   /**
    * Post these messages through the public contact form, then reopen the
    * screen, which reads the inbox when it opens.
@@ -876,6 +895,30 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/settings"),
     waitFor: { text: "Du har inte anslutit någon app." },
     capture: { panel: "Anslutna appar" },
+  },
+  {
+    /*
+     * The same member, asked by an app on her own device whether it may act
+     * for her.
+     *
+     * An app's own scheme rather than a web address, because that is the
+     * destination the screen has to name in words: it has no host to show,
+     * and the device hands the answer to whichever app claimed the name, which
+     * is what the warning under it says. After the card above and not before
+     * it, so that card is still photographed empty; nothing here consents.
+     */
+    name: "connected-app-consent",
+    prepare: [
+      {
+        requestAuthorization: {
+          clientName: "Exempelappen",
+          redirectUri: "se.exempel.app:/callback",
+        },
+      },
+    ],
+    // Rendered only once the client and the actions have both been read.
+    waitFor: { text: "Appen se.exempel.app på den här enheten" },
+    capture: "page",
   },
 
   // --- retention -------------------------------------------------------------
