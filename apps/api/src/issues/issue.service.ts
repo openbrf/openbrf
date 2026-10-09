@@ -4,7 +4,9 @@ import { localDayOf } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import type { IssueAudience, IssueStatus } from "../generated/prisma/enums";
+import { failureName } from "../logging/failure";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import { IssueTypeService } from "./issue-type.service";
@@ -158,7 +160,7 @@ export class IssueService {
         ? null
         : await this.requireOwnApartment(principal.personId, input.apartmentId);
 
-    const issue = await this.prisma.issue.create({
+    const filing = this.prisma.issue.create({
       data: {
         typeId: type.id,
         reporterPersonId: principal.personId,
@@ -168,6 +170,7 @@ export class IssueService {
       },
       select: { id: true },
     });
+    const issue = await filing.catch(typeRemoved);
 
     // The identifier and the type only. The description is the resident's own
     // account of their home and has no business in a log line.
@@ -207,7 +210,7 @@ export class IssueService {
             input.reporterEmail,
           );
 
-    const issue = await this.prisma.issue.create({
+    const filing = this.prisma.issue.create({
       data: {
         typeId: type.id,
         // No account behind it. The reporter reference stays null and the
@@ -228,6 +231,7 @@ export class IssueService {
       },
       select: { id: true },
     });
+    const issue = await filing.catch(typeRemoved);
 
     // The identifier and the type. What a passer-by wrote about the building,
     // and who they said they were, has no business in a log line.
@@ -423,14 +427,48 @@ export class IssueService {
       channel: "WEB",
     });
 
-    const photo = await this.prisma.issuePhoto.create({
-      data: {
-        issueId: issue.id,
-        fileId: file.id,
-        sortOrder: issue._count.photos,
-      },
-      select: { id: true },
-    });
+    /*
+     * Counted again under the issue's lock. The count above only spares the
+     * disk an upload that was going to be refused; uploads sent together all
+     * pass it, and only a count that each of them takes in turn holds the cap
+     * and gives every photograph its own place in the order.
+     */
+    let photo: { id: string };
+    try {
+      photo = await this.prisma.$transaction(async (tx) => {
+        await lockIssue(tx, issue.id);
+        const photos = await tx.issuePhoto.count({
+          where: { issueId: issue.id },
+        });
+        if (photos >= MAX_PHOTOS_PER_ISSUE) {
+          throw new IssueError(
+            "This report already carries as many photographs as it may.",
+            "too-many-photos",
+          );
+        }
+        return tx.issuePhoto.create({
+          data: { issueId: issue.id, fileId: file.id, sortOrder: photos },
+          select: { id: true },
+        });
+      });
+    } catch (cause) {
+      // The upload is already in the audit log, and so is this removal. That
+      // pair is the honest record of what happened.
+      //
+      // The media service logs a failure to remove the stored file, but not
+      // one of its own database transaction, which would leave the file behind
+      // with nothing in the logs to say so. The original failure is still the
+      // one raised.
+      await this.media
+        .remove(file.id, input.reporterPersonId, "WEB")
+        .catch((removal: unknown) => {
+          this.logger.error(
+            `Could not remove file ${file.id} after its photograph was refused: ` +
+              failureName(removal),
+          );
+        });
+      throw cause;
+    }
 
     return {
       id: photo.id,
@@ -571,6 +609,25 @@ function toApartmentView(apartment: ApartmentRecord): IssueApartmentView {
     number: apartment.number,
     address: `${apartment.address.street} ${apartment.address.number}`,
   };
+}
+
+/**
+ * A report whose type was removed after it was read.
+ *
+ * Both reporting paths read the type before they write, so a board removing it
+ * at the same moment makes the insert raise P2003 against the restrictive key.
+ * That is a type that does not exist, and is answered as one rather than with
+ * a 500. The apartment's key cannot be the one: the reporter's residency holds
+ * the apartment in the register.
+ */
+function typeRemoved(cause: unknown): never {
+  if (
+    cause instanceof Prisma.PrismaClientKnownRequestError &&
+    cause.code === "P2003"
+  ) {
+    throw new IssueError("No such issue type.", "type-not-found");
+  }
+  throw cause;
 }
 
 function toOwnView(issue: {

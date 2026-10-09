@@ -150,6 +150,26 @@ it("sends the kind the board chose", async () => {
     }),
   );
 });
+it("reads a price typed the Swedish way", async () => {
+  // With spaces between the thousands and a decimal comma, which is how a
+  // Swedish phone offers it and how an agreement states it.
+  const session = userEvent.setup();
+  await openTransferFields(session);
+
+  await session.selectOptions(screen.getByLabelText(/Lägenhet/), "apartment-1");
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-04-07");
+  await session.type(screen.getByLabelText(/^Pris/), "2 150 000,50");
+  await session.type(screen.getByLabelText(/Avtalshänvisning/), "ÖVL-1201");
+  await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+  expect(moveIn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      transfer: expect.objectContaining({ price: "2150000.50" }),
+    }),
+  );
+});
+
 it("names the event it recorded, not the other one", async () => {
   /*
    * The board chose an upplatelse; being told a transfer was registered would

@@ -132,11 +132,33 @@ export function BookSlotPanel({
 }: BookSlotPanelProps): ReactElement {
   const { t, i18n } = useTranslation();
 
-  const [resourceId, setResourceId] = useState(resources[0]?.id ?? "");
-  const [apartmentId, setApartmentId] = useState(apartments[0]?.id ?? "");
+  /*
+   * What the reader picked, and what is in force. The two differ when the
+   * lists change under a mounted panel: a retry after a failed read hands over
+   * lists the first render never had, and a choice that is no longer offered
+   * means nothing. The first entry stands in until the reader picks, which is
+   * also what the select shows.
+   */
+  const [pickedResourceId, setResourceId] = useState("");
+  const [pickedApartmentId, setApartmentId] = useState("");
+  const resourceId = offeredOrFirst(resources, pickedResourceId);
+  const apartmentId = offeredOrFirst(apartments, pickedApartmentId);
   const [from, setFrom] = useState(() => localDayNow());
   const [answer, setAnswer] = useState<Calendar | null>(null);
   const [stay, setStay] = useState<StayDraft | null>(null);
+  /*
+   * A stay is nights of one resource, so it goes when the resource in force
+   * changes - not only when the reader picks another, but also when the one
+   * they picked drops out of a re-read list and the first stands in for it.
+   * Left, the nights half chosen on one resource would be booked on another.
+   * Set during the render rather than in an effect, so the stay is never drawn
+   * against the resource it was not chosen on.
+   */
+  const [stayResourceId, setStayResourceId] = useState(resourceId);
+  if (stayResourceId !== resourceId) {
+    setStayResourceId(resourceId);
+    setStay(null);
+  }
   /**
    * Bumped to ask for the calendar again without changing what is asked for.
    *
@@ -224,11 +246,12 @@ export function BookSlotPanel({
   /**
    * Adds a click to the stay being put together.
    *
-   * The first free night is the check-in. A later night is the check-out, and
-   * clicking on or before the check-in starts again rather than producing a
-   * stay that runs backwards - which the server would refuse, but refusing it
-   * here leaves the length of the stay as the only thing the form can be wrong
-   * about.
+   * The first free night is the check-in. The next click names the last night,
+   * so the check-out is the morning after it, and choosing the check-in night
+   * again is a stay of that one night. Clicking before the check-in starts
+   * again rather than producing a stay that runs backwards - which the server
+   * would refuse, but refusing it here leaves the length of the stay as the
+   * only thing the form can be wrong about.
    *
    * A stay is also unbroken. Only a free night can be clicked, but the nights
    * between two of them need not be free, and a range covering one somebody
@@ -240,7 +263,7 @@ export function BookSlotPanel({
   const pickNight = (slot: BookableSlot): void => {
     setStay((current) => {
       const fresh: StayDraft = { startsAt: slot.startsAt, endsAt: null };
-      if (current === null || slot.startsAt <= current.startsAt) {
+      if (current === null || slot.startsAt < current.startsAt) {
         return fresh;
       }
       const stay: StayDraft = {
@@ -301,7 +324,6 @@ export function BookSlotPanel({
             value={resourceId}
             onChange={(event) => {
               setResourceId(event.target.value);
-              setStay(null);
               setFrom(localDayNow());
             }}
             className={FIELD}
@@ -567,6 +589,16 @@ function withinStay(slot: BookableSlot, stay: StayDraft): boolean {
     return slot.startsAt === stay.startsAt;
   }
   return slot.startsAt >= stay.startsAt && slot.endsAt <= stay.endsAt;
+}
+
+/** The id picked if it is still offered, otherwise the first one offered. */
+function offeredOrFirst(
+  offered: readonly { id: string }[],
+  picked: string,
+): string {
+  return offered.some((candidate) => candidate.id === picked)
+    ? picked
+    : (offered[0]?.id ?? "");
 }
 
 /** The period a slot covers, for the name a screen reader announces. */

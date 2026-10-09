@@ -19,7 +19,9 @@ review:
 - A connected app's token carries only the scopes the member's consent grants
   now.
 - In production, a `BETTER_AUTH_SECRET` committed to the repository or with
-  fewer than 8 different characters stops the instance from starting.
+  fewer than 8 different characters stops the instance from starting, even
+  when it is 32 characters long. Replace such a secret before updating, as the
+  upgrade note on the 32-character rule describes.
 - A change sent with the session cookie in a body an HTML form can send
   (URL-encoded, multipart or plain text) is refused when it carries neither
   `Origin` nor `Sec-Fetch-Site`.

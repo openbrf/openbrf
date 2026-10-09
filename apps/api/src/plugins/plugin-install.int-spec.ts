@@ -20,12 +20,14 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { InstallLock } from "./install-lock";
+import { PluginAdminService } from "./plugin-admin.service";
 import { scanPluginDirectory } from "./plugin-directory";
 import {
   PluginInstallerService,
   type ReconcileOutcome,
 } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginEntryDeprecatedError } from "./plugin.errors";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 /**
@@ -174,6 +176,8 @@ async function writeCatalog(
   path: string,
   tarball: string,
   digest: string,
+  /** Further fields for the entry, such as the curator's `deprecated`. */
+  extra: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
   await writeFile(
     path,
@@ -194,6 +198,7 @@ async function writeCatalog(
             url: pathToFileURL(tarball).href,
             sha512: digest,
           },
+          ...extra,
         },
       ],
     }),
@@ -639,4 +644,79 @@ describe("the plugin install flow", () => {
     const scan = await scanPluginDirectory(root);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
   }, 300_000);
+});
+
+/**
+ * A curator's soft withdrawal. The entry stays listed, so an instance that has
+ * the plugin can still repair and update it, but the admin install refuses to
+ * start anybody new on it - and refuses before the consent row, so nothing is
+ * left for the reconcile to put on the volume.
+ *
+ * The admin service is the real one over the real registry and catalog client;
+ * what it would write beside the row - the audit entry, the art. 28 and art. 30
+ * records - is stood in for, since the gate sits in front of all of them.
+ */
+describe("a deprecated catalog entry", () => {
+  let admin: PluginAdminService;
+
+  beforeAll(async () => {
+    const deprecatedPath = join(workspace, "catalog-deprecated.json");
+    await writeCatalog(deprecatedPath, tarball, digest, { deprecated: true });
+    const deprecatedEnv: Env = {
+      ...testEnv,
+      OPENBRF_CATALOG_URL: pathToFileURL(deprecatedPath).href,
+    };
+    const restart = new RestartCoordinator(deprecatedEnv);
+
+    admin = new PluginAdminService(
+      deprecatedEnv,
+      registry,
+      { manifestFor: () => null, get: () => null, report: () => [] } as never,
+      // Records the enqueue and runs nothing: the test runs the reconcile the
+      // job would, so what reaches the volume is read after it.
+      new PluginInstallerService(
+        deprecatedEnv,
+        registry,
+        { send: async () => null } as never,
+        new CatalogClient(deprecatedEnv),
+        restart,
+        { needsReconcile: () => false } as never,
+      ),
+      new CatalogClient(deprecatedEnv),
+      { record: async () => undefined } as never,
+      restart,
+      { record: async () => undefined } as never,
+      { seedPlugin: async () => undefined } as never,
+      { read: async () => ({}) } as never,
+      prisma as never,
+      { translatorFor: () => (key: string) => key } as never,
+    );
+  });
+
+  it("is refused as a first install, and writes no row and no files", async () => {
+    await registry.remove(PLUGIN_ID);
+
+    await expect(
+      admin.install({ id: PLUGIN_ID }, null, "SYSTEM"),
+    ).rejects.toBeInstanceOf(PluginEntryDeprecatedError);
+
+    expect(await registry.find(PLUGIN_ID)).toBeNull();
+
+    // The reconcile an install would have queued finds nothing to install.
+    const outcome = await installer.reconcile();
+    expect(outcome.installed).not.toContain(PLUGIN_ID);
+    const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
+    expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
+  }, 120_000);
+
+  it("is installed again where the plugin is already installed", async () => {
+    await consent(digest, tarball);
+
+    await expect(
+      admin.install({ id: PLUGIN_ID }, null, "SYSTEM"),
+    ).resolves.toEqual({ restarting: true });
+
+    const record = await registry.find(PLUGIN_ID);
+    expect(record?.version).toBe(VERSION);
+  }, 120_000);
 });

@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +64,38 @@ const COMPOSE_ARGS = [
   "--env-file",
   ENV_FILE,
 ];
+
+/**
+ * Where mailpit's certificate and key are written, one directory per profile.
+ *
+ * Each profile writes a new pair on every start, so a shared directory would
+ * let a capture replace the key under a suite run that is still going, and that
+ * run's application would then refuse its own mailpit.
+ */
+const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls", PROJECT_NAME);
+
+/**
+ * The sign-in secret of this run's stack.
+ *
+ * Generated rather than read from the env file: the application refuses a
+ * secret that is short, has too few different characters or is written into the
+ * repository, and the stack runs in production mode. The value lives only in
+ * this process and in the stack it starts, and the volumes it signed anything
+ * into are destroyed with it. Compose gives the environment precedence over
+ * `--env-file`, so no entry is needed there.
+ */
+const AUTH_SECRET = randomBytes(48).toString("base64");
+
+/**
+ * The environment of every `docker compose` call against the suite's stack.
+ * Each one interpolates the compose files again, `logs` and `exec` included, so
+ * a call without these fails on the overlay's required variables.
+ */
+const COMPOSE_ENV = {
+  ...process.env,
+  BETTER_AUTH_SECRET: AUTH_SECRET,
+  OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR,
+};
 
 /** Reads stack.env so the suite and the stack cannot drift apart. */
 function readStackEnv(): Readonly<Record<string, string>> {
@@ -161,25 +200,6 @@ export function appPath(path = ""): string {
   return `${APP_BASE_PATH}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-/**
- * The sign-in secret of this run's stack.
- *
- * Generated rather than read from the env file: the application refuses a
- * secret that is short, has too few different characters or is written into the
- * repository, and the stack runs in production mode. The value lives only in
- * this process and in the stack it starts, and the volumes it signed anything
- * into are destroyed with it. Compose gives the environment precedence over
- * `--env-file`, so no entry is needed there.
- */
-const AUTH_SECRET = randomBytes(48).toString("base64");
-
-/**
- * The environment of every `docker compose` call against the suite's stack.
- * Each one interpolates the compose files again, `logs` and `exec` included, so
- * a call without the secret fails on the required variable.
- */
-const COMPOSE_ENV = { ...process.env, BETTER_AUTH_SECRET: AUTH_SECRET };
-
 function compose(args: readonly string[], timeoutMs: number): void {
   execFileSync("docker", [...COMPOSE_ARGS, ...args], {
     cwd: repositoryRoot,
@@ -198,7 +218,49 @@ function compose(args: readonly string[], timeoutMs: number): void {
  */
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+  writeMailTls();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+/**
+ * A certificate for mailpit, made for this run.
+ *
+ * The application requires STARTTLS of an SMTP server that is not on its own
+ * loopback, and verifies the certificate, so mailpit needs one issued to the
+ * name the application dials. Self-signed and trusted by the application alone,
+ * through NODE_EXTRA_CA_CERTS in the overlay. Made fresh rather than committed,
+ * so no private key sits in the repository, and short-lived for the same
+ * reason. Readable by anyone, because the containers do not run as the user
+ * who wrote it; it protects nothing outside this stack.
+ */
+function writeMailTls(): void {
+  rmSync(MAIL_TLS_DIR, { recursive: true, force: true });
+  mkdirSync(MAIL_TLS_DIR, { recursive: true });
+  const key = join(MAIL_TLS_DIR, "mailpit.key");
+  const certificate = join(MAIL_TLS_DIR, "mailpit.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "7",
+      "-subj",
+      `/CN=${stack.smtpHost}`,
+      "-addext",
+      `subjectAltName=DNS:${stack.smtpHost}`,
+      "-keyout",
+      key,
+      "-out",
+      certificate,
+    ],
+    { stdio: ["ignore", "ignore", "inherit"], timeout: 60_000 },
+  );
+  chmodSync(key, 0o644);
+  chmodSync(certificate, 0o644);
 }
 
 export function stopStack(): void {

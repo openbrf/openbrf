@@ -103,16 +103,33 @@ export function eventSignupsErasedOnRequest(
   return { personId };
 }
 
+/**
+ * Motions on no meeting, or on one that has been held.
+ *
+ * A motion closes when the board acknowledges it, which is ordinarily before
+ * the meeting that takes it up. Until that meeting has been held the item is
+ * on its agenda and the association is still dealing with it, so neither the
+ * retention window nor a granted erasure request reaches it.
+ */
+export const MOTIONS_OFF_AGENDAS_TO_COME: Prisma.MotionWhereInput = {
+  OR: [{ meetingId: null }, { meeting: { concludedAt: { not: null } } }],
+};
+
 /** The motions a granted erasure request erases. */
 export function motionsErasedOnRequest(
   personId: ErasurePersonFilter,
   now: Date,
 ): Prisma.MotionWhereInput {
-  // Closed ones. An open motion is a matter the association is still dealing
-  // with, and EFL 6 kap. 15 § gives the member who put it the right to have it
-  // treated at the meeting; erasing it would take that from them and from every
-  // other member who is entitled to see the item on the notice.
-  return { submittedByPersonId: personId, closedAt: { not: null, lte: now } };
+  // Closed ones off any agenda still to come. An open motion is a matter the
+  // association is still dealing with, and EFL 6 kap. 15 § gives the member who
+  // put it the right to have it treated at the meeting; erasing it would take
+  // that from them and from every other member who is entitled to see the item
+  // on the notice.
+  return {
+    submittedByPersonId: personId,
+    closedAt: { not: null, lte: now },
+    AND: [MOTIONS_OFF_AGENDAS_TO_COME],
+  };
 }
 
 /**
@@ -129,7 +146,11 @@ export function motionsKeptFromErasure(
 ): Prisma.MotionWhereInput {
   return {
     submittedByPersonId: personId,
-    OR: [{ closedAt: null }, { closedAt: { gt: now } }],
+    OR: [
+      { closedAt: null },
+      { closedAt: { gt: now } },
+      { meeting: { concludedAt: null } },
+    ],
   };
 }
 
@@ -208,7 +229,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       client.motion.count({ where: motionsErasedOnRequest(personId, now) }),
     kept: {
       because:
-        "an open motion is a matter the association is still dealing with",
+        "an open motion, or one on the agenda of a meeting not yet held, is a matter the association is still dealing with",
       count: async (client, personId, now) =>
         client.motion.count({ where: motionsKeptFromErasure(personId, now) }),
     },

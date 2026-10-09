@@ -2,7 +2,7 @@ import { localDayOf } from "@openbrf/shared";
 
 import type { Prisma } from "../generated/prisma/client";
 import type { ChatKind } from "../generated/prisma/enums";
-import { activeBoardSeatWhere } from "../mail/board-recipients";
+import { holdsBoardSeat } from "../mail/board-recipients";
 import { residencyHeldOn } from "../registers/held-on";
 
 import type { PrismaService } from "../database/prisma.service";
@@ -63,19 +63,6 @@ export const ROOM_COLUMNS = {
   name: true,
   createdByPersonId: true,
 } as const;
-
-/** Whether this person holds a board seat today. */
-export async function holdsBoardSeat(
-  db: ChatDbClient,
-  personId: string,
-  now: Date,
-): Promise<boolean> {
-  const person = await db.person.findFirst({
-    where: { id: personId, ...activeBoardSeatWhere(now) },
-    select: { id: true },
-  });
-  return person !== null;
-}
 
 /**
  * Whether this person lives here, which is what a place in a group rests on.

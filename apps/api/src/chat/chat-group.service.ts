@@ -67,6 +67,16 @@ export const MEMBERS_PER_GROUP = 200;
 const CANDIDATES_PER_READ = 25;
 
 /**
+ * Who the picker may offer, and who a person may be added by name: somebody
+ * who lives here on the day and has not protected their personal data. The
+ * list and the check on an add ask it, so the two cannot disagree about who
+ * is offered.
+ */
+function offerable(held: Prisma.ResidencyWhereInput): Prisma.PersonWhereInput {
+  return { protectedPersonalData: false, residencies: { some: held } };
+}
+
+/**
  * What somebody typed into the picker's search, as a condition on a name.
  *
  * One clause per word, and every word has to match the first name or the last:
@@ -429,8 +439,7 @@ export class ChatGroupService {
     const people = await this.prisma.person.findMany({
       where: {
         id: { notIn: already.map((member) => member.personId) },
-        protectedPersonalData: false,
-        residencies: { some: held },
+        ...offerable(held),
         ...(search === null ? {} : { AND: nameSearchWhere(search) }),
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
@@ -527,8 +536,7 @@ export class ChatGroupService {
     const person = await this.prisma.person.findFirst({
       where: {
         id: personId,
-        protectedPersonalData: false,
-        residencies: { some: residencyHeldOn(localDayOf(now)) },
+        ...offerable(residencyHeldOn(localDayOf(now))),
       },
       select: { id: true },
     });
