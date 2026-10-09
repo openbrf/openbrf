@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
-import { ChatGroupService, MEMBERS_PER_GROUP } from "./chat-group.service";
+import {
+  ChatGroupService,
+  GROUPS_PER_PERSON,
+  MEMBERS_PER_GROUP,
+} from "./chat-group.service";
 
 /**
  * The rules a group lives under, decided before any row is written.
@@ -127,6 +131,20 @@ const BOARD: ChatFixture = {
   name: null,
   createdByPersonId: null,
 };
+
+/** Groups other than the garden, each holding this person and nobody else. */
+function elsewhere(count: number, personId: string) {
+  const chats: ChatFixture[] = Array.from({ length: count }, (_, index) => ({
+    id: `chat-elsewhere-${String(index)}`,
+    kind: "GROUP",
+    name: `Grupp ${String(index)}`,
+    createdByPersonId: personId,
+  }));
+  return {
+    chats,
+    members: chats.map((chat) => ({ chatId: chat.id, personId })),
+  };
+}
 
 function principal(personId: string): Principal {
   return {
@@ -456,6 +474,7 @@ function build(options: {
     chats,
     members,
     locks,
+    prisma,
   };
 }
 
@@ -849,6 +868,140 @@ describe("who may put somebody into a group", () => {
     expect(after).toHaveLength(2);
     expect(members).toHaveLength(2);
     // Not a second act: nobody was admitted twice.
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("refuses somebody already in as many groups as one account may be in", async () => {
+    const other = elsewhere(GROUPS_PER_PERSON, ASTRID.id);
+    const { service, audit, members } = build({
+      chats: [GARDEN, ...other.chats],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+    });
+
+    await expect(
+      service.addMember(principal(NILS.id), GROUP_ID, ASTRID.id),
+    ).rejects.toMatchObject({ reason: "too-many-groups" });
+    expect(members.filter((member) => member.chatId === GROUP_ID)).toHaveLength(
+      1,
+    );
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("counts the groups again under the person's lock", async () => {
+    /*
+     * Two presses putting one person into two different rooms, with one place
+     * left: both pass the count before the transaction, and the one that waited
+     * for the lock finds the place taken.
+     */
+    const other = elsewhere(GROUPS_PER_PERSON - 1, ASTRID.id);
+    const last: ChatFixture = { ...GARDEN, id: "chat-stairwell", name: "C" };
+    const { service, audit, members } = build({
+      chats: [GARDEN, last, ...other.chats],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+      whileWaiting: (held) => {
+        if (!held.some((member) => member.chatId === last.id)) {
+          held.push({
+            chatId: last.id,
+            personId: ASTRID.id,
+            addedByPersonId: NILS.id,
+            joinedAt: new Date(),
+          });
+        }
+      },
+    });
+
+    await expect(
+      service.addMember(principal(NILS.id), GROUP_ID, ASTRID.id),
+    ).rejects.toMatchObject({ reason: "too-many-groups" });
+    expect(
+      members.filter((member) => member.personId === ASTRID.id),
+    ).toHaveLength(GROUPS_PER_PERSON);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("answers a second press on somebody's last place as the first did", async () => {
+    /*
+     * The first press took the place while this one waited for the person's
+     * lock, which makes it their twentieth room. That is the room this press
+     * asks for, so it is the idempotent answer and not a count over the cap.
+     */
+    const other = elsewhere(GROUPS_PER_PERSON - 1, ASTRID.id);
+    const { service, audit, members } = build({
+      chats: [GARDEN, ...other.chats],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+      whileWaiting: (held) => {
+        if (
+          !held.some(
+            (member) =>
+              member.chatId === GROUP_ID && member.personId === ASTRID.id,
+          )
+        ) {
+          held.push({
+            chatId: GROUP_ID,
+            personId: ASTRID.id,
+            addedByPersonId: NILS.id,
+            joinedAt: new Date(),
+          });
+        }
+      },
+    });
+
+    const after = await service.addMember(
+      principal(NILS.id),
+      GROUP_ID,
+      ASTRID.id,
+    );
+
+    expect(after).toHaveLength(2);
+    expect(
+      members.filter(
+        (member) => member.chatId === GROUP_ID && member.personId === ASTRID.id,
+      ),
+    ).toHaveLength(1);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("does not refuse a last place taken before the early count", async () => {
+    /*
+     * The same two presses, with the first landing sooner: after this one
+     * read that Astrid was not in the room, and before it counted her groups.
+     * The early count is not the decision, so it does not refuse her either.
+     */
+    const other = elsewhere(GROUPS_PER_PERSON - 1, ASTRID.id);
+    const { service, audit, members, prisma } = build({
+      chats: [GARDEN, ...other.chats],
+      persons: [NILS, ASTRID],
+      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+    });
+    const lookup = prisma.chatGroupMember.findUnique.getMockImplementation();
+    prisma.chatGroupMember.findUnique.mockImplementation(async (args) => {
+      const row = (await lookup?.(args)) ?? null;
+      if (row === null && args.where.chatId_personId.personId === ASTRID.id) {
+        members.push({
+          chatId: GROUP_ID,
+          personId: ASTRID.id,
+          addedByPersonId: NILS.id,
+          joinedAt: new Date(),
+        });
+      }
+      return row;
+    });
+
+    const after = await service.addMember(
+      principal(NILS.id),
+      GROUP_ID,
+      ASTRID.id,
+    );
+
+    expect(after).toHaveLength(2);
+    expect(
+      members.filter(
+        (member) => member.chatId === GROUP_ID && member.personId === ASTRID.id,
+      ),
+    ).toHaveLength(1);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
