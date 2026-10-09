@@ -54,6 +54,16 @@ const REGISTER_FAILURES: Readonly<Record<string, TranslationKey>> = {
 };
 
 /**
+ * The refusals when the board turns a client away for the whole instance.
+ *
+ * `client-not-found` is the API's answer when no client has the id: it was
+ * never registered here, or the list on screen is older than the instance.
+ */
+const REVOKE_CLIENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "client-not-found": "connectedApps.errors.clientNotFound",
+};
+
+/**
  * The sentence for a failed disconnect.
  *
  * This module's own reasons are resolved before the shared branches, so
@@ -85,5 +95,14 @@ export function registerClientFailureKey(failure: ApiFailure): TranslationKey {
     failure,
     REGISTER_FAILURES,
     "connectedApps.register.errors.failed",
+  );
+}
+
+/** The sentence for a refused turn-away of a client. */
+export function revokeClientFailureKey(failure: ApiFailure): TranslationKey {
+  return failureMessageKey(
+    failure,
+    REVOKE_CLIENT_FAILURES,
+    "connectedApps.errors.failed",
   );
 }
