@@ -13,6 +13,7 @@ import { PrismaService } from "../database/prisma.service";
 import { registerMultipart } from "../http/multipart";
 import { pdfBytes } from "../media/testing/document-fixtures";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -773,6 +774,83 @@ describe("changing who a document is for", () => {
     expect(response.statusCode).toBe(404);
     expect((response.json() as { reason: string }).reason).toBe("not-found");
   });
+
+  it("names the change a save made when another save of the document came first", async () => {
+    /*
+     * The entry is the difference between the row an edit read and the values
+     * it writes. Here another save holds the document's key and moves it to the
+     * members without having committed yet; the edit putting it back on the
+     * public shelf must wait for it and then read what it wrote. Without the
+     * wait it reads PUBLIC, records nothing, and its write still undoes the
+     * other save's demotion - an audience change no entry names. The key is
+     * spelled out so a writer that changed it fails this instead of passing.
+     */
+    const document = (
+      await fileDocument(boardCookie, {
+        title: `Ordningsregler ${suffix}-samtidigt`,
+        category: "Ordningsregler",
+        audience: "PUBLIC",
+      })
+    ).json() as DocumentBody;
+    const key = `document:${document.id}`;
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await tx.document.update({
+          where: { id: document.id },
+          data: { audience: "MEMBER" },
+        });
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      const saving = inject({
+        method: "PUT",
+        url: `/api/documents/${document.id}`,
+        payload: {
+          title: document.title,
+          category: document.category,
+          audience: "PUBLIC",
+        },
+        headers: { cookie: boardCookie },
+      });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+      expect((await saving).statusCode).toBe(200);
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+    }
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "DOCUMENT_UPDATED", targetId: document.id },
+      select: { context: true },
+    });
+    expect(entries).toEqual([
+      {
+        context: {
+          fields: ["audience"],
+          audienceFrom: "MEMBER",
+          audienceTo: "PUBLIC",
+        },
+      },
+    ]);
+  }, 60_000);
 });
 
 describe("removing a document", () => {

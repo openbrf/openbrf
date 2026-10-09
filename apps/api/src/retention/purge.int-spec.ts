@@ -20,6 +20,7 @@ import { lockLegalHold } from "./legal-hold-lock";
 import { LegalHoldService } from "./legal-hold.service";
 import { computePurgeDate } from "./purge-date";
 import { PurgeService } from "./purge.service";
+import { erasureRequestedPersonIds } from "./withheld-persons";
 import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";
 
 /**
@@ -1401,11 +1402,14 @@ describe("closing a granted erasure request on evidence", () => {
      * the erasure did not reach - ADR 0007.
      */
     expect(context.verifiedEmptyOf).toEqual([
+      "board mailbox threads",
       "bookings",
-      "chat messages",
+      "chat",
       "event sign-ups",
+      "key orders",
       "motions",
       "news comments",
+      "subletting applications",
     ]);
   });
 
@@ -1457,33 +1461,19 @@ describe("closing a granted erasure request on evidence", () => {
      * off the end of a bounded run is somebody no later run would select, so
      * they are taken first and the window takes what is left.
      */
-    const eligible = await purge.eligible(dueAt, retentionDays);
-    const requested = new Set(
-      (
-        await prisma.dataSubjectRequest.findMany({
-          where: {
-            kind: "ERASURE",
-            decision: "GRANTED",
-            executedAt: null,
-            closedAt: null,
-          },
-          select: { personId: true },
-        })
-      ).map((row) => row.personId),
+    const requested = await erasureRequestedPersonIds(prisma, dueAt);
+    // More of them than the bound, and people the window would take besides,
+    // or the ordering would hold by construction.
+    expect(requested.length).toBeGreaterThan(0);
+    expect((await purge.eligible(dueAt, retentionDays)).length).toBeGreaterThan(
+      requested.length,
     );
 
-    const lastRequested = eligible.reduce(
-      (last, personId, index) => (requested.has(personId) ? index : last),
-      -1,
-    );
-    const firstOther = eligible.findIndex(
-      (personId) => !requested.has(personId),
-    );
+    const eligible = await purge.eligible(dueAt, retentionDays, 0);
 
-    expect(lastRequested).toBeGreaterThanOrEqual(0);
-    if (firstOther >= 0) {
-      expect(lastRequested).toBeLessThan(firstOther);
-    }
+    // Every one of them, although the bound is none, and nobody the window
+    // selected: the bound was spent before the window was asked.
+    expect([...eligible].sort()).toEqual([...requested].sort());
   });
 });
 

@@ -30,6 +30,8 @@ export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
   isValidPersonalIdentityNumber,
+  normalizeFreeText,
+  normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
   scanForPersonalIdentityNumbers,

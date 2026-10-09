@@ -20,6 +20,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
+import { MailService } from "../mail/mail.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
@@ -404,6 +405,49 @@ describe("breaches", () => {
     expect(reasonOf(response)).toBe("personal-identity-number");
   });
 
+  it("refuses a personal identity number in the reasons a decision gives for a delay", async () => {
+    const view = await recorded();
+
+    const response = await decide(view.breachId, {
+      delayReasons: `Vi vantade pa ${runIdentityNumber(suffix)}.`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(reasonOf(response)).toBe("personal-identity-number");
+  });
+
+  it.each([
+    ["a soft hyphen", (n: string) => `${n.slice(0, 8)}\u00AD${n.slice(8)}`],
+    [
+      "a zero-width space",
+      (n: string) => `${n.slice(0, 6)}\u200B${n.slice(6)}`,
+    ],
+    [
+      "fullwidth digits",
+      (n: string) =>
+        Array.from(n, (d) => String.fromCodePoint(0xff10 + Number(d))).join(""),
+    ],
+    // Not hidden at all, only spaced or broken over two lines: the forms the
+    // identity-number parser itself accepts.
+    [
+      "spaces around a hyphen",
+      (n: string) => `${n.slice(0, 8)} - ${n.slice(8)}`,
+    ],
+    ["a line break", (n: string) => `${n.slice(0, 8)}\n${n.slice(8)}`],
+  ])(
+    "refuses an identity number hidden by %s in the reasons for a delay",
+    async (_name, hide) => {
+      const view = await recorded();
+
+      const response = await decide(view.breachId, {
+        delayReasons: `Vi vantade pa ${hide(runIdentityNumber(suffix))}.`,
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(reasonOf(response)).toBe("personal-identity-number");
+    },
+  );
+
   it("refuses saying there is a risk and that IMY need not be told", async () => {
     // art. 33(1) excuses notification only where the breach is unlikely to
     // result in a risk, so the two answers cannot both stand.
@@ -738,6 +782,21 @@ describe("breaches", () => {
     expect(reasonOf(second)).toBe("already-subject");
   });
 
+  it("names each person it reached when it is recorded, as adding one later does", async () => {
+    // The entry naming them is what puts the breach on their access report.
+    const view = await recorded({ subjectPersonIds: [subject.personId] });
+
+    await expect(
+      prisma.auditLogEntry.count({
+        where: {
+          action: "PERSONAL_DATA_BREACH_UPDATED",
+          targetPersonId: subject.personId,
+          targetId: view.breachId,
+        },
+      }),
+    ).resolves.toBe(1);
+  });
+
   it("records that a person was told, with them as the subject of the entry", async () => {
     const view = await recorded();
     await inject({
@@ -881,6 +940,52 @@ describe("breaches", () => {
         }),
       ).resolves.toBe(0);
     });
+
+    it("fails, to be tried again, when the mail server is down", async () => {
+      /*
+       * The only warning before the 72-hour bound. A job that completed after
+       * reaching nobody would never be tried again, so every address failing
+       * is a failure the queue sees, on a job that carries retries.
+       */
+      const view = await recorded();
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+      try {
+        await expect(
+          app.get(BreachReminderService).sendBreachReminder({
+            breachId: view.breachId,
+            discoveredAt: view.discoveredAt,
+          }),
+        ).rejects.toThrow(/reached none/);
+      } finally {
+        send.mockRestore();
+      }
+
+      const [job] = await prisma.$queryRawUnsafe<{ retry_limit: number }[]>(
+        "SELECT retry_limit FROM pgboss.job WHERE name = $1 AND data->>'breachId' = $2",
+        BREACH_REMINDER_QUEUE,
+        view.breachId,
+      );
+      expect(job?.retry_limit).toBe(5);
+    });
+  });
+
+  it("queues no second reminder when the discovery time is saved unchanged", async () => {
+    // Both jobs would carry the same clock, so the stale-job check could not
+    // tell them apart and the board would be reminded twice.
+    const view = await recorded();
+
+    const updated = await inject({
+      method: "PUT",
+      url: `/api/data-protection/breaches/${view.breachId}`,
+      payload: { discoveredAt: view.discoveredAt },
+      headers: { cookie: boardCookie },
+    });
+    expect(updated.statusCode).toBe(200);
+
+    await expect(reminderJobs(view.breachId)).resolves.toHaveLength(1);
   });
 });
 
