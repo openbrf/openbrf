@@ -416,6 +416,30 @@ describe("breaches", () => {
     expect(reasonOf(response)).toBe("personal-identity-number");
   });
 
+  it("stores what it scanned: the free text of a record and a decision, folded", async () => {
+    const view = await recorded({
+      title: `Felskickad\u200B  lista ${suffix}`,
+      description: "Rad ett\u00AD\nRad tv\u200Ba",
+    });
+    expect(view.title).toBe(`Felskickad lista ${suffix}`);
+    expect(view.description).toBe("Rad ett\nRad tva");
+
+    const decided = await decide(view.breachId, {
+      imyDecisionGround: "Uppgifterna\u200B nadde en obehorig.",
+      imyNotifiedAt: new Date().toISOString(),
+      delayReasons: "Natet\u200B var nere.",
+    });
+    expect(decided.statusCode).toBe(200);
+
+    const row = await prisma.personalDataBreach.findUniqueOrThrow({
+      where: { id: view.breachId },
+      select: { imyDecisionGround: true, delayReasons: true },
+    });
+    expect(row.imyDecisionGround).toBe("Uppgifterna nadde en obehorig.");
+    // Not late, so the reasons are not required, but what is given is kept folded.
+    expect(row.delayReasons).toBe("Natet var nere.");
+  });
+
   it.each([
     ["a soft hyphen", (n: string) => `${n.slice(0, 8)}\u00AD${n.slice(8)}`],
     [
