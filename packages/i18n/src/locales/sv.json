@@ -705,7 +705,7 @@
           "CONNECTED_APP_CONNECTED": "En ansluten app fick agera för personen",
           "CONNECTED_APP_DISCONNECTED": "En ansluten app kopplades bort",
           "OAUTH_CLIENT_REGISTERED": "En app registrerade sig hos föreningen",
-          "OAUTH_CLIENT_REVOKED": "En app spärrades för hela föreningen",
+          "OAUTH_CLIENT_REVOKED": "En ansluten app spärrades för hela föreningen",
           "CHAT_GROUP_CREATED": "Gruppchatt skapades",
           "CHAT_GROUP_MEMBER_ADDED": "Lades till i en gruppchatt",
           "CHAT_GROUP_MEMBER_REMOVED": "Lämnade en gruppchatt",

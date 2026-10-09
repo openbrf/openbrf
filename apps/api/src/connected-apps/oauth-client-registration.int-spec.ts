@@ -801,6 +801,41 @@ describe("turning a client away for the whole instance", () => {
       targetKind: "oauthClient",
       context: { connectionsCut: 1 },
     });
+
+    // And against the person whose connection went, which is where their own
+    // data subject access report looks for it.
+    const cut = await prisma.auditLogEntry.findMany({
+      where: { action: "CONNECTED_APP_DISCONNECTED", targetId: clientId },
+    });
+    expect(cut).toHaveLength(1);
+    expect(cut[0]).toMatchObject({
+      actorPersonId: admin.personId,
+      targetPersonId: admin.personId,
+      targetKind: "connectedApp",
+      context: { clientRevoked: true },
+    });
+  });
+
+  it("records no person against a client nobody had connected", async () => {
+    const { clientId } = await registerClient("never connected", redirectUri);
+
+    const response = await inject({
+      method: "DELETE",
+      url: `/api/oauth-clients/${encodeURIComponent(clientId)}`,
+      headers: { cookie: adminCookie, origin: env.APP_URL },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      await prisma.auditLogEntry.findMany({
+        where: { action: "OAUTH_CLIENT_REVOKED", targetId: clientId },
+      }),
+    ).toMatchObject([{ context: { connectionsCut: 0 } }]);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "CONNECTED_APP_DISCONNECTED", targetId: clientId },
+      }),
+    ).toBe(0);
   });
 
   it("refuses a resident, and leaves the client as it was", async () => {
@@ -827,6 +862,8 @@ describe("turning a client away for the whole instance", () => {
     });
 
     expect(response.statusCode).toBe(404);
+    // A code the screen translates, never the API's own sentence.
+    expect(response.json<{ reason: string }>().reason).toBe("client-not-found");
     expect(
       await prisma.auditLogEntry.count({ where: { targetId: clientId } }),
     ).toBe(0);
