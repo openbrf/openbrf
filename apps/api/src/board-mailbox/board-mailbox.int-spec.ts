@@ -14,6 +14,8 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import { MailService } from "../mail/mail.service";
 import { MediaService } from "../media/media.service";
 import {
@@ -3475,6 +3477,95 @@ describe("the purge", () => {
     expect(
       await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
     ).not.toBeNull();
+  });
+
+  /**
+   * A thread linked to a person as it was opened, with the address it was
+   * opened with, which need not be the one the register holds for them now.
+   */
+  async function linkedThread(
+    personId: string,
+    address: string,
+    lastMessageAt: Date,
+  ): Promise<string> {
+    const correspondent = await encryption.encrypt(
+      "boardMailboxThread.correspondentEmail",
+      address,
+    );
+    const thread = await prisma.boardMailboxThread.create({
+      data: {
+        subject: `Kopplad ${personId} ${String(lastMessageAt.getTime())} ${suffix}`,
+        correspondentEmailCipher: correspondent.cipher,
+        correspondentEmailIndex: correspondent.index,
+        correspondentPersonId: personId,
+        lastMessageAt,
+      },
+      select: { id: true },
+    });
+    return thread.id;
+  }
+
+  it("is stopped by a hold against the person a thread is linked to, whatever their address is now", async () => {
+    // Written from an address the person has since changed. The hold matches
+    // their current address, which is on no thread of theirs.
+    const threadId = await linkedThread(
+      householdOne.personId,
+      `mailbox-tidigare-${suffix}@exempel.se`,
+      new Date("2020-01-01T00:00:00.000Z"),
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: householdOne.personId,
+        reason: `Tvist ${suffix}`,
+        placedByPersonId: administrator.personId,
+      },
+    });
+
+    try {
+      const at = new Date("2026-01-01T00:00:00.000Z");
+      expect(await purge.eligible(at, 730)).not.toContain(threadId);
+      expect(await purge.purgeThread(threadId, at)).toBe(false);
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+    }
+  });
+
+  it("erases the threads linked to a person on a granted erasure request, however recent", async () => {
+    const now = new Date();
+    const erased = await linkedThread(seatNewHolder.personId, seatAddress, now);
+    // Still lives here, so the request is not in force and the thread stays
+    // on its own two years.
+    const kept = await linkedThread(resident.personId, resident.email, now);
+    const requests = [
+      await grantErasure(
+        prisma,
+        seatNewHolder.personId,
+        boardMember.personId,
+        now,
+      ),
+      await grantErasure(prisma, resident.personId, boardMember.personId, now),
+    ];
+
+    try {
+      await purge.run(now);
+
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: erased } }),
+      ).toBeNull();
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: kept } }),
+      ).not.toBeNull();
+      await expect(
+        erasureRemainder(prisma, seatNewHolder.personId, now),
+      ).resolves.toEqual([]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: { in: requests.map((request) => request.id) } },
+      });
+    }
   });
 });
 
