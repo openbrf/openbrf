@@ -3813,6 +3813,15 @@ model PersonalDataBreach {
 
   recordedByPersonId String
 
+  /// The discovery instant the board was last sent the 72-hour reminder against,
+  /// and the board members it reached for that instant. Read and written under
+  /// the breach's lock, so a reminder queued twice (a discovery time corrected
+  /// from A to B and back to A) sends once, and a send that reached some of the
+  /// board is retried only for the rest. A different discovery is a different
+  /// clock, and starts the list again.
+  reminderFor    DateTime?
+  reminderSentTo String[]  @default([])
+
   subjects PersonalDataBreachSubject[]
 
   createdAt DateTime @default(now())

@@ -982,7 +982,7 @@ describe("breaches", () => {
             breachId: view.breachId,
             discoveredAt: view.discoveredAt,
           }),
-        ).rejects.toThrow(/reached none/);
+        ).rejects.toThrow(/did not reach/);
       } finally {
         send.mockRestore();
       }
@@ -993,6 +993,172 @@ describe("breaches", () => {
         view.breachId,
       );
       expect(job?.retry_limit).toBe(5);
+    });
+  });
+
+  describe("the reminder's record of who it reached", () => {
+    const second = {
+      personId: `dp-board-two-${suffix}`,
+      email: `dp-board-two-${suffix}@exempel.se`,
+    };
+
+    beforeAll(async () => {
+      const email = await app
+        .get(FieldEncryptionService)
+        .encrypt("person.email", second.email);
+      await prisma.person.create({
+        data: {
+          id: second.personId,
+          firstName: "Person",
+          lastName: `Dataskydd${suffix}`,
+          emailCipher: email.cipher,
+          emailIndex: email.index,
+        },
+      });
+      await prisma.boardPosition.create({
+        data: {
+          personId: second.personId,
+          position: "BOARD_MEMBER",
+          electedOn: new Date("2026-01-01"),
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.boardPosition.deleteMany({
+        where: { personId: second.personId },
+      });
+      await prisma.person.deleteMany({ where: { id: second.personId } });
+    });
+
+    /** The addresses the mail service was asked to write to. */
+    function mailed(send: { mock: { calls: unknown[][] } }): string[] {
+      return send.mock.calls.map(([input]) => (input as { to: string }).to);
+    }
+
+    it("sends once for one discovery, however many jobs carry it", async () => {
+      /*
+       * A discovery time corrected from A to B and back to A queues a job for A
+       * twice, and both match the row when they fire. The marker is what tells
+       * the second that the board was reminded.
+       */
+      const view = await recorded();
+      const job = { breachId: view.breachId, discoveredAt: view.discoveredAt };
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockResolvedValue(undefined as never);
+
+      try {
+        const first = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+        const again = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+
+        expect(first).toBeGreaterThanOrEqual(2);
+        expect(again).toBe(0);
+        expect(mailed(send)).toHaveLength(first);
+        expect(new Set(mailed(send)).size).toBe(first);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("retries only the board members it did not reach", async () => {
+      const view = await recorded();
+      const job = { breachId: view.breachId, discoveredAt: view.discoveredAt };
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockImplementation((input) =>
+          input.to === second.email
+            ? Promise.reject(new Error("connect ECONNREFUSED"))
+            : Promise.resolve(undefined as never),
+        );
+
+      try {
+        await expect(
+          app.get(BreachReminderService).sendBreachReminder(job),
+        ).rejects.toThrow(/did not reach 1 of the/);
+        const reached = mailed(send).filter((to) => to !== second.email);
+        expect(reached).toContain(board.email);
+
+        send.mockClear();
+        send.mockResolvedValue(undefined as never);
+        const retried = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+
+        // Whoever the first run reached is not sent a second copy.
+        expect(retried).toBe(1);
+        expect(mailed(send)).toEqual([second.email]);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("starts the list again for a corrected discovery time", async () => {
+      const view = await recorded();
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockResolvedValue(undefined as never);
+
+      try {
+        const first = await app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: view.discoveredAt,
+        });
+        const corrected = discoveredHoursAgo(5);
+        const updated = await inject({
+          method: "PUT",
+          url: `/api/data-protection/breaches/${view.breachId}`,
+          payload: { discoveredAt: corrected },
+          headers: { cookie: boardCookie },
+        });
+        expect(updated.statusCode).toBe(200);
+
+        // A new discovery is a new clock, and the board is owed its reminder.
+        const next = await app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: updated.json<BreachView>().discoveredAt,
+        });
+
+        expect(next).toBe(first);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("stops mailing the rest of the board once the breach has been answered", async () => {
+      const view = await recorded();
+      const job = { breachId: view.breachId, discoveredAt: view.discoveredAt };
+      const decideOnFirstSend = vi
+        .spyOn(app.get(MailService), "send")
+        .mockImplementationOnce(async () => {
+          await prisma.personalDataBreach.update({
+            where: { id: view.breachId },
+            data: {
+              decidedAt: new Date(),
+              imyNotificationRequired: false,
+            },
+          });
+          return undefined as never;
+        })
+        .mockResolvedValue(undefined as never);
+
+      try {
+        const sent = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+
+        // The send that was in flight when the board answered is the last one:
+        // the lock is taken again for every member, and what is owed is read
+        // again under it.
+        expect(sent).toBe(1);
+        expect(decideOnFirstSend).toHaveBeenCalledTimes(1);
+      } finally {
+        decideOnFirstSend.mockRestore();
+      }
     });
   });
 

@@ -9,6 +9,8 @@ import { failureName } from "../logging/failure";
 import { activeBoardRecipientsWhere } from "../mail/board-recipients";
 import { MailService } from "../mail/mail.service";
 import { breachReminderMail } from "../mail/templates";
+import type { Prisma } from "../generated/prisma/client";
+import { lockBreach } from "./breach-lock";
 import { computeBreachDeadline, imyNotificationOwed } from "./breach-deadline";
 import {
   BREACH_REMINDER_QUEUE,
@@ -62,50 +64,62 @@ export class BreachReminderService implements OnModuleInit {
 
   /** Registers the worker. Public so an integration test can drive the job. */
   async startReminderWorker(): Promise<void> {
-    await this.jobs.work<BreachReminderJob>(
+    await this.jobs.ensureQueue(BREACH_REMINDER_QUEUE);
+    // The metadata says whether a failed run is the last one, which is the
+    // run that has to say the reminder was given up on.
+    const options = { includeMetadata: true } as const;
+    await this.jobs.instance.work<BreachReminderJob, void, typeof options>(
       BREACH_REMINDER_QUEUE,
-      async (data) => {
-        await this.sendBreachReminder(data);
+      options,
+      async (batch) => {
+        for (const job of batch) {
+          try {
+            await this.sendBreachReminder(job.data);
+          } catch (cause) {
+            if (job.retryCount >= job.retryLimit) {
+              /*
+               * Once, on the run no retry follows. Each failed member is
+               * logged as it fails; this is the line that says the board's
+               * only warning before the bound was not delivered to everyone.
+               */
+              this.logger.error(
+                `Gave up on the breach reminder for breach ${job.data.breachId} after ${String(
+                  job.retryCount + 1,
+                )} attempts: ${failureName(cause)}`,
+              );
+            }
+            throw cause;
+          }
+        }
       },
     );
   }
 
   /**
-   * Sends one reminder, and answers how many board members it reached.
+   * Sends one reminder, and answers how many board members it newly reached.
    *
    * Zero is an ordinary answer and not a failure: the breach was decided with
-   * nothing owed to IMY, or closed, or the reminder is a stale one from a corrected discovery date.
+   * nothing owed to IMY, or closed, or the reminder is a stale one from a
+   * corrected discovery date, or everybody was reached by an earlier run.
+   *
+   * ## One member at a time, under the breach's lock
+   *
+   * Each member is a transaction of its own: the lock is taken, what is owed
+   * and who has been reached is read again, the mail is sent, and the member is
+   * recorded as reached. So two jobs for one discovery - a time corrected from
+   * A to B and back to A queues two - cannot both mail one member, a run that
+   * failed for some members is retried for those and no others, and a board
+   * that answers while the loop runs stops the rest of the reminders. A lock
+   * held across a send is held for one send, which the drivers bound at twenty
+   * seconds.
    */
   async sendBreachReminder(job: BreachReminderJob): Promise<number> {
     const breach = await this.prisma.personalDataBreach.findUnique({
       where: { id: job.breachId },
-      select: {
-        id: true,
-        title: true,
-        discoveredAt: true,
-        decidedAt: true,
-        closedAt: true,
-        imyNotificationRequired: true,
-        imyNotifiedAt: true,
-      },
+      select: REMINDER_SELECT,
     });
 
-    if (breach === null) {
-      return 0;
-    }
-    const notificationOwed = imyNotificationOwed(breach);
-    if (
-      breach.closedAt !== null ||
-      (breach.decidedAt !== null && !notificationOwed)
-    ) {
-      // The board has answered art. 33 and art. 34 with nothing left owed to
-      // IMY, or finished with the breach entirely. Nothing left to remind
-      // anybody about.
-      return 0;
-    }
-    if (breach.discoveredAt.toISOString() !== job.discoveredAt) {
-      // A superseded reminder: the discovery date was corrected and a new job
-      // carries the new clock.
+    if (breach === null || !reminderOwed(breach, job)) {
       return 0;
     }
 
@@ -121,6 +135,7 @@ export class BreachReminderService implements OnModuleInit {
     });
 
     let sent = 0;
+    let failed = 0;
     let addressed = 0;
     for (const member of board) {
       if (member.emailCipher === null) {
@@ -128,24 +143,56 @@ export class BreachReminderService implements OnModuleInit {
       }
       addressed += 1;
       try {
-        const to = await this.encryption.decrypt(
-          "person.email",
-          member.emailCipher,
-        );
-        await this.mail.send({
-          to,
-          locale: member.preferredLocale,
-          template: breachReminderMail,
-          props: {
-            recipientName: `${member.firstName} ${member.lastName}`.trim(),
-            breachTitle: breach.title,
-            discoveredAt: breach.discoveredAt,
-            notifyBy: computeBreachDeadline(breach.discoveredAt),
-            decided: breach.decidedAt !== null,
+        const reached = await this.prisma.$transaction(
+          async (tx) => {
+            await lockBreach(tx, job.breachId);
+            const held = await tx.personalDataBreach.findUnique({
+              where: { id: job.breachId },
+              select: REMINDER_SELECT,
+            });
+            if (held === null || !reminderOwed(held, job)) {
+              return false;
+            }
+            const already =
+              held.reminderFor?.getTime() === held.discoveredAt.getTime()
+                ? held.reminderSentTo
+                : [];
+            if (already.includes(member.id)) {
+              return false;
+            }
+
+            const to = await this.encryption.decrypt(
+              "person.email",
+              member.emailCipher ?? "",
+            );
+            await this.mail.send({
+              to,
+              locale: member.preferredLocale,
+              template: breachReminderMail,
+              props: {
+                recipientName: `${member.firstName} ${member.lastName}`.trim(),
+                breachTitle: held.title,
+                discoveredAt: held.discoveredAt,
+                notifyBy: computeBreachDeadline(held.discoveredAt),
+                decided: held.decidedAt !== null,
+              },
+            });
+            await tx.personalDataBreach.update({
+              where: { id: job.breachId },
+              data: {
+                reminderFor: held.discoveredAt,
+                reminderSentTo: [...already, member.id],
+              },
+            });
+            return true;
           },
-        });
-        sent += 1;
+          { timeout: REMINDER_TRANSACTION_TIMEOUT_MS },
+        );
+        if (reached) {
+          sent += 1;
+        }
       } catch (error) {
+        failed += 1;
         /*
          * One board member's address failing must not cost the rest of them
          * the reminder. The class of the failure and the ids, and nothing the
@@ -158,28 +205,27 @@ export class BreachReminderService implements OnModuleInit {
       }
     }
 
-    if (sent === 0 && addressed > 0) {
+    if (failed > 0) {
       /*
-       * Every address failed, which is the mail server rather than the board.
+       * The mail server rather than the board, for some of them or for all.
        * Thrown so the queue tries again (BREACH_REMINDER_RETRY): this is the
        * only warning the board gets before the 72-hour bound, and a job that
-       * completed here would never be tried again. Nobody has been mailed yet,
-       * so a retry cannot send anybody a second copy.
+       * completed here would never be tried again. A retry mails the members
+       * not recorded as reached and nobody else, so the ones this run reached
+       * are not sent a second copy.
        */
       throw new Error(
-        `Breach reminder for breach ${breach.id} reached none of the ${String(
-          addressed,
-        )} board members with an address.`,
+        `Breach reminder for breach ${breach.id} did not reach ${String(
+          failed,
+        )} of the ${String(addressed)} board members with an address.`,
       );
     }
-    if (sent === 0) {
+    if (addressed === 0) {
       /*
        * The reminder was owed and no board member has an address recorded.
-       * The three no-ops above return before this point, so reaching it with
-       * a count of zero is not ordinary - and the worker discards the count, so
-       * without this line nothing records that the association's 72-hour
-       * warning was not delivered. Trying again would not give anybody an
-       * address.
+       * Trying again would not give anybody an address, and the worker discards
+       * the count, so without this line nothing records that the association's
+       * 72-hour warning was not delivered.
        */
       this.logger.warn(
         `Breach reminder for breach ${breach.id} reached no board member.`,
@@ -188,4 +234,52 @@ export class BreachReminderService implements OnModuleInit {
 
     return sent;
   }
+}
+
+/** What the reminder reads of a breach, outside the lock and under it. */
+const REMINDER_SELECT = {
+  id: true,
+  title: true,
+  discoveredAt: true,
+  decidedAt: true,
+  closedAt: true,
+  imyNotificationRequired: true,
+  imyNotifiedAt: true,
+  reminderFor: true,
+  reminderSentTo: true,
+} as const;
+
+/**
+ * One send waits on the mail server for at most twenty seconds (the drivers'
+ * own bound), and the lock is held for that long; the default five seconds of
+ * an interactive transaction would roll back a send that had succeeded.
+ */
+const REMINDER_TRANSACTION_TIMEOUT_MS = 45_000;
+
+/**
+ * Whether this reminder is still owed.
+ *
+ * Only while the art. 33(1) act is still owed, and only for the discovery the
+ * job was scheduled against: a corrected discovery date queues a new job and
+ * leaves the old one, which finds its payload stale and sends nothing.
+ */
+function reminderOwed(
+  breach: Pick<
+    Prisma.PersonalDataBreachGetPayload<{ select: typeof REMINDER_SELECT }>,
+    | "decidedAt"
+    | "closedAt"
+    | "discoveredAt"
+    | "imyNotificationRequired"
+    | "imyNotifiedAt"
+  >,
+  job: BreachReminderJob,
+): boolean {
+  if (breach.discoveredAt.toISOString() !== job.discoveredAt) {
+    return false;
+  }
+  if (breach.closedAt !== null) {
+    return false;
+  }
+  // The board has answered art. 33 and art. 34 with nothing left owed to IMY.
+  return breach.decidedAt === null || imyNotificationOwed(breach);
 }
