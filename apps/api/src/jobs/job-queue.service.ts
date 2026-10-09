@@ -256,14 +256,25 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** {@link sendInTransaction}, for a job with a time to run at. */
+  /**
+   * {@link sendInTransaction}, for a job with a time to run at.
+   *
+   * No dead-letter queue: that queue would have to be created here, inside
+   * the caller's transaction, which is what {@link sendInTransaction} avoids.
+   */
   async sendAtInTransaction<Data extends object>(
     tx: TransactionalSql,
     name: string,
     data: Data,
     runAt: Date,
+    options?: Omit<JobSendOptions, "deadLetter">,
   ): Promise<void> {
-    await this.boss.sendAfter(name, data, { db: transactionalDb(tx) }, runAt);
+    await this.boss.sendAfter(
+      name,
+      data,
+      { ...options, db: transactionalDb(tx) },
+      runAt,
+    );
   }
 
   /** Registers a worker for a queue. */

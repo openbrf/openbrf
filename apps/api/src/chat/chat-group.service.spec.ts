@@ -432,6 +432,12 @@ function build(options: {
     },
   };
 
+  const countPersons = vi.fn(
+    async (args: Parameters<typeof client.person.findMany>[0]) =>
+      (await client.person.findMany(args)).length,
+  );
+  Object.assign(client.person, { count: countPersons });
+
   const prisma = {
     ...client,
     $transaction: vi.fn(async (work: (tx: typeof client) => Promise<unknown>) =>

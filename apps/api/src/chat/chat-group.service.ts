@@ -274,7 +274,7 @@ export class ChatGroupService {
      * the list, so they go on to the check and its one refusal.
      */
     if (await isGroupMember(this.prisma, group.id, personId, now)) {
-      return this.members(group.id);
+      return this.members(group.id, now);
     }
 
     /*
@@ -354,7 +354,7 @@ export class ChatGroupService {
       this.logger.log(`A person was put into group chat ${group.id}`);
     }
 
-    return this.members(group.id);
+    return this.members(group.id, now);
   }
 
   /**
@@ -402,8 +402,9 @@ export class ChatGroupService {
     chatId: string,
     reader: Principal,
   ): Promise<ChatGroupMemberView[]> {
-    const group = await this.requireGroupMembership(chatId, reader, new Date());
-    return this.members(group.id);
+    const now = new Date();
+    const group = await this.requireGroupMembership(chatId, reader, now);
+    return this.members(group.id, now);
   }
 
   /**
@@ -490,7 +491,10 @@ export class ChatGroupService {
    * so somebody who has moved out is no longer in the room and is not listed
    * as though they were.
    */
-  private async members(chatId: string): Promise<ChatGroupMemberView[]> {
+  private async members(
+    chatId: string,
+    now: Date,
+  ): Promise<ChatGroupMemberView[]> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
       select: {
@@ -508,7 +512,7 @@ export class ChatGroupService {
     const persons = await this.prisma.person.findMany({
       where: {
         id: { in: chat.members.map((member) => member.personId) },
-        residencies: { some: residencyHeldOn(localDayOf(new Date())) },
+        residencies: { some: residencyHeldOn(localDayOf(now)) },
       },
       select: {
         id: true,

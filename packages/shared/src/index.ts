@@ -32,6 +32,8 @@ export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
   isValidPersonalIdentityNumber,
+  normalizeFreeText,
+  normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
   scanForPersonalIdentityNumbers,

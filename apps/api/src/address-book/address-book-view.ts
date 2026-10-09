@@ -192,16 +192,24 @@ export function isMasked(
  * Whether a row belongs in the resident-facing directory.
  *
  * A person with protected personal data is excluded from resident-facing lists
- * entirely (4.4) - not masked, not greyed out, absent. The single exception is
- * the viewer themselves: a protected resident opening the directory sees their
- * own entry, which discloses nothing to anyone, and hiding it would read as the
- * register having lost them.
+ * entirely (4.4) - not masked, not greyed out, absent. So is a person under a
+ * restriction of processing (GDPR art. 18(2)), because showing a name to every
+ * household is a use of it. The single exception is the viewer themselves: a
+ * resident opening the directory sees their own entry, which discloses nothing
+ * to anyone, and hiding it would read as the register having lost them.
  */
 export function isVisibleToResidents(
-  person: { personId: string; protectedPersonalData: boolean },
+  person: {
+    personId: string;
+    protectedPersonalData: boolean;
+    processingRestricted: boolean;
+  },
   viewerPersonId: string,
 ): boolean {
-  return !person.protectedPersonalData || person.personId === viewerPersonId;
+  return (
+    person.personId === viewerPersonId ||
+    (!person.protectedPersonalData && !person.processingRestricted)
+  );
 }
 
 /**
@@ -314,8 +322,14 @@ export function toResidentDirectoryRow(
     personId: record.personId,
     name: fullName(record),
     apartment: record.apartment,
-    signs: signsFor(record, options.today),
+    // A residency held today has no past move-out date, so a date here is a
+    // future one: a household that has announced it is leaving, and the day
+    // its flat will stand empty. That is the seller's side of what is kept
+    // from the other households for a buyer's move-in, so it is not sent.
+    signs: signsFor(record, options.today).filter(
+      (sign) => sign !== "MOVED_OUT",
+    ),
     movedInOn: formatDateColumn(record.movedInOn),
-    movedOutOn: formatDateColumn(record.movedOutOn),
+    movedOutOn: null,
   };
 }

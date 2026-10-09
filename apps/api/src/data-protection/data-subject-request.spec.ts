@@ -92,6 +92,21 @@ describe("requestState", () => {
     );
   });
 
+  it("is still open all of its due day, on the association's calendar", () => {
+    // Due on 1 October. 02:00 there is past the day's first UTC instant, and
+    // the month has not run out.
+    expect(requestState(row(), new Date("2026-10-01T00:00:00.000Z"))).toBe(
+      "open",
+    );
+    expect(requestState(row(), new Date("2026-10-01T21:30:00.000Z"))).toBe(
+      "open",
+    );
+    // 00:30 on 2 October there, still 1 October in UTC.
+    expect(requestState(row(), new Date("2026-10-01T22:30:00.000Z"))).toBe(
+      "overdue",
+    );
+  });
+
   it("is granted once the board has granted it and before the purge runs", () => {
     expect(
       requestState(
@@ -201,8 +216,20 @@ describe("toDataSubjectRequestView", () => {
       now,
     );
 
+    const byBoard = toDataSubjectRequestView(
+      row({
+        closedAt: new Date("2026-09-09"),
+        closeReason: "withdrawn",
+        closedByPersonId: "person-board",
+      }),
+      now,
+    );
+
     expect(purged.closeReason).toBe("purged");
     expect(purged.closedByPersonId).toBeNull();
+    // Both closed, and told apart by who closed them.
+    expect(byBoard.state).toBe(purged.state);
+    expect(byBoard.closedByPersonId).toBe("person-board");
   });
 
   it("states the day a decision, an execution and a closing fall on here", () => {

@@ -121,10 +121,12 @@ export class BreachReminderService implements OnModuleInit {
     });
 
     let sent = 0;
+    let addressed = 0;
     for (const member of board) {
       if (member.emailCipher === null) {
         continue;
       }
+      addressed += 1;
       try {
         const to = await this.encryption.decrypt(
           "person.email",
@@ -156,14 +158,28 @@ export class BreachReminderService implements OnModuleInit {
       }
     }
 
+    if (sent === 0 && addressed > 0) {
+      /*
+       * Every address failed, which is the mail server rather than the board.
+       * Thrown so the queue tries again (BREACH_REMINDER_RETRY): this is the
+       * only warning the board gets before the 72-hour bound, and a job that
+       * completed here would never be tried again. Nobody has been mailed yet,
+       * so a retry cannot send anybody a second copy.
+       */
+      throw new Error(
+        `Breach reminder for breach ${breach.id} reached none of the ${String(
+          addressed,
+        )} board members with an address.`,
+      );
+    }
     if (sent === 0) {
       /*
-       * The reminder was owed and reached nobody: either no board member has an
-       * address recorded, or every address failed. The three no-ops above
-       * return before this point, so reaching it with a count of zero is the
-       * one case that is not ordinary - and the worker discards the count, so
+       * The reminder was owed and no board member has an address recorded.
+       * The three no-ops above return before this point, so reaching it with
+       * a count of zero is not ordinary - and the worker discards the count, so
        * without this line nothing records that the association's 72-hour
-       * warning was not delivered.
+       * warning was not delivered. Trying again would not give anybody an
+       * address.
        */
       this.logger.warn(
         `Breach reminder for breach ${breach.id} reached no board member.`,
