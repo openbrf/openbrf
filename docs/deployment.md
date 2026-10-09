@@ -654,11 +654,10 @@ every request and never run out of budget. Keep each range to the network the
 proxy sits on; a range of every address, such as `0.0.0.0/0` or `::/0`, is
 refused at start.
 
-Left empty, the header is not read for the forms at all, and every visitor
-behind the proxy shares its budget: a busy afternoon can then refuse a contact
-form to somebody who never sent one. The sign-in endpoints keep taking a header
-that holds exactly one address, so they rely on the proxy overwriting it until
-the proxy is named.
+Left empty, the header is not read at all, and every visitor behind the proxy
+shares its budget, on the forms and the sign-in endpoints alike: a busy
+afternoon can then refuse a contact form to somebody who never sent one, and a
+few failed sign-ins hold back everybody else's for a while.
 
 The limits on a member exporting their own data - three a minute and one at a
 time each, and twelve a minute for the whole instance - and the three reports

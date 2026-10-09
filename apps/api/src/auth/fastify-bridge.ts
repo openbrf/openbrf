@@ -34,10 +34,10 @@ import { clientAddressOf } from "../http/public-rate-limit.guard";
  *   value, and a browser then silently drops the session.
  *
  *   X-Forwarded-For is replaced by the client address the application itself
- *   resolved, when the operator named their proxies. The library's own rate
- *   limiter sees only the header and never the connection, so it cannot tell a
- *   request the proxy forwarded from one sent to the port directly with a
- *   header of the caller's choosing.
+ *   resolved, whether or not the operator named their proxies. The library's
+ *   own rate limiter sees only the header and never the connection, so it
+ *   cannot tell a request the proxy forwarded from one sent to the port
+ *   directly with a header of the caller's choosing.
  */
 
 /** Headers that describe the incoming transfer and never survive re-encoding. */
@@ -56,11 +56,11 @@ const TRANSPORT_HEADERS = new Set([
  * a browser always sends and a hand-built request easily forgets.
  *
  * `proxies` is AuthService.trustedProxies: the proxies named in
- * TRUSTED_PROXIES, or null when none are.
+ * TRUSTED_PROXIES, empty when none are.
  */
 export function forwardHeaders(
   request: FastifyRequest,
-  proxies: BlockList | null,
+  proxies: BlockList,
 ): Headers {
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
@@ -81,9 +81,7 @@ export function forwardHeaders(
       headers.append(name, value);
     }
   }
-  if (proxies !== null) {
-    replaceForwardedFor(headers, request, proxies);
-  }
+  replaceForwardedFor(headers, request, proxies);
   return headers;
 }
 
@@ -94,10 +92,10 @@ export function forwardHeaders(
  * Read the way the public forms read it (clientAddressOf): past the named
  * proxies from the right, and only on a request that arrived from one of them.
  * A caller that reaches the port directly is counted by its own address
- * whatever header it sends. With no proxy named the header is left alone, and
- * the library takes it only when it holds a single address (auth-options.ts),
- * so a proxy that overwrites it still gives each visitor a budget of their
- * own.
+ * whatever header it sends. With no proxy named that is every request, so the
+ * header is never the caller's word: behind a proxy nobody named, every
+ * visitor shares the proxy's budget, which is wrong but bounded, and the cure
+ * is to name it (docs/deployment.md).
  */
 function replaceForwardedFor(
   headers: Headers,
@@ -120,7 +118,7 @@ export function originOf(request: FastifyRequest): string {
 
 export function toWebRequest(
   request: FastifyRequest,
-  proxies: BlockList | null,
+  proxies: BlockList,
 ): Request {
   const url = new URL(request.url, originOf(request));
   const headers = forwardHeaders(request, proxies);

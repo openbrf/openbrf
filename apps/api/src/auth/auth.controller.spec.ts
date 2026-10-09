@@ -25,7 +25,7 @@ interface Captured {
 
 function controllerCapturing(
   response = new Response(null),
-  trustedProxies: BlockList | null = null,
+  trustedProxies: BlockList = trustedProxyList([]),
 ): Captured {
   let seen: Request | undefined;
   const auth = {
@@ -232,7 +232,7 @@ describe("AuthController client address", () => {
   const proxy = trustedProxyList(["10.0.0.0/8"]);
 
   async function forwardedFor(
-    trustedProxies: BlockList | null,
+    trustedProxies: BlockList,
     ip: string,
     header: string,
   ): Promise<string | null> {
@@ -265,11 +265,23 @@ describe("AuthController client address", () => {
     );
   });
 
-  it("leaves the header as sent when no proxy is named", async () => {
-    // The library then takes a header holding one address, which is what an
-    // overwriting proxy nobody named still gives it.
-    expect(await forwardedFor(null, "172.18.0.1", "198.51.100.4")).toBe(
-      "198.51.100.4",
+  it("counts every caller by its connection when no proxy is named", async () => {
+    // Nobody is trusted to say where a request came from, so a caller that
+    // reaches the port directly cannot rotate the header for a fresh budget.
+    const none = trustedProxyList([]);
+    expect(await forwardedFor(none, "203.0.113.9", "198.51.100.4")).toBe(
+      "203.0.113.9",
     );
+    expect(await forwardedFor(none, "203.0.113.9", "192.0.2.77")).toBe(
+      "203.0.113.9",
+    );
+  });
+
+  it("drops a header it cannot replace with an address", async () => {
+    // A connection with no address of its own leaves nothing to count by, and
+    // the caller's header must not stand in for it.
+    expect(
+      await forwardedFor(trustedProxyList([]), "", "198.51.100.4"),
+    ).toBeNull();
   });
 });
