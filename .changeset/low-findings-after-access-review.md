@@ -27,7 +27,8 @@ review:
   `Origin` nor `Sec-Fetch-Site`.
 - An invitation to an address another account already signs in with is
   refused with its own message instead of failing at activation.
-- An election may be dated at most five years back.
+- An election may be dated at most five years back, also in a board
+  recovery.
 - A failure's logged stack keeps only lines shaped like call frames.
 - Putting somebody into a group chat they are already in answers with the
   member list, whoever they are.

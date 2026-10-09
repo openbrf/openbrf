@@ -374,6 +374,8 @@ const AUDIT_ACTION_LABEL = {
   BOARD_POSITION_ELECTED:
     "register.person.report.action.BOARD_POSITION_ELECTED",
   BOARD_POSITION_ENDED: "register.person.report.action.BOARD_POSITION_ENDED",
+  BOARD_RECOVERY_RECORDED:
+    "register.person.report.action.BOARD_RECOVERY_RECORDED",
   BOOKING_RESOURCE_CREATED:
     "register.person.report.action.BOOKING_RESOURCE_CREATED",
   BOOKING_RESOURCE_UPDATED:

@@ -5,10 +5,9 @@ import type { PrismaService } from "../database/prisma.service";
 import { BoardPositionService } from "./board-position.service";
 
 /**
- * Who may write the board's seats, where the int-spec cannot reach: an
- * instance on which nobody holds a seat, or on which every seat lies ahead of
- * or behind today. The integration database is shared by suites that seat a
- * board of their own, so those states are only reachable here.
+ * Who may write the board's seats, and when a board recovery may record one:
+ * every combination of seats ahead of, behind and around today, which the
+ * int-specs reach only one database at a time.
  *
  * The register is an in-memory table and the queries the service asks of it are
  * answered by {@link matches}, so what is tested is which seats the rule counts
@@ -137,11 +136,16 @@ function service(seats: Seat[]) {
   };
   const prisma = {
     $transaction: (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    boardPosition: tx.boardPosition,
   } as unknown as PrismaService;
-  const audit = {
-    record: vi.fn().mockResolvedValue(undefined),
-  } as unknown as AuditLogService;
-  return { positions: new BoardPositionService(prisma, audit), seats, tx };
+  const record = vi.fn().mockResolvedValue(undefined);
+  const audit = { record } as unknown as AuditLogService;
+  return {
+    positions: new BoardPositionService(prisma, audit),
+    seats,
+    tx,
+    record,
+  };
 }
 
 const election = (
@@ -165,43 +169,45 @@ const ending = (
   endedOn,
 });
 
-describe("an actor who holds no seat, on an instance with no board yet", () => {
-  it("records the first board", async () => {
+const recovery = (
+  actorPersonId: string,
+  personIds: readonly string[],
+  reason = "Every term ended at the annual meeting before it was minuted.",
+) => ({
+  actorPersonId,
+  reason,
+  seats: personIds.map((personId) => ({
+    personId,
+    position: "BOARD_MEMBER" as const,
+    electedOn: "2026-04-14",
+  })),
+});
+
+describe("an actor who holds no seat", () => {
+  it("records no election, even on a register with no board", async () => {
+    // The window this used to be: a register with no board that could act
+    // let an administrator elect anybody. A vacant register is recorded through
+    // a recovery now, which is its own act with its own audit entry.
     const { positions, seats } = service([]);
 
-    await positions.elect(election("admin", "chair"), NOW);
-
-    expect(seats).toHaveLength(1);
+    await expect(
+      positions.elect(election("admin", "chair"), NOW),
+    ).rejects.toMatchObject({ reason: "board-seat-required" });
+    expect(seats).toHaveLength(0);
   });
 
-  it("records every seat of it while none belongs to somebody who can sign in", async () => {
-    // Chair, treasurer and a member, none of whom has activated an account:
-    // nobody could act as the board yet, so the meeting's minutes are still the
-    // administrator's to enter.
-    const { positions, seats } = service([]);
-
-    await positions.elect(election("admin", "chair"), NOW);
-    await positions.elect(election("admin", "treasurer"), NOW);
-    await positions.elect(election("admin", "member"), NOW);
-
-    expect(seats.map((seat) => seat.personId)).toEqual([
-      "chair",
-      "treasurer",
-      "member",
-    ]);
-  });
-
-  it("corrects a seat of it, while none belongs to somebody who can sign in", async () => {
+  it("corrects no seat, even one whose holder cannot sign in", async () => {
     const { positions, seats } = service([
       seatOf("wrong", "2026-04-14", null, false),
     ]);
 
-    await positions.endTerm(ending("admin", "wrong"), NOW);
-
-    expect(seats[0]?.endedOn).toEqual(day("2026-06-01"));
+    await expect(
+      positions.endTerm(ending("admin", "wrong"), NOW),
+    ).rejects.toMatchObject({ reason: "board-seat-required" });
+    expect(seats[0]?.endedOn).toBeNull();
   });
 
-  it("never records their own seat, even then", async () => {
+  it("never records their own seat", async () => {
     const { positions, seats } = service([]);
 
     await expect(
@@ -209,31 +215,180 @@ describe("an actor who holds no seat, on an instance with no board yet", () => {
     ).rejects.toMatchObject({ reason: "board-seat-required" });
     expect(seats).toHaveLength(0);
   });
+});
 
-  it("takes the register lock before the person's, as every writer does", async () => {
+describe("a board recovery on a vacant register", () => {
+  it("records the whole board in one act", async () => {
+    const { positions, seats } = service([]);
+
+    const recorded = await positions.recoverBoard(
+      recovery("admin", ["chair", "treasurer", "member"]),
+      NOW,
+    );
+
+    expect(recorded.map((seat) => seat.personId)).toEqual([
+      "chair",
+      "treasurer",
+      "member",
+    ]);
+    expect(seats).toHaveLength(3);
+  });
+
+  it("records it once every term has ended, whoever held them", async () => {
+    const { positions, seats } = service([
+      seatOf("outgoing", "2024-04-14", "2026-05-25"),
+    ]);
+
+    await positions.recoverBoard(recovery("admin", ["chair"]), NOW);
+
+    expect(seats).toHaveLength(2);
+  });
+
+  it("writes its own audit action for each seat, with the reason", async () => {
+    const { positions, record } = service([]);
+
+    await positions.recoverBoard(
+      recovery("admin", ["chair", "member"], "  The whole board resigned.  "),
+      NOW,
+    );
+
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "BOARD_RECOVERY_RECORDED",
+        actorPersonId: "admin",
+        targetPersonId: "chair",
+        targetKind: "boardPosition",
+        context: {
+          position: "BOARD_MEMBER",
+          electedOn: "2026-04-14",
+          seats: 2,
+          reason: "The whole board resigned.",
+        },
+      }),
+      expect.anything(),
+    );
+    expect(record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: "BOARD_POSITION_ELECTED" }),
+      expect.anything(),
+    );
+  });
+
+  it("is refused without a reason, and writes nothing", async () => {
+    const { positions, seats, record } = service([]);
+
+    await expect(
+      positions.recoverBoard(recovery("admin", ["chair"], "   "), NOW),
+    ).rejects.toMatchObject({ reason: "reason-required" });
+    expect(seats).toHaveLength(0);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("never seats the person recording it", async () => {
+    const { positions, seats } = service([]);
+
+    await expect(
+      positions.recoverBoard(recovery("admin", ["chair", "admin"]), NOW),
+    ).rejects.toMatchObject({ reason: "board-seat-required" });
+    expect(seats).toHaveLength(0);
+  });
+
+  it("refuses a seat listed twice", async () => {
+    const { positions } = service([]);
+
+    await expect(
+      positions.recoverBoard(recovery("admin", ["chair", "chair"]), NOW),
+    ).rejects.toMatchObject({ reason: "position-already-held" });
+  });
+
+  it("refuses an election dated past the horizon before it reads anything", async () => {
     const { positions, tx } = service([]);
 
-    await positions.elect(election("admin", "chair"), NOW);
+    await expect(
+      positions.recoverBoard(
+        {
+          ...recovery("admin", []),
+          seats: [
+            {
+              personId: "chair",
+              position: "CHAIR",
+              electedOn: "2062-04-14",
+            },
+          ],
+        },
+        NOW,
+      ),
+    ).rejects.toMatchObject({ reason: "elected-too-far-ahead" });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("refuses an election dated further back than a sitting board's", async () => {
+    // A board recovered now holds its seats now, so it cannot have been
+    // elected before the longest term that could still be running.
+    const { positions, tx } = service([]);
+
+    await expect(
+      positions.recoverBoard(
+        {
+          ...recovery("admin", []),
+          seats: [
+            {
+              personId: "chair",
+              position: "CHAIR",
+              electedOn: "2021-05-31",
+            },
+          ],
+        },
+        NOW,
+      ),
+    ).rejects.toMatchObject({ reason: "elected-too-far-back" });
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("does not count a withdrawn election that is still dated ahead as a board", async () => {
+    const { positions, seats } = service([
+      seatOf("withdrawn", "2026-07-01", "2026-06-15"),
+    ]);
+
+    await positions.recoverBoard(recovery("admin", ["chair"]), NOW);
+
+    expect(seats).toHaveLength(2);
+  });
+
+  it("takes the register lock first, then each person's in order", async () => {
+    const { positions, tx } = service([]);
+
+    await positions.recoverBoard(recovery("admin", ["member", "chair"]), NOW);
 
     const keys = tx.$executeRaw.mock.calls.map((call) =>
       (call as unknown as [TemplateStringsArray, ...unknown[]]).slice(1).join(),
     );
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
-    expect(keys[1]).toBe("board-position:chair");
+    expect(keys).toEqual(["", "board-position:chair", "board-position:member"]);
+  });
+
+  it("says the register is vacant", async () => {
+    const { positions } = service([
+      seatOf("outgoing", "2024-04-14", "2026-05-25"),
+    ]);
+
+    await expect(positions.isVacant(NOW)).resolves.toBe(true);
   });
 });
 
-describe("an actor who holds no seat, once a board has been elected", () => {
-  it("records nothing while a seat is held today", async () => {
-    const { positions, seats } = service([seatOf("chair", "2026-04-14")]);
+describe("a board recovery on a register that has a board", () => {
+  it("is refused while a seat is held today", async () => {
+    const { positions, seats, record } = service([
+      seatOf("chair", "2026-04-14"),
+    ]);
 
     await expect(
-      positions.elect(election("admin", "deputy"), NOW),
-    ).rejects.toMatchObject({ reason: "board-seat-required" });
+      positions.recoverBoard(recovery("admin", ["deputy"]), NOW),
+    ).rejects.toMatchObject({ reason: "board-not-vacant" });
     expect(seats).toHaveLength(1);
+    expect(record).not.toHaveBeenCalled();
   });
 
-  it("records nothing on a day when no seat is held but the next board is recorded", async () => {
+  it("is refused on a day when no seat is held but the next board is recorded", async () => {
     // The outgoing terms ended last week and the incoming board starts in 30
     // days: the register has no seat held today, and a board all the same.
     const { positions, seats } = service([
@@ -242,41 +397,30 @@ describe("an actor who holds no seat, once a board has been elected", () => {
     ]);
 
     await expect(
-      positions.elect(election("admin", "accomplice", "2026-06-01"), NOW),
-    ).rejects.toMatchObject({ reason: "board-seat-required" });
+      positions.recoverBoard(recovery("admin", ["accomplice"]), NOW),
+    ).rejects.toMatchObject({ reason: "board-not-vacant" });
+    await expect(positions.isVacant(NOW)).resolves.toBe(false);
+    expect(seats).toHaveLength(2);
+  });
+
+  it("is refused while the board's members cannot sign in yet", async () => {
+    // A board whose members have not activated their accounts is a board: the
+    // administrator invites them rather than recording another.
+    const { positions } = service([seatOf("chair", "2026-04-14", null, false)]);
+
     await expect(
-      positions.endTerm(ending("admin", "incoming"), NOW),
-    ).rejects.toMatchObject({ reason: "board-seat-required" });
-    expect(seats).toHaveLength(2);
-    expect(seats[1]?.endedOn).toBeNull();
+      positions.recoverBoard(recovery("admin", ["deputy"]), NOW),
+    ).rejects.toMatchObject({ reason: "board-not-vacant" });
   });
 
-  it("records nothing while a seat that has not begun belongs to somebody who can sign in", async () => {
-    const { positions } = service([seatOf("incoming", "2026-07-01")]);
+  it("is refused for the second act, once the first has recorded a board", async () => {
+    const { positions, seats } = service([]);
 
+    await positions.recoverBoard(recovery("admin", ["chair"]), NOW);
     await expect(
-      positions.elect(election("admin", "deputy"), NOW),
-    ).rejects.toMatchObject({ reason: "board-seat-required" });
-  });
-
-  it("does not count a withdrawn election that is still dated ahead as a board", async () => {
-    const { positions, seats } = service([
-      seatOf("withdrawn", "2026-07-01", "2026-06-15"),
-    ]);
-
-    await positions.elect(election("admin", "chair"), NOW);
-
-    expect(seats).toHaveLength(2);
-  });
-
-  it("does not count a withdrawn election as a board", async () => {
-    const { positions, seats } = service([
-      seatOf("withdrawn", "2026-07-01", "2026-06-01"),
-    ]);
-
-    await positions.elect(election("admin", "chair"), NOW);
-
-    expect(seats).toHaveLength(2);
+      positions.recoverBoard(recovery("admin", ["member"]), NOW),
+    ).rejects.toMatchObject({ reason: "board-not-vacant" });
+    expect(seats).toHaveLength(1);
   });
 });
 

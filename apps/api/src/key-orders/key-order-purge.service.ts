@@ -33,7 +33,7 @@ export const KEY_ORDER_PURGE_QUEUE = "key-order-purge";
  * purges are spread across its minutes because jobs waking together on one small
  * connection pool is a contention nobody gains anything from.
  */
-const PURGE_CRON = "11 3 * * *";
+const PURGE_CRON = "31 3 * * *";
 
 /**
  * The most people one run erases the orders of.

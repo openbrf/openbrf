@@ -160,10 +160,8 @@ describe("the documented contract", () => {
       .map((match) => match[1])
       .filter((column): column is string => column !== undefined);
 
-    const alphabetical = (first: string, second: string): number =>
-      first.localeCompare(second);
-    expect([...documented].sort(alphabetical)).toEqual(
-      [...SUPPLY_COLUMNS].sort(alphabetical),
-    );
+    // In order, not as a set: the contract states the column list verbatim,
+    // and a recipient reads the file by position.
+    expect(documented).toEqual([...SUPPLY_COLUMNS]);
   });
 });

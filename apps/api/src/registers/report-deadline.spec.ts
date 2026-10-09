@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -59,30 +59,39 @@ describe("reportDueOn", () => {
     expect(stored(reportDueOn(column("2028-02-20")))).toBe("2028-03-05");
   });
 
-  it("states the window the database enforces, read out of the migration", () => {
+  it("states the window the database enforces, read out of the migrations", () => {
     /*
      * The same rule is a CHECK on the table, so the two have to agree: a
      * constant changed here alone would have the database refuse every insert,
      * and a CHECK changed alone would let a wrong deadline through this module.
      *
-     * The constraint is read out of the migration rather than restated, on the
+     * The constraint is read out of the migrations rather than restated, on the
      * reading statutory-guards.int-spec.ts takes of the REVOKE lines: a CHECK
-     * that was dropped has no text to find. The directory name is a fixed
-     * string because migrations are forward-only and never renamed.
+     * that was dropped has no text to find. It is the last definition that
+     * counts - the constraint has been dropped and re-added once already, when
+     * a reversal's duty with no deadline arrived - so every migration is read
+     * in order and the text asserted is the one the database holds now.
      */
-    const sql = readFileSync(
-      join(
-        process.cwd(),
-        "prisma",
-        "migrations",
-        "20260910100000_register_report_obligation",
-        "migration.sql",
-      ),
-      "utf8",
-    );
+    const directory = join(process.cwd(), "prisma", "migrations");
+    const constraint = '"register_report_obligation_two_week_window"';
+    let live: string | undefined;
+    for (const migration of readdirSync(directory).sort()) {
+      const path = join(directory, migration, "migration.sql");
+      if (!existsSync(path)) {
+        continue;
+      }
+      const sql = readFileSync(path, "utf8");
+      if (sql.includes(`DROP CONSTRAINT ${constraint}`)) {
+        live = undefined;
+      }
+      const added = sql.indexOf(`ADD CONSTRAINT ${constraint}`);
+      if (added !== -1) {
+        live = /CHECK \(([^;]*)\);/.exec(sql.slice(added))?.[1];
+      }
+    }
 
-    expect(sql).toContain(
-      `CHECK ("dueOn" = "triggeredOn" + ${String(REPORT_WINDOW_DAYS)})`,
+    expect(live).toBe(
+      `"dueOn" IS NULL OR "dueOn" = "triggeredOn" + ${String(REPORT_WINDOW_DAYS)}`,
     );
   });
 });

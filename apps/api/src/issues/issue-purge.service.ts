@@ -22,7 +22,7 @@ export const ISSUE_PURGE_QUEUE = "issue-purge";
  * purges are spread across its minutes because jobs waking together on one small
  * connection pool is a contention nobody gains anything from.
  */
-const PURGE_CRON = "17 3 * * *";
+const PURGE_CRON = "19 3 * * *";
 
 /**
  * The most reports one run detaches.

@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn, localDayOf } from "@openbrf/shared";
+import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import type { BoardPosition, Prisma } from "../generated/prisma/client";
 import type { BoardPositionType } from "../generated/prisma/enums";
 import { holdsBoardSeat } from "../mail/board-recipients";
 import { boardSeatNotEndedOn } from "../registers/held-on";
@@ -42,6 +42,24 @@ export interface ElectInput {
   position: BoardPositionType;
   /** ISO calendar date: the day the general meeting elected them. */
   electedOn: string;
+  actorPersonId: string;
+}
+
+/** One seat of the board a recovery records. */
+export interface RecoveredSeat {
+  personId: string;
+  position: BoardPositionType;
+  /** ISO calendar date: the day the general meeting elected them. */
+  electedOn: string;
+}
+
+export interface RecoverBoardInput {
+  seats: readonly RecoveredSeat[];
+  /**
+   * Why the board is recorded this way rather than by the board. Kept in the
+   * audit log for good, with every seat the recovery records.
+   */
+  reason: string;
   actorPersonId: string;
 }
 
@@ -112,58 +130,18 @@ export class BoardPositionService {
     input: ElectInput,
     now: Date = new Date(),
   ): Promise<BoardPositionView> {
-    const electedOn = parseCalendarDate(input.electedOn);
-    if (electedOn.getTime() > latestElection(now).getTime()) {
-      throw new RoleChangeError(
-        "An election cannot be dated that far into the future. Check the year.",
-        "elected-too-far-ahead",
-      );
-    }
-    if (electedOn.getTime() < earliestElection(now).getTime()) {
-      throw new RoleChangeError(
-        "An election cannot be dated that far back. Check the year.",
-        "elected-too-far-back",
-      );
-    }
+    const electedOn = parseElectionDate(input.electedOn, now);
 
     const seat = await this.prisma.$transaction(async (tx) => {
       await lockBoardRegister(tx);
       await lockBoardPositions(tx, input.personId);
       await refuseUnseatedActor(tx, input.actorPersonId, input.personId, now);
 
-      const person = await tx.person.findUnique({
-        where: { id: input.personId },
-        select: { id: true },
-      });
-      if (person === null) {
-        throw new RoleChangeError("No such person.", "person-not-found");
-      }
-
-      const held = await tx.boardPosition.findMany({
-        where: { personId: input.personId, position: input.position },
-        select: { id: true, electedOn: true, endedOn: true },
-      });
-      if (held.some((existing) => !hasTermEnded(existing, now))) {
-        throw new RoleChangeError(
-          "This person already holds that position. End the term before " +
-            "recording a new election to it.",
-          "position-already-held",
-        );
-      }
-      if (overlapsRecordedTerm(held, electedOn)) {
-        throw new RoleChangeError(
-          "An earlier term in that position runs past this election date.",
-          "term-overlaps",
-        );
-      }
-
-      const created = await tx.boardPosition.create({
-        data: {
-          personId: input.personId,
-          position: input.position,
-          electedOn,
-        },
-      });
+      const created = await recordSeat(
+        tx,
+        { personId: input.personId, position: input.position, electedOn },
+        now,
+      );
 
       /*
        * In the same transaction as the seat it records. The position and the
@@ -194,6 +172,128 @@ export class BoardPositionService {
       `Recorded ${input.position} for person ${input.personId} from ${input.electedOn}`,
     );
     return toView(seat);
+  }
+
+  /**
+   * Whether the register is vacant: no seat held today and none recorded from a
+   * day still to come. The one state in which {@link recoverBoard} records.
+   *
+   * Read without the lock, so it is an answer for a screen deciding what to
+   * offer and not a permission: the recovery reads it again under the lock.
+   */
+  async isVacant(now: Date = new Date()): Promise<boolean> {
+    return isRegisterVacant(this.prisma, now);
+  }
+
+  /**
+   * Records a board on a vacant register, for somebody who holds no seat:
+   * återställning av styrelsen, board recovery (GLOSSARY).
+   *
+   * Recording a seat is the board's own act, so {@link elect} and
+   * {@link endTerm} refuse anybody without a seat. That leaves a register on
+   * which every term has ended with nobody who may write it, and the only way
+   * out would be the database. This is the way out instead, and it is narrow on
+   * purpose:
+   *
+   * - only while the register is vacant, read under the register lock: no seat
+   *   held today and none recorded ahead. An incoming board recorded from a
+   *   later date is a board, and the days before it begins are not a way in;
+   * - only seats dated today or earlier: a seat dated ahead would end the
+   *   vacancy while nobody holds a seat, and with nobody to record, end or
+   *   recover a term the register would stay shut until that day;
+   * - never the actor's own seat, so nobody holds a seat by their own hand;
+   * - always with a stated reason, kept with every seat in the audit log under
+   *   an action of its own, so the log tells a recovery from an election the
+   *   board recorded.
+   *
+   * The whole board in one act, because the first seat recorded ends the
+   * vacancy: a chair recorded alone would leave the seats beside theirs to a
+   * board that may have no account yet. One seat is also a board, and the
+   * person seated records the rest once they sign in. All the seats or none:
+   * a refusal of any one of them writes nothing.
+   *
+   * Corrections are the board's, through {@link endTerm}: once this commits the
+   * register is no longer vacant.
+   */
+  async recoverBoard(
+    input: RecoverBoardInput,
+    now: Date = new Date(),
+  ): Promise<BoardPositionView[]> {
+    const reason = input.reason.trim();
+    if (reason === "") {
+      throw new RoleChangeError(
+        "A board recovery needs a stated reason.",
+        "reason-required",
+      );
+    }
+    if (input.seats.some((seat) => seat.personId === input.actorPersonId)) {
+      throw new RoleChangeError(OWN_SEAT_MESSAGE, "board-seat-required");
+    }
+    const seats = input.seats.map((seat) => ({
+      personId: seat.personId,
+      position: seat.position,
+      electedOn: parseRecoveredElectionDate(seat.electedOn, now),
+    }));
+
+    const recorded = await this.prisma.$transaction(async (tx) => {
+      await lockBoardRegister(tx);
+      // Sorted, so two writers naming the same people take their locks in the
+      // same order and cannot each hold one the other waits for.
+      const personIds = [...new Set(seats.map((seat) => seat.personId))];
+      for (const personId of personIds.sort()) {
+        await lockBoardPositions(tx, personId);
+      }
+
+      if (!(await isRegisterVacant(tx, now))) {
+        throw new RoleChangeError(
+          "A board is recorded on the register. Only a board member records " +
+            "its seats.",
+          "board-not-vacant",
+        );
+      }
+
+      const created: BoardPosition[] = [];
+      for (const seat of seats) {
+        // One at a time, so a seat listed twice meets the first as a position
+        // already held.
+        created.push(await recordSeat(tx, seat, now));
+      }
+
+      /*
+       * One entry per seat, so each person's access report shows the act that
+       * seated them. The reason is the permitted free text of an audit entry -
+       * the actor's own statement, with no other home - and the endpoint bounds
+       * its length. `seats` says how many the one act recorded.
+       */
+      for (const seat of created) {
+        await this.audit.record(
+          {
+            action: "BOARD_RECOVERY_RECORDED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetPersonId: seat.personId,
+            targetKind: "boardPosition",
+            targetId: seat.id,
+            context: {
+              position: seat.position,
+              electedOn: formatDateColumn(seat.electedOn),
+              seats: created.length,
+              reason,
+            },
+          },
+          tx,
+        );
+      }
+
+      return created;
+    });
+
+    this.logger.warn(
+      `Board recovery by person ${input.actorPersonId} recorded ${String(
+        recorded.length,
+      )} seat(s)`,
+    );
+    return recorded.map(toView);
   }
 
   /**
@@ -316,23 +416,128 @@ export class BoardPositionService {
   }
 }
 
+const OWN_SEAT_MESSAGE =
+  "A seat on the board is recorded by the board, not by the person it seats.";
+
 /**
- * Refuses a write to the board's seats by somebody who holds none, unless it
- * is the first board being recorded, and never on their own seat.
+ * An election date, refused when it lies past the election horizon or further
+ * back than a sitting board can have been elected.
+ */
+function parseElectionDate(value: string, now: Date): Date {
+  const electedOn = parseCalendarDate(value);
+  if (electedOn.getTime() > latestElection(now).getTime()) {
+    throw new RoleChangeError(
+      "An election cannot be dated that far into the future. Check the year.",
+      "elected-too-far-ahead",
+    );
+  }
+  if (electedOn.getTime() < earliestElection(now).getTime()) {
+    throw new RoleChangeError(
+      "An election cannot be dated that far back. Check the year.",
+      "elected-too-far-back",
+    );
+  }
+  return electedOn;
+}
+
+/**
+ * The election date of a recovered seat: an election date that is not after
+ * today either.
+ *
+ * A recovery records a board that holds its seats now. A seat dated ahead
+ * would end the vacancy without seating anybody, and until its day arrived
+ * nobody could record, end or recover a term. An incoming board recorded
+ * ahead is the board's to record once it has a seat.
+ */
+function parseRecoveredElectionDate(value: string, now: Date): Date {
+  const electedOn = parseElectionDate(value, now);
+  if (electedOn.getTime() > dateColumnOf(localDayOf(now)).getTime()) {
+    throw new RoleChangeError(
+      "A recovered seat cannot be dated after today. Record the day the " +
+        "meeting elected the board.",
+      "recovery-dated-ahead",
+    );
+  }
+  return electedOn;
+}
+
+/**
+ * Writes one seat, after the refusals every election meets whoever records
+ * it. The caller holds the person's lock and writes the audit entry.
+ */
+async function recordSeat(
+  tx: Prisma.TransactionClient,
+  seat: { personId: string; position: BoardPositionType; electedOn: Date },
+  now: Date,
+): Promise<BoardPosition> {
+  const person = await tx.person.findUnique({
+    where: { id: seat.personId },
+    select: { id: true },
+  });
+  if (person === null) {
+    throw new RoleChangeError("No such person.", "person-not-found");
+  }
+
+  const held = await tx.boardPosition.findMany({
+    where: { personId: seat.personId, position: seat.position },
+    select: { id: true, electedOn: true, endedOn: true },
+  });
+  if (held.some((existing) => !hasTermEnded(existing, now))) {
+    throw new RoleChangeError(
+      "This person already holds that position. End the term before " +
+        "recording a new election to it.",
+      "position-already-held",
+    );
+  }
+  if (overlapsRecordedTerm(held, seat.electedOn)) {
+    throw new RoleChangeError(
+      "An earlier term in that position runs past this election date.",
+      "term-overlaps",
+    );
+  }
+
+  return tx.boardPosition.create({
+    data: {
+      personId: seat.personId,
+      position: seat.position,
+      electedOn: seat.electedOn,
+    },
+  });
+}
+
+/**
+ * Whether no seat is held today and none is recorded from a day still to come.
+ *
+ * Read from the whole register and not from the seats held today, so the days
+ * between one board's end and the next one's start are not a vacancy: the
+ * incoming seats are the board's. Whether a holder can sign in does not enter
+ * into it - a board whose members have not activated their accounts is a board,
+ * and the administrator invites them rather than recording another.
+ */
+async function isRegisterVacant(
+  client: Pick<Prisma.TransactionClient, "boardPosition">,
+  now: Date,
+): Promise<boolean> {
+  const notEnded = await client.boardPosition.findMany({
+    where: boardSeatNotEndedOn(localDayOf(now)),
+    select: { electedOn: true, endedOn: true },
+  });
+  // A withdrawn election that is still dated ahead has not ended by its date
+  // but covers no day, and is no board.
+  return notEnded.every((seat) => hasTermEnded(seat, now));
+}
+
+/**
+ * Refuses a write to the board's seats by somebody who holds none today.
  *
  * Recording a seat is the board's own act (GLOSSARY, förtroendeuppdrag), and a
  * seat confers what no grant of capabilities carries (ADR 0017): an
- * administrator who could seat themselves would hold it by their own hand. The
- * administrator's `boardPosition:manage` is kept for one case, a register with
- * no board that could act yet, where somebody has to record the one the meeting
- * elected - all of it, and a correction to it, because a chair with no account
- * cannot record the seats beside their own.
- *
- * "A board that could act" is a seat that has not ended, held by a person who
- * can sign in. It is read from the whole register and not from the seats held
- * today, so the days between one board's end and the next one's start - an
- * incoming board recorded from a day still to come - are not a window: those
- * seats are the board's. Once one exists the board keeps its own register.
+ * administrator who could seat themselves would hold it by their own hand, and
+ * one who could seat somebody else on the strength of the grant alone would be
+ * choosing the board. So neither an election nor an end date is written for an
+ * actor with no seat, whatever state the register is in. A register with no
+ * board at all is recorded through {@link BoardPositionService.recoverBoard},
+ * which is its own act with its own audit entry and a stated reason.
  *
  * Counted under {@link lockBoardRegister}, which the caller holds.
  */
@@ -342,33 +547,17 @@ async function refuseUnseatedActor(
   targetPersonId: string,
   now: Date,
 ): Promise<void> {
-  const today = localDayOf(now);
   if (await holdsBoardSeat(tx, actorPersonId, now)) {
     return;
   }
   if (actorPersonId === targetPersonId) {
-    throw new RoleChangeError(
-      "A seat on the board is recorded by the board, not by the person it " +
-        "seats.",
-      "board-seat-required",
-    );
+    throw new RoleChangeError(OWN_SEAT_MESSAGE, "board-seat-required");
   }
-  const candidates = await tx.boardPosition.findMany({
-    where: {
-      ...boardSeatNotEndedOn(today),
-      person: { userAccount: { isNot: null } },
-    },
-    select: { electedOn: true, endedOn: true },
-  });
-  // A withdrawn election that is still dated ahead has not ended by its date
-  // but covers no day, and is no board.
-  if (candidates.some((seat) => !hasTermEnded(seat, now))) {
-    throw new RoleChangeError(
-      "Only a board member records the board's seats once a board has been " +
-        "elected.",
-      "board-seat-required",
-    );
-  }
+  throw new RoleChangeError(
+    "Only a board member records the board's seats. A register with no board " +
+      "is recorded through a board recovery.",
+    "board-seat-required",
+  );
 }
 
 function toView(seat: {

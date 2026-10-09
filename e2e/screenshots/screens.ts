@@ -2277,6 +2277,10 @@ export const SCREENS: readonly Screen[] = [
      * A person's view with the refusal an election to a position of trust gets
      * when it is dated too far ahead: the reason the server names, where it used
      * to be "your account may not do this".
+     *
+     * This walk elects nobody, so the register is vacant and the form is a
+     * board recovery: the one way an administrator with no seat records a
+     * board, with the reason the audit log keeps. The refusal is the same.
      */
     name: "person-election-refused",
     goto: appPath(),
@@ -2284,7 +2288,11 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
       { fill: { label: "Vald den" }, value: "2099-01-01" },
-      { click: { button: "Anteckna valet" } },
+      {
+        fill: { label: "Varför styrelsen antecknas på det här sättet" },
+        value: "Hela styrelsen avgick på extrastämman.",
+      },
+      { click: { button: "Anteckna styrelsen" } },
     ],
     waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
   },

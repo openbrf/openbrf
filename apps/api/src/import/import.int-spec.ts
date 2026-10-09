@@ -726,6 +726,63 @@ describe("uploading a CSV", () => {
     expect(session.sample[0]?.[2]).toBe("Nina");
   });
 
+  it("hides every personal identity number in the sample it sends back", async () => {
+    // One valid number in its own column, one mistyped there, and one valid
+    // number in a note: the sample is the file as uploaded, and the mapping
+    // screen is not a screen that shows identity numbers.
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: {
+        fileName: "personnummer.csv",
+        content: encode(
+          writeCsv([
+            ["Förnamn", "Efternamn", "Personnummer", "Notering"],
+            ["Nina", surname, "19811218-9876", "Ring om 19811218-9876"],
+            ["Bo", surname, "19811218-9875", "Skrev 19811218-9875 fel"],
+          ]),
+        ),
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.body).not.toContain("19811218");
+    const session = JSON.parse(response.body) as ImportSessionView;
+    expect(session.sample).toEqual([
+      ["Nina", surname, "••••••••-••••", "Ring om ••••••••-••••"],
+      ["Bo", surname, "••••••••-••••", "Skrev ••••••••-•••• fel"],
+    ]);
+  });
+
+  it("names each previewed row by its row in the sheet, blank rows counted", async () => {
+    const cookie = await signIn(actors.board.email);
+    // Raw text rather than through the writer, so the blank line is in the
+    // file exactly as a board's spreadsheet would leave it.
+    const [header, first, second] = fixtureRows();
+    const file = [header, first, [], second]
+      .map((row) => (row ?? []).join(";"))
+      .join("\r\n");
+    const session = await upload(cookie, "med-tomrad.csv", encode(file));
+    const response = await inject({
+      method: "POST",
+      url: `/api/import/sessions/${session.sessionId}/preview`,
+      payload: { mapping: session.suggestedMapping },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const preview = JSON.parse(response.body) as {
+      rows: { rowNumber: number; sourceRow: number }[];
+    };
+    // The header is row 1 and row 3 is blank, so the two people are on rows
+    // 2 and 4 of the sheet - and still the first and second data rows.
+    expect(preview.rows.map((row) => [row.rowNumber, row.sourceRow])).toEqual([
+      [1, 2],
+      [2, 4],
+    ]);
+  });
+
   it("refuses a file with nothing under its column titles", async () => {
     const response = await inject({
       method: "POST",
@@ -3656,7 +3713,7 @@ describe("a decided row the register stops asking about between chunks", () => {
 
       expect(await readRun(cookie, session.sessionId)).toMatchObject({
         status: "FAILED",
-        failureReason: "preview-outdated",
+        failureReason: "register-changed-during-apply",
         rowsDone: IMPORT_CHUNK_ROWS,
         result: { personsCreated: 0, personsUpdated: 0 },
       });

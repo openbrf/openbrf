@@ -25,6 +25,13 @@ export type {
   DataSubjectCategory,
   PersonalDataCategory,
 } from "./data-protection.ts";
+export type {
+  AccountingReason,
+  FeeReason,
+  MeetingReason,
+  MemberChargeReason,
+  MoveErrorReason,
+} from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export { isLoopbackHost } from "./loopback-host.ts";
@@ -36,6 +43,7 @@ export {
   normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
 } from "./personal-identity-number.ts";
 export type {

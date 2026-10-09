@@ -6,6 +6,7 @@ import {
   parsePersonalIdentityNumber,
   normalizeFreeText,
   normalizeSingleLineText,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
 } from "./personal-identity-number.ts";
 
@@ -29,6 +30,13 @@ describe("normalizePersonalIdentityNumber", () => {
     [" 811228 - 9874 ", "198112289874"],
     // Without a century, the most recent year that is not in the future.
     ["121212-1212", "201212121212"],
+    // The birth date decides, not the year alone: on 27 August 2026 a
+    // birthday later in 2026 has not happened, so it was in 1926.
+    ["261215-1239", "192612151239"],
+    ["260827-1231", "202608271231"],
+    ["260828-1230", "192608281230"],
+    // A coordination number is judged on its real day, 87 - 60 = 27.
+    ["260887-1238", "202608871238"],
     // A plus separator means the person has turned 100.
     ["121212+1212", "191212121212"],
     // A coordination number keeps the +60 day offset, so the form round-trips.
@@ -274,6 +282,14 @@ describe("scanForPersonalIdentityNumbers", () => {
 
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
     expect(scanForPersonalIdentityNumbers(text, REFERENCE)).toHaveLength(1);
+  });
+});
+
+describe("scanForPersonalIdentityNumberCandidates", () => {
+  it("finds a number-shaped run whose check digit fails", () => {
+    expect(
+      scanForPersonalIdentityNumberCandidates("Skrev 19811218-9875 fel"),
+    ).toEqual([{ value: "19811218-9875", index: 6 }]);
   });
 });
 

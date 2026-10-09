@@ -793,7 +793,8 @@ describe("an administrator who holds no seat", () => {
   /*
    * A seat confers what no grant of capabilities carries (ADR 0017), so the
    * administrator's grant must not be a way to one. The board in this suite
-   * holds a seat throughout, so the first-board case is the service spec's.
+   * holds a seat throughout, so a vacant register is board-recovery.int-spec's,
+   * on a database of its own.
    */
   it("cannot seat themselves", async () => {
     const response = await inject({

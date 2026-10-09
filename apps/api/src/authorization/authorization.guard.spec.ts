@@ -384,6 +384,28 @@ describe("what the resource route refuses", () => {
   });
 });
 
+describe("a route naming several capabilities", () => {
+  it("requires every one of them, not any one", async () => {
+    // The accounting basis names two, and no role holds exactly one, so this
+    // is where "both" rather than "either" is held.
+    const required: Capability[] = ["fees:manage", "memberCharges:manage"];
+    const { guard, forPerson } = build({ required });
+    const request = requestAt("/api/accounting-basis/export", {
+      cookie: "session=abc",
+    });
+
+    for (const held of [["fees:manage"], ["memberCharges:manage"]] as const) {
+      forPerson.mockResolvedValueOnce(principal([...held]));
+      await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+        ForbiddenException,
+      );
+    }
+
+    forPerson.mockResolvedValueOnce(principal(required));
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+  });
+});
+
 describe("what the resource route establishes", () => {
   it("attaches the principal and the client the token acts for", async () => {
     const { guard } = build({});
