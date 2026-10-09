@@ -194,6 +194,27 @@ const MAIL_RECIPIENTS: Record<
 };
 
 /**
+ * The SMS gateway this instance hands messages to, named by its host, or null
+ * where none is configured.
+ *
+ * Only where a provider is actually configured. An instance with none publishes
+ * its news all the same and says on screen that the SMS mailing is what did not
+ * go out; it hands nobody anything, so it has no recipient. The processor
+ * register and the record of processing both ask this, so they cannot come to
+ * name the gateway differently.
+ */
+export function smsGatewayHost(
+  facts: Pick<ProcessorFacts, "smsDriver" | "smsGatewayUrl">,
+): string | null {
+  return selectedDriverKind({
+    driver: facts.smsDriver,
+    gatewayUrl: facts.smsGatewayUrl,
+  }) === "none"
+    ? null
+    : gatewayHostOf(facts.smsGatewayUrl ?? "");
+}
+
+/**
  * The host part of a URL, for naming a gateway without repeating its path.
  *
  * Unlike a connected app's host (connected-apps/client-host.ts), an address
@@ -255,16 +276,9 @@ export function currentProcessors(
     fixed(key, kind, facts.mailHost, facts.mailFromAddress);
   }
 
-  // SMS only where a provider is actually configured. An instance with none
-  // publishes its news all the same and says on screen that the SMS mailing is
-  // what did not go out; it hands nobody anything, so it has no recipient here.
-  if (
-    selectedDriverKind({
-      driver: facts.smsDriver,
-      gatewayUrl: facts.smsGatewayUrl,
-    }) !== "none"
-  ) {
-    fixed("sms", "SMS", gatewayHostOf(facts.smsGatewayUrl ?? ""));
+  const smsHost = smsGatewayHost(facts);
+  if (smsHost !== null) {
+    fixed("sms", "SMS", smsHost);
   }
 
   if (facts.storageDriver === "s3") {

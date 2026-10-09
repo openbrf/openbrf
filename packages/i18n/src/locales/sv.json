@@ -297,6 +297,11 @@
         "noBoardPositions": "Inget förtroendeuppdrag i registret",
         "historyNote": "Ett avslutat uppdrag ligger kvar. Ingenting här raderas. Ett slutdatum som ännu inte har passerat går att rätta; när det har passerat står uppdraget som det är antecknat.",
         "electedOnRequired": "Skriv datumet för valet.",
+        "recoveryExplained": "Ingen styrelse finns i registret: varje mandatperiod har löpt ut och ingen är antecknad framåt. Att anteckna ett uppdrag nu är en återställning av styrelsen, som bara det här formuläret kan göra utan ett uppdrag. Anteckna en ledamot i den styrelse som stämman valde, aldrig dig själv. När ledamoten har loggat in antecknar hen resten av styrelsen.",
+        "recoveryReasonLabel": "Varför styrelsen antecknas på det här sättet",
+        "recoveryReasonHint": "Sparas för alltid i granskningsloggen, tillsammans med uppdraget. Skriv varför, inte vem.",
+        "recoveryReasonRequired": "Skriv varför styrelsen antecknas på det här sättet.",
+        "recover": "Anteckna styrelsen",
         "endedOnRequired": "Skriv datumet då uppdraget avslutas.",
         "systemHeading": "Systemroller",
         "systemExplained": "Administratörsrollen ger alla behörigheter som finns, inklusive inställningar, tillägg och teman. Förvaltarrollen ger felanmälningskön och ingenting annat, och aldrig adressboken.",
@@ -311,7 +316,9 @@
           "positionAlreadyHeld": "Personen har redan det uppdraget. Avsluta det innan du antecknar ett nytt val till det.",
           "termOverlaps": "Ett tidigare uppdrag på samma post löper förbi det här valdatumet. Kontrollera datumet.",
           "electedTooFarAhead": "Ett val kan inte dateras så långt fram i tiden. Kontrollera årtalet.",
-          "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du bara anteckna den första styrelsen, och aldrig ditt eget uppdrag.",
+          "recoveryDatedAhead": "Ett uppdrag som återställs kan inte dateras efter dagens datum. Skriv datumet då föreningsstämman valde styrelsen.",
+          "boardSeatRequired": "Styrelsen antecknar sina egna uppdrag. Utan ett uppdrag kan du anteckna ett uppdrag bara när ingen styrelse finns i registret, och aldrig ditt eget.",
+          "boardNotVacant": "Nu finns en styrelse i registret, så det är styrelsen som antecknar uppdragen. Ladda om sidan.",
           "termAlreadyEnded": "Uppdraget är redan avslutat. Datumen är beskrivningen av en period som har löpt och de står kvar.",
           "endedBeforeElected": "Ett uppdrag kan inte avslutas före valet som påbörjade det.",
           "endedTooFarAhead": "Ett uppdrag kan inte löpa så långt fram i tiden. Kontrollera årtalet.",
@@ -616,6 +623,7 @@
           "SERVICE_DATA_PURGED": "Servicedata gallrades",
           "BOARD_POSITION_ELECTED": "Val till förtroendeuppdrag antecknades",
           "BOARD_POSITION_ENDED": "Förtroendeuppdrag avslutades",
+          "BOARD_RECOVERY_RECORDED": "Förtroendeuppdrag antecknades vid återställning av styrelsen",
           "BOOKING_RESOURCE_CREATED": "Bokningsbar resurs tillagd",
           "BOOKING_RESOURCE_UPDATED": "Bokningsbar resurs ändrad",
           "BOOKING_RESOURCE_DEACTIVATED": "Bokningsbar resurs stängd för bokning",
@@ -705,10 +713,13 @@
           "CONNECTED_APP_CONNECTED": "En ansluten app fick agera för personen",
           "CONNECTED_APP_DISCONNECTED": "En ansluten app kopplades bort",
           "OAUTH_CLIENT_REGISTERED": "En app registrerade sig hos föreningen",
+          "OAUTH_CLIENT_REVOKED": "En ansluten app spärrades för hela föreningen",
           "CHAT_GROUP_CREATED": "Gruppchatt skapades",
           "CHAT_GROUP_MEMBER_ADDED": "Lades till i en gruppchatt",
           "CHAT_GROUP_MEMBER_REMOVED": "Lämnade en gruppchatt",
           "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
+          "DOCUMENT_UPDATED": "Ett dokument i arkivet döptes om, flyttades eller fick en annan målgrupp",
+          "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
           "IMPORT_ABANDONED": "En import av medlemslista avbröts"
         },
         "channel": {
@@ -1142,6 +1153,8 @@
         "tlsUnavailable": "Servern upprättade ingen krypterad anslutning, så ingenting skickades till den, inte heller lösenordet. Kontrollera att servern erbjuder STARTTLS på den här porten, eller kryssa i krypterad anslutning och använd port 465.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
         "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
+        "secretRequiredForNewEndpoint": "Servern, porten eller krypteringen har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Servern eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen.",
         "environmentTlsUnavailable": "Meddelandet kunde inte skickas eftersom e-postservern inte upprättade någon krypterad anslutning. E-posten sköts av den som driver instansen, så kontakta dem."
       },
       "test": {
@@ -1163,7 +1176,11 @@
       "passwordClear": "Ta bort det sparade lösenordet",
       "secure": "Krypterad anslutning (implicit TLS, oftast port 995)",
       "configured": "Brevlådan är inställd. Instansen hämtar den var femte minut, och styrelsen kan hämta den från sin egen skärm.",
-      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är."
+      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är.",
+      "errors": {
+        "secretRequiredForNewEndpoint": "Brevlådans server, port eller kryptering har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Brevlådans server eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen."
+      }
     },
     "sms": {
       "title": "Sms",
@@ -1187,7 +1204,9 @@
       "errors": {
         "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
-        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln."
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln.",
+        "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans medan det här sparades. Ange nyckeln igen, eller ta bort den sparade, och spara igen."
       }
     },
     "retention": {
@@ -2285,6 +2304,8 @@
       "priceNotAnAmount": "Ange priset i kronor, med högst två decimaler, till exempel 2 150 000,50.",
       "sellerIsAcquirer": "Den tidigare och den nya innehavaren är samma person. Välj rätt tidigare innehavare.",
       "sellerNotTenantOwner": "Den tidigare innehavaren var inte bostadsrättshavare för den här lägenheten på avtalsdagen. Kontrollera tidigare innehavare och datum.",
+      "transferWithoutTenantOwnership": "En överlåtelse eller upplåtelse kan bara registreras för en bostadsrättshavare. Registrera flytten som medlem, eller ta bort överlåtelsen eller upplåtelsen.",
+      "alreadyGranted": "Lägenheten är redan upplåten. Ett senare ägarbyte är en överlåtelse.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
     }
   },
@@ -2397,6 +2418,7 @@
       "date-not-iso": "Datum måste skrivas som ÅÅÅÅ-MM-DD.",
       "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
       "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
+      "personal-identity-number-needs-century": "Skriv personnumret med århundradet (ÅÅÅÅMMDD-NNNN), så att det alltid pekar ut samma person.",
       "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
       "garbled-characters": "Ett tecken har redan gått förlorat i filen (visas som �). Rätta det i filen och läs in den igen.",
       "unknown": "Raden kunde inte läsas."
@@ -2458,7 +2480,7 @@
       "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
       "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
-      "registerChangedDuringApply": "Registret ändrades medan importen pågick, och en rad i filen matchar nu andra personer än förut: någon lades till, flyttade in, flyttade ut eller fick nya uppgifter. Importen stoppades där i stället för att lägga in en person två gånger eller genomföra ett val du gjorde mellan andra personer än dem registret nu har. Det som skrevs innan dess finns i registret; importera resten som en ny fil, så visar förhandsgranskningen vem varje rad matchar nu.",
+      "registerChangedDuringApply": "Registret ändrades medan importen pågick: antingen matchar en rad i filen nu någon som lades till, flyttade in eller fick nya uppgifter, eller passar ett val du gjort för en rad inte längre i registret. Importen stoppades i stället för att skriva raden till fel person. Det som skrevs innan dess finns i registret; importera resten som en ny fil, så visar förhandsgranskningen vad varje rad matchar nu.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "sessionNotRunning": "Den importen pågår inte längre.",
@@ -3701,6 +3723,7 @@
       "alreadyClosed": "Styrelsen har svarat på den här ansökan, så det finns inget att ändra.",
       "notRefused": "Ett beslut från hyresnämnden kan bara antecknas på en ansökan som styrelsen har vägrat.",
       "invalidPeriod": "Perioden slutar innan den börjar.",
+      "periodTooFarAhead": "Perioden får sluta högst fem år från i dag.",
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
@@ -4294,6 +4317,7 @@
       "personalIdentityNumberCount_other": "{{count}} nummer hittades i texten.",
       "dateNotACalendarDate": "Det är inget datum.",
       "dateInTheFuture": "En debitering kan inte dateras framåt i tiden.",
+      "dateBeyondRetention": "En debitering kan inte dateras före de sju år som föreningen sparar debiteringar.",
       "amountNotASum": "Ange beloppet i kronor, med högst två decimaler.",
       "amountNotPositive": "En debitering är ett positivt belopp. En kreditering görs i bokföringssystemet.",
       "reasonRequired": "Ange vad debiteringen avser.",
@@ -4452,6 +4476,7 @@
       "feeAlreadyRecordedLater": "Det finns redan en senare avgift av samma slag för lägenheten. Ta bort den först.",
       "feeAlreadyInForce": "En avgift av samma slag gäller redan för lägenheten den dagen. Låt den nya börja dagen efter att den slutar, eller ta bort den först.",
       "feeNotified": "Avgiften är redan aviserad och kan inte tas bort. Den är underlaget för pengar ni har begärt in.",
+      "periodAlreadyNotified": "En avisering har redan aviserat lägenheten från den dagen. Registrera den nya avgiften från första månaden som ingen avisering har aviserat.",
       "periodNotWholeMonths": "Perioden börjar den första i en månad och slutar den sista i en månad.",
       "periodTooLong": "Perioden är för lång. Ett räkenskapsår är högst arton månader.",
       "periodAlreadyIssued": "Perioden är redan aviserad.",
@@ -4459,6 +4484,9 @@
       "dueBeforePeriod": "Förfallodagen kan inte ligga före perioden den avser.",
       "nothingToBill": "Ingen lägenhet har en avgift som gäller under perioden.",
       "tooManyNotices": "Fler avier än formatet för betalningsreferenser rymmer.",
+      "amountTooLarge": "Beloppet på avin överskrider det högsta tillåtna beloppet. Kontrollera avgifterna efter en felskriven siffra.",
+      "periodPastRetention": "Perioden är äldre än den tid föreningen sparar avier.",
+      "paymentReferenceReused": "En avisering från samma månad hundra år tidigare använder redan de här betalningsreferenserna. Kontrollera året.",
       "invalidBody": "Något i formuläret gick inte att läsa.",
       "unknown": "Det gick inte just nu. Försök igen."
     }
@@ -5029,7 +5057,8 @@
     "errors": {
       "notFound": "Anslutningen finns inte längre. Läs listan igen.",
       "forbidden": "Ditt konto får inte koppla bort någon annans anslutning.",
-      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen."
+      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen.",
+      "clientNotFound": "Den anslutna appen är inte känd av den här instansen, så det finns inget att avvisa. Läs listan igen."
     },
     "mine": {
       "title": "Anslutna appar",

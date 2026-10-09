@@ -46,6 +46,13 @@ jobs:
       - name: Theme stylesheet is current
         run: pnpm --filter @openbrf/web theme:check
 
+      # CodeRabbit ignores a configuration it cannot parse rather than saying
+      # so, and the review rules in it go with it. Checked against the published
+      # schema; if the schema cannot be fetched, the YAML syntax is still
+      # checked and the step passes.
+      - name: CodeRabbit configuration is valid
+        run: pnpm lint:coderabbit
+
       # The statutory tables are append-only by trigger, and two test suites are
       # allowed to switch a guard off to clear their own rows. This refuses a
       # third: the pattern is a line long and reads as ordinary cleanup.
@@ -170,6 +177,19 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # Playwright's output directory (outputDir in e2e/playwright.config.ts):
+      # the traces and failure screenshots, and the application container's
+      # log, which teardown writes there before the stack and its logs are
+      # removed. The report shows what the browser saw; a server exception
+      # behind it is only in that log.
+      - name: Upload the test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 7
+
   # A job of its own rather than a step on the end-to-end suite above, although
   # that one has the checkout, the install and the browser already. The walk is
   # the only thing in CI that opens every screen in the client, so it is the
@@ -196,15 +216,18 @@ jobs:
           # changed and the base commit has to be in the clone to answer.
           fetch-depth: 0
 
-      # What the walk photographs is the client, the Swedish it renders and the
-      # list of screens itself, so those three are what can break it, and a pull
-      # request touching none of them would pay an image build for images nobody
-      # asked for. Every push to main walks whatever it carries. GitHub filters
-      # paths per workflow and never per job, and this workflow has four other
-      # jobs that run on everything, so the filter is a step rather than a
-      # `paths:` key. A skipped job still reports, which a workflow filtered out
-      # by path does not - the difference between a check that is satisfied and
-      # one a pull request waits on forever.
+      # What the walk photographs is the client as the production stack serves
+      # it, so what can break it is the client and every workspace package it
+      # imports, the API whose answers it renders, the image and the compose
+      # stack it runs in, the dependencies they install, and the walk's own
+      # harness and list of screens. A pull request touching none of those
+      # would pay an image build for images nobody asked for. Every push to
+      # main walks whatever it carries. GitHub filters paths per workflow and
+      # never per job, and this workflow has three other jobs that run on
+      # everything, so the filter is a step rather than a `paths:` key. A
+      # skipped job still reports, which a workflow filtered out by path does
+      # not - the difference between a check that is satisfied and one a pull
+      # request waits on forever, and what lets the ruleset require this one.
       - name: Decide whether the walk applies
         id: scope
         env:
@@ -214,8 +237,12 @@ jobs:
             echo "walk=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          touched=$(git diff --name-only "$BASE_SHA" HEAD \
-            -- apps/web packages/i18n e2e/screenshots)
+          touched=$(git diff --name-only "$BASE_SHA" HEAD -- \
+            apps packages Dockerfile .dockerignore docker \
+            docker-compose.prod.yml package.json pnpm-lock.yaml \
+            pnpm-workspace.yaml e2e/src e2e/screenshots e2e/package.json \
+            e2e/playwright.screenshots.config.ts e2e/screenshots.env \
+            e2e/docker-compose.e2e.yml)
           if [ -n "$touched" ]; then
             echo "walk=true" >> "$GITHUB_OUTPUT"
           else
@@ -266,30 +293,13 @@ jobs:
           # empty, and an empty upload is not a second failure worth reporting.
           if-no-files-found: ignore
 
-  pr-title:
-    name: Validate PR title
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The walk's own output directory, for the same reason as the suite's
+      # above: the application container's log is written there before the
+      # stack is removed.
+      - name: Upload the test results
+        if: ${{ failure() && steps.scope.outputs.walk == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # Nothing here pushes, so the token has no reason to sit in the
-          # runner's git config where later steps and scripts can read it.
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Squash merge is the only merge method, so the PR title becomes the
-      # commit message on main and must follow Conventional Commits.
-      - name: Lint PR title with commitlint
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: printf "%s\n" "$PR_TITLE" | pnpm exec commitlint
+          name: screenshots-test-results
+          path: test-results/
+          retention-days: 7

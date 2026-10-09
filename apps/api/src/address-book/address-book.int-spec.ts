@@ -819,7 +819,7 @@ describe("the resident-facing directory", () => {
     const boardPage = JSON.parse(board.body) as {
       total: number;
       counts: { all: number };
-      rows: { protectedPersonalData: boolean }[];
+      rows: { protectedPersonalData: boolean; signs: string[] }[];
     };
     const residentPage = JSON.parse(directory.body) as {
       total: number;
@@ -834,10 +834,14 @@ describe("the resident-facing directory", () => {
     const protectedRows = boardPage.rows.filter(
       (row) => row.protectedPersonalData,
     ).length;
+    // And a former household, which the resident directory leaves out too.
+    const hiddenRows = boardPage.rows.filter(
+      (row) => row.protectedPersonalData || row.signs.includes("MOVED_OUT"),
+    ).length;
 
     expect(protectedRows).toBeGreaterThan(0);
-    expect(residentPage.total).toBe(boardPage.total - protectedRows);
-    expect(residentPage.counts.all).toBe(boardPage.counts.all - protectedRows);
+    expect(residentPage.total).toBe(boardPage.total - hiddenRows);
+    expect(residentPage.counts.all).toBe(boardPage.counts.all - hiddenRows);
     expect(residentPage.rows).toHaveLength(residentPage.total);
   });
 
@@ -955,6 +959,205 @@ describe("the resident-facing directory", () => {
     expect(rows.map((row) => row.personId)).toContain(
       actors.protectedPerson.personId,
     );
+  });
+
+  it("lists who lives here today and the board, and nobody else", async () => {
+    /*
+     * A former household stays in the register for the board until the purge,
+     * and a buyer's move-in date is not the other households' business before
+     * the day. Neither is who administers the instance.
+     */
+    const future = await prisma.residency.create({
+      data: {
+        personId: actors.movedOut.personId,
+        apartmentId: apartments.first,
+        role: "MEMBER",
+        movedInOn: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const cookie = await signIn(actors.resident.email);
+      const listed = async (filter: string): Promise<string[]> => {
+        const response = await inject({
+          method: "GET",
+          url: `/api/resident-directory?filter=${filter}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        return (
+          JSON.parse(response.body) as { rows: { personId: string }[] }
+        ).rows.map((row) => row.personId);
+      };
+
+      const all = await listed("all");
+      expect(all).toContain(actors.resident.personId);
+      // A board member who lives nowhere here is somebody to find.
+      expect(all).toContain(actors.external.personId);
+      expect(all).not.toContain(actors.movedOut.personId);
+
+      expect(await listed("movedOut")).toEqual([]);
+    } finally {
+      await prisma.residency.delete({ where: { id: future.id } });
+    }
+  });
+
+  it("still lists a board member who has moved out but holds the seat", async () => {
+    // The seat runs until the annual meeting whatever happens to the flat, so
+    // a neighbour who needs to find the board must find this member too - with
+    // a residency that ended and with one that has not begun.
+    const seat = await prisma.boardPosition.create({
+      data: {
+        personId: actors.movedOut.personId,
+        position: "BOARD_MEMBER",
+        electedOn: new Date("2025-05-15T00:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+
+    // Signing in inside the `try`, so a failed sign-in still removes the seat
+    // and no later directory test finds this member on the board.
+    try {
+      const cookie = await signIn(actors.resident.email);
+      const listed = async (filter: string): Promise<string[]> => {
+        const response = await inject({
+          method: "GET",
+          url: `/api/resident-directory?filter=${filter}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        return (
+          JSON.parse(response.body) as { rows: { personId: string }[] }
+        ).rows.map((row) => row.personId);
+      };
+
+      expect(await listed("all")).toContain(actors.movedOut.personId);
+      expect(await listed("board")).toContain(actors.movedOut.personId);
+
+      const future = await prisma.residency.create({
+        data: {
+          personId: actors.movedOut.personId,
+          apartmentId: apartments.first,
+          role: "MEMBER",
+          movedInOn: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+        select: { id: true },
+      });
+      try {
+        expect(await listed("all")).toContain(actors.movedOut.personId);
+        expect(await listed("board")).toContain(actors.movedOut.personId);
+      } finally {
+        await prisma.residency.delete({ where: { id: future.id } });
+      }
+    } finally {
+      await prisma.boardPosition.delete({ where: { id: seat.id } });
+    }
+  });
+
+  it("does not list a person with no residency and no seat held today", async () => {
+    /*
+     * An administrator or the property manager lives nowhere here and sits on
+     * no board; a board member whose term has ended is neither. A neighbour
+     * has no business finding any of them, and the query that admits a seat
+     * holder without a residency must not admit these.
+     */
+    const bystander = `ab-bystander-${suffix}`;
+    const former = `ab-former-board-${suffix}`;
+    await createPerson({ personId: bystander, firstName: "Bo" });
+    await createPerson({ personId: former, firstName: "Fia" });
+    await prisma.boardPosition.create({
+      data: {
+        personId: former,
+        position: "BOARD_MEMBER",
+        electedOn: new Date("2020-05-15T00:00:00.000Z"),
+        endedOn: new Date("2024-05-15T00:00:00.000Z"),
+      },
+    });
+
+    try {
+      const cookie = await signIn(actors.resident.email);
+      for (const filter of ["all", "board"]) {
+        const response = await inject({
+          method: "GET",
+          url: `/api/resident-directory?filter=${filter}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        const ids = (
+          JSON.parse(response.body) as { rows: { personId: string }[] }
+        ).rows.map((row) => row.personId);
+
+        expect(ids).not.toContain(bystander);
+        expect(ids).not.toContain(former);
+      }
+
+      // The board sees the person with no residency, which is what separates
+      // this rule from the residents' one.
+      const board = await signIn(actors.board.email);
+      const boardView = await inject({
+        method: "GET",
+        url: "/api/address-book?filter=all&pageSize=100",
+        headers: { cookie: board },
+      });
+      expect(boardView.statusCode).toBe(200);
+      expect(
+        (
+          JSON.parse(boardView.body) as { rows: { personId: string }[] }
+        ).rows.map((row) => row.personId),
+      ).toContain(bystander);
+    } finally {
+      await prisma.boardPosition.deleteMany({ where: { personId: former } });
+      await prisma.person.deleteMany({
+        where: { id: { in: [bystander, former] } },
+      });
+    }
+  });
+
+  it("does not say when a household that lives here is moving out", async () => {
+    // A residency held today can carry a future move-out date once the board
+    // has recorded a sale. The board sees it; the other households do not.
+    const leaving = await prisma.residency.create({
+      data: {
+        personId: actors.movedOut.personId,
+        apartmentId: apartments.third,
+        role: "MEMBER",
+        movedInOn: new Date("2024-01-01T00:00:00.000Z"),
+        movedOutOn: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const resident = await signIn(actors.resident.email);
+      const response = await inject({
+        method: "GET",
+        url: "/api/resident-directory?filter=all",
+        headers: { cookie: resident },
+      });
+      expect(response.statusCode).toBe(200);
+      const row = (
+        JSON.parse(response.body) as {
+          rows: {
+            key: string;
+            movedOutOn: string | null;
+            signs: string[];
+          }[];
+        }
+      ).rows.find((candidate) => candidate.key === leaving.id);
+
+      expect(row).toBeDefined();
+      expect(row?.movedOutOn).toBeNull();
+      expect(row?.signs).not.toContain("MOVED_OUT");
+
+      const board = await signIn(actors.board.email);
+      const { rows } = await boardRows(board);
+      expect(
+        rows.find((candidate) => candidate.key === leaving.id)?.movedOutOn,
+      ).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    } finally {
+      await prisma.residency.delete({ where: { id: leaving.id } });
+    }
   });
 });
 
@@ -1110,6 +1313,57 @@ describe("revealing a masked field", () => {
 });
 
 describe("the person view", () => {
+  it("promises a granted erasure only where the nightly jobs will carry it out", async () => {
+    /*
+     * A granted erasure of a sitting board member, or of somebody who still
+     * lives here, is refused by every job that erases on a request. The panel
+     * says the next run erases only the person nothing refuses.
+     */
+    const subjects = [
+      actors.movedOut.personId,
+      actors.external.personId,
+      actors.resident.personId,
+    ];
+    await prisma.dataSubjectRequest.createMany({
+      data: subjects.map((personId) => ({
+        personId,
+        kind: "ERASURE" as const,
+        requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+        ground: "Jag vill inte finnas kvar hos foreningen.",
+        erasureGround: "NO_LONGER_NECESSARY" as const,
+        decision: "GRANTED" as const,
+        erasureException: "NONE" as const,
+        decisionGround: "Inget lagligt krav hindrar radering.",
+        decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+      })),
+    });
+
+    try {
+      const cookie = await signIn(actors.board.email);
+      const erasureOf = async (personId: string) => {
+        const response = await inject({
+          method: "GET",
+          url: `/api/address-book/persons/${personId}`,
+          headers: { cookie },
+        });
+        expect(response.statusCode).toBe(200);
+        return (JSON.parse(response.body) as { erasureRequest: unknown })
+          .erasureRequest;
+      };
+
+      // Moved out, no seat, no system role: the run will erase them.
+      expect(await erasureOf(actors.movedOut.personId)).not.toBeNull();
+      // A seat held today.
+      expect(await erasureOf(actors.external.personId)).toBeNull();
+      // A residency held today.
+      expect(await erasureOf(actors.resident.personId)).toBeNull();
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: { in: subjects } },
+      });
+    }
+  });
+
   it("masks a protected person's postal address and offers the alternative", async () => {
     const cookie = await signIn(actors.board.email);
     const response = await inject({
@@ -1308,6 +1562,40 @@ describe("adding a person", () => {
     expect(response.statusCode).toBe(400);
     const failure = JSON.parse(response.body) as { reason: string };
     expect(failure.reason).toBe("invalid-personal-identity-number");
+  });
+
+  it("asks for the century of a number that reads as somebody else within a year", async () => {
+    // Born 30 days ago and written in ten digits: a year ago the same digits
+    // were somebody turning 100, so the century is asked for, not guessed.
+    const born = new Date();
+    born.setDate(born.getDate() - 30);
+    const birthDate = [
+      born.getFullYear() % 100,
+      born.getMonth() + 1,
+      born.getDate(),
+    ]
+      .map((part) => String(part).padStart(2, "0"))
+      .join("");
+    const written = Array.from(
+      { length: 10 },
+      (_, checkDigit) => `${birthDate}-123${String(checkDigit)}`,
+    ).find((candidate) => isValidPersonalIdentityNumber(candidate));
+
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/address-book/persons",
+      payload: {
+        firstName: "Ny",
+        lastName: surname,
+        personalIdentityNumber: written,
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const failure = JSON.parse(response.body) as { reason: string };
+    expect(failure.reason).toBe("personal-identity-number-needs-century");
   });
 
   it("is refused for a resident", async () => {

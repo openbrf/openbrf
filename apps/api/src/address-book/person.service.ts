@@ -3,7 +3,10 @@ import { formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
-import { isValidPersonalIdentityNumber } from "../crypto/personal-data";
+import {
+  isValidPersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
+} from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type {
   BoardPositionType,
@@ -17,6 +20,7 @@ import {
   type DataSubjectRequestView,
 } from "../data-protection/data-subject-request";
 import { computePurgeDate } from "../retention/purge-date";
+import { isErasureInForce } from "../retention/withheld-persons";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
   type AddressBookContact,
@@ -24,6 +28,7 @@ import {
   type MaskableField,
 } from "./address-book-view";
 import { lockPersonEmail } from "./person-email-lock";
+import { lockPersonIdentityNumber } from "./person-identity-number-lock";
 import {
   consentStateFor,
   type PublicationConsentView,
@@ -35,8 +40,10 @@ export class PersonError extends Error {
     readonly reason:
       | "person-not-found"
       | "invalid-personal-identity-number"
+      | "personal-identity-number-needs-century"
       | "invalid-email"
-      | "field-not-masked",
+      | "field-not-masked"
+      | "personal-identity-number",
   ) {
     super(message);
     this.name = "PersonError";
@@ -412,8 +419,33 @@ export class PersonService {
         person.communicationObjectionAt?.toISOString() ?? null,
       processingRestrictedAt:
         person.processingRestrictedAt?.toISOString() ?? null,
-      erasureRequest: standingErasure(requests),
+      erasureRequest: await this.erasureTheNextRunCarriesOut(
+        person.id,
+        requests,
+        now,
+      ),
     };
+  }
+
+  /**
+   * The granted erasure the next nightly run will carry out, or null.
+   *
+   * A standing request the jobs would refuse - the person sits on the board,
+   * lives here, holds a system role, or is under a hold or a restriction - is
+   * not promised, so the panel asks the question the jobs ask
+   * ({@link isErasureInForce}) and cannot say an erasure is coming that the
+   * run will only log as blocked.
+   */
+  private async erasureTheNextRunCarriesOut(
+    personId: string,
+    requests: readonly DataSubjectRequestView[],
+    now: Date,
+  ): Promise<StandingErasure | null> {
+    const standing = standingErasure(requests);
+    return standing !== null &&
+      (await isErasureInForce(this.prisma, personId, now))
+      ? standing
+      : null;
   }
 
   /**
@@ -576,6 +608,15 @@ export class PersonService {
           "invalid-personal-identity-number",
         );
       }
+      if (personalIdentityNumberNeedsCentury(input.personalIdentityNumber)) {
+        // Ten digits read as another person less than a year before or after
+        // today: which one was meant is not something to guess about a
+        // register entry.
+        throw new PersonError(
+          "Write that personal identity number with its century.",
+          "personal-identity-number-needs-century",
+        );
+      }
       identityNumber = await this.encryption.encrypt(
         "person.personalIdentityNumber",
         input.personalIdentityNumber,
@@ -589,6 +630,12 @@ export class PersonService {
       // person or finishes before it exists.
       if (email !== null && email.index !== null) {
         await lockPersonEmail(tx, email.index);
+      }
+      // And so an import chunk entering a row with the same number as a new
+      // person either sees this one or finishes before it exists. After the
+      // email key, the order person-identity-number-lock.ts gives.
+      if (identityNumber !== null && identityNumber.index !== null) {
+        await lockPersonIdentityNumber(tx, identityNumber.index);
       }
 
       const created = await tx.person.create({
@@ -695,18 +742,20 @@ export class PersonService {
  * and the history belongs on the data subject access report, where it explains
  * a gap in the erasure record.
  */
-/**
- * The granted erasure the next nightly run will carry out, or null.
- *
- * Granted and not yet executed or closed - the same three conditions the purge
- * itself selects on, so the person panel and the job cannot disagree about
- * whether an erasure is coming.
- */
-function standingErasure(requests: readonly DataSubjectRequestView[]): {
+interface StandingErasure {
   requestId: string;
   requestedOn: string | null;
   decidedAt: string | null;
-} | null {
+}
+
+/**
+ * The granted erasure that stands: granted and not yet executed or closed, the
+ * three conditions the purge selects on. Whether the run will carry it out is
+ * a separate question - see {@link PersonService.erasureTheNextRunCarriesOut}.
+ */
+function standingErasure(
+  requests: readonly DataSubjectRequestView[],
+): StandingErasure | null {
   const standing = requests.find(
     (request) =>
       request.kind === "ERASURE" &&

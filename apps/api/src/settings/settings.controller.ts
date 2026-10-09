@@ -59,7 +59,10 @@ const smtpSchema = z.object({
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
   user: z.string().max(255).nullable(),
-  /** Omit to keep the stored password; null or "" to clear it. */
+  /**
+   * Omit to keep the stored password, which a changed host or port refuses;
+   * null or "" to clear it.
+   */
   password: z.string().max(200).nullish(),
   fromAddress: z.email().max(320).nullable(),
 });
@@ -99,7 +102,10 @@ const boardMailboxSchema = z.object({
    * the board a collection that can only fail.
    */
   user: z.string().min(1).max(255).refine(pop3Line).nullable(),
-  /** Omit to keep the stored password; null or "" to clear it. */
+  /**
+   * Omit to keep the stored password, which a changed host or port refuses;
+   * null or "" to clear it.
+   */
   password: z.string().max(200).refine(pop3Line).nullish(),
 });
 
@@ -116,7 +122,10 @@ const smsSchema = z.object({
     .max(2048)
     .nullable(),
   senderName: z.string().trim().max(64).nullable(),
-  /** Omit to keep the stored credential; null or "" to clear it. */
+  /**
+   * Omit to keep the stored credential, which a changed driver or gateway
+   * address refuses; null or "" to clear it.
+   */
   token: z.string().max(500).nullish(),
 });
 
@@ -427,9 +436,13 @@ export class SettingsWriteController {
 
   @Put("retention")
   async updateRetention(
+    @Req() request: RequestWithPrincipal,
     @Body() body: unknown,
   ): Promise<{ daysAfterMoveOut: number }> {
-    return this.settings.updateRetention(retentionSchema.parse(body));
+    return this.settings.updateRetention({
+      ...retentionSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
   }
 
   /**

@@ -1,3 +1,5 @@
+import type { FeeReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -12,37 +14,6 @@ import { failureMessageKey } from "../ui/save-state";
  * A 403 is answered before the map is consulted at all; see
  * {@link failureMessageKey}.
  */
-
-/**
- * The reasons the fees module refuses with.
- *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it, so a reason the server gains and this
- * client has no sentence for is a compile error here rather than "something went
- * wrong" on a board member's screen.
- */
-export type FeeReason =
-  | "not-found"
-  | "apartment-not-found"
-  | "housing-cooperative-missing"
-  | "date-not-a-calendar-date"
-  | "amount-not-a-sum"
-  | "amount-not-positive"
-  | "vat-rate-required"
-  | "vat-rate-not-applicable"
-  | "vat-rate-out-of-range"
-  | "ends-before-it-begins"
-  | "fee-already-recorded-later"
-  | "fee-already-in-force"
-  | "fee-notified"
-  | "period-not-whole-months"
-  | "period-too-long"
-  | "period-already-issued"
-  | "period-overlaps-a-run"
-  | "due-before-period"
-  | "nothing-to-bill"
-  | "too-many-notices";
 
 /**
  * Every reason, and the sentence it becomes.
@@ -79,6 +50,7 @@ const FEE_FAILURES: Readonly<
   "fee-already-recorded-later": "fees.errors.feeAlreadyRecordedLater",
   "fee-already-in-force": "fees.errors.feeAlreadyInForce",
   "fee-notified": "fees.errors.feeNotified",
+  "period-already-notified": "fees.errors.periodAlreadyNotified",
 
   "period-not-whole-months": "fees.errors.periodNotWholeMonths",
   "period-too-long": "fees.errors.periodTooLong",
@@ -88,6 +60,9 @@ const FEE_FAILURES: Readonly<
 
   "nothing-to-bill": "fees.errors.nothingToBill",
   "too-many-notices": "fees.errors.tooManyNotices",
+  "amount-too-large": "fees.errors.amountTooLarge",
+  "period-past-retention": "fees.errors.periodPastRetention",
+  "payment-reference-reused": "fees.errors.paymentReferenceReused",
 
   "invalid-body": "fees.errors.invalidBody",
 };

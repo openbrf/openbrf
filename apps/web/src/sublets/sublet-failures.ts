@@ -35,6 +35,7 @@ export type SubletReason =
   | "already-closed"
   | "not-refused"
   | "invalid-period"
+  | "period-too-far-ahead"
   | "personal-identity-number";
 
 const SUBLET_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -55,6 +56,7 @@ const SUBLET_FAILURES: Readonly<Record<string, TranslationKey>> = {
    */
   "not-refused": "sublets.errors.notRefused",
   "invalid-period": "sublets.errors.invalidPeriod",
+  "period-too-far-ahead": "sublets.errors.periodTooFarAhead",
   "personal-identity-number": "sublets.errors.personalIdentityNumber",
   "invalid-body": "sublets.errors.invalidBody",
 } satisfies Record<SubletReason | "invalid-body", TranslationKey>;

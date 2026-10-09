@@ -280,16 +280,18 @@ export class ChatGroupService {
     }
 
     if (await isGroupMember(this.prisma, group.id, personId, now)) {
-      return this.members(group.id);
+      return this.members(group.id, now);
     }
 
-    await refuseTooManyGroups(this.prisma, personId);
+    // A cheap early refusal, and not the decision: another press may have put
+    // them into this room since the read above, so that room does not count
+    // against them here. The count under the locks is the one that decides.
+    await refuseTooManyGroups(this.prisma, personId, group.id);
 
     const added = await this.prisma.$transaction(async (tx) => {
-      // The person's own lock first, as everywhere both are taken, and the
-      // rooms they are in counted again under it.
+      // The person's own lock first, as everywhere both are taken, so the rooms
+      // they are in cannot change until this transaction ends.
       await lockChatPerson(tx, personId);
-      await refuseTooManyGroups(tx, personId);
 
       /*
        * The room's own lock, and the capacity counted under it. Two people put
@@ -311,6 +313,11 @@ export class ChatGroupService {
       if (standing !== null) {
         return false;
       }
+
+      // Counted only once they are known not to be in this room: the press that
+      // put them in may have made it their last place, and this one is still
+      // the idempotent answer rather than a refusal.
+      await refuseTooManyGroups(tx, personId);
 
       if ((await residentsIn(tx, group.id, now)) >= MEMBERS_PER_GROUP) {
         throw new ChatError(
@@ -349,7 +356,7 @@ export class ChatGroupService {
       this.logger.log(`A person was put into group chat ${group.id}`);
     }
 
-    return this.members(group.id);
+    return this.members(group.id, now);
   }
 
   /**
@@ -397,8 +404,9 @@ export class ChatGroupService {
     chatId: string,
     reader: Principal,
   ): Promise<ChatGroupMemberView[]> {
-    const group = await this.requireGroupMembership(chatId, reader, new Date());
-    return this.members(group.id);
+    const now = new Date();
+    const group = await this.requireGroupMembership(chatId, reader, now);
+    return this.members(group.id, now);
   }
 
   /**
@@ -485,7 +493,10 @@ export class ChatGroupService {
    * so somebody who has moved out is no longer in the room and is not listed
    * as though they were.
    */
-  private async members(chatId: string): Promise<ChatGroupMemberView[]> {
+  private async members(
+    chatId: string,
+    now: Date,
+  ): Promise<ChatGroupMemberView[]> {
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
       select: {
@@ -503,7 +514,7 @@ export class ChatGroupService {
     const persons = await this.prisma.person.findMany({
       where: {
         id: { in: chat.members.map((member) => member.personId) },
-        residencies: { some: residencyHeldOn(localDayOf(new Date())) },
+        residencies: { some: residencyHeldOn(localDayOf(now)) },
       },
       select: {
         id: true,
@@ -573,12 +584,22 @@ async function residentsIn(
   });
 }
 
-/** Refuses a person already in as many rooms as one account may hold. */
+/**
+ * Refuses a person already in as many rooms as one account may hold.
+ *
+ * `joining` is the room they are being put into. Once they are in it there is
+ * nothing to refuse, so a person found there is let through to the idempotent
+ * answer, whatever the count.
+ */
 async function refuseTooManyGroups(
   db: ChatDbClient,
   personId: string,
+  joining?: string,
 ): Promise<void> {
   const held = await groupsFor(db, personId, new Date());
+  if (joining !== undefined && held.some((room) => room.id === joining)) {
+    return;
+  }
   if (held.length >= GROUPS_PER_PERSON) {
     throw new ChatError(
       "This account is already in as many groups as one account may be in.",

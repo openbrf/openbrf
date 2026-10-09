@@ -191,6 +191,28 @@ async function groupIdNamed(page: Page, name: string): Promise<string> {
   return room.id;
 }
 
+/**
+ * Opens the chat screen and returns the ids of the rooms it was given.
+ *
+ * Read off the request the screen itself makes on opening, armed before the
+ * navigation so the answer cannot arrive before anything is listening for it.
+ * The list is the claim: a room missing from the screen could be a room the
+ * screen had not drawn yet, and one missing from what the screen was sent
+ * cannot be drawn at all.
+ */
+async function openChatAndListRooms(page: Page): Promise<string[]> {
+  const listed = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/chat",
+  );
+  await page.goto(appPath("/chat"));
+  const response = await listed;
+  expect(response.ok()).toBe(true);
+  const { rooms } = (await response.json()) as { rooms: { id: string }[] };
+  return rooms.map((room) => room.id);
+}
+
 /** One group, made through the screen, with its name unique to this run. */
 const GROUP_NAME = `Trädgårdsgruppen ${String(Date.now())}`;
 
@@ -287,9 +309,14 @@ test.describe("a group chat", () => {
 
     await browseAs(page, clientAddress, "outsider");
     await signInThroughTheScreen(page, outsider.email, PASSWORD);
-    await page.goto(appPath("/chat"));
 
-    // Not on their screen, and not on the list the screen reads.
+    // Not on the list the screen reads, and not on their screen: the form for
+    // making a group is drawn from the same answer as the rooms, so once it is
+    // there the screen has what it is going to show.
+    expect(await openChatAndListRooms(page)).not.toContain(chatId);
+    await expect(
+      page.getByRole("button", { name: "Skapa gruppen" }),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: GROUP_NAME })).toHaveCount(
       0,
     );
@@ -346,6 +373,7 @@ test.describe("a group chat", () => {
     );
     await page.goto(appPath("/chat"));
     await expect(page.getByText(said)).toBeVisible();
+    const chatId = await groupIdNamed(page, GROUP_NAME);
     await page.getByRole("button", { name: /^Anmäl meddelandet från/ }).click();
     await page
       .getByLabel("Vad vill du säga om meddelandet?")
@@ -358,13 +386,14 @@ test.describe("a group chat", () => {
     // --- the board reads that message and strikes it through -------------
     await browseAs(page, clientAddress, "board");
     await signInThroughTheScreen(page, board.email, PASSWORD);
-    await page.goto(appPath("/chat"));
 
     /*
      * The queue is the board's whole way in. The room itself is not on this
-     * screen and there is no control that would open it: what is here is the
-     * message that was carried out, with the room's name beside it.
+     * screen and there is no control that would open it: it is not among the
+     * rooms the screen is sent, and what is here is the message that was
+     * carried out, with the room's name beside it.
      */
+    expect(await openChatAndListRooms(page)).not.toContain(chatId);
     await expect(
       page.getByRole("heading", { name: "Anmälda chattmeddelanden" }),
     ).toBeVisible();

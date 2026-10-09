@@ -1,4 +1,5 @@
 import type { Server } from "node:http";
+import type { BlockList } from "node:net";
 
 import {
   ConflictException,
@@ -15,6 +16,7 @@ import { PrincipalService } from "../authorization/principal.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import { trustedProxyList } from "../http/public-rate-limit.guard";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
@@ -68,6 +70,12 @@ const IDLE_REAP_INTERVAL_MS = 50;
 export class AuthService implements OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
   readonly instance: AuthInstance;
+  /**
+   * The proxies named in TRUSTED_PROXIES, empty when none are: what the
+   * Fastify bridge resolves the client address against before a request
+   * reaches the library (fastify-bridge.ts, forwardHeaders).
+   */
+  readonly trustedProxies: BlockList;
   /** Magic-link deliveries still running after their response. */
   private readonly deliveries = new Set<Promise<void>>();
 
@@ -79,6 +87,7 @@ export class AuthService implements OnModuleDestroy {
     @Inject(PROTECTED_RESOURCE) resource: ProtectedResource,
     private readonly httpAdapterHost: HttpAdapterHost,
   ) {
+    this.trustedProxies = trustedProxyList(env.TRUSTED_PROXIES);
     this.instance = betterAuth(
       buildAuthOptions(
         env,

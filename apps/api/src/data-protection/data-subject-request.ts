@@ -1,4 +1,10 @@
-import { formatDateColumn, formatDayOfInstant } from "@openbrf/shared";
+import {
+  compareLocalDays,
+  formatDateColumn,
+  formatDayOfInstant,
+  localDayOf,
+  localDayOfColumn,
+} from "@openbrf/shared";
 
 import type {
   DataSubjectRequestDecision,
@@ -148,7 +154,18 @@ export function requestState(
   if (row.decision === "GRANTED") {
     return "granted";
   }
-  return dueOn(row.requestedOn).getTime() < now.getTime() ? "overdue" : "open";
+  return isPastDue(row.requestedOn, now) ? "overdue" : "open";
+}
+
+/**
+ * Whether the month art. 12(3) gives has run out: the association's day
+ * (ADR 0013) is after the due day, not merely past its first instant. A
+ * request due on 1 October is still open all of that day.
+ */
+export function isPastDue(requestedOn: Date, now: Date): boolean {
+  return (
+    compareLocalDays(localDayOf(now), localDayOfColumn(dueOn(requestedOn))) > 0
+  );
 }
 
 export function toDataSubjectRequestView(

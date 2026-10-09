@@ -190,15 +190,22 @@ export class AuditLogService {
    * size grows with what is held - a whole report rather than one row - states
    * a budget of its own, because past it the transaction is aborted with
    * P2028 and the reader gets nothing.
+   *
+   * `entry` may be a function of what was read, for an entry that records a
+   * fact about the answer - how many rows it held - rather than only the
+   * question.
    */
   async withAuditedRead<T>(
-    entry: AuditEntryInput,
+    entry: AuditEntryInput | ((result: T) => AuditEntryInput),
     read: (client: Prisma.TransactionClient) => Promise<T>,
     options: { timeout?: number } = {},
   ): Promise<T> {
     return this.prisma.$transaction(async (tx) => {
       const result = await read(tx);
-      await this.record(entry, tx);
+      await this.record(
+        typeof entry === "function" ? entry(result) : entry,
+        tx,
+      );
       return result;
     }, options);
   }

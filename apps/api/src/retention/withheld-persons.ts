@@ -1,9 +1,8 @@
 import type { Prisma } from "../generated/prisma/client";
 
 /**
- * The two questions every purge in the product has to ask about a person before
- * it erases anything, kept in one file so five jobs cannot answer them
- * differently.
+ * The questions every purge in the product has to ask about a person before it
+ * erases anything, kept in one file so the jobs cannot answer them differently.
  *
  * A legal hold suspends purging for one person (GDPR art. 17(3)), and so does a
  * restriction of processing - art. 18(2) permits the association to keep
@@ -16,9 +15,12 @@ import type { Prisma } from "../generated/prisma/client";
  * The other direction is the erasure request: a person the board has granted
  * erasure to is purged on the next run whatever their retention window says.
  * That is the whole of what "brings the purge forward" means - the same job
- * erases the same data, only sooner.
+ * erases the same data, only sooner. It brings it forward only where nothing
+ * refuses: a hold or restriction, a seat on the board, a system role or a
+ * residency held today. Every job that erases on a request, and the person
+ * panel that promises the erasure, asks that one question.
  *
- * Both take a client rather than a service, so a purge can call them on its own
+ * All take a client rather than a service, so a purge can call them on its own
  * transaction and get the answer that is true inside it.
  */
 
@@ -106,33 +108,116 @@ export async function isAnyPersonWithheld(
 }
 
 /**
- * People whose erasure the board has granted and the purge has not yet carried
- * out.
+ * A granted erasure request the purge has not yet carried out.
  *
  * Three conditions and each is load-bearing. Granted, because a request the
  * board has not decided is not authority to erase anything. Not executed,
  * because a request already carried out must not select the person a second
  * time on a later night. Not closed, because a request withdrawn or overtaken -
  * by the person moving back in, say - has stopped being an instruction.
+ */
+const GRANTED_ERASURE = {
+  kind: "ERASURE",
+  decision: "GRANTED",
+  executedAt: null,
+  closedAt: null,
+} as const satisfies Prisma.DataSubjectRequestWhereInput;
+
+/**
+ * Nothing stands in the way of carrying out a granted erasure at this moment.
  *
- * A restriction still wins over this: a person who asked for erasure and later
- * for a restriction is in both lists, and the purge reads the withheld list
- * too.
+ * The request brings the purge forward and lifts the retention window; it lifts
+ * nothing else. So a person under a hold or a restriction, one who sits on the
+ * board, holds a system role or still lives here is not erased because they
+ * asked - the same five refusals the service-data purge applies before it
+ * closes the request (`purge.service.ts`, `purgeRefusal`).
+ *
+ * Every job that erases on a request asks this and not merely whether a
+ * request stands. Otherwise the domain jobs would erase a person the closing
+ * job then refuses, and the request would be logged as blocked - ADR 0016's
+ * word for an erasure that has not started - after the bookings, messages and
+ * motions of a sitting board member had gone. A person refused here stays on
+ * each domain's own retention window.
+ *
+ * Seats and residencies are compared with the instant the way the closing job
+ * compares them, so the two cannot disagree about the day a term or a
+ * residency ends.
+ */
+function nothingRefusesErasure(now: Date): Prisma.PersonWhereInput {
+  return {
+    NOT: WITHHELD,
+    residencies: {
+      none: { OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }] },
+    },
+    boardPositions: {
+      none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
+    },
+    systemRoles: { none: {} },
+  };
+}
+
+/**
+ * People whose erasure the board has granted, the purge has not yet carried
+ * out, and nothing stops it carrying out now.
+ *
+ * What every job that erases on a request selects on. {@link
+ * grantedErasurePersonIds} is the wider list, for the account of requests left
+ * open.
  */
 export async function erasureRequestedPersonIds(
   client: PersonClient,
+  now: Date,
 ): Promise<string[]> {
   const persons = await client.person.findMany({
     where: {
-      dataSubjectRequests: {
-        some: {
-          kind: "ERASURE",
-          decision: "GRANTED",
-          executedAt: null,
-          closedAt: null,
-        },
-      },
+      dataSubjectRequests: { some: GRANTED_ERASURE },
+      ...nothingRefusesErasure(now),
     },
+    select: { id: true },
+  });
+
+  return persons.map((person) => person.id);
+}
+
+interface RequestClient {
+  dataSubjectRequest: {
+    findFirst(args: {
+      where: Prisma.DataSubjectRequestWhereInput;
+      select: { id: true };
+    }): Promise<{ id: string } | null>;
+  };
+}
+
+/**
+ * Whether one person's granted erasure may be carried out now, as the job
+ * about to erase their rows asks it.
+ *
+ * Asked on the job's own transaction after it has taken the person's legal
+ * hold key, for the reason {@link isPersonWithheld} gives.
+ */
+export async function isErasureInForce(
+  client: RequestClient,
+  personId: string,
+  now: Date,
+): Promise<boolean> {
+  const request = await client.dataSubjectRequest.findFirst({
+    where: { personId, ...GRANTED_ERASURE, person: nothingRefusesErasure(now) },
+    select: { id: true },
+  });
+
+  return request !== null;
+}
+
+/**
+ * Everybody with a granted erasure request still open, whether or not anything
+ * stands in its way - the list the service-data purge accounts for at the end
+ * of a run, saying why each request is still open.
+ */
+export async function grantedErasurePersonIds(
+  client: PersonClient,
+): Promise<string[]> {
+  const persons = await client.person.findMany({
+    where: { dataSubjectRequests: { some: GRANTED_ERASURE } },
     select: { id: true },
   });
 

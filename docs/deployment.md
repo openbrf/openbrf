@@ -148,24 +148,42 @@ changes nothing but the owner's password, which it sets from
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
-5. The job queue schema is installed or migrated, as the owner. An upgrade
-   that adds an index to the job tables builds it here too, and the step waits
-   until every build has finished: the application never runs pg-boss
-   migrations, so nothing would finish one later. A build that fails stops the
-   deploy with its error, which also stays in `pgboss.bam`, and the next deploy
-   retries it.
+5. The job queue schema is installed or migrated, as the owner. It stops on a
+   queue that is partitioned or names a job table of its own, which Open BRF
+   never declares, because pg-boss builds SQL from those names as the owner.
+   An upgrade that adds an index to the job tables builds it here too, and the
+   step waits until every build has finished: the application never runs
+   pg-boss migrations, so nothing would finish one later. A build that fails
+   stops the deploy with its error, which also stays in `pgboss.bam`, and the
+   next deploy retries it. The check and the migration are two steps, not one
+   transaction, so a running application that could be made to rewrite
+   `pgboss.queue` between them is not covered: stop it before the deploy if you
+   cannot rely on it.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
 The owner's URL is built separately for each of steps 2 to 6, inside the
 process that uses it, so it is never a shell variable and never written to a
 stream; a `DATABASE_URL` that is set on the `migrate` service is used as given.
+The application builds its own URL from `POSTGRES_HOST`, `POSTGRES_PORT` and
+`POSTGRES_DB` unless `DATABASE_URL_RUNTIME` is set, so step 6 checks that the
+owner's URL and the application's name the same server and database:
+
+- With no `DATABASE_URL_RUNTIME`, a `DATABASE_URL` that names another server or
+  database than `POSTGRES_HOST`, `POSTGRES_PORT` and `POSTGRES_DB` is refused.
+- With `DATABASE_URL_RUNTIME` and `RUNTIME_DB_PASSWORD` both set, the two URLs
+  are compared with each other and `POSTGRES_HOST`, `POSTGRES_PORT` and
+  `POSTGRES_DB` are not consulted. A mismatch is refused.
+- With `DATABASE_URL_RUNTIME` and no `RUNTIME_DB_PASSWORD`, you manage the role
+  yourself, nothing is hardened, and no comparison is made.
 
 The application's container assembles its own connection URL from the runtime
 role's password and starts. It is never given the owner's credentials or the
 superuser's, and it refuses to start if it is: a `POSTGRES_PASSWORD`, an
 `OWNER_DB_PASSWORD`, or a `DATABASE_URL` beside the runtime connection stops it
-with a message that says which. Once started, it asks the database whether the
+with a message that says which. The application asks the same again before it
+connects, for a platform that starts it without the image's entrypoint. Once
+started, it asks the database whether the
 role it connected as is a constrained one, and refuses to serve if the answer
 is no - a superuser, a role that owns the database or its tables or can create
 objects in its schemas, or one that holds any privilege the hardening takes
@@ -296,11 +314,11 @@ the database rather than by application code alone. A table's owner can run
 application must not be the owner. And migrations need to own the tables and
 nothing more, so the role that runs them must not be a superuser.
 
-| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                   | Password              | Given to                  |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
-| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                    | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
-| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                      | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
-| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history and on the job schema's version. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                 | Password              | Given to                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                  | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                    | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
 
 Neither the owner's credentials nor the superuser's reach the application's
 container. No password is passed as a process argument - `/proc/<pid>/cmdline`
@@ -367,6 +385,20 @@ instead.
    ```
 
 4. `pull`, then `up -d`.
+5. Change the superuser's password. Until this release the application's
+   container held it, and the superuser still signs in with a password over the
+   compose network, because the `schema-owner` service connects that way on
+   every `up`. Set a new one, generated like the others; psql asks for it and
+   sends only its hash, so it reaches neither a process argument nor a log:
+
+   ```sh
+   docker compose -f docker-compose.prod.yml --env-file .env.production \
+     exec db psql -U openbrf -d openbrf -c '\password openbrf'
+   ```
+
+   Then put the same password in `POSTGRES_PASSWORD` in `.env.production`,
+   before the next `up`, which would otherwise stop at the `schema-owner`
+   service.
 
 The `schema-owner` service creates the owner and moves to it everything the
 superuser owns in the application's schemas, so the `migrate` service after it
@@ -410,7 +442,7 @@ compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
 unset RUNTIME_DB_PASSWORD
 ```
 
-Otherwise revoke the three privileges the release took away, as the superuser,
+Otherwise revoke the privileges the release took away, as the superuser,
 naming your role. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
 column of that table except `version`, read from the catalog as the hardening
@@ -421,6 +453,7 @@ compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
 SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
   string_agg(quote_ident(attname), ', ' ORDER BY attnum))
@@ -498,9 +531,19 @@ step 5.
    compose up -d --no-deps app
    ```
 
+Until this release the application's container held the owner's password as
+well, in `POSTGRES_PASSWORD`. Once the instance runs, change it as the owner,
+and then in `OWNER_DB_PASSWORD`:
+
+```sh
+psql -h db.example.se -U brf_example_owner -d brf_example -c '\password brf_example_owner'
+```
+
 An override file that added `DATABASE_URL` to the `app` service adds it to the
 `migrate` service instead: the application refuses to start with the owner's
-connection in its environment.
+connection in its environment. `POSTGRES_HOST`, `POSTGRES_PORT` and
+`POSTGRES_DB` in the env file name the same server and database, because the
+application builds its connection from them.
 
 ## Several instances on one database server
 
@@ -631,10 +674,33 @@ reading before the first member is added rather than after.
 ## Behind a reverse proxy
 
 Bind the application to loopback - the default - and terminate TLS in front of
-it. The proxy must set `X-Forwarded-For` itself rather than passing through
-whatever a client sends: the header identifies the client for rate limiting on
-the authentication endpoints and on the forms an anonymous visitor can submit,
-and a client that can set it can spoof its way around both.
+it, and name the proxy in `TRUSTED_PROXIES`. The client's address identifies it
+for rate limiting on the authentication endpoints and on the forms an anonymous
+visitor can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
+
+`TRUSTED_PROXIES` lists the addresses or CIDR ranges the proxy connects to the
+application from, separated by commas. A proxy on the host that reaches the
+port bound to loopback arrives from the gateway of the stack's Docker network,
+which `docker network inspect openbrf-prod_default` shows; a proxy in a
+container on that network arrives from its own address. The application reads
+the header only on a request from one of these, and then only from the right,
+past the hops the named proxies wrote: everything to the left of them is what
+the client sent. So a proxy that appends to the header, as nginx's
+`$proxy_add_x_forwarded_for` does, is as safe as one that overwrites it. The
+forms and the sign-in endpoints count the same address, and a request sent to
+the application's port directly, past the proxy, is counted by the address it
+came from whatever header it carries.
+
+Name only the proxies, never the clients. A client inside a listed range is
+believed when it says which address it came from, so it can claim a new one for
+every request and never run out of budget. Keep each range to the network the
+proxy sits on; a range of every address, such as `0.0.0.0/0` or `::/0`, is
+refused at start.
+
+Left empty, the header is not read at all, and every visitor behind the proxy
+shares its budget, on the forms and the sign-in endpoints alike: a busy
+afternoon can then refuse a contact form to somebody who never sent one, and a
+few failed sign-ins hold back everybody else's for a while.
 
 The limits on a member exporting their own data - three a minute and one at a
 time each, and twelve a minute for the whole instance - and the three reports
@@ -935,3 +1001,27 @@ against.
 Every connection is visible to the board under Connected apps, and the board can
 cut one off; a member can see and cut their own. A disconnect takes effect on
 the next call the app makes, not when its token would have expired.
+
+An app the association does not want anybody to connect can be turned away for
+the whole instance by somebody who may manage the association:
+`DELETE /api/oauth-clients/<client id>`, with the client id as
+`GET /api/connected-apps` lists it, cuts every member's connection to it and
+refuses that client id at sign-in from then on, and the audit log records who
+did it. There is no screen for it yet, and no way back: the database keeps a
+disabled client disabled, whoever writes its row. A client registered by hand
+can be registered again under a new id.
+
+What is refused is the client id, not the program behind it. A program that
+identifies itself by its metadata document can publish the same document at
+another address and arrive as a new client; it then has no member's consent,
+so nobody is connected to it until they agree again. To keep such a program
+out for good, also limit the hosts below.
+
+`OPENBRF_OAUTH_CLIENT_METADATA_HOSTS` narrows which programs can be connected in
+the first place. A program usually identifies itself by the https address of
+its own metadata document, and by default any public host may serve one. Listing
+hosts, separated by commas, allows only those, matched exactly; it is checked
+when a document is fetched, on a program's first connection and when its
+document is refreshed, so a program already connected is turned away by
+revoking it as above. A client an administrator registered by hand is not
+affected.

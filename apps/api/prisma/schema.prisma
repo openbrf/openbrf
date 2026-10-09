@@ -569,6 +569,12 @@ model Person {
   personalIdentityNumberCipher String?
   personalIdentityNumberIndex  String?
 
+  /// The normalisation rules the blind indexes above were computed under
+  /// (NORMALIZATION_VERSION in crypto/personal-data.ts). The default is the
+  /// current version, so a row written now needs nothing; a row below it is
+  /// reindexed from its ciphertexts at boot by PersonReindexService.
+  blindIndexVersion Int @default(2)
+
   /// Protected personal data (skyddade personuppgifter): masked in every view,
   /// export and extract; each reveal is written to the audit log.
   protectedPersonalData Boolean @default(false)
@@ -1675,6 +1681,9 @@ enum AuditAction {
   /// A client registered itself against the instance by presenting the URL of
   /// its own metadata document. No person has consented to anything yet.
   OAUTH_CLIENT_REGISTERED
+  /// An administrator turned a client away for the whole instance: it can no
+  /// longer be authorized, and every member's connection to it was cut.
+  OAUTH_CLIENT_REVOKED
   /// The association's financial year and giro numbers were recorded.
   ///
   /// The entry names the fields that changed and never their values: a giro
@@ -1719,6 +1728,10 @@ enum AuditAction {
   /// of trust is a dated fact about who answered for the association and when,
   /// so ending one adds a date rather than removing the period it covered.
   BOARD_POSITION_ENDED
+  /// A board was recorded on a vacant register by somebody who holds no seat:
+  /// a board recovery. One entry per seat it recorded, each carrying the
+  /// stated reason, so the log tells it from an election the board recorded.
+  BOARD_RECOVERY_RECORDED
   /// A bookable resource was added to the association's catalogue.
   BOOKING_RESOURCE_CREATED
   /// A bookable resource was edited: its name, its description, its booking
@@ -2032,7 +2045,13 @@ enum AuditAction {
   /// whoever wrote it. Only a group's message can be struck: the board chat has
   /// no strike-through at all.
   CHAT_MESSAGE_STRUCK
-
+  /// A document in the archive was renamed, re-filed or given to another
+  /// audience. The fields that changed and the audience either side, never the
+  /// title: the audience decides whether its file needs a session at all.
+  DOCUMENT_UPDATED
+  /// The time service data is kept after a move-out was changed, which moves
+  /// every pending purge date at once. The value before and after.
+  ASSOCIATION_RETENTION_RECORDED
   /// An administrator abandoned a member list import that was queued or
   /// applying, so that another one could run. The target is the import session;
   /// the entry carries how far through the file it got, never anything from the
@@ -2733,6 +2752,12 @@ model ImportSession {
   /// (ADR 0002). There is no blind index: nothing searches an upload.
   rowsCipher String
   rowCount   Int
+
+  /// The sheet row each data row was read from, in order: the header is row
+  /// 1, and blank rows the import leaves out are counted, so the preview names
+  /// a row by the number the board sees in the sheet. Empty for a session
+  /// uploaded before this was recorded.
+  sourceRows Int[] @default([])
 
   status ImportSessionStatus @default(MAPPING)
 
@@ -7363,9 +7388,10 @@ model Fee {
   appliesUntil DateTime? @db.Date
 
   /// The month the association's financial year began in when this rate was
-  /// recorded, 1 to 12. Stamped for the reason `MemberCharge` gives: the
-  /// preservation period is counted from the books the rate was entered in, and
-  /// a later change to the setting does not reach back into them.
+  /// recorded, or when it was closed once it has been, 1 to 12. Stamped for the
+  /// reason `MemberCharge` gives: the preservation period is counted from the
+  /// books the rate ended in, and a later change to the setting does not reach
+  /// back into them.
   financialYearStartMonth Int
 
   /// What the apartment pays for one calendar month, in kronor. Positive; a

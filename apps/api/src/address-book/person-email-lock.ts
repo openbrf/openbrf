@@ -26,11 +26,12 @@ import type { Prisma } from "../generated/prisma/client";
  * erasure does, takes nothing: a row losing its address cannot make a match
  * miss it.
  *
- * Taken after the apartment's residency lock and before every other key, the
- * legal hold and the transition keys included. The approval and the import both
- * take the apartment's key before anything else, as `lockApartmentResidencies`
- * requires, and then go on to the transition keys; taking this one between the
- * two is the order both already keep.
+ * Taken after the apartment's residency lock and before every other key: the
+ * person identity number key, the legal hold and the transition keys. The
+ * approval and the import both take the apartment's key before anything else,
+ * as `lockApartmentResidencies` requires, and then go on to the transition
+ * keys; taking this one between the two is the order both already keep. The
+ * address book and the import take `lockPersonIdentityNumber` after it.
  *
  * The key is namespaced and hashed to the int4 the lock space is addressed in.
  * A collision between two addresses costs one of them a short wait and nothing
