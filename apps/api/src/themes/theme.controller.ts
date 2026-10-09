@@ -168,8 +168,8 @@ export class ActiveThemeController {
       // A theme's own files are inert data. Refusing every fetch a rendered
       // asset could make is belt and braces for anything the type allows.
       .header("content-security-policy", "default-src 'none'; sandbox")
-      // Cached hard: an asset path belongs to one installed version, and a
-      // reinstall of a different version writes different declarations.
+      // Cached for an hour: the URL a rendering hands out carries the
+      // package's checksum, so another version is another URL.
       .header("cache-control", "public, max-age=3600")
       .send(asset.contents);
   }

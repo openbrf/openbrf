@@ -148,9 +148,17 @@ export interface ThemeRendering {
  *
  * Built here so the browser never constructs a path into the data volume: it
  * receives finished URLs, and the server decides which files exist.
+ *
+ * Carries the start of the package's checksum, which the route ignores: the
+ * asset is cached for an hour, and an upgrade that keeps a file's path must
+ * not keep serving the old bytes under it.
  */
-export function themeAssetUrl(themeId: string, path: string): string {
-  return `/api/themes/asset?theme=${encodeURIComponent(themeId)}&file=${encodeURIComponent(path)}`;
+export function themeAssetUrl(
+  themeId: string,
+  path: string,
+  checksum: string,
+): string {
+  return `/api/themes/asset?theme=${encodeURIComponent(themeId)}&file=${encodeURIComponent(path)}&v=${encodeURIComponent(checksum.slice(0, 16))}`;
 }
 
 /** Reads a JSON column back as token values, ignoring anything else. */
@@ -402,10 +410,14 @@ export class ThemeService {
       name: row.name,
       builtIn: false,
       modes: { light: resolved.light.tokens, dark: resolved.dark.tokens },
-      fontFaces: themeFontFaces(fonts, (path) => themeAssetUrl(row.id, path)),
+      fontFaces: themeFontFaces(fonts, (path) =>
+        themeAssetUrl(row.id, path, row.checksum),
+      ),
       viewVariants: resolvedViewVariants(asVariantSelection(row.viewVariants)),
       logoUrl:
-        row.logoPath === null ? null : themeAssetUrl(row.id, row.logoPath),
+        row.logoPath === null
+          ? null
+          : themeAssetUrl(row.id, row.logoPath, row.checksum),
     };
   }
 

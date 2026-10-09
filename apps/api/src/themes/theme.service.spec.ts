@@ -198,8 +198,10 @@ describe("rendering", () => {
     ]);
 
     const rendering = await withFont.service.renderingOf("example-theme");
+    // With the start of the package's checksum, so an upgrade that keeps the
+    // path is a new URL rather than an hour of the old bytes.
     expect(rendering.fontFaces[0]?.url).toBe(
-      "/api/themes/asset?theme=example-theme&file=fonts%2Fmono.woff2",
+      `/api/themes/asset?theme=example-theme&file=fonts%2Fmono.woff2&v=${"a".repeat(16)}`,
     );
   });
 
