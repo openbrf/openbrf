@@ -69,11 +69,19 @@ export function parseColor(
     if (rgb[4] !== undefined && !isFullyOpaque(rgb[4])) {
       return null;
     }
-    return {
-      r: Number(rgb[1]),
-      g: Number(rgb[2]),
-      b: Number(rgb[3]),
-    };
+    const channels = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+    // A browser clamps a channel past 255 to 255, so a ratio worked from the
+    // stated value would describe a colour nobody sees; `1.2.3` is not a
+    // number at all.
+    if (
+      channels.some(
+        (channel) => !Number.isFinite(channel) || channel < 0 || channel > 255,
+      )
+    ) {
+      return null;
+    }
+    const [r = 0, g = 0, b = 0] = channels;
+    return { r, g, b };
   }
 
   return null;
@@ -149,7 +157,9 @@ export function checkContrast(tokens: TokenSet): ContrastFinding[] {
       tokens[pair.background],
     );
 
-    if (ratio === null || ratio < AA_CONTRAST_RATIO) {
+    // Written so that a ratio which is not a number fails rather than passes:
+    // every comparison with NaN is false.
+    if (ratio === null || !(ratio >= AA_CONTRAST_RATIO)) {
       findings.push({
         foreground: pair.foreground,
         background: pair.background,

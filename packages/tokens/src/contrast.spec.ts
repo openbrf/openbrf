@@ -23,7 +23,18 @@ describe("parseColor", () => {
     expect(parseColor(input)).toEqual(expected);
   });
 
-  it.each(["", "not-a-color", "#12345", "var(--something)"])(
+  it.each([
+    "",
+    "not-a-color",
+    "#12345",
+    "var(--something)",
+    // A browser clamps these to white, so a ratio from the stated value would
+    // describe a colour nobody sees.
+    "rgb(999, 999, 999)",
+    "rgb(256, 0, 0)",
+    // Not a number at all.
+    "rgb(1.2.3, 0, 0)",
+  ])(
     "returns null for %s rather than guessing",
     (input) => {
       expect(parseColor(input)).toBeNull();
@@ -160,6 +171,20 @@ describe("checkContrast", () => {
     expect(
       findings.every(
         (f) => f.foreground !== "accent-trust-register" || f.statutory,
+      ),
+    ).toBe(true);
+  });
+
+  it("fails register text stated past the channel range on a white register", () => {
+    const clamped = {
+      ...PORTTAVLAN_LIGHT,
+      "text-register": "rgb(999,999,999)",
+      "surface-register": "rgb(255,255,255)",
+    };
+
+    expect(
+      checkContrast(clamped).some(
+        (finding) => finding.foreground === "text-register",
       ),
     ).toBe(true);
   });
