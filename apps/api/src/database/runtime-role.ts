@@ -231,7 +231,32 @@ export async function runtimeRoleProblems(
 }
 
 /**
- * Refuses a production start whose connection is not the constrained role.
+ * The variables in this process's environment that carry the schema owner's
+ * or the superuser's credentials, by name. Empty is unset, as Compose passes
+ * an optional variable nobody set.
+ *
+ * docker/entrypoint.sh refuses the same before it starts the server. It is
+ * asked again here because a platform that replaces the entrypoint - a
+ * Kubernetes command, `docker run --entrypoint` - never runs that check, and
+ * whatever a process starts with it holds for as long as it runs. DATABASE_URL
+ * alone is a development instance on one role; beside a runtime connection it
+ * is the owner's.
+ */
+function ownerCredentialsIn(source: NodeJS.ProcessEnv): string[] {
+  const set = (name: string): boolean => (source[name] ?? "") !== "";
+  const held = ["OWNER_DB_PASSWORD", "POSTGRES_PASSWORD"].filter(set);
+  if (
+    set("DATABASE_URL") &&
+    (set("DATABASE_URL_RUNTIME") || set("RUNTIME_DB_PASSWORD"))
+  ) {
+    held.push("DATABASE_URL");
+  }
+  return held;
+}
+
+/**
+ * Refuses a production start whose environment holds an owner's credentials,
+ * or whose connection is not the constrained role.
  *
  * Called first thing at boot, before a plugin is loaded or a module is built:
  * the job queue and the feature modules start working as they initialise, and
@@ -240,9 +265,23 @@ export async function runtimeRoleProblems(
  * whichever way the answer goes. Outside production it asks nothing, because a
  * development instance runs on the owner's connection on purpose.
  */
-export async function assertConstrainedRuntimeRole(env: Env): Promise<void> {
+export async function assertConstrainedRuntimeRole(
+  env: Env,
+  source: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
   if (env.NODE_ENV !== "production") {
     return;
+  }
+
+  // By name only: the values are the credentials themselves.
+  const held = ownerCredentialsIn(source);
+  if (held.length > 0) {
+    throw new Error(
+      `${held.join(", ")} set in the application's environment. The schema ` +
+        "owner's and the superuser's credentials belong to the deploy steps " +
+        "alone (docker-compose.prod.yml): remove them from this process's " +
+        "environment.",
+    );
   }
 
   const client = new PrismaClient({

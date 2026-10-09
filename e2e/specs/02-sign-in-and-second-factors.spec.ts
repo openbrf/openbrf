@@ -295,21 +295,64 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
   }
 });
 
+/**
+ * Signs in with these credentials through the screen, expecting a refusal, and
+ * returns what the endpoint answered and what the screen then said.
+ */
+async function refusedSignIn(
+  page: Page,
+  email: string,
+  password: string,
+): Promise<{ status: number; body: unknown; said: string }> {
+  await page.goto(appPath("/sign-in"));
+  await page.getByLabel("E-postadress").fill(email);
+  await page.getByLabel("Lösenord", { exact: true }).fill(password);
+
+  // Armed before the click: a wait registered afterwards can miss a response
+  // that has already arrived.
+  const answered = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/auth/sign-in/email" &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
+  const response = await answered;
+
+  const status = page.getByRole("status");
+  await expect(status).toContainText("De uppgifterna fungerade inte.");
+  await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
+  return {
+    status: response.status(),
+    body: (await response.json()) as unknown,
+    said: await status.innerText(),
+  };
+}
+
 test("a wrong password is refused without saying which half was wrong", async ({
   page,
   api: request,
 }) => {
   await ensureInstance(request);
 
-  await page.goto(appPath("/sign-in"));
-  await page.getByLabel("E-postadress").fill(ADMINISTRATOR.email);
-  await page
-    .getByLabel("Lösenord", { exact: true })
-    .fill("inte-losenordet-alls");
-  await page.getByRole("button", { name: "Logga in", exact: true }).click();
-
-  await expect(page.getByRole("status")).toContainText(
-    "De uppgifterna fungerade inte.",
+  const wrongPassword = await refusedSignIn(
+    page,
+    ADMINISTRATOR.email,
+    "inte-losenordet-alls",
   );
-  await expect(page).toHaveURL(new RegExp(`${appPath("/sign-in")}$`));
+  // The other half wrong instead: an address the instance has no account for.
+  const unknownAddress = await refusedSignIn(
+    page,
+    "ingen-alls@eksemplet.test",
+    "inte-losenordet-alls",
+  );
+
+  /*
+   * One answer for both, from the endpoint as well as on the screen. The
+   * screen maps every wrong-credential code onto one sentence, so it would read
+   * the same over an endpoint that told the two apart; the response is where a
+   * difference would let anyone ask the instance whether an address has an
+   * account.
+   */
+  expect(wrongPassword.status).toBe(401);
+  expect(unknownAddress).toEqual(wrongPassword);
 });

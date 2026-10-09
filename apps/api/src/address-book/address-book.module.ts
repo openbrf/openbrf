@@ -6,6 +6,7 @@ import {
 } from "./address-book.controller";
 import { AddressBookService } from "./address-book.service";
 import { ConsentService } from "./consent.service";
+import { PersonReindexService } from "./person-reindex.service";
 import { PersonService } from "./person.service";
 
 /**
@@ -19,7 +20,12 @@ import { PersonService } from "./person.service";
  */
 @Module({
   controllers: [AddressBookController, ResidentDirectoryController],
-  providers: [AddressBookService, ConsentService, PersonService],
+  providers: [
+    AddressBookService,
+    ConsentService,
+    PersonService,
+    PersonReindexService,
+  ],
   exports: [AddressBookService, ConsentService, PersonService],
 })
 export class AddressBookModule {}

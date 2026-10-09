@@ -46,6 +46,11 @@ While writing a spec:
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
+Whichever way it ends, a run writes the deploy steps' and the application's
+logs to `test-results/app.log` at the repository root before the stack is
+removed, so a failure the server caused can be read after the containers are
+gone. The screenshot task does the same.
+
 Re-running is not the same as leaving nothing behind. Nothing here deletes a
 person, an account, a member-register entry or an audit entry: the register and
 the log are append-only by design, and no endpoint removes an account. Every
@@ -137,7 +142,7 @@ Some specs are not numbered against a criterion.
 
 `90-runtime-role-privileges.spec.ts` connects as `openbrf_app` - the role the
 migrate service created and constrained with
-`prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
+`apps/api/prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
 the queue works (a queue is created, a job is sent and a worker receives it)
 while the role creates nothing in either schema, the statutory archive still
 refuses an `UPDATE`, and neither the migration history nor the job schema's
@@ -178,7 +183,7 @@ page under test is one the publication guardrails have already passed.
 previews it, publishes it, and it is then read on the website by somebody with
 no account; publishing is refused while the text carries a personal identity
 number; and a claimed instance links its privacy notice from the footer of
-every page. It is the third spec allowed to navigate the instance root, because
+every page. It is on the root-navigation allowlist in `93-public-site`, because
 reading the published page on the website is the assertion.
 
 `26-site-menu.spec.ts` drives the menu. The board builds a top level and one
@@ -187,8 +192,8 @@ follow it, and the same website is then read twice: by a visitor with no
 account, who is not told the members-only page exists, and by the board member's
 own session, who is. The dropdown is opened with the keyboard rather than with a
 pointer, because the site runs no script and focus is the only thing that opens
-it. It is the fourth spec allowed to navigate the instance root, for the same
-reason as the one above: the menu is chrome on the website itself.
+it. It is on the same allowlist, for the same reason as the one above: the menu
+is chrome on the website itself.
 
 `30-motions.spec.ts` drives motions to the general meeting, and its subject is a
 statute about who a person is. The shared register fixture holds two people in
@@ -477,7 +482,8 @@ something the next person to capture by hand discovers - and the images are one
 download away from the pull request that changed them.
 
 The stack is a second one, not the suite's: compose project `openbrf-shots`, on
-ports 3011, 5443 and 8126, configured by `screenshots.env`. A capture and a
+ports 3011, 5443 and 8126, with its image built as `openbrf:shots` rather than
+the suite's `openbrf:e2e`, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
@@ -505,16 +511,20 @@ tenant-owner, so that the two statutory registers have an entry to show, and
 she carries neither a number nor a phone number either: everybody the capture
 invents is declared in `screenshots/people.ts` under that one rule. It never
 runs `db:seed`, whose demo data carries a plausible-looking personal identity
-number and Swedish mobile numbers, and which refuses to run against a
-production image in any case.
+number and Swedish mobile numbers, and which refuses to run without
+`--demo-data`, in production, or against a database holding anything but its
+own demo rows in any case.
 
 That is checked rather than trusted. Before each image is written, the capture
-reads the rendered text and every filled-in field, and fails the run on anything
-shaped like a personal identity number, or on any email address outside `.test`.
-A Swedish organisation number has the same shape and is not one; the two are
-told apart by the date a personal identity number begins with, which an
-organisation number is issued unable to carry. A screen that needs new fixture
-data has to keep both rules true.
+reads the rendered text, every filled-in field and every embedded frame, and
+fails the run on a personal identity number in either form, with or without
+its separator, on anything shaped like a Swedish mobile number, or on any email
+address outside `.test`. Personal identity numbers are found with the product's own
+scanner from `@openbrf/shared`, which checks the date and the check digit. A
+Swedish organisation number has the same shape and is not one; the two are told
+apart by the date a personal identity number begins with, which an organisation
+number is issued unable to carry. A screen that needs new fixture data has to
+keep these rules true.
 
 The separate stack is part of the same rule: the suite creates people carrying a
 personal identity number and a phone number in order to test masking, and a
@@ -530,7 +540,7 @@ it is not writing a test:
   name: "member-register-extract",   // the file stem, so <name>-light.png
   as: "administrator",               // "nobody", "administrator", "resident"
                                      // or "member"
-  goto: "/register/members",         // omit to stay where the entry above left off
+  goto: appPath("/registers/members"), // omit to stay where the entry above left off
   prepare: [                         // clicks and fills, when a URL is not enough
     { click: { button: "Skriv ut utdrag" } },
   ],
