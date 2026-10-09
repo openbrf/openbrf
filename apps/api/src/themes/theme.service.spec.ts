@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
-import type { PackageLock } from "../packaging/package-lock";
+import {
+  type PackageLock,
+  PackageLockLostError,
+} from "../packaging/package-lock";
 import type { ThemeStore } from "./theme-store";
 import { ThemeError, ThemeService } from "./theme.service";
 
@@ -58,12 +61,21 @@ function build(
     association?: boolean;
     /** Makes the filesystem removal fail, as a full volume or a lock would. */
     removalFails?: boolean;
+    /** When the package lock's session ends: before the work, or once the row is deleted. */
+    lockLost?: "before" | "after-delete";
   } = {},
 ): Harness {
   let active = options.activeThemeId ?? null;
   const exists = options.association ?? true;
   const audited: { action: string; targetId: string | null }[] = [];
   const removed: string[] = [];
+  const lock = new AbortController();
+  const loseLock = (): void => {
+    lock.abort(new PackageLockLostError("theme", "example-theme"));
+  };
+  if (options.lockLost === "before") {
+    loseLock();
+  }
 
   const prisma = {
     association: {
@@ -96,6 +108,9 @@ function build(
         },
       ),
       delete: vi.fn(async (args: { where: { id: string } }) => {
+        if (options.lockLost === "after-delete") {
+          loseLock();
+        }
         const index = rows.findIndex((row) => row.id === args.where.id);
         const [deleted] = rows.splice(index, 1);
         return deleted;
@@ -136,7 +151,11 @@ function build(
       // The lock has no meaning without a database; package-lock.int-spec.ts
       // tests it against one.
       {
-        run: async (_kind: string, _id: string, work: () => unknown) => work(),
+        run: async (
+          _kind: string,
+          _id: string,
+          work: (lockLost: AbortSignal) => unknown,
+        ) => work(lock.signal),
       } as unknown as PackageLock,
     ),
     rows,
@@ -336,6 +355,29 @@ describe("removal", () => {
 
     expect(stuck.rows).toEqual([]);
     expect(themes.some((theme) => theme.id === "example-theme")).toBe(false);
+  });
+
+  it("removes nothing once the package lock is lost", async () => {
+    const lost = build([themeRow()], { lockLost: "before" });
+
+    await expect(
+      lost.service.uninstall("example-theme"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(lost.rows).toHaveLength(1);
+    expect(lost.removed).toEqual([]);
+  });
+
+  /*
+   * With the row gone and the lock lost, an install of the same id may already
+   * be writing into the directory. Its files are not this removal's to take.
+   */
+  it("leaves the files alone when the lock is lost after the row is deleted", async () => {
+    const lost = build([themeRow()], { lockLost: "after-delete" });
+
+    await lost.service.uninstall("example-theme");
+
+    expect(lost.rows).toEqual([]);
+    expect(lost.removed).toEqual([]);
   });
 });
 

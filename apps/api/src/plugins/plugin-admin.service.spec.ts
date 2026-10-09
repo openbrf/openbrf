@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
+import { PackageLockLostError } from "../packaging/package-lock";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
@@ -66,6 +67,8 @@ interface Options {
   recipients?: ReadonlyMap<string, string>;
   /** OPENBRF_PLUGINS_ENABLED; on unless the instance is the subject. */
   pluginsEnabled?: boolean;
+  /** What the package lock hands the work; a lock still held unless given. */
+  lockLost?: AbortSignal;
 }
 
 function build(options: Options = {}) {
@@ -96,6 +99,7 @@ function build(options: Options = {}) {
   const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
   const record = vi.fn(async () => undefined);
+  const remove = vi.fn(async () => true);
   /*
    * The transaction client, as its own object. Arming and the entry that
    * records it have to commit together, and an assertion that the entry was
@@ -117,7 +121,7 @@ function build(options: Options = {}) {
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
-      remove: async () => true,
+      remove,
     } as never,
     {
       report: () => [],
@@ -150,7 +154,11 @@ function build(options: Options = {}) {
     // The lock has no meaning without a database; package-lock.int-spec.ts
     // tests it against one.
     {
-      run: async (_kind: string, _id: string, work: () => unknown) => work(),
+      run: async (
+        _kind: string,
+        _id: string,
+        work: (lockLost: AbortSignal) => unknown,
+      ) => work(options.lockLost ?? new AbortController().signal),
     } as never,
   );
   return {
@@ -160,6 +168,7 @@ function build(options: Options = {}) {
     seedPlugin,
     setActionArmed,
     record,
+    remove,
     prisma,
     txClient,
     restart,
@@ -1239,5 +1248,39 @@ describe("the gates on the OAuth protected resource", () => {
 
     await done;
     expect(consent).toHaveBeenCalledOnce();
+  });
+});
+
+describe("an operation whose package lock was lost", () => {
+  /*
+   * The session holding the lock ended, so another operation on the id may
+   * already be running. Nothing may be written after that, however far the
+   * gates got.
+   */
+  const lost = (): AbortSignal => {
+    const controller = new AbortController();
+    controller.abort(new PackageLockLostError("plugin", "occupancy"));
+    return controller.signal;
+  };
+
+  it("installs nothing", async () => {
+    const built = build({ lockLost: lost() });
+
+    await expect(
+      built.service.install({ id: "occupancy" }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+  });
+
+  it("removes nothing", async () => {
+    const built = build({ lockLost: lost() });
+
+    await expect(
+      built.service.uninstall("occupancy", null, "WEB"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.remove).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
   });
 });

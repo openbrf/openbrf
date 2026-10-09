@@ -1610,7 +1610,8 @@
         "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
         "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t.",
         "recipientRecorded": "Tillägget installerades inte. Sedan den här sidan öppnades har det registrerats på sidan Dataskydd vart tillägget skickar personuppgifter, och en installation ändrar inte det. Avbryt och välj tillägget igen för att installera det med det svar som står där; ändra svaret på sidan Dataskydd.",
-        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat."
+        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
+        "busy": "Tillägget installerades inte, eftersom en annan ändring av det pågick. Vänta en stund och försök igen."
       }
     },
     "permissions": {
@@ -1806,6 +1807,7 @@
       "lintFailed": "Temat avvisades:",
       "notInCatalog": "Katalogen listar inte längre det temat.",
       "entryDeprecated": "Katalogen anger att det temat inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
+      "packageBusy": "En annan ändring av det temat pågick, så ingenting ändrades. Vänta en stund och försök igen.",
       "themeNotInstalled": "Det temat är inte installerat.",
       "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
       "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",

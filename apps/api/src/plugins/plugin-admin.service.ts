@@ -499,15 +499,25 @@ export class PluginAdminService {
      * uninstall of the same id deletes the row they read, so both run under
      * the one lock. See {@link PackageLock}.
      */
-    return await this.packageLock.run("plugin", request.id, () =>
-      this.installLocked(request, actorPersonId, channel),
+    return await this.packageLock.run("plugin", request.id, (lockLost) =>
+      this.installLocked(request, actorPersonId, channel, lockLost),
     );
   }
 
+  /**
+   * The install, under the lock.
+   *
+   * Every write below is preceded by a check that the lock is still held. A
+   * lock lost part way stops the install at the next write rather than letting
+   * it go on beside an uninstall that may already have the id: reopening the
+   * processing or queueing the install of a plugin that uninstall has removed
+   * is the race the lock is there to close.
+   */
   private async installLocked(
     request: InstallRequest,
     actorPersonId: string | null,
     channel: AuditChannel,
+    lockLost: AbortSignal,
   ): Promise<{ restarting: boolean }> {
     /*
      * Read from the source rather than the cache: the screen that sent this
@@ -621,6 +631,7 @@ export class PluginAdminService {
         ? undefined
         : await this.pluginAgreementInput(request.processorAgreement);
 
+    lockLost.throwIfAborted();
     await this.registry.consent({
       id: entry.id,
       packageName: entry.packageName,
@@ -647,6 +658,7 @@ export class PluginAdminService {
      * is already committed.
      */
     if (agreement !== undefined) {
+      lockLost.throwIfAborted();
       await this.processors.record(
         pluginProcessorKey(entry.id),
         { ...agreement, actorPersonId, channel },
@@ -661,6 +673,7 @@ export class PluginAdminService {
      * the row was closed with a date, and reinstalling reopens it and refreshes
      * the declared categories while keeping any wording the board has written.
      */
+    lockLost.throwIfAborted();
     await this.processing.seedPlugin(entry.id, {
       name: entry.packageName,
       personalDataCategories: [
@@ -668,6 +681,7 @@ export class PluginAdminService {
       ],
     });
 
+    lockLost.throwIfAborted();
     await this.audit.record({
       action: "PLUGIN_INSTALLED",
       channel,
@@ -681,6 +695,7 @@ export class PluginAdminService {
       },
     });
 
+    lockLost.throwIfAborted();
     await this.installer.enqueue({
       reason: `install:${entry.id}`,
       restart: true,
@@ -696,21 +711,29 @@ export class PluginAdminService {
   ): Promise<{ restarting: boolean }> {
     // The same lock an install of this id takes, so the two run one after the
     // other.
-    return await this.packageLock.run("plugin", id, () =>
-      this.uninstallLocked(id, actorPersonId, channel),
+    return await this.packageLock.run("plugin", id, (lockLost) =>
+      this.uninstallLocked(id, actorPersonId, channel, lockLost),
     );
   }
 
+  /**
+   * The uninstall, under the lock, checked before every write for the reason
+   * {@link installLocked} is: ending the processing of a plugin an install
+   * has just put back would leave the record saying it stopped.
+   */
   private async uninstallLocked(
     id: string,
     actorPersonId: string | null,
     channel: AuditChannel,
+    lockLost: AbortSignal,
   ): Promise<{ restarting: boolean }> {
+    lockLost.throwIfAborted();
     const removed = await this.registry.remove(id);
     if (!removed) {
       throw new PluginNotFoundError(id);
     }
 
+    lockLost.throwIfAborted();
     await this.audit.record({
       action: "PLUGIN_REMOVED",
       channel,
@@ -726,8 +749,10 @@ export class PluginAdminService {
      * agreement covered a period that happened, and closing it is the board's
      * own act on the data protection screen.
      */
+    lockLost.throwIfAborted();
     await this.processing.endPlugin(id);
 
+    lockLost.throwIfAborted();
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
     // What the overview now says, rather than a constant: with plugins
     // switched off nothing runs the reconcile and nothing is replaced, and a

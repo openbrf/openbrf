@@ -23,6 +23,7 @@ const FAILURE_KEYS: Readonly<Record<string, TranslationKey>> = {
   "lint-failed": "themeCatalog.errors.lintFailed",
   "not-in-catalog": "themeCatalog.errors.notInCatalog",
   "entry-deprecated": "themeCatalog.errors.entryDeprecated",
+  "package-busy": "themeCatalog.errors.packageBusy",
   "theme-not-installed": "themeCatalog.errors.themeNotInstalled",
   "theme-not-composed": "themeCatalog.errors.themeNotComposed",
   "built-in-theme": "themeCatalog.errors.builtInTheme",

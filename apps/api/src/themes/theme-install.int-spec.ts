@@ -11,7 +11,11 @@ import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { CatalogClient } from "../packaging/catalog.client";
-import { PackageLock } from "../packaging/package-lock";
+import {
+  PACKAGE_LOCK_APPLICATION_NAME,
+  PackageLock,
+  PackageLockLostError,
+} from "../packaging/package-lock";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
@@ -625,6 +629,39 @@ describe("an install racing an uninstall of the same theme", () => {
     expect(Date.now() - started).toBeLessThan(400);
 
     await slow;
+    await themes.uninstall(exampleEntry.id);
+  });
+
+  /*
+   * The lock's own session ends mid-download - the backend terminated, the
+   * database still up - and Postgres hands the lock to the next asker. The
+   * install must not go on to write over whatever that asker did.
+   */
+  it("stops an install whose lock was lost before it writes anything", async () => {
+    await installer.install(exampleEntry.id, null);
+    const before = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: exampleEntry.id },
+      select: { updatedAt: true },
+    });
+
+    const reinstall = installerReading(catalogPath, 600).install(
+      exampleEntry.id,
+      null,
+    );
+    await installHoldsLock();
+    await prisma.$queryRaw`
+      SELECT pg_terminate_backend(pid)
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND application_name = ${PACKAGE_LOCK_APPLICATION_NAME}`;
+
+    await expect(reinstall).rejects.toBeInstanceOf(PackageLockLostError);
+    const after = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: exampleEntry.id },
+      select: { updatedAt: true },
+    });
+    expect(after.updatedAt).toEqual(before.updatedAt);
+
     await themes.uninstall(exampleEntry.id);
   });
 });

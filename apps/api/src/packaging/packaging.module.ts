@@ -1,5 +1,7 @@
 import { Global, Module } from "@nestjs/common";
 
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { CatalogClient } from "./catalog.client";
 import { PackageLock } from "./package-lock";
 
@@ -18,7 +20,17 @@ import { PackageLock } from "./package-lock";
  */
 @Global()
 @Module({
-  providers: [CatalogClient, PackageLock],
+  providers: [
+    CatalogClient,
+    // Built here rather than by the injector, so a test can hand one tighter
+    // limits; one per process, which is what makes its queue and its count
+    // mean anything.
+    {
+      provide: PackageLock,
+      useFactory: (env: Env) => new PackageLock(env),
+      inject: [ENV],
+    },
+  ],
   exports: [CatalogClient, PackageLock],
 })
 export class PackagingModule {}

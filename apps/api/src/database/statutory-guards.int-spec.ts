@@ -1783,8 +1783,9 @@ describe("two instances sharing one database server", () => {
 
   it("caps each runtime role's connections", async () => {
     // One instance, or a plugin running inside it, must not be able to take
-    // every connection the server has. Fifteen unless the entrypoint says
-    // otherwise: the default pool, the job queue's two and three to spare.
+    // every connection the server has. Nineteen unless the entrypoint says
+    // otherwise: the default pool, the job queue's two, the package lock's
+    // four and three to spare.
     const limits = await prisma.$queryRawUnsafe<
       { rolname: string; rolconnlimit: number }[]
     >(
@@ -1794,7 +1795,7 @@ describe("two instances sharing one database server", () => {
     );
     expect(
       Object.fromEntries(limits.map((row) => [row.rolname, row.rolconnlimit])),
-    ).toEqual({ [first.role]: 15, [second.role]: 7 });
+    ).toEqual({ [first.role]: 19, [second.role]: 7 });
   });
 
   it("refuses a runtime role another instance's database already grants", async () => {

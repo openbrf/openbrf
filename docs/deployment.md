@@ -607,13 +607,15 @@ DROP ROLE openbrf_app;
 ```
 
 **Connections.** The application's pool holds up to
-`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
-more, so an instance can take twelve at the defaults. Each deploy limits the
-runtime role to that plus three, so an instance - or code running inside it -
-cannot take more than its share. PostgreSQL allows 100 connections unless
-`max_connections` says otherwise, three of them reserved for superusers, which
-leaves room for six instances at their limits and a few connections over for
-the migrations each deploy runs and for anybody else who connects. The limits,
+`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, the job queue two
+more, and installing or uninstalling a plugin or theme holds a lock on a
+connection of its own, at most four at a time, so an instance can take sixteen
+at the defaults. Each deploy limits the runtime role to that plus three, so an
+instance - or code running inside it - cannot take more than its share.
+PostgreSQL allows 100 connections unless `max_connections` says otherwise,
+three of them reserved for superusers, which leaves room for five instances at
+their limits and two connections over for the migrations each deploy runs and
+for anybody else who connects. The limits,
 and room for those, have to fit within `max_connections` less the reserved
 connections; a smaller pool, or a larger `max_connections`, makes room for more
 instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
@@ -639,7 +641,8 @@ and a client that can set it can spoof its way around both.
 The limits on a member exporting their own data - three a minute and one at a
 time each, and twelve a minute for the whole instance - and the three reports
 the instance gathers at once, shared between those exports and the board's data
-subject access reports, are counted in the memory of the application process, so
+subject access reports, and the four plugin and theme installs and uninstalls it
+runs or queues at once, are counted in the memory of the application process, so
 running more than one application container for an instance multiplies every
 one of them by the number of containers.
 

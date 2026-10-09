@@ -539,12 +539,15 @@ export class ThemeService {
     // The checks below read the row an install of this id writes, and the
     // removal takes its files with it, so both run under the one lock. See
     // {@link PackageLock}.
-    return await this.packageLock.run("theme", themeId, () =>
-      this.uninstallLocked(themeId),
+    return await this.packageLock.run("theme", themeId, (lockLost) =>
+      this.uninstallLocked(themeId, lockLost),
     );
   }
 
-  private async uninstallLocked(themeId: string): Promise<ThemeSummary[]> {
+  private async uninstallLocked(
+    themeId: string,
+    lockLost: AbortSignal,
+  ): Promise<ThemeSummary[]> {
     const [rows, activeId] = await Promise.all([
       this.installedRows(),
       this.activeThemeId(),
@@ -584,9 +587,17 @@ export class ThemeService {
      * So a failed removal is recorded and not raised: the uninstall did happen,
      * and reporting it as a failure would send a board member to retry an
      * operation that has already succeeded.
+     *
+     * Both are checked against the package lock first. The files most of all:
+     * once the row is gone an install of the same id may already be putting
+     * its own files in that directory, and with the lock lost nothing would
+     * stop this removal from taking them. A removal skipped that way is
+     * logged as one that failed, which is what it is.
      */
+    lockLost.throwIfAborted();
     await this.prisma.installedTheme.delete({ where: { id: themeId } });
     try {
+      lockLost.throwIfAborted();
       await this.store.remove(themeId);
     } catch (cause) {
       this.logger.warn(
