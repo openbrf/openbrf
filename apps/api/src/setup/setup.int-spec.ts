@@ -4,20 +4,15 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import { hashOpaqueToken } from "../auth/opaque-token";
 import { PrismaService } from "../database/prisma.service";
 import {
-  BASE_URL_VARIABLE,
-  maintenanceUrl,
-  quoteIdentifier,
-  templateDatabaseName,
-  withDatabase,
-  workerDatabaseName,
-} from "../testing/integration-database";
+  type ApplicationOnOwnDatabase,
+  applicationOnOwnDatabase,
+} from "../testing/application-on-own-database";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { SetupClaimService } from "./setup-claim.service";
 
@@ -256,99 +251,16 @@ describe("settings without a session", () => {
  * template: no account, no association, nothing any other suite wrote.
  *
  * The application is built with `digest` as OPENBRF_SETUP_TOKEN_DIGEST, or
- * with none. ConfigModule reads process.env while the module compiles, so the
- * two variables are set for that moment and put back straight after.
+ * with none.
  */
-async function unclaimedInstance(
+function unclaimedInstance(
   label: string,
   digest: string | null,
-): Promise<{
-  app: NestFastifyApplication;
-  prisma: PrismaService;
-  close: () => Promise<void>;
-}> {
-  const baseUrl = process.env[BASE_URL_VARIABLE];
-  if (baseUrl === undefined) {
-    throw new Error(
-      `${BASE_URL_VARIABLE} is not set: the worker's setup file did not run`,
-    );
-  }
-  const poolId = Number(process.env.VITEST_POOL_ID ?? "1");
-  const database = `${workerDatabaseName(baseUrl, poolId)}_claim_${label}`;
-
-  const maintenance = new Client({ connectionString: maintenanceUrl(baseUrl) });
-  await maintenance.connect();
-  try {
-    await maintenance.query(
-      `drop database if exists ${quoteIdentifier(database)} with (force)`,
-    );
-    await maintenance.query(
-      `create database ${quoteIdentifier(database)} template ${quoteIdentifier(
-        templateDatabaseName(baseUrl),
-      )}`,
-    );
-  } finally {
-    await maintenance.end();
-  }
-
-  const saved = {
-    DATABASE_URL: process.env.DATABASE_URL,
-    DATABASE_URL_RUNTIME: process.env.DATABASE_URL_RUNTIME,
-    OPENBRF_SETUP_TOKEN_DIGEST: process.env.OPENBRF_SETUP_TOKEN_DIGEST,
-  };
-  process.env.DATABASE_URL = withDatabase(baseUrl, database);
-  if (
-    saved.DATABASE_URL_RUNTIME !== undefined &&
-    saved.DATABASE_URL_RUNTIME !== ""
-  ) {
-    process.env.DATABASE_URL_RUNTIME = withDatabase(
-      saved.DATABASE_URL_RUNTIME,
-      database,
-    );
-  }
-  // Empty rather than deleted when there is none: the environment file is
-  // loaded again while the module compiles and fills in only what is unset,
-  // and the schema reads an empty value as absent.
-  process.env.OPENBRF_SETUP_TOKEN_DIGEST = digest ?? "";
-
-  let built: NestFastifyApplication;
-  try {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    built = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    );
-    await built.init();
-    await built.getHttpAdapter().getInstance().ready();
-  } finally {
-    for (const [name, value] of Object.entries(saved)) {
-      if (value === undefined) {
-        delete process.env[name];
-      } else {
-        process.env[name] = value;
-      }
-    }
-  }
-
-  return {
-    app: built,
-    prisma: built.get(PrismaService),
-    close: async () => {
-      await built.close();
-      const dropping = new Client({
-        connectionString: maintenanceUrl(baseUrl),
-      });
-      await dropping.connect();
-      try {
-        await dropping.query(
-          `drop database if exists ${quoteIdentifier(database)} with (force)`,
-        );
-      } finally {
-        await dropping.end();
-      }
-    },
-  };
+): Promise<ApplicationOnOwnDatabase> {
+  // Empty rather than unset when there is none: see applicationOnOwnDatabase.
+  return applicationOnOwnDatabase(`claim_${label}`, {
+    OPENBRF_SETUP_TOKEN_DIGEST: digest ?? "",
+  });
 }
 
 /** A first administrator, with whatever token the case presents. */
