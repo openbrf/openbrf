@@ -26,7 +26,6 @@ import {
   loadEnvForIntegrationTests,
   restoreEnvironmentVariable,
 } from "../testing/integration-env";
-import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
