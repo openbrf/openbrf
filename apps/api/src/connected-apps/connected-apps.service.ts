@@ -380,18 +380,31 @@ export class ConnectedAppsService {
    * A disconnect by the person themself, so it writes no entry - the one write
    * that failed is the reason this runs. Reported rather than thrown, for the
    * reason {@link discardClient} gives.
+   *
+   * The report names the grant by the keys this application minted for it and
+   * never by the client id. An app that identifies itself by the URL of its
+   * own metadata document chose that value, and its path and query can carry
+   * anything the app put there - which ADR 0007 keeps out of the log. The
+   * consent rows are read before the withdrawal is tried, so the line can say
+   * which ones are left.
    */
   async withdrawUnrecordedConsent(
     actor: ActorContext,
     personId: string,
     clientId: string,
   ): Promise<void> {
+    let grantIds: string[] = [];
     try {
       const account = await this.prisma.user.findUnique({
         where: { personId },
         select: { id: true },
       });
       if (account !== null) {
+        const grants = await this.prisma.oauthConsent.findMany({
+          where: { userId: account.id, clientId },
+          select: { id: true },
+        });
+        grantIds = grants.map((grant) => grant.id);
         await this.disconnect({
           userId: account.id,
           personId,
@@ -404,10 +417,15 @@ export class ConnectedAppsService {
       if (cause instanceof NotFoundException) {
         return; // No consent stood, so nothing is left to withdraw.
       }
+      // An empty list here means the read itself failed, so the person is
+      // the handle left: the grant is their account's newest consent.
+      const remedy =
+        grantIds.length > 0
+          ? `Delete auth_oauth_consent ${grantIds.join(", ")} by hand.`
+          : "Delete the newest auth_oauth_consent row of their account by hand.";
       this.logger.error(
-        `Could not withdraw the unrecorded consent to the client ${clientId}: ` +
-          `${failureName(cause)}. Delete its auth_oauth_consent row for ` +
-          `person ${personId} by hand.`,
+        `Could not withdraw an unrecorded consent of person ${personId}: ` +
+          `${failureName(cause)}. ${remedy}`,
         failureFrames(cause),
       );
     }
