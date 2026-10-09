@@ -117,6 +117,10 @@ export class BearerPrincipalService {
         clientId: row.clientId,
         createdAt: { lte: row.createdAt },
       },
+      // Better Auth narrows a consent in place, so the row that was changed
+      // last is the grant as it stands; with duplicate rows, an older and
+      // wider one must not outvote it.
+      orderBy: { updatedAt: "desc" },
       select: { scopes: true },
     });
     if (consent === null) {

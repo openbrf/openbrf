@@ -488,6 +488,38 @@ describe("resolving a token", () => {
     await disconnectAll(member.personId);
   });
 
+  it("reads the most recently changed consent when the member has more than one", async () => {
+    // Nothing in the table keeps a member to one consent per app, so a stale
+    // wider row can sit next to the one the member narrowed since.
+    const token = `token-duplicate-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    const userId = await accountIdFor(member.personId);
+    await prisma.oauthConsent.updateMany({
+      where: { userId, clientId },
+      data: { updatedAt: new Date(Date.now() - 60_000) },
+    });
+    const now = new Date();
+    await prisma.oauthConsent.create({
+      data: {
+        clientId,
+        userId,
+        resources: [resource.url],
+        requestedUserInfoClaims: [],
+        scopes: ["mcp:read"],
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    await prisma.oauthAccessToken.updateMany({
+      where: { token: hashOpaqueToken(token) },
+      data: { createdAt: new Date(Date.now() + 60_000) },
+    });
+
+    expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
+
+    await disconnectAll(member.personId);
+  });
+
   it("stops resolving the moment the connection is cut", async () => {
     const token = `token-cutoff-${suffix}`;
     await grant({ personId: member.personId, client: clientId, token });
