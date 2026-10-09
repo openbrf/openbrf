@@ -1,7 +1,8 @@
+import type { MeetingReason } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import "../i18n";
-import { meetingFailureKey, type MeetingReason } from "./meeting-failures";
+import { meetingFailureKey } from "./meeting-failures";
 
 /**
  * Turning the module's refusal codes into sentences a board can act on.

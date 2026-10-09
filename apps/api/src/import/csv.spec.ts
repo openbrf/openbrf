@@ -44,6 +44,19 @@ describe("choosing the delimiter", () => {
     // would pick the comma and split the file down the middle of a heading.
     expect(detectDelimiter('"Namn, efternamn";Lgh;E-post')).toBe(";");
   });
+
+  it("counts over a title with a line break typed into it", () => {
+    // Alt-Enter in an Excel heading. Cut at the break, the first line holds
+    // no semicolon and a comma inside the title, and the whole file became
+    // one column.
+    expect(detectDelimiter('"Namn,\nfullt";Lgh;E-post\nAnna;1101;a@x')).toBe(
+      ";",
+    );
+  });
+
+  it("ignores a line break inside quotes when the file ends rows with CR", () => {
+    expect(detectDelimiter('"Namn,\nfullt";Lgh\rAnna;1101')).toBe(";");
+  });
 });
 
 describe("decoding the bytes", () => {
@@ -139,6 +152,12 @@ describe("parsing", () => {
     expect(rows[1]).toEqual(["Anna", "Storgatan 12, lgh 3"]);
   });
 
+  it("reads a quoted field with a space before its opening quote", () => {
+    const { rows } = parseCsv('Namn;Adress\nAnna; "Storgatan 12; lgh 3"', ";");
+
+    expect(rows[1]).toEqual(["Anna", "Storgatan 12; lgh 3"]);
+  });
+
   it("reads a doubled quote as one literal quote", () => {
     const { rows } = parseCsv('Namn\n"Anna ""Nisse"" Lind"');
 
@@ -162,9 +181,12 @@ describe("parsing", () => {
   });
 
   it("skips a blank line rather than importing an empty person", () => {
-    const { rows } = parseCsv("Namn;Lgh\nAnna;1101\n\nBo;1102\n");
+    const { rows, sourceRows } = parseCsv("Namn;Lgh\nAnna;1101\n\nBo;1102\n");
 
     expect(rows).toHaveLength(3);
+    // Bo is still on the fourth row of the sheet, which is the number the
+    // preview names him by.
+    expect(sourceRows).toEqual([1, 2, 4]);
   });
 
   it("pads a short row so the mapping cannot read the wrong field", () => {
@@ -259,6 +281,13 @@ describe("writing", () => {
     );
   });
 
+  it.each([["Lind, Anna"], ["Lind\tAnna"]])(
+    "quotes %j, which a reader using another separator would split",
+    (cell) => {
+      expect(writeCsv([[cell]])).toBe(`\ufeff"${cell}"\r\n`);
+    },
+  );
+
   it("round-trips through the parser", () => {
     const rows = [
       ["Namn", "Adress"],
@@ -318,6 +347,20 @@ describe("formula injection", () => {
     // with nothing in it at all.
     expect(writeCsv([["", "Nyckel"]])).toBe("\ufeff;Nyckel\r\n");
   });
+
+  it.each([",", "\t"])(
+    "keeps a cell whole for a reader splitting on %j",
+    (separator) => {
+      // Neutralisation looks at the cell's first character, so a cell split
+      // at a separator inside it must not hand a reader a second field that
+      // starts a formula.
+      const written = writeCsv([[`Anna${separator}=1+1`]]);
+      const fields = parseCsv(written, separator === "," ? "," : "\t").rows;
+
+      expect(fields[0]?.[0]).toBe(`Anna${separator}=1+1`);
+      expect(fields.flat().some((field) => field.startsWith("="))).toBe(false);
+    },
+  );
 
   it("puts the apostrophe inside the quotes where a cell needs both", () => {
     // The order matters: quoting first would put the apostrophe outside the

@@ -445,13 +445,40 @@ describe("making a group and being in one", () => {
        * does not exist.
        */
       expect(refused.statusCode).toBe(403);
-      // The row is still there and answers nothing, which is what lets what
-      // they wrote stay in the room attributed exactly as before.
+
+      // Nor is the room's member list: it asks the register too, and does not
+      // count them against the room.
+      const listed = await inject({
+        method: "GET",
+        url: `/api/chat-groups/${chatId}/members`,
+        headers: { cookie: nilsCookie },
+      });
+      expect(listed.statusCode).toBe(200);
+      expect(listed.body).not.toContain(stranger.personId);
+
+      /*
+       * And the night's purge takes the row, as the act it is. What they wrote
+       * stays in the room attributed as before, because attribution is the
+       * message's own `authorPersonId` and not this row - which, left, would
+       * put them back in the room unannounced if they moved in again.
+       */
+      const summary = await purge.run(new Date());
+      expect(summary.formerResidentsRemoved).toBeGreaterThanOrEqual(1);
       expect(
         await prisma.chatGroupMember.count({
           where: { chatId, personId: stranger.personId },
         }),
-      ).toBe(1);
+      ).toBe(0);
+      expect(
+        await prisma.auditLogEntry.findFirst({
+          where: {
+            action: "CHAT_GROUP_MEMBER_REMOVED",
+            actorPersonId: null,
+            targetPersonId: stranger.personId,
+            targetId: chatId,
+          },
+        }),
+      ).not.toBeNull();
     } finally {
       await prisma.residency.updateMany({
         where: { personId: stranger.personId },

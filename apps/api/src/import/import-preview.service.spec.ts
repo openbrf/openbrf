@@ -30,6 +30,7 @@ interface FakeSession {
   id: string;
   columns: string[];
   rowsCipher: string;
+  sourceRows: number[];
   rowCount: number;
   mapping: string[];
   defaultRole: "MEMBER" | "RESIDENT" | null;
@@ -54,6 +55,7 @@ function session(overrides: Partial<FakeSession> = {}): FakeSession {
     id: "session-1",
     columns: ["Namn", "Lgh"],
     rowsCipher: "rows",
+    sourceRows: [],
     rowCount: ROWS,
     mapping: ["fullName", "apartmentNumber"],
     defaultRole: "MEMBER",
@@ -265,6 +267,20 @@ describe("planning a preview", () => {
       hasPersonalIdentityNumber: true,
     });
     expect(view.preview?.previewToken).toBe(stored.previewToken);
+  });
+
+  it("names each row by the sheet row it was read from", async () => {
+    // The first data row sits below two blank rows; the upload recorded no
+    // sheet row for the second, as a session from before the column did not.
+    const stored = session({ sourceRows: [4] });
+    const { service } = harness(stored);
+
+    await service.runPreview("session-1", "preview-1");
+
+    const view = await service.view("session-1", stored);
+    expect(view.preview?.rows.slice(0, 2).map((row) => row.sourceRow)).toEqual([
+      4, 3,
+    ]);
   });
 
   it("does nothing for a preview the session no longer wants", async () => {

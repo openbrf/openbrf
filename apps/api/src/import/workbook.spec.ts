@@ -44,21 +44,34 @@ describe("reading a date cell", () => {
     expect(cellText(new Date(Date.UTC(2026, 2, 5)))).toBe("2026-03-05");
   });
 
-  it("reads UTC fields, which is what an Excel date serial carries", () => {
+  it("reads the day a date cell holds through the library itself", async () => {
     /*
-     * A serial decoded to local midnight in Stockholm would arrive as the
-     * evening before in UTC. Asserting the whole instant rather than the text
-     * is what makes this a statement about the library's contract: the day the
-     * cell holds opens at midnight UTC and nowhere else.
+     * A real workbook with a real date cell - a day serial in the built-in date
+     * format, as Excel writes it - read by `read-excel-file`. A serial decoded
+     * to local midnight east of Greenwich would arrive as the evening before in
+     * UTC and read as the day before here, so this is the statement about the
+     * library's contract the paragraph above relies on.
      */
-    const decoded = new Date(Date.UTC(2026, 5, 22));
+    const { rows } = await parseWorkbook(
+      buildWorkbook([["Inflyttningsdatum"], [{ date: "2026-06-22" }]]),
+    );
 
-    expect(decoded.toISOString()).toBe("2026-06-22T00:00:00.000Z");
-    expect(cellText(decoded)).toBe("2026-06-22");
+    expect(rows[1]).toEqual(["2026-06-22"]);
   });
 
   it("pads a single-digit month and day", () => {
     expect(cellText(new Date(Date.UTC(2026, 0, 9)))).toBe("2026-01-09");
+  });
+});
+
+describe("numbering the rows", () => {
+  it("counts the blank rows it leaves out, so a row keeps its sheet number", async () => {
+    const { rows, sourceRows } = await parseWorkbook(
+      buildWorkbook([["Namn"], ["Anna"], [""], ["Bo"]]),
+    );
+
+    expect(rows).toEqual([["Namn"], ["Anna"], ["Bo"]]);
+    expect(sourceRows).toEqual([1, 2, 4]);
   });
 });
 
@@ -246,11 +259,10 @@ describe("a workbook past the import's limits", () => {
         '<row r="3"/><row><c r="A4" t="inlineStr"><is><t>Bo</t></is></c></row>',
     });
 
-    await expect(parseWorkbook(workbook)).resolves.toEqual([
-      ["Namn"],
-      ["Anna"],
-      ["Bo"],
-    ]);
+    await expect(parseWorkbook(workbook)).resolves.toEqual({
+      rows: [["Namn"], ["Anna"], ["Bo"]],
+      sourceRows: [1, 2, 4],
+    });
   });
 
   it("reads rows that state no number down to the import's last row", async () => {
@@ -262,7 +274,9 @@ describe("a workbook past the import's limits", () => {
 
     await expect(
       parseWorkbook(buildWorkbook([], "Blad1", { sheetData: lastRow })),
-    ).resolves.toEqual([["Namn"], ["Anna"]]);
+    ).resolves.toMatchObject({
+      rows: [["Namn"], ["Anna"]],
+    });
     expect(() =>
       inspectWorkbook(
         buildWorkbook([], "Blad1", { sheetData: `${lastRow}<row/>` }),
@@ -309,10 +323,9 @@ describe("a workbook past the import's limits", () => {
         '<row r="8000" s="1" customFormat="1"><c r="A8000" s="0"/><c r="XFD8000" s="0"/></row>',
     });
 
-    await expect(parseWorkbook(workbook)).resolves.toEqual([
-      ["Namn"],
-      ["Anna"],
-    ]);
+    await expect(parseWorkbook(workbook)).resolves.toMatchObject({
+      rows: [["Namn"], ["Anna"]],
+    });
   });
 
   it("refuses an empty row further down than any formatted list reaches", () => {
@@ -337,10 +350,12 @@ describe("a workbook past the import's limits", () => {
       0x20000000,
     );
 
-    await expect(parseWorkbook(workbook)).resolves.toEqual([
-      ["Namn", "Lgh"],
-      ["Anna", "1101"],
-    ]);
+    await expect(parseWorkbook(workbook)).resolves.toMatchObject({
+      rows: [
+        ["Namn", "Lgh"],
+        ["Anna", "1101"],
+      ],
+    });
     const [read] = vi.mocked(readSheet).mock.calls[0] ?? [];
     expect(Buffer.isBuffer(read)).toBe(true);
     const archive = read as Buffer;
@@ -365,10 +380,12 @@ describe("a workbook past the import's limits", () => {
       ["Anna", "1101"],
     ]);
 
-    await expect(parseWorkbook(workbook)).resolves.toEqual([
-      ["Namn", "Lgh"],
-      ["Anna", "1101"],
-    ]);
+    await expect(parseWorkbook(workbook)).resolves.toMatchObject({
+      rows: [
+        ["Namn", "Lgh"],
+        ["Anna", "1101"],
+      ],
+    });
   });
 });
 

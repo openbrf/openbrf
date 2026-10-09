@@ -67,6 +67,7 @@ function inject(options: {
   url: string;
   payload?: object;
   headers?: Record<string, string>;
+  remoteAddress?: string;
 }) {
   ipCounter += 1;
   return app
@@ -682,6 +683,31 @@ describe("rate limiting", () => {
 
     expect(response.statusCode).toBe(200);
   }, 30_000);
+
+  it("counts a caller that reaches the port directly by its own address, whatever header it sends", async () => {
+    // Not from a proxy the suite names (loopback, integration-env.ts), so the
+    // forwarded header proves nothing and a fresh one on every attempt must
+    // not buy a fresh budget.
+    let attemptsBeforeRefusal: number | undefined;
+
+    for (let attempt = 1; attempt <= 30; attempt++) {
+      const response = await inject({
+        method: "POST",
+        url: "/api/auth/sign-in/email",
+        payload: { email: plain.email, password: "wrong-password" },
+        headers: { "x-forwarded-for": `192.0.2.${String(attempt)}` },
+        remoteAddress: "203.0.113.8",
+      });
+      if (response.statusCode === 429) {
+        attemptsBeforeRefusal = attempt;
+        break;
+      }
+    }
+
+    expect(
+      attemptsBeforeRefusal ?? Number.POSITIVE_INFINITY,
+    ).toBeLessThanOrEqual(RATE_LIMIT_MAX);
+  }, 60_000);
 
   it("lets one client keep reading its session past the general budget", async () => {
     /*

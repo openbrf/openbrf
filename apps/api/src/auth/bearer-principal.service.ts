@@ -138,8 +138,18 @@ export class BearerPrincipalService {
 
     const client = await this.prisma.oauthClient.findUnique({
       where: { clientId: row.clientId },
-      select: { clientId: true, clientDiscoveryId: true, uri: true },
+      select: {
+        clientId: true,
+        clientDiscoveryId: true,
+        uri: true,
+        disabled: true,
+      },
     });
+    // A client the instance has turned away. Revoking one removes its tokens
+    // as well; this holds for one minted by an exchange racing the revoke.
+    if (client?.disabled === true) {
+      return null;
+    }
 
     return {
       principal,

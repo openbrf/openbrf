@@ -110,6 +110,13 @@ export interface ImportPreviewRow extends Omit<
     postalCity: string | null;
   };
   problems: { field: ImportField | null; reason: string }[];
+  /**
+   * The row in the uploaded sheet, as the board sees it in the margin: the
+   * header is row 1, and blank rows the import left out are counted.
+   * `rowNumber` is the row's place among the data rows, which is what a
+   * decision is keyed on.
+   */
+  sourceRow: number;
 }
 
 export interface ImportPreview {
@@ -302,6 +309,7 @@ export class ImportPreviewService implements OnModuleInit {
       select: {
         columns: true,
         rowsCipher: true,
+        sourceRows: true,
         mapping: true,
         defaultRole: true,
         defaultMovedInOn: true,
@@ -349,7 +357,7 @@ export class ImportPreviewService implements OnModuleInit {
           }
         },
       });
-      await this.record(sessionId, previewId, plan);
+      await this.record(sessionId, previewId, plan, session.sourceRows);
     } catch (error) {
       if (error instanceof PreviewReleased) {
         this.logger.log(
@@ -442,6 +450,7 @@ export class ImportPreviewService implements OnModuleInit {
     sessionId: string,
     previewId: string,
     plan: ImportPlan,
+    sourceRows: readonly number[],
   ): Promise<void> {
     // The rows the board will have to decide, read back by the apply: a row
     // needing a decision cannot be slipped past by applying a mapping nobody
@@ -457,7 +466,7 @@ export class ImportPreviewService implements OnModuleInit {
 
     const stored: StoredPreview = {
       summary: plan.summary,
-      rows: plan.rows.map(toPreviewRow),
+      rows: plan.rows.map((row) => toPreviewRow(row, sourceRows)),
     };
     const encrypted = await this.encryption.encrypt(
       "importSession.preview",
@@ -547,7 +556,10 @@ function current(
   };
 }
 
-function toPreviewRow(row: PlannedRow): ImportPreviewRow {
+function toPreviewRow(
+  row: PlannedRow,
+  sourceRows: readonly number[],
+): ImportPreviewRow {
   const {
     person,
     movedInStated: _movedInStated,
@@ -556,6 +568,9 @@ function toPreviewRow(row: PlannedRow): ImportPreviewRow {
   } = row;
   return {
     ...rest,
+    // The header is the sheet's first row, so without blank rows recorded a
+    // data row's sheet row is one past its number.
+    sourceRow: sourceRows[row.rowNumber - 1] ?? row.rowNumber + 1,
     person: {
       firstName: person.firstName,
       lastName: person.lastName,

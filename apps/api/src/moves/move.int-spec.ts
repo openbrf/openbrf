@@ -645,6 +645,127 @@ describe("an upplatelse and an overgang are different events", () => {
     ).toBe(0);
   });
 
+  it("refuses a grant to somebody moving in without the tenant-ownership", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.refusedGrantee.personId,
+        apartmentId: apartments.refusedGrant,
+        role: "RESIDENT",
+        movedInOn: "2026-04-08",
+        transfer: {
+          kind: "GRANT",
+          transferredOn: "2026-04-08",
+          agreementReference: `Upplatelse till inneboende ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    // A lodger holds no tenant-ownership, so nothing passed to them and no
+    // report is owed for it.
+    expect(response.statusCode).toBe(400);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "transfer-without-tenant-ownership",
+    );
+    expect(
+      await prisma.transfer.count({
+        where: { apartmentId: apartments.refusedGrant },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.residency.count({
+        where: { apartmentId: apartments.refusedGrant },
+      }),
+    ).toBe(0);
+  });
+
+  it("refuses a transfer from somebody moving out without the tenant-ownership", async () => {
+    // A lodger living in the apartment, moved out with a sale attached.
+    const lodging = await prisma.residency.create({
+      data: {
+        personId: actors.refusedGrantee.personId,
+        apartmentId: apartments.refusedGrant,
+        role: "RESIDENT",
+        movedInOn: new Date("2026-01-01"),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/moves/move-out",
+        payload: {
+          residencyId: lodging.id,
+          movedOutOn: "2026-05-01",
+          transfer: {
+            toPersonId: actors.grantee.personId,
+            transferredOn: "2026-05-01",
+            agreementReference: `Overlatelse fran inneboende ${suffix}`,
+          },
+        },
+        headers: { cookie: await signIn(actors.board.email) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+        "transfer-without-tenant-ownership",
+      );
+      expect(
+        await prisma.transfer.count({
+          where: { apartmentId: apartments.refusedGrant },
+        }),
+      ).toBe(0);
+      const after = await prisma.residency.findUniqueOrThrow({
+        where: { id: lodging.id },
+        select: { movedOutOn: true },
+      });
+      expect(after.movedOutOn).toBeNull();
+    } finally {
+      await prisma.residency.delete({ where: { id: lodging.id } });
+    }
+  });
+
+  it("refuses a second grant of an apartment already granted", async () => {
+    // `granted` was granted by the first test in this block.
+    const response = await inject({
+      method: "POST",
+      url: "/api/moves/move-in",
+      payload: {
+        personId: actors.refusedGrantee.personId,
+        apartmentId: apartments.granted,
+        role: "MEMBER",
+        movedInOn: "2026-06-01",
+        transfer: {
+          kind: "GRANT",
+          transferredOn: "2026-06-01",
+          agreementReference: `Andra upplatelsen ${suffix}`,
+        },
+      },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
+      "already-granted",
+    );
+    expect(
+      await prisma.transfer.count({
+        where: { apartmentId: apartments.granted, kind: "GRANT" },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.residency.count({
+        where: {
+          apartmentId: apartments.granted,
+          personId: actors.refusedGrantee.personId,
+        },
+      }),
+    ).toBe(0);
+  });
+
   /*
    * `Date` reads "2026-02-30" as the 2nd of March, and the entry, the transfer
    * and the obligation a move-in writes are rows the database will not let
@@ -1535,9 +1656,17 @@ describe("moving out", () => {
       select: { id: true },
     });
 
+    // Refused by the statutory guard itself, and for an edit as well as a
+    // removal: a bare rejection would pass on any error at all.
+    await expect(
+      prisma.memberRegisterEntry.update({
+        where: { id: exit.id },
+        data: { eventOn: new Date("2030-01-01T00:00:00.000Z") },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
     await expect(
       prisma.memberRegisterEntry.delete({ where: { id: exit.id } }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
   });
 });
 

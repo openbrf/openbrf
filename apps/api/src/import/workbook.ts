@@ -148,21 +148,37 @@ export function inspectWorkbook(buffer: Uint8Array): Uint8Array {
   return zipSync(parts, { level: 0 });
 }
 
-/** Parses a workbook into rows of text, header row included. */
-export async function parseWorkbook(buffer: Buffer): Promise<string[][]> {
+/**
+ * Parses a workbook into rows of text, header row included, with the sheet row
+ * each one is on: blank rows are left out, and the preview names a row by the
+ * number the board sees in the margin of the sheet.
+ */
+export async function parseWorkbook(
+  buffer: Buffer,
+): Promise<{ rows: string[][]; sourceRows: number[] }> {
   const inspected = inspectWorkbook(buffer);
   const sheet = (await readSheet(Buffer.from(inspected))) as unknown[][];
 
+  const sourceRows: number[] = [];
   const rows = sheet
     .map((row) => row.map(cellText))
-    .filter((row) => row.some((value) => value !== ""));
+    .filter((row, index) => {
+      const kept = row.some((value) => value !== "");
+      if (kept) {
+        sourceRows.push(index + 1);
+      }
+      return kept;
+    });
 
   const width = rows.reduce((widest, row) => Math.max(widest, row.length), 0);
 
   // Padded for the same reason the CSV reader pads: a mapping reads by
   // position, and a short row would shift its values into the wrong fields.
-  return rows.map((row) => [
-    ...row,
-    ...Array.from({ length: width - row.length }, () => ""),
-  ]);
+  return {
+    rows: rows.map((row) => [
+      ...row,
+      ...Array.from({ length: width - row.length }, () => ""),
+    ]),
+    sourceRows,
+  };
 }

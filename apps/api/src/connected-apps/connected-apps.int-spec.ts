@@ -437,6 +437,41 @@ describe("resolving a token", () => {
     });
   });
 
+  it("refuses a token for a client the instance has turned away, consent or not", async () => {
+    // What an exchange racing the revoke could leave: a token and a consent
+    // under a client that is already disabled. A client of its own, because
+    // a disabled client stays disabled and the rest of the suite needs this
+    // one allowed.
+    const turnedAway = `https://avvisad-${suffix}.exempel.se/id`;
+    await prisma.oauthClient.create({
+      data: {
+        clientId: turnedAway,
+        name: `Klient ${turnedAway}`,
+        clientDiscoveryId: "cimd",
+        scopes: ["mcp:read", "mcp:write"],
+        contacts: [],
+        redirectUris: [`${new URL(turnedAway).origin}/cb`],
+        postLogoutRedirectUris: [],
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    const token = `token-disabled-${suffix}`;
+    try {
+      await grant({ personId: member.personId, client: turnedAway, token });
+      await prisma.oauthClient.update({
+        where: { clientId: turnedAway },
+        data: { disabled: true },
+      });
+      expect(await bearer.resolve(token)).toBeNull();
+    } finally {
+      await disconnectAll(member.personId);
+      await prisma.oauthClient.deleteMany({ where: { clientId: turnedAway } });
+    }
+  });
+
   it("keeps refusing a token minted while the connection was cut, after the member reconnects", async () => {
     // The token was written after the consent went, so it names no grant. The
     // member then connects the same app again: the new consent is newer than

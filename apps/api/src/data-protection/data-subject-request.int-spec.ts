@@ -16,6 +16,7 @@ import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
 import { MoveService } from "../moves/move.service";
 import { LegalHoldService } from "../retention/legal-hold.service";
+import { withheldPersonIds } from "../retention/withheld-persons";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -682,6 +683,9 @@ describe("an objection and a restriction", () => {
         select: { processingRestrictedAt: true },
       }),
     ).resolves.not.toMatchObject({ processingRestrictedAt: null });
+    // The list every purge reads before it erases anything. What each purge
+    // then keeps is asserted in its own suite.
+    expect(await withheldPersonIds(prisma)).toContain(subjects.restricter);
 
     await close(view.requestId, { reason: "Uppphavd" });
     await expect(
@@ -690,6 +694,7 @@ describe("an objection and a restriction", () => {
         select: { processingRestrictedAt: true },
       }),
     ).resolves.toMatchObject({ processingRestrictedAt: null });
+    expect(await withheldPersonIds(prisma)).not.toContain(subjects.restricter);
   });
 
   it("takes the legal hold registry key when it grants a restriction", async () => {

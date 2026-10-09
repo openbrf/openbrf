@@ -49,7 +49,13 @@ export interface ImportSessionView {
 }
 
 export interface ImportPreviewRow {
+  /** The row's place among the data rows, which a decision is keyed on. */
   rowNumber: number;
+  /**
+   * The row in the uploaded sheet, as the board sees it in the margin: the
+   * header is row 1, and blank rows are counted.
+   */
+  sourceRow: number;
   outcome: ImportOutcome;
   person: {
     firstName: string;

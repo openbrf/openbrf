@@ -26,6 +26,12 @@ export interface ParsedCsv {
   delimiter: CsvDelimiter;
   /** Every row, header included, padded to the widest row. */
   rows: string[][];
+  /**
+   * The row each of `rows` is on in the spreadsheet the file came from,
+   * counting from 1 at the header and counting the blank rows left out of
+   * `rows`, so a row the preview names is the row the board finds.
+   */
+  sourceRows: number[];
 }
 
 /**
@@ -165,6 +171,9 @@ export function parseCsv(
   const maxCellLength = limits?.maxCellLength ?? Infinity;
 
   const populated: string[][] = [];
+  const sourceRows: number[] = [];
+  /** Records ended so far, blank ones included: a row's place in the sheet. */
+  let records = 0;
   let row: string[] = [];
   let cell = "";
   let quoted = false;
@@ -185,6 +194,7 @@ export function parseCsv(
   };
   const endRow = (): void => {
     endCell();
+    records++;
     // Only a row with something in it counts, so blank lines a spreadsheet
     // leaves at the end of a file are neither counted nor kept.
     if (row.some((value) => value.trim() !== "")) {
@@ -196,6 +206,7 @@ export function parseCsv(
         );
       }
       populated.push(row);
+      sourceRows.push(records);
     }
     row = [];
     rowLine = line;
@@ -231,9 +242,14 @@ export function parseCsv(
       continue;
     }
 
-    if (character === '"' && cell === "") {
+    // A quote opens a field where nothing but blanks precede it, so a space
+    // after the delimiter - `1; "x;y"` - does not turn the quote into text and
+    // split the field at the delimiter inside it. The blanks are dropped, as
+    // every cell is trimmed below.
+    if (character === '"' && cell.trim() === "") {
       quoted = true;
       quoteLine = line;
+      cell = "";
       continue;
     }
     if (character === separator) {
@@ -276,6 +292,7 @@ export function parseCsv(
       ...candidate.map((value) => value.trim()),
       ...Array.from({ length: width - candidate.length }, () => ""),
     ]),
+    sourceRows,
   };
 }
 
@@ -352,16 +369,40 @@ function neutralise(value: string): string {
   return `'${value}`;
 }
 
+/**
+ * Quotes a cell that holds a character some reader splits or ends a field on.
+ *
+ * The semicolon this writer delimits with, and also a comma and a tab: a
+ * spreadsheet set up for another list separator, or an import dialog someone
+ * picked the wrong one in, splits on those instead. Quoted, the cell stays one
+ * field whichever separator the reader chose, so what the neutralisation above
+ * decided about the cell's first character holds for all of it.
+ */
 function quoteCell(value: string): string {
-  if (!/[";\r\n]/.test(value)) {
+  if (!/[";,\t\r\n]/.test(value)) {
     return value;
   }
   return `"${value.replaceAll('"', '""')}"`;
 }
 
+/**
+ * The first record, which may span lines: a header title with a line break
+ * typed into it (Alt-Enter in Excel) is quoted, and cutting at the break would
+ * leave the delimiters after it uncounted.
+ */
 function readFirstLine(text: string): string {
-  const end = text.search(/\r|\n/);
-  return end === -1 ? text : text.slice(0, end);
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted && (character === "\n" || character === "\r")) {
+      return text.slice(0, index);
+    }
+  }
+  return text;
 }
 
 function countOutsideQuotes(line: string, delimiter: string): number {

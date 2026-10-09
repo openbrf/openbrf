@@ -388,12 +388,17 @@ export class ImportApplyService implements OnModuleInit {
     // ambiguous must not be resolved by a worker guessing, and a row that no
     // longer is must not be written to the person it now matches when the board
     // chose to skip it or to make it somebody new. Either way the board's
-    // answers no longer fit the file, and it previews again.
+    // answers no longer fit the file. A decision no longer needed is recorded
+    // as the register having changed rather than as an outdated preview: the
+    // session cannot be previewed again, and the board imports the rest as a
+    // new file.
     const undecided = findUndecided(plan, decisions, session.rowCount);
     if (undecided !== null) {
       await this.stop(
         sessionId,
-        undecided === "decision-not-needed" ? "preview-outdated" : undecided,
+        undecided === "decision-not-needed"
+          ? "register-changed-during-apply"
+          : undecided,
       );
       return false;
     }
