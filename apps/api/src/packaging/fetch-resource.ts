@@ -1,4 +1,4 @@
-import { type FileHandle, open, stat } from "node:fs/promises";
+import { constants, type FileHandle, open, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -205,27 +205,36 @@ async function readLocalFile(url: URL, maxBytes: number): Promise<Buffer> {
   /*
    * A regular file only. A device, a FIFO or a /proc entry reports a size of
    * nothing and then reads without end, so the size it states bounds nothing.
-   * Checked before the open as well as after it, because opening a FIFO waits
-   * for a writer.
+   * Checked before the open as well as after it, on what was opened, because
+   * the path can be replaced in between. Opened nonblocking for the same
+   * reason: opening a FIFO otherwise waits for a writer, and the check after
+   * the open would never be reached. A regular file reads the same either way.
    */
-  let handle: FileHandle;
-  try {
-    if (!(await stat(path)).isFile()) {
-      throw new Error("not a regular file");
-    }
-    handle = await open(path, "r");
-    if (!(await handle.stat()).isFile()) {
-      await handle.close();
-      throw new Error("not a regular file");
-    }
-  } catch {
-    throw new ResourceFetchError(
+  const notRegular = (): ResourceFetchError =>
+    new ResourceFetchError(
       `${url.href} could not be read as a regular file.`,
       "unreachable",
     );
+  let handle: FileHandle;
+  try {
+    if (!(await stat(path)).isFile()) {
+      throw notRegular();
+    }
+    handle = await open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  } catch {
+    throw notRegular();
   }
 
   try {
+    let regular: boolean;
+    try {
+      regular = (await handle.stat()).isFile();
+    } catch {
+      regular = false;
+    }
+    if (!regular) {
+      throw notRegular();
+    }
     return await readBounded(handle, url, maxBytes);
   } finally {
     await handle.close();
