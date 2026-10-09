@@ -21,7 +21,7 @@ import {
   ThemeInstallService,
 } from "./theme-install.service";
 import { CatalogThemeSource } from "./theme-source";
-import { ThemeStore } from "./theme-store";
+import { type StagedTheme, ThemeStore } from "./theme-store";
 import { ThemeService } from "./theme.service";
 
 /**
@@ -50,8 +50,15 @@ let dataDirectory: string;
 let catalogDirectory: string;
 let exampleEntry: FixtureCatalogEntry;
 let catalogPath: string;
-/** An installer reading the index at this path, on this run's database. */
-let installerReading: (path: string) => ThemeInstallService;
+/**
+ * An installer reading the index at this path, on this run's database, and
+ * writing through the store given, or through the one the other installers
+ * share.
+ */
+let installerReading: (
+  path: string,
+  storeFor?: (env: Env) => ThemeStore,
+) => ThemeInstallService;
 
 /** Restored in afterAll, so the shared database is left as it was found. */
 let associationExisted = false;
@@ -94,7 +101,7 @@ beforeAll(async () => {
   const store = new ThemeStore(env);
 
   themes = new ThemeService(service, audit, store);
-  installerReading = (path) =>
+  installerReading = (path, storeFor) =>
     new ThemeInstallService(
       service,
       audit,
@@ -104,7 +111,7 @@ beforeAll(async () => {
           OPENBRF_CATALOG_URL: pathToFileURL(path).href,
         }),
       ),
-      store,
+      storeFor?.(env) ?? store,
       themes,
     );
   installer = installerReading(catalog.catalogPath);
@@ -428,6 +435,35 @@ describe("installing a theme from the catalog", () => {
     const result = await installerReading(path).install(exampleEntry.id, null);
 
     expect(result.theme.id).toBe(exampleEntry.id);
+  });
+
+  /*
+   * The previous version is removed after the transaction has committed, so a
+   * failure there must not report the install as failed. Runs after the
+   * installs above, so this is a reinstall and there is a previous version.
+   */
+  it("reports a reinstall as installed when its previous files cannot be removed", async () => {
+    let staged = 0;
+    class StoreKeepingThePrevious extends ThemeStore {
+      override async stage(
+        ...args: Parameters<ThemeStore["stage"]>
+      ): Promise<StagedTheme> {
+        const stage = await super.stage(...args);
+        staged += 1;
+        return {
+          ...stage,
+          finalize: () => Promise.reject(new Error("EBUSY")),
+        };
+      }
+    }
+
+    const result = await installerReading(
+      catalogPath,
+      (env) => new StoreKeepingThePrevious(env),
+    ).install(exampleEntry.id, null);
+
+    expect(result.theme.id).toBe(exampleEntry.id);
+    expect(staged).toBe(1);
   });
 });
 

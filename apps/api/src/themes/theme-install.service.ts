@@ -468,7 +468,20 @@ export class ThemeInstallService {
       await staged.discard();
       throw cause;
     }
-    await staged.finalize();
+
+    /*
+     * The install has committed by now, so a previous version that will not
+     * go away is recorded rather than raised: answering with a failure would
+     * have the board retry an install that succeeded.
+     */
+    try {
+      await staged.finalize();
+    } catch (cause) {
+      this.logger.warn(
+        `Theme ${manifest.name}@${manifest.version} was installed, but its previous files could not be removed.`,
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
 
     // A reinstall changes what this theme's descendants render.
     await this.themes.recomputeResolvedTokens();
