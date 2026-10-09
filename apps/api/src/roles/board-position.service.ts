@@ -537,7 +537,6 @@ async function refuseUnseatedActor(
   targetPersonId: string,
   now: Date,
 ): Promise<void> {
-  const today = localDayOf(now);
   if (await holdsBoardSeat(tx, actorPersonId, now)) {
     return;
   }
