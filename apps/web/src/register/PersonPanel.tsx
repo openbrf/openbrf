@@ -313,21 +313,12 @@ export function PersonPanel({
           fetchPerson(personId, controller.signal),
           /*
            * Asked only of somebody who could record a board at all. A failure
-           * reads as "not vacant": the ordinary form is then shown, and the
-           * server's refusal of it says why.
+           * fails the load like the person's own: reading it as "not vacant"
+           * would offer the ordinary election on a vacant register, which the
+           * server refuses for somebody who holds no seat.
            */
           canManageBoardPositions
-            ? fetchBoardRecoveryState(controller.signal).catch(
-                (error: unknown) => {
-                  if (
-                    error instanceof DOMException &&
-                    error.name === "AbortError"
-                  ) {
-                    throw error;
-                  }
-                  return { vacant: false };
-                },
-              )
+            ? fetchBoardRecoveryState(controller.signal)
             : { vacant: false },
         ]);
         setPerson(detail);

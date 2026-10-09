@@ -263,9 +263,17 @@ describe("a register on which every term has ended", () => {
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ reason: "recovery-dated-ahead" });
     await expect(prisma.boardPosition.count()).resolves.toBe(1);
+    const recoveryTargetPersonIds = [
+      ...electedBoard.map(({ personId }) => personId),
+      deputy.personId,
+    ];
     await expect(
       prisma.auditLogEntry.count({
-        where: { action: "BOARD_RECOVERY_RECORDED" },
+        where: {
+          action: "BOARD_RECOVERY_RECORDED",
+          actorPersonId: admin.personId,
+          targetPersonId: { in: recoveryTargetPersonIds },
+        },
       }),
     ).resolves.toBe(0);
     await expect(vacant(adminCookie)).resolves.toBe(true);

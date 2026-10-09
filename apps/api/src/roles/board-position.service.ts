@@ -184,8 +184,8 @@ export class BoardPositionService {
   }
 
   /**
-   * Records a board on a vacant register, for somebody who holds no seat
-   * (GLOSSARY, board recovery).
+   * Records a board on a vacant register, for somebody who holds no seat:
+   * återställning av styrelsen, board recovery (GLOSSARY).
    *
    * Recording a seat is the board's own act, so {@link elect} and
    * {@link endTerm} refuse anybody without a seat. That leaves a register on

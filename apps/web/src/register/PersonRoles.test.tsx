@@ -340,6 +340,21 @@ describe("recording a board on a register that has none", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("offers no election form when the vacancy cannot be read", async () => {
+    // Reading a failure as "not vacant" would offer the ordinary election, which
+    // the server refuses for somebody who holds no seat.
+    fetchBoardRecoveryState.mockRejectedValue(new Error("network"));
+    renderPanel(PERSON, BOARD_POSITIONS);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /kunde inte/i,
+    );
+    expect(screen.queryByRole("button", { name: "Anteckna valet" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Anteckna styrelsen" }),
+    ).toBeNull();
+  });
+
   it("asks for the reason rather than sending the recovery without one", async () => {
     renderPanel(PERSON, BOARD_POSITIONS);
     await screen.findByText("Elsa Nyman");
