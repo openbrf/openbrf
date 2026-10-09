@@ -54,6 +54,9 @@ export interface PluginRecord {
   installedAt: Date;
 }
 
+/** One release of a plugin, as a run read it from its row. */
+export type PluginRelease = Pick<PluginRecord, "id" | "version" | "checksum">;
+
 export interface PluginConsent {
   id: string;
   packageName: string;
@@ -214,10 +217,16 @@ export class PluginRegistryService {
     return row === undefined ? null : toRecord(row);
   }
 
-  /** Called by the installer once the package is on the data volume. */
-  async markInstalled(id: string): Promise<void> {
+  /**
+   * Called by the installer once the package is on the data volume.
+   *
+   * Only while the row still names the release the run installed. A board can
+   * consent to another release while a run is in npm, and a run working from
+   * the older row must not record that one as installed, or failed.
+   */
+  async markInstalled(release: PluginRelease): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
-      where: { id },
+      where: releaseWhere(release),
       data: { status: "INSTALLED", ...NO_FAILURE },
     });
   }
@@ -228,9 +237,12 @@ export class PluginRegistryService {
    * The row stays. A failed install that vanished would leave a board with no
    * way to see what happened, and no way to retry or withdraw it.
    */
-  async markFailed(id: string, failure: PluginInstallFailure): Promise<void> {
+  async markFailed(
+    release: PluginRelease,
+    failure: PluginInstallFailure,
+  ): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
-      where: { id },
+      where: releaseWhere(release),
       data: {
         status: "FAILED",
         lastError: prefix(storable(failure.cause), 2000),
@@ -295,6 +307,14 @@ const UNSTORABLE = /[\0\p{Cs}]/gu;
  */
 function storable(text: string): string {
   return text.replace(UNSTORABLE, "\uFFFD");
+}
+
+function releaseWhere(release: PluginRelease) {
+  return {
+    id: release.id,
+    version: release.version,
+    checksum: release.checksum,
+  };
 }
 
 /** The three failure columns, cleared together. */

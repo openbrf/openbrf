@@ -416,14 +416,18 @@ describe("the plugin install flow", () => {
   /**
    * The digest is the whole of the trust model for the bytes that arrive. A
    * mismatch must leave the row failed and the volume untouched, never
-   * unpacked and hoped for.
+   * unpacked and hoped for - so the volume holds a working release first, and
+   * it is the upgrade whose archive does not match.
    */
   it("refuses an archive whose digest does not match the catalog", async () => {
+    await consent(digest, tarball);
+    await installer.reconcile();
+
     await registry.consent({
       id: PLUGIN_ID,
       packageName: PACKAGE_NAME,
-      version: VERSION,
-      tarballUrl: pathToFileURL(tarball).href,
+      version: NEXT_VERSION,
+      tarballUrl: pathToFileURL(nextTarball).href,
       checksum: formatSha512(sha512(Buffer.from("not this archive"))),
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
@@ -444,8 +448,10 @@ describe("the plugin install flow", () => {
     });
 
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
-    expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
-  }, 120_000);
+    expect(
+      scan.plugins.map((plugin) => [plugin.id, plugin.version]),
+    ).toContainEqual([PLUGIN_ID, VERSION]);
+  }, 180_000);
 
   /**
    * A failure is cleared by the run that gets past it, all three columns of
@@ -493,17 +499,20 @@ describe("the plugin install flow", () => {
   it("records a failure whose values Postgres could not store as written", async () => {
     await consent(digest, tarball);
 
-    await registry.markFailed(PLUGIN_ID, {
-      reason: "archive-package-mismatch",
-      detail: {
-        packageName: PACKAGE_NAME,
-        // Cut at 213 units, which falls inside the emoji.
-        heldName: `@acme/occ\0upancy-\ud800-${"x".repeat(193)}😀${"x".repeat(10)}`,
-        heldVersion: VERSION,
+    await registry.markFailed(
+      { id: PLUGIN_ID, version: VERSION, checksum: digest },
+      {
+        reason: "archive-package-mismatch",
+        detail: {
+          packageName: PACKAGE_NAME,
+          // Cut at 213 units, which falls inside the emoji.
+          heldName: `@acme/occ\0upancy-\ud800-${"x".repeat(193)}😀${"x".repeat(10)}`,
+          heldVersion: VERSION,
+        },
+        // Cut at 2000 units, which falls inside the emoji.
+        cause: `PluginInstallError: @acme/occ\0upancy-\ud800 ${"x".repeat(1960)}😀`,
       },
-      // Cut at 2000 units, which falls inside the emoji.
-      cause: `PluginInstallError: @acme/occ\0upancy-\ud800 ${"x".repeat(1960)}😀`,
-    });
+    );
 
     const row = await prisma.installedPlugin.findUniqueOrThrow({
       where: { id: PLUGIN_ID },
@@ -643,6 +652,30 @@ describe("the plugin install flow", () => {
     expect(metadata.dependencies).toEqual({});
     const scan = await scanPluginDirectory(root);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
+  }, 300_000);
+
+  /**
+   * A board can consent to another release while a run is in npm; the run
+   * works from the rows it read, and its outcome is that release's, not the
+   * newer one's.
+   */
+  it("does not record its outcome on a release consented while it ran", async () => {
+    await consent(digest, tarball);
+    const committing = deferred();
+    const mayCommit = deferred();
+    const run = new ObservedInstaller("stale", [], {
+      atCommit: committing.resolve,
+      hold: () => mayCommit.promise,
+    }).reconcile();
+    await committing.promise;
+
+    await consent(nextDigest, nextTarball, NEXT_VERSION);
+    mayCommit.resolve();
+    await run;
+
+    const record = await registry.find(PLUGIN_ID);
+    expect(record?.version).toBe(NEXT_VERSION);
+    expect(record?.status).toBe("PENDING");
   }, 300_000);
 });
 

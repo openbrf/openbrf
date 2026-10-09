@@ -110,6 +110,9 @@ function npmEnvironment(cwd: string): NodeJS.ProcessEnv {
     npm_config_userconfig: join(cwd, ".npmrc-user-unused"),
     npm_config_globalconfig: join(cwd, ".npmrc-global-unused"),
     npm_config_update_notifier: "false",
+    // A path that is never written, so npm can never start git: a git
+    // dependency is fetched by cloning, which `--offline` does not stop.
+    npm_config_git: join(cwd, ".git-unused"),
   };
 }
 
