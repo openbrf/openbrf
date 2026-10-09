@@ -113,6 +113,12 @@ export class BreachReminderService implements OnModuleInit {
    * receipts are kept per discovery instant, so A, then B, then A again finds
    * A's members already reached. A lock held across a send is held for one
    * send, which the drivers bound at twenty seconds.
+   *
+   * The mail leaves before the receipt commits, so delivery is at least once,
+   * not exactly once: a write or commit that fails after the send, or the
+   * transaction timing out after it, leaves the member unrecorded, and the
+   * retry mails them again. A second reminder is the cheaper failure; a
+   * receipt for a mail that never left would be the dear one.
    */
   async sendBreachReminder(job: BreachReminderJob): Promise<number> {
     const breach = await this.prisma.personalDataBreach.findUnique({
