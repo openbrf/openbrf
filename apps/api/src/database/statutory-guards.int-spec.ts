@@ -1506,7 +1506,10 @@ describe("association", () => {
  * (\getenv, \gexec, \if). psql is taken from the PostgreSQL image
  * docker-compose.prod.yml pins rather than from the machine running the suite,
  * which need not have it; the container shares the host's network, so it
- * reaches the server at the address DATABASE_URL gives.
+ * reaches the server at the address DATABASE_URL gives. The digest is pulled
+ * from Amazon's copy of the Docker official images, as CI's own database is,
+ * because Docker Hub limits anonymous pulls per address and CI runners share
+ * theirs; in CI the image is then already there.
  *
  * Each database holds only what the script has to find: the statutory tables
  * its REVOKE lines name, the migration history, and the job queue's schema
@@ -1556,7 +1559,10 @@ describe("two instances sharing one database server", () => {
     return url.toString();
   }
 
-  /** The PostgreSQL image docker-compose.prod.yml pins, psql's source. */
+  /**
+   * The PostgreSQL image docker-compose.prod.yml pins, psql's source, by its
+   * digest on public.ecr.aws.
+   */
   function postgresImage(): string {
     const compose = readFileSync(
       join(process.cwd(), "..", "..", "docker-compose.prod.yml"),
@@ -1571,7 +1577,7 @@ describe("two instances sharing one database server", () => {
           "which is where this suite takes psql from.",
       );
     }
-    return pinned;
+    return `public.ecr.aws/docker/library/${pinned}`;
   }
 
   /**
