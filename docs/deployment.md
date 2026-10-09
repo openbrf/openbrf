@@ -155,7 +155,10 @@ changes nothing but the owner's password, which it sets from
    step waits until every build has finished: the application never runs
    pg-boss migrations, so nothing would finish one later. A build that fails
    stops the deploy with its error, which also stays in `pgboss.bam`, and the
-   next deploy retries it.
+   next deploy retries it. The check and the migration are two steps, not one
+   transaction, so a running application that could be made to rewrite
+   `pgboss.queue` between them is not covered: stop it before the deploy if you
+   cannot rely on it.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
@@ -163,8 +166,16 @@ The owner's URL is built separately for each of steps 2 to 6, inside the
 process that uses it, so it is never a shell variable and never written to a
 stream; a `DATABASE_URL` that is set on the `migrate` service is used as given.
 The application builds its own URL from `POSTGRES_HOST`, `POSTGRES_PORT` and
-`POSTGRES_DB` unless `DATABASE_URL_RUNTIME` is set, so step 6 refuses a
-`DATABASE_URL` that names another server or database than those three.
+`POSTGRES_DB` unless `DATABASE_URL_RUNTIME` is set, so step 6 checks that the
+owner's URL and the application's name the same server and database:
+
+- With no `DATABASE_URL_RUNTIME`, a `DATABASE_URL` that names another server or
+  database than `POSTGRES_HOST`, `POSTGRES_PORT` and `POSTGRES_DB` is refused.
+- With `DATABASE_URL_RUNTIME` and `RUNTIME_DB_PASSWORD` both set, the two URLs
+  are compared with each other and `POSTGRES_HOST`, `POSTGRES_PORT` and
+  `POSTGRES_DB` are not consulted. A mismatch is refused.
+- With `DATABASE_URL_RUNTIME` and no `RUNTIME_DB_PASSWORD`, you manage the role
+  yourself, nothing is hardened, and no comparison is made.
 
 The application's container assembles its own connection URL from the runtime
 role's password and starts. It is never given the owner's credentials or the

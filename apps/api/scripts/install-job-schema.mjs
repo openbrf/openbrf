@@ -80,6 +80,10 @@ boss.on("bam", ({ name, table, status }) => {
  * can write pgboss.bam - every instance until the runtime role's hardening
  * first revoked that - because it cannot then be told from one that role
  * wrote. Once only the owner can, the builds are the owner's and are left.
+ *
+ * This is a check, not a lock: a role that can write pgboss.queue could change
+ * a row between it and the migration pg-boss runs next. Closing that takes a
+ * trigger on the table, which is a change of its own.
  */
 async function refuseRowsTheOwnerWouldRun(db) {
   const { rows } = await db.executeSql(
