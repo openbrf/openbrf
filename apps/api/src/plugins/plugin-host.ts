@@ -312,8 +312,10 @@ function pluginJobService(
 ): PluginJobs {
   const queue = (name: string): string => {
     if (!PLUGIN_QUEUE_NAME.test(name)) {
+      // The name is left out: a plugin may pass anything here, a resident's
+      // address included, and the error ends up in the log.
       throw new RangeError(
-        `Plugin "${pluginId}" named a job queue ${JSON.stringify(name)}; ` +
+        `Plugin "${pluginId}" named a job queue the job queue refuses; ` +
           "a queue name is 1-64 letters, digits, '_', '.' or '-'.",
       );
     }
