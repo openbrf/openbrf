@@ -1714,9 +1714,19 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
-    const spy = vi
-      .spyOn(prisma, "$transaction")
-      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    // The attachment's own upload is a transaction too, and it goes first: it
+    // is the second one, the write of the letter's rows, that is refused.
+    const transaction = prisma.$transaction.bind(prisma);
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      calls += 1;
+      if (calls === 2) {
+        return Promise.reject(new Error("Connection terminated unexpectedly"));
+      }
+      return (transaction as (...rest: unknown[]) => unknown)(...args);
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
     const files = await prisma.mediaFile.count();
 
@@ -1761,16 +1771,23 @@ describe("collecting the mailbox", () => {
     ]);
 
     const transaction = prisma.$transaction.bind(prisma);
-    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+    // The attachment's own upload is a transaction too, and it goes first: it
+    // is the second one, the write of the letter's rows, whose answer is lost.
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
       ...args: unknown[]
-    ) =>
-      (
-        (transaction as (...rest: unknown[]) => Promise<unknown>)(
-          ...args,
-        ) as Promise<unknown>
-      ).then(() => {
+    ) => {
+      calls += 1;
+      const run = (transaction as (...rest: unknown[]) => Promise<unknown>)(
+        ...args,
+      );
+      if (calls !== 2) {
+        return run;
+      }
+      return run.then(() => {
         throw new Error("Connection terminated unexpectedly");
-      })) as typeof prisma.$transaction);
+      });
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
 
     try {
