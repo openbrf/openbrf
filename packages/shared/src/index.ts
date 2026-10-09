@@ -44,6 +44,7 @@ export type {
   MotionTextPart,
   MoveReason,
   NewsCommentReason,
+  PageWriteReason,
   SubletReason,
   SubletTextPart,
 } from "./error-reasons.ts";

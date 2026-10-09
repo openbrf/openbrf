@@ -225,6 +225,17 @@ export type ChatReason =
   | "personal-identity-number"
   | "too-many-messages";
 
+/** What the website's page write endpoints refuse with. */
+export type PageWriteReason =
+  | "not-found"
+  | "invalid-slug"
+  | "slug-taken"
+  | "page-changed"
+  | "personal-identity-number"
+  | "photo-consent-required"
+  | "image-not-found"
+  | "image-not-public";
+
 /** What the news comment thread refuses with. */
 export type NewsCommentReason =
   | "news-not-found"

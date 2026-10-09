@@ -64,7 +64,7 @@ describe("what a caller is told about a refusal", () => {
   it.each([
     [
       "pages",
-      "apps/api/src/site/pages-write.service.ts",
+      "packages/shared/src/error-reasons.ts",
       "PageWriteReason",
       PAGE_ACTION_ERRORS,
     ],

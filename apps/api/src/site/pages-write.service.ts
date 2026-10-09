@@ -1,5 +1,8 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  type PageWriteReason,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
@@ -69,16 +72,6 @@ export function identityNumbersInBody(
       : []),
   ]);
 }
-
-export type PageWriteReason =
-  | "not-found"
-  | "invalid-slug"
-  | "slug-taken"
-  | "page-changed"
-  | "personal-identity-number"
-  | "photo-consent-required"
-  | "image-not-found"
-  | "image-not-public";
 
 export class PageWriteError extends DomainError {
   readonly status: number;
