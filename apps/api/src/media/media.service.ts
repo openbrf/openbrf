@@ -313,10 +313,17 @@ export class MediaService {
 
     await this.storage.put(storageKey, sealed.body, SEALED_FILE_CONTENT_TYPE);
 
+    /*
+     * The row and the entry recording who uploaded it commit together, as a
+     * removal's do: an entry that failed after the row had committed would
+     * leave a stored file nobody is recorded as having uploaded, and the
+     * caller's retry a second copy of it.
+     */
     let file;
     try {
-      file = await this.prisma.mediaFile.create({
-        data: {
+      file = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.mediaFile.create({
+          data: {
           storageKey,
           encryption: "SECRETSTREAM_64K",
           dataKeyCipher: sealed.dataKeyCipher,
@@ -336,7 +343,32 @@ export class MediaService {
           requiredCapability: input.requiredCapability ?? null,
           apartmentId,
           uploadedByPersonId: input.uploadedByPersonId ?? null,
-        },
+          },
+        });
+        await this.audit.record(
+          {
+            action: "MEDIA_UPLOADED",
+            channel: input.channel,
+            actorPersonId: input.uploadedByPersonId ?? null,
+            targetKind: "media",
+            targetId: created.id,
+            // The name is the uploader's own text and the type is the
+            // identified one, so the log says what was accepted rather than
+            // what was claimed. The name is left out where the caller asked
+            // for that, which the apartment binder does and nothing else does.
+            context: {
+              ...((input.recordFileName ?? true)
+                ? { fileName: created.fileName }
+                : {}),
+              contentType: created.contentType,
+              byteSize: created.byteSize,
+              visibility: created.visibility,
+              showsIdentifiablePersons: created.showsIdentifiablePersons,
+            },
+          },
+          tx,
+        );
+        return created;
       });
     } catch (cause) {
       await this.storage.remove(storageKey).catch(() => {
@@ -346,25 +378,6 @@ export class MediaService {
       });
       throw cause;
     }
-
-    await this.audit.record({
-      action: "MEDIA_UPLOADED",
-      channel: input.channel,
-      actorPersonId: input.uploadedByPersonId ?? null,
-      targetKind: "media",
-      targetId: file.id,
-      // The name is the uploader's own text and the type is the identified
-      // one, so the log says what was accepted rather than what was claimed.
-      // The name is left out where the caller asked for that, which the
-      // apartment binder does and nothing else does.
-      context: {
-        ...((input.recordFileName ?? true) ? { fileName: file.fileName } : {}),
-        contentType: file.contentType,
-        byteSize: file.byteSize,
-        visibility: file.visibility,
-        showsIdentifiablePersons: file.showsIdentifiablePersons,
-      },
-    });
 
     return toView(file);
   }
@@ -630,13 +643,36 @@ export class MediaService {
     channel: AuditChannel,
     options: { recordFileName?: boolean } = {},
   ): Promise<void> {
-    const file = await this.prisma.mediaFile.findUnique({ where: { id } });
-    if (file === null) {
+    const known = await this.prisma.mediaFile.findUnique({
+      where: { id },
+      select: { unencryptedStorageKey: true },
+    });
+    if (known === null) {
       return;
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.mediaFile.delete({ where: { id } });
+    /*
+     * An unencrypted copy the job at start has not yet removed goes first, and
+     * a failure refuses the deletion: the row is its only record (ADR 0015),
+     * so removing the row first would leave a plaintext copy of a personal
+     * file in storage with nothing naming it. The sealed copy is still there,
+     * so nothing the row serves is lost if the transaction then fails.
+     */
+    if (known.unencryptedStorageKey !== null) {
+      await this.storage.remove(known.unencryptedStorageKey);
+    }
+
+    // Read and removed in the transaction, so a deletion running alongside
+    // finds nothing left to remove rather than failing on a row already gone.
+    const file = await this.prisma.$transaction(async (tx) => {
+      const held = await tx.mediaFile.findUnique({ where: { id } });
+      if (held === null) {
+        return null;
+      }
+      const { count } = await tx.mediaFile.deleteMany({ where: { id } });
+      if (count === 0) {
+        return null;
+      }
       await this.audit.record(
         {
           action: "MEDIA_DELETED",
@@ -645,11 +681,15 @@ export class MediaService {
           targetKind: "media",
           targetId: id,
           context:
-            (options.recordFileName ?? true) ? { fileName: file.fileName } : {},
+            (options.recordFileName ?? true) ? { fileName: held.fileName } : {},
         },
         tx,
       );
+      return held;
     });
+    if (file === null) {
+      return;
+    }
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {
       this.logger.error(
@@ -658,9 +698,12 @@ export class MediaService {
       );
     });
 
-    // The unencrypted object the job at start replaced, if its removal has not
-    // succeeded yet. The row was its only record, so it goes now or never.
-    if (file.unencryptedStorageKey !== null) {
+    // One the job at start recorded after the read above, which is still the
+    // row's to remove: the row was its only record, so it goes now or never.
+    if (
+      file.unencryptedStorageKey !== null &&
+      file.unencryptedStorageKey !== known.unencryptedStorageKey
+    ) {
       const unencrypted = file.unencryptedStorageKey;
       await this.storage.remove(unencrypted).catch((cause: unknown) => {
         this.logger.error(

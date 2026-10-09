@@ -183,8 +183,21 @@ function build(
    * delegate would let that pass.
    */
   const transactionMediaFile = {
+    create: vi.fn(async (input: { data: Omit<Row, "id"> }) =>
+      mediaFile.create(input),
+    ),
+    findUnique: vi.fn(
+      async ({ where }: { where: { id: string } }) =>
+        rows.get(where.id) ?? null,
+    ),
+    deleteMany: vi.fn(async ({ where }: { where: { id: string } }) => ({
+      count: rows.delete(where.id) ? 1 : 0,
+    })),
+    // As the database answers a delete of a row that is already gone.
     delete: vi.fn(async ({ where }: { where: { id: string } }) => {
-      rows.delete(where.id);
+      if (!rows.delete(where.id)) {
+        throw new Error("P2025: the record to delete does not exist");
+      }
     }),
   };
 
@@ -639,6 +652,24 @@ describe("uploading", () => {
     );
   });
 
+  it("writes the row and its entry together, or neither", async () => {
+    const failing = build({ auditFailsOn: "MEDIA_UPLOADED" });
+
+    await expect(
+      failing.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "logotyp.png",
+        visibility: "PUBLIC",
+        showsIdentifiablePersons: false,
+        uploadedByPersonId: "person-1",
+        channel: "WEB",
+      }),
+    ).rejects.toThrow("the audit entry could not be written");
+
+    expect(failing.rows.size).toBe(0);
+    expect(failing.objects.size).toBe(0);
+  });
+
   it("removes the object again when its row cannot be written", async () => {
     const failing = build({ createFails: true });
 
@@ -1085,6 +1116,42 @@ describe("removing", () => {
     expect(fakes.storage.remove).toHaveBeenCalledWith("media/2026/09/kvar.png");
   });
 
+  it("keeps the row while an unencrypted object it names cannot be removed", async () => {
+    // The row is that object's only record, so it stays until the object is
+    // gone and a later deletion can try again.
+    const id = await stored();
+    const row = fakes.rows.get(id);
+    if (row !== undefined) {
+      row.unencryptedStorageKey = "media/2026/09/kvar.png";
+    }
+    fakes.storage.remove.mockRejectedValueOnce(new Error("bucket unavailable"));
+
+    await expect(fakes.service.remove(id, "person-1", "WEB")).rejects.toThrow(
+      "bucket unavailable",
+    );
+
+    expect(fakes.rows.get(id)?.unencryptedStorageKey).toBe(
+      "media/2026/09/kvar.png",
+    );
+  });
+
+  it("does nothing when a deletion alongside it removed the row first", async () => {
+    const id = await stored();
+    fakes.mediaFile.findUnique.mockImplementationOnce(async () => {
+      const row = fakes.rows.get(id) ?? null;
+      fakes.rows.delete(id);
+      return row;
+    });
+
+    await expect(
+      fakes.service.remove(id, "person-1", "WEB"),
+    ).resolves.toBeUndefined();
+
+    expect(fakes.audited).not.toContainEqual(
+      expect.objectContaining({ action: "MEDIA_DELETED" }),
+    );
+  });
+
   it("writes the entry on the transaction that deletes the row", async () => {
     /*
      * Not a detail of how it is written. The entry is the statutory evidence
@@ -1096,9 +1163,7 @@ describe("removing", () => {
 
     await fakes.service.remove(id, "person-1", "WEB");
 
-    expect(fakes.transactionMediaFile.delete).toHaveBeenCalledWith({
-      where: { id },
-    });
+    expect(fakes.rows.has(id)).toBe(false);
     expect(fakes.mediaFile.delete).not.toHaveBeenCalled();
 
     expect(fakes.audited).toContainEqual(
