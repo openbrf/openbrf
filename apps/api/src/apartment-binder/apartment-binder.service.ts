@@ -22,6 +22,7 @@ import type {
 import { failureName } from "../logging/failure";
 import { MediaService, mediaUrl, safeFileName } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
+import { lockApartmentBinder } from "./apartment-binder-lock";
 import {
   ApartmentBinderError,
   type BinderTextLocation,
@@ -579,18 +580,36 @@ export class ApartmentBinderService {
     });
 
     try {
-      const entry = await this.prisma.apartmentDocument.create({
-        data: {
-          apartmentId: input.apartmentId,
-          kind: input.kind,
-          audience: input.audience,
-          title,
-          datedOn: input.datedOn === null ? null : dateColumnOf(input.datedOn),
-          filedAs,
-          filedByPersonId: input.actor.personId,
-          mediaFileId: file.id,
-        },
-        select: ENTRY_SELECT,
+      const entry = await this.prisma.$transaction(async (tx) => {
+        /*
+         * The room is counted again, now, under the apartment's key. The count
+         * before the upload only spares an upload that was never going to fit;
+         * two that arrive together both pass it, and this is the one that
+         * decides. A refusal here rolls back and takes the file with it, as any
+         * other failure of the write does.
+         */
+        await lockApartmentBinder(tx, input.apartmentId);
+        const filed = await this.bytesInBinder(input.apartmentId, tx);
+        if (filed + file.byteSize > BINDER_BYTES_PER_APARTMENT) {
+          throw new ApartmentBinderError(
+            "The binder for that apartment is full.",
+            "binder-full",
+          );
+        }
+        return tx.apartmentDocument.create({
+          data: {
+            apartmentId: input.apartmentId,
+            kind: input.kind,
+            audience: input.audience,
+            title,
+            datedOn:
+              input.datedOn === null ? null : dateColumnOf(input.datedOn),
+            filedAs,
+            filedByPersonId: input.actor.personId,
+            mediaFileId: file.id,
+          },
+          select: ENTRY_SELECT,
+        });
       });
 
       return {
@@ -617,8 +636,11 @@ export class ApartmentBinderService {
   }
 
   /** How many bytes of files the apartment's entries already hold. */
-  private async bytesInBinder(apartmentId: string): Promise<number> {
-    const total = await this.prisma.mediaFile.aggregate({
+  private async bytesInBinder(
+    apartmentId: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<number> {
+    const total = await client.mediaFile.aggregate({
       where: { apartmentDocument: { apartmentId } },
       _sum: { byteSize: true },
     });
