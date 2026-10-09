@@ -38,12 +38,16 @@ const EVERY_LIST = [
 
 // Relative to the package root, as site-boundary.spec.ts reads source: this
 // package compiles to CommonJS, where import.meta is not available.
-const API = join(process.cwd(), "src");
 const REPO = join(process.cwd(), "..", "..");
 
-/** The members of an exported string union, read from the source it lives in. */
+/**
+ * The members of an exported string union, read from the source it lives in.
+ *
+ * The path is from the repository root, because the unions the browser reads
+ * as well live in `packages/shared` rather than beside their services.
+ */
 function reasonsOf(path: string, name: string): string[] {
-  const source = readFileSync(join(API, path), "utf8");
+  const source = readFileSync(join(REPO, path), "utf8");
   const start = source.indexOf(`export type ${name} =`);
   expect(start, `${name} is not declared in ${path}`).toBeGreaterThan(-1);
   const declaration = source.slice(start, source.indexOf(";", start));
@@ -60,37 +64,37 @@ describe("what a caller is told about a refusal", () => {
   it.each([
     [
       "pages",
-      "site/pages-write.service.ts",
+      "apps/api/src/site/pages-write.service.ts",
       "PageWriteReason",
       PAGE_ACTION_ERRORS,
     ],
     [
       "news",
-      "news/news-write.service.ts",
+      "apps/api/src/news/news-write.service.ts",
       "NewsWriteReason",
       NEWS_ACTION_ERRORS,
     ],
     [
       "menu",
-      "site/menu-write.service.ts",
+      "apps/api/src/site/menu-write.service.ts",
       "MenuWriteReason",
       MENU_ACTION_ERRORS,
     ],
     [
       "the association's facts",
-      "site/association-facts.service.ts",
+      "apps/api/src/site/association-facts.service.ts",
       "AssociationFactsReason",
       FACTS_ACTION_ERRORS,
     ],
     [
       "a comment thread",
-      "news/news-comment.error.ts",
+      "packages/shared/src/error-reasons.ts",
       "NewsCommentReason",
       NEWS_COMMENT_ACTION_ERRORS,
     ],
     [
       "the motion queue",
-      "motions/motion.error.ts",
+      "packages/shared/src/error-reasons.ts",
       "MotionReason",
       MOTION_ACTION_ERRORS,
     ],

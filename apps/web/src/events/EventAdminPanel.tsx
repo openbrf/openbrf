@@ -6,6 +6,7 @@ import {
   type ReactElement,
 } from "react";
 import { useTranslation } from "react-i18next";
+import type { EventTextField } from "@openbrf/shared";
 
 import type { ApiFailure, ApiResult } from "../api/client";
 import {
@@ -47,12 +48,7 @@ import {
   inputOf,
   signatureOf,
 } from "./event-draft";
-import {
-  eventFailureKey,
-  type EventTextField,
-  refusedDates,
-  scannedFields,
-} from "./event-failures";
+import { eventFailureKey, refusedDates, scannedFields } from "./event-failures";
 import { EventRollCall } from "./EventRollCall";
 import { EventSeriesFields } from "./EventSeriesFields";
 

@@ -27,10 +27,25 @@ export type {
 } from "./data-protection.ts";
 export type {
   AccountingReason,
+  ApartmentBinderReason,
+  ApartmentBinderTextPart,
+  BookingReason,
+  BookingTextField,
+  ChatReason,
+  EventReason,
+  EventTextField,
   FeeReason,
+  KeyOrderReason,
+  KeyOrderTextPart,
+  MediaReason,
   MeetingReason,
   MemberChargeReason,
-  MoveErrorReason,
+  MotionReason,
+  MotionTextPart,
+  MoveReason,
+  NewsCommentReason,
+  SubletReason,
+  SubletTextPart,
 } from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";

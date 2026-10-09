@@ -1,3 +1,5 @@
+import type { EventReason, EventTextField } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -20,60 +22,22 @@ import { failureMessageKey } from "../ui/save-state";
  */
 
 /**
- * The reasons the events module refuses with.
- *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it, so a reason the server gains and this
- * client has no sentence for is a compile error here rather than "something went
- * wrong" on a board member's screen.
- */
-export type EventReason =
-  | "not-found"
-  | "occurrence-not-found"
-  | "personal-identity-number"
-  | "invalid-date"
-  | "recurrence-interval-invalid"
-  | "recurrence-end-required"
-  | "recurrence-end-ambiguous"
-  | "recurrence-end-invalid"
-  | "recurrence-past-horizon"
-  | "duration-invalid"
-  | "start-does-not-exist"
-  | "capacity-not-positive"
-  | "occurrence-in-use"
-  | "occurrence-already-cancelled"
-  | "occurrence-not-cancelled"
-  | "occurrence-already-begun"
-  | "range-invalid"
-  | "signup-not-offered"
-  | "occurrence-cancelled"
-  | "occurrence-started"
-  | "occurrence-full"
-  | "already-signed-up"
-  | "already-withdrawn"
-  | "signup-not-found";
-
-/**
  * The parts of a series a personal-identity-number refusal can name.
  *
- * Mirrored from the API's own location type. Narrower than `string` on purpose:
- * see {@link scannedFields}.
+ * Narrower than `string` on purpose: see {@link scannedFields}.
  */
-export type EventTextField = "title" | "description" | "category" | "location";
-
 const EVENT_TEXT_FIELDS: readonly string[] = [
   "title",
   "description",
   "category",
   "location",
-];
+] satisfies readonly EventTextField[];
 
 /**
  * Every reason, and the sentence it becomes.
  *
- * Total over {@link EventReason} and checked as such, so the map cannot fall
- * behind the API by one code. `invalid-body` is the endpoint's own schema
+ * Total over {@link EventReason}, the union the API throws with, and checked as
+ * such, so the map cannot fall behind the API by one code. `invalid-body` is the endpoint's own schema
  * refusal and is the one key here that is not a domain reason - for these forms
  * it means a value the screen should not have been able to send.
  *

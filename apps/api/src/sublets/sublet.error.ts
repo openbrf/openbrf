@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { SubletReason, SubletTextPart } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -17,7 +18,7 @@ import { DomainError } from "../http/domain-error";
  * reach a response body, a log line or a screen somebody else is looking at.
  */
 export interface SubletTextLocation {
-  part: "reason" | "decisionNote";
+  part: SubletTextPart;
   offset: number;
 }
 
@@ -56,14 +57,7 @@ export class SubletError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      | "not-a-member"
-      | "apartment-not-found"
-      | "application-not-found"
-      | "already-closed"
-      | "not-refused"
-      | "invalid-period"
-      | "personal-identity-number",
+    readonly reason: SubletReason,
     private readonly locations: readonly SubletTextLocation[] = [],
   ) {
     super(message);
@@ -90,7 +84,7 @@ export class SubletError extends DomainError {
  * A switch over the whole union rather than a chain of ternaries, so a reason
  * added without a status is a compile error rather than a 500 in production.
  */
-function statusFor(reason: SubletError["reason"]): number {
+function statusFor(reason: SubletReason): number {
   switch (reason) {
     case "not-a-member":
       /*
