@@ -1,3 +1,5 @@
+import { compareLocalDays, localDayOf } from "./stockholm-calendar.ts";
+
 /**
  * The Swedish personal identity number (personnummer), as parsed, normalized,
  * checksum-verified and searched for in free text.
@@ -14,14 +16,20 @@
  * time and at search time:
  *
  *   Changing normalizePersonalIdentityNumber, or the parse it rests on,
- *   invalidates every blind index already stored. Such a change needs a
- *   migration that decrypts each affected field and recomputes its index, and
- *   a bump of the normalization version the encryption layer records.
+ *   invalidates every blind index already stored. Such a change bumps the
+ *   normalization version the API records (NORMALIZATION_VERSION in
+ *   apps/api/src/crypto/personal-data.ts), which reindexes the stored rows.
+ *
+ * A number written without its century is the one input normalization cannot
+ * make stable on its own: the same ten digits name a different person once the
+ * day they are read on moves past a birthday (see parsePersonalIdentityNumber).
+ * So a number is stored with the century it was read with
+ * (withPersonalIdentityNumberCentury), and one whose reading is about to change,
+ * or has just changed, is refused until somebody writes the century
+ * (personalIdentityNumberNeedsCentury).
  *
  * Swedish domain terms follow GLOSSARY.md.
  */
-
-import { compareLocalDays, localDayOf } from "./stockholm-calendar.ts";
 
 export interface PersonalIdentityNumberParts {
   /** Full four-digit year. */
@@ -52,13 +60,12 @@ export function parsePersonalIdentityNumber(
   input: string,
   referenceDate: Date = new Date(),
 ): PersonalIdentityNumberParts | null {
-  const compact = input.trim().replace(/\s/g, "");
-  const match = PERSONAL_IDENTITY_NUMBER_PATTERN.exec(compact);
-  if (match?.groups === undefined) {
+  const groups = shapeOf(input);
+  if (groups === null) {
     return null;
   }
 
-  const { century, year, month, day, separator, suffix } = match.groups;
+  const { century, year, month, day, separator, suffix } = groups;
   if (
     year === undefined ||
     month === undefined ||
@@ -71,42 +78,34 @@ export function parsePersonalIdentityNumber(
   const twoDigitYear = Number(year);
   const monthNumber = Number(month);
   const dayNumber = Number(day);
-
   const isCoordinationNumber = dayNumber > 60;
   const actualDay = isCoordinationNumber ? dayNumber - 60 : dayNumber;
-  // The association's day (ADR 0013), not the process time zone's.
-  const today = localDayOf(referenceDate);
-  const isFuture = (candidateYear: number): boolean =>
-    compareLocalDays(
-      { year: candidateYear, month: monthNumber, day: actualDay },
-      today,
-    ) > 0;
 
   let fullYear: number;
   if (century !== undefined) {
-    // Written with the century, which is taken at face value only where a
-    // living person can have been born in it.
-    if (!["18", "19", "20"].includes(century)) {
-      return null;
-    }
+    // Written with the century, so take it at face value.
     fullYear = Number(century) * 100 + twoDigitYear;
-    if (isFuture(fullYear)) {
-      return null;
-    }
-  } else if (separator === "+") {
-    // A plus is written from 1 January of the year the person turns 100, so
-    // it names the most recent year at least a hundred years back. The year
-    // alone decides: the birthday that year may not have come yet.
-    const latest = today.year - 100;
-    fullYear = Math.floor(latest / 100) * 100 + twoDigitYear;
-    if (fullYear > latest) {
-      fullYear -= 100;
-    }
   } else {
-    // Without a century, the most recent birth date that is not in the future
-    // wins.
-    fullYear = Math.floor(today.year / 100) * 100 + twoDigitYear;
-    if (isFuture(fullYear)) {
+    const referenceDay = localDayOf(referenceDate);
+    const referenceYear = referenceDay.year;
+    fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
+    if (separator === "+") {
+      // A plus is written from the year a person turns 100, so here it is the
+      // year that is compared rather than the birthday.
+      if (fullYear > referenceYear) {
+        fullYear -= 100;
+      }
+      fullYear -= 100;
+    } else if (
+      // Otherwise the most recent birth date that is not in the future wins.
+      // The whole date rather than the year: in March 2026, 261201 is
+      // 1926-12-01, because 2026-12-01 has not happened yet. Comparing years
+      // alone said 2026 until that day came, so the blind index of one
+      // unchanged input moved with the clock. The day is compared without a
+      // coordination number's offset, which is no date at all.
+      (fullYear * 100 + monthNumber) * 100 + actualDay >
+      (referenceYear * 100 + referenceDay.month) * 100 + referenceDay.day
+    ) {
       fullYear -= 100;
     }
   }
@@ -153,16 +152,88 @@ export function normalizePersonalIdentityNumber(
 }
 
 /**
+ * Whether a number written without its century has to be given one before it
+ * is stored or looked up.
+ *
+ * Without a century the reading depends on the day it is made, and it flips
+ * once: 261201-1235 reads as 1926 until 1 December 2026 and as 2026 from then
+ * on. A number stored on one side of that day and looked up on the other would
+ * be two people, so a number whose reading a year earlier or a year later
+ * differs from today's is refused instead of guessed. That leaves two numbers
+ * accepted on dates less than a year apart reading the same on both, which is
+ * what lets a file be previewed today and imported again next month. The cost
+ * falls on numbers within a year of their flip: somebody born in the last
+ * year, or turning 100 within one, is written with the century.
+ *
+ * False for a number written with its century, and for input that is not a
+ * personal identity number at all, which the validity check reports.
+ */
+export function personalIdentityNumberNeedsCentury(
+  input: string,
+  referenceDate: Date = new Date(),
+): boolean {
+  const groups = shapeOf(input);
+  if (groups === null || groups.century !== undefined) {
+    return false;
+  }
+  const reading = normalizePersonalIdentityNumber(input, referenceDate);
+  if (reading === null) {
+    return false;
+  }
+  return [-1, 1].some(
+    (years) =>
+      normalizePersonalIdentityNumber(
+        input,
+        yearsFrom(referenceDate, years),
+      ) !== reading,
+  );
+}
+
+/**
+ * The input with the century it is read with today written in front of it, so
+ * that reading it again later gives the same person.
+ *
+ * What a stored ciphertext holds. The spelling is kept otherwise -
+ * 811228-9874 is stored as 19811228-9874 - and a value that already carries a
+ * century, or is not a personal identity number, comes back as it was.
+ */
+export function withPersonalIdentityNumberCentury(
+  input: string,
+  referenceDate: Date = new Date(),
+): string {
+  const groups = shapeOf(input);
+  if (groups === null || groups.century !== undefined) {
+    return input;
+  }
+  const parts = parsePersonalIdentityNumber(input, referenceDate);
+  if (parts === null) {
+    return input;
+  }
+  return `${String(Math.floor(parts.year / 100))}${input.trim()}`;
+}
+
+/**
  * Verifies the Luhn check digit, which the last ten digits of a Swedish
  * personal identity number carry.
  *
  * Coordination numbers use the same checksum over the offset day, so no
  * special case is needed here.
+ *
+ * A number written with its century is valid only where somebody alive can
+ * have been born: the century is 18, 19 or 20 and the birth date has come. A
+ * twelve-digit invoice or OCR reference whose last ten digits pass the check
+ * is not a personal identity number. This is a check of what is entered, not a
+ * rule of normalization, so a number already stored is indexed and found as it
+ * always was.
  */
 export function isValidPersonalIdentityNumber(
   input: string,
   referenceDate: Date = new Date(),
 ): boolean {
+  const parts = parsePersonalIdentityNumber(input, referenceDate);
+  if (parts === null || !isBornBy(input, parts, referenceDate)) {
+    return false;
+  }
   const normalized = normalizePersonalIdentityNumber(input, referenceDate);
   if (normalized === null) {
     return false;
@@ -372,6 +443,44 @@ export function scanForPersonalIdentityNumbers(
   }
 
   return found;
+}
+
+/** The pattern's groups for a single typed value, or null when it does not fit. */
+function shapeOf(input: string): Record<string, string | undefined> | null {
+  const compact = input.trim().replace(/\s/g, "");
+  return PERSONAL_IDENTITY_NUMBER_PATTERN.exec(compact)?.groups ?? null;
+}
+
+/**
+ * Whether a number written with its century names a living person's birth: a
+ * century of 18, 19 or 20, and a birth date on or before the association's day
+ * (ADR 0013). A number without one is read into the past already.
+ */
+function isBornBy(
+  input: string,
+  parts: PersonalIdentityNumberParts,
+  referenceDate: Date,
+): boolean {
+  const century = shapeOf(input)?.century;
+  if (century === undefined) {
+    return true;
+  }
+  if (!["18", "19", "20"].includes(century)) {
+    return false;
+  }
+  const birth = {
+    year: parts.year,
+    month: parts.month,
+    day: parts.isCoordinationNumber ? parts.day - 60 : parts.day,
+  };
+  return compareLocalDays(birth, localDayOf(referenceDate)) <= 0;
+}
+
+/** The same moment a number of years away; 29 February moves to 1 March. */
+function yearsFrom(date: Date, years: number): Date {
+  const moved = new Date(date.getTime());
+  moved.setFullYear(moved.getFullYear() + years);
+  return moved;
 }
 
 /**

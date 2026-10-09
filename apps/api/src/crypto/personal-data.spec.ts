@@ -45,6 +45,10 @@ describe("normalizePhone", () => {
     ["(070) 123 45 67", "+46701234567"],
     // A spreadsheet that dropped the leading zero.
     ["701234567", "+46701234567"],
+    // The trunk zero kept beside the country code, in brackets or not.
+    ["+46 (0)70 123 45 67", "+46701234567"],
+    ["0046 (0)70 123 45 67", "+46701234567"],
+    ["+460701234567", "+46701234567"],
   ])("maps the Swedish number %s onto %s", (input, expected) => {
     expect(normalizePhone(input)).toBe(expected);
   });
@@ -55,6 +59,8 @@ describe("normalizePhone", () => {
       "0701234567",
       "+46 70 123 45 67",
       "0046 70-1234567",
+      "+46 (0)70 123 45 67",
+      "0046 (0)70-123 45 67",
     ];
     expect(new Set(written.map(normalizePhone)).size).toBe(1);
   });

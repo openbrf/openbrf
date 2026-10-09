@@ -14,6 +14,10 @@
 # stack.env sets OPENBRF_VERSION only so the production file's required
 # variable interpolates; the image named below is the one that runs.
 #
+# Its tag comes from the env file, openbrf:e2e for the suite and openbrf:shots
+# for the screenshot walk, so neither build retags the other's image while it
+# runs, and neither is a tag anything else on the machine uses.
+#
 #   OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e \
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
@@ -28,7 +32,7 @@
 x-e2e-image: &e2e-image
   build:
     context: .
-  image: openbrf:local
+  image: ${E2E_IMAGE:?set E2E_IMAGE in the env file}
 
 services:
   schema-owner:

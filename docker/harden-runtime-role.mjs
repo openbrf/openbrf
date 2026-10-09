@@ -28,7 +28,7 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { fail, runtimeRole } from "./database-url.mjs";
+import { checkRuntimeServer, fail, runtimeRole } from "./database-url.mjs";
 import { ownerConnection } from "./psql.mjs";
 
 /** Relative to the working directory the image sets, /app/apps/api. */
@@ -56,6 +56,7 @@ const { applyFile } = ownerConnection();
 let role;
 try {
   role = runtimeRole();
+  checkRuntimeServer();
 } catch (error) {
   fail(error);
 }

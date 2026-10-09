@@ -6,8 +6,10 @@ import {
   parsePersonalIdentityNumber,
   normalizeFreeText,
   normalizeSingleLineText,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 
 /**
@@ -15,7 +17,8 @@ import {
  * blind index (ADR 0002). The table below is therefore a compatibility suite
  * rather than a set of examples: a change that alters one byte of an output
  * silently breaks search on data already stored, and the only lawful way to
- * make one of these fail is a migration that recomputes every index.
+ * make one of these fail is a bump of the normalisation version, which
+ * recomputes every index.
  */
 
 // Fixed so century inference is deterministic rather than dependent on today.
@@ -28,7 +31,7 @@ describe("normalizePersonalIdentityNumber", () => {
     ["19811228-9874", "198112289874"],
     ["198112289874", "198112289874"],
     [" 811228 - 9874 ", "198112289874"],
-    // Without a century, the most recent year that is not in the future.
+    // Without a century, the most recent birth date that is not in the future.
     ["121212-1212", "201212121212"],
     // The birth date decides, not the year alone: on 27 August 2026 a
     // birthday later in 2026 has not happened, so it was in 1926.
@@ -43,17 +46,44 @@ describe("normalizePersonalIdentityNumber", () => {
     // the year alone decides it, birthday or not.
     ["261215+1239", "192612151239"],
     ["260827+1231", "192608271231"],
+    // A century of 18 is written for a person past 100.
+    ["188112289874", "188112289874"],
     // A coordination number keeps the +60 day offset, so the form round-trips.
     ["121272-1219", "201212721219"],
     ["000229-0120", "200002290120"],
-    // The whole date decides, not the year alone: born this year but on a day
-    // still to come is a person who turns 100 this year.
-    ["261215-1239", "192612151239"],
-    ["260827-1231", "202608271231"],
-    // A century of 18 is written for a person past 100.
-    ["188112289874", "188112289874"],
   ])("writes %s as %s, byte for byte", (written, canonical) => {
     expect(normalizePersonalIdentityNumber(written, REFERENCE)).toBe(canonical);
+  });
+
+  it("places a birthday later this year in the last century", () => {
+    // In March 2026, 1 December 2026 has not happened, so nobody can have
+    // been born on it. Comparing years alone said 2026 until the day came.
+    const march = new Date(2026, 2, 15);
+    expect(normalizePersonalIdentityNumber("261201-1234", march)).toBe(
+      "192612011234",
+    );
+    expect(normalizePersonalIdentityNumber("2612011234", march)).toBe(
+      "192612011234",
+    );
+    // A coordination number is judged by its real day, 1 December, not 61.
+    expect(normalizePersonalIdentityNumber("261261-1234", march)).toBe(
+      "192612611234",
+    );
+    // A birthday already passed this year stays in this century.
+    expect(normalizePersonalIdentityNumber("260301-1234", march)).toBe(
+      "202603011234",
+    );
+    // Today itself is not in the future.
+    expect(normalizePersonalIdentityNumber("260315-1234", march)).toBe(
+      "202603151234",
+    );
+  });
+
+  it("keeps the plus separator to the year a person turns 100", () => {
+    // A plus is written all through that year, before the birthday as well.
+    expect(
+      normalizePersonalIdentityNumber("261201+1234", new Date(2026, 2, 15)),
+    ).toBe("192612011234");
   });
 
   it("judges the century by the day in Stockholm, not the process time zone", () => {
@@ -65,21 +95,76 @@ describe("normalizePersonalIdentityNumber", () => {
     );
   });
 
-  it.each([
-    // No person alive was born in these centuries, and 00 would shorten the
-    // canonical form to ten digits.
-    "008112289874",
-    "258112289874",
-    "998112289874",
-    // Written with the century, but born after the reference date.
-    "20261215-1239",
-  ])("refuses the twelve-digit %s", (written) => {
-    expect(normalizePersonalIdentityNumber(written, REFERENCE)).toBeNull();
-  });
-
   it("returns null rather than an unmatchable index for bad input", () => {
     expect(normalizePersonalIdentityNumber("nonsense", REFERENCE)).toBeNull();
     expect(normalizePersonalIdentityNumber("12121-1212", REFERENCE)).toBeNull();
+  });
+});
+
+describe("a number written without its century", () => {
+  // 261201-1235 is 1926 until 1 December 2026 and 2026 from then on.
+  const DAY_BEFORE = new Date(2026, 10, 30);
+  const DAY_OF = new Date(2026, 11, 1);
+
+  it("is stored with the century it was read with", () => {
+    expect(withPersonalIdentityNumberCentury("261201-1235", DAY_BEFORE)).toBe(
+      "19261201-1235",
+    );
+    expect(withPersonalIdentityNumberCentury(" 8112289874 ", REFERENCE)).toBe(
+      "198112289874",
+    );
+    // Already carrying one, or not a number at all: as it was.
+    expect(withPersonalIdentityNumberCentury("19811228-9874", REFERENCE)).toBe(
+      "19811228-9874",
+    );
+    expect(withPersonalIdentityNumberCentury("nonsense", REFERENCE)).toBe(
+      "nonsense",
+    );
+  });
+
+  it("is still the same person once the day it would flip has passed", () => {
+    // Stored the day before; looked up on the day itself.
+    const stored = withPersonalIdentityNumberCentury("261201-1235", DAY_BEFORE);
+    expect(normalizePersonalIdentityNumber(stored, DAY_OF)).toBe(
+      normalizePersonalIdentityNumber("19261201-1235", DAY_BEFORE),
+    );
+    // Read without a century on that day, the same digits are somebody else,
+    // which is why they are refused on either side of it.
+    expect(normalizePersonalIdentityNumber("261201-1235", DAY_OF)).toBe(
+      "202612011235",
+    );
+    expect(personalIdentityNumberNeedsCentury("261201-1235", DAY_BEFORE)).toBe(
+      true,
+    );
+    expect(personalIdentityNumberNeedsCentury("261201-1235", DAY_OF)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    // A year either side of the flip, the reading holds for a year.
+    ["261201-1235", "2025-11-30", false],
+    ["261201-1235", "2027-12-01", false],
+    // Born less than a year ago.
+    ["251201-1236", "2026-11-30", true],
+    // Turning 100 within a year, written without the plus.
+    ["270801-1230", "2026-08-27", true],
+    // A plus in the year it starts to apply, which read 18xx a year earlier.
+    ["261201+1235", "2026-08-27", true],
+    ["251201+1236", "2026-08-27", false],
+    ["811228-9874", "2026-08-27", false],
+    ["121212-1212", "2026-08-27", false],
+    // A century, or not a number at all, is never asked for one.
+    ["19261201-1235", "2026-11-30", false],
+    ["nonsense", "2026-08-27", false],
+  ])("asks for the century of %s on %s: %s", (written, on, needs) => {
+    const [year, month, day] = on.split("-").map(Number);
+    expect(
+      personalIdentityNumberNeedsCentury(
+        written,
+        new Date(year ?? 0, (month ?? 0) - 1, day),
+      ),
+    ).toBe(needs);
   });
 });
 
@@ -107,6 +192,35 @@ describe("isValidPersonalIdentityNumber", () => {
 
   it("refuses one whose check digit does not", () => {
     expect(isValidPersonalIdentityNumber("811228-9875", REFERENCE)).toBe(false);
+  });
+
+  it("accepts a century of 18, 19 or 20 up to today", () => {
+    expect(isValidPersonalIdentityNumber("188112289874", REFERENCE)).toBe(true);
+    expect(isValidPersonalIdentityNumber("20260827-1231", REFERENCE)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    // No person alive was born in these centuries, and 00 would shorten the
+    // canonical form to ten digits.
+    "008112289874",
+    "258112289874",
+    "998112289874",
+    // Written with the century, but born after the reference date.
+    "20261215-1239",
+    // A coordination number is judged on its real day, 88 - 60 = 28 August.
+    "20260888-1237",
+  ])("refuses the twelve-digit %s", (written) => {
+    expect(isValidPersonalIdentityNumber(written, REFERENCE)).toBe(false);
+  });
+
+  it("leaves the index of such a number as it was", () => {
+    // Refused when it is entered; a row that already holds one is still found
+    // by it, so no stored index changes and nothing has to be reindexed.
+    expect(normalizePersonalIdentityNumber("258112289874", REFERENCE)).toBe(
+      "258112289874",
+    );
   });
 });
 

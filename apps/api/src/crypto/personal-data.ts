@@ -7,8 +7,9 @@
  * format, not a presentation detail:
  *
  *   Changing any function here invalidates every blind index already stored.
- *   A change therefore needs a migration that decrypts each affected field and
- *   recomputes its index, and a bump of NORMALIZATION_VERSION below.
+ *   A change therefore bumps NORMALIZATION_VERSION below, together with a
+ *   migration that moves the default of person.blindIndexVersion to it, and
+ *   PersonReindexService recomputes the older rows' indexes at the next boot.
  *
  * The personal identity number's own parse, normalization and checksum live in
  * `@openbrf/shared` and are re-exported below, because the browser needs them
@@ -23,7 +24,9 @@ export {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "@openbrf/shared";
 export type {
   PersonalIdentityNumberMatch,
@@ -31,16 +34,14 @@ export type {
 } from "@openbrf/shared";
 
 /**
- * Bumped whenever the normalization rules change. Stored alongside the data so
- * a future migration can tell which rows still hold indexes from an older
- * rule set.
+ * Bumped whenever the normalization rules change. Stored on each person row
+ * (blindIndexVersion), so the reindex at boot can tell which rows still hold
+ * indexes from an older rule set.
  *
- * Recorded for the personal identity number, in
- * `person.personalIdentityNumberIndexVersion`, whose column default has to be
- * raised with it; IdentityNumberReindexService rewrites every index below it.
- *
- * 2: a number is dated by its whole birth date on the association's calendar,
- * and a twelve-digit number is read only with the century 18, 19 or 20.
+ * 2: a ten-digit personal identity number's century is judged by the whole
+ * birth date, and a phone number's trunk zero after +46 is dropped. A personal
+ * identity number is stored with the century it was read with, so the reindex
+ * writes that century into the ciphertexts stored under version 1.
  */
 export const NORMALIZATION_VERSION = 2;
 
@@ -77,11 +78,11 @@ export function normalizePhone(input: string): string {
   }
 
   if (hasPlus) {
-    return `+${digits}`;
+    return withoutTrunkZero(`+${digits}`);
   }
   // International prefix written as 00.
   if (digits.startsWith("00")) {
-    return `+${digits.slice(2)}`;
+    return withoutTrunkZero(`+${digits.slice(2)}`);
   }
   // Swedish national format: a single leading zero is the trunk prefix.
   if (digits.startsWith("0")) {
@@ -90,4 +91,17 @@ export function normalizePhone(input: string): string {
   // No country and no trunk prefix: assume Sweden, which is what a
   // spreadsheet that ate the leading zero produces.
   return `+46${digits}`;
+}
+
+/**
+ * A Swedish number with its trunk zero left beside the country code.
+ *
+ * "+46 (0)70 123 45 67" is a common way to write a number for readers at home
+ * and abroad at once, and it reaches here as +460701234567. No Swedish number
+ * continues with a zero after +46, so the zero is the trunk prefix and goes:
+ * otherwise this spelling and "070-123 45 67" would be two indexes for one
+ * phone.
+ */
+function withoutTrunkZero(international: string): string {
+  return international.replace(/^\+460/, "+46");
 }

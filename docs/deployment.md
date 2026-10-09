@@ -148,24 +148,42 @@ changes nothing but the owner's password, which it sets from
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
-5. The job queue schema is installed or migrated, as the owner. An upgrade
-   that adds an index to the job tables builds it here too, and the step waits
-   until every build has finished: the application never runs pg-boss
-   migrations, so nothing would finish one later. A build that fails stops the
-   deploy with its error, which also stays in `pgboss.bam`, and the next deploy
-   retries it.
+5. The job queue schema is installed or migrated, as the owner. It stops on a
+   queue that is partitioned or names a job table of its own, which Open BRF
+   never declares, because pg-boss builds SQL from those names as the owner.
+   An upgrade that adds an index to the job tables builds it here too, and the
+   step waits until every build has finished: the application never runs
+   pg-boss migrations, so nothing would finish one later. A build that fails
+   stops the deploy with its error, which also stays in `pgboss.bam`, and the
+   next deploy retries it. The check and the migration are two steps, not one
+   transaction, so a running application that could be made to rewrite
+   `pgboss.queue` between them is not covered: stop it before the deploy if you
+   cannot rely on it.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
 The owner's URL is built separately for each of steps 2 to 6, inside the
 process that uses it, so it is never a shell variable and never written to a
 stream; a `DATABASE_URL` that is set on the `migrate` service is used as given.
+The application builds its own URL from `POSTGRES_HOST`, `POSTGRES_PORT` and
+`POSTGRES_DB` unless `DATABASE_URL_RUNTIME` is set, so step 6 checks that the
+owner's URL and the application's name the same server and database:
+
+- With no `DATABASE_URL_RUNTIME`, a `DATABASE_URL` that names another server or
+  database than `POSTGRES_HOST`, `POSTGRES_PORT` and `POSTGRES_DB` is refused.
+- With `DATABASE_URL_RUNTIME` and `RUNTIME_DB_PASSWORD` both set, the two URLs
+  are compared with each other and `POSTGRES_HOST`, `POSTGRES_PORT` and
+  `POSTGRES_DB` are not consulted. A mismatch is refused.
+- With `DATABASE_URL_RUNTIME` and no `RUNTIME_DB_PASSWORD`, you manage the role
+  yourself, nothing is hardened, and no comparison is made.
 
 The application's container assembles its own connection URL from the runtime
 role's password and starts. It is never given the owner's credentials or the
 superuser's, and it refuses to start if it is: a `POSTGRES_PASSWORD`, an
 `OWNER_DB_PASSWORD`, or a `DATABASE_URL` beside the runtime connection stops it
-with a message that says which. Once started, it asks the database whether the
+with a message that says which. The application asks the same again before it
+connects, for a platform that starts it without the image's entrypoint. Once
+started, it asks the database whether the
 role it connected as is a constrained one, and refuses to serve if the answer
 is no - a superuser, a role that owns the database or its tables or can create
 objects in its schemas, or one that holds any privilege the hardening takes
@@ -296,11 +314,11 @@ the database rather than by application code alone. A table's owner can run
 application must not be the owner. And migrations need to own the tables and
 nothing more, so the role that runs them must not be a superuser.
 
-| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                   | Password              | Given to                  |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
-| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                    | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
-| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                      | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
-| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history and on the job schema's version. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                 | Password              | Given to                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                  | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                    | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
 
 Neither the owner's credentials nor the superuser's reach the application's
 container. No password is passed as a process argument - `/proc/<pid>/cmdline`
@@ -367,6 +385,20 @@ instead.
    ```
 
 4. `pull`, then `up -d`.
+5. Change the superuser's password. Until this release the application's
+   container held it, and the superuser still signs in with a password over the
+   compose network, because the `schema-owner` service connects that way on
+   every `up`. Set a new one, generated like the others; psql asks for it and
+   sends only its hash, so it reaches neither a process argument nor a log:
+
+   ```sh
+   docker compose -f docker-compose.prod.yml --env-file .env.production \
+     exec db psql -U openbrf -d openbrf -c '\password openbrf'
+   ```
+
+   Then put the same password in `POSTGRES_PASSWORD` in `.env.production`,
+   before the next `up`, which would otherwise stop at the `schema-owner`
+   service.
 
 The `schema-owner` service creates the owner and moves to it everything the
 superuser owns in the application's schemas, so the `migrate` service after it
@@ -410,7 +442,7 @@ compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
 unset RUNTIME_DB_PASSWORD
 ```
 
-Otherwise revoke the three privileges the release took away, as the superuser,
+Otherwise revoke the privileges the release took away, as the superuser,
 naming your role. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
 column of that table except `version`, read from the catalog as the hardening
@@ -421,6 +453,7 @@ compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
 SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
   string_agg(quote_ident(attname), ', ' ORDER BY attnum))
@@ -498,9 +531,19 @@ step 5.
    compose up -d --no-deps app
    ```
 
+Until this release the application's container held the owner's password as
+well, in `POSTGRES_PASSWORD`. Once the instance runs, change it as the owner,
+and then in `OWNER_DB_PASSWORD`:
+
+```sh
+psql -h db.example.se -U brf_example_owner -d brf_example -c '\password brf_example_owner'
+```
+
 An override file that added `DATABASE_URL` to the `app` service adds it to the
 `migrate` service instead: the application refuses to start with the owner's
-connection in its environment.
+connection in its environment. `POSTGRES_HOST`, `POSTGRES_PORT` and
+`POSTGRES_DB` in the env file name the same server and database, because the
+application builds its connection from them.
 
 ## Several instances on one database server
 
@@ -753,11 +796,19 @@ that only these containers share. The instance logs a warning at start while it
 is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
 loopback too.
 
-A server the board enters in the settings is held to the same rule once the
-settings are saved. Settings saved by an earlier version keep sending as they
-did, STARTTLS or not, and the SMTP card says so until they are saved again; save
-them and send a test message after upgrading. A test that fails because the
-server offers no TLS says that, and nothing, the password included, was sent.
+A server the board enters in the settings is held to the same rule, loopback
+exemption included. Settings saved by an earlier version are moved to it by the
+upgrade's migration, so a connection that starts in cleartext to a server that
+offers no STARTTLS, which sent mail before the upgrade, sends none after it.
+Implicit TLS is not affected, as the connection is encrypted from the start.
+Every send through such a connection fails with the reason
+`mail-tls-unavailable`, and nothing, the password included, is sent. Send a test
+message from the SMTP card after upgrading. If it fails that way, have the board
+switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
+587). Settings that do not require STARTTLS anyway, such as those a data-only
+restore of an older backup brings back, are flagged on the SMTP card until they
+are saved again, and the instance logs a warning naming the server the first
+time it sends through them.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that

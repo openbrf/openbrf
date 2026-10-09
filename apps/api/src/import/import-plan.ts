@@ -41,6 +41,7 @@
 import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
 } from "../crypto/personal-data";
 import {
   type ImportField,
@@ -269,7 +270,11 @@ export function hasIndexableIdentityNumber(
   values: Partial<Record<ImportField, string>>,
 ): boolean {
   const value = values.personalIdentityNumber;
-  return value !== undefined && isValidPersonalIdentityNumber(value);
+  return (
+    value !== undefined &&
+    isValidPersonalIdentityNumber(value) &&
+    !personalIdentityNumberNeedsCentury(value)
+  );
 }
 
 /**
@@ -1276,6 +1281,16 @@ function readIdentityNumber(
     problems.push({
       field: "personalIdentityNumber",
       reason: "invalid-personal-identity-number",
+    });
+    return null;
+  }
+  if (personalIdentityNumberNeedsCentury(raw)) {
+    // Matched today against one person and on another day against somebody
+    // else: a file previewed now and applied later, or imported again, would
+    // not be matched the same way twice.
+    problems.push({
+      field: "personalIdentityNumber",
+      reason: "personal-identity-number-needs-century",
     });
     return null;
   }

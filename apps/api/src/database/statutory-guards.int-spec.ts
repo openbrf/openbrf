@@ -1699,6 +1699,9 @@ describe("two instances sharing one database server", () => {
           "CREATE TABLE pgboss.version (version integer, cron_on timestamptz)",
         );
         await owner.query(
+          "CREATE TABLE pgboss.bam (status text, command text)",
+        );
+        await owner.query(
           "CREATE TABLE public._prisma_migrations (id text, migration_name text)",
         );
         for (const { table } of scriptRevokes()) {
@@ -1903,6 +1906,37 @@ describe("two instances sharing one database server", () => {
         stamp: true,
         history: false,
       });
+    } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("leaves the runtime role nothing but a read of pg-boss's index builds", async () => {
+    // The owner's pg-boss install runs each row of pgboss.bam as written, so a
+    // row the runtime role could add or rewrite would run as the owner. The
+    // schema-wide grant reaches the table first; the script takes it back.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT UPDATE (command) ON pgboss.bam TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{ writes: boolean; reads: boolean }>(
+        `SELECT
+           has_table_privilege($1, 'pgboss.bam', 'INSERT, UPDATE, DELETE, TRUNCATE')
+             OR has_any_column_privilege($1, 'pgboss.bam', 'INSERT, UPDATE') AS writes,
+           has_table_privilege($1, 'pgboss.bam', 'SELECT') AS reads`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({ writes: false, reads: true });
     } finally {
       await owner.end();
     }

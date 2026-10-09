@@ -1153,6 +1153,8 @@
         "tlsUnavailable": "Servern upprättade ingen krypterad anslutning, så ingenting skickades till den, inte heller lösenordet. Kontrollera att servern erbjuder STARTTLS på den här porten, eller kryssa i krypterad anslutning och använd port 465.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
         "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
+        "secretRequiredForNewEndpoint": "Servern, porten eller krypteringen har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Servern eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen.",
         "environmentTlsUnavailable": "Meddelandet kunde inte skickas eftersom e-postservern inte upprättade någon krypterad anslutning. E-posten sköts av den som driver instansen, så kontakta dem."
       },
       "test": {
@@ -1174,7 +1176,11 @@
       "passwordClear": "Ta bort det sparade lösenordet",
       "secure": "Krypterad anslutning (implicit TLS, oftast port 995)",
       "configured": "Brevlådan är inställd. Instansen hämtar den var femte minut, och styrelsen kan hämta den från sin egen skärm.",
-      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är."
+      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är.",
+      "errors": {
+        "secretRequiredForNewEndpoint": "Brevlådans server, port eller kryptering har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Brevlådans server eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen."
+      }
     },
     "sms": {
       "title": "Sms",
@@ -1198,7 +1204,9 @@
       "errors": {
         "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
-        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln."
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln.",
+        "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans medan det här sparades. Ange nyckeln igen, eller ta bort den sparade, och spara igen."
       }
     },
     "retention": {
@@ -2407,6 +2415,7 @@
       "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
       "residency-conflict": "Personen bor redan i lägenheten med en annan roll eller från ett annat datum. Rätta registret eller raden; importen skriver inte båda.",
       "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
+      "personal-identity-number-needs-century": "Skriv personnumret med århundradet (ÅÅÅÅMMDD-NNNN), så att det alltid pekar ut samma person.",
       "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
       "garbled-characters": "Ett tecken har redan gått förlorat i filen (visas som �). Rätta det i filen och läs in den igen.",
       "unknown": "Raden kunde inte läsas."
@@ -5052,7 +5061,8 @@
     "errors": {
       "notFound": "Anslutningen finns inte längre. Läs listan igen.",
       "forbidden": "Ditt konto får inte koppla bort någon annans anslutning.",
-      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen."
+      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen.",
+      "clientNotFound": "Den anslutna appen är inte känd av den här instansen, så det finns inget att avvisa. Läs listan igen."
     },
     "mine": {
       "title": "Anslutna appar",

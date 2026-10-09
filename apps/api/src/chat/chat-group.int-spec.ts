@@ -893,9 +893,12 @@ describe("what the access report says about a group", () => {
 });
 
 describe("the last place in somebody's groups", () => {
-  it("answers a second press on the same name as an add, not as a refusal", async () => {
-    // Astrid is in groups from the tests above: top her up to one place short
-    // of the cap, with rooms the afterAll sweep and the finally below both own.
+  /**
+   * Tops Astrid up to one place short of the cap, with rooms the afterAll
+   * sweep and the finally of each test below both own. She is in groups from
+   * the tests above, so what is missing is counted first.
+   */
+  async function fillToOnePlaceShort(): Promise<string[]> {
     const held = await prisma.chatGroupMember.count({
       where: { personId: astrid.personId, chat: { kind: "GROUP" } },
     });
@@ -917,24 +920,30 @@ describe("the last place in somebody's groups", () => {
         }),
       ),
     );
-    const chatId = await makeGroup(nilsCookie, "Sista platsen");
-    const roomIds = [chatId, ...filler.map((room) => room.id)];
+    return filler.map((room) => room.id);
+  }
 
+  /**
+   * Nils adds Astrid to `chatId` while another press holds her lock.
+   *
+   * The other press is a transaction that holds Astrid's lock, so the request
+   * has to wait behind it. It is let go only once `pg_locks` shows the request
+   * queued behind that lock, and it commits `commit` first - the order two
+   * presses reach the database in when one of them is the slower. Without the
+   * person's lock the request does not wait, counts the rooms before the other
+   * press has committed and acts on a count that is no longer true.
+   *
+   * The request is settled before this returns or throws, so that a caller's
+   * cleanup never deletes the rooms from under a request still running: if the
+   * wait or `commit` fails, the holder rolls back, the request is let through
+   * and awaited here, and the failure that surfaces is the original one.
+   */
+  async function addWhileLockHeld(
+    chatId: string,
+    commit: (tx: Parameters<typeof lockChatPerson>[0]) => Promise<void>,
+  ) {
+    let request: ReturnType<typeof inject> | undefined;
     try {
-      const entriesBefore = await prisma.auditLogEntry.count({
-        where: { actorPersonId: nils.personId },
-      });
-
-      /*
-       * The other press, played by a transaction that holds Astrid's lock: the
-       * request below has to wait behind it. It is let go only once `pg_locks`
-       * shows the request queued behind that lock, and it commits the
-       * membership first - the order two presses reach the database in when
-       * one of them is the slower. Without the person's lock the request does
-       * not wait, counts nineteen rooms, takes the place itself and the
-       * transaction here meets the primary key instead.
-       */
-      let request: ReturnType<typeof inject> | undefined;
       // Longer than the wait below, so the transaction held open on purpose is
       // not aborted by the five-second default and its lock released early.
       await prisma.$transaction(
@@ -954,18 +963,42 @@ describe("the last place in somebody's groups", () => {
                 false,
               )) > 0n,
           );
-          await tx.chatGroupMember.create({
-            data: {
-              chatId,
-              personId: astrid.personId,
-              addedByPersonId: stranger.personId,
-            },
-          });
+          await commit(tx);
         },
         { timeout: 60_000, maxWait: 20_000 },
       );
+    } catch (error) {
+      // The holder has rolled back and its lock is gone. Let the request run
+      // out; its own outcome is of no interest next to the failure above.
+      await request?.then(
+        () => undefined,
+        () => undefined,
+      );
+      throw error;
+    }
+    return request;
+  }
 
-      const response = await request;
+  it("answers a second press on the same name as an add, not as a refusal", async () => {
+    const filler = await fillToOnePlaceShort();
+    const chatId = await makeGroup(nilsCookie, "Sista platsen");
+    const roomIds = [chatId, ...filler];
+
+    try {
+      const entriesBefore = await prisma.auditLogEntry.count({
+        where: { actorPersonId: nils.personId },
+      });
+
+      // The other press commits the very membership the request is adding.
+      const response = await addWhileLockHeld(chatId, async (tx) => {
+        await tx.chatGroupMember.create({
+          data: {
+            chatId,
+            personId: astrid.personId,
+            addedByPersonId: stranger.personId,
+          },
+        });
+      });
       expect(response?.statusCode).toBe(200);
       expect(response?.json<unknown[]>()).toHaveLength(2);
       expect(
@@ -980,6 +1013,42 @@ describe("the last place in somebody's groups", () => {
       ).toBe(entriesBefore);
     } finally {
       // She is at the cap here, and the tests below put her into more rooms.
+      await prisma.chat.deleteMany({ where: { id: { in: roomIds } } });
+    }
+  }, 60_000);
+
+  it("refuses an add to one group when the last place went to another meanwhile", async () => {
+    const filler = await fillToOnePlaceShort();
+    const groupA = await makeGroup(nilsCookie, "Sista platsen A");
+    const groupB = await makeGroup(nilsCookie, "Sista platsen B");
+    const roomIds = [groupA, groupB, ...filler];
+
+    try {
+      // The other press takes the last place, in a different group.
+      const response = await addWhileLockHeld(groupA, async (tx) => {
+        await tx.chatGroupMember.create({
+          data: {
+            chatId: groupB,
+            personId: astrid.personId,
+            addedByPersonId: stranger.personId,
+          },
+        });
+      });
+      expect(response?.statusCode).toBe(422);
+      expect(response?.json<{ reason: string }>().reason).toBe(
+        "too-many-groups",
+      );
+      expect(
+        await prisma.chatGroupMember.count({
+          where: { personId: astrid.personId, chat: { kind: "GROUP" } },
+        }),
+      ).toBe(GROUPS_PER_PERSON);
+      expect(
+        await prisma.chatGroupMember.count({
+          where: { chatId: groupA, personId: astrid.personId },
+        }),
+      ).toBe(0);
+    } finally {
       await prisma.chat.deleteMany({ where: { id: { in: roomIds } } });
     }
   }, 60_000);

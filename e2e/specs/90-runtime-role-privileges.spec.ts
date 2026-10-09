@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 
+import { ENVIRONMENT_READER_SOURCE } from "../src/environment-reader";
 import {
   runAsSuperuser,
   runInAppContainer,
@@ -295,6 +296,69 @@ test("nor write the record of which migrations have run", async () => {
   ).toBeUndefined();
 });
 
+test("nor queue an index build for the owner's job schema install to run", async () => {
+  // pg-boss's runner executes each row of pgboss.bam as written, and only in
+  // the owner's install. The application runs with migration off, so it has
+  // no build to queue, and reading their state is all it may do.
+  for (const [what, statement] of [
+    [
+      "an index build cannot be queued",
+      `INSERT INTO pgboss.bam (name, version, status, table_name, command) VALUES ('e2e_${suffix}', 0, 'pending', 'job_common', 'SELECT 1')`,
+    ],
+    [
+      "a queued index build cannot be rewritten",
+      `UPDATE pgboss.bam SET command = 'SELECT 1' WHERE false`,
+    ],
+    ["an index build cannot be erased", `DELETE FROM pgboss.bam WHERE false`],
+  ] as const) {
+    expect(await sqlStateOf(statement), what).toBe(PERMISSION_DENIED);
+  }
+  expect(
+    await sqlStateOf("SELECT count(*) FROM pgboss.bam"),
+    "the index builds can still be read",
+  ).toBeUndefined();
+});
+
+test("a queue the application's role rewrote stops the owner's job schema install", async () => {
+  test.setTimeout(120_000);
+
+  // A queue's job table name is spliced into the SQL pg-boss runs as the owner
+  // for a partitioned queue. The application declares its queues at runtime,
+  // so it keeps writing queue rows, and the install refuses one it could have
+  // turned into the owner's SQL before pg-boss reads it.
+  const queue = `runtime-role-rewritten-${suffix}`;
+  await asRuntimeRole((client) =>
+    client.query(
+      `SELECT pgboss.create_queue($1, '{"policy": "standard"}'::jsonb)`,
+      [queue],
+    ),
+  );
+  try {
+    expect(
+      await asRuntimeRole(async (client) => {
+        const result = await client.query(
+          `UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = $1`,
+          [queue],
+        );
+        return result.rowCount;
+      }),
+      "the application's role can still rewrite its queue",
+    ).toBe(1);
+
+    const refused = runInAppContainer(
+      ["node", "/app/apps/api/scripts/install-job-schema.mjs"],
+      { DATABASE_URL: OWNER_URL_IN_NETWORK },
+      60_000,
+    );
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain("pgboss.queue holds 1 queue(s)");
+  } finally {
+    await connectedAs(stack.databaseUrl, (client) =>
+      client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
+    );
+  }
+});
+
 test("a membership the superuser granted is refused by the hardening and revoked by the schema-owner service", async () => {
   test.setTimeout(180_000);
 
@@ -560,6 +624,8 @@ test("but still reads the statutory archive, because it has to be printable", as
  *
  * An environment the probe cannot read is reported rather than skipped: the
  * claim is about every process, and one that was not looked at is not evidence.
+ * A refused read is retried first, because a process that is still being set
+ * up is refused for a moment; one that exits meanwhile is simply gone.
  *
  * Every connection URL found in the server's environment is then used, from
  * inside the container, against the member register. Naming the variables
@@ -589,6 +655,16 @@ function environmentOf(pid) {
     });
 }
 
+${ENVIRONMENT_READER_SOURCE}
+
+// A refused read is retried for about a second before the process counts as
+// unreadable; see src/environment-reader.ts.
+const readEnvironment = makeEnvironmentReader({
+  read: environmentOf,
+  exists: (pid) => fs.existsSync("/proc/" + pid),
+  sleep: (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+});
+
 function argumentsOf(pid) {
   return fs.readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\\0").filter(Boolean);
 }
@@ -597,16 +673,15 @@ const processes = [];
 let server;
 for (const entry of fs.readdirSync("/proc")) {
   if (!/^[0-9]+$/.test(entry)) continue;
-  let held;
-  try {
-    held = environmentOf(entry);
-  } catch (failure) {
-    // A process that exited between the listing and the read has no
-    // environment left to hold anything.
-    if (failure.code === "ENOENT" || failure.code === "ESRCH") continue;
+  const read = readEnvironment(entry);
+  // A process that exited between the listing and the read has no
+  // environment left to hold anything.
+  if (read.gone) continue;
+  if (read.held === undefined) {
     processes.push({ pid: Number(entry), readable: false, carriesOwnerSecret: false, ownerNames: [] });
     continue;
   }
+  const held = read.held;
   const names = held.map(([name]) => name);
   processes.push({
     pid: Number(entry),
@@ -644,7 +719,10 @@ const refusals = connections.map((url) => {
     return "accepted";
   } catch (failure) {
     const said = String(failure.stderr ?? "") + String(failure.stdout ?? "");
-    return said.includes("permission denied") ? "permission denied" : "refused for another reason";
+    // The refusal of this statement on this table, and nothing looser: a
+    // connection refused the database itself says "permission denied for
+    // database", and never ran the UPDATE at all.
+    return said.includes("permission denied for table member_register_entry") ? "permission denied" : "refused for another reason";
   }
 });
 

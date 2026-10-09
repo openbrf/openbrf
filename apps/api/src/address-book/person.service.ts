@@ -3,7 +3,10 @@ import { formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
-import { isValidPersonalIdentityNumber } from "../crypto/personal-data";
+import {
+  isValidPersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
+} from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type {
   BoardPositionType,
@@ -37,6 +40,7 @@ export class PersonError extends Error {
     readonly reason:
       | "person-not-found"
       | "invalid-personal-identity-number"
+      | "personal-identity-number-needs-century"
       | "invalid-email"
       | "field-not-masked"
       | "personal-identity-number",
@@ -602,6 +606,15 @@ export class PersonService {
         throw new PersonError(
           "That personal identity number is not valid.",
           "invalid-personal-identity-number",
+        );
+      }
+      if (personalIdentityNumberNeedsCentury(input.personalIdentityNumber)) {
+        // Ten digits read as another person less than a year before or after
+        // today: which one was meant is not something to guess about a
+        // register entry.
+        throw new PersonError(
+          "Write that personal identity number with its century.",
+          "personal-identity-number-needs-century",
         );
       }
       identityNumber = await this.encryption.encrypt(

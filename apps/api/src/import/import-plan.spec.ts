@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import type { ImportField, ImportMapping } from "./import-columns";
@@ -442,6 +442,38 @@ describe("validating a row", () => {
     );
 
     expect(plan.rows[0]?.outcome).toBe("create");
+  });
+
+  describe("written without its century", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("asks for the century when the reading flips within a year", () => {
+      // The day before 261201-1235 stops reading as 1926 and starts reading
+      // as 2026: matched now, the same file would match somebody else later.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2026, 10, 30, 12));
+
+      const plan = planImport(
+        [
+          prepared({ ...COMPLETE, personalIdentityNumber: "261201-1235" }),
+          prepared(
+            { ...COMPLETE, personalIdentityNumber: "19261201-1235" },
+            { rowNumber: 2, identityNumberIndex: "pin-index" },
+          ),
+        ],
+        snapshot(),
+        DEFAULTS,
+      );
+
+      expect(plan.rows[0]?.outcome).toBe("error");
+      expect(plan.rows[0]?.problems).toContainEqual({
+        field: "personalIdentityNumber",
+        reason: "personal-identity-number-needs-century",
+      });
+      expect(plan.rows[1]?.outcome).toBe("create");
+    });
   });
 
   it("refuses an email address the register could not look up again", () => {

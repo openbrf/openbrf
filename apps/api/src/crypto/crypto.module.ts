@@ -1,7 +1,6 @@
 import { Global, Module } from "@nestjs/common";
 
 import { FieldEncryptionService } from "./field-encryption.service";
-import { IdentityNumberReindexService } from "./identity-number-reindex.service";
 
 /**
  * Field encryption is needed wherever personal data is read or written, so the
@@ -9,7 +8,7 @@ import { IdentityNumberReindexService } from "./identity-number-reindex.service"
  */
 @Global()
 @Module({
-  providers: [FieldEncryptionService, IdentityNumberReindexService],
+  providers: [FieldEncryptionService],
   exports: [FieldEncryptionService],
 })
 export class CryptoModule {}
