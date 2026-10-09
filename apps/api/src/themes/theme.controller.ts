@@ -264,7 +264,13 @@ export class ThemeAdminController {
   }
 
   @Delete("installed/:id")
-  async uninstall(@Param("id") id: string): Promise<ThemeSummary[]> {
-    return this.themes.uninstall(themeIdSchema.parse(id));
+  async uninstall(
+    @Req() request: RequestWithPrincipal,
+    @Param("id") id: string,
+  ): Promise<ThemeSummary[]> {
+    return this.themes.uninstall(
+      themeIdSchema.parse(id),
+      requirePersonId(request),
+    );
   }
 }

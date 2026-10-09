@@ -506,7 +506,7 @@ describe("preview and activation", () => {
   });
 
   it("will not remove the theme it is rendering", async () => {
-    await expect(themes.uninstall("example-theme")).rejects.toThrow(
+    await expect(themes.uninstall("example-theme", null)).rejects.toThrow(
       /is the active one/,
     );
   });
@@ -515,7 +515,7 @@ describe("preview and activation", () => {
     await themes.activate(null, null);
     expect((await themes.activeRendering()).builtIn).toBe(true);
 
-    await themes.uninstall("example-theme");
+    await themes.uninstall("example-theme", null);
 
     expect(
       await prisma.installedTheme.findUnique({

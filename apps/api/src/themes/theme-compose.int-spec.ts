@@ -473,7 +473,9 @@ describe("a composed theme is an ordinary installed theme", () => {
 
   it("will not be removed while another theme inherits from it", async () => {
     await themes.activate(null, null);
-    await expect(themes.uninstall(COMPOSED)).rejects.toThrow(/is inherited by/);
+    await expect(themes.uninstall(COMPOSED, null)).rejects.toThrow(
+      /is inherited by/,
+    );
   });
 
   it("refuses an edit that would darken the register in a theme inheriting from it", async () => {
@@ -545,8 +547,8 @@ describe("a composed theme is an ordinary installed theme", () => {
   });
 
   it("uninstalls, taking its files with it", async () => {
-    await themes.uninstall(CHILD);
-    await themes.uninstall(COMPOSED);
+    await themes.uninstall(CHILD, null);
+    await themes.uninstall(COMPOSED, null);
 
     expect(
       await prisma.installedTheme.findUnique({ where: { id: COMPOSED } }),

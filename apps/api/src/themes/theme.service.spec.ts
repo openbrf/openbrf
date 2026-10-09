@@ -48,6 +48,11 @@ interface Harness {
   activeThemeId: () => string | null;
   audited: { action: string; targetId: string | null }[];
   removed: string[];
+  prisma: {
+    $transaction: ReturnType<
+      typeof vi.fn<(run: (tx: unknown) => Promise<unknown>) => Promise<unknown>>
+    >;
+  };
 }
 
 function build(
@@ -103,6 +108,8 @@ function build(
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
       run(prisma),
     ),
+    // The theme lock.
+    $executeRaw: vi.fn(async () => 0),
   };
 
   const audit = {
@@ -137,6 +144,7 @@ function build(
     activeThemeId: () => active,
     audited,
     removed,
+    prisma,
   };
 }
 
@@ -244,6 +252,22 @@ describe("activation", () => {
     expect(illegible.activeThemeId()).toBeNull();
   });
 
+  it("refuses a theme removed since it was checked", async () => {
+    // The removal commits between the contrast check and the activation; the
+    // association must not end up pointing at a theme that is gone.
+    const racing = build([themeRow()]);
+    const original = racing.prisma.$transaction.getMockImplementation();
+    racing.prisma.$transaction.mockImplementationOnce(async (run) => {
+      racing.rows.length = 0;
+      return original?.(run);
+    });
+
+    await expect(
+      racing.service.activate("example-theme", null),
+    ).rejects.toMatchObject({ reason: "theme-not-installed" });
+    expect(racing.activeThemeId()).toBeNull();
+  });
+
   it("refuses before the housing cooperative exists", async () => {
     const fresh = build([themeRow()], { association: false });
     await expect(fresh.service.activate("example-theme", null)).rejects.toThrow(
@@ -254,22 +278,30 @@ describe("activation", () => {
 
 describe("removal", () => {
   it("removes the row and the files together", async () => {
-    await harness.service.uninstall("example-theme");
+    await harness.service.uninstall("example-theme", null);
     expect(harness.rows).toEqual([]);
     expect(harness.removed).toEqual(["example-theme"]);
   });
 
+  it("records who removed it", async () => {
+    await harness.service.uninstall("example-theme", "person-1");
+
+    expect(harness.audited).toEqual([
+      { action: "THEME_REMOVED", targetId: "example-theme" },
+    ]);
+  });
+
   it("refuses to remove the built-in theme", async () => {
-    await expect(harness.service.uninstall("porttavlan")).rejects.toThrow(
+    await expect(harness.service.uninstall("porttavlan", null)).rejects.toThrow(
       /built into the core/,
     );
   });
 
   it("refuses to remove the active theme", async () => {
     const active = build([themeRow()], { activeThemeId: "example-theme" });
-    await expect(active.service.uninstall("example-theme")).rejects.toThrow(
-      ThemeError,
-    );
+    await expect(
+      active.service.uninstall("example-theme", null),
+    ).rejects.toThrow(ThemeError);
     expect(active.rows).toHaveLength(1);
   });
 
@@ -279,9 +311,9 @@ describe("removal", () => {
       themeRow({ id: "child-theme", extendsThemeId: "example-theme" }),
     ]);
 
-    await expect(withChild.service.uninstall("example-theme")).rejects.toThrow(
-      /inherited by child-theme/,
-    );
+    await expect(
+      withChild.service.uninstall("example-theme", null),
+    ).rejects.toThrow(/inherited by child-theme/);
   });
 
   /*
@@ -296,10 +328,12 @@ describe("removal", () => {
       themeRow({ id: "other-child", extendsThemeId: "example-theme" }),
     ]);
 
-    const refusal = await withChildren.service.uninstall("example-theme").then(
-      () => null,
-      (cause: unknown) => cause,
-    );
+    const refusal = await withChildren.service
+      .uninstall("example-theme", null)
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
 
     expect(refusal).toBeInstanceOf(ThemeError);
     expect((refusal as ThemeError).details()).toEqual({
@@ -326,7 +360,7 @@ describe("removal", () => {
   it("completes the removal even when the files cannot be deleted", async () => {
     const stuck = build([themeRow()], { removalFails: true });
 
-    const themes = await stuck.service.uninstall("example-theme");
+    const themes = await stuck.service.uninstall("example-theme", null);
 
     expect(stuck.rows).toEqual([]);
     expect(themes.some((theme) => theme.id === "example-theme")).toBe(false);

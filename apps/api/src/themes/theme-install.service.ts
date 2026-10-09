@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import type { LocalizedText } from "@openbrf/plugin-sdk";
-import { checkContrast } from "@openbrf/tokens";
+import { checkContrast, PORTTAVLAN_ID } from "@openbrf/tokens";
 import {
   BUILT_IN_THEME,
   chainEntryFor,
@@ -28,6 +28,7 @@ import {
   type ComposeThemeInput,
 } from "./theme-compose";
 import { CatalogThemeSource } from "./theme-source";
+import { lockThemes } from "./theme-lock";
 import { ThemeStore } from "./theme-store";
 import { ThemeService, type ThemeSummary } from "./theme.service";
 
@@ -390,6 +391,7 @@ export class ThemeInstallService {
     const resolved = lint.resolved;
     try {
       await this.prisma.$transaction(async (tx) => {
+        await this.recheckUnderLock(tx, manifest, provenance);
         const row = {
           name: manifest.displayName,
           version: manifest.version,
@@ -492,6 +494,56 @@ export class ThemeInstallService {
   }
 
   /** Refuses anything that configures an instance nobody has claimed yet. */
+  /**
+   * The checks that depend on other rows, made again under the theme lock.
+   *
+   * They were made once before the package was staged, which is where a
+   * refusal is cheap; made again here because an uninstall of the parent, or a
+   * compose or catalog install of the same id, can commit in between.
+   */
+  private async recheckUnderLock(
+    tx: Prisma.TransactionClient,
+    manifest: ThemeManifest,
+    provenance: ThemeProvenance,
+  ): Promise<void> {
+    await lockThemes(tx);
+    const parent = manifest.extends ?? PORTTAVLAN_ID;
+    if (
+      parent !== PORTTAVLAN_ID &&
+      (await tx.installedTheme.findUnique({ where: { id: parent } })) === null
+    ) {
+      throw new ThemeInstallError(
+        `The theme ${manifest.name} inherits from ${parent}, which is no longer installed.`,
+        "lint-failed",
+        [
+          {
+            rule: "missing-parent",
+            severity: "error",
+            detail: { themeId: parent },
+          },
+        ],
+      );
+    }
+    const existing = await tx.installedTheme.findUnique({
+      where: { id: manifest.name },
+      select: { catalogId: true },
+    });
+    if (
+      existing !== null &&
+      (existing.catalogId === null) !== (provenance.catalogId === null)
+    ) {
+      throw provenance.catalogId === null
+        ? new ThemeInstallError(
+            `The theme ${manifest.name} came from a catalog and is not composed over.`,
+            "theme-not-composed",
+          )
+        : new ThemeInstallError(
+            `A theme composed on this instance holds the id ${manifest.name}.`,
+            "theme-composed",
+          );
+    }
+  }
+
   private async assertHousingCooperativeExists(message: string): Promise<void> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },
