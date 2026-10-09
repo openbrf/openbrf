@@ -33,6 +33,15 @@ const TEST_ENV = {
   OPENBRF_PLUGINS_ENABLED: false,
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
   OPENBRF_MAIL_DRIVER: "settings",
+  // The servers saved in most cases here are names nobody resolves; the cases
+  // about where a server may be say otherwise.
+  OPENBRF_ALLOW_PRIVATE_HOSTS: true,
+} as Env;
+
+/** An instance whose operator has not allowed private hosts, the default. */
+const PUBLIC_ONLY_ENV = {
+  ...TEST_ENV,
+  OPENBRF_ALLOW_PRIVATE_HOSTS: false,
 } as Env;
 
 /** Mail set where the instance runs, through an HTTP mail API (ADR 0024). */
@@ -193,6 +202,7 @@ function build(
       prisma as unknown as PrismaService,
       encryption,
     ),
+    env,
   );
 
   return { service, prisma, mail, sms, i18n, audit, current: () => row };
@@ -718,6 +728,118 @@ describe("SMS settings", () => {
     });
 
     expect(current()?.smsGatewayTokenCipher).toBeNull();
+  });
+});
+
+describe("where an SMS gateway or an SMTP server may be", () => {
+  /*
+   * Addresses written as the host, so no case here asks a resolver: a suite
+   * that judged real names would depend on somebody else's DNS zone. Names
+   * that resolve somewhere private are covered with the shared check
+   * (network/outbound-address.spec.ts).
+   */
+  const PRIVATE_GATEWAYS = [
+    // The database's port on loopback, and the metadata service.
+    "http://127.0.0.1:5432/",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://[::1]:6379/",
+    "https://10.0.0.5/send",
+  ];
+
+  it.each(PRIVATE_GATEWAYS)(
+    "refuses to save a gateway at %s, and keeps what was stored",
+    async (gatewayUrl) => {
+      const { service, current } = build(
+        {
+          smsDriver: "http-gateway",
+          smsGatewayUrl: "https://gateway.example/send",
+        },
+        true,
+        PUBLIC_ONLY_ENV,
+      );
+
+      await expect(
+        service.updateSms({
+          driver: "http-gateway",
+          gatewayUrl,
+          senderName: null,
+        }),
+      ).rejects.toMatchObject({ reason: "host-not-public", status: 400 });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+    },
+  );
+
+  it.each(["127.0.0.1", "169.254.169.254", "::1", "192.168.1.10"])(
+    "refuses to save an SMTP server at %s, and keeps what was stored",
+    async (host) => {
+      const { service, current } = build(
+        { smtpHost: "smtp.example.se" },
+        true,
+        PUBLIC_ONLY_ENV,
+      );
+
+      await expect(
+        service.updateSmtp({
+          host,
+          port: 587,
+          secure: false,
+          user: null,
+          fromAddress: "styrelsen@exempel.se",
+        }),
+      ).rejects.toMatchObject({ reason: "host-not-public", status: 400 });
+      expect(current()?.smtpHost).toBe("smtp.example.se");
+    },
+  );
+
+  it("saves a server at a public address", async () => {
+    const { service, current } = build({}, true, PUBLIC_ONLY_ENV);
+
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "https://1.1.1.1/send",
+      senderName: null,
+    });
+    await service.updateSmtp({
+      host: "1.1.1.1",
+      port: 587,
+      secure: false,
+      user: null,
+      fromAddress: "styrelsen@exempel.se",
+    });
+
+    expect(current()?.smsGatewayUrl).toBe("https://1.1.1.1/send");
+    expect(current()?.smtpHost).toBe("1.1.1.1");
+  });
+
+  it("saves a private one where whoever runs the instance allowed it", async () => {
+    const { service, current } = build({}, true, {
+      ...PUBLIC_ONLY_ENV,
+      OPENBRF_ALLOW_PRIVATE_HOSTS: true,
+    } as Env);
+
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "http://192.168.1.20:8080/send",
+      senderName: null,
+    });
+
+    expect(current()?.smsGatewayUrl).toBe("http://192.168.1.20:8080/send");
+  });
+
+  it("lets SMS be turned off whatever was stored", async () => {
+    const { service, current } = build(
+      { smsDriver: "http-gateway", smsGatewayUrl: "http://127.0.0.1:5432/" },
+      true,
+      PUBLIC_ONLY_ENV,
+    );
+
+    await service.updateSms({
+      driver: null,
+      gatewayUrl: null,
+      senderName: null,
+    });
+
+    expect(current()?.smsGatewayUrl).toBeNull();
   });
 });
 

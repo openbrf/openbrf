@@ -1,11 +1,12 @@
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   normalizeColor,
   PORTTAVLAN,
   primaryColorOverride,
 } from "@openbrf/tokens";
 
-import { isLoopbackHost } from "../config/env";
+import { ENV } from "../config/config.module";
+import { type Env, isLoopbackHost } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
@@ -29,6 +30,10 @@ import {
   readMotionDeadline,
 } from "../motions/motion-deadline";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
+import {
+  OutboundAddressError,
+  resolvePublicAddresses,
+} from "../network/outbound-address";
 import { selectedDriverKind, SmsService } from "../sms/sms.service";
 import { lockRetentionPolicy } from "./retention-lock";
 
@@ -64,7 +69,8 @@ export class SettingsError extends DomainError {
       | "financial-year-start-not-a-month"
       | "giro-not-a-number"
       | "joint-controller-incomplete"
-      | "mail-managed-by-environment",
+      | "mail-managed-by-environment"
+      | "host-not-public",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
     readonly findings: readonly ContrastFailure[] = [],
   ) {
@@ -387,6 +393,11 @@ export class SettingsService {
      * set in the environment rather than the columns it overrides.
      */
     private readonly mailSettings: MailSettingsResolver,
+    /*
+     * Whether an SMS gateway or an SMTP server on a private network may be
+     * saved, which is whoever runs the instance's to decide.
+     */
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   async read(): Promise<InstanceSettings> {
@@ -847,6 +858,9 @@ export class SettingsService {
       );
     }
     await this.requireAssociation();
+    if (input.host !== null) {
+      await this.requirePublicHost(input.host);
+    }
 
     const passwordCipher =
       input.password === undefined
@@ -1012,6 +1026,9 @@ export class SettingsService {
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
     await this.requireAssociation();
+    if (input.gatewayUrl !== null) {
+      await this.requirePublicHost(new URL(input.gatewayUrl).hostname);
+    }
 
     const tokenCipher =
       input.token === undefined
@@ -1045,6 +1062,37 @@ export class SettingsService {
 
     const settings = await this.read();
     return settings.sms;
+  }
+
+  /**
+   * Refuses a server this instance may not connect to on an administrator's
+   * word: one whose host is, or resolves to, a loopback, private or link-local
+   * address, while whoever runs the instance has not allowed that
+   * (OPENBRF_ALLOW_PRIVATE_HOSTS).
+   *
+   * At the save, so the board learns it from the form rather than from a
+   * mailing that failed. The drivers check again at each send, because a name
+   * does not keep resolving where it did on the day it was saved.
+   *
+   * One refusal whether the name resolved somewhere private or not at all.
+   * Told apart, the two would map the network behind the instance one name at
+   * a time, and the person typing the names is the one the check holds back.
+   */
+  private async requirePublicHost(host: string): Promise<void> {
+    if (this.env.OPENBRF_ALLOW_PRIVATE_HOSTS) {
+      return;
+    }
+    try {
+      await resolvePublicAddresses(host, { allowPrivate: false });
+    } catch (error) {
+      if (error instanceof OutboundAddressError) {
+        throw new SettingsError(
+          "That server is not a public address this instance may connect to.",
+          "host-not-public",
+        );
+      }
+      throw error;
+    }
   }
 
   /**

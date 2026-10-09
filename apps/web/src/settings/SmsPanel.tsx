@@ -32,6 +32,12 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "no-phone": "settings.sms.errors.noPhone",
 };
 
+const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // A gateway on a private network, which whoever runs the instance has not
+  // allowed. The remedy is theirs or a public gateway, not this form's fields.
+  "host-not-public": "settings.sms.errors.hostNotPublic",
+};
+
 const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
   driver: "settings.sms.driver",
   gatewayUrl: "settings.sms.gatewayUrl",
@@ -114,7 +120,7 @@ export function SmsPanel({
             {failureMessage(
               t,
               save.state.failure,
-              {},
+              SAVE_FAILURES,
               "settings.errors.unknown",
               FIELD_LABELS,
             )}

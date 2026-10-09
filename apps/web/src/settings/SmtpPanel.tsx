@@ -34,6 +34,9 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The server set up no TLS, so nothing was sent to it. The remedy is the
   // port and the TLS mode, which the generic failure's advice does not name.
   "mail-tls-unavailable": "settings.smtp.errors.tlsUnavailable",
+  // A server saved before private hosts were refused, or a name that has
+  // since moved to one.
+  "host-not-public": "settings.smtp.errors.hostNotPublic",
 };
 
 /** The same failures, for mail the board cannot change. */
@@ -45,6 +48,9 @@ const ENVIRONMENT_TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The environment began setting the mail after this screen was loaded.
   "mail-managed-by-environment": "settings.smtp.errors.managedByEnvironment",
+  // A server on a private network, which whoever runs the instance has not
+  // allowed.
+  "host-not-public": "settings.smtp.errors.hostNotPublic",
 };
 
 /**

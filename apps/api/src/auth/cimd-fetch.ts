@@ -1,6 +1,8 @@
 import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
+import { isIP } from "node:net";
 import { fetchClientMetadataResource } from "@better-auth/cimd/node";
+
+import { isPublicAddress } from "../network/outbound-address";
 
 /**
  * Fetching the metadata document a client names as its own identity.
@@ -109,86 +111,22 @@ const RESERVED_SUFFIXES: readonly string[] = [
   "onion",
 ];
 
-/**
- * Every address range a client id may not resolve to.
+/*
+ * The address ranges a client id may not resolve to are the ones every
+ * connection made on somebody's word is held to (../network/outbound-address).
  *
- * Assembled once at module load. The runtime's own matcher is used rather than
- * a hand-written comparison because it parses both families and, for an
- * IPv4-mapped IPv6 address, applies the IPv4 rules below to the address wrapped
- * inside it - `::ffff:169.254.169.254` is the metadata service written in a way
- * a naive string check would not recognise.
- *
- * The ranges that embed an IPv4 address in an IPv6 one are blocked whole, for
- * the same reason. 6to4 carries the address in the second through fifth bytes
- * and NAT64 in the last four, so `2002:7f00:0001::` and `64:ff9b::7f00:1` are
- * both loopback with a prefix in front; refusing the prefixes removes the need
- * to unwrap them correctly.
- *
- * This overlaps the classification the pinned transport applies to the same
+ * They overlap the classification the pinned transport applies to the same
  * answers, and the overlap is deliberate rather than redundant. Neither is a
  * subset of the other: that one decodes the IPv4 a Teredo address obfuscates
- * and knows two ranges reserved after this list was written, while this one
- * covers the whole of the protocol-assignment range and, more importantly,
- * everything above the address layer - the scheme, the port, the reserved name
- * suffixes and the integer host forms - which the transport never sees, because
- * it judges resolved addresses and not the name they came from. This list also
- * runs before any socket exists, so a refused client id costs one lookup rather
- * than a connection. The transport is what pins; this is what this repository
- * controls.
+ * and knows two ranges reserved after the shared list was written, while the
+ * shared list covers the whole of the protocol-assignment range - and this file
+ * adds everything above the address layer: the scheme, the port, the reserved
+ * name suffixes and the integer host forms, which the transport never sees,
+ * because it judges resolved addresses and not the name they came from. The
+ * check also runs before any socket exists, so a refused client id costs one
+ * lookup rather than a connection. The transport is what pins; this is what
+ * this repository controls.
  */
-const BLOCKED_ADDRESSES = buildBlockedAddresses();
-
-function buildBlockedAddresses(): BlockList {
-  const blocked = new BlockList();
-
-  // "This network", which includes the unspecified address 0.0.0.0. A
-  // connection to it goes to the local host on most stacks.
-  blocked.addSubnet("0.0.0.0", 8, "ipv4");
-  blocked.addSubnet("10.0.0.0", 8, "ipv4");
-  // Carrier-grade NAT. A provider's own infrastructure lives here.
-  blocked.addSubnet("100.64.0.0", 10, "ipv4");
-  blocked.addSubnet("127.0.0.0", 8, "ipv4");
-  // Link-local, and with it 169.254.169.254: the instance metadata service of
-  // every major hosting provider, unauthenticated and credential-bearing.
-  blocked.addSubnet("169.254.0.0", 16, "ipv4");
-  blocked.addSubnet("172.16.0.0", 12, "ipv4");
-  // IETF protocol assignments, documentation ranges, the 6to4 relay anycast
-  // address and the benchmarking range. None of them is a host to fetch from,
-  // and several are routed somewhere surprising inside a given network.
-  blocked.addSubnet("192.0.0.0", 24, "ipv4");
-  blocked.addSubnet("192.0.2.0", 24, "ipv4");
-  blocked.addSubnet("192.88.99.0", 24, "ipv4");
-  blocked.addSubnet("192.168.0.0", 16, "ipv4");
-  blocked.addSubnet("198.18.0.0", 15, "ipv4");
-  blocked.addSubnet("198.51.100.0", 24, "ipv4");
-  blocked.addSubnet("203.0.113.0", 24, "ipv4");
-  blocked.addSubnet("224.0.0.0", 4, "ipv4");
-  // Reserved, and with it the broadcast address 255.255.255.255.
-  blocked.addSubnet("240.0.0.0", 4, "ipv4");
-
-  // The unspecified address, loopback, and the deprecated IPv4-compatible
-  // range that holds both.
-  blocked.addSubnet("::", 96, "ipv6");
-  // NAT64 and its local-use counterpart, which carry an IPv4 address.
-  blocked.addSubnet("64:ff9b::", 96, "ipv6");
-  blocked.addSubnet("64:ff9b:1::", 48, "ipv6");
-  // Discard-only.
-  blocked.addSubnet("100::", 64, "ipv6");
-  // IETF protocol assignments, which contain Teredo tunnelling at 2001::/32.
-  blocked.addSubnet("2001::", 23, "ipv6");
-  blocked.addSubnet("2001:db8::", 32, "ipv6");
-  // 6to4, which carries an IPv4 address.
-  blocked.addSubnet("2002::", 16, "ipv6");
-  // Documentation, and the range held back for future allocation.
-  blocked.addSubnet("3fff::", 20, "ipv6");
-  blocked.addSubnet("5f00::", 16, "ipv6");
-  // Unique local, the IPv6 equivalent of 10/8 and 192.168/16.
-  blocked.addSubnet("fc00::", 7, "ipv6");
-  blocked.addSubnet("fe80::", 10, "ipv6");
-  blocked.addSubnet("ff00::", 8, "ipv6");
-
-  return blocked;
-}
 
 /**
  * Whether a client id URL may be fetched at all, judged on the text alone.
@@ -668,22 +606,6 @@ async function refuseUnlessPublic(
   if (!addresses.every(isPublicAddress)) {
     throw new MetadataFetchError("address-not-public");
   }
-}
-
-/**
- * Whether one address is outside every range above.
- *
- * Anything the runtime cannot parse is refused rather than allowed through. A
- * resolver that returns something unrecognised - a scoped link-local address
- * carrying its interface, a form a future release adds - is a case where the
- * conservative answer is the one that does not connect.
- */
-function isPublicAddress(address: string): boolean {
-  const family = isIP(address);
-  if (family === 0) {
-    return false;
-  }
-  return !BLOCKED_ADDRESSES.check(address, family === 4 ? "ipv4" : "ipv6");
 }
 
 /**

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { ResolveAddresses } from "../network/outbound-address";
 import { HttpGatewaySmsDriver } from "./http-gateway.driver";
 import { SmsError } from "./sms.driver";
 import {
@@ -26,12 +27,33 @@ afterAll(async () => {
   await gateway.close();
 });
 
-function driver(overrides: { endpoint?: string; token?: string } = {}) {
+/**
+ * A driver for the test gateway, which listens on loopback: private hosts are
+ * allowed unless a case says otherwise, as whoever runs an instance with a
+ * gateway on its own network would allow them.
+ */
+function driver(
+  overrides: {
+    endpoint?: string;
+    token?: string;
+    allowPrivateHosts?: boolean;
+    resolve?: ResolveAddresses;
+  } = {},
+) {
   return new HttpGatewaySmsDriver({
     endpoint: overrides.endpoint ?? gateway.endpoint,
     token: overrides.token ?? gateway.token,
     requestTimeoutMs: 5000,
+    allowPrivateHosts: overrides.allowPrivateHosts ?? true,
+    ...(overrides.resolve === undefined ? {} : { resolve: overrides.resolve }),
   });
+}
+
+/** The test gateway's endpoint under a name the stub resolver answers for. */
+function endpointNamed(hostname: string): string {
+  const url = new URL(gateway.endpoint);
+  url.hostname = hostname;
+  return url.href;
 }
 
 describe("posting a message to the gateway", () => {
@@ -122,6 +144,17 @@ describe("what the driver refuses to dial", () => {
     ).rejects.toBeInstanceOf(SmsError);
   });
 
+  it("refuses a credential written into the address", async () => {
+    const accepted = gateway.accepted.length;
+
+    await expect(
+      driver({
+        endpoint: gateway.endpoint.replace("http://", "http://user:pass@"),
+      }).send({ to: "+46701234567", body: "Nyhet" }),
+    ).rejects.toBeInstanceOf(SmsError);
+    expect(gateway.accepted).toHaveLength(accepted);
+  });
+
   it("reports an unreachable gateway rather than throwing something else", async () => {
     await expect(
       driver({ endpoint: "http://127.0.0.1:1/send" }).send({
@@ -129,5 +162,67 @@ describe("what the driver refuses to dial", () => {
         body: "Nyhet",
       }),
     ).rejects.toBeInstanceOf(SmsError);
+  });
+});
+
+describe("where the gateway may be", () => {
+  it("refuses a gateway on loopback unless private hosts are allowed", async () => {
+    const requests = gateway.requests.length;
+
+    // The database's own port: the shape of the probe this check exists for.
+    for (const endpoint of [gateway.endpoint, "http://127.0.0.1:5432/"]) {
+      await expect(
+        driver({ endpoint, allowPrivateHosts: false }).send({
+          to: "+46701234567",
+          body: "Nyhet",
+        }),
+      ).rejects.toBeInstanceOf(SmsError);
+    }
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("refuses a public-looking name that resolves somewhere private", async () => {
+    // The name resolves to the test gateway itself, so a check that let it
+    // through would show up as a request arriving there.
+    const requests = gateway.requests.length;
+    const resolve = vi.fn<ResolveAddresses>(() =>
+      Promise.resolve([{ address: "127.0.0.1", family: 4 }]),
+    );
+
+    await expect(
+      driver({
+        endpoint: endpointNamed("gateway.invalid"),
+        allowPrivateHosts: false,
+        resolve,
+      }).send({ to: "+46701234567", body: "Nyhet" }),
+    ).rejects.toBeInstanceOf(SmsError);
+    expect(resolve).toHaveBeenCalledWith("gateway.invalid");
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("refuses the metadata service in one message with an unreachable gateway", async () => {
+    const refused = await driver({
+      endpoint: "http://169.254.169.254/latest/meta-data/",
+      allowPrivateHosts: false,
+    })
+      .send({ to: "+46701234567", body: "Nyhet" })
+      .catch((error: unknown) => error);
+
+    expect(refused).toBeInstanceOf(SmsError);
+    // Which of the two the check found is a fact about the network.
+    expect((refused as SmsError).message).toBe(
+      "The SMS gateway could not be reached.",
+    );
+  });
+
+  it("connects to the address it checked, not to a second resolution", async () => {
+    // `.invalid` resolves nowhere, so the message arriving proves the socket
+    // was opened to the answer the check judged rather than asking again.
+    await driver({
+      endpoint: endpointNamed("gateway.invalid"),
+      resolve: () => Promise.resolve([{ address: "127.0.0.1", family: 4 }]),
+    }).send({ to: "+46701234567", body: "Fastnålad" });
+
+    expect(gateway.accepted.at(-1)).toMatchObject({ message: "Fastnålad" });
   });
 });

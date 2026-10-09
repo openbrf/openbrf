@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  ResolveAddresses,
+  ResolvedAddress,
+} from "../network/outbound-address";
 import type { OutgoingMail } from "./mail-driver";
-import { SmtpMailDriver } from "./smtp-mail.driver";
+import { MailServerNotPublicError, SmtpMailDriver } from "./smtp-mail.driver";
 
 /**
  * What a send is allowed to cost when the far end goes quiet.
@@ -43,6 +47,7 @@ const SERVER = {
   requireTls: false,
   user: null,
   password: null,
+  allowPrivateHosts: true,
 };
 
 const MAIL: OutgoingMail = {
@@ -58,6 +63,7 @@ const MAIL: OutgoingMail = {
 
 beforeEach(() => {
   transport.createTransport.mockClear();
+  transport.close.mockClear();
   transport.sendMail.mockClear();
   transport.sendMail.mockResolvedValue(undefined);
 });
@@ -167,5 +173,84 @@ describe("the identifier it reports", () => {
     const sent = await new SmtpMailDriver(SERVER).send(MAIL);
 
     expect(sent).toEqual({ messageId: null });
+  });
+});
+
+describe("a server the board entered", () => {
+  /** The board's server, held to public addresses, over a stub resolver. */
+  function checked(
+    host: string,
+    ...answers: ResolvedAddress[]
+  ): { driver: SmtpMailDriver; resolve: ReturnType<typeof vi.fn> } {
+    const resolve = vi.fn<ResolveAddresses>(() => Promise.resolve(answers));
+    return {
+      driver: new SmtpMailDriver(
+        { ...SERVER, host, allowPrivateHosts: false },
+        resolve,
+      ),
+      resolve,
+    };
+  }
+
+  it("is refused when its name resolves somewhere private, and nothing is sent", async () => {
+    const { driver } = checked("smtp.exempel.se", {
+      address: "10.0.0.5",
+      family: 4,
+    });
+
+    await expect(driver.send(MAIL)).rejects.toBeInstanceOf(
+      MailServerNotPublicError,
+    );
+    expect(transport.createTransport).not.toHaveBeenCalled();
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("is refused when it is the metadata service written as an address", async () => {
+    const { driver, resolve } = checked("169.254.169.254");
+
+    await expect(driver.send(MAIL)).rejects.toBeInstanceOf(
+      MailServerNotPublicError,
+    );
+    expect(resolve).not.toHaveBeenCalled();
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("is reached at the address that was checked, with its name kept for TLS", async () => {
+    const { driver } = checked(
+      "smtp.exempel.se",
+      { address: "2606:4700:4700::1111", family: 6 },
+      { address: "1.1.1.1", family: 4 },
+    );
+
+    await driver.send(MAIL);
+
+    // The address rather than the name, so nodemailer has nothing left to
+    // resolve; the name is what the certificate is checked against.
+    expect(transport.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "1.1.1.1",
+        servername: "smtp.exempel.se",
+        connectionTimeout: expect.any(Number),
+      }),
+    );
+    expect(transport.sendMail).toHaveBeenCalledTimes(1);
+    // A transport built for one send is closed after it.
+    expect(transport.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("is resolved again at every send", async () => {
+    const { driver, resolve } = checked("smtp.exempel.se", {
+      address: "1.1.1.1",
+      family: 4,
+    });
+
+    await driver.send(MAIL);
+    resolve.mockResolvedValueOnce([{ address: "127.0.0.1", family: 4 }]);
+
+    // A name that moved after it was saved is refused at the send.
+    await expect(driver.send(MAIL)).rejects.toBeInstanceOf(
+      MailServerNotPublicError,
+    );
+    expect(transport.sendMail).toHaveBeenCalledTimes(1);
   });
 });

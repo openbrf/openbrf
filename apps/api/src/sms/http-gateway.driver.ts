@@ -1,3 +1,12 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+
+import {
+  pinnedLookup,
+  type ResolveAddresses,
+  type ResolvedAddress,
+  resolvePublicAddresses,
+} from "../network/outbound-address";
 import { SmsError, type SmsDriver, type SmsMessage } from "./sms.driver";
 
 /**
@@ -42,6 +51,14 @@ export interface HttpGatewayConfig {
   /** Bearer credential, decrypted by the caller. Omitted when the gateway needs none. */
   token?: string;
   requestTimeoutMs?: number;
+  /**
+   * Whether the gateway may be on a private network. Off, a gateway whose host
+   * is or resolves to a loopback, private or link-local address is refused
+   * before anything is sent (OPENBRF_ALLOW_PRIVATE_HOSTS).
+   */
+  allowPrivateHosts: boolean;
+  /** The resolver, for a suite that cannot depend on somebody's DNS zone. */
+  resolve?: ResolveAddresses;
 }
 
 export class HttpGatewaySmsDriver implements SmsDriver {
@@ -50,54 +67,82 @@ export class HttpGatewaySmsDriver implements SmsDriver {
   constructor(private readonly config: HttpGatewayConfig) {}
 
   async send(message: SmsMessage): Promise<void> {
-    const response = await this.post(message);
+    const status = await this.post(message);
 
-    /*
-     * The body is drained whatever the answer was.
-     *
-     * A gateway replies with an accepted-message document this driver has no
-     * use for, and an undrained body holds its socket open. On the failure path
-     * it is discarded unread on purpose: it is the one part of the exchange
-     * that quotes the number back.
-     */
-    await response.body?.cancel();
-
-    if (!response.ok) {
+    if (status < 200 || status > 299) {
       throw new SmsError(
-        `The SMS gateway refused the message (HTTP ${String(response.status)}).`,
+        `The SMS gateway refused the message (HTTP ${String(status)}).`,
         this.kind,
       );
     }
   }
 
-  private async post(message: SmsMessage): Promise<Response> {
+  /**
+   * Posts the message and answers with the status the gateway gave.
+   *
+   * `node:http` rather than the global fetch, and the difference is the address
+   * check. The host is resolved and judged here, and the connection is opened
+   * to the address that was judged: the global fetch resolves again inside
+   * itself, and a name whose records changed in between would take the message
+   * - and the bearer credential - to an address nothing here ever saw.
+   *
+   * Its own connection, never one from the shared pool. A pooled socket was
+   * opened by whoever asked for it first, to wherever their lookup said.
+   */
+  private async post(message: SmsMessage): Promise<number> {
     const endpoint = this.endpointUrl();
+    const addresses = await this.checkedAddresses(endpoint);
+    const body = JSON.stringify({
+      to: message.to,
+      message: message.body,
+      // Left out entirely rather than sent as null: a gateway that reads an
+      // absent sender as "use the account default" would otherwise be told to
+      // use no sender at all.
+      ...(message.sender === undefined ? {} : { from: message.sender }),
+    });
+
     const controller = new AbortController();
     const deadline = setTimeout(() => {
       controller.abort();
     }, this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
 
     try {
-      return await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.config.token === undefined
-            ? {}
-            : { authorization: `Bearer ${this.config.token}` }),
-        },
-        body: JSON.stringify({
-          to: message.to,
-          message: message.body,
-          // Left out entirely rather than sent as null: a gateway that reads an
-          // absent sender as "use the account default" would otherwise be told
-          // to use no sender at all.
-          ...(message.sender === undefined ? {} : { from: message.sender }),
-        }),
-        // The gateway is one endpoint an administrator typed. A redirect would
-        // carry the bearer credential to wherever the answer pointed.
-        redirect: "manual",
-        signal: controller.signal,
+      return await new Promise<number>((resolve, reject) => {
+        const request = (
+          endpoint.protocol === "https:" ? httpsRequest : httpRequest
+        )(
+          endpoint,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "content-length": Buffer.byteLength(body),
+              ...(this.config.token === undefined
+                ? {}
+                : { authorization: `Bearer ${this.config.token}` }),
+            },
+            agent: false,
+            lookup: pinnedLookup(addresses),
+            signal: controller.signal,
+          },
+          (response) => {
+            /*
+             * The body is never read, whatever the answer was.
+             *
+             * A gateway replies with an accepted-message document this driver
+             * has no use for, and on the failure path the body is the one part
+             * of the exchange that quotes the number back. The status is all
+             * that is kept, and the connection, which is this request's own,
+             * goes with the rest. Redirects are not followed either: the
+             * gateway is one endpoint an administrator typed, and a redirect
+             * would carry the bearer credential to wherever it pointed.
+             */
+            response.destroy();
+            resolve(response.statusCode ?? 0);
+          },
+        );
+        request.on("error", reject);
+        request.end(body);
       });
     } catch (cause) {
       throw new SmsError(
@@ -109,6 +154,33 @@ export class HttpGatewaySmsDriver implements SmsDriver {
       );
     } finally {
       clearTimeout(deadline);
+    }
+  }
+
+  /**
+   * The gateway's addresses, or a refusal when the host is not one this
+   * instance may connect to.
+   *
+   * Checked at the send as well as when the settings were saved, because the
+   * row outlives the check that wrote it, and a name does not keep resolving
+   * where it did on the day it was saved.
+   */
+  private async checkedAddresses(
+    endpoint: URL,
+  ): Promise<readonly ResolvedAddress[]> {
+    try {
+      return await resolvePublicAddresses(endpoint.hostname, {
+        allowPrivate: this.config.allowPrivateHosts,
+        ...(this.config.resolve === undefined
+          ? {}
+          : { resolve: this.config.resolve }),
+      });
+    } catch (cause) {
+      // What an unreachable gateway says: which of the two the address check
+      // found is a fact about the network behind this instance.
+      throw new SmsError("The SMS gateway could not be reached.", this.kind, {
+        cause,
+      });
     }
   }
 
@@ -133,6 +205,15 @@ export class HttpGatewaySmsDriver implements SmsDriver {
     if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
       throw new SmsError(
         "The SMS gateway address must be an http or https URL.",
+        this.kind,
+      );
+    }
+
+    // A credential in the address would be sent as basic authentication to
+    // whatever answers, beside the bearer one this driver means to send.
+    if (url.username !== "" || url.password !== "") {
+      throw new SmsError(
+        "The SMS gateway address must not carry a user name or password.",
         this.kind,
       );
     }

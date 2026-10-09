@@ -777,6 +777,24 @@ The service mail goes through is a recipient of the association's personal
 data. The data protection screen lists it by its host, the SMTP host or the mail
 API's host, whichever the instance actually sends through.
 
+### Servers the board enters
+
+The SMTP server and the SMS gateway an administrator enters in the settings must
+be on the public internet. A host that is, or resolves to, a loopback, private,
+link-local or other special-use address is refused when the settings are saved,
+and again at each send, because a name can move after it was saved. The
+connection is then made to the address that was checked, while the host's name
+stays what TLS checks the certificate against.
+
+A relay or a gateway on a network that is yours, such as the association's own
+LAN, needs `OPENBRF_ALLOW_PRIVATE_HOSTS=true`. It is off by default. Servers set
+in the environment (`OPENBRF_SMTP_HOST`, `OPENBRF_MAIL_API_URL`) are never
+checked: whoever runs the instance chose them.
+
+Settings saved by an earlier version that name a private host stop sending once
+the instance is upgraded: a test message fails, and so does each message of a
+news mailing. Set the variable, or enter a public server.
+
 ## What the configuration says about processors
 
 The association is the controller for the personal data on the instance
