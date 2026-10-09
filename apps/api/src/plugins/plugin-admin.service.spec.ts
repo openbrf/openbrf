@@ -95,6 +95,9 @@ function build(options: Options = {}) {
   const recordProcessor = vi.fn(async () => undefined);
   const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
+  const setEnabled = vi.fn(async () => ({ id: "occupancy" }));
+  const writeSettings = vi.fn(async () => undefined);
+  const unload = vi.fn();
   const record = vi.fn(async () => undefined);
   /*
    * The transaction client, as its own object. Arming and the entry that
@@ -114,6 +117,8 @@ function build(options: Options = {}) {
     {
       consent,
       setActionArmed,
+      setEnabled,
+      writeSettings,
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
@@ -122,6 +127,7 @@ function build(options: Options = {}) {
     {
       report: () => [],
       get: () => null,
+      unload,
       manifestFor: (id: string) =>
         installed.find((record) => record.id === id)?.manifest ?? null,
     } as never,
@@ -154,6 +160,9 @@ function build(options: Options = {}) {
     recordProcessor,
     seedPlugin,
     setActionArmed,
+    setEnabled,
+    writeSettings,
+    unload,
     record,
     prisma,
     txClient,
@@ -902,6 +911,58 @@ describe("arming an action, which is what exposes it", () => {
       expect.objectContaining({ action: "PLUGIN_ACTION_DISARMED" }),
       built.txClient,
     );
+  });
+});
+
+describe("switching a plugin on or off", () => {
+  it("writes the change and the entry naming who made it in one transaction", async () => {
+    const built = build();
+
+    await built.service.setEnabled("occupancy", false, "admin-1");
+
+    expect(built.setEnabled).toHaveBeenCalledWith(
+      "occupancy",
+      false,
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_DISABLED",
+        actorPersonId: "admin-1",
+        targetKind: "plugin",
+        targetId: "occupancy",
+      }),
+      built.txClient,
+    );
+    expect(built.unload).toHaveBeenCalledWith("occupancy");
+  });
+
+  it("names the switching on for what it is", async () => {
+    const built = build();
+    // Enabling replaces the process, which a unit test must not do.
+    vi.spyOn(built.restart, "restartWhenCommitted").mockResolvedValue();
+
+    await built.service.setEnabled("occupancy", true, "admin-1");
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_ENABLED",
+        actorPersonId: "admin-1",
+      }),
+      built.txClient,
+    );
+  });
+
+  it("writes no entry for a plugin that is not there", async () => {
+    const built = build();
+    built.setEnabled.mockResolvedValue(null as never);
+
+    await expect(
+      built.service.setEnabled("occupancy", false, "admin-1"),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+
+    expect(built.record).not.toHaveBeenCalled();
+    expect(built.unload).not.toHaveBeenCalled();
   });
 });
 

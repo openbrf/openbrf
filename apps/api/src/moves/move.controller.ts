@@ -83,9 +83,13 @@ export class MoveController {
 
   @Post("move-out")
   @HttpCode(200)
-  async moveOut(@Body() body: unknown): Promise<MoveOutResult> {
+  async moveOut(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<MoveOutResult> {
     const input = moveOutSchema.parse(body);
     return this.moves.moveOut({
+      actorPersonId: actingPersonId(request),
       residencyId: input.residencyId,
       movedOutOn: input.movedOutOn,
       transfer:

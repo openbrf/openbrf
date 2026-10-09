@@ -7,6 +7,7 @@ import {
   parseLocalDay,
 } from "@openbrf/shared";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -168,6 +169,8 @@ export interface MoveInResult {
 }
 
 export interface MoveOutInput {
+  /** Who entered it, so the entry in the log can name them. */
+  actorPersonId: string;
   residencyId: string;
   /** ISO calendar date. */
   movedOutOn: string;
@@ -222,6 +225,7 @@ export class MoveService implements OnModuleInit {
      * granted and unexecuted for ever.
      */
     private readonly dataSubjectRequests: DataSubjectRequestService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -438,6 +442,30 @@ export class MoveService implements OnModuleInit {
               })
             ).id;
 
+      /*
+       * The residency and the entry that says who entered it commit together.
+       * The member register's own rows say what happened to the membership;
+       * nothing else says who recorded the move. Ids, a role, a date and
+       * whether a transfer came with it - never the price or the agreement.
+       */
+      await this.audit.record(
+        {
+          action: "MOVE_IN_RECORDED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: person.id,
+          targetKind: "residency",
+          targetId: residency.id,
+          context: {
+            apartmentId: apartment.id,
+            role: input.role,
+            movedInOn: formatDateColumn(movedInOn),
+            transfer: transferId !== null,
+          },
+        },
+        tx,
+      );
+
       return {
         residency,
         memberRegisterEntryRecorded,
@@ -612,6 +640,25 @@ export class MoveService implements OnModuleInit {
       // row refuses a second move-out, so a reminder lost after the commit has
       // no path back and nothing would ever notice it was missing.
       await this.scheduleBoardReminder(tx, residency.id, movedOutOn);
+
+      // With the move-out, for the reason the move-in's entry gives.
+      await this.audit.record(
+        {
+          action: "MOVE_OUT_RECORDED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: person.id,
+          targetKind: "residency",
+          targetId: residency.id,
+          context: {
+            apartmentId: residency.apartment.id,
+            role: residency.role,
+            movedOutOn: formatDateColumn(movedOutOn),
+            transfer: transferId !== null,
+          },
+        },
+        tx,
+      );
 
       return { memberRegisterExitRecorded, transferId };
     });

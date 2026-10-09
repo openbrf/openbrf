@@ -1664,6 +1664,18 @@ enum AuditAction {
   PLUGIN_ACTION_ARMED
   /// An administrator switched one off again.
   PLUGIN_ACTION_DISARMED
+  /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
+  ISSUE_STATUS_CHANGED
+  /// A person was moved into an apartment.
+  MOVE_IN_RECORDED
+  /// A residency was given its move-out date.
+  MOVE_OUT_RECORDED
+  /// An administrator switched a plugin on.
+  PLUGIN_ENABLED
+  /// An administrator switched a plugin off.
+  PLUGIN_DISABLED
+  /// An administrator changed a plugin's settings. The entry names the fields, never the values.
+  PLUGIN_SETTINGS_CHANGED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the

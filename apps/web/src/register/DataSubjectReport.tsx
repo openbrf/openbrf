@@ -518,6 +518,13 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
+  MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
+  MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
+  PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
+  PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
+  PLUGIN_SETTINGS_CHANGED:
+    "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:
