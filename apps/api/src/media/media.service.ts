@@ -315,28 +315,59 @@ export class MediaService {
 
     let file;
     try {
-      file = await this.prisma.mediaFile.create({
-        data: {
-          storageKey,
-          encryption: "SECRETSTREAM_64K",
-          dataKeyCipher: sealed.dataKeyCipher,
-          contentType: identified.contentType,
-          byteSize: input.bytes.length,
-          checksum: sealed.checksum,
-          fileName: safeFileName(input.fileName),
-          width: identified.width,
-          height: identified.height,
-          // Null for anything that is not an image, whatever the caller
-          // passed: the column records a declaration about a picture, and a
-          // PDF has nobody's face in it to declare.
-          showsIdentifiablePersons: identified.isImage
-            ? (input.showsIdentifiablePersons ?? null)
-            : null,
-          visibility: input.visibility,
-          requiredCapability: input.requiredCapability ?? null,
-          apartmentId,
-          uploadedByPersonId: input.uploadedByPersonId ?? null,
-        },
+      // The row and the entry that says it was accepted commit together. Apart,
+      // an entry that could not be written left a row the caller never heard
+      // of, and the bytes under it: the callers' rollbacks only cover what they
+      // wrote themselves.
+      file = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.mediaFile.create({
+          data: {
+            storageKey,
+            encryption: "SECRETSTREAM_64K",
+            dataKeyCipher: sealed.dataKeyCipher,
+            contentType: identified.contentType,
+            byteSize: input.bytes.length,
+            checksum: sealed.checksum,
+            fileName: safeFileName(input.fileName),
+            width: identified.width,
+            height: identified.height,
+            // Null for anything that is not an image, whatever the caller
+            // passed: the column records a declaration about a picture, and a
+            // PDF has nobody's face in it to declare.
+            showsIdentifiablePersons: identified.isImage
+              ? (input.showsIdentifiablePersons ?? null)
+              : null,
+            visibility: input.visibility,
+            requiredCapability: input.requiredCapability ?? null,
+            apartmentId,
+            uploadedByPersonId: input.uploadedByPersonId ?? null,
+          },
+        });
+
+        await this.audit.record(
+          {
+            action: "MEDIA_UPLOADED",
+            channel: input.channel,
+            actorPersonId: input.uploadedByPersonId ?? null,
+            targetKind: "media",
+            targetId: created.id,
+            // The name is the uploader's own text and the type is the
+            // identified one, so the log says what was accepted rather than
+            // what was claimed. The name is left out where the caller asked for
+            // that, which the apartment binder does and nothing else does.
+            context: {
+              ...((input.recordFileName ?? true)
+                ? { fileName: created.fileName }
+                : {}),
+              contentType: created.contentType,
+              byteSize: created.byteSize,
+              visibility: created.visibility,
+              showsIdentifiablePersons: created.showsIdentifiablePersons,
+            },
+          },
+          tx,
+        );
+        return created;
       });
     } catch (cause) {
       await this.storage.remove(storageKey).catch(() => {
@@ -346,25 +377,6 @@ export class MediaService {
       });
       throw cause;
     }
-
-    await this.audit.record({
-      action: "MEDIA_UPLOADED",
-      channel: input.channel,
-      actorPersonId: input.uploadedByPersonId ?? null,
-      targetKind: "media",
-      targetId: file.id,
-      // The name is the uploader's own text and the type is the identified
-      // one, so the log says what was accepted rather than what was claimed.
-      // The name is left out where the caller asked for that, which the
-      // apartment binder does and nothing else does.
-      context: {
-        ...((input.recordFileName ?? true) ? { fileName: file.fileName } : {}),
-        contentType: file.contentType,
-        byteSize: file.byteSize,
-        visibility: file.visibility,
-        showsIdentifiablePersons: file.showsIdentifiablePersons,
-      },
-    });
 
     return toView(file);
   }
