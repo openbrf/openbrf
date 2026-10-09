@@ -25,7 +25,10 @@ import type { Prisma } from "../generated/prisma/client";
  * `ProcessorAgreementService.seed`, which reads the storage row and then
  * inserts or closes it, and so takes the "storage" key before the read. The
  * other writers never leave a recipient with two open rows: `recordExternal`
- * creates a key of its own and `end` only closes.
+ * creates a key of its own and `end` only closes. That `end` does not wait
+ * here is why `record` asks whether a board-recorded recipient still exists
+ * of its own close rather than of a read: such a recipient is its open row,
+ * and the lock does not keep `end` from closing it.
  *
  * Held here rather than beside the writer because a lock only works if every
  * writer takes the same key.

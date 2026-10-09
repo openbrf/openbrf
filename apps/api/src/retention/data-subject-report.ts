@@ -623,7 +623,9 @@ export interface ReportMotion {
   closedAt: string | null;
   /**
    * The earliest date the purge can reach this motion, derived from the retention
-   * window and never stored. Null while it is open.
+   * window and never stored. Null while it is open, and while it is on the
+   * agenda of a meeting that has not been held, which the purge and an erasure
+   * both leave alone until then.
    *
    * The earliest, and deliberately not "the date it is erased on", for the reason
    * {@link ReportBooking.erasableFrom} gives: a legal hold suspends every purge

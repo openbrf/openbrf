@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -198,6 +198,38 @@ describe("AccountingBasisPanel", () => {
       expect(screen.queryByText(/16\s*801,50 kr/u)).toBeNull();
     },
   );
+
+  it("drops an answer for a period the board has moved on from", async () => {
+    /*
+     * The dates stay editable while the request runs. The full year's totals
+     * and file landing under a "from" moved to July would be one period's
+     * figures shown as another's.
+     */
+    let answer = (): void => undefined;
+    exportAccountingBasis.mockReturnValue(
+      new Promise((resolve) => {
+        answer = (): void => {
+          resolve({ ok: true, value: TAKEN });
+        };
+      }),
+    );
+    render(<AccountingBasisPanel onRefused={vi.fn()} />);
+
+    const produce = screen.getByRole("button", {
+      name: "Ta fram bokföringsunderlaget",
+    });
+    await userEvent.click(produce);
+    fireEvent.change(screen.getByLabelText("Från och med"), {
+      target: { value: "2026-07-01" },
+    });
+    answer();
+
+    await waitFor(() => {
+      expect((produce as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText(/16\s*801,50 kr/u)).toBeNull();
+  });
 
   it.each([["fees:manage"], ["memberCharges:manage"], []])(
     "offers nothing to an account holding %j",

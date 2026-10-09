@@ -10,11 +10,14 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { waitFor } from "../testing/advisory-locks";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
 import type { EventView } from "./event.service";
+import { lockOccurrenceSignups } from "./event-signup-lock";
 
 /**
  * The event calendar against a real database.
@@ -976,6 +979,407 @@ describe("editing a series", () => {
   });
 });
 
+/**
+ * Two writes to one series at once.
+ *
+ * An edit plans its moves from the dates it reads, so a second write landing
+ * between that read and the edit's own writes leaves it moving a date that is
+ * gone, or adding one that is already there. The second writer has to read
+ * after the first has finished.
+ *
+ * Played out deterministically. The test holds the sign-up key of every date
+ * in the series, which both writers take before they write, so the first
+ * request queues there; the second is sent and queues too, behind the key or
+ * behind the first writer; then the keys are released.
+ */
+describe("two writes to one series at once", () => {
+  async function oneAfterTheOther<First, Second>(
+    series: EventView,
+    first: () => Promise<First>,
+    second: () => Promise<Second>,
+  ): Promise<[First, Second]> {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        for (const occurrence of series.occurrences) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`event-occurrence-signups:${occurrence.id}`}))`;
+        }
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    // Let go however the waits end, so a failure does not leave the keys held
+    // until the transaction times out.
+    try {
+      const firstAnswer = first();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+      const secondAnswer = second();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 2);
+      release();
+      const [one, two] = await Promise.all([
+        firstAnswer,
+        secondAnswer,
+        holding,
+      ]);
+      return [one, two];
+    } finally {
+      release();
+      // Already settled on the way through; on a failure, its own rejection is
+      // the second one and the first is what the test reports.
+      await holding.catch(() => undefined);
+    }
+  }
+
+  function edit(id: string, payload: object) {
+    return inject({
+      method: "PUT",
+      url: `/api/events/${id}`,
+      payload,
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("plans the second edit from the dates the first one left", async () => {
+    const title = `Tva andringar ${suffix}`;
+    const created = await createSeries({ ...cleaningDay, title });
+
+    const [cut, moved] = await oneAfterTheOther(
+      created,
+      // Three dates down to one.
+      () =>
+        edit(created.id, {
+          ...cleaningDay,
+          title,
+          recurrence: null,
+        }),
+      // All three to noon, from a form that still showed three.
+      () =>
+        edit(created.id, {
+          ...cleaningDay,
+          title,
+          startsAtMinute: 12 * 60,
+        }),
+    );
+
+    expect(cut.statusCode).toBe(200);
+    expect(moved.statusCode).toBe(200);
+    expect(
+      moved
+        .json<EventView>()
+        .occurrences.map((occurrence) => occurrence.startsAt),
+    ).toEqual([
+      `${String(YEAR)}-04-18T10:00:00.000Z`,
+      `${String(YEAR)}-04-25T10:00:00.000Z`,
+      `${String(YEAR)}-05-02T10:00:00.000Z`,
+    ]);
+  });
+
+  it("answers an edit of a series removed under it as not found", async () => {
+    const title = `Andrad och borttagen ${suffix}`;
+    const created = await createSeries({ ...cleaningDay, title });
+
+    const [removed, edited] = await oneAfterTheOther(
+      created,
+      () =>
+        inject({
+          method: "DELETE",
+          url: `/api/events/${created.id}`,
+          headers: { cookie: boardCookie },
+        }),
+      () =>
+        edit(created.id, { ...cleaningDay, title, startsAtMinute: 12 * 60 }),
+    );
+
+    expect(removed.statusCode).toBe(204);
+    expect(edited.statusCode).toBe(404);
+    expect(edited.json<{ reason: string }>().reason).toBe("not-found");
+  });
+});
+
+/**
+ * A date called off or put back while an edit takes it out of the series.
+ *
+ * Both read the date and then write to it. An edit that deleted the date in
+ * between left the write matching no row, and the caller was answered with a
+ * 500, or told the date was not called off, rather than that it no longer
+ * exists.
+ *
+ * Played out in that order: the test takes the series' row and deletes the
+ * date in a transaction it holds open, as an edit does, sends the request,
+ * waits until the database says it is queued behind that transaction, and
+ * commits.
+ */
+describe("a date called off or put back while an edit drops it", () => {
+  async function whileDropped<T>(
+    eventId: string,
+    occurrenceId: string,
+    request: () => Promise<T>,
+  ): Promise<T> {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await tx.$queryRaw`SELECT id FROM event WHERE id = ${eventId} FOR UPDATE`;
+        await tx.eventOccurrence.delete({ where: { id: occurrenceId } });
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    try {
+      const answering = request();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      return answer;
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+  }
+
+  function act(occurrenceId: string, action: "cancel" | "reinstate") {
+    return inject({
+      method: "POST",
+      url: `/api/events/occurrences/${occurrenceId}/${action}`,
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("answers a call-off that the date is gone", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Avbrutet och borttaget ${suffix}`,
+    });
+    const dropped = created.occurrences[2]?.id ?? "";
+
+    const answer = await whileDropped(created.id, dropped, () =>
+      act(dropped, "cancel"),
+    );
+
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-found",
+    );
+  });
+
+  it("answers a reinstatement that the date is gone", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Atertaget och borttaget ${suffix}`,
+    });
+    const dropped = created.occurrences[2]?.id ?? "";
+    expect((await act(dropped, "cancel")).statusCode).toBe(201);
+
+    const answer = await whileDropped(created.id, dropped, () =>
+      act(dropped, "reinstate"),
+    );
+
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe(
+      "occurrence-not-found",
+    );
+  });
+});
+
+/**
+ * A series published while an edit or a removal of it is writing.
+ *
+ * Publication reads the series, checks it for a personal identity number, and
+ * writes `published`. An edit that committed between the read and the write put
+ * a number into text the check had passed, and published it. A removal that did
+ * the same left the write matching no row, and the caller was answered with a
+ * 500.
+ *
+ * Played out in that order, as above: the test takes the series' row in a
+ * transaction it holds open and writes what the edit or the removal would,
+ * sends the publication, waits until the database says it is queued behind that
+ * transaction, and commits.
+ */
+describe("a series published while it is being edited or removed", () => {
+  async function whileHeld<T>(
+    eventId: string,
+    write: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    request: () => Promise<T>,
+  ): Promise<T> {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await tx.$queryRaw`SELECT id FROM event WHERE id = ${eventId} FOR UPDATE`;
+        await write(tx);
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    try {
+      const answering = request();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      return answer;
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+  }
+
+  function publish(eventId: string) {
+    return inject({
+      method: "POST",
+      url: `/api/events/${eventId}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("refuses a personal identity number an edit put in while it was queued", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Publicerad under redigering ${suffix}`,
+    });
+
+    const answer = await whileHeld(
+      created.id,
+      (tx) =>
+        tx.event.update({
+          where: { id: created.id },
+          data: { description: "Kontakta Anna, 811228-9874, om du undrar." },
+        }),
+      () => publish(created.id),
+    );
+
+    expect(answer.statusCode).toBe(422);
+    expect(answer.json<{ reason: string }>().reason).toBe(
+      "personal-identity-number",
+    );
+    expect(answer.body).not.toContain("811228");
+    const row = await prisma.event.findUnique({
+      where: { id: created.id },
+      select: { published: true },
+    });
+    expect(row?.published).toBe(false);
+  });
+
+  it("answers a publication of a series removed while it was queued as not found", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Publicerad och borttagen ${suffix}`,
+    });
+
+    const answer = await whileHeld(
+      created.id,
+      (tx) => tx.event.delete({ where: { id: created.id } }),
+      () => publish(created.id),
+    );
+
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe("not-found");
+  });
+});
+
+/**
+ * A date called off while somebody is signing up to it.
+ *
+ * A sign-up reads that the date stands and inserts its row behind the date's
+ * sign-up lock. A call-off that did not take the same lock could commit between
+ * the two, and a sign-up would be taken on a date already called off. The
+ * call-off takes the lock, so it waits for a sign-up in flight to finish, and a
+ * sign-up that begins after it reads the date as called off and is refused.
+ *
+ * Played out in that order: the test takes the lock in a transaction it holds
+ * open, as a claim does, sends the call-off, waits until the database says it is
+ * queued behind that transaction, and commits.
+ */
+describe("a date called off while a sign-up is in flight", () => {
+  it("waits for the sign-up's lock before it calls the date off", async () => {
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Avbrutet under anmalan ${suffix}`,
+    });
+    const date = created.occurrences[2]?.id ?? "";
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await lockOccurrenceSignups(tx, date);
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    try {
+      const answering = inject({
+        method: "POST",
+        url: `/api/events/occurrences/${date}/cancel`,
+        headers: { cookie: boardCookie },
+      });
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+
+      // Queued, not yet through: the date still stands while the sign-up holds
+      // the lock.
+      const standing = await prisma.eventOccurrence.findUnique({
+        where: { id: date },
+        select: { cancelledAt: true },
+      });
+      expect(standing?.cancelledAt).toBeNull();
+
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      expect(answer.statusCode).toBe(201);
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+
+    const called = await prisma.eventOccurrence.findUnique({
+      where: { id: date },
+      select: { cancelledAt: true },
+    });
+    expect(called?.cancelledAt).not.toBeNull();
+  });
+});
+
 describe("calling off one date", () => {
   it("leaves the rest of the series standing", async () => {
     const created = await createSeries({
@@ -1036,6 +1440,42 @@ describe("calling off one date", () => {
     expect(again.json<{ reason: string }>().reason).toBe(
       "occurrence-already-cancelled",
     );
+  });
+
+  it("refuses a date the clock has passed", async () => {
+    // It went ahead, and a call-off now could not be taken back: reinstating
+    // refuses a date that has begun. Moved into the past directly, as the
+    // reinstatement's own test does.
+    const created = await createSeries({
+      ...cleaningDay,
+      title: `Redan borjat ${suffix}`,
+      recurrence: null,
+    });
+    const only = created.occurrences[0]?.id ?? "";
+    const now = new Date();
+    await prisma.eventOccurrence.update({
+      where: { id: only },
+      data: {
+        startsAt: new Date(now.getTime() - 60 * 60 * 1000),
+        endsAt: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: `/api/events/occurrences/${only}/cancel`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "occurrence-already-begun",
+    );
+    const row = await prisma.eventOccurrence.findUniqueOrThrow({
+      where: { id: only },
+      select: { cancelledAt: true },
+    });
+    expect(row.cancelledAt).toBeNull();
   });
 
   it("keeps a called-off date called off when the series is edited around it", async () => {

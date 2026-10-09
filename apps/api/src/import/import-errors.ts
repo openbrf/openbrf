@@ -48,9 +48,11 @@ export type ImportErrorReason =
    * A row the chunk was about to write to a new person now matches somebody in
    * the register the plan did not find: the person was added, moved in or given
    * the row's address after the chunk was planned. Or a row the board answered
-   * now matches other persons than the preview showed for it. Recorded by the
-   * job, which stops without writing the chunk rather than enter one human
-   * being twice. The chunks before it are written.
+   * now matches other persons than the preview showed for it: somebody joined
+   * them, or one of them moved out or was erased. Recorded by the job, which
+   * stops without writing the chunk rather than enter one human being twice or
+   * carry out a choice made between other persons. The chunks before it are
+   * written.
    */
   | "register-changed-during-apply"
   | "apply-interrupted"

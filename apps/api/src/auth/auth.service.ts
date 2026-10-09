@@ -1,6 +1,14 @@
+import type { Server } from "node:http";
 import type { BlockList } from "node:net";
 
-import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+} from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
 import { betterAuth } from "better-auth";
 
 import { principalCan } from "../authorization/capabilities";
@@ -9,7 +17,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { trustedProxyList } from "../http/public-rate-limit.guard";
-import { failureName } from "../logging/failure";
+import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { magicLinkMail, magicLinkRefusedMail } from "../mail/templates";
 import {
@@ -32,6 +40,25 @@ type AuthOptions = ReturnType<typeof buildAuthOptions>;
 export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
 
 /**
+ * How long a shutdown waits for sign-in links still being sent.
+ *
+ * Together with HTTP_CLOSE_GRACE_MS well inside RestartCoordinator's
+ * DRAIN_TIMEOUT_MS, which bounds the whole close on a plugin-install restart:
+ * the job queue and the database connection close after both waits, and need
+ * time of their own.
+ */
+export const SHUTDOWN_GRACE_MS = 5_000;
+
+/**
+ * How long a shutdown waits for the HTTP server to close before it drops the
+ * connections still open.
+ */
+export const HTTP_CLOSE_GRACE_MS = 2_000;
+
+/** How often a close looks for connections that have gone idle. */
+const IDLE_REAP_INTERVAL_MS = 50;
+
+/**
  * Owns the Better Auth instance and the small amount of glue between it and
  * the register.
  *
@@ -40,7 +67,7 @@ export type AuthInstance = ReturnType<typeof betterAuth<AuthOptions>>;
  * register, and exactly one account per person.
  */
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
   readonly instance: AuthInstance;
   /**
@@ -58,6 +85,7 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly principals: PrincipalService,
     @Inject(PROTECTED_RESOURCE) resource: ProtectedResource,
+    private readonly httpAdapterHost: HttpAdapterHost,
   ) {
     this.trustedProxies =
       env.TRUSTED_PROXIES.length === 0
@@ -75,11 +103,103 @@ export class AuthService {
   }
 
   /**
-   * Settles once every magic-link delivery started so far has finished, for a
-   * test that asserts on what was sent.
+   * Settles once no magic-link delivery is running, including one started
+   * while it waited.
    */
   async magicLinksSettled(): Promise<void> {
-    await Promise.allSettled(this.deliveries);
+    while (this.deliveries.size > 0) {
+      await Promise.allSettled(this.deliveries);
+    }
+  }
+
+  /**
+   * Lets the magic-link deliveries still running finish before the application
+   * closes, so a restart or a stopped container does not drop a sign-in link
+   * whose request was already answered.
+   *
+   * A module-destroy hook rather than beforeApplicationShutdown, because Nest
+   * runs every onModuleDestroy first and a delivery reads the database:
+   * PrismaService disconnects in its own. Both modules are global, and Nest
+   * destroys global modules in the reverse of the order AppModule imports
+   * them, so this runs first as long as AuthModule is imported after
+   * DatabaseModule and JobsModule. The integration suite closes an application
+   * to hold that.
+   *
+   * Stops the HTTP server first. Nest closes it only after every module-destroy
+   * hook, so a sign-in request accepted while this hook runs would start a
+   * delivery after the check below found none, and the database would be gone
+   * before it read it. Once the server is closed no request is in flight and
+   * none can start, so what the deliveries set holds is final. Nest's own
+   * close of the adapter afterwards finds it already closed.
+   *
+   * Both waits are bounded, so a mail server that never answers or a client
+   * that never lets go must not hold the shutdown past the grace period the
+   * container is given.
+   */
+  async onModuleDestroy(): Promise<void> {
+    await this.closeHttpServer();
+    if (this.deliveries.size === 0) {
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), SHUTDOWN_GRACE_MS);
+    });
+    try {
+      const outcome = await Promise.race([this.magicLinksSettled(), expired]);
+      if (outcome === "expired") {
+        this.logger.warn(
+          `${this.deliveries.size} sign-in link deliveries were still running at shutdown and were abandoned`,
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Closes the HTTP server and waits for its connections to end.
+   *
+   * Node reaps the idle keep-alive sockets once, when the close starts. A
+   * request still in flight then goes idle after its response and would hold
+   * the close until the keep-alive timeout, so idle connections are reaped
+   * again while the close runs. What is still open after HTTP_CLOSE_GRACE_MS
+   * is dropped.
+   *
+   * A close that fails is logged and not raised: the deliveries are waited for
+   * all the same, since that is what this hook is for.
+   */
+  private async closeHttpServer(): Promise<void> {
+    const adapter = this.httpAdapterHost.httpAdapter;
+    if (!adapter) {
+      return;
+    }
+    const server = adapter.getHttpServer() as Server | undefined;
+    const closed = adapter.close();
+    const reaper = setInterval(
+      () => server?.closeIdleConnections(),
+      IDLE_REAP_INTERVAL_MS,
+    );
+    const deadline = setTimeout(() => {
+      this.logger.warn(
+        "HTTP connections were still open at shutdown and were closed",
+      );
+      server?.closeAllConnections();
+    }, HTTP_CLOSE_GRACE_MS);
+    try {
+      await closed;
+    } catch (cause) {
+      const message = `The HTTP server could not be closed at shutdown: ${failureName(cause)}`;
+      const frames = failureFrames(cause);
+      if (frames === undefined) {
+        this.logger.warn(message);
+      } else {
+        this.logger.warn(message, frames);
+      }
+    } finally {
+      clearInterval(reaper);
+      clearTimeout(deadline);
+    }
   }
 
   /** The Web Fetch handler Better Auth exposes, mounted by the controller. */

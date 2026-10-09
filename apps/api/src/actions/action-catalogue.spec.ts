@@ -238,7 +238,9 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
   new MotionActionsRegistrar(service as never, registrar).onModuleInit();
 }
 
-function catalogueWithRegistry(): {
+function catalogueWithRegistry(
+  extra: (registrar: CoreActionRegistrar) => void = () => undefined,
+): {
   registry: ActionRegistryService;
   actions: ActionDefinition[];
 } {
@@ -256,16 +258,15 @@ function catalogueWithRegistry(): {
   const registrar = new CoreActionRegistrar(registry);
 
   registerEveryCoreAction(registrar);
+  extra(registrar);
 
-  const held: ActionDefinition[] = [];
-  for (const name of NAMES) {
-    const action = registry.get(name);
-    expect(action, `${name} was not registered`).not.toBeNull();
-    if (action !== null) {
-      held.push(action.definition);
-    }
-  }
-  return { registry, actions: held };
+  // Everything the registry holds, not a lookup of the pinned names: a lookup
+  // proves each of them is registered and nothing about what else is, and
+  // every rule in this file iterates what comes back from here.
+  return {
+    registry,
+    actions: registry.all().map((held) => held.definition),
+  };
 }
 
 function catalogue(): ActionDefinition[] {
@@ -276,9 +277,9 @@ function catalogue(): ActionDefinition[] {
  * The thirty-one, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
- * registry: a test that asked the registry what it holds would pass for
+ * registry: a test that only asked the registry what it holds would pass for
  * whatever the registry held, and what needs asserting is that this list and
- * that one are the same.
+ * everything the registry holds are the same.
  */
 const NAMES = [
   "news_list",
@@ -321,6 +322,23 @@ describe("what the catalogue offers", () => {
         .map((action) => action.name)
         .sort(),
     ).toEqual([...NAMES].sort());
+  });
+
+  it("notices an action a registrar adds without adding it here", () => {
+    /*
+     * The failure this file exists to catch: an action added to an existing
+     * registrar and to nothing else. Every rule below iterates what this
+     * helper returns, so a helper that only looked up the pinned names would
+     * leave such an action unchecked by all of them.
+     */
+    const [template] = catalogue();
+    const names = catalogueWithRegistry((registrar) => {
+      registrar.register("news", [
+        { ...(template as ActionDefinition), name: "news_unlisted" },
+      ]);
+    }).actions.map((action) => action.name);
+
+    expect(names).toContain("news_unlisted");
   });
 });
 

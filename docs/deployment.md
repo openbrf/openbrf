@@ -148,7 +148,12 @@ changes nothing but the owner's password, which it sets from
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
 4. Database migrations are applied, as the schema owner.
-5. The job queue schema is installed or migrated, as the owner.
+5. The job queue schema is installed or migrated, as the owner. An upgrade
+   that adds an index to the job tables builds it here too, and the step waits
+   until every build has finished: the application never runs pg-boss
+   migrations, so nothing would finish one later. A build that fails stops the
+   deploy with its error, which also stays in `pgboss.bam`, and the next deploy
+   retries it.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
@@ -656,10 +661,11 @@ that holds exactly one address, so they rely on the proxy overwriting it until
 the proxy is named.
 
 The limits on a member exporting their own data - three a minute and one at a
-time each, twelve a minute and three at once for the whole instance - are
-counted in the memory of the application process, so running more than one
-application container for an instance multiplies every one of them by the number
-of containers.
+time each, and twelve a minute for the whole instance - and the three reports
+the instance gathers at once, shared between those exports and the board's data
+subject access reports, are counted in the memory of the application process, so
+running more than one application container for an instance multiplies every
+one of them by the number of containers.
 
 ## The data volume
 
@@ -747,6 +753,12 @@ and so does it when something on the path removes the relay's offer. Set it only
 that only these containers share. The instance logs a warning at start while it
 is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
 loopback too.
+
+A server the board enters in the settings is held to the same rule once the
+settings are saved. Settings saved by an earlier version keep sending as they
+did, STARTTLS or not, and the SMTP card says so until they are saved again; save
+them and send a test message after upgrading. A test that fails because the
+server offers no TLS says that, and nothing, the password included, was sent.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that

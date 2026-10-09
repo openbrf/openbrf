@@ -5,7 +5,8 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { BoardPositionType } from "../generated/prisma/enums";
-import { boardSeatHeldOn, boardSeatNotEndedOn } from "../registers/held-on";
+import { holdsBoardSeat } from "../mail/board-recipients";
+import { boardSeatNotEndedOn } from "../registers/held-on";
 import {
   type BoardPositionView,
   hasTermEnded,
@@ -335,10 +336,7 @@ async function refuseUnseatedActor(
   now: Date,
 ): Promise<void> {
   const today = localDayOf(now);
-  const actorSeated = await tx.boardPosition.count({
-    where: { personId: actorPersonId, ...boardSeatHeldOn(today) },
-  });
-  if (actorSeated > 0) {
+  if (await holdsBoardSeat(tx, actorPersonId, now)) {
     return;
   }
   if (actorPersonId === targetPersonId) {

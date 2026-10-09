@@ -5,6 +5,7 @@ import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
@@ -1114,10 +1115,7 @@ export class PagesWriteService {
  */
 function refuseTakenSlug(slug: string): (cause: unknown) => never {
   return (cause) => {
-    if (
-      cause instanceof Prisma.PrismaClientKnownRequestError &&
-      cause.code === "P2002"
-    ) {
+    if (isUniqueViolation(cause)) {
       throw new PageWriteError(
         `The address /${slug} is already a page.`,
         "slug-taken",

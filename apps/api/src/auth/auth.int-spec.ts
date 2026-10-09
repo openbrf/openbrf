@@ -1,9 +1,12 @@
+import { Agent as HttpAgent, request as httpRequest } from "node:http";
+
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppModule } from "../app.module";
 import {
@@ -11,9 +14,14 @@ import {
   SESSION_READ_MAX,
   SESSION_READ_PATH,
 } from "./auth-options";
-import { AuthService } from "./auth.service";
+import {
+  AuthService,
+  HTTP_CLOSE_GRACE_MS,
+  SHUTDOWN_GRACE_MS,
+} from "./auth.service";
 import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../database/prisma.service";
+import { DRAIN_TIMEOUT_MS } from "../plugins/restart-coordinator.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 
 /**
@@ -303,7 +311,284 @@ describe("magic link and the second-factor policy", () => {
     expect(delivered).toEqual([]);
   });
 
+  it("lets a delivery still running finish before the application closes", async () => {
+    // An application of its own, because the point is what close() does: Nest
+    // runs every onModuleDestroy before any other shutdown hook, and the
+    // database disconnects in one of them.
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.getHttpAdapter().getInstance().ready();
+
+    const database = closing.get(PrismaService);
+    const mail = closing.get(MailService);
+    let sent = false;
+    // Reads the database after the close has begun, as the real send does
+    // when it loads the association and the mail settings.
+    mail.send = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await database.$queryRaw`SELECT 1`;
+      sent = true;
+      return { messageId: null };
+    }) as MailService["send"];
+
+    await closing
+      .getHttpAdapter()
+      .getInstance()
+      .inject({
+        method: "POST",
+        url: "/api/auth/sign-in/magic-link",
+        payload: { email: plain.email },
+      });
+    expect(sent).toBe(false);
+
+    await closing.close();
+
+    expect(sent).toBe(true);
+  }, 60_000);
+
+  it("still waits for a delivery when the HTTP server cannot be closed", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.getHttpAdapter().getInstance().ready();
+
+    const database = closing.get(PrismaService);
+    let sent = false;
+    closing.get(MailService).send = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await database.$queryRaw`SELECT 1`;
+      sent = true;
+      return { messageId: null };
+    }) as MailService["send"];
+
+    // The first close is the auth hook's; Nest's own afterwards goes through.
+    const adapter = closing.getHttpAdapter();
+    const close = adapter.close.bind(adapter);
+    let refused = false;
+    adapter.close = () => {
+      if (refused) {
+        return close();
+      }
+      refused = true;
+      return Promise.reject(
+        Object.assign(new Error("Server is not running."), {
+          code: "ERR_SERVER_NOT_RUNNING",
+        }),
+      );
+    };
+    const warn = vi.spyOn(Logger.prototype, "warn");
+
+    try {
+      await adapter.getInstance().inject({
+        method: "POST",
+        url: "/api/auth/sign-in/magic-link",
+        payload: { email: plain.email },
+      });
+
+      await closing.close();
+
+      expect(sent).toBe(true);
+      expect(
+        warn.mock.calls.map(([message]) => String(message)),
+      ).toContainEqual(expect.stringContaining("could not be closed"));
+    } finally {
+      warn.mockRestore();
+    }
+  }, 60_000);
+
+  /**
+   * Starts an application, holds a sign-in request inside the server (accepted
+   * but not yet answered, with no delivery started) and closes the application
+   * while it is held.
+   */
+  async function closeWhileRequestHeld(options: {
+    keepAlive: boolean;
+    holdMs: number;
+  }) {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.listen(0, "127.0.0.1");
+    const address = closing.getHttpServer().address() as { port: number };
+
+    const database = closing.get(PrismaService);
+    const mail = closing.get(MailService);
+    let sent = false;
+    mail.send = (async () => {
+      await database.$queryRaw`SELECT 1`;
+      sent = true;
+      return { messageId: null };
+    }) as MailService["send"];
+
+    const closingAuth = closing.get(AuthService);
+    const handle = closingAuth.instance.handler;
+    let reached!: () => void;
+    const requestReached = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    (closingAuth.instance as { handler: typeof handle }).handler = async (
+      request,
+    ) => {
+      reached();
+      await new Promise((resolve) => setTimeout(resolve, options.holdMs));
+      return handle(request);
+    };
+
+    // A keep-alive agent leaves the socket open after the reply, as a browser
+    // does. Without one the request gets a socket of its own that closes with
+    // the reply.
+    const agent = options.keepAlive
+      ? new HttpAgent({ keepAlive: true })
+      : false;
+    const outcome = new Promise<number | "dropped">((resolve) => {
+      const body = JSON.stringify({ email: plain.email });
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: address.port,
+          path: "/api/auth/sign-in/magic-link",
+          method: "POST",
+          agent,
+          headers: {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+            ...(options.keepAlive ? {} : { connection: "close" }),
+          },
+        },
+        (reply) => {
+          reply.resume();
+          reply.on("end", () => resolve(reply.statusCode ?? 0));
+          reply.on("error", () => resolve("dropped"));
+        },
+      );
+      request.on("error", () => resolve("dropped"));
+      request.end(body);
+    });
+    await requestReached;
+
+    const started = Date.now();
+    await closing.close();
+    const closedAfter = Date.now() - started;
+    if (agent) {
+      agent.destroy();
+    }
+
+    return { outcome: await outcome, closedAfter, sent: () => sent };
+  }
+
+  it("lets a sign-in request accepted as the close begins still send its link", async () => {
+    // Nest runs every onModuleDestroy before it closes the HTTP server, so a
+    // request accepted in between starts its delivery after a hook that looked
+    // at the deliveries running and found none.
+    const result = await closeWhileRequestHeld({
+      keepAlive: false,
+      holdMs: 300,
+    });
+
+    expect(result.outcome).toBe(200);
+    expect(result.sent()).toBe(true);
+  }, 60_000);
+
+  it("does not wait for a keep-alive connection that goes idle during the close", async () => {
+    // Node reaps idle sockets once, when the close starts. This one is busy
+    // then and idle after its reply, and would hold the close until the
+    // keep-alive timeout, over a minute.
+    const result = await closeWhileRequestHeld({
+      keepAlive: true,
+      holdMs: 300,
+    });
+
+    expect(result.outcome).toBe(200);
+    expect(result.sent()).toBe(true);
+    expect(result.closedAfter).toBeLessThan(HTTP_CLOSE_GRACE_MS);
+  }, 60_000);
+
+  it("drops a connection still busy when the close has waited long enough", async () => {
+    const result = await closeWhileRequestHeld({
+      keepAlive: true,
+      holdMs: HTTP_CLOSE_GRACE_MS + 3_000,
+    });
+
+    expect(result.outcome).toBe("dropped");
+    expect(result.closedAfter).toBeGreaterThanOrEqual(
+      HTTP_CLOSE_GRACE_MS - 100,
+    );
+    expect(result.closedAfter).toBeLessThan(HTTP_CLOSE_GRACE_MS + 1_000);
+  }, 60_000);
+
+  it("abandons a delivery that does not finish and says so", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const closing = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await closing.init();
+    await closing.getHttpAdapter().getInstance().ready();
+    closing.get(MailService).send = (() =>
+      new Promise<never>(() => undefined)) as MailService["send"];
+    const warn = vi.spyOn(Logger.prototype, "warn");
+
+    try {
+      await closing
+        .getHttpAdapter()
+        .getInstance()
+        .inject({
+          method: "POST",
+          url: "/api/auth/sign-in/magic-link",
+          payload: { email: plain.email },
+        });
+      const started = Date.now();
+
+      await closing.close();
+
+      // The close came back, after the grace and well before a restart's drain.
+      expect(Date.now() - started).toBeGreaterThanOrEqual(
+        SHUTDOWN_GRACE_MS - 100,
+      );
+      expect(Date.now() - started).toBeLessThan(DRAIN_TIMEOUT_MS);
+      expect(
+        warn.mock.calls.map(([message]) => String(message)),
+      ).toContainEqual(expect.stringContaining("were still running"));
+    } finally {
+      warn.mockRestore();
+    }
+  }, 60_000);
+
+  it("waits for the server and for deliveries for less time than a restart allows the close", () => {
+    expect(HTTP_CLOSE_GRACE_MS + SHUTDOWN_GRACE_MS).toBeLessThan(
+      DRAIN_TIMEOUT_MS,
+    );
+  });
+
   it("stores the sign-in token hashed, so a leaked database yields no links", async () => {
+    // Rows for this account that earlier tests left behind.
+    const linksForPlain = {
+      identifier: { startsWith: "magic-link:" },
+      value: { contains: plain.email },
+    };
+    const before = new Set(
+      (
+        await prisma.verification.findMany({
+          where: linksForPlain,
+          select: { id: true },
+        })
+      ).map(({ id }) => id),
+    );
+
     const { delivered, restore } = captureMail();
     try {
       await inject({
@@ -325,11 +610,23 @@ describe("magic link and the second-factor policy", () => {
     // The token in the email must not be what is stored: the plugin keeps it
     // in plain text unless told otherwise, and a magic link is a sign-in
     // credential in the same class as an invitation token, which this project
-    // stores hashed for exactly this reason.
-    const stored = await prisma.verification.findMany({
-      where: { identifier: token ?? "" },
+    // stores hashed for exactly this reason. The plugin prefixes the stored
+    // form ("magic-link:<token>"), so look for the token anywhere in a row.
+    const leaked = await prisma.verification.findMany({
+      where: {
+        OR: [
+          { identifier: { contains: token ?? "" } },
+          { value: { contains: token ?? "" } },
+        ],
+      },
     });
-    expect(stored).toEqual([]);
+    expect(leaked).toEqual([]);
+
+    // The request did store a link, so the check above looked at a real row.
+    const created = (
+      await prisma.verification.findMany({ where: linksForPlain })
+    ).filter(({ id }) => !before.has(id));
+    expect(created).toHaveLength(1);
   });
 
   it("still allows password sign-in for the TOTP account, with a challenge", async () => {

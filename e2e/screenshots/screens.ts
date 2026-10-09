@@ -1758,6 +1758,27 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * The same charge, opened for correction.
+     *
+     * The card rather than the page, because the correction form is the whole
+     * of what this image is about: it states what may change and what may not
+     * (who is charged stays), and the list it replaces on the screen while it
+     * is open is already photographed above.
+     *
+     * Reached from the row recorded in the entry above, which the walk has left
+     * standing. The only charge there is, so "Rätta" names one button.
+     */
+    name: "member-charge-correction",
+    as: "administrator",
+    goto: appPath("/charges"),
+    prepare: [{ click: { button: "Rätta" } }],
+    // The form, which is there once the row's button has been pressed and the
+    // list it replaced is gone.
+    waitFor: { panel: "Rätta en debitering" },
+    capture: { panel: "Rätta en debitering" },
+  },
+  {
+    /*
      * The fees, with one apartment's rate recorded.
      *
      * The whole page rather than a card, because what the screen is is three
@@ -1810,9 +1831,12 @@ export const SCREENS: readonly Screen[] = [
     /*
      * The period's notices, produced.
      *
-     * The card rather than the page, because the register above is already
+     * The document rather than the page, because the register above is already
      * photographed whole and what this image is about is the other half: the
-     * run, the document it produced and the file the board takes away.
+     * notices the run produced, with the file the board takes away. The
+     * document stands in a section of its own beside the "Avisering" card that
+     * produced it, so the card is where the run is started and not what is
+     * photographed.
      *
      * The first quarter of 2026, which the rate recorded above is in force for.
      * A period may be issued once, and a fresh instance has issued none.
@@ -1838,7 +1862,9 @@ export const SCREENS: readonly Screen[] = [
     // has answered. The run's own row arrives first and says nothing about the
     // document.
     waitFor: { text: "Betalningsreferens" },
-    capture: { panel: "Avisering" },
+    // The document's own section, found by the association's name it is headed
+    // with: the produced document is no longer inside the "Avisering" card.
+    capture: { panel: HOUSING_COOPERATIVE.name },
   },
   {
     /*
