@@ -1,3 +1,8 @@
+import {
+  defaultParseSearch,
+  defaultStringifySearch,
+} from "@tanstack/react-router";
+
 import { safeReturnTo } from "./return-to";
 
 /**
@@ -11,7 +16,7 @@ import { safeReturnTo } from "./return-to";
  * itself, so the query has to arrive at the consent screen as the same bytes
  * the provider wrote.
  *
- * Two separate things in the router would otherwise destroy it.
+ * Three separate things in the router would otherwise destroy it.
  *
  * A route sees only the parameters its own `validateSearch` declares, and the
  * address bar is rebuilt from them the next time the router builds a location.
@@ -27,7 +32,62 @@ import { safeReturnTo } from "./return-to";
  * consent screen is built from the unparsed search string and taken as a
  * document navigation, and why the consent screen reads the same unparsed
  * string rather than anything the router has rebuilt.
+ *
+ * The third is the address bar itself. When the router mounts, and whenever it
+ * resolves a location, it builds the address it would have written for the
+ * page and replaces the history entry with that one if the two differ - which
+ * for a signed request they always do, for the reason above. A screen would
+ * then read a re-spelled request out of `window.location.search`, and a
+ * reload of the sign-in or consent screen would load the re-spelled one. So
+ * the router is given `stringifySearch` below, which keeps the address bar's
+ * own spelling whenever what the router would write in its place means the
+ * same to the router. The address bar then stays the request, on the first
+ * load and on every reload, and the screens read it from there.
  */
+
+/**
+ * Writes a search string for the router, keeping the given spelling of it
+ * when the router would mean the same by its own.
+ *
+ * "The same" is decided in the router's own terms: the search object, written
+ * out the router's default way, against the given string parsed and written
+ * out the same way. Two strings the router cannot tell apart are equal, so
+ * nothing the router decides on changes - a route that asked for a different
+ * search, or a validator that changed a value, still gets its own spelling.
+ * What changes is only that a query nothing has touched is no longer
+ * re-spelled, and a signed one is no longer spent by it.
+ */
+export function stringifyKeeping(
+  spelled: string,
+  search: Record<string, unknown>,
+): string {
+  const written = defaultStringifySearch(search);
+  if (spelled === "" || spelled === written) {
+    return written;
+  }
+  return written === canonical(spelled) ? spelled : written;
+}
+
+/** One string and how the router would write it. Asked on every link. */
+let lastCanonical: { spelled: string; written: string } | null = null;
+
+function canonical(spelled: string): string {
+  if (lastCanonical?.spelled !== spelled) {
+    lastCanonical = {
+      spelled,
+      written: defaultStringifySearch(defaultParseSearch(spelled)),
+    };
+  }
+  return lastCanonical.written;
+}
+
+/**
+ * The router's `stringifySearch`: the address bar's spelling, when it means
+ * what the router is about to write.
+ */
+export function stringifySearch(search: Record<string, unknown>): string {
+  return stringifyKeeping(window.location.search, search);
+}
 
 /**
  * Where this application is served.

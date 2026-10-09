@@ -149,6 +149,7 @@ export class OAuthConsentController {
   constructor(
     private readonly auth: AuthService,
     private readonly audit: AuditLogService,
+    private readonly apps: ConnectedAppsService,
   ) {}
 
   @Post()
@@ -170,7 +171,9 @@ export class OAuthConsentController {
       new URL(PROVIDER_CONSENT_PATH, originOf(request)),
       {
         method: "POST",
-        headers: withJsonBody(forwardHeaders(request)),
+        headers: withJsonBody(
+          forwardHeaders(request, this.auth.trustedProxies),
+        ),
         body: JSON.stringify({ accept: true, oauth_query: query }),
       },
     );
@@ -187,17 +190,37 @@ export class OAuthConsentController {
       const asked = new URLSearchParams(query);
       const clientId = asked.get("client_id");
       if (clientId !== null) {
-        await this.audit.record({
-          action: "CONNECTED_APP_CONNECTED",
-          ...auditActor(actor),
-          targetPersonId: actor.personId,
-          targetKind: "connectedApp",
-          targetId: clientId,
-          context: {
-            scopes: asked.get("scope")?.split(" ") ?? [],
-            redirectHost: hostOf(asked.get("redirect_uri")),
-          },
-        });
+        try {
+          await this.audit.record({
+            action: "CONNECTED_APP_CONNECTED",
+            ...auditActor(actor),
+            targetPersonId: actor.personId,
+            targetKind: "connectedApp",
+            targetId: clientId,
+            context: {
+              scopes: asked.get("scope")?.split(" ") ?? [],
+              redirectHost: hostOf(asked.get("redirect_uri")),
+            },
+          });
+        } catch (failure) {
+          /*
+           * The provider has stored the grant by now, and the entry that has
+           * to stand beside it could not be written. The grant is withdrawn
+           * before the failure is answered, so the app cannot come back
+           * through an authorization that skips the consent screen and act on
+           * a grant the log knows nothing of. The code the provider issued is
+           * in the answer that is not sent. A grant this one replaced goes
+           * too: the provider has already overwritten it, scopes and date
+           * alike, so it cannot be told apart, and the member who just tried
+           * to connect is told it failed and can connect again.
+           */
+          await this.apps.withdrawUnrecordedConsent(
+            actor,
+            actor.personId,
+            clientId,
+          );
+          throw failure;
+        }
       }
     }
 

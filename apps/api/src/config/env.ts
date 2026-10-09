@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 import { z } from "zod";
 
 import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
@@ -103,6 +105,28 @@ export function isLoopbackHost(host: string): boolean {
     host === "[::1]" ||
     host === "::1"
   );
+}
+
+/** A DNS name of at least two labels, with no scheme, port or path. */
+const HOST_NAME = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+/** An IP address, or a CIDR range such as `172.16.0.0/12`. */
+function isAddressOrRange(entry: string): boolean {
+  const [address = "", prefix, ...rest] = entry.split("/");
+  const family = isIP(address);
+  if (family === 0 || rest.length > 0) {
+    return false;
+  }
+  return (
+    prefix === undefined ||
+    (/^\d+$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128))
+  );
+}
+
+/** A range of every address of its family, such as `0.0.0.0/0` or `::/0`. */
+function isWholeFamily(entry: string): boolean {
+  const prefix = entry.split("/")[1];
+  return prefix !== undefined && Number(prefix) === 0;
 }
 
 /**
@@ -300,6 +324,61 @@ export const envSchema = z.object({
     .int()
     .positive()
     .default(60),
+
+  /**
+   * The reverse proxies in front of this instance, as addresses or CIDR ranges
+   * separated by commas, as the application sees them connect.
+   *
+   * Only a request arriving from one of these has its X-Forwarded-For read, and
+   * then only the hops these proxies wrote, from the right: the rest of the
+   * header is whatever the client sent. Empty, the header is not read and the
+   * rate limits on the public forms count every request by the address it came
+   * from, which behind an unnamed proxy is the proxy's. The sign-in endpoints'
+   * limiter is handed the address resolved from the same list.
+   *
+   * A range must not take in the clients too: a client it covers is believed
+   * about the hop before it, so it can name any address it likes and start a
+   * fresh budget with each. A range of every address of its family is refused
+   * for that reason; a narrower one that still covers clients cannot be told
+   * from a proxy network here, and the deployment guide warns against it.
+   */
+  TRUSTED_PROXIES: z
+    .string()
+    .transform((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ""),
+    )
+    .refine(
+      (entries) => entries.every(isAddressOrRange),
+      "must be IP addresses or CIDR ranges, separated by commas",
+    )
+    .refine(
+      (entries) => !entries.some(isWholeFamily),
+      "must not include a range of every address, such as 0.0.0.0/0 or ::/0, which would trust every client",
+    )
+    .default([]),
+
+  /**
+   * The hosts a connected app may identify itself from, by the URL of its own
+   * metadata document, separated by commas. Empty, any public https host may,
+   * which is how a member connects a program of their own choosing; listed,
+   * only those (auth/cimd-fetch.ts, metadataDocumentPolicy).
+   */
+  OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: z
+    .string()
+    .transform((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter((entry) => entry !== ""),
+    )
+    .refine(
+      (hosts) => hosts.every((host) => HOST_NAME.test(host)),
+      "must be host names, such as app.example.org, separated by commas",
+    )
+    .default([]),
 
   OPENBRF_PLUGINS_ENABLED: envBoolean(true),
   OPENBRF_CATALOG_URL: z.string().min(1).optional(),

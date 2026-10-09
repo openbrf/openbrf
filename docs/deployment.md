@@ -674,10 +674,33 @@ reading before the first member is added rather than after.
 ## Behind a reverse proxy
 
 Bind the application to loopback - the default - and terminate TLS in front of
-it. The proxy must set `X-Forwarded-For` itself rather than passing through
-whatever a client sends: the header identifies the client for rate limiting on
-the authentication endpoints and on the forms an anonymous visitor can submit,
-and a client that can set it can spoof its way around both.
+it, and name the proxy in `TRUSTED_PROXIES`. The client's address identifies it
+for rate limiting on the authentication endpoints and on the forms an anonymous
+visitor can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
+
+`TRUSTED_PROXIES` lists the addresses or CIDR ranges the proxy connects to the
+application from, separated by commas. A proxy on the host that reaches the
+port bound to loopback arrives from the gateway of the stack's Docker network,
+which `docker network inspect openbrf-prod_default` shows; a proxy in a
+container on that network arrives from its own address. The application reads
+the header only on a request from one of these, and then only from the right,
+past the hops the named proxies wrote: everything to the left of them is what
+the client sent. So a proxy that appends to the header, as nginx's
+`$proxy_add_x_forwarded_for` does, is as safe as one that overwrites it. The
+forms and the sign-in endpoints count the same address, and a request sent to
+the application's port directly, past the proxy, is counted by the address it
+came from whatever header it carries.
+
+Name only the proxies, never the clients. A client inside a listed range is
+believed when it says which address it came from, so it can claim a new one for
+every request and never run out of budget. Keep each range to the network the
+proxy sits on; a range of every address, such as `0.0.0.0/0` or `::/0`, is
+refused at start.
+
+Left empty, the header is not read at all, and every visitor behind the proxy
+shares its budget, on the forms and the sign-in endpoints alike: a busy
+afternoon can then refuse a contact form to somebody who never sent one, and a
+few failed sign-ins hold back everybody else's for a while.
 
 The limits on a member exporting their own data - three a minute and one at a
 time each, and twelve a minute for the whole instance - and the three reports
@@ -978,3 +1001,27 @@ against.
 Every connection is visible to the board under Connected apps, and the board can
 cut one off; a member can see and cut their own. A disconnect takes effect on
 the next call the app makes, not when its token would have expired.
+
+An app the association does not want anybody to connect can be turned away for
+the whole instance by somebody who may manage the association:
+`DELETE /api/oauth-clients/<client id>`, with the client id as
+`GET /api/connected-apps` lists it, cuts every member's connection to it and
+refuses that client id at sign-in from then on, and the audit log records who
+did it. There is no screen for it yet, and no way back: the database keeps a
+disabled client disabled, whoever writes its row. A client registered by hand
+can be registered again under a new id.
+
+What is refused is the client id, not the program behind it. A program that
+identifies itself by its metadata document can publish the same document at
+another address and arrive as a new client; it then has no member's consent,
+so nobody is connected to it until they agree again. To keep such a program
+out for good, also limit the hosts below.
+
+`OPENBRF_OAUTH_CLIENT_METADATA_HOSTS` narrows which programs can be connected in
+the first place. A program usually identifies itself by the https address of
+its own metadata document, and by default any public host may serve one. Listing
+hosts, separated by commas, allows only those, matched exactly; it is checked
+when a document is fetched, on a program's first connection and when its
+document is refreshed, so a program already connected is turned away by
+revoking it as above. A client an administrator registered by hand is not
+affected.

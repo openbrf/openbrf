@@ -1681,6 +1681,9 @@ enum AuditAction {
   /// A client registered itself against the instance by presenting the URL of
   /// its own metadata document. No person has consented to anything yet.
   OAUTH_CLIENT_REGISTERED
+  /// An administrator turned a client away for the whole instance: it can no
+  /// longer be authorized, and every member's connection to it was cut.
+  OAUTH_CLIENT_REVOKED
   /// The association's financial year and giro numbers were recorded.
   ///
   /// The entry names the fields that changed and never their values: a giro
