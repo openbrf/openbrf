@@ -144,9 +144,10 @@ A server the board enters is held to the same rule from the save on: every save 
 the SMTP settings stores `smtpRequireTls`, true unless the host is on loopback,
 whichever field changed.
 Settings saved before that are migrated to the same rule: the upgrade sets
-`smtpRequireTls` on every row whose host is not on loopback. A server that
-offers no STARTTLS then stops receiving mail until the board switches to
-implicit TLS or a port that offers STARTTLS. A row that does not require it
+`smtpRequireTls` on every row whose host is not on loopback. A connection that
+starts in cleartext to a server that offers no STARTTLS then stops sending mail
+until the board switches to implicit TLS or a port that offers STARTTLS. A row
+with implicit TLS is unaffected: its connection never asks for STARTTLS. A row that does not require it
 anyway, such as one a data-only restore of an older backup brought back, is
 used as stored. The SMTP card warns that the password can go out unencrypted
 until the board saves the settings again, and the instance logs a warning

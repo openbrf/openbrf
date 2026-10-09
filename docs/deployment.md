@@ -732,8 +732,10 @@ loopback too.
 
 A server the board enters in the settings is held to the same rule, loopback
 exemption included. Settings saved by an earlier version are moved to it by the
-upgrade's migration, so a server that offered no STARTTLS and received mail
-before the upgrade receives none after it: every send fails with the reason
+upgrade's migration, so a connection that starts in cleartext to a server that
+offers no STARTTLS, which sent mail before the upgrade, sends none after it.
+Implicit TLS is not affected, as the connection is encrypted from the start.
+Every send through such a connection fails with the reason
 `mail-tls-unavailable`, and nothing, the password included, is sent. Send a test
 message from the SMTP card after upgrading. If it fails that way, have the board
 switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
