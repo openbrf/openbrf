@@ -171,3 +171,14 @@ logged as blocked after the domain jobs had already erased rows, which is not an
 erasure that has not started. Every job that erases on a request now selects on
 the same predicate (`erasureRequestedPersonIds` and `isErasureInForce` in
 `retention/withheld-persons.ts`), so "blocked" again means nothing was erased.
+
+## Update, 2026-10-09
+
+A consented subletting application whose period has not ended is kept, as an
+open one is. The erasure used to take every closed application whatever its
+`periodTo`, so a granted request for a member who had since sold the flat erased
+the board's consent to a letting that was still running. The consent is the
+board's proof that the letting was lawful (BRL 7 kap. 18 § 2), and while a
+subtenant lives there it is not the member's data to take away. The closing job
+counts it as kept, so the request stays open; the first run after the period's
+last day erases it and closes the request.

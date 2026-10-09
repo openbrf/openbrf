@@ -90,9 +90,10 @@ export interface SubletPurgeRunSummary {
  * ## A granted erasure request
  *
  * Brings the purge forward: every closed application of the person's goes on
- * the next run, whatever its period, and an open one stays for the board to
- * answer - `retention/erasure-domains.ts` counts it as kept, so the request
- * stays open until it closes. The request is only in force once the person no
+ * the next run, whatever its period - except a consented letting that is still
+ * running, which stays until its period ends - and an open one stays for the
+ * board to answer. `retention/erasure-domains.ts` counts both as kept, so the
+ * request stays open until they are gone. The request is only in force once the person no
  * longer lives here, so the consent it would erase is about an apartment they
  * no longer hold.
  *
@@ -257,7 +258,7 @@ export class SubletPurgeService implements OnModuleInit {
         ? []
         : await this.prisma.subletApplication.groupBy({
             by: ["appliedByPersonId"],
-            where: subletApplicationsErasedOnRequest({ in: requested }),
+            where: subletApplicationsErasedOnRequest({ in: requested }, now),
             orderBy: [{ appliedByPersonId: "asc" }],
             take: requested.length,
           });
@@ -330,7 +331,7 @@ export class SubletPurgeService implements OnModuleInit {
       const onRequest = await isErasureInForce(tx, personId, now);
       const { count } = await tx.subletApplication.deleteMany({
         where: onRequest
-          ? subletApplicationsErasedOnRequest(personId)
+          ? subletApplicationsErasedOnRequest(personId, now)
           : { appliedByPersonId: personId, ...erasable(now, retentionDays) },
       });
       if (count === 0) {

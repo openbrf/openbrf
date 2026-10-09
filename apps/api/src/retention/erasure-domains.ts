@@ -1,3 +1,5 @@
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
+
 import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 
@@ -225,19 +227,54 @@ export function keyOrdersKeptFromErasure(
   return { orderedByPersonId: personId, closedAt: null };
 }
 
-/** The subletting applications a granted erasure request erases. */
+/**
+ * A letting the board consented to whose period has not ended.
+ *
+ * The consent is what shows the letting is lawful (BRL 7 kap. 18 § 2 makes
+ * letting without it a ground for forfeiting the right of use), and while the
+ * letting runs it is the board's proof that it was given. The period's last day
+ * is inside it, as it is everywhere else the column is read.
+ */
+function runningConsentedLetting(
+  now: Date,
+): Prisma.SubletApplicationWhereInput {
+  return {
+    status: "CONSENTED",
+    periodTo: { gte: dateColumnOf(localDayOf(now)) },
+  };
+}
+
+/**
+ * The subletting applications a granted erasure request erases.
+ *
+ * Closed ones, for the reason the key orders give, and not a consented letting
+ * that is still running: that stays until its period ends, and the closing job
+ * counts it as kept, so the request stays open meanwhile. An erasure is in force
+ * only for somebody who no longer holds the apartment, which makes this the
+ * letting of a flat that has since been sold; erasing the consent under a
+ * subtenant who still lives there would take the proof of it away with the
+ * member.
+ */
 export function subletApplicationsErasedOnRequest(
   personId: ErasurePersonFilter,
+  now: Date,
 ): Prisma.SubletApplicationWhereInput {
-  // Closed ones, for the reason the key orders give.
-  return { appliedByPersonId: personId, closedAt: { not: null } };
+  return {
+    appliedByPersonId: personId,
+    closedAt: { not: null },
+    NOT: runningConsentedLetting(now),
+  };
 }
 
 /** The subletting applications a granted erasure request leaves standing. */
 export function subletApplicationsKeptFromErasure(
   personId: ErasurePersonFilter,
+  now: Date,
 ): Prisma.SubletApplicationWhereInput {
-  return { appliedByPersonId: personId, closedAt: null };
+  return {
+    appliedByPersonId: personId,
+    OR: [{ closedAt: null }, runningConsentedLetting(now)],
+  };
 }
 
 /** One domain a granted erasure request reaches, and how to ask it. */
@@ -349,15 +386,16 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   {
     job: "sublets/sublet-purge.service.ts",
     name: "subletting applications",
-    countOwed: async (client, personId) =>
+    countOwed: async (client, personId, now) =>
       client.subletApplication.count({
-        where: subletApplicationsErasedOnRequest(personId),
+        where: subletApplicationsErasedOnRequest(personId, now),
       }),
     kept: {
-      because: "an open subletting application is still with the board",
-      count: async (client, personId) =>
+      because:
+        "a subletting application is still with the board or its letting still runs",
+      count: async (client, personId, now) =>
         client.subletApplication.count({
-          where: subletApplicationsKeptFromErasure(personId),
+          where: subletApplicationsKeptFromErasure(personId, now),
         }),
     },
   },
