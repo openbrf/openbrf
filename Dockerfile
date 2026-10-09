@@ -44,7 +44,7 @@ ARG PNPM_VERSION=12.9.1
 # does not depend on it: Node uses its bundled roots for the outbound TLS (catalog
 # and tarball fetches, mail, SMS, S3, client metadata) unless NODE_USE_SYSTEM_CA
 # or --use-system-ca is set, and neither is.
-FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
+FROM node:26.10.0-trixie-slim@sha256:930557a230abacbc3f4fd9b8648abf8f4bee1e17cb72195dcdfb2f709bc85b33 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
