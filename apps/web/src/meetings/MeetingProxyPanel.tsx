@@ -67,8 +67,8 @@ export interface MeetingProxyPanelProps {
  * authorisation good for at most a year from the day the member signed it, and
  * the server measures that year against the meeting day rather than against
  * today - so an authority is refused for being older than the meeting by a year,
- * and refused for being dated after it, and both refusals name the date that is
- * wrong.
+ * and refused for being dated after it or after today, and both refusals name
+ * the date that is wrong.
  *
  * ## Taking one back
  *

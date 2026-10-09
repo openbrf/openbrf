@@ -287,12 +287,17 @@ export function OwnSubletsPanel({
                 )
               ) : (
                 <p className="text-small text-ink-muted">
-                  {t("sublets.mine.closedOn", {
-                    date:
-                      application.closedAt === null
-                        ? ""
-                        : localDayOfInstant(application.closedAt),
-                  })}
+                  {t(
+                    application.status === "WITHDRAWN"
+                      ? "sublets.mine.withdrawnOn"
+                      : "sublets.mine.closedOn",
+                    {
+                      date:
+                        application.closedAt === null
+                          ? ""
+                          : localDayOfInstant(application.closedAt),
+                    },
+                  )}
                 </p>
               )}
             </li>

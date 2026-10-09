@@ -49,6 +49,7 @@ export type MeetingReason =
   | "meeting-not-found"
   | "meeting-already-held"
   | "meeting-not-held"
+  | "meeting-day-in-the-future"
   | "agenda-item-not-found"
   | "date-not-a-calendar-date"
   | "not-a-member-on-the-meeting-day"
@@ -61,6 +62,9 @@ export type MeetingReason =
   | "attendance-not-found"
   | "attendance-principal-not-applicable"
   | "assistant-principal-not-present"
+  | "assistant-already-present"
+  | "assistant-is-their-own-principal"
+  | "proxy-holder-is-the-member"
   | "proxy-holder-holds-no-authority"
   | "notice-already-issued"
   | "meeting-has-no-agenda"
@@ -100,6 +104,7 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
    */
   "meeting-already-held": "meetings.errors.meetingAlreadyHeld",
   "meeting-not-held": "meetings.errors.meetingNotHeld",
+  "meeting-day-in-the-future": "meetings.errors.meetingDayInTheFuture",
 
   /*
    * The notice, and what issuing it settles. EFL 6 kap. 22 § has the notice
@@ -133,6 +138,9 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
     "meetings.errors.proxyHolderHoldsNoAuthority",
   "assistant-principal-not-present":
     "meetings.errors.assistantPrincipalNotPresent",
+  "assistant-already-present": "meetings.errors.assistantAlreadyPresent",
+  "assistant-is-their-own-principal":
+    "meetings.errors.assistantIsTheirOwnPrincipal",
   "attendance-principal-not-applicable":
     "meetings.errors.attendancePrincipalNotApplicable",
   "attendance-not-found": "meetings.errors.attendanceNotFound",
@@ -148,6 +156,7 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "proxy-holder-not-permitted-by-bylaws":
     "meetings.errors.proxyHolderNotPermittedByBylaws",
   "proxy-holder-limit-reached": "meetings.errors.proxyHolderLimitReached",
+  "proxy-holder-is-the-member": "meetings.errors.proxyHolderIsTheMember",
   /*
    * The wire codes say "authority" and stay as they are - they are the API's
    * contract - while the sentences they become use the glossary's canonical

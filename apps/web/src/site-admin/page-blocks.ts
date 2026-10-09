@@ -1,5 +1,6 @@
 import {
-  scannableRunsText,
+  scannableRuns,
+  type ScannableText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
@@ -257,36 +258,48 @@ export function withUploadedPicture(
  * the board's own writing has no text: what it shows is scanned where it was
  * written - on the news item, in the archive, on the facts screen.
  */
-export function blockText(block: PageBlock): string {
+export function blockText(block: PageBlock): ScannableText {
   switch (block.type) {
     case "paragraph":
     case "heading":
-      return scannableRunsText(block.runs);
+      return scannableRuns(block.runs);
     case "image":
-      return [block.alt, block.caption ?? ""].join(" ").trim();
+      return wordsOnly([block.alt, block.caption ?? ""].join(" ").trim());
     case "contactForm":
     case "issueReportForm":
-      return scannableRunsText(block.intro ?? []);
-    case "faq":
-      return block.items
-        .map((item) =>
-          [item.question, scannableRunsText(item.answer)].join(" "),
-        )
-        .join(" ")
-        .trim();
+      return scannableRuns(block.intro ?? []);
+    case "faq": {
+      const items = block.items.map((item) => ({
+        question: item.question,
+        answer: scannableRuns(item.answer),
+      }));
+      return {
+        words: items
+          .map((item) => [item.question, item.answer.words].join(" "))
+          .join(" ")
+          .trim(),
+        addresses: items.flatMap((item) => item.answer.addresses),
+        unreadableAddress: items.some((item) => item.answer.unreadableAddress),
+      };
+    }
     case "documentList":
-      return block.category ?? "";
+      return wordsOnly(block.category ?? "");
     case "newsTeaser":
     case "eventCalendar":
     case "boardRoster":
     case "associationFacts":
     case "controllerContact":
-      return "";
+      return wordsOnly("");
     // A block from a newer API: whatever it holds, the API scans it.
     default:
       block satisfies never;
-      return "";
+      return wordsOnly("");
   }
+}
+
+/** Text with no address in it. */
+function wordsOnly(words: string): ScannableText {
+  return { words, addresses: [], unreadableAddress: false };
 }
 
 /** Every run of a text block joined into one string, for a plain input. */
@@ -322,7 +335,13 @@ export function scanPage(input: {
     hits.push({ block: null });
   }
   input.blocks.forEach((block, index) => {
-    if (scanForPersonalIdentityNumbers(blockText(block)).length > 0) {
+    const { words, addresses, unreadableAddress } = blockText(block);
+    if (
+      unreadableAddress ||
+      [words, ...addresses].some(
+        (text) => scanForPersonalIdentityNumbers(text).length > 0,
+      )
+    ) {
       hits.push({ block: index });
     }
   });

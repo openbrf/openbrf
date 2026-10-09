@@ -88,7 +88,8 @@ const EVENT_TEXT_FIELDS: readonly string[] = [
  * refuses calling off a date that is already off, and they are met by different
  * people on different halves of the screen. `occurrence-started` and
  * `occurrence-already-begun` divide the same way - one date having begun, said
- * to a resident who tried to sign up and to a board that tried to reinstate it.
+ * to a resident who tried to sign up and to a board that tried to call it off
+ * or reinstate it.
  */
 const EVENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The two reads that can go stale under either half of the screen.
@@ -121,10 +122,10 @@ const EVENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "occurrence-in-use": "events.errors.occurrenceInUse",
 
   /*
-   * Calling a date off, and putting it back. Four sentences for two acts, which
+   * Calling a date off, and putting it back. Three sentences for two acts, which
    * is what the two rows on the card need: each act is refused by the state the
-   * other one leaves, and a date the clock has passed can no longer be
-   * reinstated at all - which is not the sentence a resident meets about
+   * other one leaves, and a date the clock has passed can no longer be called
+   * off or reinstated at all - which is not the sentence a resident meets about
    * signing up to a date that has begun.
    */
   "occurrence-already-cancelled": "events.errors.occurrenceAlreadyCancelled",

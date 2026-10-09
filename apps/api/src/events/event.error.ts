@@ -73,7 +73,8 @@ export type EventReason =
  * because the two acts are met by two clicks on the same row and each of them
  * has one sentence to say.
  *
- * `occurrence-already-begun` refuses reinstating a date the clock has passed.
+ * `occurrence-already-begun` refuses reinstating a date the clock has passed,
+ * and calling one off: a call-off is only offered while it can be taken back.
  * It is not `occurrence-started`, which refuses a sign-up to such a date: the
  * two are the same fact refusing two acts, exactly as the pair above is one act
  * refused by two states, and folding them together would put the resident's

@@ -57,7 +57,7 @@ export const registerReportObligationMail: MailTemplate<RegisterReportObligation
       }),
 
     body: (props, context): ReactElement => {
-      const { t, formatDate, appUrl } = context;
+      const { t, formatDateColumn, appUrl } = context;
 
       return (
         <MailLayout
@@ -82,15 +82,15 @@ export const registerReportObligationMail: MailTemplate<RegisterReportObligation
                     `email.registerReportObligation.event.${props.kind}`,
                   ),
                   apartment: props.designation,
-                  triggeredOn: formatDate(props.triggeredOn),
+                  triggeredOn: formatDateColumn(props.triggeredOn),
                 })
               : t("email.registerReportObligation.body", {
                   event: t(
                     `email.registerReportObligation.event.${props.kind}`,
                   ),
                   apartment: props.designation,
-                  triggeredOn: formatDate(props.triggeredOn),
-                  dueOn: formatDate(props.dueOn),
+                  triggeredOn: formatDateColumn(props.triggeredOn),
+                  dueOn: formatDateColumn(props.dueOn),
                 })}
           </Text>
 

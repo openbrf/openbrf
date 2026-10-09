@@ -40,6 +40,7 @@ import { PluginRegistryService } from "./plugin-registry.service";
 import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
+  PluginEntryDeprecatedError,
   PluginConsentMismatchError,
   PluginRecipientAlreadyRecordedError,
   PluginRecipientRequiredError,
@@ -161,20 +162,27 @@ export interface PluginSettingsView {
 export interface InstallRequest {
   id: string;
   /**
+   * The catalog version the operator was shown, when the caller shows one.
+   * The command-line tool echoes the version it printed, so a release published
+   * between the listing and the install is refused rather than recorded as
+   * consented. Omitted, the install takes the version the catalog names now.
+   */
+  expectedVersion?: string;
+  /**
    * What the consent screen showed. Echoed back so an entry that changed
    * between browsing and confirming is refused rather than installed on
    * consent the board never gave.
    *
-   * Omitted by the command-line tool, where running the command is itself the
-   * consent and there is no earlier screen for the catalog to have changed
-   * since. The tool prints the declaration before it acts.
+   * The command-line tool echoes the declaration it printed before it acts,
+   * so an entry that changed in between is refused there as well. A caller
+   * that omits it - a script - is consenting to whatever the catalog says now.
    */
   permissions?: readonly PluginPermission[];
   personalData?: readonly PluginPersonalDataCategory[];
   /**
    * The actions the consent screen showed, echoed back on the same terms.
    *
-   * Omitted by the command-line tool, like the two above it.
+   * Echoed by the command-line tool, like the two above it.
    */
   actions?: readonly PluginActionDeclaration[];
   /**
@@ -466,8 +474,9 @@ export class PluginAdminService {
   /**
    * Installs from the catalog.
    *
-   * Five gates before anything is written: the entry has to exist, its
-   * contract version has to be one this host implements, it may take the
+   * Six gates before anything is written: the entry has to exist, it may not
+   * be deprecated unless this instance already has the plugin, its contract
+   * version has to be one this host implements, it may take the
    * reserved connector id only by serving the resource that id names, no other
    * installed plugin may already declare that resource, and what the board
    * confirmed has to still match what the catalog says. The last exists because
@@ -483,9 +492,29 @@ export class PluginAdminService {
       throw new PluginsDisabledError();
     }
 
-    const entry = await this.catalog.entry(request.id);
+    /*
+     * Read from the source rather than the cache: the screen that sent this
+     * browsed the catalog up to a minute ago, and a curator who deprecated
+     * the entry or changed what it declares since must be seen by the gates
+     * below, not by the copy the screen was drawn from.
+     */
+    const entry = await this.catalog.entry(request.id, { refresh: true });
     if (entry === null || entry.type !== "plugin") {
       throw new CatalogEntryNotFoundError(request.id);
+    }
+    /*
+     * A reinstall or an update of a plugin already here is let through: the
+     * row is what says the board chose it, and refusing it would leave a board
+     * unable to repair or patch a plugin it already depends on.
+     */
+    if (entry.deprecated && (await this.registry.find(entry.id)) === null) {
+      throw new PluginEntryDeprecatedError(entry.id);
+    }
+    if (
+      request.expectedVersion !== undefined &&
+      request.expectedVersion !== entry.version
+    ) {
+      throw new PluginConsentMismatchError();
     }
     if (!isSupportedApiVersion(entry.apiVersion)) {
       throw new PluginApiVersionError(entry.id, entry.apiVersion);
@@ -546,9 +575,8 @@ export class PluginAdminService {
      * row is the snapshot the loader enforces against the installed manifest
      * at every later boot, so it has to assert exactly what the board was
      * shown and agreed to; recording anything wider would make the row
-     * evidence of a consent nobody gave. With no echo - the command-line tool,
-     * where running the command is the consent and the declaration was printed
-     * first - the catalog entry is what was shown.
+     * evidence of a consent nobody gave. With no echo - a script calling the
+     * API - the catalog entry is what was shown.
      */
     /*
      * Before the first write, and it writes nothing. The recipient answer used
