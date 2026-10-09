@@ -781,7 +781,7 @@ lists everything on the data volume that is not running and why:
 | `personal-data-widened`   | It handles a personal-data category not consented to.                  |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
-| `forbidden-injection`     | One of its providers reaches for a core service a plugin may not hold. |
+| `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
 | `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
