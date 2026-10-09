@@ -27,6 +27,7 @@ export type {
 } from "./data-protection.ts";
 export type {
   AccountingReason,
+  ConnectedAppRevocationReason,
   FeeReason,
   MeetingReason,
   MemberChargeReason,

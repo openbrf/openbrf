@@ -1,3 +1,5 @@
+import type { ConnectedAppRevocationReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -58,10 +60,15 @@ const REGISTER_FAILURES: Readonly<Record<string, TranslationKey>> = {
  *
  * `client-not-found` is the API's answer when no client has the id: it was
  * never registered here, or the list on screen is older than the instance.
+ *
+ * Total over {@link ConnectedAppRevocationReason}, which the API throws with
+ * and which lives in the shared package: a reason added there with no sentence
+ * here fails the build. A code this build has not heard of still falls back
+ * to the general sentence at runtime.
  */
-const REVOKE_CLIENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
+const REVOKE_CLIENT_FAILURES = {
   "client-not-found": "connectedApps.errors.clientNotFound",
-};
+} satisfies Record<ConnectedAppRevocationReason, TranslationKey>;
 
 /**
  * The sentence for a failed disconnect.

@@ -17,8 +17,8 @@ describe("revokeClientFailureKey", () => {
     });
 
     expect(key).toBe("connectedApps.errors.clientNotFound");
-    expect(i18n.getFixedT("en")(key)).toContain("not known to this instance");
-    expect(i18n.getFixedT("sv")(key)).toContain("inte känd");
+    expect(i18n.getFixedT("en")(key)).toContain("connected app is not known");
+    expect(i18n.getFixedT("sv")(key)).toContain("anslutna appen är inte känd");
   });
 
   it("falls back to the general sentence for a reason it does not know", () => {

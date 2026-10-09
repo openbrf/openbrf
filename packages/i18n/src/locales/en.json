@@ -5028,7 +5028,7 @@
       "notFound": "That connection is gone. Read the list again.",
       "forbidden": "Your account may not cut somebody else's connection.",
       "failed": "The connection could not be cut just now. Try again.",
-      "clientNotFound": "That app is not known to this instance, so there is nothing to turn away. Read the list again."
+      "clientNotFound": "That connected app is not known to this instance, so there is nothing to turn away. Read the list again."
     },
     "mine": {
       "title": "Connected apps",
