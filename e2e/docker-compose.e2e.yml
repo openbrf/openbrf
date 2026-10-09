@@ -14,11 +14,15 @@
 # stack.env sets OPENBRF_VERSION only so the production file's required
 # variable interpolates; the image named below is the one that runs.
 #
-#   BETTER_AUTH_SECRET="$(openssl rand -base64 48)" \
-#   OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e \
+#   export BETTER_AUTH_SECRET="$(openssl rand -base64 48)"
+#   export OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
 #     --env-file e2e/stack.env up -d
+#
+# Export both rather than prefixing `up`: every later Compose command (logs,
+# exec, down) interpolates the files again and fails on a missing required
+# variable.
 #
 # The sign-in secret is not in stack.env: the application refuses a published
 # one in production, so the suite generates one for every run (src/stack.ts).
