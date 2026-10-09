@@ -424,8 +424,9 @@ screen, the same way a malformed manifest is:
 - declaring a controller or route path that steps outside the plugin's prefix.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
-controllers - `@UseGuards` and the rest - are unaffected. They narrow what
-reaches a handler and cannot widen it.
+controllers - `@UseGuards` and the rest - are allowed. They narrow what
+reaches a handler and cannot widen it. What they are constructed with is held
+to the same rule as a provider's (`forbidden-injection` below).
 
 ## The client entry point
 
@@ -799,8 +800,9 @@ Four of these need an answer rather than a restart:
   registered. The finding names the action id; the reason - a name the instance
   will not take, a capability a plugin's action may not ask for, a schema that
   cannot be published - is in the server log, and the fix belongs to the author.
-- `forbidden-injection` means one of the plugin's providers asks NestJS for a
-  core provider. Everything the platform's twelve `@Global()` modules export is
+- `forbidden-injection` means one of the plugin's providers or controllers, or a
+  guard, interceptor, pipe or filter a controller names by class, asks NestJS
+  for a core provider, by constructor parameter or by an `@Inject()` field. Everything the platform's twelve `@Global()` modules export is
   in the root injector - the database, the audit log, the principal service, the
   mailer, the text-message sender, the job queue, the field encryption, the
   instance's configuration - and a plugin may hold none of them, so the module is
@@ -811,7 +813,9 @@ Four of these need an answer rather than a restart:
   `ModuleRef`, `ModulesContainer`, `Reflector`, `DiscoveryService`,
   `LazyModuleLoader`, `HttpAdapterHost` - are refused for the same reason, since
   resolving a provider by token reaches every name on the list without declaring
-  one. A token is matched by name whether it is a class, a symbol or a string.
+  one. A token is matched by name whether it is a class, a symbol or a string,
+  and a class by every name on its prototype chain, so a subclass of a core
+  service is refused as the service is.
   The fix belongs to the author.
 - `oauth-resource-conflict` means the plugin declares `oauthProtectedResource`
   and another installed, enabled plugin already does. At most one may: the
