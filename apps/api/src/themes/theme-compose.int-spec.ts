@@ -12,6 +12,7 @@ import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { CatalogClient } from "../packaging/catalog.client";
+import { PackageLock } from "../packaging/package-lock";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   ThemeInstallError,
@@ -85,13 +86,16 @@ beforeAll(async () => {
   const audit = new AuditLogService(service);
   const store = new ThemeStore(env);
 
-  themes = new ThemeService(service, audit, store);
+  const packageLock = new PackageLock(env);
+
+  themes = new ThemeService(service, audit, store, packageLock);
   installer = new ThemeInstallService(
     service,
     audit,
     new CatalogThemeSource(new CatalogClient(env)),
     store,
     themes,
+    packageLock,
   );
 
   const existing = await prisma.association.findUnique({

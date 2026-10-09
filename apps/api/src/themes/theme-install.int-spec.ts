@@ -11,6 +11,8 @@ import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { CatalogClient } from "../packaging/catalog.client";
+import { PackageLock } from "../packaging/package-lock";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   buildThemeFixtureCatalog,
@@ -119,7 +121,9 @@ beforeAll(async () => {
   const audit = new AuditLogService(service);
   const store = new ThemeStore(env);
 
-  themes = new ThemeService(service, audit, store);
+  const packageLock = new PackageLock(env);
+
+  themes = new ThemeService(service, audit, store, packageLock);
   installerReading = (path, fetchDelayMs = 0) => {
     const client = new CatalogClient({
       ...env,
@@ -133,6 +137,7 @@ beforeAll(async () => {
         : new SlowCatalogThemeSource(client, fetchDelayMs),
       store,
       themes,
+      packageLock,
     );
   };
   installer = installerReading(catalog.catalogPath);
@@ -562,6 +567,16 @@ describe("preview and activation", () => {
  */
 describe("an install racing an uninstall of the same theme", () => {
   const files = (): string => join(dataDirectory, "themes", "example-theme");
+  /** Until the install holds the lock, and so has its gates ahead of it. */
+  const installHoldsLock = (): Promise<void> =>
+    waitFor(
+      async () =>
+        (await advisoryLockCount(
+          prisma as unknown as PrismaService,
+          `package-install:theme:${exampleEntry.id}`,
+          true,
+        )) === 1n,
+    );
 
   it("ends with neither a row nor files, never one without the other", async () => {
     await installer.install(exampleEntry.id, null);
@@ -574,7 +589,7 @@ describe("an install racing an uninstall of the same theme", () => {
       null,
     );
     // Past the gate and into the download before the uninstall starts.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await installHoldsLock();
     const removal = themes.uninstall(exampleEntry.id);
 
     const [installed, removed] = await Promise.allSettled([reinstall, removal]);
@@ -599,7 +614,7 @@ describe("an install racing an uninstall of the same theme", () => {
     });
 
     const slow = installerReading(path, 600).install(exampleEntry.id, null);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await installHoldsLock();
 
     // Another id, so another lock: refused at once rather than after the
     // download above has finished.

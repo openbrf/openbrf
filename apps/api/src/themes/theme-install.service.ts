@@ -20,7 +20,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import type { CatalogThemeEntry } from "../packaging/catalog-entry";
 import { sha512 } from "../packaging/integrity";
-import { withPackageLock } from "../packaging/package-lock";
+import { PackageLock } from "../packaging/package-lock";
 import {
   COMPOSED_AUDIT_SOURCE,
   composedChecksum,
@@ -152,6 +152,7 @@ export class ThemeInstallService {
     private readonly source: CatalogThemeSource,
     private readonly store: ThemeStore,
     private readonly themes: ThemeService,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /** The catalog's themes, each marked with whether it is already installed. */
@@ -192,9 +193,9 @@ export class ThemeInstallService {
      * uninstall of the same id deletes that row and then its files. Both take
      * the one lock, held through the download and the swap of the files, so
      * the gate and the write it admits see the same state. See
-     * {@link withPackageLock}.
+     * {@link PackageLock}.
      */
-    return await withPackageLock(this.prisma, "theme", catalogId, () =>
+    return await this.packageLock.run("theme", catalogId, () =>
       this.installLocked(catalogId, actorPersonId),
     );
   }
@@ -293,7 +294,7 @@ export class ThemeInstallService {
     // Under the lock an install or an uninstall of this id takes: the check
     // below reads the row they write, and the composed version is derived
     // from it.
-    return await withPackageLock(this.prisma, "theme", input.id, () =>
+    return await this.packageLock.run("theme", input.id, () =>
       this.composeLocked(input, actorPersonId),
     );
   }

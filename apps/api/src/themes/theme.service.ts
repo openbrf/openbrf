@@ -24,7 +24,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
-import { withPackageLock } from "../packaging/package-lock";
+import { PackageLock } from "../packaging/package-lock";
 import { ThemeStore } from "./theme-store";
 
 /**
@@ -228,6 +228,7 @@ export class ThemeService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly store: ThemeStore,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /** The chain entry an installed row contributes to inheritance. */
@@ -537,8 +538,8 @@ export class ThemeService {
 
     // The checks below read the row an install of this id writes, and the
     // removal takes its files with it, so both run under the one lock. See
-    // {@link withPackageLock}.
-    return await withPackageLock(this.prisma, "theme", themeId, () =>
+    // {@link PackageLock}.
+    return await this.packageLock.run("theme", themeId, () =>
       this.uninstallLocked(themeId),
     );
   }

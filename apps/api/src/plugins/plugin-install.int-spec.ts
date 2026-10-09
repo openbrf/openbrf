@@ -10,15 +10,18 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { Env } from "../config/env";
+import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
 import { sha512 } from "../packaging/integrity";
+import { PackageLock } from "../packaging/package-lock";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import type { InstallLock } from "./install-lock";
 import { PluginAdminService } from "./plugin-admin.service";
 import { scanPluginDirectory } from "./plugin-directory";
@@ -696,6 +699,7 @@ describe("a deprecated catalog entry", () => {
         { read: async () => ({}) } as never,
         prisma as never,
         { translatorFor: () => (key: string) => key } as never,
+        new PackageLock(deprecatedEnv),
       );
     admin = adminOver(registry);
   });
@@ -750,7 +754,15 @@ describe("a deprecated catalog entry", () => {
     const racing = adminOver(slowRegistry);
 
     const reinstall = racing.install({ id: PLUGIN_ID }, null, "SYSTEM");
-    await delay(100);
+    // The install holds the lock, so its gate runs before the uninstall's.
+    await waitFor(
+      async () =>
+        (await advisoryLockCount(
+          prisma as unknown as PrismaService,
+          `package-install:plugin:${PLUGIN_ID}`,
+          true,
+        )) === 1n,
+    );
     const removal = racing.uninstall(PLUGIN_ID, null, "SYSTEM");
 
     await expect(reinstall).resolves.toEqual({ restarting: true });

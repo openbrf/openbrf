@@ -30,7 +30,7 @@ import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
-import { withPackageLock } from "../packaging/package-lock";
+import { PackageLock } from "../packaging/package-lock";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
   type PluginFinding,
@@ -258,6 +258,7 @@ export class PluginAdminService {
     private readonly facts: ProcessorFactsService,
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /**
@@ -496,9 +497,9 @@ export class PluginAdminService {
     /*
      * Every gate below reads whether the plugin is already here, and an
      * uninstall of the same id deletes the row they read, so both run under
-     * the one lock. See {@link withPackageLock}.
+     * the one lock. See {@link PackageLock}.
      */
-    return await withPackageLock(this.prisma, "plugin", request.id, () =>
+    return await this.packageLock.run("plugin", request.id, () =>
       this.installLocked(request, actorPersonId, channel),
     );
   }
@@ -695,7 +696,7 @@ export class PluginAdminService {
   ): Promise<{ restarting: boolean }> {
     // The same lock an install of this id takes, so the two run one after the
     // other.
-    return await withPackageLock(this.prisma, "plugin", id, () =>
+    return await this.packageLock.run("plugin", id, () =>
       this.uninstallLocked(id, actorPersonId, channel),
     );
   }

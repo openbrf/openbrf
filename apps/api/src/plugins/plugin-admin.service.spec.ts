@@ -101,7 +101,7 @@ function build(options: Options = {}) {
    * records it have to commit together, and an assertion that the entry was
    * written with "something" cannot tell that apart from the root client.
    */
-  const txClient = { marker: "tx", $executeRaw: vi.fn(async () => 0) };
+  const txClient = { marker: "tx" };
   const prisma = {
     association: { findUnique: async () => ({ defaultLocale: "sv" }) },
     $transaction: vi.fn(
@@ -147,6 +147,11 @@ function build(options: Options = {}) {
     // that hands nothing to anybody.
     prisma as never,
     { translatorFor: () => (key: string) => key } as never,
+    // The lock has no meaning without a database; package-lock.int-spec.ts
+    // tests it against one.
+    {
+      run: async (_kind: string, _id: string, work: () => unknown) => work(),
+    } as never,
   );
   return {
     service,

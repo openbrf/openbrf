@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
+import type { PackageLock } from "../packaging/package-lock";
 import type { ThemeStore } from "./theme-store";
 import { ThemeError, ThemeService } from "./theme.service";
 
@@ -100,7 +101,6 @@ function build(
         return deleted;
       }),
     },
-    $executeRaw: vi.fn(async () => 0),
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
       run(prisma),
     ),
@@ -133,6 +133,11 @@ function build(
       prisma as unknown as PrismaService,
       audit as unknown as AuditLogService,
       store as unknown as ThemeStore,
+      // The lock has no meaning without a database; package-lock.int-spec.ts
+      // tests it against one.
+      {
+        run: async (_kind: string, _id: string, work: () => unknown) => work(),
+      } as unknown as PackageLock,
     ),
     rows,
     activeThemeId: () => active,

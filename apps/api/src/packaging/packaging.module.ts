@@ -1,6 +1,7 @@
 import { Global, Module } from "@nestjs/common";
 
 import { CatalogClient } from "./catalog.client";
+import { PackageLock } from "./package-lock";
 
 /**
  * Package distribution, shared by plugins and themes.
@@ -8,15 +9,16 @@ import { CatalogClient } from "./catalog.client";
  * Both are installed from the same curated index, as tarballs verified by
  * sha512 before anything is unpacked (plan section 5). This module holds the
  * half that does not care which of the two is being installed: reading the
- * index, fetching bytes, checking a digest, and knowing where on the data
- * volume things go. What happens after the bytes are verified belongs to the
- * plugin installer or the theme installer.
+ * index, fetching bytes, checking a digest, knowing where on the data volume
+ * things go, and the lock that keeps an install and an uninstall of one package
+ * apart. What happens after the bytes are verified belongs to the plugin
+ * installer or the theme installer.
  *
  * Global because both installers need it and neither owns it.
  */
 @Global()
 @Module({
-  providers: [CatalogClient],
-  exports: [CatalogClient],
+  providers: [CatalogClient, PackageLock],
+  exports: [CatalogClient, PackageLock],
 })
 export class PackagingModule {}
