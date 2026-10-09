@@ -6,6 +6,7 @@ import { Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { failureFrames, failureName } from "../logging/failure";
 import { APP_BASE_PATH } from "./app-base-path";
 
 /**
@@ -233,8 +234,11 @@ export async function serveSinglePageApp(
     try {
       await renderNotFound(request, reply);
     } catch (cause) {
+      // The failure's class and frames, never its message: the renderer was
+      // reading the association's own data when it threw (ADR 0007).
       logger.error(
-        `The website's not-found page could not be rendered: ${String(cause)}`,
+        `The website's not-found page could not be rendered: ${failureName(cause)}`,
+        failureFrames(cause),
       );
       /*
        * The status and nothing else. What just failed is the code that reads

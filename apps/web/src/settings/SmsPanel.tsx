@@ -32,6 +32,16 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "no-phone": "settings.sms.errors.noPhone",
 };
 
+const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // The driver or the gateway address changed while the credential field was
+  // left empty.
+  "secret-required-for-new-endpoint":
+    "settings.sms.errors.secretRequiredForNewEndpoint",
+  // Another save moved the server or the stored secret while this one ran.
+  "secret-endpoint-changed-during-save":
+    "settings.sms.errors.secretEndpointChangedDuringSave",
+};
+
 const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
   driver: "settings.sms.driver",
   gatewayUrl: "settings.sms.gatewayUrl",
@@ -114,7 +124,7 @@ export function SmsPanel({
             {failureMessage(
               t,
               save.state.failure,
-              {},
+              SAVE_FAILURES,
               "settings.errors.unknown",
               FIELD_LABELS,
             )}

@@ -293,6 +293,7 @@ export type InstanceSettings = {
     readonly configured: boolean;
   };
   readonly selfSignup: { readonly enabled: boolean };
+  readonly issueReporting: { readonly publicFormEnabled: boolean };
 };
 
 export async function settings(

@@ -1,3 +1,4 @@
+import type { ConnectedAppRevocationReason } from "@openbrf/shared";
 import {
   HttpStatus,
   Injectable,
@@ -22,7 +23,7 @@ import { connectedAppHost } from "./client-host";
  */
 export class UnknownClientError extends DomainError {
   readonly status = HttpStatus.NOT_FOUND;
-  readonly reason = "client-not-found";
+  readonly reason: ConnectedAppRevocationReason = "client-not-found";
 }
 
 /**

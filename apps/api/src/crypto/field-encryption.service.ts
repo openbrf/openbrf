@@ -13,6 +13,7 @@ import {
   normalizeEmail,
   normalizePersonalIdentityNumber,
   normalizePhone,
+  withPersonalIdentityNumberCentury,
 } from "./personal-data";
 
 /**
@@ -63,6 +64,12 @@ interface FieldSpec {
    */
   fastHash: boolean;
   normalize: Normalizer;
+  /**
+   * The form the ciphertext holds, when it is not exactly the value entered.
+   * Applied before both the encryption and the index, so the two always
+   * describe the same value.
+   */
+  stored?: (value: string) => string;
 }
 
 const INDEX_NAME = "idx";
@@ -92,6 +99,11 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
     // known, so the index must be expensive to compute.
     fastHash: false,
     normalize: (value) => normalizePersonalIdentityNumber(value),
+    // Without its century the number would be read again, and indexed again,
+    // against whatever day that happened on, and the same digits name another
+    // person once that day passes a birthday. Stored with the century it was
+    // read with, it stays the person it was entered as.
+    stored: (value) => withPersonalIdentityNumberCentury(value),
   },
   "signupRequest.email": {
     table: "signup_request",
@@ -246,7 +258,11 @@ const CHECKSUM_BITS = 256;
 const UTF_8_FORMAT = "openbrf:utf-8";
 
 export interface EncryptedValue {
-  /** Ciphertext of the value as entered, so the original spelling survives. */
+  /**
+   * Ciphertext of the value as entered, so the original spelling survives. A
+   * personal identity number entered without its century gains the one it was
+   * read with.
+   */
   cipher: string;
   /** Blind index of the normalized value, or null when it cannot be indexed. */
   index: string | null;
@@ -259,10 +275,12 @@ export interface EncryptedValue {
  * `ciphersweet-js`. The dependency is effectively unmaintained, so keeping the
  * surface this narrow is what makes replacing it a contained change.
  *
- * The ciphertext always holds the value **as entered** while the blind index
- * always holds the **normalized** value. That split is deliberate: the
- * register should print the phone number the way the resident wrote it, and
- * still find it when someone searches a different spelling.
+ * The ciphertext holds the value **as entered** while the blind index always
+ * holds the **normalized** value. That split is deliberate: the register should
+ * print the phone number the way the resident wrote it, and still find it when
+ * someone searches a different spelling. The one addition is a personal
+ * identity number's century, written in front of a number entered without it,
+ * because only the day it was entered on says which century it meant.
  */
 @Injectable()
 export class FieldEncryptionService {
@@ -289,6 +307,7 @@ export class FieldEncryptionService {
   ): Promise<EncryptedValue> {
     const spec = FIELD_SPECS[id];
     const field = this.fieldFor(id);
+    const value = spec.stored?.(plaintext) ?? plaintext;
 
     // The library turns a string into bytes as latin1, one byte per UTF-16
     // code unit, which keeps "Å" as the single byte C5 and cuts anything above
@@ -297,15 +316,18 @@ export class FieldEncryptionService {
     // decrypt that it was done. The published types take a string; the library
     // takes the Buffer as it is (Util.toBuffer).
     const cipher = await field.encryptValue(
-      Buffer.from(plaintext, "utf8") as unknown as string,
+      Buffer.from(value, "utf8") as unknown as string,
       UTF_8_FORMAT,
     );
-    const index = spec.indexed ? await this.computeIndex(id, plaintext) : null;
+    const index = spec.indexed ? await this.computeIndex(id, value) : null;
 
     return { cipher, index };
   }
 
-  /** Decrypts a value back to the string that was originally entered. */
+  /**
+   * Decrypts a value back to the string that was originally entered, in the
+   * form `encrypt` stored it.
+   */
   async decrypt(id: EncryptedFieldId, cipher: string): Promise<string> {
     // decryptValue resolves to a Buffer, not a string. Comparing its result
     // directly against a string silently fails, which is why this conversion

@@ -384,6 +384,12 @@ WHERE a.attrelid = 'pgboss.version'::regclass
 HAVING count(*) > 0
 \gexec
 
+-- pg-boss's queue of index builds, which its runner executes verbatim, and
+-- only in the owner's install: the application starts with migration off, so
+-- it runs none and enqueues none, and reading the queue's state is all it may
+-- do. A table-level revoke takes back any column grant as well.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM :"app_role";
+
 -- Queues are declared at runtime, by the feature module that owns the queue
 -- name, and that needs no CREATE: an ordinary queue is a row in pgboss.queue.
 -- The one queue shape that creates a table of its own is a partitioned one,

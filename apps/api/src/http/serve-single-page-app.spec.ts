@@ -2,12 +2,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Logger } from "@nestjs/common";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   APP_CONTENT_SECURITY_POLICY,
@@ -84,6 +85,47 @@ describe("isAppRequest", () => {
     expect(isAppRequest("/")).toBe(false);
     expect(isAppRequest("/hem")).toBe(false);
     expect(isAppRequest("/api/address-book")).toBe(false);
+  });
+});
+
+describe("a not-found page that cannot be rendered", () => {
+  it("answers 404 and logs the failure without its message", async () => {
+    // The renderer reads the association's own data to draw the page, so what
+    // it throws can carry that data, and a log keeps what it is given (ADR
+    // 0007).
+    const webRoot = mkdtempSync(join(tmpdir(), "openbrf-web-"));
+    writeFileSync(join(webRoot, "index.html"), "<!doctype html>");
+    const moduleRef = await Test.createTestingModule({}).compile();
+    const app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+      { logger: false },
+    );
+    const logged: string[] = [];
+    const spy = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join("\n"));
+      });
+
+    try {
+      await serveSinglePageApp(app, webRoot, () =>
+        Promise.reject(new Error("No page for anna@example.se")),
+      );
+      await app.init();
+      const server = app.getHttpAdapter().getInstance();
+      await server.ready();
+
+      const response = await server.inject({ method: "GET", url: "/stadgar" });
+
+      expect(response.statusCode).toBe(404);
+      const log = logged.join("\n");
+      expect(log).toContain("could not be rendered: Error");
+      expect(log).not.toContain("anna@example.se");
+    } finally {
+      spy.mockRestore();
+      await app.close();
+      rmSync(webRoot, { recursive: true, force: true });
+    }
   });
 });
 

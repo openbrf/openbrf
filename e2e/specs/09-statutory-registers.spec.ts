@@ -510,14 +510,23 @@ test("the full apartment register extract is a deliberate, recorded act", async 
   expect(context?.personIds).toContain(sigridId);
 
   // Hiding a revealed value again is local to the screen and records nothing,
-  // because nothing was read.
+  // because nothing was read. Held over a few seconds rather than read once:
+  // the reveal above was written a moment after the response it rode on, so
+  // an entry the hide wrongly caused would arrive late too.
   await page.getByRole("button", { name: "Dölj dem igen" }).click();
   await expect(
     rowFor(page, SIGRID.lastName).getByText("Maskerat"),
   ).toBeVisible();
-  expect((await auditEntriesByAction("PROTECTED_DATA_REVEALED")).length).toBe(
-    after.length,
-  );
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    expect((await auditEntriesByAction("PROTECTED_DATA_REVEALED")).length).toBe(
+      after.length,
+    );
+    if (Date.now() > deadline) {
+      break;
+    }
+    await new Promise((done) => setTimeout(done, 500));
+  }
 });
 
 test("a tenant-owner reads their own entry and not the member register", async ({
@@ -609,7 +618,15 @@ test("a tenant-owner reads their own entry and not the member register", async (
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.
+  // The refusal is read off the endpoint's answer: the screen says the same
+  // sentence for a refusal, a crash and a dropped connection.
+  const answered = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/member-register",
+  );
   await openMemberRegister(page);
+  expect((await answered).status()).toBe(403);
   await expect(
     page.getByText("Förteckningen kunde inte läsas just nu."),
   ).toBeVisible();

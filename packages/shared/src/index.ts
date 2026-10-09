@@ -27,6 +27,7 @@ export type {
 } from "./data-protection.ts";
 export type {
   AccountingReason,
+  ConnectedAppRevocationReason,
   FeeReason,
   MeetingReason,
   MemberChargeReason,
@@ -43,8 +44,10 @@ export {
   normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 export type {
   PersonalIdentityNumberMatch,

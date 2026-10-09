@@ -17,8 +17,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # Squash merge is the only merge method, so a pull request title is a
-    # commit message on main and commitlint checks it as one.
+    # A pull request lands by squash, with its title as the commit message on
+    # main, or by rebase, with its commits as they are, so CI lints the title
+    # and every commit with commitlint. `chore` with the scope Dependabot adds
+    # gives `chore(deps): ...`, which the conventional config accepts.
     commit-message:
       prefix: chore
       include: scope
@@ -27,8 +29,8 @@ updates:
         patterns: ["*"]
 
   # Compose files are a separate ecosystem rather than part of the one above,
-  # and this is what keeps the Postgres digest in docker-compose.prod.yml
-  # current.
+  # and this is what keeps the Postgres digest current in docker-compose.prod.yml
+  # and docker-compose.yml alike, in one group so the two move together.
   - package-ecosystem: docker-compose
     directory: /
     schedule:

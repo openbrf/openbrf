@@ -1155,6 +1155,8 @@
         "tlsUnavailable": "The server set up no encrypted connection, so nothing was sent to it, not even the password. Check that the server offers STARTTLS on this port, or tick the encrypted connection and use port 465.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
         "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
+        "secretRequiredForNewEndpoint": "The server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again.",
         "environmentTlsUnavailable": "The message could not be sent because the mail server set up no encrypted connection. Mail is run by whoever runs this instance, so contact them."
       },
       "test": {
@@ -1176,7 +1178,11 @@
       "passwordClear": "Remove the stored password",
       "secure": "Encrypted connection (implicit TLS, usually port 995)",
       "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
-      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is."
+      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is.",
+      "errors": {
+        "secretRequiredForNewEndpoint": "The mailbox server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The mailbox server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again."
+      }
     },
     "sms": {
       "title": "Text messages",
@@ -1200,7 +1206,9 @@
       "errors": {
         "notConfigured": "Save a provider and a gateway address before sending a test.",
         "noPhone": "Your own record has no phone number to send the test to.",
-        "unknown": "The message could not be sent. Check the gateway address and the credential."
+        "unknown": "The message could not be sent. Check the gateway address and the credential.",
+        "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The provider, the gateway address or the stored credential was changed elsewhere while this was saved. Enter the credential again, or remove the stored one, and save again."
       }
     },
     "retention": {
@@ -2406,6 +2414,7 @@
       "date-not-iso": "Dates have to be written as YYYY-MM-DD.",
       "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
       "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
+      "personal-identity-number-needs-century": "Write this personal identity number with its century (YYYYMMDD-NNNN), so that it always names the same person.",
       "invalid-email": "That is not an email address the register can store.",
       "garbled-characters": "A character was already lost in the file (shown as �). Correct it in the file and upload it again.",
       "unknown": "The row could not be read."
@@ -5046,7 +5055,8 @@
     "errors": {
       "notFound": "That connection is gone. Read the list again.",
       "forbidden": "Your account may not cut somebody else's connection.",
-      "failed": "The connection could not be cut just now. Try again."
+      "failed": "The connection could not be cut just now. Try again.",
+      "clientNotFound": "That connected app is not known to this instance, so there is nothing to turn away. Read the list again."
     },
     "mine": {
       "title": "Connected apps",

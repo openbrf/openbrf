@@ -423,8 +423,21 @@ test("the board decides whether the website carries a report form", async ({
     await expect(toggle).toBeChecked();
     await expect(page.getByText(/^På: formuläret finns/)).toBeVisible();
 
+    // The label turns before the save has answered, so the save is waited for
+    // and read back: otherwise the restore below could reach the server first
+    // and be overwritten by this one, leaving the form off for the specs after
+    // this, and a save that failed and reverted would pass unnoticed.
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname === "/api/settings/issue-reporting",
+    );
     await toggle.uncheck();
+    expect((await saved).ok()).toBe(true);
     await expect(page.getByText(/^Av: det finns inget formulär/)).toBeVisible();
+    expect((await api.settings(request, stack.baseUrl)).issueReporting).toEqual(
+      { publicFormEnabled: false },
+    );
   } finally {
     /*
      * Restored over HTTP rather than through the screen, so a failure above

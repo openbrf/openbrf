@@ -106,3 +106,6 @@ export type MeetingReason =
   | "notice-already-issued"
   | "meeting-has-no-agenda"
   | "notice-time-not-on-the-meeting-day";
+
+/** What turning a connected app away for the whole instance refuses with. */
+export type ConnectedAppRevocationReason = "client-not-found";
