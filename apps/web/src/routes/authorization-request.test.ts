@@ -8,14 +8,15 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
   consentHref,
-  requestSearchOf,
   signInHref,
+  stringifyKeeping,
+  stringifySearch,
   validateAuthorizationSearch,
 } from "./authorization-request";
 
@@ -168,64 +169,84 @@ describe("what the sign-in and consent routes declare", () => {
   });
 });
 
-describe("where a screen reads the request from", () => {
-  const CONSENT = `${APP_BASE_PATH}/oauth/consent`;
-
-  it("is the search the page was loaded with, while the browser is still on it", () => {
-    const respelled = `?${defaultStringifySearch(defaultParseSearch(REQUEST))}`;
-
-    expect(
-      requestSearchOf(
-        { pathname: CONSENT, search: REQUEST },
-        { pathname: CONSENT, search: respelled },
-      ),
-    ).toBe(REQUEST);
+describe("how the router writes a search string", () => {
+  it("keeps the address bar's spelling of a query it means the same by", () => {
+    expect(stringifyKeeping(REQUEST, defaultParseSearch(REQUEST))).toBe(
+      REQUEST,
+    );
   });
 
-  it("is the address bar's once the browser has moved to another page", () => {
-    expect(
-      requestSearchOf(
-        { pathname: CONSENT, search: REQUEST },
-        { pathname: `${APP_BASE_PATH}/sign-in`, search: "?returnTo=%2F" },
-      ),
-    ).toBe("?returnTo=%2F");
+  it("ignores a parameter a route declared and the query does not carry", () => {
+    // The shape the sign-in and consent routes hand back: every declared
+    // name, the missing ones undefined.
+    const declared = {
+      ...defaultParseSearch(REQUEST),
+      ...validateAuthorizationSearch(defaultParseSearch(REQUEST)),
+    };
+
+    expect(stringifyKeeping(REQUEST, declared)).toBe(REQUEST);
+  });
+
+  it("writes its own spelling of a search that means something else", () => {
+    const asked = { returnTo: "/documents" };
+
+    expect(stringifyKeeping(REQUEST, asked)).toBe(
+      defaultStringifySearch(asked),
+    );
+    expect(stringifyKeeping("", asked)).toBe(defaultStringifySearch(asked));
+    expect(stringifyKeeping(REQUEST, {})).toBe("");
+  });
+
+  it("writes its own spelling once a value in the query has changed", () => {
+    const altered = { ...defaultParseSearch(REQUEST), state: "someone-else" };
+
+    expect(stringifyKeeping(REQUEST, altered)).toBe(
+      defaultStringifySearch(altered),
+    );
   });
 });
 
-describe("the request on the consent screen, once the router has mounted", () => {
+describe("the address bar on a screen carrying a request, once the router has mounted", () => {
   afterEach(() => {
     cleanup();
     window.history.replaceState(null, "", "/");
   });
 
-  /*
-   * The seam itself, with the router this application uses. Mounting it on a
-   * page carrying a signed request rewrites the address bar into the router's
-   * own spelling before any screen renders, and the screen has to read the
-   * request as it arrived regardless. The module is evaluated afresh after the
-   * page is "loaded", which is the order an entry point imports it in.
-   */
-  it("is still the one the page was loaded with", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      `${APP_BASE_PATH}/oauth/consent${REQUEST}`,
-    );
-    vi.resetModules();
-    const fresh = await import("./authorization-request");
+  const CONSENT = `${APP_BASE_PATH}/oauth/consent`;
 
+  /** A document loaded at the consent screen, with a router mounted on it. */
+  async function mountAt(
+    options: { stringifySearch?: typeof stringifySearch } = {},
+  ): Promise<void> {
     const rootRoute = createRootRoute();
     const consentRoute = createRoute({
       getParentRoute: () => rootRoute,
       path: "/oauth/consent",
-      validateSearch: fresh.validateAuthorizationSearch,
-      component: () => null,
+      validateSearch: validateAuthorizationSearch,
+      component: () => createElement("p", null, "consent"),
     });
     const router = createRouter({
       routeTree: rootRoute.addChildren([consentRoute]),
       basepath: APP_BASE_PATH,
+      ...options,
     });
-    render(createElement(RouterProvider, { router }));
+    const view = render(createElement(RouterProvider, { router }));
+    await view.findByText("consent");
+    await router.load();
+  }
+
+  /*
+   * The seam itself, with the router this application uses and without the
+   * one thing this module gives it. Mounting it on a page carrying a signed
+   * request rewrites the address bar into its own spelling, and a reload of
+   * that page loads the spelling the signature does not cover. If this ever
+   * stops being true `stringifySearch` can go - and this test is what would
+   * say so.
+   */
+  it("is re-spelled by the router left to its defaults", async () => {
+    window.history.replaceState(null, "", `${CONSENT}${REQUEST}`);
+
+    await mountAt();
 
     await waitFor(() => {
       expect(window.location.search).not.toBe(REQUEST);
@@ -233,6 +254,19 @@ describe("the request on the consent screen, once the router has mounted", () =>
     expect(
       new URLSearchParams(window.location.search).getAll("ba_param"),
     ).toHaveLength(1);
-    expect(fresh.requestSearch()).toBe(REQUEST);
+  });
+
+  it("stays the request as it was written, across a reload as well", async () => {
+    window.history.replaceState(null, "", `${CONSENT}${REQUEST}`);
+
+    await mountAt({ stringifySearch });
+    expect(window.location.search).toBe(REQUEST);
+
+    // A reload is a new document at the same address, and a new router.
+    cleanup();
+    await mountAt({ stringifySearch });
+    expect(window.location.pathname).toBe(CONSENT);
+    expect(window.location.search).toBe(REQUEST);
+    expect(authorizationRequestIn(window.location.search)).toBe(REQUEST);
   });
 });

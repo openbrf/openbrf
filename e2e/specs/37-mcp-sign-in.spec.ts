@@ -67,9 +67,10 @@ import { appPath } from "../src/stack";
  * Last, connecting an app the way a member does it: sent to the instance by
  * the app, through the sign-in screen to the consent screen, and back to the
  * app with a code. The signed request rides in the query string across two
- * document loads and a router that rewrites the address bar on each of them,
- * which only a browser reaches - and a request altered on the way is refused
- * on the same screen.
+ * document loads, and a reload of each screen, under a router that would
+ * otherwise rewrite the address bar on every one of them - which only a
+ * browser reaches. A request altered on the way is refused on the same
+ * screen.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -280,6 +281,33 @@ async function connect(page: Page): Promise<void> {
     })
     .check();
   await page.getByRole("button", { name: "Koppla appen", exact: true }).click();
+}
+
+/**
+ * Reloads the screen on screen, and holds the request it carries to the one
+ * the instance signed.
+ *
+ * The screen is waited for first, so the router has mounted and had its
+ * chance to rewrite the address bar. The instance writes `ba_param` once per
+ * name the signature covers, and the router's own spelling of the query keeps
+ * one value per name: more than one is still the request as it was signed. A
+ * reload loads whatever the address bar holds by then, so after it the
+ * address has to be the same one.
+ */
+async function reloadKeepingTheRequest(
+  page: Page,
+  onScreen: Locator,
+): Promise<void> {
+  await expect(onScreen).toBeVisible();
+  const signed = page.url();
+  expect(
+    new URL(signed).searchParams.getAll("ba_param").length,
+    "the address bar no longer holds the signed request",
+  ).toBeGreaterThan(1);
+
+  await page.reload();
+  await expect(onScreen).toBeVisible();
+  expect(page.url()).toBe(signed);
 }
 
 /**
@@ -713,18 +741,34 @@ test.describe("signing an MCP client in", () => {
        * authorization endpoint, which sends them to sign in and then to the
        * consent screen, carrying the signed request in the query string the
        * whole way. Both hops are document loads, and on both the router
-       * rewrites the address bar into its own spelling of the request as it
-       * mounts - which is the defect this test is here for. Before the
-       * screens read the request as the page was loaded with it, the consent
-       * was refused as altered on every browser, every time.
+       * would rewrite the address bar into its own spelling of the request
+       * as it mounts - which is the defect this test is here for. Before the
+       * router kept the address bar's spelling, the consent was refused as
+       * altered on every browser, every time.
        */
       await browseAs(page, clientAddress, "connecting");
       await page.context().clearCookies();
       await page.goto(authorizeAddress(clientId, "forsta-gangen"));
       await expect(page).toHaveURL(/\/app\/sign-in\?/);
 
+      /*
+       * Both screens reloaded before the authorization is finished, the way a
+       * member refreshes a page that seems slow. A reload loads the address
+       * bar as it stands, so a router that re-spelled the request there sends
+       * the re-spelled one on - and the consent is refused as altered.
+       */
+      await reloadKeepingTheRequest(
+        page,
+        page.getByRole("button", { name: "Logga in", exact: true }),
+      );
+
       await submitSignIn(page, ORDINARY_MEMBER.email, ORDINARY_MEMBER.password);
       await expect(page).toHaveURL(/\/app\/oauth\/consent\?/);
+
+      await reloadKeepingTheRequest(
+        page,
+        page.getByRole("button", { name: "Koppla appen", exact: true }),
+      );
 
       await connect(page);
       const back = await landedOnTheApp(page);

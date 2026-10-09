@@ -13,8 +13,8 @@ import {
   APP_BASE_PATH,
   authorizationRequestIn,
   consentHref,
-  requestSearch,
   signInHref,
+  stringifySearch,
   validateAuthorizationSearch,
 } from "./authorization-request";
 import { ActivateRoute } from "./ActivateRoute";
@@ -107,12 +107,11 @@ const signInRoute = createRoute({
        * start page, which would abandon the authorization silently and leave
        * the app looking broken.
        *
-       * The search string this page was loaded with, and a document
-       * navigation, for the reason authorization-request.ts sets out:
-       * anything the router builds keeps one value per parameter name and the
-       * request repeats one.
+       * The unparsed search string, and a document navigation, for the reason
+       * authorization-request.ts sets out: anything the router builds keeps
+       * one value per parameter name and the request repeats one.
        */
-      const request = authorizationRequestIn(requestSearch());
+      const request = authorizationRequestIn(window.location.search);
       if (request !== null) {
         throw redirect({ href: consentHref(request), reloadDocument: true });
       }
@@ -240,7 +239,7 @@ const oauthConsentRoute = createRoute({
      * because a returnTo is composed by the router and a signed request does
      * not survive being composed.
      */
-    const request = authorizationRequestIn(requestSearch());
+    const request = authorizationRequestIn(window.location.search);
     if (request !== null) {
       throw redirect({ href: signInHref(request), reloadDocument: true });
     }
@@ -724,8 +723,18 @@ const routeTree = rootRoute.addChildren([
  * Every route below sits under /app: the association's own public website has
  * the root. The basepath is applied to navigation and to redirects alike, so
  * the route definitions above are written - and read - as the paths they are.
+ *
+ * The search is written the router's default way, except that a query the
+ * address bar already holds keeps its spelling while it means the same. A
+ * connected app's signed authorization request is spent by any re-spelling,
+ * and the router would otherwise re-spell it in the address bar as it mounts -
+ * see authorization-request.ts.
  */
-export const router = createRouter({ routeTree, basepath: APP_BASE_PATH });
+export const router = createRouter({
+  routeTree,
+  basepath: APP_BASE_PATH,
+  stringifySearch,
+});
 
 declare module "@tanstack/react-router" {
   interface Register {

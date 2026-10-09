@@ -8,7 +8,6 @@ import {
   APP_BASE_PATH,
   authorizationRequestIn,
   consentHref,
-  requestSearch,
 } from "./authorization-request";
 import { safeReturnTo } from "./return-to";
 
@@ -57,13 +56,13 @@ export function SignInRoute(): ReactElement {
    * passkey or a code, and a destination worked out on only the first of them
    * would send anybody with an authenticator app to the wrong place.
    *
-   * The authorization request is read from the search string this page was
-   * loaded with and appended to the consent screen's address as it stands,
-   * and the hop is a document navigation - see the note in
-   * authorization-request.ts for what the router would otherwise do to it.
+   * The authorization request is read from the unparsed search string and
+   * appended to the consent screen's address as it stands, and the hop is a
+   * document navigation - see the note in authorization-request.ts for what
+   * the router would otherwise do to it.
    */
   const onSignedIn = (): void => {
-    const request = authorizationRequestIn(requestSearch());
+    const request = authorizationRequestIn(window.location.search);
     if (request !== null) {
       void navigate({ href: consentHref(request), reloadDocument: true });
       return;
@@ -75,9 +74,8 @@ export function SignInRoute(): ReactElement {
    * The same three destinations for an emailed link, which lands in whatever
    * tab the mail program opens, so the address has to travel inside the link:
    * whole and with the basepath, because the browser is handed it directly.
-   * The request is the one this page was loaded with, as for the hop above.
    */
-  const request = authorizationRequestIn(requestSearch());
+  const request = authorizationRequestIn(window.location.search);
   const returnTo = safeReturnTo(search.returnTo);
   const linkDestination =
     request !== null
