@@ -248,6 +248,26 @@ describe("scanForPersonalIdentityNumbers", () => {
     }
   });
 
+  it.each([
+    ["an en dash", "811228\u20139874"],
+    [
+      "an en dash between spaces, as a word processor sets it",
+      "811228 \u2013 9874",
+    ],
+    ["an em dash", "19811228\u20149874"],
+    ["a minus sign", "811228\u22129874"],
+    ["a Unicode hyphen", "811228\u20109874"],
+    ["a non-breaking hyphen", "811228\u20119874"],
+    ["a figure dash", "811228\u20129874"],
+  ])(
+    "finds a number written with %s between the date and the last four",
+    (_name, written) => {
+      expect(
+        scanForPersonalIdentityNumbers(`Godkänd av ${written}.`, REFERENCE),
+      ).toEqual([{ value: written, index: "Godkänd av ".length }]);
+    },
+  );
+
   it("finds nothing in an empty text", () => {
     expect(scanForPersonalIdentityNumbers("", REFERENCE)).toEqual([]);
   });
@@ -267,6 +287,26 @@ describe("scanForPersonalIdentityNumbers", () => {
 
     expect(found).toEqual([]);
     expect(elapsed).toBeLessThan(1_000);
+  });
+
+  it("gives up on a date, an en dash and a long run of spaces in linear time", () => {
+    const text = `19811228\u2013${" ".repeat(200_000)}`;
+
+    const started = performance.now();
+    const found = scanForPersonalIdentityNumbers(text, REFERENCE);
+    const elapsed = performance.now() - started;
+
+    expect(found).toEqual([]);
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
+  it("still parses a stored number only with a hyphen or a plus", () => {
+    expect(
+      parsePersonalIdentityNumber("811228\u20139874", REFERENCE),
+    ).toBeNull();
+    expect(
+      normalizePersonalIdentityNumber("811228\u22129874", REFERENCE),
+    ).toBeNull();
   });
 
   it("does not carry a match from one scan into the next", () => {
