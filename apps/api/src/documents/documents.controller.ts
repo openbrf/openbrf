@@ -127,8 +127,12 @@ export class DocumentArchiveController {
   async edit(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<DocumentView> {
-    return this.documents.edit(id, documentSchema.parse(body));
+    return this.documents.edit(id, {
+      ...documentSchema.parse(body),
+      actorPersonId: requirePrincipal(request).personId,
+    });
   }
 
   @Delete(":id")

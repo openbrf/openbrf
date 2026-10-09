@@ -325,12 +325,16 @@ function apartmentsFor(
       if (current) {
         return isResidencyHeldOn(residency, today);
       }
+      // Both are half-open (ADR 0014): a membership ends on its EXIT day and a
+      // residency on its move-out day, so one that begins on the day the other
+      // ends does not overlap it. Inclusive bounds listed an apartment left on
+      // the day a later membership began against that membership too.
       const startedBeforeExit =
-        until === null || residency.movedInOn.getTime() <= until.getTime();
+        until === null || residency.movedInOn.getTime() < until.getTime();
       const endedAfterEntry =
         residency.movedOutOn === null ||
         from === null ||
-        residency.movedOutOn.getTime() >= from.getTime();
+        residency.movedOutOn.getTime() > from.getTime();
       return startedBeforeExit && endedAfterEntry;
     })
     .map((residency) => ({

@@ -30,6 +30,7 @@ const options = buildAuthOptions(
     NODE_ENV: "test",
     APP_URL: "https://brf.example",
     BETTER_AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+    TRUSTED_PROXIES: ["172.16.0.0/12"],
   } as Env,
   {} as PrismaService,
   {
@@ -506,5 +507,16 @@ describe("who may manage an OAuth client", () => {
       "authorization_code",
       "refresh_token",
     ]);
+  });
+});
+
+describe("the client address the sign-in limiter counts", () => {
+  it("is the one address in the header, which the bridge has already resolved", () => {
+    // fastify-bridge.ts replaces the header with the address clientAddressOf
+    // resolves past the named proxies. A proxy list here as well would make
+    // the library skip that address whenever it is a proxy's own.
+    expect(options.advanced.ipAddress).toEqual({
+      ipAddressHeaders: ["x-forwarded-for"],
+    });
   });
 });

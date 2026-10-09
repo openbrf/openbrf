@@ -374,6 +374,8 @@ const AUDIT_ACTION_LABEL = {
   BOARD_POSITION_ELECTED:
     "register.person.report.action.BOARD_POSITION_ELECTED",
   BOARD_POSITION_ENDED: "register.person.report.action.BOARD_POSITION_ENDED",
+  BOARD_RECOVERY_RECORDED:
+    "register.person.report.action.BOARD_RECOVERY_RECORDED",
   BOOKING_RESOURCE_CREATED:
     "register.person.report.action.BOOKING_RESOURCE_CREATED",
   BOOKING_RESOURCE_UPDATED:
@@ -522,12 +524,16 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.CONNECTED_APP_DISCONNECTED",
   OAUTH_CLIENT_REGISTERED:
     "register.person.report.action.OAUTH_CLIENT_REGISTERED",
+  OAUTH_CLIENT_REVOKED: "register.person.report.action.OAUTH_CLIENT_REVOKED",
   CHAT_GROUP_CREATED: "register.person.report.action.CHAT_GROUP_CREATED",
   CHAT_GROUP_MEMBER_ADDED:
     "register.person.report.action.CHAT_GROUP_MEMBER_ADDED",
   CHAT_GROUP_MEMBER_REMOVED:
     "register.person.report.action.CHAT_GROUP_MEMBER_REMOVED",
   CHAT_MESSAGE_STRUCK: "register.person.report.action.CHAT_MESSAGE_STRUCK",
+  DOCUMENT_UPDATED: "register.person.report.action.DOCUMENT_UPDATED",
+  ASSOCIATION_RETENTION_RECORDED:
+    "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 

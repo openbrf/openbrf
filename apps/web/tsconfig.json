@@ -3,6 +3,11 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "bundler",
+    // Resolve packages the way Vite does for the browser, so the types are of
+    // the entry that is actually loaded: @openbrf/theme-tools leaves its
+    // node:zlib archive reader out of its browser entry, and an import of it
+    // here should fail the typecheck rather than the page.
+    "customConditions": ["browser"],
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],

@@ -63,6 +63,7 @@ export class SubletError extends DomainError {
       | "already-closed"
       | "not-refused"
       | "invalid-period"
+      | "period-too-far-ahead"
       | "personal-identity-number",
     private readonly locations: readonly SubletTextLocation[] = [],
   ) {
@@ -134,6 +135,11 @@ function statusFor(reason: SubletError["reason"]): number {
     case "invalid-period":
       // Understood and refused on its merits: a period whose last day is before
       // its first is not a period, and the applicant is told which end to move.
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "period-too-far-ahead":
+      // Understood and refused on its merits: a period ending more than a few
+      // years out is a mistyped year, and the applicant is told to move its end.
       return HttpStatus.UNPROCESSABLE_ENTITY;
 
     case "personal-identity-number":

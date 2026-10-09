@@ -4,11 +4,14 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import type { KeyOrderStatus } from "../generated/prisma/enums";
 import {
   loadEnvForIntegrationTests,
@@ -661,6 +664,53 @@ describe("the personal identity number guardrail", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json<{ quantity: number }>().quantity).toBe(3);
   });
+
+  it("refuses a revision once the orderer has moved out", async () => {
+    const created = await order(memberCookie);
+    const id = created.json<{ id: string }>().id;
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: member.personId, apartmentId },
+      select: { id: true },
+    });
+    /*
+     * Moved out of this apartment today, while still holding the other one: the
+     * capability to order and apply stays, so only the service's own check
+     * stands between the revision and an apartment the caller has left.
+     */
+    await prisma.residency.update({
+      where: { id: residency.id },
+      data: { movedOutOn: dateColumnOf(localDayOf(new Date())) },
+    });
+    const elsewhere = await prisma.residency.create({
+      data: {
+        personId: member.personId,
+        apartmentId: otherApartmentId,
+        role: "MEMBER",
+        movedInOn: new Date("2025-01-01"),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const response = await inject({
+        method: "PUT",
+        url: `/api/key-orders/${id}`,
+        payload: { kind: "KEY", quantity: 2, note: null },
+        headers: { cookie: memberCookie },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "apartment-not-found",
+      );
+    } finally {
+      await prisma.residency.delete({ where: { id: elsewhere.id } });
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: null },
+      });
+    }
+  });
 });
 
 describe("the board's answer", () => {
@@ -721,22 +771,44 @@ describe("the board's answer", () => {
     const created = await order(memberCookie);
     const id = created.json<{ id: string }>().id;
 
-    const first = await inject({
-      method: "POST",
-      url: `/api/key-order-queue/${id}/answer`,
-      payload: { handedOver: true, note: null },
-      headers: { cookie: boardCookie },
-    });
-    expect(first.statusCode).toBe(201);
+    // Both answers at once, so the conditional update is what decides between
+    // them rather than the read before it.
+    const answers = await Promise.all(
+      [true, false].map((handedOver) =>
+        inject({
+          method: "POST",
+          url: `/api/key-order-queue/${id}/answer`,
+          payload: { handedOver, note: null },
+          headers: { cookie: boardCookie },
+        }),
+      ),
+    );
+    expect(
+      answers
+        .map((answer) => answer.statusCode)
+        .sort((left, right) => left - right),
+    ).toEqual([201, 409]);
+    const refused = answers.find((answer) => answer.statusCode === 409);
+    expect(refused?.json<{ reason: string }>().reason).toBe("already-closed");
 
-    const second = await inject({
-      method: "POST",
-      url: `/api/key-order-queue/${id}/answer`,
-      payload: { handedOver: false, note: null },
-      headers: { cookie: boardCookie },
+    // One answer on the row and one in the log, and they agree.
+    const stored = await prisma.keyOrder.findUniqueOrThrow({
+      where: { id },
+      select: { status: true },
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.json<{ reason: string }>().reason).toBe("already-closed");
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        targetId: id,
+        action: { in: ["KEY_ORDER_HANDED_OVER", "KEY_ORDER_DECLINED"] },
+      },
+      select: { action: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe(
+      stored.status === "HANDED_OVER"
+        ? "KEY_ORDER_HANDED_OVER"
+        : "KEY_ORDER_DECLINED",
+    );
   });
 
   it("refuses a withdrawal once the board has answered", async () => {
@@ -1012,6 +1084,66 @@ describe("the purge", () => {
       });
     }
   }, 60_000);
+
+  it("erases a closed order at once on a granted erasure request, and keeps an open one", async () => {
+    /*
+     * A granted request brings this purge forward like every other, and the
+     * service-data purge closes the request only once nothing is owed here:
+     * before, it found no key order domain to ask and called the request
+     * carried out with the orders still standing.
+     */
+    const closed = `ko-requested-closed-${suffix}`;
+    const open = `ko-requested-open-${suffix}`;
+    await seedOrder({
+      id: closed,
+      personId: lodger.personId,
+      closedAt: daysBefore(2),
+      status: "HANDED_OVER",
+    });
+    await seedOrder({
+      id: open,
+      personId: lodger.personId,
+      closedAt: null,
+      status: "SUBMITTED",
+    });
+    // A request is carried out only for somebody who no longer lives here.
+    await prisma.residency.updateMany({
+      where: { personId: lodger.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      lodger.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.keyOrder.findUnique({ where: { id: closed } }),
+      ).toBeNull();
+      expect(
+        await prisma.keyOrder.findUnique({ where: { id: open } }),
+      ).not.toBeNull();
+      // Nothing owed, and the open ones - this one among them - kept, so the
+      // request stays open rather than being called carried out.
+      expect(await erasureRemainder(prisma, lodger.personId, NOW)).toEqual([
+        expect.objectContaining({
+          domain: "key orders",
+          owed: 0,
+          keptBecause: "an open key order is still with the board",
+        }),
+      ]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: lodger.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
 });
 
 describe("the data subject access report", () => {

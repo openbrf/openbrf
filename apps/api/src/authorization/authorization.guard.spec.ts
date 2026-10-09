@@ -1,5 +1,8 @@
 import type { ExecutionContext } from "@nestjs/common";
-import { ForbiddenException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  UnsupportedMediaTypeException,
+} from "@nestjs/common";
 import type { Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 
@@ -381,6 +384,28 @@ describe("what the resource route refuses", () => {
   });
 });
 
+describe("a route naming several capabilities", () => {
+  it("requires every one of them, not any one", async () => {
+    // The accounting basis names two, and no role holds exactly one, so this
+    // is where "both" rather than "either" is held.
+    const required: Capability[] = ["fees:manage", "memberCharges:manage"];
+    const { guard, forPerson } = build({ required });
+    const request = requestAt("/api/accounting-basis/export", {
+      cookie: "session=abc",
+    });
+
+    for (const held of [["fees:manage"], ["memberCharges:manage"]] as const) {
+      forPerson.mockResolvedValueOnce(principal([...held]));
+      await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+        ForbiddenException,
+      );
+    }
+
+    forPerson.mockResolvedValueOnce(principal(required));
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+  });
+});
+
 describe("what the resource route establishes", () => {
   it("attaches the principal and the client the token acts for", async () => {
     const { guard } = build({});
@@ -536,6 +561,58 @@ describe("a change sent with the session cookie", () => {
     await expect(
       guard.canActivate(
         contextFor(change({ origin: "https://evil.example" }, "GET")),
+      ),
+    ).resolves.toBe(true);
+  });
+});
+
+describe("a form-encoded body", () => {
+  const posted = (route: string, contentType: string) =>
+    ({
+      url: route,
+      method: "POST",
+      routeOptions: { url: route },
+      headers: {
+        cookie: "better-auth.session_token=a-valid-session",
+        origin: "https://brf.example",
+        "content-type": contentType,
+      },
+    }) as unknown as RequestWithPrincipal;
+
+  it.each([
+    "application/x-www-form-urlencoded",
+    "Application/X-WWW-Form-Urlencoded; charset=UTF-8",
+  ])(
+    "is refused on the API as %s, before the session is read",
+    async (contentType) => {
+      const { guard, personIdFromHeaders } = build({});
+
+      await expect(
+        guard.canActivate(contextFor(posted("/api/invitations", contentType))),
+      ).rejects.toBeInstanceOf(UnsupportedMediaTypeException);
+      expect(personIdFromHeaders).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["the sign-in library's own paths", "/api/auth/*"],
+    ["the public site's forms", "/:slug/kontakt"],
+  ])("is left to %s", async (_name, route) => {
+    const { guard } = build({});
+
+    await expect(
+      guard.canActivate(
+        contextFor(posted(route, "application/x-www-form-urlencoded")),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("leaves a JSON body on the API alone", async () => {
+    const { guard } = build({});
+
+    await expect(
+      guard.canActivate(
+        contextFor(posted("/api/invitations", "application/json")),
       ),
     ).resolves.toBe(true);
   });
