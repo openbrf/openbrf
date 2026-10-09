@@ -5043,7 +5043,8 @@
     "errors": {
       "notFound": "Anslutningen finns inte längre. Läs listan igen.",
       "forbidden": "Ditt konto får inte koppla bort någon annans anslutning.",
-      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen."
+      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen.",
+      "clientNotFound": "Den anslutna appen är inte känd av den här instansen, så det finns inget att avvisa. Läs listan igen."
     },
     "mine": {
       "title": "Anslutna appar",
