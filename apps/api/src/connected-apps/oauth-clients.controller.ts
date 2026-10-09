@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   HttpStatus,
   Inject,
+  Param,
   Post,
   Req,
 } from "@nestjs/common";
@@ -20,6 +22,7 @@ import type { ProtectedResource } from "../auth/protected-resource";
 import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import { DomainError } from "../http/domain-error";
 import { hostOf } from "./client-host";
+import { ConnectedAppsService } from "./connected-apps.service";
 
 /**
  * The provider refused one of the redirect URIs the client named.
@@ -116,6 +119,7 @@ export class OAuthClientsController {
   constructor(
     private readonly auth: AuthService,
     private readonly audit: AuditLogService,
+    private readonly apps: ConnectedAppsService,
     @Inject(PROTECTED_RESOURCE) private readonly resource: ProtectedResource,
   ) {}
 
@@ -133,40 +137,68 @@ export class OAuthClientsController {
      * session from them and asks its clientPrivileges hook whether that person
      * may manage clients; a call without them is refused as unauthenticated.
      */
-    const headers = forwardHeaders(request);
+    const headers = forwardHeaders(request, this.auth.trustedProxies);
 
     const created = await this.createClient(headers, input);
 
     /*
-     * Not optional. The provider enforces per-client resources, so a client
-     * with no link row is refused at the token endpoint with an unhelpful
-     * error about an invalid target. Clients that register themselves are
-     * linked by the provider; one minted here is not.
+     * The client exists from here on, with a secret, and the two calls below
+     * are not in a transaction with its creation: the provider writes it
+     * through its own adapter. A failure in either would leave a live client
+     * the log knows nothing of, and an administrator retrying would create a
+     * second one. So the client is deleted again before the failure is passed
+     * on, and the retry starts from nothing.
      */
-    await this.auth.instance.api.adminLinkClientResource({
-      headers,
-      params: {
-        identifier: this.resource.url,
-        client_id: created.client_id,
-      },
-    });
+    try {
+      /*
+       * Not optional. The provider enforces per-client resources, so a client
+       * with no link row is refused at the token endpoint with an unhelpful
+       * error about an invalid target. Clients that register themselves are
+       * linked by the provider; one minted here is not.
+       */
+      await this.auth.instance.api.adminLinkClientResource({
+        headers,
+        params: {
+          identifier: this.resource.url,
+          client_id: created.client_id,
+        },
+      });
 
-    await this.audit.record({
-      action: "OAUTH_CLIENT_REGISTERED",
-      ...auditActor(actor),
-      targetKind: "oauthClient",
-      targetId: created.client_id,
-      // The hosts, never the secret. The secret is shown to the administrator
-      // once, in the response, and is not ours to repeat anywhere else.
-      context: {
-        redirectHosts: input.redirectUris.map((uri) => hostOf(uri)),
-      },
-    });
+      await this.audit.record({
+        action: "OAUTH_CLIENT_REGISTERED",
+        ...auditActor(actor),
+        targetKind: "oauthClient",
+        targetId: created.client_id,
+        // The hosts, never the secret. The secret is shown to the administrator
+        // once, in the response, and is not ours to repeat anywhere else.
+        context: {
+          redirectHosts: input.redirectUris.map((uri) => hostOf(uri)),
+        },
+      });
+    } catch (failure) {
+      await this.apps.discardClient(created.client_id);
+      throw failure;
+    }
 
     return {
       clientId: created.client_id,
       clientSecret: created.client_secret ?? null,
     };
+  }
+
+  /**
+   * Turns a client away for the whole instance, cutting every member's
+   * connection to it (ConnectedAppsService.revokeClient). The same capability
+   * as registering one: which apps the association lets in is one decision.
+   */
+  @Delete(":clientId")
+  @RequireCapability("association:manage")
+  async revoke(
+    @Req() request: RequestWithPrincipal,
+    @Param("clientId") clientId: string,
+  ): Promise<{ revoked: true }> {
+    await this.apps.revokeClient(clientId, webActor(request));
+    return { revoked: true };
   }
 
   /**

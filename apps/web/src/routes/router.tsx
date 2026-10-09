@@ -14,6 +14,7 @@ import {
   authorizationRequestIn,
   consentHref,
   signInHref,
+  stringifySearch,
   validateAuthorizationSearch,
 } from "./authorization-request";
 import { ActivateRoute } from "./ActivateRoute";
@@ -722,8 +723,18 @@ const routeTree = rootRoute.addChildren([
  * Every route below sits under /app: the association's own public website has
  * the root. The basepath is applied to navigation and to redirects alike, so
  * the route definitions above are written - and read - as the paths they are.
+ *
+ * The search is written the router's default way, except that a query the
+ * address bar already holds keeps its spelling while it means the same. A
+ * connected app's signed authorization request is spent by any re-spelling,
+ * and the router would otherwise re-spell it in the address bar as it mounts -
+ * see authorization-request.ts.
  */
-export const router = createRouter({ routeTree, basepath: APP_BASE_PATH });
+export const router = createRouter({
+  routeTree,
+  basepath: APP_BASE_PATH,
+  stringifySearch,
+});
 
 declare module "@tanstack/react-router" {
   interface Register {

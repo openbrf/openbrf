@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { jsonBodyOrNothing } from "../src/api";
@@ -48,20 +50,27 @@ import { appPath } from "../src/stack";
  *
  * The two screens are where the association answers for what it has let out:
  * a member reading what may act as them, and the board reading every
- * connection on the instance. Both are empty here, for a reason nothing in
- * this file can arrange around - connecting an app takes a registered client
- * and a signed authorization request, which is a call rather than anything a
- * person does at a browser. What the board's screen can be held to instead is
- * the address it prints, which has to be the one the discovery document names,
- * and which of its controls each seat is offered.
+ * connection on the instance. Both are read empty, because the one test that
+ * connects an app comes after them and takes its connection back. What the
+ * board's screen can be held to is the address it prints, which has to be the
+ * one the discovery document names, and which of its controls each seat is
+ * offered.
  *
- * Last, the sign-in hop, which is not about connected apps at all. A guarded
+ * Then the sign-in hop, which is not about connected apps at all. A guarded
  * route turns a visitor with no session away before its screen renders, and
  * the address they asked for is lost unless it travels with them: every deep
  * link in the product was otherwise exchanged for the start page by the act of
  * signing in. It travels in the query string, which is a value whoever wrote
  * the link chose, so both halves are here - the address is honoured, and one
  * naming another host is not.
+ *
+ * Last, connecting an app the way a member does it: sent to the instance by
+ * the app, through the sign-in screen to the consent screen, and back to the
+ * app with a code. The signed request rides in the query string across two
+ * document loads, and a reload of each screen, under a router that would
+ * otherwise rewrite the address bar on every one of them - which only a
+ * browser reaches. A request altered on the way is refused on the same
+ * screen.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -227,6 +236,93 @@ async function ensureFixtureAccount(
 /** What `returnTo` the sign-in screen was reached with, if any. */
 function returnToOn(page: Page): string | null {
   return new URL(page.url()).searchParams.get("returnTo");
+}
+
+/**
+ * Where the app in the last test is answered.
+ *
+ * On this machine, which is the one kind of address a client may be given
+ * over plain HTTP, and nothing listens at it: the test answers it itself.
+ */
+const APP_CALLBACK = "http://127.0.0.1:8123/cb";
+
+/**
+ * The address an app sends a member to, to ask whether it may act for them.
+ *
+ * Composed the way a client composes it, with a fresh PKCE challenge each
+ * time. The verifier is not kept: these tests stop at the code arriving, and
+ * exchanging it is the integration suite's (oauth-client-registration).
+ */
+function authorizeAddress(clientId: string, state: string): string {
+  const verifier = randomBytes(32).toString("base64url");
+  return `${stack.baseUrl}/api/auth/oauth2/authorize?${new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: APP_CALLBACK,
+    scope: "mcp:read",
+    state,
+    code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+    code_challenge_method: "S256",
+    resource: RESOURCE_URL,
+  }).toString()}`;
+}
+
+/**
+ * Says yes on the consent screen that is on screen.
+ *
+ * The acknowledgement is checked first because the button does nothing
+ * without it, and waiting for it is also waiting for the screen to have read
+ * who is asking.
+ */
+async function connect(page: Page): Promise<void> {
+  await page
+    .getByRole("checkbox", {
+      name: "Jag har läst vad appen skulle kunna göra och vill koppla den till mitt konto.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Koppla appen", exact: true }).click();
+}
+
+/**
+ * Reloads the screen on screen, and holds the request it carries to the one
+ * the instance signed.
+ *
+ * The screen is waited for first, so the router has mounted and had its
+ * chance to rewrite the address bar. The instance writes `ba_param` once per
+ * name the signature covers, and the router's own spelling of the query keeps
+ * one value per name: more than one is still the request as it was signed. A
+ * reload loads whatever the address bar holds by then, so after it the
+ * address has to be the same one.
+ */
+async function reloadKeepingTheRequest(
+  page: Page,
+  onScreen: Locator,
+): Promise<void> {
+  await expect(onScreen).toBeVisible();
+  const signed = page.url();
+  expect(
+    new URL(signed).searchParams.getAll("ba_param").length,
+    "the address bar no longer holds the signed request",
+  ).toBeGreaterThan(1);
+
+  await page.reload();
+  await expect(onScreen).toBeVisible();
+  expect(page.url()).toBe(signed);
+}
+
+/**
+ * Waits for the browser to be handed back to the app, and reads the answer.
+ *
+ * An assertion rather than a wait, so a consent the instance refused fails
+ * here, naming the consent screen it stayed on, instead of running the test
+ * out of time - which would also close the browser before the test could take
+ * its app back.
+ */
+async function landedOnTheApp(page: Page): Promise<URL> {
+  await expect(page, "the consent did not hand the browser back").toHaveURL(
+    (url) => url.href.startsWith(`${APP_CALLBACK}?`),
+  );
+  return new URL(page.url());
 }
 
 test.describe("signing an MCP client in", () => {
@@ -468,11 +564,10 @@ test.describe("signing an MCP client in", () => {
 
     /*
      * Empty, and that is the honest picture of this screen on an instance
-     * where nothing has been connected. Connecting takes a registered client
-     * and a signed authorization request, neither of which is something a
-     * person does at a browser - so the sentence saying nobody has connected
-     * anything is both what a board first meets here and the marker that the
-     * list has actually been read.
+     * where nothing has been connected: the test at the end of this file that
+     * connects an app takes the connection back again. So the sentence saying
+     * nobody has connected anything is both what a board first meets here and
+     * the marker that the list has actually been read.
      */
     const listed = panel(page, "Anslutningar i föreningen");
     await expect(
@@ -600,5 +695,156 @@ test.describe("signing an MCP client in", () => {
     await page.goto(appPath("/oauth/consent"));
     await expect(page).toHaveURL(/\/app\/sign-in\?/);
     expect(returnToOn(page)).toBe("/oauth/consent");
+  });
+
+  test("a member connects an app at the browser, and a request altered on the way is refused", async ({
+    page,
+    api: request,
+    clientAddress,
+  }) => {
+    const people = await ensureRegisterFixture(request);
+    await ensureFixtureAccount(
+      request,
+      people,
+      ORDINARY_MEMBER,
+      clientAddressFor(clientAddress, "connecting"),
+    );
+
+    // --- an app the association has let in -------------------------------
+    // Registered by the administrator the register fixture signed in.
+    const registered = await request.post(
+      `${stack.baseUrl}/api/oauth-clients`,
+      {
+        data: {
+          clientName: "Karls kalenderapp",
+          redirectUris: [APP_CALLBACK],
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(registered.status()).toBe(201);
+    const { clientId } = (await registered.json()) as { clientId: string };
+
+    try {
+      /*
+       * Nothing listens at the app's address, which is on this machine the way
+       * a desktop app's is. Answering it here is what lets the browser arrive
+       * there, and arriving there with a code is the assertion.
+       */
+      await page.route(`${APP_CALLBACK}**`, (route) =>
+        route.fulfill({ status: 200, contentType: "text/plain", body: "" }),
+      );
+
+      // --- asked through the sign-in screen ---------------------------------
+      /*
+       * The way an app sends somebody who is not signed in: to the
+       * authorization endpoint, which sends them to sign in and then to the
+       * consent screen, carrying the signed request in the query string the
+       * whole way. Both hops are document loads, and on both the router
+       * would rewrite the address bar into its own spelling of the request
+       * as it mounts - which is the defect this test is here for. Before the
+       * router kept the address bar's spelling, the consent was refused as
+       * altered on every browser, every time.
+       */
+      await browseAs(page, clientAddress, "connecting");
+      await page.context().clearCookies();
+      await page.goto(authorizeAddress(clientId, "forsta-gangen"));
+      await expect(page).toHaveURL(/\/app\/sign-in\?/);
+
+      /*
+       * Both screens reloaded before the authorization is finished, the way a
+       * member refreshes a page that seems slow. A reload loads the address
+       * bar as it stands, so a router that re-spelled the request there sends
+       * the re-spelled one on - and the consent is refused as altered.
+       */
+      await reloadKeepingTheRequest(
+        page,
+        page.getByRole("button", { name: "Logga in", exact: true }),
+      );
+
+      await submitSignIn(page, ORDINARY_MEMBER.email, ORDINARY_MEMBER.password);
+      await expect(page).toHaveURL(/\/app\/oauth\/consent\?/);
+
+      await reloadKeepingTheRequest(
+        page,
+        page.getByRole("button", { name: "Koppla appen", exact: true }),
+      );
+
+      await connect(page);
+      const back = await landedOnTheApp(page);
+      expect(back.searchParams.get("state")).toBe("forsta-gangen");
+      expect(back.searchParams.get("code")).toMatch(/\S/);
+
+      // And the connection is his, recorded where he can take it back.
+      const mine = await page.request.get(
+        `${stack.baseUrl}/api/connected-apps/mine`,
+      );
+      expect(mine.status()).toBe(200);
+      const { connectedApps } = (await mine.json()) as {
+        connectedApps: { clientId: string }[];
+      };
+      expect(connectedApps.map((app) => app.clientId)).toContain(clientId);
+
+      /*
+       * Taken back, so the app has to ask again: an app that already holds a
+       * consent is handed a code without the screen, and what follows needs
+       * the screen.
+       */
+      const disconnected = await page.request.delete(
+        `${stack.baseUrl}/api/connected-apps/mine/${encodeURIComponent(clientId)}`,
+      );
+      expect(disconnected.status()).toBe(200);
+
+      // --- asked again, and the request altered on the way -----------------
+      /*
+       * Signed in this time, so the authorization endpoint answers with the
+       * consent screen directly. Its answer is read rather than followed, so
+       * the request is in hand as the instance wrote it and can be altered by
+       * one value before the browser is pointed at it. The state is one of
+       * the parameters the signature covers.
+       */
+      const asked = await page.request.get(
+        authorizeAddress(clientId, "andra-gangen"),
+        { maxRedirects: 0 },
+      );
+      expect(asked.status()).toBe(302);
+      const consent = new URL(asked.headers()["location"] ?? "", stack.baseUrl);
+      expect(consent.pathname).toBe(appPath("/oauth/consent"));
+      const signedState = /([?&])state=andra-gangen(?=&|$)/;
+      expect(consent.search).toMatch(signedState);
+
+      const altered = consent.href.replace(signedState, "$1state=nagon-annans");
+      await page.goto(altered);
+      await connect(page);
+      await expect(
+        page.getByText(
+          "Appens begäran har ändrats på vägen hit och går inte att lita på.",
+        ),
+      ).toBeVisible();
+      expect(page.url().startsWith(APP_CALLBACK)).toBe(false);
+
+      // --- and the same request as it was written ---------------------------
+      /*
+       * Opened straight from the instance's answer, with no sign-in screen in
+       * between: the one hop left that the request has to survive is the
+       * consent screen's own load.
+       */
+      await page.goto(consent.href);
+      await connect(page);
+      const again = await landedOnTheApp(page);
+      expect(again.searchParams.get("state")).toBe("andra-gangen");
+      expect(again.searchParams.get("code")).toMatch(/\S/);
+    } finally {
+      /*
+       * Turned away for the instance, which cuts every connection to it: the
+       * screens earlier in this file read "nobody has connected anything", and
+       * on a reused stack that has to stay true on the next run.
+       */
+      const removed = await request.delete(
+        `${stack.baseUrl}/api/oauth-clients/${encodeURIComponent(clientId)}`,
+        { failOnStatusCode: false },
+      );
+      expect(removed.status()).toBe(200);
+    }
   });
 });

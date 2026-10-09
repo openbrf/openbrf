@@ -1,6 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { isApiRequest, isAppRequest } from "./serve-single-page-app";
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  APP_CONTENT_SECURITY_POLICY,
+  isApiRequest,
+  isAppRequest,
+  serveSinglePageApp,
+} from "./serve-single-page-app";
 
 /**
  * The wildcard route this decides for is the last thing a request meets, so a
@@ -70,5 +84,69 @@ describe("isAppRequest", () => {
     expect(isAppRequest("/")).toBe(false);
     expect(isAppRequest("/hem")).toBe(false);
     expect(isAppRequest("/api/address-book")).toBe(false);
+  });
+});
+
+describe("the client's page", () => {
+  let app: NestFastifyApplication;
+  let webRoot: string;
+
+  beforeAll(async () => {
+    webRoot = mkdtempSync(join(tmpdir(), "openbrf-web-"));
+    writeFileSync(join(webRoot, "index.html"), "<!doctype html><div id=root>");
+    const moduleRef = await Test.createTestingModule({}).compile();
+    app = moduleRef.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await serveSinglePageApp(app, webRoot);
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    rmSync(webRoot, { recursive: true, force: true });
+  });
+
+  it.each(["/app", "/app/settings/profile", "/app/index.html", "/app/x?y=1"])(
+    "carries the policy at %s",
+    async (url) => {
+      const response = await app
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-security-policy"]).toBe(
+        APP_CONTENT_SECURITY_POLICY,
+      );
+    },
+  );
+
+  it("keeps the policy off paths outside the app", async () => {
+    const response = await app
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/api/x" });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["content-security-policy"]).toBeUndefined();
+  });
+
+  it("runs only this origin's scripts and is framed by nobody", () => {
+    const directives = new Map(
+      APP_CONTENT_SECURITY_POLICY.split("; ").map((directive) => {
+        const [name = "", ...values] = directive.split(" ");
+        return [name, values.join(" ")] as const;
+      }),
+    );
+
+    expect(directives.get("script-src")).toBe("'self'");
+    expect(directives.get("object-src")).toBe("'none'");
+    expect(directives.get("frame-ancestors")).toBe("'none'");
+    // No way back to a script through an exemption.
+    expect(APP_CONTENT_SECURITY_POLICY).not.toMatch(
+      /unsafe-eval|script-src[^;]*unsafe-inline|\*/,
+    );
   });
 });
