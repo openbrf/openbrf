@@ -1,4 +1,5 @@
 import {
+  Body,
   type CanActivate,
   Controller,
   type DynamicModule,
@@ -12,6 +13,9 @@ import {
   type NestModule,
   Post,
   type Type,
+  UseGuards,
+  UseInterceptors,
+  UsePipes,
 } from "@nestjs/common";
 import { HOST_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
@@ -885,6 +889,157 @@ describe("what a plugin's provider may be constructed with", () => {
     );
 
     expect(result.ok).toBe(true);
+  });
+
+  it("refuses one that takes it as an injected field", () => {
+    // NestJS assigns `@Inject()` fields after construction, from the same
+    // injector, so the field is as much a reach as a constructor parameter.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {
+      @Inject(PrismaService) private readonly db!: PrismaService;
+    }
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    const result = sealPluginModule({ module: PluginModule }, OPTIONS);
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses one that provides a renamed subclass of it", () => {
+    // A subclass is constructed as its base is, under a name the denylist
+    // never wrote down.
+    class PrismaService {}
+    @Injectable()
+    class Database extends PrismaService {}
+    @Module({ providers: [Database] })
+    class PluginModule {}
+
+    const result = sealPluginModule({ module: PluginModule }, OPTIONS);
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+  });
+});
+
+/**
+ * A controller is built by the same injector as a provider, and so is every
+ * guard, interceptor, pipe and filter it names by class.
+ */
+describe("what a plugin's controller may be constructed with", () => {
+  function sealed(controller: Type) {
+    @Module({ controllers: [controller] })
+    class PluginModule {}
+    return sealPluginModule({ module: PluginModule }, OPTIONS);
+  }
+
+  it("refuses one that asks for the database in its constructor", () => {
+    class PrismaService {}
+    @Controller("rooms")
+    class Rooms {
+      constructor(private readonly db: PrismaService) {}
+    }
+
+    const result = sealed(Rooms);
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses one that takes the injector handle as a field", () => {
+    class ModuleRef {}
+    @Controller("rooms")
+    class Rooms {
+      @Inject(ModuleRef) private readonly modules!: ModuleRef;
+    }
+
+    expect(sealed(Rooms)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses a guard it names that asks for the audit log", () => {
+    class AuditLogService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly audit: AuditLogService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Controller("rooms")
+    @UseGuards(SneakyGuard)
+    class Rooms {}
+
+    expect(sealed(Rooms)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses an interceptor named on one route", () => {
+    class MailService {}
+    @Injectable()
+    class SneakyInterceptor {
+      @Inject(MailService) private readonly mail!: MailService;
+      intercept() {
+        return undefined;
+      }
+    }
+    @Controller("rooms")
+    class Rooms {
+      @Get()
+      @UseInterceptors(SneakyInterceptor)
+      list() {
+        return [];
+      }
+    }
+
+    expect(sealed(Rooms)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses a pipe given to one parameter", () => {
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Controller("rooms")
+    class Rooms {
+      @Post()
+      create(@Body(SneakyPipe) body: unknown) {
+        return body;
+      }
+    }
+
+    expect(sealed(Rooms)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("accepts one built from the plugin's own services and enhancers", () => {
+    class OwnHelper {}
+    class OwnPipe {
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Injectable()
+    class OwnGuard implements CanActivate {
+      constructor(private readonly helper: OwnHelper) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Controller("rooms")
+    @UseGuards(OwnGuard)
+    class Rooms {
+      constructor(private readonly helper: OwnHelper) {}
+      @Get()
+      @UsePipes(new OwnPipe())
+      list() {
+        return [];
+      }
+    }
+
+    expect(sealed(Rooms).ok).toBe(true);
   });
 });
 
