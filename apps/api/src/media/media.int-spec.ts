@@ -523,6 +523,14 @@ describe("serving a file with S3 behind it", () => {
     expect(second.statusCode).toBe(304);
   });
 
+  it("has a cached copy revalidated on every use rather than kept", async () => {
+    // Who may read a file can change at its id, and a copy kept for a year
+    // would go on serving a document the board has since taken off the street.
+    const response = await inject({ method: "GET", url });
+
+    expect(response.headers["cache-control"]).toBe("public, no-cache");
+  });
+
   it("answers a HEAD without transferring the file", async () => {
     const response = await inject({ method: "HEAD", url });
 
