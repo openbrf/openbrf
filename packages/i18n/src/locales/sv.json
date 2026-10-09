@@ -1745,7 +1745,8 @@
       "update": "Uppdatera till {{version}}",
       "alreadyInstalled": "Installerat",
       "deprecated": "Underhålls inte längre",
-      "contract": "Tokenkontrakt {{range}}"
+      "contract": "Tokenkontrakt {{range}}",
+      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id."
     },
     "preview": {
       "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
@@ -1817,7 +1818,8 @@
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
-      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället."
+      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
+      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
     },
     "composer": {
       "title": "Sätt ihop ett tema",

@@ -25,6 +25,7 @@ const FAILURE_KEYS: Readonly<Record<string, TranslationKey>> = {
   "entry-deprecated": "themeCatalog.errors.entryDeprecated",
   "theme-not-installed": "themeCatalog.errors.themeNotInstalled",
   "theme-not-composed": "themeCatalog.errors.themeNotComposed",
+  "theme-composed": "themeCatalog.errors.themeComposed",
   "built-in-theme": "themeCatalog.errors.builtInTheme",
   "theme-in-use": "themeCatalog.errors.themeInUse",
   "theme-has-dependants": "themeCatalog.errors.themeHasDependants",

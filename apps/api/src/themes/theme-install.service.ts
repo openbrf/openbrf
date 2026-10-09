@@ -70,6 +70,8 @@ export class ThemeInstallError extends DomainError {
       | "lint-failed"
       /** Composing over a theme this instance installed from a catalog. */
       | "theme-not-composed"
+      /** Installing from a catalog over a theme composed on this instance. */
+      | "theme-composed"
       | "housing-cooperative-missing",
     /** Populated for lint-failed, so the screen can name every rule that failed. */
     readonly findings: readonly ThemeLintFinding[] = [],
@@ -82,6 +84,7 @@ export class ThemeInstallError extends DomainError {
         ? HttpStatus.NOT_FOUND
         : reason === "housing-cooperative-missing" ||
             reason === "theme-not-composed" ||
+            reason === "theme-composed" ||
             reason === "entry-deprecated"
           ? HttpStatus.CONFLICT
           : HttpStatus.UNPROCESSABLE_ENTITY;
@@ -130,6 +133,11 @@ export interface CatalogThemeView {
   deprecated: boolean;
   /** The installed version, when this theme is already installed. */
   installedVersion: string | null;
+  /**
+   * A theme composed on this instance holds the entry's id, so the entry
+   * cannot be installed over it.
+   */
+  composedHere: boolean;
 }
 
 export interface ThemeInstallResult {
@@ -166,6 +174,9 @@ export class ThemeInstallService {
         .filter((row) => row.catalogId === row.id)
         .map((row) => [row.id, row.version] as const),
     );
+    const composed = new Set(
+      installed.filter((row) => row.catalogId === null).map((row) => row.id),
+    );
 
     return entries.map((entry) => ({
       id: entry.id,
@@ -175,6 +186,7 @@ export class ThemeInstallService {
       contract: entry.contract ?? null,
       deprecated: entry.deprecated,
       installedVersion: versionById.get(entry.id) ?? null,
+      composedHere: composed.has(entry.id),
     }));
   }
 
@@ -194,18 +206,31 @@ export class ThemeInstallService {
       );
     }
 
+    const installed = await this.prisma.installedTheme.findUnique({
+      where: { id: entry.id },
+      select: { catalogId: true },
+    });
+
+    /*
+     * A theme the board composed under the same id is theirs, and installing
+     * the entry would replace it and its values. Refused before the download,
+     * as the row alone says it; `compose` refuses the other direction.
+     */
+    if (installed !== null && installed.catalogId === null) {
+      throw new ThemeInstallError(
+        `A theme composed on this instance holds the id ${entry.id}, so the ` +
+          "catalog's is not installed over it.",
+        "theme-composed",
+      );
+    }
+
     /*
      * Deprecating is a curator's soft withdrawal: the entry stays listed so an
      * instance that already has the theme can reinstall it or take its update,
      * but nobody should start using it now. Refused before the download, as
-     * the index alone says it. A theme composed here under the same id is
-     * not the entry installed, so it does not let the package in over it.
+     * the index alone says it.
      */
     if (entry.deprecated) {
-      const installed = await this.prisma.installedTheme.findUnique({
-        where: { id: entry.id },
-        select: { catalogId: true },
-      });
       if (installed?.catalogId !== entry.id) {
         throw new ThemeInstallError(
           `The catalog has deprecated ${entry.id}, so it is not installed anew.`,

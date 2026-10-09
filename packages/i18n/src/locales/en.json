@@ -1745,7 +1745,8 @@
       "update": "Update to {{version}}",
       "alreadyInstalled": "Installed",
       "deprecated": "No longer maintained",
-      "contract": "Token contract {{range}}"
+      "contract": "Token contract {{range}}",
+      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id."
     },
     "preview": {
       "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
@@ -1817,7 +1818,8 @@
       "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
-      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead."
+      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead.",
+      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it."
     },
     "composer": {
       "title": "Compose a theme",

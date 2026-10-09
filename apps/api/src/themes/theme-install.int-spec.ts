@@ -196,11 +196,11 @@ describe("installing a theme from the catalog", () => {
 
   /*
    * A theme composed here under the entry's id is the board's own, not the
-   * entry installed. It must not let the deprecated package in over it, and
-   * the catalog must not offer the entry as already installed either. The
+   * entry installed. No catalog package may replace it, deprecated or not,
+   * and the catalog must say so rather than offer the entry as installed. The
    * composed row is removed afterwards, so the install below is a first one.
    */
-  it("refuses a deprecated entry over a theme composed under its id", async () => {
+  it("refuses a catalog entry over a theme composed under its id", async () => {
     await installer.compose(
       {
         id: exampleEntry.id,
@@ -219,19 +219,25 @@ describe("installing a theme from the catalog", () => {
     });
 
     try {
+      const current = (await installer.catalog()).find(
+        (theme) => theme.id === exampleEntry.id,
+      );
+      expect(current).toMatchObject({
+        installedVersion: null,
+        composedHere: true,
+      });
+      expect(
+        (await refusal(installer.install(exampleEntry.id, null))).reason,
+      ).toBe("theme-composed");
+
       const path = await exampleEntryChanged("deprecated-composed", {
         deprecated: true,
       });
       const reading = installerReading(path);
+      expect(
+        (await refusal(reading.install(exampleEntry.id, null))).reason,
+      ).toBe("theme-composed");
 
-      const listed = (await reading.catalog()).find(
-        (theme) => theme.id === exampleEntry.id,
-      );
-      expect(listed?.installedVersion).toBeNull();
-
-      const failure = await refusal(reading.install(exampleEntry.id, null));
-
-      expect(failure.reason).toBe("entry-deprecated");
       expect(
         await prisma.installedTheme.findUniqueOrThrow({
           where: { id: exampleEntry.id },
