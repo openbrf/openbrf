@@ -258,6 +258,13 @@ export class BookableResourceService {
     const data = this.validated(input);
 
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * The row for update before anything is read or counted. A claim takes
+       * it for share and reads the resource under it, so a claim cut from
+       * the grid this changes either commits first and is counted, or waits
+       * and reads the new one.
+       */
+      await tx.$queryRaw`SELECT id FROM bookable_resource WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.bookableResource.findUnique({
         where: { id },
         include: { _count: { select: { bookings: true } } },
@@ -342,6 +349,9 @@ export class BookableResourceService {
     actorPersonId: string,
   ): Promise<BookableResourceView> {
     return this.prisma.$transaction(async (tx) => {
+      // The row for update, so a claim in flight either commits first or
+      // reads the withdrawal; see update().
+      await tx.$queryRaw`SELECT id FROM bookable_resource WHERE id = ${id} FOR UPDATE`;
       const existing = await tx.bookableResource.findUnique({
         where: { id },
         include: { _count: { select: { bookings: true } } },

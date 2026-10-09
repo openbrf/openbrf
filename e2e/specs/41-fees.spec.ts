@@ -558,19 +558,35 @@ test("the board issues the period's notices and takes them away", async ({
   expect(csv).not.toContain("balance");
 
   /*
-   * The PDF is the browser's own print of the register document. Printed here
-   * rather than asserted as a button, because a print stylesheet that dropped
-   * the table would leave the button working and the document empty.
+   * The PDF is the browser's own print of the notices. Printed here rather
+   * than asserted as a button, because a print stylesheet that dropped the
+   * table would leave the button working and the document empty. One document
+   * to a printed page: while the notices are open, the register does not
+   * print, and closing them gives the page back to it.
    */
+  const documents = page.locator("[data-print='document']");
+  const notices = documents.filter({ hasText: "Avier för" });
+  const register = documents.filter({
+    has: page.locator("h2", { hasText: "Avgiftsregister" }),
+  });
   await page.emulateMedia({ media: "print" });
   await expect(
     page.getByRole("heading", { name: "Registrera en avgift" }),
   ).toBeHidden();
-  await expect(page.locator("[data-print='document']")).toBeVisible();
+  await expect(notices).toBeVisible();
+  await expect(notices.locator("table")).toBeVisible();
+  await expect(notices.locator("tbody tr").first()).toBeVisible();
+  await expect(register).toBeHidden();
 
   const pdf = await page.pdf({ format: "A4" });
   expect(pdf.subarray(0, 4).toString("latin1")).toBe("%PDF");
   expect(pdf.byteLength).toBeGreaterThan(1000);
+
+  await page.emulateMedia({ media: "screen" });
+  await page.getByRole("button", { name: "Stäng avierna" }).click();
+  await page.emulateMedia({ media: "print" });
+  await expect(notices).toHaveCount(0);
+  await expect(register).toBeVisible();
 
   await page.emulateMedia({ media: "screen" });
 });

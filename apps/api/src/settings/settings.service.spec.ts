@@ -70,6 +70,7 @@ const STORED = {
   boardMailboxPop3Secure: true,
   boardMailboxPop3User: null as string | null,
   boardMailboxPop3PasswordCipher: null as string | null,
+  smtpRequireTls: false,
   smsDriver: null as string | null,
   smsGatewayUrl: null as string | null,
   smsGatewayTokenCipher: null as string | null,
@@ -600,6 +601,64 @@ describe("SMTP settings", () => {
     await service.updateSmtp({ ...filled, password: "" });
 
     expect(current()?.smtpPasswordCipher).toBeNull();
+  });
+
+  it("requires TLS of a server that is not on this machine", async () => {
+    // The sender alone changes, on settings saved before saving required it:
+    // any save requires it, because the save is of the credentials.
+    const { service, current } = build({
+      smtpHost: "smtp.example.se",
+      smtpSecure: false,
+      smtpRequireTls: false,
+    });
+
+    const saved = await service.updateSmtp({
+      ...filled,
+      secure: false,
+      fromAddress: "info@exempel.se",
+    });
+
+    expect(current()?.smtpRequireTls).toBe(true);
+    expect(saved).toMatchObject({ source: "settings", tlsOptional: false });
+  });
+
+  it.each(["localhost", "127.0.0.1", "::1"])(
+    "leaves a server on loopback (%s) to upgrade if it offers to",
+    async (host) => {
+      const { service, current } = build();
+
+      const saved = await service.updateSmtp({
+        ...filled,
+        host,
+        secure: false,
+      });
+
+      expect(current()?.smtpRequireTls).toBe(false);
+      expect(saved).toMatchObject({ tlsOptional: false });
+    },
+  );
+
+  it("flags settings saved before TLS was required", async () => {
+    const legacy = build({
+      smtpHost: "smtp.example.se",
+      smtpFromAddress: "styrelsen@exempel.se",
+      smtpSecure: false,
+      smtpRequireTls: false,
+    });
+    await expect(legacy.service.read()).resolves.toMatchObject({
+      smtp: { tlsOptional: true },
+    });
+
+    // Implicit TLS is encrypted from the first byte, whenever it was saved.
+    const implicit = build({
+      smtpHost: "smtp.example.se",
+      smtpFromAddress: "styrelsen@exempel.se",
+      smtpSecure: true,
+      smtpRequireTls: false,
+    });
+    await expect(implicit.service.read()).resolves.toMatchObject({
+      smtp: { tlsOptional: false },
+    });
   });
 });
 

@@ -11,6 +11,7 @@
  */
 import { existsSync } from "node:fs";
 import { dirname, join, parse } from "node:path";
+import { setTimeout } from "node:timers/promises";
 
 import { PgBoss } from "pg-boss";
 
@@ -47,10 +48,20 @@ const boss = new PgBoss({
   // Install the schema only: no workers, no maintenance, no scheduler.
   supervise: false,
   schedule: false,
+  // The shortest interval pg-boss allows: the wait below drains one index
+  // build per interval.
+  bamIntervalSeconds: 10,
 });
 
+// A failed index build, like any other pg-boss failure, arrives as an event
+// rather than a rejection. The first one is kept and fails the install.
+let failure;
 boss.on("error", (error) => {
   console.error("pg-boss error during install:", error);
+  failure ??= error;
+});
+boss.on("bam", ({ name, table, status }) => {
+  console.log(`Job schema index build ${name} on pgboss.${table}: ${status}`);
 });
 
 /**
@@ -127,6 +138,46 @@ const db = boss.getDb();
 await db.open();
 await refuseRowsTheOwnerWouldRun(db);
 
+// A migration that adds an index to a job table that already exists does not
+// build it: it records the build in pgboss.bam for pg-boss's background runner,
+// which only an instance started with migration enabled runs. In production
+// the application is not, so the builds have to finish here, before the deploy
+// goes on.
+async function finishIndexBuilds() {
+  let reported;
+  for (;;) {
+    if (failure !== undefined) {
+      throw failure;
+    }
+    const unfinished = (await boss.getBamEntries()).filter(
+      (entry) => entry.status !== "completed",
+    );
+    if (unfinished.length === 0) {
+      return;
+    }
+    if (unfinished.length !== reported) {
+      reported = unfinished.length;
+      console.log(
+        `Waiting for ${reported} job schema index build(s) to finish.`,
+      );
+    }
+    await setTimeout(1000);
+  }
+}
+
 await boss.start();
-await boss.stop({ graceful: false });
-console.log('Job schema "pgboss" is installed and up to date.');
+try {
+  await finishIndexBuilds();
+  console.log('Job schema "pgboss" is installed and up to date.');
+} catch (error) {
+  // An error event was already printed by its handler above.
+  if (error !== failure) {
+    console.error(error);
+  }
+  console.error(
+    'Job schema "pgboss" was not fully migrated. A failed index build keeps its error in pgboss.bam.',
+  );
+  process.exitCode = 1;
+} finally {
+  await boss.stop({ graceful: false });
+}

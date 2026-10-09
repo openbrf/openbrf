@@ -86,6 +86,23 @@ function service(seats: Seat[]) {
       findUnique: vi.fn(({ where }: { where: { id: string } }) =>
         Promise.resolve({ id: where.id }),
       ),
+      // The seat question asked of one person: does any seat of theirs match.
+      findFirst: vi.fn(
+        ({
+          where,
+        }: {
+          where: { id: string; boardPositions: { some: Where } };
+        }) =>
+          Promise.resolve(
+            seats.some(
+              (seat) =>
+                seat.personId === where.id &&
+                matches(seat, where.boardPositions.some),
+            )
+              ? { id: where.id }
+              : null,
+          ),
+      ),
     },
     boardPosition: {
       count: vi.fn(({ where }: { where: Where }) =>

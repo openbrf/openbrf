@@ -129,6 +129,21 @@ export interface RecordedBreach {
   readonly measures: string;
 }
 
+/**
+ * A message written to the board through the website's contact form.
+ *
+ * Like everything a capture can photograph, it is published: an address on the
+ * reserved `.test` domain, and nothing that could be about anybody.
+ */
+export interface ContactMessage {
+  /** Optional on the form, so optional here: the inbox names who left none. */
+  readonly name?: string;
+  readonly email: string;
+  readonly message: string;
+  /** Ticked off by the board once it is in the inbox. */
+  readonly handled?: true;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
@@ -141,6 +156,16 @@ export type Action =
    * reads the register when it opens.
    */
   | { readonly recordBreach: RecordedBreach }
+  /**
+   * Post these messages through the public contact form, then reopen the
+   * screen, which reads the inbox when it opens.
+   *
+   * Over HTTP as a visitor would: the form is plain HTML on a page of the
+   * association's own, and the wizard seeds no page that carries one. A page
+   * with the form is written for the purpose and removed again afterwards, so
+   * the screens after it photograph the website as it was.
+   */
+  | { readonly postContactMessages: readonly ContactMessage[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -749,20 +774,43 @@ export const SCREENS: readonly Screen[] = [
   })),
   {
     /*
-     * The board's inbox for the website's contact form, empty.
+     * The board's inbox for the website's contact form, with three messages in
+     * it: one waiting, one from somebody who left no name, and one the board
+     * has already dealt with.
      *
-     * Empty because nothing in this walk can put a message in it: the form
-     * lives on a page of the association's own, placed there by the board, and
-     * the wizard seeds no page that carries one. The empty state is the honest
-     * picture of this card on a fresh instance, and it is the one a board sees
-     * before anybody has written to them.
+     * The messages are posted through the form as a visitor would, because the
+     * inbox is the other end of a form the board never sees the code of. The
+     * handled one is marked over the board's own API, as a board member would
+     * tick it.
      *
      * Its own entry rather than a row in SETTINGS_PANELS above, because the
      * marker has to be something that exists only once the card's own read has
-     * come back - and for an empty inbox that is the sentence saying so.
+     * come back - and here that is the first message's own words.
      */
     name: "settings-contact-inbox",
-    waitFor: { text: "Inga meddelanden har kommit in." },
+    prepare: [
+      {
+        postContactMessages: [
+          {
+            name: "Greta Holm",
+            email: "greta.holm@exempel.test",
+            message:
+              "Porten mot gatan går inte att stänga.\nDen står på glänt på nätterna.",
+          },
+          {
+            email: "granne@exempel.test",
+            message: "Kan styrelsen ta upp tvättstugans tider på nästa möte?",
+          },
+          {
+            name: "Sven Berg",
+            email: "sven.berg@exempel.test",
+            message: "Tack för beskedet om stambytet!",
+            handled: true,
+          },
+        ],
+      },
+    ],
+    waitFor: { text: /Porten mot gatan går inte att stänga\./ },
     capture: { panel: "Meddelanden från webbplatsen" },
   },
 
@@ -1710,6 +1758,27 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * The same charge, opened for correction.
+     *
+     * The card rather than the page, because the correction form is the whole
+     * of what this image is about: it states what may change and what may not
+     * (who is charged stays), and the list it replaces on the screen while it
+     * is open is already photographed above.
+     *
+     * Reached from the row recorded in the entry above, which the walk has left
+     * standing. The only charge there is, so "Rätta" names one button.
+     */
+    name: "member-charge-correction",
+    as: "administrator",
+    goto: appPath("/charges"),
+    prepare: [{ click: { button: "Rätta" } }],
+    // The form, which is there once the row's button has been pressed and the
+    // list it replaced is gone.
+    waitFor: { panel: "Rätta en debitering" },
+    capture: { panel: "Rätta en debitering" },
+  },
+  {
+    /*
      * The fees, with one apartment's rate recorded.
      *
      * The whole page rather than a card, because what the screen is is three
@@ -1762,9 +1831,12 @@ export const SCREENS: readonly Screen[] = [
     /*
      * The period's notices, produced.
      *
-     * The card rather than the page, because the register above is already
+     * The document rather than the page, because the register above is already
      * photographed whole and what this image is about is the other half: the
-     * run, the document it produced and the file the board takes away.
+     * notices the run produced, with the file the board takes away. The
+     * document stands in a section of its own beside the "Avisering" card that
+     * produced it, so the card is where the run is started and not what is
+     * photographed.
      *
      * The first quarter of 2026, which the rate recorded above is in force for.
      * A period may be issued once, and a fresh instance has issued none.
@@ -1790,7 +1862,9 @@ export const SCREENS: readonly Screen[] = [
     // has answered. The run's own row arrives first and says nothing about the
     // document.
     waitFor: { text: "Betalningsreferens" },
-    capture: { panel: "Avisering" },
+    // The document's own section, found by the association's name it is headed
+    // with: the produced document is no longer inside the "Avisering" card.
+    capture: { panel: HOUSING_COOPERATIVE.name },
   },
   {
     /*

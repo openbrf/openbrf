@@ -35,6 +35,7 @@ const CONFIGURED: StoredSmtpSettings = {
   user: "styrelsen",
   fromAddress: "styrelsen@exempel.se",
   passwordSet: true,
+  tlsOptional: false,
   configured: true,
 };
 
@@ -46,6 +47,7 @@ const EMPTY: StoredSmtpSettings = {
   user: null,
   fromAddress: null,
   passwordSet: false,
+  tlsOptional: false,
   configured: false,
 };
 
@@ -176,6 +178,74 @@ describe("the test message", () => {
     await waitFor(() => {
       expect(screen.getByText(/saknar en e-postadress/i)).toBeTruthy();
     });
+  });
+});
+
+describe("a server that sets up no encrypted connection", () => {
+  it("is explained as that, not as a wrong password", async () => {
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "mail-tls-unavailable" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/upprättade ingen krypterad anslutning/i),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.queryByText(/kontrollera server, port och lösenord/i),
+    ).toBeNull();
+  });
+});
+
+describe("settings saved before TLS was required", () => {
+  const LEGACY: StoredSmtpSettings = {
+    ...CONFIGURED,
+    secure: false,
+    tlsOptional: true,
+  };
+
+  it("say the password can go out unencrypted until they are saved again", () => {
+    render(<SmtpPanel value={LEGACY} />);
+
+    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
+  });
+
+  it("keep saying so after a test message went through", async () => {
+    const session = userEvent.setup();
+    render(<SmtpPanel value={LEGACY} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/holger@exempel\.se/)).toBeTruthy();
+    });
+    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
+  });
+
+  it("stop saying so once a save has required TLS", async () => {
+    saveSmtp.mockResolvedValue({
+      ok: true,
+      value: { ...LEGACY, tlsOptional: false },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={LEGACY} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText("Sparat")).toBeTruthy();
+    });
+    expect(screen.queryByText(/lösenordet skickas okrypterat/i)).toBeNull();
   });
 });
 
@@ -315,6 +385,27 @@ describe("mail set where the instance runs", () => {
       expect(
         screen.getByText(
           "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
+        ),
+      ).toBeTruthy();
+    });
+  });
+
+  it("points a server without TLS at whoever runs the instance too", async () => {
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "mail-tls-unavailable" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={ENVIRONMENT} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Meddelandet kunde inte skickas eftersom e-postservern inte upprättade någon krypterad anslutning. E-posten sköts av den som driver instansen, så kontakta dem.",
         ),
       ).toBeTruthy();
     });

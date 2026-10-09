@@ -142,8 +142,11 @@ export class CatalogClient {
     return catalog;
   }
 
-  async entry(id: string): Promise<CatalogEntry | null> {
-    const catalog = await this.read();
+  async entry(
+    id: string,
+    options: { refresh?: boolean } = {},
+  ): Promise<CatalogEntry | null> {
+    const catalog = await this.read(options);
     return catalog.entries.find((candidate) => candidate.id === id) ?? null;
   }
 

@@ -318,6 +318,105 @@ describe("writing a page", () => {
     expect(written.data.sortOrder).toBe(4);
   });
 
+  describe("beside a privacy notice the board's list has numbered", () => {
+    const NEW_PAGE = {
+      slug: "ny-sida",
+      title: "Ny sida",
+      content: paragraphsContent(["Hej."]),
+      visibility: "PUBLIC" as const,
+    };
+
+    /** A list whose last other page sits at `last` and notice at `notice`. */
+    function arranged(last: number | null, notice: number) {
+      const fakes = build();
+      fakes.page.aggregate.mockResolvedValue({ _max: { sortOrder: last } });
+      // The new address is free, and then the notice is where it is.
+      fakes.page.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ sortOrder: notice });
+      return fakes;
+    }
+
+    function writtenSortOrder(page: { create: ReturnType<typeof vi.fn> }) {
+      const written = page.create.mock.calls[0]?.[0] as
+        { data: { sortOrder: number } } | undefined;
+      return written?.data.sortOrder;
+    }
+
+    it("goes before the notice, moving the notice down, once a reorder has numbered them", async () => {
+      // Dragged once, the pages are numbered from nought and the notice with
+      // them: one page at 0 and the notice at 1. The next number after the
+      // last page is the notice's own, and the older notice sorted first.
+      const { service, page } = arranged(0, 1);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(1);
+      expect(page.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { slug: PRIVACY_NOTICE_SLUG },
+          data: { sortOrder: 2 },
+        }),
+      );
+    });
+
+    it("goes before a notice that is the only page", async () => {
+      const { service, page } = arranged(null, 0);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(1);
+      expect(page.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { sortOrder: 2 } }),
+      );
+    });
+
+    it("leaves a notice the board moved up the list where the board put it", async () => {
+      const { service, page } = arranged(1, 0);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(2);
+      expect(page.update).not.toHaveBeenCalled();
+    });
+
+    it("leaves a notice tied with the last page where the board put it", async () => {
+      // A reorder that omitted pages can leave both at one number, and the
+      // older notice then sorts first on purpose.
+      const { service, page } = arranged(2, 2);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(3);
+      expect(page.update).not.toHaveBeenCalled();
+    });
+
+    it("leaves a notice with room before it alone", async () => {
+      const { service, page } = arranged(3, 1000);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      expect(writtenSortOrder(page)).toBe(4);
+      expect(page.update).not.toHaveBeenCalled();
+    });
+
+    it("decides under the page order lock", async () => {
+      // A rearrangement committing between the reads and the writes would be
+      // undone by them: the board drags the notice up, and the new page puts
+      // it back at the end.
+      const { service, page, txClient } = arranged(0, 1);
+
+      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
+
+      const locked =
+        txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+      expect(page.aggregate.mock.invocationCallOrder[0]).toBeGreaterThan(
+        locked,
+      );
+      expect(page.update.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
+    });
+  });
+
   it("records the content change, saying how much page there is and never what it says", async () => {
     const { service, audit } = build();
 
@@ -477,8 +576,83 @@ describe("writing a page", () => {
     );
 
     expect(refusal.reason).toBe("personal-identity-number");
+    // Placed by its block alone, once for the address as written and decoded:
+    // the number is not in the words, so no offset into them can point at it.
     expect(refusal.details()["locations"]).toEqual([
-      { part: "block", index: 0, offset: 47 },
+      { part: "block", index: 0 },
+    ]);
+  });
+
+  it("refuses an address escaped too deeply to be read, placed by its block", async () => {
+    // Each decoding pass may take off one level only. Decoding a link of the
+    // length the schema allows to the end took a thousand passes and kept
+    // every reading, so a body of such links held the process for seconds.
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: {
+            version: 1,
+            blocks: [
+              { type: "paragraph", runs: [{ text: "Hej" }] },
+              {
+                type: "paragraph",
+                runs: [{ text: "Se här", link: `%${"25".repeat(999)}2D` }],
+              },
+            ],
+          },
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 1 },
+    ]);
+  });
+
+  it("places a number in a later FAQ item where it is, whatever an earlier item links to", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+
+    const refusal = await refusalOf(
+      service.update(
+        "page-1",
+        {
+          slug: DRAFT.slug,
+          title: DRAFT.title,
+          content: {
+            version: 1,
+            blocks: [
+              {
+                type: "faq",
+                items: [
+                  {
+                    question: "Vem?",
+                    answer: [{ text: "Anna", link: "/styrelsen" }],
+                  },
+                  {
+                    question: "19811218-9876?",
+                    answer: [{ text: "Nej." }],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        { personId: "person-1", channel: "WEB" },
+      ),
+    );
+
+    // "Vem? Anna " is ten characters, and the address is not among them.
+    expect(refusal.details()["locations"]).toEqual([
+      { part: "block", index: 0, offset: 10 },
     ]);
   });
 
@@ -774,6 +948,18 @@ describe("the order the pages sit in", () => {
     });
   });
 
+  it("takes the page order lock before it writes a position", async () => {
+    const { service, page, txClient } = build();
+
+    await service.reorder(["page-2", "page-1"], {
+      personId: "person-1",
+      channel: "WEB",
+    });
+
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    expect(page.updateMany.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
+  });
+
   it("ignores an id the instance does not have", async () => {
     // This is a drag on a list, and a stale row in the browser must not lose
     // the whole arrangement. Ignored means the write is attempted and matches
@@ -881,8 +1067,8 @@ describe("removing a page", () => {
     const { service, page, menuItem, audit, txClient } = build();
     page.findUnique.mockResolvedValue(DRAFT);
     menuItem.findMany.mockResolvedValue([
-      { id: "item-1", kind: "PAGE", _count: { children: 5 } },
-      { id: "item-2", kind: "PAGE", _count: { children: 0 } },
+      { id: "item-1", kind: "PAGE", parentId: null, _count: { children: 5 } },
+      { id: "item-2", kind: "PAGE", parentId: null, _count: { children: 0 } },
     ]);
 
     await service.remove(
@@ -914,6 +1100,63 @@ describe("removing a page", () => {
     for (const [, tx] of entries) {
       expect(tx).toBe(txClient);
     }
+  });
+
+  it("records an entry under another entry for the page once, as its parent's child", async () => {
+    // The child goes with its parent, and the parent's record counts it. A
+    // second record of its own would say the menu lost two things where the
+    // board removed one.
+    const { service, page, menuItem, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    menuItem.findMany.mockResolvedValue([
+      { id: "item-1", kind: "PAGE", parentId: null, _count: { children: 1 } },
+      {
+        id: "item-2",
+        kind: "PAGE",
+        parentId: "item-1",
+        _count: { children: 0 },
+      },
+    ]);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(audit.record.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        targetId: "item-1",
+        context: { kind: "PAGE", childrenRemoved: 1, withPage: "page-1" },
+      }),
+    ]);
+  });
+
+  it("still records an entry for the page that hangs under an entry for another", async () => {
+    const { service, page, menuItem, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    menuItem.findMany.mockResolvedValue([
+      {
+        id: "item-2",
+        kind: "PAGE",
+        parentId: "item-elsewhere",
+        _count: { children: 0 },
+      },
+    ]);
+
+    await service.remove(
+      "page-1",
+      {},
+      { personId: "person-1", channel: "WEB" },
+    );
+
+    expect(audit.record.mock.calls.map(([entry]) => entry)).toEqual([
+      expect.objectContaining({
+        action: "MENU_ITEM_REMOVED",
+        targetId: "item-2",
+      }),
+    ]);
   });
 
   it("finds the entries under the menu lock, so none can be added unrecorded", async () => {
@@ -1289,5 +1532,28 @@ describe("a write built on a copy somebody else has replaced", () => {
     expect(fakes.page.delete).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "page-1" } }),
     );
+  });
+});
+
+describe("reading the pages a few at a time", () => {
+  it("refuses a cursor whose sort order no page can have, without asking the database", async () => {
+    const { service, page } = build();
+
+    for (const cursor of ["9999999999:page-1", "-2147483649:page-1"]) {
+      const refusal = await refusalOf(
+        service.listSummaries({ limit: 1, cursor }),
+      );
+      expect(refusal.reason, cursor).toBe("not-found");
+    }
+    expect(page.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still reads a cursor at either end of the column's range", async () => {
+    const { service, page } = build();
+
+    for (const cursor of ["2147483647:page-1", "-2147483648:page-1"]) {
+      await service.listSummaries({ limit: 1, cursor });
+    }
+    expect(page.findMany).toHaveBeenCalledTimes(2);
   });
 });

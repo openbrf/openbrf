@@ -139,6 +139,30 @@ describe("adding an entry", () => {
     expect(written.data.label).toBe("Om oss");
   });
 
+  it("takes the menu lock before it reads anything it decides on", async () => {
+    // Read first, an entry added under one that is being moved under another
+    // passes its depth check against a menu the move is about to change, and
+    // the menu gains a third level. The races in menu.int-spec.ts only catch
+    // that on the rounds where the two interleave.
+    const { service, menuItem, page, txClient } = build();
+    menuItem.findUnique.mockResolvedValue({ id: "item-2", parentId: null });
+
+    await service.create(
+      { kind: "PAGE", label: "", pageId: "page-1", parentId: "item-2" },
+      ACTOR,
+    );
+
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    const reads = [
+      ...menuItem.findUnique.mock.invocationCallOrder,
+      ...menuItem.count.mock.invocationCallOrder,
+      ...menuItem.aggregate.mock.invocationCallOrder,
+      ...page.findUnique.mock.invocationCallOrder,
+    ];
+    expect(menuItem.findUnique).toHaveBeenCalled();
+    expect(Math.min(...reads)).toBeGreaterThan(locked);
+  });
+
   it("refuses a page entry naming a page the instance has not got", async () => {
     const { service, page } = build();
     page.findUnique.mockResolvedValue(null);

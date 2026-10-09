@@ -55,6 +55,19 @@ export function externalProcessorKey(rowId: string): string {
   return `external:${rowId}`;
 }
 
+/** What every placeholder for a board-recorded recipient's key starts with. */
+export const PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX = "external:pending:";
+
+/**
+ * The key a board-recorded row carries until it has an id to be keyed by.
+ *
+ * Each call's own, never shared: one open row per key is a unique index, so a
+ * placeholder two recordings shared would hold the second on the first.
+ */
+export function pendingExternalProcessorKey(token: string): string {
+  return `${PENDING_EXTERNAL_PROCESSOR_KEY_PREFIX}${token}`;
+}
+
 /**
  * The key for one client a member has connected.
  *
