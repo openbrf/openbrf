@@ -560,6 +560,8 @@ test("but still reads the statutory archive, because it has to be printable", as
  *
  * An environment the probe cannot read is reported rather than skipped: the
  * claim is about every process, and one that was not looked at is not evidence.
+ * A refused read is retried first, because a process that is still being set
+ * up is refused for a moment; one that exits meanwhile is simply gone.
  *
  * Every connection URL found in the server's environment is then used, from
  * inside the container, against the member register. Naming the variables
@@ -589,6 +591,24 @@ function environmentOf(pid) {
     });
 }
 
+// A process is not readable by the application user while it is being set up:
+// the image's healthcheck starts one through docker exec every few seconds, and
+// until the runtime has finished with it, it belongs to root. That passes, so a
+// refused read is tried again for about a second. Only a process that is still
+// there and still refused is reported as unreadable.
+function readEnvironment(pid) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { held: environmentOf(pid), gone: false };
+    } catch (failure) {
+      if (failure.code === "ENOENT" || failure.code === "ESRCH") return { gone: true };
+      const transient = failure.code === "EACCES" || failure.code === "EPERM";
+      if (!transient || attempt >= 20) return { gone: !fs.existsSync("/proc/" + pid), held: undefined };
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+}
+
 function argumentsOf(pid) {
   return fs.readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\\0").filter(Boolean);
 }
@@ -597,16 +617,15 @@ const processes = [];
 let server;
 for (const entry of fs.readdirSync("/proc")) {
   if (!/^[0-9]+$/.test(entry)) continue;
-  let held;
-  try {
-    held = environmentOf(entry);
-  } catch (failure) {
-    // A process that exited between the listing and the read has no
-    // environment left to hold anything.
-    if (failure.code === "ENOENT" || failure.code === "ESRCH") continue;
+  const read = readEnvironment(entry);
+  // A process that exited between the listing and the read has no
+  // environment left to hold anything.
+  if (read.gone) continue;
+  if (read.held === undefined) {
     processes.push({ pid: Number(entry), readable: false, carriesOwnerSecret: false, ownerNames: [] });
     continue;
   }
+  const held = read.held;
   const names = held.map(([name]) => name);
   processes.push({
     pid: Number(entry),
