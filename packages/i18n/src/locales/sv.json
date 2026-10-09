@@ -5052,7 +5052,8 @@
       "secretOnce": "Hemligheten visas den här enda gången och går inte att visa igen. Spara den där appen läser den; en app som har tappat bort sin hemlighet måste registreras på nytt.",
       "noSecret": "Den här appen fick ingen hemlighet.",
       "errors": {
-        "invalidRedirectUri": "Någon av adresserna att skicka tillbaka till är inte en fullständig adress. Skriv en adress per rad, högst åtta.",
+        "invalidRedirectUri": "Någon av adresserna att skicka tillbaka till är ofullständig eller inte tillåten. En adress måste vara https, eller http för en app på den här datorn. Skriv en adress per rad, högst åtta.",
+        "invalidBody": "Appen kunde inte registreras som den är ifylld. Ge den ett namn och skriv mellan en och åtta adresser att skicka tillbaka till, en per rad.",
         "nameTaken": "Det finns redan en app med det namnet. Välj ett annat.",
         "resourceMissing": "Instansen har ingen adress för anslutna appar att logga in mot, så appen kunde inte knytas till någon. Installera först ett tillägg som betjänar den adressen.",
         "failed": "Appen kunde inte registreras just nu. Försök igen."
