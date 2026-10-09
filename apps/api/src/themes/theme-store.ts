@@ -10,9 +10,17 @@ import type { Env } from "../config/env";
 
 /** A theme's files written to the volume but not yet the installed version. */
 export interface StagedTheme {
-  /** Moves the staged files into place, replacing any earlier version. */
+  /**
+   * Moves the staged files into place. Any earlier version is kept aside until
+   * `finalize` or `discard` says what became of the transaction around it.
+   */
   commit(): Promise<void>;
-  /** Removes the staged files. Any earlier version is left exactly as it was. */
+  /** Removes the earlier version, once the transaction has committed. */
+  finalize(): Promise<void>;
+  /**
+   * Undoes the stage, and the commit when there was one: the earlier version
+   * is put back exactly as it was.
+   */
   discard(): Promise<void>;
 }
 
@@ -79,15 +87,18 @@ export class ThemeStore {
       throw cause;
     }
 
+    /*
+     * The previous version is moved aside rather than deleted, and it goes back
+     * if the swap fails or the transaction the commit ran in does not. It is
+     * the version the interface is rendering: losing it would leave the
+     * association's fonts and logo answering 404 on every page until somebody
+     * reinstalled the theme.
+     */
+    let displacedPrevious = false;
+    let committed = false;
+
     return {
       commit: async () => {
-        /*
-         * The previous version is moved aside rather than deleted, and it goes
-         * back if the swap fails. It is the version the interface is rendering:
-         * losing it would leave the association's fonts and logo answering 404
-         * on every page until somebody reinstalled the theme.
-         */
-        let displacedPrevious = false;
         try {
           await rename(target, displaced);
           displacedPrevious = true;
@@ -104,14 +115,23 @@ export class ThemeStore {
           await rm(staging, { recursive: true, force: true });
           throw cause;
         }
-
+        committed = true;
+        this.logger.log(`Wrote theme ${themeId} to ${target}`);
+      },
+      finalize: async () => {
         if (displacedPrevious) {
           await rm(displaced, { recursive: true, force: true });
         }
-        this.logger.log(`Wrote theme ${themeId} to ${target}`);
       },
       discard: async () => {
-        await rm(staging, { recursive: true, force: true });
+        if (!committed) {
+          await rm(staging, { recursive: true, force: true });
+          return;
+        }
+        await rm(target, { recursive: true, force: true });
+        if (displacedPrevious) {
+          await rename(displaced, target);
+        }
       },
     };
   }

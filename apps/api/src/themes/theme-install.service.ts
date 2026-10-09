@@ -461,9 +461,12 @@ export class ThemeInstallService {
         await staged.commit();
       });
     } catch (cause) {
+      // Also after the commit: the transaction can still fail to commit once
+      // its callback has returned, and the previous version goes back then.
       await staged.discard();
       throw cause;
     }
+    await staged.finalize();
 
     // A reinstall changes what this theme's descendants render.
     await this.themes.recomputeResolvedTokens();

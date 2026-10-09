@@ -74,6 +74,7 @@ async function install(
 ): Promise<void> {
   const staged = await store.stage(themeId, files);
   await staged.commit();
+  await staged.finalize();
 }
 
 describe("ThemeStore", () => {
@@ -184,6 +185,34 @@ describe("an install that does not complete", () => {
         "utf8",
       ),
     ).toBe("old");
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([
+      "example-theme",
+    ]);
+  });
+
+  it("puts the previous version back when the transaction around the commit fails", async () => {
+    // The swap happens inside the database transaction, which can still fail
+    // to commit after it; the previous version must still be there to return.
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/old.woff2": "old" }),
+    );
+    const staged = await store.stage(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/new.woff2": "new" }),
+    );
+
+    await staged.commit();
+    await staged.discard();
+
+    expect(
+      (await store.readAsset("example-theme", "fonts/old.woff2"))?.toString(
+        "utf8",
+      ),
+    ).toBe("old");
+    expect(
+      await store.readAsset("example-theme", "fonts/new.woff2"),
+    ).toBeNull();
     expect(await readdir(join(dataDirectory, "themes"))).toEqual([
       "example-theme",
     ]);
