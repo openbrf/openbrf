@@ -15,6 +15,7 @@ import {
   vi,
 } from "vitest";
 
+import { PersonService } from "../address-book/person.service";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -3285,10 +3286,10 @@ describe("a person entered while a chunk is applied", () => {
   }, 60_000);
 
   it("stops when somebody with the row's identity number is added", async () => {
-    // An identity number has no lock of its own. The other writer holds the
-    // apartment's instead, which only parks the chunk between its plan and its
-    // second look; what the case shows is that the second look reads the
-    // identity number too.
+    // The address book takes the number's lock before it writes the person, as
+    // every writer of an identity number does, so the chunk waits for it here.
+    // Only that key is held: a chunk that never took it would write the row
+    // before the other person commits, and enter them a second time.
     const cookie = await signIn(actors.board.email);
     const [number = ""] = identityNumbers(1, "730909");
     const sessionId = await queued(cookie, "sen-personnummer.csv", [
@@ -3305,10 +3306,14 @@ describe("a person entered while a chunk is applied", () => {
         number,
       ],
     ]);
+    const numberIndex = await encryption.computeIndex(
+      "person.personalIdentityNumber",
+      number,
+    );
 
     await applyWhileEntering(
       sessionId,
-      `residency-apartment:${apartments.o}`,
+      `person-identity-number:${numberIndex ?? ""}`,
       (tx) =>
         createPerson(
           {
@@ -3321,6 +3326,61 @@ describe("a person entered while a chunk is applied", () => {
     );
 
     await expectStoppedUnwritten(cookie, sessionId, "Sennummer");
+  }, 60_000);
+
+  it("makes the address book wait for a chunk holding the row's identity number", async () => {
+    // The other half of the case above: the case plays the address book out by
+    // hand, and this shows the address book takes the same key. A create that
+    // went ahead would commit past a chunk that has already looked.
+    const [number = ""] = identityNumbers(1, "730910");
+    const lockKey = `person-identity-number:${
+      (await encryption.computeIndex(
+        "person.personalIdentityNumber",
+        number,
+      )) ?? ""
+    }`;
+
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chunk = prisma.$transaction(
+      async (tx) => {
+        // Spelled out rather than imported, so a writer that quietly changed
+        // its key fails here instead of passing under a new name.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        locked();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await lockTaken;
+
+    let settled = false;
+    const added = app
+      .get(PersonService)
+      .create(
+        {
+          firstName: "Sennyckel",
+          lastName: surname,
+          personalIdentityNumber: number,
+        },
+        actors.board.personId,
+      )
+      .finally(() => (settled = true));
+
+    await waitFor(
+      async () =>
+        settled || (await advisoryLockCount(prisma, lockKey, false)) > 0n,
+    );
+    expect(settled).toBe(false);
+    release();
+    await chunk;
+    await added;
   }, 60_000);
 
   it("stops when somebody of the row's name moves into its apartment", async () => {

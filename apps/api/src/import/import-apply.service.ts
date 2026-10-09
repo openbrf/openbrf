@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
+import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -463,6 +464,15 @@ export class ImportApplyService implements OnModuleInit {
         // it does. After the apartments and before the transition locks, the
         // order person-email-lock.ts gives.
         await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
+
+        // The identity numbers likewise, so a person the address book adds
+        // with one of them is either seen by the check below or committed after
+        // this chunk. After the email keys and before the transition locks, the
+        // order person-identity-number-lock.ts gives.
+        await lockPersonIdentityNumbersInOrder(
+          tx,
+          writtenIdentityNumberIndexes(encrypted),
+        );
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -1115,6 +1125,26 @@ function writtenEmailIndexes(
 }
 
 /**
+ * The identity number indexes a chunk may write, or match a row against.
+ *
+ * Read off the encrypted values like the addresses, so every row that will
+ * write is covered: the rows the chunk checks against the register under these
+ * keys - a new person, a row the board decided - and the rows that may fill in
+ * a number on a person the register holds. A row whose number is not written
+ * costs a lock nobody else was waiting for; one missed would be a person
+ * entered past a match that never saw them.
+ */
+function writtenIdentityNumberIndexes(
+  encrypted: ReadonlyMap<number, EncryptedRowValues>,
+): string[] {
+  return [...encrypted.values()].flatMap(({ personalIdentityNumber }) =>
+    personalIdentityNumber === null || personalIdentityNumber.index === null
+      ? []
+      : [personalIdentityNumber.index],
+  );
+}
+
+/**
  * Whether a row that writes a person the chunk creates, or one the board
  * decided, reaches anybody else in the plan made under the chunk's locks.
  *
@@ -1134,14 +1164,14 @@ function writtenEmailIndexes(
  * between. A person found under a key after the one the row was matched by
  * changes neither plan: the planner never looks there.
  *
- * The second plan is read after the chunk's apartment and email locks. Every
- * writer of an address takes the email lock and every writer of a residency the
- * apartment lock, so on those two keys nobody can match a row between that
- * read and the commit; and whatever takes a person out of the register - a
- * move-out, an erasure, a purge - takes their transition lock, which the chunk
- * holds for every candidate of a decided row. An identity number has no lock
- * of its own, so on that key the read narrows the gap for a newcomer to the
- * length of the transaction rather than closing it.
+ * The second plan is read through the chunk's transaction, after its
+ * apartment, email, identity number and transition locks. Every writer of a
+ * residency takes the apartment lock, every writer of an address the email
+ * lock and every writer of an identity number the identity number lock, so on
+ * none of the three keys can anybody match a row between that read and the
+ * commit; and whatever takes a person out of the register - a move-out, an
+ * erasure, a purge - takes their transition lock, which the chunk holds for
+ * every candidate of a decided row.
  */
 function reachedOtherwise(
   planned: ImportPlan,
