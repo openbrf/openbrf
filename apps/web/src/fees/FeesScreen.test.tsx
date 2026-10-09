@@ -312,6 +312,151 @@ describe("the notices", () => {
 
     expect(await screen.findByText(/inte en faktura/u)).toBeTruthy();
   });
+
+  it("prints the notices, and the register again once they are closed", async () => {
+    /*
+     * The contract has the board take the notices away as the printed page a
+     * browser writes a PDF from. Inside the screen's print:hidden controls,
+     * printing gave no notices at all.
+     */
+    const printed = (element: Element | null): boolean =>
+      element !== null && element.closest(".print\\:hidden") === null;
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    const register = (
+      await screen.findByText(/Avgiftsregister - gäller/u)
+    ).closest("section");
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+    const notices = await screen.findByRole("table", { name: "Avier" });
+
+    expect(printed(notices)).toBe(true);
+    // One document to a printed page.
+    expect(printed(register)).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Stäng avierna" }));
+    expect(screen.queryByRole("table", { name: "Avier" })).toBeNull();
+    expect(printed(register)).toBe(true);
+  });
+
+  it("names each giro, and prints both where both are recorded", async () => {
+    // A number with no name on it may be paid as the wrong kind of giro.
+    produceFeeNotices.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PRODUCED,
+        document: {
+          ...PRODUCED.document,
+          housingCooperative: {
+            ...PRODUCED.document.housingCooperative,
+            plusgiro: "12 34 56-7",
+          },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+
+    expect(
+      await screen.findByText("Betalas till bankgiro 123-4567."),
+    ).toBeTruthy();
+    expect(screen.getByText("Betalas till plusgiro 12 34 56-7.")).toBeTruthy();
+  });
+
+  it("produces one document at a time, and says which run it is", async () => {
+    /*
+     * Each production is an audited disclosure. With a second one allowed in
+     * flight, a double click wrote two audit entries, and whichever answer
+     * landed last was shown - Q1's rows under a board that had asked for Q2.
+     */
+    fetchFeeNotifications.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          notificationId: "run-1",
+          from: "2026-01-01",
+          to: "2026-03-31",
+          dueOn: "2026-01-31",
+          issuedOn: "2026-01-02",
+          notices: 2,
+          total: "19351.50",
+        },
+        {
+          notificationId: "run-2",
+          from: "2026-04-01",
+          to: "2026-06-30",
+          dueOn: "2026-04-30",
+          issuedOn: "2026-04-01",
+          notices: 2,
+          total: "19351.50",
+        },
+      ],
+    });
+    let answer = (): void => undefined;
+    produceFeeNotices.mockReturnValue(
+      new Promise((resolve) => {
+        answer = (): void => {
+          resolve({ ok: true, value: PRODUCED });
+        };
+      }),
+    );
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+    const second = screen.getByRole("button", {
+      name: "Ta fram dokumentet för 2026-04-01 till 2026-06-30",
+    });
+    expect((second as HTMLButtonElement).disabled).toBe(true);
+
+    answer();
+
+    expect(
+      await screen.findByText(
+        "Avier för 2026-01-01 till 2026-03-31, framställda 2026-01-02. Förfallodag 2026-01-31.",
+      ),
+    ).toBeTruthy();
+    expect((second as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("removing a fee", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("asks first, and removes nothing when the board declines", async () => {
+    // The server deletes the rate for good, so a misclick has no undo.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    const button = await screen.findByRole("button", {
+      name: "Ta bort Årsavgift för Storgatan 12 1001",
+    });
+
+    await user.click(button);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(removeFee).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    removeFee.mockResolvedValue({ ok: true, value: undefined });
+    await user.click(button);
+    expect(removeFee).toHaveBeenCalledWith("fee-1");
+  });
 });
 
 describe("recording a fee", () => {
@@ -579,6 +724,66 @@ describe("recording a fee", () => {
     ).toBeTruthy();
   });
 
+  it("reads an amount typed the Swedish way", async () => {
+    // "3 450,50" is how this screen prints an amount, and a comma is what a
+    // Swedish phone's decimal pad offers.
+    const user = userEvent.setup();
+    recordFee.mockResolvedValue({
+      ok: true,
+      value: REGISTER.apartments[0]?.fees[0],
+    });
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Lägenhet" }),
+      "apartment-1",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Belopp per månad i kronor" }),
+      "3 450,50",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Registrera avgiften" }),
+    );
+
+    await waitFor(() => {
+      expect(recordFee).toHaveBeenCalledWith(
+        expect.objectContaining({ monthlyAmount: "3450.50" }),
+      );
+    });
+  });
+
+  it("says at the field that a rate is a whole percentage, and sends nothing", async () => {
+    // "25,5" used to travel as NaN, which JSON sends as null, and the server
+    // then asked for a rate the board had typed.
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Lägenhet" }),
+      "apartment-1",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Belopp per månad i kronor" }),
+      "500",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Moms" }),
+      "RATE",
+    );
+    const rate = screen.getByRole("textbox", { name: "Momssats i procent" });
+    await user.type(rate, "25,5");
+    await user.click(
+      screen.getByRole("button", { name: "Registrera avgiften" }),
+    );
+
+    expect(recordFee).not.toHaveBeenCalled();
+    expect(rate.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toMatch(/hela procent/u);
+  });
+
   it("says a fee may be dated forward and a charge may not", async () => {
     render(<FeesScreen />);
 
@@ -630,6 +835,93 @@ describe("reads that fail", () => {
     });
     expect(screen.queryByRole("button", { name: /^Ta bort/u })).toBeNull();
     expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
+  });
+
+  it("does not read the register for an emptied date", async () => {
+    // An emptied date field is not a day. Sent, it came back as a failed read
+    // with a retry that asked for the same empty day again.
+    fetchFeeRegister.mockImplementation((on: string) =>
+      Promise.resolve(
+        on === ""
+          ? { ok: false, failure: { status: 400, reason: "invalid-body" } }
+          : { ok: true, value: REGISTER },
+      ),
+    );
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+    await user.clear(screen.getByLabelText("Gäller den"));
+
+    expect(fetchFeeRegister).not.toHaveBeenCalledWith("");
+    expect(
+      screen.queryByText("Avgifterna kunde inte läsas just nu."),
+    ).toBeNull();
+  });
+
+  it.each([
+    [400, "invalid-body", "Något i formuläret gick inte att läsa."],
+    [422, "date-not-a-calendar-date", "Det är inget datum."],
+  ])(
+    "treats a date the server refuses with %i as something to correct",
+    async (status, reason, sentence) => {
+      /*
+       * The board stated a date it can change on the control above. Called a
+       * failed read, it was offered a retry that asked for the same date again.
+       */
+      const user = userEvent.setup();
+      render(<FeesScreen />);
+      await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+      fetchFeeRegister.mockResolvedValue({
+        ok: false,
+        failure: { status, reason },
+      });
+      const date = screen.getByLabelText("Gäller den");
+      await user.clear(date);
+      await user.type(date, "2026-10-15");
+
+      expect(await screen.findByText(sentence)).toBeTruthy();
+      expect(
+        screen.queryByText("Avgifterna kunde inte läsas just nu."),
+      ).toBeNull();
+      expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+      // The previous day's register is not left under the date it refused.
+      expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
+    },
+  );
+
+  it("drops a date's refusal when a valid date then fails to read", async () => {
+    /*
+     * A refused date followed by a read that fails on a valid one: the retry is
+     * for the second date, and the first date's "not a date" notice no longer
+     * describes the control.
+     */
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+
+    fetchFeeRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "date-not-a-calendar-date" },
+    });
+    const date = screen.getByLabelText("Gäller den");
+    await user.clear(date);
+    await user.type(date, "2026-10-14");
+    expect(await screen.findByText("Det är inget datum.")).toBeTruthy();
+
+    fetchFeeRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "offline" },
+    });
+    await user.clear(date);
+    await user.type(date, "2026-10-15");
+
+    expect(
+      await screen.findByText("Avgifterna kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Det är inget datum.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
   });
 
   it("does not report a failed read of the runs as none issued", async () => {

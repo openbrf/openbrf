@@ -33,8 +33,9 @@ import { EventAdminPanel } from "./EventAdminPanel";
  * the API answers for, and that a card states how many dates the series has
  * rather than how many of them the period holds.
  *
- * That a called-off date offers the way back while it is still ahead and offers
- * nothing once it has begun - read off the row, because the server decided it.
+ * That a date offers calling it off, and a called-off date the way back, while
+ * it is still ahead and nothing once it has begun - read off the row, because
+ * the server decided it.
  */
 
 const TODAY = new Date("2026-04-01T09:00:00.000Z");
@@ -503,6 +504,37 @@ describe("calling off one date", () => {
     await open();
 
     expect(screen.getByText("Inställt")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Ställ in lördag 18 april 2026" }),
+    ).toBeNull();
+  });
+
+  it("is not offered once the date has begun", async () => {
+    // The server refuses it: a date that has begun went ahead, and a call-off
+    // of it could not be taken back.
+    fetchEventSeries.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          ...CLEANING,
+          occurrenceCount: 1,
+          occurrences: [
+            {
+              id: "occurrence-april",
+              startsAt: "2026-04-18T08:00:00.000Z",
+              endsAt: "2026-04-18T11:00:00.000Z",
+              on: "2026-04-18",
+              cancelledAt: null,
+              begun: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    await open();
+
+    expect(screen.getByText("lördag 18 april 2026")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Ställ in lördag 18 april 2026" }),
     ).toBeNull();

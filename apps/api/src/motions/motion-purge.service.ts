@@ -7,6 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import {
+  MOTIONS_OFF_AGENDAS_TO_COME,
   motionsErasedOnRequest,
   remainingRunBound,
 } from "../retention/erasure-domains";
@@ -83,7 +84,8 @@ export interface MotionPurgeRunSummary {
  * motion still with the board is out of scope however old it is: the association
  * is processing it, so the purpose it is held for has not ended, and a queue
  * nobody has worked is something for the board to see rather than for a job to
- * erase.
+ * erase. Neither is a closed motion on the agenda of a meeting not yet held,
+ * for the same reason.
  *
  * ## Legal hold
  *
@@ -279,6 +281,7 @@ export class MotionPurgeService implements OnModuleInit {
               // it makes the rule readable as the rule it is - an open motion is
               // out of scope however old it is.
               closedAt: { not: null, lte: cutoff },
+              AND: [MOTIONS_OFF_AGENDAS_TO_COME],
               // Spelled conditionally rather than as an empty `notIn`, so what
               // the query asks does not depend on how the client renders a list
               // of none.
@@ -363,6 +366,7 @@ export class MotionPurgeService implements OnModuleInit {
             ? {
                 submittedByPersonId: personId,
                 closedAt: { not: null, lte: cutoff },
+                AND: [MOTIONS_OFF_AGENDAS_TO_COME],
               }
             : // An open motion is still out of scope, request or no request: it
               // is a matter the association is still dealing with, which is why

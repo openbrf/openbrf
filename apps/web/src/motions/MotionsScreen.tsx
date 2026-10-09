@@ -61,14 +61,6 @@ interface Loaded {
    */
   meetingsFailed: boolean;
   loadFailed: boolean;
-  /**
-   * True where a re-read reached the first page and failed on a later one.
-   *
-   * The queue then holds the pages read before the failure and the cursor
-   * points at the page that failed, so the control below the queue can offer
-   * that page again. It is not `loadFailed`: the rows on the screen are good.
-   */
-  laterPageFailed: boolean;
 }
 
 const EMPTY: Loaded = {
@@ -80,7 +72,6 @@ const EMPTY: Loaded = {
   meetings: null,
   meetingsFailed: false,
   loadFailed: false,
-  laterPageFailed: false,
 };
 
 /**
@@ -164,7 +155,25 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    */
   const queuePages = useRef(1);
 
-  const read = useCallback(async (): Promise<Loaded> => {
+  /*
+   * Answers with a step from what is on the screen rather than a whole new
+   * screen, because a half whose read failed keeps what it last showed. Every
+   * act here ends in a re-read, and one that fails after a withdrawal would
+   * otherwise put "no motions" and "no deadline" under the notice saying the
+   * read failed - sentences about the association made from a request that
+   * never answered. The meetings screen keeps its meeting the same way.
+   */
+  const read = useCallback(async (): Promise<{
+    apply: (held: Loaded) => Loaded;
+    /**
+     * True where the re-read reached the first page and failed on a later one.
+     *
+     * The queue then holds the pages read before the failure and the cursor
+     * points at the page that failed, so the control below the queue can offer
+     * that page again. It is not `loadFailed`: the rows on the screen are good.
+     */
+    laterPageFailed: boolean;
+  }> => {
     const [intake, firstPage, meetings] = await Promise.all([
       canSubmit ? fetchMotionIntake() : null,
       canHandle ? fetchMotionQueue() : null,
@@ -206,7 +215,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       queuePages.current = pagesHeld;
     }
 
-    return {
+    const apply = (held: Loaded): Loaded => ({
       ready: true,
       /*
        * The board's answer first where there is one, because a board member who
@@ -218,10 +227,11 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           ? queue.value.deadline
           : intake?.ok === true
             ? intake.value.deadline
-            : null,
-      own: intake?.ok === true ? intake.value.motions : [],
-      queue: queue?.ok === true ? queue.value.motions : [],
-      queueCursor: queue?.ok === true ? queue.value.nextCursor : null,
+            : held.deadline,
+      own: intake?.ok === true ? intake.value.motions : held.own,
+      queue: queue?.ok === true ? queue.value.motions : held.queue,
+      queueCursor:
+        queue?.ok === true ? queue.value.nextCursor : held.queueCursor,
       meetings: meetings?.ok === true ? meetings.value : null,
       /*
        * A meetings read that failed is deliberately not a failed load of this
@@ -231,8 +241,8 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
        */
       meetingsFailed: meetings?.ok === false,
       loadFailed: intake?.ok === false || queue?.ok === false,
-      laterPageFailed,
-    };
+    });
+    return { apply, laterPageFailed };
   }, [canSubmit, canHandle, canReadMeetings]);
 
   /**
@@ -243,15 +253,15 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    */
   const reload = useCallback((): void => {
     const version = ++currentRead.current;
-    void read().then((next) => {
+    void read().then(({ apply, laterPageFailed }) => {
       if (version === currentRead.current) {
-        setLoaded(next);
+        setLoaded(apply);
         // The queue has been read again from the top, so a failure to read a
         // page below the old one is no longer about anything on the screen.
         // Cleared as the new queue lands rather than as the read starts, so the
         // sentence never disappears while the rows it was about are still up.
         // Raised instead where the re-read itself stopped short of a page.
-        setMoreFailed(next.laterPageFailed);
+        setMoreFailed(laterPageFailed);
       }
     });
   }, [read]);

@@ -14,6 +14,7 @@ import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
+import { useNow } from "../ui/use-now";
 import {
   formatDayWithWeekday,
   localDayNow,
@@ -148,6 +149,7 @@ export function BookingBoardPanel({
   });
 
   const busy = cancel.state.kind === "saving";
+  const now = useNow();
   // The answer to the request on screen, or nothing while it is in flight.
   const loaded = answer?.key === key ? answer : null;
   const failure =
@@ -264,9 +266,12 @@ export function BookingBoardPanel({
               </p>
 
               {/* Offered only while there is something to cancel. A cancelled
-                  booking has already given its hour back, and a button that
-                  always refused would be a worse way to say so. */}
-              {booking.status === "BOOKED" ? (
+                  booking has already given its hour back, and the server
+                  refuses the board from the moment a booking has ended
+                  (booking-ended). A button that always refused would be a
+                  worse way to say so. */}
+              {booking.status === "BOOKED" &&
+              Date.parse(booking.endsAt) > now ? (
                 <div>
                   <button
                     type="button"

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -103,12 +103,22 @@ export function AccountingBasisPanel({
   const [to, setTo] = useState(initial.to);
   const [producing, setProducing] = useState(false);
   const [produced, setProduced] = useState<AccountingBasisExport | null>(null);
+  /*
+   * Moved by every date edit. The dates stay editable while a request runs, so
+   * an answer that lands after one moved is for a period the form no longer
+   * names, and is dropped rather than shown under the new dates.
+   */
+  const period = useRef(0);
 
   const onProduce = useCallback(async (): Promise<void> => {
     onRefused(null);
     setProducing(true);
+    const asked = period.current;
     const result = await exportAccountingBasis({ from, to });
     setProducing(false);
+    if (asked !== period.current) {
+      return;
+    }
     if (!result.ok) {
       setProduced(null);
       onRefused(accountingFailureKey(result.failure));
@@ -164,6 +174,7 @@ export function AccountingBasisPanel({
             onChange={(event) => {
               setFrom(event.target.value);
               setProduced(null);
+              period.current += 1;
             }}
             className={FIELD_DATA}
           />
@@ -176,6 +187,7 @@ export function AccountingBasisPanel({
             onChange={(event) => {
               setTo(event.target.value);
               setProduced(null);
+              period.current += 1;
             }}
             className={FIELD_DATA}
           />

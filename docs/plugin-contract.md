@@ -567,6 +567,12 @@ theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
 is refused.
 
+`deprecated` is how a curator withdraws an entry without delisting it. Both
+screens mark the entry as no longer maintained, and an instance refuses to
+install it anew with the reason `entry-deprecated` (409). An instance that
+already has the plugin or theme can still reinstall it and take its updates,
+so a board is never left unable to repair something it already runs.
+
 An `id` appears once in the index, whatever the entry's type. An index that
 lists one twice is refused as a whole, as is an index carrying any entry the
 instance cannot read: a board installing from an index that silently lost an

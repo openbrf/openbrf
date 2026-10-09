@@ -52,6 +52,39 @@ describe("suggestMonthlyAmounts", () => {
     expect(result?.unallocated).toBe("0.28");
   });
 
+  it("reads shares recorded as percentages or whole numbers as parts of their sum", () => {
+    /*
+     * The stadgar decide how the andelstal is written. An association that
+     * records 25 for a quarter, or 2 500 out of 10 000, is apportioning the
+     * same total as one that records 0.25, and must be offered the same
+     * figures rather than a hundred or ten thousand times them.
+     */
+    for (const [a, b, c] of [
+      ["25", "25", "50"],
+      ["2500", "2500", "5000"],
+    ] as const) {
+      const result = suggestMonthlyAmounts("1200000.00", [
+        { apartmentId: "a", participationShare: a },
+        { apartmentId: "b", participationShare: b },
+        { apartmentId: "c", participationShare: c },
+      ]);
+
+      expect(result?.suggestions).toEqual([
+        { apartmentId: "a", monthlyAmount: "25000.00" },
+        { apartmentId: "b", monthlyAmount: "25000.00" },
+        { apartmentId: "c", monthlyAmount: "50000.00" },
+      ]);
+      expect(result?.unallocated).toBe("0.00");
+    }
+  });
+
+  it("reads a total typed the Swedish way", () => {
+    // How the screen prints a sum, and what a Swedish phone's keypad offers.
+    const result = suggestMonthlyAmounts("1 200 000,00", APARTMENTS);
+
+    expect(result?.suggestions[0]?.monthlyAmount).toBe("25000.00");
+  });
+
   it("offers nothing for an apartment with no share recorded", () => {
     const result = suggestMonthlyAmounts("1200000.00", [
       ...APARTMENTS,
@@ -97,7 +130,7 @@ describe("suggestMonthlyAmounts", () => {
   it("answers with nothing at all when the total is not a sum", () => {
     // The screen then keeps what the board typed and offers no figures rather
     // than offering wrong ones.
-    for (const total of ["", "inte en summa", "-1200.00", "1200,00"]) {
+    for (const total of ["", "inte en summa", "-1200.00", "1200,005"]) {
       expect(suggestMonthlyAmounts(total, APARTMENTS)).toBeNull();
     }
   });

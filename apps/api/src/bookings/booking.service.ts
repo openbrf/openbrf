@@ -407,12 +407,37 @@ export class BookingService {
       // Apartment first and resource second, which is the one order every
       // booking takes; see booking-lock.ts.
       await lockApartmentBookings(tx, apartmentId);
-      if (resource.mode === "DATE_RANGE") {
+
+      /*
+       * The resource again, under a share lock on its row. The read above took
+       * no lock, so the board may have re-cut the grid or withdrawn the
+       * resource since, and the index would not notice: a slot from the old
+       * grid starts at a different instant from the one overlapping it on the
+       * new grid. The board's edits take the row for update, so from here on
+       * they wait for this claim, and what is read now is what they wrote.
+       */
+      await tx.$queryRaw`SELECT id FROM bookable_resource WHERE id = ${resource.id} FOR SHARE`;
+      const current = await this.requireOfferedResource(resource.id, tx);
+      const recut = periodFor(current, {
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+      });
+      if (
+        recut?.startsAt.getTime() !== period.startsAt.getTime() ||
+        recut.endsAt.getTime() !== period.endsAt.getTime()
+      ) {
+        throw new BookingError(
+          "That period is not a slot this resource offers.",
+          "slot-not-bookable",
+        );
+      }
+
+      if (current.mode === "DATE_RANGE") {
         await lockResourceBookings(tx, resource.id);
         await this.refuseOverlap(tx, resource.id, period);
       }
 
-      await this.refuseOverQuota(tx, resource, apartmentId, period, now);
+      await this.refuseOverQuota(tx, current, apartmentId, period, now);
 
       /*
        * The claim, and the whole of what refuses a double booking.
@@ -479,7 +504,7 @@ export class BookingService {
           context: {
             resourceId: resource.id,
             apartmentId,
-            mode: resource.mode,
+            mode: current.mode,
             startsAt: period.startsAt.toISOString(),
             days: daysIn(period),
           },
@@ -529,7 +554,7 @@ export class BookingService {
   }
 
   /**
-   * Cancels a booking the caller made.
+   * Cancels a booking the caller made, until it begins.
    *
    * A booking belonging to somebody else is answered exactly as one that does
    * not exist, so this endpoint cannot be used to find out who holds what.
@@ -542,7 +567,7 @@ export class BookingService {
   }
 
   /**
-   * Cancels anybody's booking. Reached with bookings:manage.
+   * Cancels anybody's booking, until it ends. Reached with bookings:manage.
    *
    * The board's own act: a guest apartment held by a household that has moved
    * out, a laundry room closed for repair. The entry names the board member who
@@ -587,17 +612,42 @@ export class BookingService {
       }
 
       /*
+       * Only while there is still something to give back. A resident may
+       * cancel until the booking begins; the board until it ends, so a guest
+       * apartment left early or a laundry room shut mid-slot can be released.
+       * After that the booking has been used, and cancelling it would hand the
+       * week's allowance back for an hour that was spent and tell the access
+       * report it never happened.
+       */
+      const now = new Date();
+      const closes = ownerPersonId === null ? "endsAt" : "startsAt";
+
+      /*
        * A conditional update rather than a plain one, so two people cancelling
        * the same booking at the same instant produce one cancellation and one
        * refusal. The second matches zero rows because the status it required is
        * no longer there, which is the same shape the claim above has and for
        * the same reason: the read that found the booking was true when it was
-       * taken.
+       * taken. The time is in the same condition, so it is judged against the
+       * row as it is written and not as it was read.
        */
       const { count } = await tx.booking.updateMany({
-        where: { id: bookingId, status: "BOOKED" },
+        where: { id: bookingId, status: "BOOKED", [closes]: { gt: now } },
         data: { status: "CANCELLED" },
       });
+      if (
+        count === 0 &&
+        booking.status === "BOOKED" &&
+        booking[closes].getTime() <= now.getTime()
+      ) {
+        // A booking's period never changes, so the read is decisive about it.
+        throw ownerPersonId === null
+          ? new BookingError("That booking has already ended.", "booking-ended")
+          : new BookingError(
+              "That booking has already begun.",
+              "booking-started",
+            );
+      }
       if (count === 0) {
         throw new BookingError(
           "That booking is not live, so there is nothing to cancel.",
@@ -664,8 +714,9 @@ export class BookingService {
   /** The resource, when it exists and is still offered for booking. */
   private async requireOfferedResource(
     resourceId: string,
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<ResourceRecord> {
-    const resource = await this.prisma.bookableResource.findUnique({
+    const resource = await client.bookableResource.findUnique({
       where: { id: resourceId },
       select: RESOURCE_SELECT,
     });

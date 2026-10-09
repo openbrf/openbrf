@@ -806,7 +806,10 @@ function OccurrenceList({
                         : t("events.manage.reinstate")}
                     </button>
                   )
-                ) : (
+                ) : occurrence.begun ? null : (
+                  /* Offered only while the date is still ahead, for the same
+                     reason: the server refuses calling off a date that has
+                     begun, because the call-off could not be taken back. */
                   <button
                     type="button"
                     disabled={busy}

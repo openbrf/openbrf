@@ -41,6 +41,27 @@ export class PluginApiVersionError extends DomainError {
 }
 
 /**
+ * A first install of an entry the catalog has deprecated.
+ *
+ * Deprecating is how a curator withdraws a package without delisting it: the
+ * entry stays so that an instance which already runs the plugin can still see
+ * it, reinstall it and take the update that replaces it, but nobody should
+ * start using it now. Refused only for a plugin this instance does not have,
+ * because a board that already depends on one has to be able to repair it.
+ */
+export class PluginEntryDeprecatedError extends DomainError {
+  readonly status = HttpStatus.CONFLICT;
+  readonly reason = "entry-deprecated";
+
+  constructor(id: string) {
+    super(
+      `The catalog has deprecated "${id}". It can be reinstalled or updated ` +
+        "where it is already installed, but not installed anew.",
+    );
+  }
+}
+
+/**
  * A second plugin declaring the OAuth protected resource.
  *
  * The resource's full URL is the audience every access token is issued for, so
@@ -93,8 +114,9 @@ export class PluginConsentMismatchError extends DomainError {
 
   constructor() {
     super(
-      "The permissions or personal data the catalog lists have changed since " +
-        "this screen was opened. Review them again.",
+      "The catalog entry has changed since it was shown: the release, the " +
+        "permissions or the personal data it lists are not the ones that were " +
+        "reviewed. Look at the entry again and retry.",
     );
   }
 }

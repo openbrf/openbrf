@@ -3,9 +3,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
-import { Prisma } from "../generated/prisma/client";
+import { isUniqueViolation } from "../database/unique-violation";
+import type { Prisma } from "../generated/prisma/client";
+import { holdsBoardSeat } from "../mail/board-recipients";
 import { lockChatMessage } from "./chat-lock";
-import { holdsBoardSeat, roomFor } from "./chat-membership";
+import { roomFor } from "./chat-membership";
 import { ChatError } from "./chat.error";
 import {
   authorViewOf,
@@ -225,10 +227,7 @@ export class ChatReportService {
          * which without this reaches the reporter as a fault where the refusal
          * the sentence above promises belongs.
          */
-        if (
-          cause instanceof Prisma.PrismaClientKnownRequestError &&
-          cause.code === "P2002"
-        ) {
+        if (isUniqueViolation(cause)) {
           throw new ChatError(
             "This message has already been reported by this account.",
             "already-reported",

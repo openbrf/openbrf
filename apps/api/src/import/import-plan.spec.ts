@@ -720,11 +720,16 @@ describe("an identity number an earlier row states without writing it", () => {
     // Named after row 1 either way, but found under different keys: the apply
     // looks for persons added since the plan under the keys the plan looked
     // under, and no further.
-    expect(plan.rows[0]).toMatchObject({ outcome: "create", foundUnder: null });
+    expect(plan.rows[0]).toMatchObject({
+      outcome: "create",
+      foundUnder: null,
+      foundInRegister: [],
+    });
     expect(plan.rows[1]).toMatchObject({
       outcome: "update",
       matchedBy: "earlierRow",
       foundUnder: "email",
+      foundInRegister: [],
       sameAsRowNumber: 1,
     });
     expect(plan.rows[2]).toMatchObject({
@@ -732,6 +737,7 @@ describe("an identity number an earlier row states without writing it", () => {
       matchedPersonId: null,
       matchedBy: "earlierRow",
       foundUnder: "personalIdentityNumber",
+      foundInRegister: [],
       sameAsRowNumber: 1,
     });
   });
@@ -799,6 +805,17 @@ describe("an identity number an earlier row states without writing it", () => {
     expect(plan("person-other")).toMatchObject({
       outcome: "ambiguous",
       matchedBy: "personalIdentityNumber",
+    });
+    // Both are candidates, but only one holds the number in the register: the
+    // apply's second look there finds Anna under it only through row 1, and
+    // must not take her absence for her having left.
+    expect(plan("person-anna")).toMatchObject({
+      foundUnder: "personalIdentityNumber",
+      candidates: [
+        expect.objectContaining({ personId: "person-other" }),
+        expect.objectContaining({ personId: "person-anna" }),
+      ] as unknown,
+      foundInRegister: ["person-other"],
     });
   });
 
@@ -1268,8 +1285,103 @@ describe("a row the preview asked about, planned again", () => {
       false,
     ],
   ])("tells %s", (_, previewed, createdByApply, expected) => {
-    expect(changedSincePreview(plan, previewed, new Set(createdByApply))).toBe(
+    expect(
+      changedSincePreview(plan, previewed, {}, new Set(createdByApply)),
+    ).toBe(expected);
+  });
+});
+
+describe("a decided row planned again", () => {
+  // Row 1 is Anna of 1101, and the register held two of her when the preview
+  // asked about the row. A third moves in after the board decided.
+  const annaKey = apartmentNameKey("apartment-1101", "Anna", "Lindqvist");
+  const names = new Map([
+    ["person-a", "Anna Lindqvist"],
+    ["person-b", "Anna Lindqvist"],
+    ["person-c", "Anna Lindqvist"],
+  ]);
+  const previewed: PreviewedCandidates = { "1": ["person-a", "person-b"] };
+
+  function changed(
+    annas: readonly string[],
+    decisions: ImportDecisions,
+    asked: PreviewedCandidates = previewed,
+  ): boolean {
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      snapshot({
+        personsByApartmentAndName: new Map([[annaKey, [...annas]]]),
+        personNames: names,
+      }),
+      DEFAULTS,
+      decisions,
+    );
+    return changedSincePreview(plan, asked, decisions);
+  }
+
+  const create: ImportDecisions = { "1": { action: "create" } };
+  const choose: ImportDecisions = {
+    "1": { action: "use-person", personId: "person-a" },
+  };
+  const skip: ImportDecisions = { "1": { action: "skip" } };
+
+  it.each([
+    ["a new person", create],
+    ["a chosen one", choose],
+  ])(
+    "holds a decision for %s while the candidates are the same",
+    (_, decisions) => {
+      expect(changed(["person-b", "person-a"], decisions)).toBe(false);
+    },
+  );
+
+  it.each([
+    ["a new person", create, true],
+    ["a chosen one", choose, true],
+    // It writes nothing, whoever it matches.
+    ["leaving it out", skip, false],
+  ])("finds somebody who joined them, for %s", (_, decisions, expected) => {
+    expect(changed(["person-a", "person-b", "person-c"], decisions)).toBe(
       expected,
     );
+  });
+
+  it("counts a row decided to be written that the preview did not ask about as changed", () => {
+    expect(changed(["person-a", "person-b"], create, {})).toBe(true);
+    // One left undecided is the undecided rule's to refuse.
+    expect(changed(["person-a", "person-b"], {}, {})).toBe(false);
+  });
+
+  it("knows a person an earlier chunk created for the row", () => {
+    // Rows 1 and 2 are both an Anna of 1101, and the board made row 1 a new
+    // person. The preview could not list that person for row 2, having no id
+    // for them; the second chunk finds them in the register, as person-new.
+    const decisions: ImportDecisions = {
+      "1": { action: "create" },
+      "2": { action: "use-person", personId: "person-a" },
+    };
+    const secondChunk = planImport(
+      [prepared(COMPLETE, { rowNumber: 2 })],
+      snapshot({
+        personsByApartmentAndName: new Map([
+          [annaKey, ["person-a", "person-b", "person-new"]],
+        ]),
+        personNames: new Map([...names, ["person-new", "Anna Lindqvist"]]),
+      }),
+      DEFAULTS,
+      decisions,
+    );
+    const asked: PreviewedCandidates = { "2": ["person-a", "person-b"] };
+
+    expect(
+      changedSincePreview(
+        secondChunk,
+        asked,
+        decisions,
+        new Set(["person-new"]),
+      ),
+    ).toBe(false);
+    // Without knowing who the apply created, person-new is a stranger.
+    expect(changedSincePreview(secondChunk, asked, decisions)).toBe(true);
   });
 });
