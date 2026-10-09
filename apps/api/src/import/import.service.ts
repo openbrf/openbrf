@@ -108,12 +108,13 @@ export interface ImportSessionView {
  *
  * The personal identity number is reported as present or absent and never sent.
  * A preview is not a register view, and DESIGN.md keeps identity numbers out of
- * every screen that is not one. Which keys the plan looked under is the apply's
- * business: the screen names the match by `matchedBy`.
+ * every screen that is not one. Which keys the plan looked under, and whom it
+ * found in the register under them, is the apply's business: the screen names
+ * the match by `matchedBy`.
  */
 export interface ImportPreviewRow extends Omit<
   PlannedRow,
-  "person" | "problems" | "foundUnder"
+  "person" | "problems" | "foundUnder" | "foundInRegister"
 > {
   person: {
     firstName: string;
@@ -706,7 +707,7 @@ export class ImportService implements OnModuleInit {
       indexes: new Map(),
     });
 
-    if (changedSincePreview(plan, previewed)) {
+    if (changedSincePreview(plan, previewed, decisions)) {
       throw new ImportError(
         "Given these decisions, a row the preview showed as needing a " +
           "decision no longer does, or matches other people.",
@@ -961,7 +962,12 @@ function toPreviewRow(
   row: PlannedRow,
   sourceRows: readonly number[],
 ): ImportPreviewRow {
-  const { person, foundUnder: _foundUnder, ...rest } = row;
+  const {
+    person,
+    foundUnder: _foundUnder,
+    foundInRegister: _foundInRegister,
+    ...rest
+  } = row;
   return {
     ...rest,
     // The header is the sheet's first row, so without blank rows recorded a

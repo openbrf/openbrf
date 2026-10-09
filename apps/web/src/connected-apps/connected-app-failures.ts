@@ -39,13 +39,14 @@ const DISCONNECT_FAILURES: Readonly<Record<string, TranslationKey>> = {
  * The registration refusals.
  *
  * `invalid-body` is the endpoint's own schema refusal rather than a domain
- * reason, and on this form it can only be about the addresses: the name field
- * is bounded to the same length the endpoint accepts, so nothing else the form
- * can send is capable of failing that check.
+ * reason, and it is not only about the addresses: the form trims the name, so
+ * a name of blanks reaches the endpoint empty and fails that check too. It has
+ * a sentence of its own that names both fields, and `invalid-redirect-uri` is
+ * the one that blames an address.
  */
 const REGISTER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "invalid-redirect-uri": "connectedApps.register.errors.invalidRedirectUri",
-  "invalid-body": "connectedApps.register.errors.invalidRedirectUri",
+  "invalid-body": "connectedApps.register.errors.invalidBody",
   "name-taken": "connectedApps.register.errors.nameTaken",
   // The instance advertises no address for connected apps to sign in to, so
   // the client has nothing to be bound to. The fix is an install, not a retry.

@@ -67,6 +67,7 @@ import {
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
 import { connectedAppHost } from "../connected-apps/client-host";
+import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -203,6 +204,18 @@ const REPORT_TRANSACTION_TIMEOUT_MS = 30_000;
 export class DataSubjectReportService {
   private readonly logger = new Logger(DataSubjectReportService.name);
 
+  /**
+   * The slots both routes gather in: the board's access report and a member's
+   * export of their own data are the same transaction, so they are bounded
+   * together. Held here rather than beside either route because this service is
+   * the one thing both reach, and a provider is one instance per process.
+   *
+   * Taken before anything is read, the retention setting included, so a
+   * request turned away has cost the database nothing and leaves no audit
+   * entry.
+   */
+  private readonly slots = new ExportSlots();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
@@ -215,20 +228,22 @@ export class DataSubjectReportService {
     now?: Date;
   }): Promise<DataSubjectReport> {
     const now = input.now ?? new Date();
-    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
 
-    const report = await this.audit.withAuditedRead<DataSubjectReport>(
-      {
-        action: "DATA_EXPORTED",
-        channel: "WEB",
-        actorPersonId: input.actorPersonId,
-        targetPersonId: input.personId,
-        // What was assembled, never what it held.
-        context: { report: "dataSubjectAccess", sections: [...SECTIONS] },
-      },
-      async (tx) => this.build(tx, input.personId, now, retentionDays),
-      { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
-    );
+    const report = await this.slots.run(async () => {
+      const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
+      return this.audit.withAuditedRead<DataSubjectReport>(
+        {
+          action: "DATA_EXPORTED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: input.personId,
+          // What was assembled, never what it held.
+          context: { report: "dataSubjectAccess", sections: [...SECTIONS] },
+        },
+        async (tx) => this.build(tx, input.personId, now, retentionDays),
+        { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
+      );
+    });
 
     // The person and the act, and nothing the report was carrying.
     this.logger.log(
@@ -252,24 +267,26 @@ export class DataSubjectReportService {
    */
   async portable(personId: string): Promise<DataSubjectReport> {
     const now = new Date();
-    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
 
-    const report = await this.audit.withAuditedRead<DataSubjectReport>(
-      {
-        action: "DATA_PORTABILITY_EXPORTED",
-        channel: "WEB",
-        actorPersonId: personId,
-        targetPersonId: personId,
-        // What the file carried, named the way the access report names its
-        // own: how much was disclosed, never what it held.
-        context: {
-          export: "dataPortability",
-          sections: [...PORTABLE_SECTIONS],
+    const report = await this.slots.run(async () => {
+      const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
+      return this.audit.withAuditedRead<DataSubjectReport>(
+        {
+          action: "DATA_PORTABILITY_EXPORTED",
+          channel: "WEB",
+          actorPersonId: personId,
+          targetPersonId: personId,
+          // What the file carried, named the way the access report names its
+          // own: how much was disclosed, never what it held.
+          context: {
+            export: "dataPortability",
+            sections: [...PORTABLE_SECTIONS],
+          },
         },
-      },
-      async (tx) => this.build(tx, personId, now, retentionDays),
-      { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
-    );
+        async (tx) => this.build(tx, personId, now, retentionDays),
+        { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
+      );
+    });
 
     this.logger.log(`Data portability export produced for person ${personId}`);
     return report;
@@ -726,6 +743,8 @@ export class DataSubjectReportService {
         status: true,
         submittedAt: true,
         closedAt: true,
+        meetingId: true,
+        meeting: { select: { concludedAt: true } },
       },
     });
 
@@ -1602,10 +1621,17 @@ export class DataSubjectReportService {
          *
          * An instant and not a date column, read on the association's calendar
          * exactly as the booking's is.
+         *
+         * Null as well while the motion is on the agenda of a meeting not yet
+         * held: the purge and an erasure both keep it until then
+         * (MOTIONS_OFF_AGENDAS_TO_COME), so a date from the closing alone could
+         * name a day nothing is going to happen on. Once the meeting is held
+         * the date is the closing's again.
          */
-        erasableFrom: formatDayOfInstant(
-          computeMotionPurgeDate(motion.closedAt),
-        ),
+        erasableFrom:
+          motion.meetingId !== null && motion.meeting?.concludedAt === null
+            ? null
+            : formatDayOfInstant(computeMotionPurgeDate(motion.closedAt)),
       })),
       subletApplications: subletApplications.map((application) => ({
         applicationId: application.id,

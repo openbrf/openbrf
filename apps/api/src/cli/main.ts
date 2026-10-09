@@ -279,6 +279,16 @@ async function add(
       ? "none"
       : values.map((value) => t(key(value))).join("; ");
 
+  // Refused before the consent is printed, as the install would refuse it: a
+  // dry run that passes must mean the real run gets past the catalog.
+  if (entry.deprecated && entry.installedVersion === null) {
+    console.error(
+      `The catalog has deprecated ${id}, so it can only be reinstalled or ` +
+        "updated where it is already installed.",
+    );
+    return 1;
+  }
+
   console.log(
     terminalText(`${entry.name.en} ${entry.version} (${entry.packageName})`),
   );
@@ -303,7 +313,21 @@ async function add(
     return 0;
   }
 
-  await admin.install({ id }, null, "SYSTEM");
+  // The install reads the catalog afresh, so an entry a curator changed since
+  // it was listed above is refused rather than installed on a consent that
+  // described the older text.
+  await admin.install(
+    {
+      id,
+      expectedVersion: entry.version,
+      permissions: entry.permissions,
+      personalData: entry.personalData,
+      actions: entry.actions,
+      oauthProtectedResource: entry.oauthProtectedResource,
+    },
+    null,
+    "SYSTEM",
+  );
   const outcome = await installer.reconcile();
 
   const failure = outcome.failed.find((entryFailed) => entryFailed.id === id);

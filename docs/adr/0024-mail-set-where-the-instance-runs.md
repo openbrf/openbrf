@@ -140,10 +140,18 @@ unless the relay is on loopback, so a relay whose offer of STARTTLS an attacker
 on the path strips gets no password in the clear. `OPENBRF_SMTP_REQUIRE_TLS=false`
 lets a host vouch for the network to a relay that offers none, such as a sidecar
 on the Compose network, and the instance logs a warning at start while it is set.
-A server the board entered is
-used as before. The SMTP driver also reports the `Message-ID` it handed over as
-the delivered one, so the environment's relay must keep it; one that rewrites it
-belongs behind `http-api`.
+A server the board enters is held to the same rule from the save on: every save of
+the SMTP settings stores `smtpRequireTls`, true unless the host is on loopback,
+whichever field changed.
+Settings saved before that are not migrated. Their column is false, so a server
+that offers no STARTTLS keeps sending as it did, and the SMTP card warns that the
+password can go out unencrypted until the board saves the settings again. Where
+STARTTLS is required, a send that finds no TLS fails with the reason
+`mail-tls-unavailable`, which the card explains as a port and TLS mode to fix
+rather than a password. The SMTP driver
+also reports the `Message-ID` it handed over as the delivered one, so the
+environment's relay must keep it; one that rewrites it belongs behind
+`http-api`.
 
 ### The sender a host sets
 

@@ -472,6 +472,10 @@ function CatalogRow({
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const current = entry.installedVersion === entry.version;
+  // Deprecated means "not installed anew": an instance that already has the
+  // theme may still take its update.
+  const closedToNewInstalls =
+    entry.deprecated && entry.installedVersion === null;
 
   return (
     <li className="flex flex-col gap-2 rounded-control border border-line p-4">
@@ -506,7 +510,7 @@ function CatalogRow({
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={busy || current}
+          disabled={busy || current || closedToNewInstalls}
           className={SECONDARY_BUTTON}
           onClick={onInstall}
         >
