@@ -152,11 +152,12 @@ column is only a floor for a server that is not on loopback: the instance
 requires STARTTLS of such a server when it sends, whatever the column says, so
 a row that does not require it anyway, such as one a data-only restore of an
 older backup or an edit made in SQL brought back, is held to the rule all the
-same. Only for a server on loopback does the column decide. Where STARTTLS is required, a send that finds no TLS fails
-with the reason `mail-tls-unavailable`, which the card explains as a port and
-TLS mode to fix rather than a password. The SMTP driver also reports the `Message-ID` it handed
-over as the delivered one, so the environment's relay must keep it; one that
-rewrites it belongs behind `http-api`.
+same. Only for a server on loopback does the column decide. Where STARTTLS is
+required, a send that finds no TLS fails with the reason `mail-tls-unavailable`,
+which the card explains as a port and TLS mode to fix rather than a password.
+The SMTP driver also reports the `Message-ID` it handed over as the delivered
+one, so the environment's relay must keep it; one that rewrites it belongs
+behind `http-api`.
 
 _Amended 2026-10-09._ Settings saved before saving required TLS were first left
 as they were and only flagged, so that an instance whose server offers no
