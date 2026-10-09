@@ -310,6 +310,10 @@ describe("pluginPackageProblems", () => {
       "a method with a regular-expression default",
       "const helper = { require(pattern = /x/) {} };",
     ],
+    [
+      "a method with a regular expression after `return` in its default",
+      "({ require(x = (() => { return /x/; })()) {} });",
+    ],
     ["a private method", "class Loader { #require(name) {} }"],
     ["a call to a private method", "this.#require(name);"],
     ["a method's body opened after a comment", "({ require(n) /* c */ {} });"],

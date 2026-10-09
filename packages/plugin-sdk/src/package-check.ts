@@ -105,6 +105,17 @@ const KEYWORDS_BEFORE_EXPRESSION: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The words in KEYWORDS_BEFORE_EXPRESSION that a script may also use as a
+ * plain name, so that a `/` after one may divide: `await / 2`. After the
+ * others, such as `return`, a `/` always opens a regular expression.
+ */
+const KEYWORDS_THAT_MAY_BE_NAMES: ReadonlySet<string> = new Set([
+  "await",
+  "of",
+  "yield",
+]);
+
+/**
  * Tokens after which a `/` divides. "postfix" stands for a `++` or `--` that
  * follows its operand on the same line; before its operand, as in
  * `++/a/.lastIndex`, a `/` opens a regular expression.
@@ -324,9 +335,9 @@ function isHostPackage(specifier: string): boolean {
  * - No `/` that the scanner may have misread may stand between the
  *   parentheses, since a `)` inside a misread regular expression or division
  *   would close the call early. That is every `/` read as a division, and a
- *   regular expression read after a word, as in `o.of / 2`. A regular
- *   expression after a punctuator, as in `require(pattern = /x/) {}`, cannot
- *   be a division.
+ *   regular expression read after a word that may be a name, as in
+ *   `await / 2`. A regular expression after a punctuator or a reserved word,
+ *   as in `require(pattern = /x/) {}`, cannot be a division.
  */
 function requireCalls(source: string): {
   specifiers: string[];
@@ -407,8 +418,8 @@ function requireCalls(source: string): {
     } else if (char === "`") {
       index = templateText(index + 1);
     } else if (char === "/" && startsExpression(previous)) {
-      // After a word the guess can be wrong: in `o.of / 2` the `/` divides.
-      if (isWord(previous(1))) {
+      // After a name the guess can be wrong: `await / 2` divides.
+      if (KEYWORDS_THAT_MAY_BE_NAMES.has(previous(1) ?? "")) {
         slashes += 1;
       }
       index = afterRegularExpression(source, index);
