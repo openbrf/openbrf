@@ -399,20 +399,20 @@ export class InitialSupplyService {
      * ended - so it is not this holding's decision, even when it is the latest
      * one on file for the person.
      */
-    const currentHolders = apartments.flatMap((apartment) =>
+    const currentTenantOwners = apartments.flatMap((apartment) =>
       apartment.residencies.map((residency) => ({
         apartmentId: apartment.id,
         personId: residency.person.id,
       })),
     );
     const earlierHoldings =
-      currentHolders.length === 0
+      currentTenantOwners.length === 0
         ? []
         : await tx.residency.findMany({
             where: {
               role: "MEMBER",
               movedOutOn: { not: null, lte: today },
-              OR: currentHolders,
+              OR: currentTenantOwners,
             },
             select: { apartmentId: true, personId: true, movedOutOn: true },
           });
