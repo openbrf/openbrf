@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+
+import { IntegrityError } from "@openbrf/plugin-sdk";
 
 import type { CatalogArtifact } from "./catalog-entry";
 import { fetchBytes, type FetchOptions } from "./fetch-resource";
@@ -72,9 +75,16 @@ export async function ensureArchive(
   // on disk under a name a later run could mistake for a good one.
   const bytes = await fetchVerified(artifact, options);
 
-  const temporary = `${target}.${String(process.pid)}.partial`;
-  await writeFile(temporary, bytes);
-  await rename(temporary, target);
+  // Named at random rather than by process, so two runs never share one, and
+  // removed when the write fails: nothing else sweeps the store.
+  const temporary = `${target}.${randomUUID()}.partial`;
+  try {
+    await writeFile(temporary, bytes);
+    await rename(temporary, target);
+  } catch (cause) {
+    await rm(temporary, { force: true });
+    throw cause;
+  }
   return target;
 }
 
@@ -106,8 +116,16 @@ async function readIfVerified(path: string, sha512: string): Promise<boolean> {
   try {
     verifySha512(bytes, sha512);
     return true;
-  } catch {
-    await rm(path, { force: true });
-    return false;
+  } catch (cause) {
+    /*
+     * Only a file that hashes to something else is discarded. A digest that
+     * cannot be read is a fault in the catalog or the consent row, not in the
+     * file - and the file may be the only copy a rebuild without network has.
+     */
+    if (cause instanceof IntegrityError && cause.reason === "digest-mismatch") {
+      await rm(path, { force: true });
+      return false;
+    }
+    throw cause;
   }
 }

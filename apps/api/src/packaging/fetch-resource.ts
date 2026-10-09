@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { type FileHandle, open, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -202,33 +202,73 @@ async function readLocalFile(url: URL, maxBytes: number): Promise<Buffer> {
     );
   }
 
-  let size: number;
+  /*
+   * A regular file only. A device, a FIFO or a /proc entry reports a size of
+   * nothing and then reads without end, so the size it states bounds nothing.
+   * Checked before the open as well as after it, because opening a FIFO waits
+   * for a writer.
+   */
+  let handle: FileHandle;
   try {
-    size = (await stat(path)).size;
+    if (!(await stat(path)).isFile()) {
+      throw new Error("not a regular file");
+    }
+    handle = await open(path, "r");
+    if (!(await handle.stat()).isFile()) {
+      await handle.close();
+      throw new Error("not a regular file");
+    }
   } catch {
     throw new ResourceFetchError(
-      `${url.href} could not be read.`,
+      `${url.href} could not be read as a regular file.`,
       "unreachable",
     );
   }
 
-  // Before the read rather than after it: the file is on the same volume as
-  // the register, and its size is knowable without holding any of it.
-  if (size > maxBytes) {
-    throw new ResourceFetchError(
-      `${url.href} is ${String(size)} bytes, over the ${String(maxBytes)} byte limit.`,
-      "too-large",
-      { maxBytes },
-    );
-  }
-
   try {
-    return await readFile(path);
-  } catch {
-    throw new ResourceFetchError(
-      `${url.href} could not be read.`,
-      "unreachable",
-    );
+    return await readBounded(handle, url, maxBytes);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Reads a file up to the limit and no further.
+ *
+ * Bounded by what is read rather than by what the file said its size was, so
+ * a file that grows between the check and the read is refused once it passes
+ * the limit instead of being held whole first.
+ */
+async function readBounded(
+  handle: FileHandle,
+  url: URL,
+  maxBytes: number,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes + 1 - total));
+    let bytesRead: number;
+    try {
+      ({ bytesRead } = await handle.read(chunk, 0, chunk.length, null));
+    } catch {
+      throw new ResourceFetchError(
+        `${url.href} could not be read.`,
+        "unreachable",
+      );
+    }
+    if (bytesRead === 0) {
+      return Buffer.concat(chunks, total);
+    }
+    total += bytesRead;
+    if (total > maxBytes) {
+      throw new ResourceFetchError(
+        `${url.href} is over the ${String(maxBytes)} byte limit.`,
+        "too-large",
+        { maxBytes },
+      );
+    }
+    chunks.push(chunk.subarray(0, bytesRead));
   }
 }
 
