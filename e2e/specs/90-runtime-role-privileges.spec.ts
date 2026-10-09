@@ -368,20 +368,24 @@ test("the application's role cannot write a partitioned queue or one with a job 
       "the queue is unchanged",
     ).toEqual([{ table_name: "job_common", partition: false }]);
 
-    // Nor can the application take the trigger away: that needs to own the
-    // table.
-    for (const [what, statement] of [
-      [
-        "the trigger cannot be disabled",
-        "ALTER TABLE pgboss.queue DISABLE TRIGGER refuse_own_job_table",
-      ],
-      [
-        "the trigger cannot be dropped",
-        "DROP TRIGGER refuse_own_job_table ON pgboss.queue",
-      ],
-    ] as const) {
-      expect(await sqlStateOf(statement), what).toBe(PERMISSION_DENIED);
-    }
+    // Nor can the application take the trigger away: dropping it and switching
+    // it off both need the privileges of the table's owner. Asked of the role
+    // rather than tried for switching it off, which scripts/
+    // check-statutory-guards.mjs refuses anywhere outside its allowlist.
+    expect(
+      await sqlStateOf("DROP TRIGGER refuse_own_job_table ON pgboss.queue"),
+      "the trigger cannot be dropped",
+    ).toBe(PERMISSION_DENIED);
+    expect(
+      await asRuntimeRole(async (client) => {
+        const result = await client.query(
+          `SELECT pg_has_role(current_user, relowner, 'USAGE') AS owner
+           FROM pg_class WHERE oid = 'pgboss.queue'::regclass`,
+        );
+        return result.rows;
+      }),
+      "the trigger cannot be switched off",
+    ).toEqual([{ owner: false }]);
   } finally {
     await connectedAs(stack.databaseUrl, (client) =>
       client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
@@ -392,10 +396,10 @@ test("the application's role cannot write a partitioned queue or one with a job 
 test("a queue already rewritten stops the owner's job schema install", async () => {
   test.setTimeout(120_000);
 
-  // A row that got in before the trigger did, or while it was switched off, is
-  // what the install's own check stops for. Written here by the owner with the
-  // trigger disabled for the one transaction, which is also how it stays out
-  // of reach of the application.
+  // A row that got in before the trigger did is what the install's own check
+  // stops for. Written here by the owner with the trigger dropped, which is
+  // also how it stays out of reach of the application, and the install puts
+  // the trigger back before it looks.
   const queue = `runtime-role-planted-${suffix}`;
   await asRuntimeRole((client) =>
     client.query(
@@ -405,18 +409,11 @@ test("a queue already rewritten stops the owner's job schema install", async () 
   );
   try {
     await connectedAs(stack.databaseUrl, async (client) => {
-      await client.query("BEGIN");
-      await client.query(
-        "ALTER TABLE pgboss.queue DISABLE TRIGGER refuse_own_job_table",
-      );
+      await client.query("DROP TRIGGER refuse_own_job_table ON pgboss.queue");
       await client.query(
         "UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = $1",
         [queue],
       );
-      await client.query(
-        "ALTER TABLE pgboss.queue ENABLE TRIGGER refuse_own_job_table",
-      );
-      await client.query("COMMIT");
     });
 
     const refused = runInAppContainer(
@@ -426,6 +423,17 @@ test("a queue already rewritten stops the owner's job schema install", async () 
     );
     expect(refused.status, refused.output).toBe(1);
     expect(refused.output).toContain("pgboss.queue holds 1 queue(s)");
+    expect(
+      await asRuntimeRole(async (client) => {
+        const result = await client.query(
+          `SELECT count(*)::int AS count FROM pg_trigger
+           WHERE tgrelid = 'pgboss.queue'::regclass
+             AND tgname = 'refuse_own_job_table' AND tgenabled = 'O'`,
+        );
+        return result.rows;
+      }),
+      "the refused install put the trigger back",
+    ).toEqual([{ count: 1 }]);
   } finally {
     await connectedAs(stack.databaseUrl, (client) =>
       client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
