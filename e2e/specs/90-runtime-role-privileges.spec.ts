@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 
+import { ENVIRONMENT_READER_SOURCE } from "../src/environment-reader";
 import {
   runAsSuperuser,
   runInAppContainer,
@@ -591,23 +592,15 @@ function environmentOf(pid) {
     });
 }
 
-// A process is not readable by the application user while it is being set up:
-// the image's healthcheck starts one through docker exec every few seconds, and
-// until the runtime has finished with it, it belongs to root. That passes, so a
-// refused read is tried again for about a second. Only a process that is still
-// there and still refused is reported as unreadable.
-function readEnvironment(pid) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return { held: environmentOf(pid), gone: false };
-    } catch (failure) {
-      if (failure.code === "ENOENT" || failure.code === "ESRCH") return { gone: true };
-      const transient = failure.code === "EACCES" || failure.code === "EPERM";
-      if (!transient || attempt >= 20) return { gone: !fs.existsSync("/proc/" + pid), held: undefined };
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    }
-  }
-}
+${ENVIRONMENT_READER_SOURCE}
+
+// A refused read is retried for about a second before the process counts as
+// unreadable; see src/environment-reader.ts.
+const readEnvironment = makeEnvironmentReader({
+  read: environmentOf,
+  exists: (pid) => fs.existsSync("/proc/" + pid),
+  sleep: (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+});
 
 function argumentsOf(pid) {
   return fs.readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\\0").filter(Boolean);
