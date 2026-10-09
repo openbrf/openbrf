@@ -6,6 +6,10 @@ Date: 2026-09-23
 
 Accepted
 
+The Context, Decision and Consequences below describe the state before the
+2026-09-29 update. Read the update at the end for the domains and the erasure
+predicate that apply now.
+
 ## Context
 
 A granted erasure request (GDPR art. 17) is carried out by six nightly jobs
