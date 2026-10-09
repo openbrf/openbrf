@@ -19,7 +19,7 @@ export const moveInMail: MailTemplate<MoveInMailProps> = {
     t("email.moveIn.subject", { association: brand.associationName }),
 
   body: (props, context): ReactElement => {
-    const { t, brand, formatDate, appUrl } = context;
+    const { t, brand, formatDateColumn, appUrl } = context;
 
     return (
       <MailLayout
@@ -40,7 +40,7 @@ export const moveInMail: MailTemplate<MoveInMailProps> = {
         >
           {t("email.moveIn.body", {
             apartment: props.apartmentNumber,
-            movedInOn: formatDate(props.movedInOn),
+            movedInOn: formatDateColumn(props.movedInOn),
           })}
         </Text>
 

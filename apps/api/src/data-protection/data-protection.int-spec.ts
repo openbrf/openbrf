@@ -3,7 +3,15 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -1778,6 +1786,211 @@ describe("processors", () => {
     // Nothing is installed in this suite, so the map is empty rather than
     // absent: a plugin with no classification reads as not recorded.
     expect(states.size).toBe(0);
+  });
+
+  describe("the storage seed", () => {
+    /*
+     * "storage" carries no run suffix and this database is shared, so what
+     * stood there before the suite is put aside and put back: open rows are
+     * closed for the duration and reopened after, and every row the suite
+     * wrote is deleted between cases and at the end.
+     */
+    let before: { id: string; endedAt: Date | null }[] = [];
+
+    const suiteRows = () => ({
+      processorKey: "storage",
+      id: { notIn: before.map((row) => row.id) },
+    });
+
+    const openStorageRows = () =>
+      prisma.processorAgreement.findMany({
+        where: { processorKey: "storage", endedAt: null },
+        select: { id: true, recordedByPersonId: true },
+      });
+
+    async function seedWith(storageDriver: "local" | "s3"): Promise<void> {
+      await app
+        .get(ProcessorAgreementService)
+        .seed(
+          { ...(await app.get(ProcessorFactsService).read()), storageDriver },
+          app.get(I18nService).translatorFor("sv"),
+        );
+    }
+
+    beforeAll(async () => {
+      before = await prisma.processorAgreement.findMany({
+        where: { processorKey: "storage" },
+        select: { id: true, endedAt: true },
+      });
+      await prisma.processorAgreement.updateMany({
+        where: { processorKey: "storage", endedAt: null },
+        data: { endedAt: new Date() },
+      });
+    });
+
+    beforeEach(async () => {
+      await prisma.processorAgreement.deleteMany({ where: suiteRows() });
+    });
+
+    afterAll(async () => {
+      await prisma.processorAgreement.deleteMany({ where: suiteRows() });
+      await prisma.processorAgreement.updateMany({
+        where: {
+          id: {
+            in: before.filter((row) => row.endedAt === null).map((r) => r.id),
+          },
+        },
+        data: { endedAt: null },
+      });
+    });
+
+    it("records the association's own disk as no processor, once", async () => {
+      await seedWith("local");
+
+      const open = await openStorageRows();
+      expect(open).toHaveLength(1);
+      const row = await prisma.processorAgreement.findUniqueOrThrow({
+        where: { id: open[0]?.id ?? "" },
+        select: {
+          processorKind: true,
+          classification: true,
+          status: true,
+          recordedByPersonId: true,
+        },
+      });
+      expect(row).toEqual({
+        processorKind: "STORAGE",
+        classification: "NOT_A_PROCESSOR",
+        status: null,
+        // The instance answered this, not a board member.
+        recordedByPersonId: null,
+      });
+
+      const entries = await prisma.auditLogEntry.findMany({
+        where: {
+          action: "PROCESSOR_AGREEMENT_RECORDED",
+          targetKind: "processorAgreement",
+          targetId: open[0]?.id ?? "",
+        },
+        select: { channel: true, actorPersonId: true },
+      });
+      expect(entries).toEqual([{ channel: "SYSTEM", actorPersonId: null }]);
+
+      const listed = await listProcessors();
+      expect(
+        listed.find((p) => p.processorKey === "storage")?.agreement
+          ?.classification,
+      ).toBe("NOT_A_PROCESSOR");
+    });
+
+    it("writes nothing when it runs again with the same driver", async () => {
+      await seedWith("local");
+      const rows = await prisma.processorAgreement.findMany({
+        where: suiteRows(),
+      });
+      const entries = () =>
+        prisma.auditLogEntry.count({
+          where: {
+            targetKind: "processorAgreement",
+            targetId: { in: rows.map((row) => row.id) },
+          },
+        });
+      const entriesBefore = await entries();
+
+      await seedWith("local");
+
+      expect(
+        await prisma.processorAgreement.findMany({ where: suiteRows() }),
+      ).toEqual(rows);
+      expect(await entries()).toBe(entriesBefore);
+    });
+
+    it("closes the row it wrote once storage moves to a bucket", async () => {
+      await seedWith("local");
+      const [seeded] = await openStorageRows();
+
+      await seedWith("s3");
+
+      // The screen asks the board again rather than answering it wrongly.
+      expect(await openStorageRows()).toEqual([]);
+      const closed = await prisma.processorAgreement.findUniqueOrThrow({
+        where: { id: seeded?.id ?? "" },
+        select: { endedAt: true, endReason: true, endedByPersonId: true },
+      });
+      expect(closed.endedAt).not.toBeNull();
+      expect(closed.endReason).toBe("driver-changed");
+      expect(closed.endedByPersonId).toBeNull();
+
+      const ended = await prisma.auditLogEntry.findMany({
+        where: {
+          action: "PROCESSOR_AGREEMENT_ENDED",
+          targetKind: "processorAgreement",
+          targetId: seeded?.id ?? "",
+        },
+        select: { channel: true, actorPersonId: true },
+      });
+      expect(ended).toEqual([{ channel: "SYSTEM", actorPersonId: null }]);
+    });
+
+    it("leaves a row the board recorded open, whatever the driver", async () => {
+      const response = await classify("storage", {
+        classification: "PROCESSOR",
+        status: "PENDING",
+        counterparty: "Lagringsleverantoren AB",
+      });
+      expect(response.statusCode).toBe(200);
+      const agreementId =
+        response.json<ProcessorView>().agreement?.agreementId ?? "";
+
+      await seedWith("s3");
+      await seedWith("local");
+
+      // Neither closed nor joined by a seeded row beside it.
+      expect(await openStorageRows()).toEqual([
+        { id: agreementId, recordedByPersonId: board.personId },
+      ]);
+    });
+
+    it("leaves one open row when two starts seed at once", async () => {
+      /*
+       * Both seeds are held behind the recipient's key until both are queued
+       * on it, so they meet at the read rather than one finishing before the
+       * other begins. A seed reading outside the lock never queues, and this
+       * fails at the wait instead of passing by timing.
+       */
+      const key = "processor-agreement:storage";
+      let releaseHolder: (() => void) | undefined;
+      const holderDone = new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          await holderDone;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+
+      try {
+        await waitFor(
+          async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+        );
+
+        const seeding = Promise.all([seedWith("local"), seedWith("local")]);
+        await waitFor(
+          async () => (await advisoryLockCount(prisma, key, false)) >= 2n,
+        );
+
+        releaseHolder?.();
+        await holder;
+        await seeding;
+
+        expect(await openStorageRows()).toHaveLength(1);
+      } finally {
+        releaseHolder?.();
+        await holder.catch(() => undefined);
+      }
+    }, 60_000);
   });
 });
 
