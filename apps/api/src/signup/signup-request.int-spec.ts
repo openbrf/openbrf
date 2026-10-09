@@ -65,6 +65,7 @@ const extraEmails = [
   `returning-${suffix}@exempel.se`,
   `midnight-${suffix}@exempel.se`,
   `unsent-${suffix}@exempel.se`,
+  `taken-${suffix}@exempel.se`,
   `broken-${suffix}@exempel.se`,
   `lost-${suffix}@exempel.se`,
   `member-${suffix}@exempel.se`,
