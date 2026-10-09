@@ -303,6 +303,20 @@ describe("magic link and the second-factor policy", () => {
   });
 
   it("stores the sign-in token hashed, so a leaked database yields no links", async () => {
+    // Rows for this account that earlier tests left behind.
+    const linksForPlain = {
+      identifier: { startsWith: "magic-link:" },
+      value: { contains: plain.email },
+    };
+    const before = new Set(
+      (
+        await prisma.verification.findMany({
+          where: linksForPlain,
+          select: { id: true },
+        })
+      ).map(({ id }) => id),
+    );
+
     const { delivered, restore } = captureMail();
     try {
       await inject({
@@ -324,11 +338,23 @@ describe("magic link and the second-factor policy", () => {
     // The token in the email must not be what is stored: the plugin keeps it
     // in plain text unless told otherwise, and a magic link is a sign-in
     // credential in the same class as an invitation token, which this project
-    // stores hashed for exactly this reason.
-    const stored = await prisma.verification.findMany({
-      where: { identifier: token ?? "" },
+    // stores hashed for exactly this reason. The plugin prefixes the stored
+    // form ("magic-link:<token>"), so look for the token anywhere in a row.
+    const leaked = await prisma.verification.findMany({
+      where: {
+        OR: [
+          { identifier: { contains: token ?? "" } },
+          { value: { contains: token ?? "" } },
+        ],
+      },
     });
-    expect(stored).toEqual([]);
+    expect(leaked).toEqual([]);
+
+    // The request did store a link, so the check above looked at a real row.
+    const created = (
+      await prisma.verification.findMany({ where: linksForPlain })
+    ).filter(({ id }) => !before.has(id));
+    expect(created).toHaveLength(1);
   });
 
   it("still allows password sign-in for the TOTP account, with a challenge", async () => {
