@@ -2038,6 +2038,17 @@ enum AuditAction {
   /// the entry carries how far through the file it got, never anything from the
   /// file. What the import already wrote stays in the register.
   IMPORT_ABANDONED
+
+  /// An administrator switched a plugin on again, which restores its access to
+  /// whatever the board consented to.
+  PLUGIN_ENABLED
+  /// An administrator switched a plugin off without removing it.
+  PLUGIN_DISABLED
+  /// An administrator changed a plugin's settings. The entry names the
+  /// settings that changed, never their values.
+  PLUGIN_SETTINGS_CHANGED
+  /// An administrator removed an installed or composed theme.
+  THEME_REMOVED
 }
 
 /// Which way a change reached the association's records (granskningskanal).

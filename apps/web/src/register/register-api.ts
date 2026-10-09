@@ -426,7 +426,11 @@ export type ReportAuditAction =
   | "CHAT_GROUP_MEMBER_ADDED"
   | "CHAT_GROUP_MEMBER_REMOVED"
   | "CHAT_MESSAGE_STRUCK"
-  | "IMPORT_ABANDONED";
+  | "IMPORT_ABANDONED"
+  | "PLUGIN_ENABLED"
+  | "PLUGIN_DISABLED"
+  | "PLUGIN_SETTINGS_CHANGED"
+  | "THEME_REMOVED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

@@ -92,7 +92,10 @@ export class PluginRegistryService {
    * consent snapshot is overwritten on purpose: a new version whose
    * permissions changed went through the consent screen again to get here.
    */
-  async consent(input: PluginConsent): Promise<PluginRecord> {
+  async consent(
+    input: PluginConsent,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord> {
     const shared = {
       packageName: input.packageName,
       version: input.version,
@@ -122,7 +125,7 @@ export class PluginRegistryService {
       ...NO_FAILURE,
     };
 
-    const row = await this.prisma.installedPlugin.upsert({
+    const row = await (client ?? this.prisma).installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
@@ -201,15 +204,24 @@ export class PluginRegistryService {
     return toRecord(row);
   }
 
-  async remove(id: string): Promise<boolean> {
-    const removed = await this.prisma.installedPlugin.deleteMany({
+  async remove(
+    id: string,
+    client?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const removed = await (client ?? this.prisma).installedPlugin.deleteMany({
       where: { id },
     });
     return removed.count > 0;
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<PluginRecord | null> {
-    const rows = await this.prisma.installedPlugin.updateManyAndReturn({
+  async setEnabled(
+    id: string,
+    enabled: boolean,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord | null> {
+    const rows = await (
+      client ?? this.prisma
+    ).installedPlugin.updateManyAndReturn({
       where: { id },
       data: { enabled },
     });
@@ -255,8 +267,9 @@ export class PluginRegistryService {
   async writeSettings(
     id: string,
     settings: Record<string, unknown>,
+    client?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.prisma.installedPlugin.updateMany({
+    await (client ?? this.prisma).installedPlugin.updateMany({
       where: { id },
       // Cast at the persistence boundary: the values are already validated
       // against the plugin's settingsSchema, and Prisma types a JSON column

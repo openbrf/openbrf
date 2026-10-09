@@ -709,7 +709,11 @@
           "CHAT_GROUP_MEMBER_ADDED": "Lades till i en gruppchatt",
           "CHAT_GROUP_MEMBER_REMOVED": "Lämnade en gruppchatt",
           "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
-          "IMPORT_ABANDONED": "En import av medlemslista avbröts"
+          "IMPORT_ABANDONED": "En import av medlemslista avbröts",
+          "PLUGIN_ENABLED": "Tillägg slogs på",
+          "PLUGIN_DISABLED": "Tillägg stängdes av",
+          "PLUGIN_SETTINGS_CHANGED": "Inställningar för tillägg ändrades",
+          "THEME_REMOVED": "Tema togs bort"
         },
         "channel": {
           "WEB": "Webbgränssnittet",

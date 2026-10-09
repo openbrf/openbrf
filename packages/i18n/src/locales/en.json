@@ -709,7 +709,11 @@
           "CHAT_GROUP_MEMBER_ADDED": "Put into a group chat",
           "CHAT_GROUP_MEMBER_REMOVED": "Left a group chat",
           "CHAT_MESSAGE_STRUCK": "Chat message struck through",
-          "IMPORT_ABANDONED": "A member list import was abandoned"
+          "IMPORT_ABANDONED": "A member list import was abandoned",
+          "PLUGIN_ENABLED": "Plugin switched on",
+          "PLUGIN_DISABLED": "Plugin switched off",
+          "PLUGIN_SETTINGS_CHANGED": "Plugin settings changed",
+          "THEME_REMOVED": "Theme removed"
         },
         "channel": {
           "WEB": "The web interface",

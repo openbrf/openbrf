@@ -529,6 +529,11 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.CHAT_GROUP_MEMBER_REMOVED",
   CHAT_MESSAGE_STRUCK: "register.person.report.action.CHAT_MESSAGE_STRUCK",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
+  PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
+  PLUGIN_SETTINGS_CHANGED:
+    "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
+  THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**

@@ -604,22 +604,65 @@ export class PluginAdminService {
         ? undefined
         : await this.pluginAgreementInput(request.processorAgreement);
 
-    await this.registry.consent({
-      id: entry.id,
-      packageName: entry.packageName,
-      version: entry.version,
-      tarballUrl: entry.artifact.url,
-      checksum: entry.artifact.sha512,
-      permissions: echoed ? (request.permissions ?? []) : entry.permissions,
-      personalData: echoed ? (request.personalData ?? []) : entry.personalData,
-      actions: echoed ? (request.actions ?? []) : entry.actions,
+    /*
+     * The consent row, the processing in the art. 30 record and the entry
+     * that says who installed it commit together or not at all. Update-or-
+     * create for the processing, so a plugin removed and installed again reads
+     * as running rather than ended: the row was closed with a date, and
+     * reinstalling reopens it and refreshes the declared categories while
+     * keeping any wording the board has written.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await this.registry.consent(
+        {
+          id: entry.id,
+          packageName: entry.packageName,
+          version: entry.version,
+          tarballUrl: entry.artifact.url,
+          checksum: entry.artifact.sha512,
+          permissions: echoed ? (request.permissions ?? []) : entry.permissions,
+          personalData: echoed
+            ? (request.personalData ?? [])
+            : entry.personalData,
+          actions: echoed ? (request.actions ?? []) : entry.actions,
+        },
+        tx,
+      );
+
+      await this.processing.seedPlugin(
+        entry.id,
+        {
+          name: entry.packageName,
+          personalDataCategories: [
+            ...(echoed ? (request.personalData ?? []) : entry.personalData),
+          ],
+        },
+        tx,
+      );
+
+      await this.audit.record(
+        {
+          action: "PLUGIN_INSTALLED",
+          channel,
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: entry.id,
+          context: {
+            version: entry.version,
+            permissions: entry.permissions,
+            personalData: entry.personalData,
+          },
+        },
+        tx,
+      );
     });
 
     /*
-     * After the consent row, and deliberately outside it: the declaration a
-     * reinstall compares against is the permissions and the personal data, and
-     * a classification recorded beside them would make a board's answer about
-     * a mail server look like a change to what the plugin asked for.
+     * After the consent row has committed, and deliberately outside it: the
+     * declaration a reinstall compares against is the permissions and the
+     * personal data, and a classification recorded beside them would make a
+     * board's answer about a mail server look like a change to what the
+     * plugin asked for. It is a record of its own, written with its own entry.
      *
      * The recipient is keyed on the plugin id rather than on the installed row,
      * so it survives the reinstall that rewrites that row.
@@ -638,32 +681,6 @@ export class PluginAdminService {
       );
     }
 
-    /*
-     * And the processing itself, in the art. 30 record. Update-or-create, so a
-     * plugin removed and installed again reads as running rather than ended:
-     * the row was closed with a date, and reinstalling reopens it and refreshes
-     * the declared categories while keeping any wording the board has written.
-     */
-    await this.processing.seedPlugin(entry.id, {
-      name: entry.packageName,
-      personalDataCategories: [
-        ...(echoed ? (request.personalData ?? []) : entry.personalData),
-      ],
-    });
-
-    await this.audit.record({
-      action: "PLUGIN_INSTALLED",
-      channel,
-      actorPersonId,
-      targetKind: "plugin",
-      targetId: entry.id,
-      context: {
-        version: entry.version,
-        permissions: entry.permissions,
-        personalData: entry.personalData,
-      },
-    });
-
     await this.installer.enqueue({
       reason: `install:${entry.id}`,
       restart: true,
@@ -677,27 +694,36 @@ export class PluginAdminService {
     actorPersonId: string | null,
     channel: AuditChannel,
   ): Promise<{ restarting: boolean }> {
-    const removed = await this.registry.remove(id);
-    if (!removed) {
-      throw new PluginNotFoundError(id);
-    }
+    await this.prisma.$transaction(async (tx) => {
+      const removed = await this.registry.remove(id, tx);
+      if (!removed) {
+        throw new PluginNotFoundError(id);
+      }
 
-    await this.audit.record({
-      action: "PLUGIN_REMOVED",
-      channel,
-      actorPersonId,
-      targetKind: "plugin",
-      targetId: id,
+      await this.audit.record(
+        {
+          action: "PLUGIN_REMOVED",
+          channel,
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+        },
+        tx,
+      );
+
+      /*
+       * The processing stops; the row stays with the date it stopped, because
+       * the record has to be able to say that the association did this and
+       * until when. The recipient's classification is left open deliberately:
+       * an agreement covered a period that happened, and closing it is the
+       * board's own act on the data protection screen.
+       */
+      await this.processing.endPlugin(id, tx);
     });
 
-    /*
-     * The processing stops; the row stays with the date it stopped, because
-     * the record has to be able to say that the association did this and until
-     * when. The recipient's classification is left open deliberately: an
-     * agreement covered a period that happened, and closing it is the board's
-     * own act on the data protection screen.
-     */
-    await this.processing.endPlugin(id);
+    // Stops serving at once, as switching it off does, rather than at the
+    // restart the reconcile ends in - which a failed reconcile never reaches.
+    this.loader.unload(id);
 
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
     // What the overview now says, rather than a constant: with plugins
@@ -772,11 +798,27 @@ export class PluginAdminService {
   async setEnabled(
     id: string,
     enabled: boolean,
+    actorPersonId: string,
   ): Promise<{ restarting: boolean }> {
-    const record = await this.registry.setEnabled(id, enabled);
-    if (record === null) {
-      throw new PluginNotFoundError(id);
-    }
+    // Switching a plugin back on restores its access to the register and the
+    // mail server, so the change and the entry naming who made it commit
+    // together.
+    await this.prisma.$transaction(async (tx) => {
+      const record = await this.registry.setEnabled(id, enabled, tx);
+      if (record === null) {
+        throw new PluginNotFoundError(id);
+      }
+      await this.audit.record(
+        {
+          action: enabled ? "PLUGIN_ENABLED" : "PLUGIN_DISABLED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+        },
+        tx,
+      );
+    });
 
     // Disabling takes effect at once: the guard in front of a plugin's routes
     // and the view list both read the loaded set, and both drop the plugin as
@@ -818,6 +860,7 @@ export class PluginAdminService {
   async writeSettings(
     id: string,
     values: unknown,
+    actorPersonId: string,
   ): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
     if (record === null) {
@@ -831,7 +874,22 @@ export class PluginAdminService {
     // Throws a ZodError, which the domain exception filter answers as a 400
     // listing the failing fields.
     const parsed = settingsValidator(schema).parse(values);
-    await this.registry.writeSettings(id, parsed);
+    await this.prisma.$transaction(async (tx) => {
+      await this.registry.writeSettings(id, parsed, tx);
+      await this.audit.record(
+        {
+          action: "PLUGIN_SETTINGS_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+          // Which settings, never their values: a plugin's settings can hold
+          // anything its author asked for.
+          context: { keys: Object.keys(parsed).sort() },
+        },
+        tx,
+      );
+    });
     return { id, schema, values: parsed };
   }
 

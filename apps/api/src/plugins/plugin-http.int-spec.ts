@@ -26,7 +26,6 @@ import {
   loadEnvForIntegrationTests,
   restoreEnvironmentVariable,
 } from "../testing/integration-env";
-import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
@@ -1024,7 +1023,13 @@ describe("an install that answers for a plugin the record already classifies", (
  */
 describe("switching a plugin off", () => {
   it("stops its routes, its view and its host access at once", async () => {
-    await application().get(PluginAdminService).setEnabled(PLUGIN_ID, false);
+    const switched = await inject({
+      method: "PUT",
+      url: `/api/plugins/${PLUGIN_ID}/enabled`,
+      headers: { cookie: adminCookie },
+      payload: { enabled: false },
+    });
+    expect(switched.statusCode).toBe(200);
 
     const route = await inject({
       method: "GET",

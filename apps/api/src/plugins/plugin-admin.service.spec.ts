@@ -95,6 +95,11 @@ function build(options: Options = {}) {
   const recordProcessor = vi.fn(async () => undefined);
   const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
+  const remove = vi.fn(async () => true);
+  const setEnabled = vi.fn(async () => ({ id: "occupancy" }));
+  const writeSettings = vi.fn(async () => undefined);
+  const endPlugin = vi.fn(async () => undefined);
+  const unload = vi.fn();
   const record = vi.fn(async () => undefined);
   /*
    * The transaction client, as its own object. Arming and the entry that
@@ -117,11 +122,14 @@ function build(options: Options = {}) {
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
-      remove: async () => true,
+      remove,
+      setEnabled,
+      writeSettings,
     } as never,
     {
       report: () => [],
       get: () => null,
+      unload,
       manifestFor: (id: string) =>
         installed.find((record) => record.id === id)?.manifest ?? null,
     } as never,
@@ -141,7 +149,7 @@ function build(options: Options = {}) {
       record: recordProcessor,
       forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
-    { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
+    { seedPlugin, endPlugin } as never,
     { read: async () => FACTS } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
@@ -154,6 +162,11 @@ function build(options: Options = {}) {
     recordProcessor,
     seedPlugin,
     setActionArmed,
+    remove,
+    setEnabled,
+    writeSettings,
+    endPlugin,
+    unload,
     record,
     prisma,
     txClient,
@@ -996,6 +1009,117 @@ describe("a deprecated catalog entry", () => {
       service.install({ id: ENTRY.id }, null, "WEB"),
     ).resolves.toEqual({ restarting: true });
     expect(consent).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * A plugin's rows and the entry naming who changed them commit together, so
+ * an audit insert that fails takes the change with it rather than leaving a
+ * change nobody is recorded as having made.
+ */
+describe("what an operation writes, and with what", () => {
+  it("installs the consent, the processing and its entry in one transaction", async () => {
+    const built = build();
+
+    await built.service.install({ id: ENTRY.id }, "person-1", "WEB");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: ENTRY.id }),
+      built.txClient,
+    );
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      ENTRY.id,
+      expect.anything(),
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_INSTALLED" }),
+      built.txClient,
+    );
+  });
+
+  it("removes the row, ends the processing and records it in one transaction", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.remove).toHaveBeenCalledWith(ENTRY.id, built.txClient);
+    expect(built.endPlugin).toHaveBeenCalledWith(ENTRY.id, built.txClient);
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      built.txClient,
+    );
+  });
+
+  it("stops serving a removed plugin at once rather than at the restart", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
+  });
+
+  it("records who switched a plugin off, with the change", async () => {
+    const built = build();
+
+    await built.service.setEnabled(ENTRY.id, false, "person-1");
+
+    expect(built.setEnabled).toHaveBeenCalledWith(
+      ENTRY.id,
+      false,
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_DISABLED",
+        actorPersonId: "person-1",
+        targetId: ENTRY.id,
+      }),
+      built.txClient,
+    );
+  });
+
+  it("records which settings changed, never their values", async () => {
+    const built = build({
+      installed: [
+        {
+          id: ENTRY.id,
+          manifest: {
+            settingsSchema: {
+              fields: [
+                {
+                  key: "heading",
+                  labelKey: "settings.heading",
+                  type: "text",
+                  default: "Occupancy",
+                },
+              ],
+            },
+          } as never,
+        },
+      ],
+    });
+
+    await built.service.writeSettings(
+      ENTRY.id,
+      { heading: "Belaggning" },
+      "person-1",
+    );
+
+    expect(built.writeSettings).toHaveBeenCalledWith(
+      ENTRY.id,
+      { heading: "Belaggning" },
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_SETTINGS_CHANGED",
+        actorPersonId: "person-1",
+        context: { keys: ["heading"] },
+      }),
+      built.txClient,
+    );
+    expect(JSON.stringify(built.record.mock.calls)).not.toContain("Belaggning");
   });
 });
 
