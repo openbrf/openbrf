@@ -66,7 +66,13 @@ const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
+const MISPLACED = `boot-misplaced-${SUFFIX}`;
+const DUPLICATED = `boot-duplicated-${SUFFIX}`;
+/** Where the refused plugin's factory leaves the host object it was given. */
+const REFUSED_HOST = `__openbrfRefusedHost_${SUFFIX.replaceAll("-", "_")}`;
 const ALL_IDS = [
+  MISPLACED,
+  DUPLICATED,
   GOOD,
   BROKEN,
   DISABLED,
@@ -92,6 +98,8 @@ interface PackageOptions {
   permissions?: string[];
   personalData?: string[];
   server?: string;
+  /** The directory under node_modules, when it is not the package's own name. */
+  directoryName?: string;
   /** Written verbatim, to build a manifest the schema must refuse. */
   rawManifest?: unknown;
 }
@@ -134,7 +142,10 @@ async function writePackage(
   modules: string,
   options: PackageOptions,
 ): Promise<void> {
-  const directory = join(modules, `openbrf-plugin-${options.id}`);
+  const directory = join(
+    modules,
+    options.directoryName ?? `openbrf-plugin-${options.id}`,
+  );
   await mkdir(join(directory, "dist"), { recursive: true });
 
   const manifest = options.rawManifest ?? {
@@ -267,7 +278,8 @@ const { APP_GUARD } = require("@nestjs/core");
 class Sneaky { canActivate() { return false; } }
 class SneakyModule {}
 Module({})(SneakyModule);
-exports.createPlugin = function createPlugin() {
+exports.createPlugin = function createPlugin(host) {
+  globalThis[${JSON.stringify(REFUSED_HOST)}] = host;
   return {
     module: SneakyModule,
     providers: [{ provide: APP_GUARD, useClass: Sneaky }],
@@ -278,6 +290,18 @@ exports.createPlugin = function createPlugin() {
   // Both declare exactly what was consented to; only the package differs.
   await writePackage(modules, { id: OTHER_PACKAGE });
   await writePackage(modules, { id: OTHER_VERSION });
+  // Names itself the consented package, from a directory npm installed some
+  // other package into.
+  await writePackage(modules, {
+    id: MISPLACED,
+    directoryName: `openbrf-plugin-elsewhere-${SUFFIX}`,
+  });
+  // The consented package, and a second copy of it elsewhere in the tree.
+  await writePackage(modules, { id: DUPLICATED });
+  await writePackage(modules, {
+    id: DUPLICATED,
+    directoryName: `openbrf-plugin-copy-${SUFFIX}`,
+  });
   await writePackage(modules, {
     id: FAILING,
     server: `exports.createPlugin = function createPlugin() {
@@ -312,6 +336,8 @@ exports.createPlugin = function createPlugin() {
   await consent(FAILING);
   await consent(OTHER_PACKAGE, { packageName: "@someone-else/openbrf-plugin" });
   await consent(OTHER_VERSION, { version: "0.9.0" });
+  await consent(MISPLACED);
+  await consent(DUPLICATED);
   await registry.setEnabled(DISABLED, false);
 
   binding = new PluginHostBinding();
@@ -493,6 +519,22 @@ describe("loading plugins at boot", () => {
   });
 
   /**
+   * npm installs the consented archive under the consented name. A package in
+   * any other directory is some other archive, whatever name it gives itself.
+   */
+  it("refuses a package that names itself the consented one from another directory", () => {
+    expect(loaded(MISPLACED)).toBeUndefined();
+    expect(finding(MISPLACED)?.reason).toBe("not-consented");
+  });
+
+  it("loads at most one of two packages under the same id", () => {
+    const copies = boot.plugins.filter((plugin) => plugin.id === DUPLICATED);
+
+    expect(copies).toHaveLength(1);
+    expect(copies[0]?.directory).toMatch(/openbrf-plugin-boot-duplicated-/);
+  });
+
+  /**
    * The admin screen draws a plugin's settings form, and validates what the
    * board saves, from the manifest the loader holds for its id. A package the
    * board did not consent to must not supply that.
@@ -597,6 +639,21 @@ describe("loading plugins at boot", () => {
       );
 
       plugin.context.serving = true;
+    });
+
+    /**
+     * A plugin refused after its factory ran can still hold the host object it
+     * was given, from a timer or a promise of its own. Refused is not serving.
+     */
+    it("refuses everything to a plugin refused after its factory ran", async () => {
+      const kept = (globalThis as Record<string, unknown>)[
+        REFUSED_HOST
+      ] as PluginHost;
+      expect(kept).toBeDefined();
+
+      await expect(kept.settings.read()).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
     });
   });
 });

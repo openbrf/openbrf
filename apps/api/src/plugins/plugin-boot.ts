@@ -19,6 +19,7 @@ import { dataPaths } from "../packaging/data-paths";
 import { npmAvailable } from "../packaging/npm-install";
 import {
   type DiscoveredPlugin,
+  pluginModulesDirectory,
   scanPluginDirectory,
   type SkippedPlugin,
 } from "./plugin-directory";
@@ -220,8 +221,9 @@ export async function loadPlugins(
     note(boot, logger, skipped);
   }
 
+  const modules = pluginModulesDirectory(paths.plugins);
   for (const discovered of scan.plugins) {
-    await register(boot, logger, binding, discovered, byId);
+    await register(boot, logger, binding, discovered, byId, modules);
   }
 
   // A row the volume does not carry. On a deployment without a persistent
@@ -343,6 +345,7 @@ async function register(
   binding: PluginHostBinding,
   discovered: DiscoveredPlugin,
   byId: Map<string, PluginRecord>,
+  modules: string,
 ): Promise<void> {
   const record = byId.get(discovered.id);
 
@@ -357,12 +360,21 @@ async function register(
 
   if (
     record.packageName !== discovered.packageName ||
-    record.version !== discovered.version
+    record.version !== discovered.version ||
+    discovered.directory !== join(modules, record.packageName)
   ) {
-    // The board consented to one package at one version, and the id is only
-    // what that package claims to be. Another package, or another release of
-    // this one, under the same id is not what it agreed to run; the reconcile
-    // puts the consented one back.
+    /*
+     * The board consented to one package at one version, and the id is only
+     * what that package claims to be. Another package, or another release of
+     * this one, under the same id is not what it agreed to run; the reconcile
+     * puts the consented one back.
+     *
+     * The directory as well as the name the package states: npm installs the
+     * consented archive under the consented name, so a package elsewhere in
+     * the tree that names itself the same is not that archive. Being held to
+     * one directory is also what keeps a second copy under the same id from
+     * loading beside the first.
+     */
     boot.reconcileNeeded = true;
     refuse(
       boot,
@@ -370,8 +382,9 @@ async function register(
       discovered,
       "not-consented",
       {},
-      `the volume holds ${discovered.packageName}@${discovered.version}, ` +
-        `and consent is for ${record.packageName}@${record.version}`,
+      `the volume holds ${discovered.packageName}@${discovered.version} ` +
+        `at ${discovered.directory}, and consent is for ` +
+        `${record.packageName}@${record.version}`,
     );
     return;
   }
@@ -492,15 +505,22 @@ async function register(
     return;
   }
 
+  /*
+   * From here the plugin's own code may hold its host object - a timer or a
+   * promise its factory left behind - so a refusal also stops the host
+   * answering, as switching the plugin off does.
+   */
   let contributed: unknown;
   try {
     const factory = requirePluginBundle(discovered.serverEntry);
     if (typeof factory !== "function") {
+      context.serving = false;
       fail(boot, logger, discovered, "entry-invalid");
       return;
     }
     contributed = await (factory as (host: PluginHost) => unknown)(host);
   } catch (cause) {
+    context.serving = false;
     fail(
       boot,
       logger,
@@ -517,6 +537,7 @@ async function register(
     floor: routeCapabilityFloor(record.consentedPermissions),
   });
   if (!sealed.ok) {
+    context.serving = false;
     fail(boot, logger, discovered, sealed.reason, {}, sealed.log);
     return;
   }
