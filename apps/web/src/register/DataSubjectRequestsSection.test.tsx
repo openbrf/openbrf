@@ -173,9 +173,13 @@ describe("extending the month", () => {
       }),
     );
 
-    expect(
-      row.getByText("Förlängd 2026-09-20: Begäran gäller flera system."),
-    ).not.toBeNull();
+    // The date is a register value and the reason is the board's own writing.
+    const date = row.getByText("2026-09-20");
+    expect(date.className).toContain("font-data");
+    expect(date.parentElement?.textContent).toBe(
+      "Förlängd 2026-09-20: Begäran gäller flera system.",
+    );
+    expect(date.parentElement?.className ?? "").not.toContain("font-data");
     expect(row.getByText("2026-12-01")).not.toBeNull();
   });
 

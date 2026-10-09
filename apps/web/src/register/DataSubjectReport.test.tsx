@@ -1807,6 +1807,27 @@ describe("what the chat holds about this person", () => {
 });
 
 describe("what the person asked about their own data", () => {
+  it("sets the date of an extension in the register face and the reason in the ordinary one", async () => {
+    renderReport({
+      ...FULL_REPORT,
+      dataSubjectRequests: [
+        {
+          ...FULL_REPORT.dataSubjectRequests[0]!,
+          extendedOn: "2026-03-20",
+          extensionReason: "Begäran gäller flera system.",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const date = screen.getByText("2026-03-20");
+    expect(date.className).toContain("font-data");
+    expect(date.parentElement?.textContent).toBe(
+      "Förlängd 2026-03-20: Begäran gäller flera system.",
+    );
+    expect(date.parentElement?.className ?? "").not.toContain("font-data");
+  });
+
   it("prints the request, both grounds and the board's reasons", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");

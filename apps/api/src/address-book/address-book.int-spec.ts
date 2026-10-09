@@ -600,9 +600,36 @@ describe("the board's view", () => {
     const SECOND_MOVE_OUT = new Date("2021-06-01T00:00:00.000Z");
 
     afterEach(async () => {
+      await prisma.boardPosition.deleteMany({ where: { personId: mover } });
       await prisma.residency.deleteMany({ where: { personId: mover } });
       await prisma.person.deleteMany({ where: { id: mover } });
     });
+
+    /** A date column that many days from today, as the database reads it. */
+    function daysFromToday(days: number): Date {
+      const today = new Date();
+      return new Date(
+        Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate(),
+        ) +
+          days * 24 * 60 * 60 * 1000,
+      );
+    }
+
+    async function moverDetail(): Promise<{
+      residencies: { purgeOn: string | null }[];
+    }> {
+      const cookie = await signIn(actors.board.email);
+      const response = await inject({
+        method: "GET",
+        url: `/api/address-book/persons/${mover}`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json();
+    }
 
     async function moverRows() {
       const cookie = await signIn(actors.board.email);
@@ -665,6 +692,61 @@ describe("the board's view", () => {
 
       expect(rows).toHaveLength(2);
       expect(rows.map((row) => row.purgeOn)).toEqual([null, null]);
+    });
+
+    it("shows no date while a board term recorded from a day to come is still ahead", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.create({
+        data: {
+          personId: mover,
+          apartmentId: apartments.first,
+          role: "RESIDENT",
+          movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+          movedOutOn: SECOND_MOVE_OUT,
+        },
+      });
+      // Elected at a meeting that has been held and not yet begun: the seat is
+      // held by nobody today, and the purge still leaves the person alone.
+      await prisma.boardPosition.create({
+        data: {
+          personId: mover,
+          position: "BOARD_MEMBER",
+          electedOn: daysFromToday(30),
+          endedOn: daysFromToday(400),
+        },
+      });
+
+      const rows = await moverRows();
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.purgeOn).toBeNull();
+      // The sign is for the seat held today, and none is.
+      expect(rows[0]?.signs).not.toContain("BOARD_MEMBER");
+      expect((await moverDetail()).residencies.map((r) => r.purgeOn)).toEqual([
+        null,
+      ]);
+    });
+
+    it("shows no date while the move-out is scheduled for a day to come", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.create({
+        data: {
+          personId: mover,
+          apartmentId: apartments.first,
+          role: "RESIDENT",
+          movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+          movedOutOn: daysFromToday(10),
+        },
+      });
+
+      const rows = await moverRows();
+
+      // Still resident until the day arrives, and the purge refuses until then.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.purgeOn).toBeNull();
+      expect((await moverDetail()).residencies.map((r) => r.purgeOn)).toEqual([
+        null,
+      ]);
     });
   });
 

@@ -17,6 +17,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { ExtensionNote } from "./ExtensionNote";
 
 export interface DataSubjectRequestsSectionProps {
   personId: string;
@@ -206,10 +207,11 @@ function RequestRow({
 
       {request.extendedOn === null ? null : (
         <p className="text-small text-ink-muted">
-          {t("register.person.requests.extendedNote", {
-            date: request.extendedOn,
-            reason: request.extensionReason ?? "",
-          })}
+          <ExtensionNote
+            labelKey="register.person.requests.extendedLabel"
+            date={request.extendedOn}
+            reason={request.extensionReason ?? ""}
+          />
         </p>
       )}
 

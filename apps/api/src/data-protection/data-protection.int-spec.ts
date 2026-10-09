@@ -1097,7 +1097,7 @@ describe("breaches", () => {
       }
     });
 
-    it("starts the list again for a corrected discovery time", async () => {
+    it("starts the list again for a corrected discovery time, and keeps the earlier one's", async () => {
       const view = await recorded();
       const send = vi
         .spyOn(app.get(MailService), "send")
@@ -1124,6 +1124,25 @@ describe("breaches", () => {
         });
 
         expect(next).toBe(first);
+
+        // Corrected back to A: A's receipts survived B's reminder, so nobody
+        // is mailed A's reminder a second time.
+        const back = await inject({
+          method: "PUT",
+          url: `/api/data-protection/breaches/${view.breachId}`,
+          payload: { discoveredAt: view.discoveredAt },
+          headers: { cookie: boardCookie },
+        });
+        expect(back.statusCode).toBe(200);
+        const mailedBefore = send.mock.calls.length;
+
+        const again = await app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: back.json<BreachView>().discoveredAt,
+        });
+
+        expect(again).toBe(0);
+        expect(send.mock.calls.length).toBe(mailedBefore);
       } finally {
         send.mockRestore();
       }

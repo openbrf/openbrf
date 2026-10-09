@@ -12,6 +12,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
   DOCUMENT,
@@ -2454,12 +2455,15 @@ export function DataSubjectReport({
                     </td>
                     <td className={DATA_CELL}>{request.dueOn ?? nothing}</td>
                     <td className={TEXT_CELL}>
-                      {request.extendedOn === null
-                        ? nothing
-                        : t("register.person.report.extended", {
-                            date: request.extendedOn,
-                            reason: request.extensionReason ?? "",
-                          })}
+                      {request.extendedOn === null ? (
+                        nothing
+                      ) : (
+                        <ExtensionNote
+                          labelKey="register.person.report.extendedLabel"
+                          date={request.extendedOn}
+                          reason={request.extensionReason ?? ""}
+                        />
+                      )}
                     </td>
                     <td className={TEXT_CELL}>{request.ground}</td>
                     <td className={TEXT_CELL}>

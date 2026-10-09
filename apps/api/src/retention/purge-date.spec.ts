@@ -98,6 +98,29 @@ describe("computePersonPurgeDate", () => {
     expect(computePersonPurgeDate(person, 365, NOW)).toBeNull();
   });
 
+  it("has no date while the only move-out is scheduled for a day to come", () => {
+    // The person is resident until that day, and the purge leaves them alone.
+    const person = {
+      ...NOTHING,
+      residencies: [{ movedOutOn: new Date("2026-09-15T00:00:00.000Z") }],
+    };
+
+    expect(computePersonPurgeDate(person, 365, NOW)).toBeNull();
+  });
+
+  it("reads a move-out dated today as having happened, on the association's day", () => {
+    // 23:30 UTC on 31 August is already 1 September in Stockholm.
+    const lateEvening = new Date("2026-08-31T23:30:00.000Z");
+    const person = {
+      ...NOTHING,
+      residencies: [{ movedOutOn: new Date("2026-09-01T00:00:00.000Z") }],
+    };
+
+    expect(
+      computePersonPurgeDate(person, 365, lateEvening)?.toISOString(),
+    ).toBe("2027-09-01T00:00:00.000Z");
+  });
+
   it("has no date for somebody with no residency", () => {
     expect(computePersonPurgeDate(NOTHING, 365, NOW)).toBeNull();
   });

@@ -109,9 +109,10 @@ export class BreachReminderService implements OnModuleInit {
    * recorded as reached. So two jobs for one discovery - a time corrected from
    * A to B and back to A queues two - cannot both mail one member, a run that
    * failed for some members is retried for those and no others, and a board
-   * that answers while the loop runs stops the rest of the reminders. A lock
-   * held across a send is held for one send, which the drivers bound at twenty
-   * seconds.
+   * that answers while the loop runs stops the rest of the reminders. The
+   * receipts are kept per discovery instant, so A, then B, then A again finds
+   * A's members already reached. A lock held across a send is held for one
+   * send, which the drivers bound at twenty seconds.
    */
   async sendBreachReminder(job: BreachReminderJob): Promise<number> {
     const breach = await this.prisma.personalDataBreach.findUnique({
@@ -153,10 +154,9 @@ export class BreachReminderService implements OnModuleInit {
             if (held === null || !reminderOwed(held, job)) {
               return false;
             }
-            const already =
-              held.reminderFor?.getTime() === held.discoveredAt.getTime()
-                ? held.reminderSentTo
-                : [];
+            const receipts = receiptsOf(held.reminderReceipts);
+            const discovery = held.discoveredAt.toISOString();
+            const already = receipts[discovery] ?? [];
             if (already.includes(member.id)) {
               return false;
             }
@@ -180,8 +180,11 @@ export class BreachReminderService implements OnModuleInit {
             await tx.personalDataBreach.update({
               where: { id: job.breachId },
               data: {
-                reminderFor: held.discoveredAt,
-                reminderSentTo: [...already, member.id],
+                // The other discoveries' receipts stay: A, B and back to A.
+                reminderReceipts: {
+                  ...receipts,
+                  [discovery]: [...already, member.id],
+                },
               },
             });
             return true;
@@ -245,9 +248,26 @@ const REMINDER_SELECT = {
   closedAt: true,
   imyNotificationRequired: true,
   imyNotifiedAt: true,
-  reminderFor: true,
-  reminderSentTo: true,
+  reminderReceipts: true,
 } as const;
+
+/**
+ * The receipts as the column holds them: the person ids reached, per discovery
+ * instant. Anything else in the column is read as no receipts rather than
+ * trusted, so a malformed value costs one repeated reminder and not the run.
+ */
+function receiptsOf(value: Prisma.JsonValue): Record<string, string[]> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const receipts: Record<string, string[]> = {};
+  for (const [discovery, ids] of Object.entries(value)) {
+    if (Array.isArray(ids)) {
+      receipts[discovery] = ids.filter((id) => typeof id === "string");
+    }
+  }
+  return receipts;
+}
 
 /**
  * One send waits on the mail server for at most twenty seconds (the drivers'

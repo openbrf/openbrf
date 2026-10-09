@@ -12,3 +12,6 @@ does not count it as late. A request that has run past its first month cannot be
 extended: a notice recorded then would back-date one the person was not given in
 time. The entry in the audit log names the request and the new due day and
 leaves the reason on the request, and the access report carries both.
+
+The date of an extension is set in the register face on the request and in the
+access report, with the reason left in the ordinary one.

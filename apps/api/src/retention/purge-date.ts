@@ -1,3 +1,5 @@
+import { hasMovedOut } from "../registers/held-on";
+
 /**
  * Service-tier retention: when a moved-out person's operational data is erased.
  *
@@ -80,7 +82,9 @@ export interface PersonPurgeFacts {
  * `purgeRefusal` applies to the scheduled run, and a change to one is a change
  * to the other.
  *
- * @param now Judges whether a board seat has ended.
+ * @param now Judges whether a board seat has ended, and on the association's
+ *   calendar day whether a residency has: a scheduled move-out is a residency
+ *   that is still running.
  */
 export function computePersonPurgeDate(
   person: PersonPurgeFacts,
@@ -101,7 +105,9 @@ export function computePersonPurgeDate(
 
   let lastMoveOut: Date | null = null;
   for (const { movedOutOn } of person.residencies) {
-    if (movedOutOn === null) {
+    // Null, or a move-out dated after today: the person still lives here, and
+    // the purge (`purgeRefusal`) leaves them alone until the day arrives.
+    if (!hasMovedOut(movedOutOn, now)) {
       return null;
     }
     if (lastMoveOut === null || movedOutOn.getTime() > lastMoveOut.getTime()) {
