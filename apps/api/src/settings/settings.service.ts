@@ -14,7 +14,7 @@ import { defaultPop3Port } from "../board-mailbox/pop3";
 import { PrismaService } from "../database/prisma.service";
 import { blankToNull } from "../http/blank-to-null";
 import { DomainError } from "../http/domain-error";
-import { MailSettingsResolver } from "../mail/mail-settings";
+import { MailSettingsResolver, storedTlsOptional } from "../mail/mail-settings";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { defaultPortFor } from "../mail/smtp-mail.driver";
 import { smtpTestMail } from "../mail/templates";
@@ -176,13 +176,7 @@ export interface StoredSmtpSettingsView {
    * turns every board member's browser session into a way to read it.
    */
   passwordSet: boolean;
-  /**
-   * Whether the sign-in can go out unencrypted: the settings were saved before
-   * saving required TLS, name no implicit TLS, and the host is not on loopback.
-   * A server that offers no STARTTLS, or an attacker on the path who strips the
-   * offer, then receives the password in the clear. Saving the settings again
-   * requires TLS, so the screen says that.
-   */
+  /** Whether the sign-in can go out unencrypted; see {@link storedTlsOptional}. */
   tlsOptional: boolean;
   /**
    * Whether the instance can send mail at all. Invitations, activation links
@@ -835,11 +829,7 @@ export class SettingsService {
       user: association.smtpUser,
       fromAddress: association.smtpFromAddress,
       passwordSet: association.smtpPasswordCipher !== null,
-      tlsOptional:
-        association.smtpHost !== null &&
-        !association.smtpSecure &&
-        !association.smtpRequireTls &&
-        !isLoopbackHost(association.smtpHost),
+      tlsOptional: storedTlsOptional(association),
       configured:
         association.smtpHost !== null && association.smtpFromAddress !== null,
     };
