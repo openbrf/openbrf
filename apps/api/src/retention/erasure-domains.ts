@@ -7,8 +7,8 @@ import type { Prisma } from "../generated/prisma/client";
  * A granted request (GDPR art. 17) is carried out by several jobs rather than
  * one. Each of the domain jobs erases a person's rows in the domain they belong
  * to - board mailbox threads, bookings, chat, event sign-ups, key orders,
- * motions, news comments and sublet applications - and the last one erases the
- * contact details and the account and then marks the request executed and
+ * motions, news comments and subletting applications - and the last one erases
+ * the contact details and the account and then marks the request executed and
  * closed. The last one only ever finds the request while it is open,
  * and so does every other job, so closing it is the act that ends the erasure
  * for good: rows still standing afterwards fall back to their ordinary
@@ -30,7 +30,7 @@ import type { Prisma } from "../generated/prisma/client";
  * ## What is owed and what is kept
  *
  * A domain can hold rows for a person that a granted erasure does not reach: a
- * motion, a key order or a sublet application that is still open. Each is a
+ * motion, a key order or a subletting application that is still open. Each is a
  * matter the association is still dealing with, and a motion's member has a
  * right to have it dealt with, so the purge leaves it standing however the
  * board decided the erasure. Those rows are counted apart, because the record has to
@@ -204,7 +204,7 @@ export function keyOrdersKeptFromErasure(
   return { orderedByPersonId: personId, closedAt: null };
 }
 
-/** The sublet applications a granted erasure request erases. */
+/** The subletting applications a granted erasure request erases. */
 export function subletApplicationsErasedOnRequest(
   personId: ErasurePersonFilter,
 ): Prisma.SubletApplicationWhereInput {
@@ -212,7 +212,7 @@ export function subletApplicationsErasedOnRequest(
   return { appliedByPersonId: personId, closedAt: { not: null } };
 }
 
-/** The sublet applications a granted erasure request leaves standing. */
+/** The subletting applications a granted erasure request leaves standing. */
 export function subletApplicationsKeptFromErasure(
   personId: ErasurePersonFilter,
 ): Prisma.SubletApplicationWhereInput {
@@ -327,13 +327,13 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "sublets/sublet-purge.service.ts",
-    name: "sublet applications",
+    name: "subletting applications",
     countOwed: async (client, personId) =>
       client.subletApplication.count({
         where: subletApplicationsErasedOnRequest(personId),
       }),
     kept: {
-      because: "an open sublet application is still with the board",
+      because: "an open subletting application is still with the board",
       count: async (client, personId) =>
         client.subletApplication.count({
           where: subletApplicationsKeptFromErasure(personId),

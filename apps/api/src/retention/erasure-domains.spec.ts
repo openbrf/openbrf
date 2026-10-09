@@ -335,7 +335,7 @@ describe("what a granted erasure request still owes one person", () => {
     await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([]);
   });
 
-  it("counts an open key order and an open sublet application as kept", async () => {
+  it("counts an open key order and an open subletting application as kept", async () => {
     // Both are still with the board, which has to answer them. The closed ones
     // are owed, and the request stays open while either kind stands.
     const client = build({
@@ -354,10 +354,10 @@ describe("what a granted erasure request still owes one person", () => {
         keptBecause: "an open key order is still with the board",
       },
       {
-        domain: "sublet applications",
+        domain: "subletting applications",
         owed: 0,
         kept: 1,
-        keptBecause: "an open sublet application is still with the board",
+        keptBecause: "an open subletting application is still with the board",
       },
     ]);
   });

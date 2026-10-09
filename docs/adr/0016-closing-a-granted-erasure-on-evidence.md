@@ -152,11 +152,11 @@ to close it would make every writer in the house wait on the purge.
 
 Two things this record described have changed.
 
-The domains. Key orders, sublet applications, the board mailbox (threads linked
-to the person by `correspondentPersonId`) and the rest of the chat (group
+The domains. Key orders, subletting applications, the board mailbox (threads
+linked to the person by `correspondentPersonId`) and the rest of the chat (group
 memberships, read markers and reports) were holding a person's rows that no
 domain counted, so a request closed with them standing. They are domains now,
-and an open key order or sublet application is kept, as an open motion is.
+and an open key order or subletting application is kept, as an open motion is.
 Member charges and fee notices stay out on purpose: they are accounting records
 kept for seven years under BFL 7 kap. 2 §, so art. 17(3)(b) exempts them.
 

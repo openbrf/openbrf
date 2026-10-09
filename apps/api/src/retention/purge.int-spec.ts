@@ -1409,7 +1409,7 @@ describe("closing a granted erasure request on evidence", () => {
       "key orders",
       "motions",
       "news comments",
-      "sublet applications",
+      "subletting applications",
     ]);
   });
 

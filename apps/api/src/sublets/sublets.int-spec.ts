@@ -1231,9 +1231,9 @@ describe("the purge", () => {
       // request stays open rather than being called carried out.
       expect(await erasureRemainder(prisma, member.personId, NOW)).toEqual([
         expect.objectContaining({
-          domain: "sublet applications",
+          domain: "subletting applications",
           owed: 0,
-          keptBecause: "an open sublet application is still with the board",
+          keptBecause: "an open subletting application is still with the board",
         }),
       ]);
     } finally {
