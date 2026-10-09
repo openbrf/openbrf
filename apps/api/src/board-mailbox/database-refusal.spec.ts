@@ -1,49 +1,7 @@
-import { DriverAdapterError } from "@prisma/driver-adapter-utils";
 import { describe, expect, it } from "vitest";
 
-import { Prisma } from "../generated/prisma/client";
-import { isDataRefusal, isUniqueViolation } from "./database-refusal";
-
-/*
- * The errors are built the way Prisma builds them rather than written out by
- * hand: the pg adapter's DriverAdapterError, carrying what the adapter makes of
- * a PostgreSQL error, inside the PrismaClientKnownRequestError the client
- * throws. An upgrade that moves the SQLSTATE fails here.
- */
-
-/** A PostgreSQL error Prisma has no code of its own for, as the adapter reports it. */
-function postgres(code: string, prismaCode = "P2039"): Error {
-  return known(prismaCode, {
-    kind: "postgres",
-    code,
-    severity: "ERROR",
-    message: `error ${code}`,
-    detail: undefined,
-    column: undefined,
-    hint: undefined,
-    originalCode: code,
-    originalMessage: `error ${code}`,
-  });
-}
-
-/** A PostgreSQL error Prisma maps to one of its own codes. */
-function mapped(
-  prismaCode: string,
-  cause: ConstructorParameters<typeof DriverAdapterError>[0],
-): Error {
-  return known(prismaCode, cause);
-}
-
-function known(
-  code: string,
-  cause: ConstructorParameters<typeof DriverAdapterError>[0],
-): Error {
-  return new Prisma.PrismaClientKnownRequestError(`failed with ${code}`, {
-    code,
-    clientVersion: Prisma.prismaVersion.client,
-    meta: { driverAdapterError: new DriverAdapterError(cause) },
-  });
-}
+import { mapped, postgres } from "../database/testing/postgres-errors";
+import { isDataRefusal } from "./database-refusal";
 
 describe("isDataRefusal", () => {
   it.each([
@@ -118,20 +76,5 @@ describe("isDataRefusal", () => {
 
   it("does not take a unique violation for a refusal of the letter", () => {
     expect(isDataRefusal(postgres("23505", "P2010"))).toBe(false);
-  });
-});
-
-describe("isUniqueViolation", () => {
-  it("recognises the unique violation however Prisma reports it", () => {
-    expect(
-      isUniqueViolation(
-        mapped("P2002", {
-          kind: "UniqueConstraintViolation",
-          constraint: { fields: ["sourceUid"] },
-        }),
-      ),
-    ).toBe(true);
-    expect(isUniqueViolation(postgres("23505", "P2010"))).toBe(true);
-    expect(isUniqueViolation(postgres("23514"))).toBe(false);
   });
 });

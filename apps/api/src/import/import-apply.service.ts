@@ -77,6 +77,11 @@ import {
  *   residency - and reaches anybody else in the second plan than in the first
  *   stops the import: somebody was added in between, and the board decides who
  *   the row is about, not the worker.
+ * - **A decision holds only for the persons it was made between.** The
+ *   preview records who each row it asks about could be, and a chunk that
+ *   finds anybody else for a row the board decided to write, or misses one of
+ *   them - when it plans, or once it holds its locks - stops rather than carry
+ *   out an answer to a question the board was not asked.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -406,6 +411,7 @@ export class ImportApplyService implements OnModuleInit {
       changedSincePreview(
         plan,
         readPreviewedCandidates(session.ambiguousRows),
+        decisions,
         new Set(created.values()),
       )
     ) {
@@ -460,7 +466,15 @@ export class ImportApplyService implements OnModuleInit {
         // write - which would append
         // a second ENTRY to a register that refuses to have rows removed. In a
         // fixed order, because a chunk holds many of these locks at once.
-        const personsLocked = existingTargets(plan, decisions);
+        //
+        // Taken too for every candidate of a row the board decided, written to
+        // or not: a move-out, an erasure and a purge each take it before they
+        // take a person out of the register, so the locked plan below either
+        // sees them gone or they wait for this chunk to commit.
+        const personsLocked = [
+          ...existingTargets(plan, decisions),
+          ...decidedCandidates(plan, decisions),
+        ];
         await lockResidencyTransitionsInOrder(tx, personsLocked);
 
         // Then the plan again, through this transaction and under every lock.
@@ -478,14 +492,17 @@ export class ImportApplyService implements OnModuleInit {
         // book, linked by a sign-up approval, moved in - is in this one. A row
         // the first plan wrote to a new person that now reaches them would
         // enter that human being a second time, and an access report or an
-        // erasure asked for by person would find one of the two. Thrown rather
-        // than returned, so the cursor claim rolls back with the chunk: the
-        // worker does not decide who the row is about, and the board does on a
-        // fresh preview. Asked before anything else of this plan, so the
-        // import stops for what happened rather than for what it led to.
-        if (newPersonReachesOthers(plan, locked, decisions)) {
+        // erasure asked for by person would find one of the two. A row the
+        // board decided would carry out a choice made between other persons
+        // than the register now holds: somebody joined them, or one of them
+        // left. Thrown rather than returned, so the cursor claim rolls back
+        // with the chunk: the worker does not decide who the row is about, and
+        // the board does on a fresh preview. Asked before anything else of
+        // this plan, so the import stops for what happened rather than for
+        // what it led to.
+        if (reachedOtherwise(plan, locked, decisions)) {
           throw new ImportError(
-            "A row that writes a new person matches somebody the register gained since the plan.",
+            "A row that writes a new person, or one the board decided, matches other persons in the register than the plan found.",
             "register-changed-during-apply",
           );
         }
@@ -1093,29 +1110,35 @@ function writtenEmailIndexes(
 }
 
 /**
- * Whether a row the first plan writes to a new person reaches anybody else in
- * the plan made under the chunk's locks.
+ * Whether a row that writes a person the chunk creates, or one the board
+ * decided, reaches anybody else in the plan made under the chunk's locks.
  *
  * Asked of every row whose writes go to a new person: one planned as `create`,
  * one the board decided to enter as a new person, and one that reaches the
  * person an earlier row of the chunk creates and may give them an address or a
- * residency. The first plan found nobody in the register for such a row beyond
- * its candidates, and those of a row the board decided are the ones the preview
+ * residency. Asked too of a row the board gave to a person it chose: the board
+ * chose between the persons the preview showed, and somebody who joined them
+ * since is one it never weighed, as one who left is a choice it no longer has.
+ *
+ * The first plan found nobody in the register for such a row beyond its
+ * candidates, and those of a row the board decided are the ones the preview
  * showed it, besides persons earlier chunks created: the chunk made sure of
  * that before the transaction opened. So a row the second plan reaches
  * differently - another outcome, person, key or candidate - reaches somebody
- * the register gained, or was given that address or that residency, in
+ * the register gained, lost, or gave that address or that residency, in
  * between. A person found under a key after the one the row was matched by
  * changes neither plan: the planner never looks there.
  *
  * The second plan is read after the chunk's apartment and email locks. Every
  * writer of an address takes the email lock and every writer of a residency the
  * apartment lock, so on those two keys nobody can match a row between that
- * read and the commit. An identity number has no lock of its own, so on that
- * key the read narrows the gap to the length of the transaction rather than
- * closing it.
+ * read and the commit; and whatever takes a person out of the register - a
+ * move-out, an erasure, a purge - takes their transition lock, which the chunk
+ * holds for every candidate of a decided row. An identity number has no lock
+ * of its own, so on that key the read narrows the gap for a newcomer to the
+ * length of the transaction rather than closing it.
  */
-function newPersonReachesOthers(
+function reachedOtherwise(
   planned: ImportPlan,
   locked: ImportPlan,
   decisions: ImportDecisions,
@@ -1123,7 +1146,7 @@ function newPersonReachesOthers(
   const lockedRows = new Map(locked.rows.map((row) => [row.rowNumber, row]));
   return planned.rows.some(
     (row) =>
-      writesNewPerson(row, decisions) &&
+      askedAgain(row, decisions) &&
       whoRowReaches(row) !== whoRowReaches(lockedRows.get(row.rowNumber)),
   );
 }
@@ -1142,18 +1165,37 @@ function whoRowReaches(row: PlannedRow | undefined): string {
 }
 
 /**
- * Whether a row's writes go to a person the chunk creates: a row planned as
- * one, one the board decided to enter as one, or one that reaches the person
- * an earlier row of the chunk creates.
+ * Whether a row is looked up again inside the chunk's transaction: a row
+ * planned as a new person, an ambiguous row the board decided to write - to a
+ * new person or to one it chose - and one that reaches the person an earlier
+ * row of the chunk creates. A row decided to be skipped writes nothing, and an
+ * update of a register person matched under the plan's keys writes no one new.
  */
-function writesNewPerson(row: PlannedRow, decisions: ImportDecisions): boolean {
+function askedAgain(row: PlannedRow, decisions: ImportDecisions): boolean {
   if (row.outcome === "create") {
     return true;
   }
   if (row.outcome === "ambiguous") {
-    return decisions[String(row.rowNumber)]?.action === "create";
+    const action = decisions[String(row.rowNumber)]?.action;
+    return action === "create" || action === "use-person";
   }
   return row.outcome === "update" && row.matchedPersonId === null;
+}
+
+/**
+ * The candidates, written to or not, of every row the board decided to write.
+ * A row decided to be skipped writes nothing whoever it matches, and is not
+ * asked again.
+ */
+function decidedCandidates(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): string[] {
+  return plan.rows.flatMap((row) =>
+    row.outcome === "ambiguous" && askedAgain(row, decisions)
+      ? row.candidates.map(({ personId }) => personId)
+      : [],
+  );
 }
 
 /** Where a row's writes go, once the board's decisions are taken into account. */

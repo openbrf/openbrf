@@ -345,6 +345,7 @@
         "open": "Produce the report",
         "working": "Producing",
         "failed": "The report could not be produced. Try again.",
+        "busy": "Several data subject access reports and data portability exports are being prepared right now. Wait a moment and try again.",
         "heading": "Data subject access report",
         "loading": "Producing the report",
         "print": "Print",
@@ -1120,6 +1121,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Encrypted connection (TLS)",
+      "secureHint": "Ticked, the connection is encrypted from the start (implicit TLS, usually port 465). Unticked, it is upgraded with STARTTLS (usually port 587). Once these settings are saved, nothing is sent to a server that does not offer STARTTLS, unless it runs on this machine.",
       "user": "User name",
       "password": "Password",
       "passwordKept": "A password is stored. Leave this empty to keep it, or clear it to remove it.",
@@ -1130,14 +1132,17 @@
       "testSent": "A test message is on its way to {{email}}.",
       "notConfigured": "Email is not set up, so invitations and sign-in links cannot be sent. Nobody can be invited until this is done.",
       "configured": "Email is set up.",
+      "tlsOptional": "These settings were saved before an encrypted connection was required, so the password is sent unencrypted if the server does not offer STARTTLS. Save them again to require encryption, then send a test message.",
       "environment": "Mail is sent by whoever runs this instance, through {{host}} from {{fromAddress}}.",
       "environmentHint": "It is set where the instance runs and cannot be changed here.",
       "errors": {
         "notConfigured": "Save a server and a sender address before sending a test.",
         "noEmail": "Your own record has no email address to send the test to.",
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
+        "tlsUnavailable": "The server set up no encrypted connection, so nothing was sent to it, not even the password. Check that the server offers STARTTLS on this port, or tick the encrypted connection and use port 465.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
-        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them."
+        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
+        "environmentTlsUnavailable": "The message could not be sent because the mail server set up no encrypted connection. Mail is run by whoever runs this instance, so contact them."
       },
       "test": {
         "subject": "Test message from {{association}}",
@@ -1604,7 +1609,8 @@
         "failed": "The plugin could not be installed. The catalog entry may have changed since this screen was opened; read the catalog again and try once more.",
         "resourceConflict": "The plugin was not installed. Another installed plugin already serves the address that connected apps sign in to, and only one at a time can. Remove that plugin first, or every connection the members have already granted stops working.",
         "reservedId": "The plugin was not installed. The plugin id mcp-connector is reserved: the instance points connected apps at that address to sign in, so only a plugin that serves it itself may take the id.",
-        "recipientRecorded": "The plugin was not installed. The data protection screen has recorded where this plugin sends personal data since this screen was opened, and installing does not change that record. Cancel and choose the plugin again to install it with the answer the record holds; change the answer on the data protection screen."
+        "recipientRecorded": "The plugin was not installed. The data protection screen has recorded where this plugin sends personal data since this screen was opened, and installing does not change that record. Cancel and choose the plugin again to install it with the answer the record holds; change the answer on the data protection screen.",
+        "deprecated": "The plugin was not installed. The catalog marks it as no longer maintained, so it can only be reinstalled or updated where it is already installed."
       }
     },
     "permissions": {
@@ -1799,6 +1805,7 @@
       "identityMismatch": "The package does not describe the theme the catalog listed.",
       "lintFailed": "The theme was refused:",
       "notInCatalog": "The catalog no longer lists that theme.",
+      "entryDeprecated": "The catalog marks that theme as no longer maintained, so it can only be reinstalled or updated where it is already installed.",
       "themeNotInstalled": "That theme is not installed.",
       "builtInTheme": "The default theme is built into the application and cannot be removed.",
       "themeInUse": "That theme is the active one. Switch to another theme first.",
@@ -2268,7 +2275,8 @@
       "transferReferenceRequired": "Give the agreement a reference. The apartment register extract states one for every grant and every transfer, and the record cannot be removed once written.",
       "grantHasNoSeller": "A grant has no previous holder. Choose transfer if the tenant-ownership is changing hands.",
       "dateNotACalendarDate": "That date is not on the calendar. Check the day and the month.",
-      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is written with a point, for example 2150000.50.",
+      "invalidBody": "Check the dates and the price. A date must be on the calendar, and a price is stated in kronor with at most two decimal places.",
+      "priceNotAnAmount": "State the price in kronor, with at most two decimal places, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
       "unknown": "That could not be saved just now. Please try again."
@@ -2453,7 +2461,7 @@
       "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
       "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
-      "registerChangedDuringApply": "The register changed while the import ran: somebody was added, moved in or given new details, and a row of the file now matches them. The import stopped rather than enter that person twice. What it wrote before that is in the register; import the rest as a new file, and its preview shows the match.",
+      "registerChangedDuringApply": "The register changed while the import ran, and a row of the file now matches other people than it did: somebody was added, moved in, moved out or given new details. The import stopped there rather than enter a person twice, or carry out a choice you made between other people than the register now holds. What it wrote before that is in the register; import the rest as a new file, and its preview shows who each row matches now.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "applyAbandoned": "An administrator abandoned the import before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "sessionNotRunning": "That import is no longer running.",
@@ -3500,7 +3508,7 @@
       "booking": "Booking...",
       "booked": "The booking is made.",
       "bookStay": "Book the stay",
-      "stayNeedsCheckOut": "Check-in {{from}}. Choose the day you leave.",
+      "stayNeedsCheckOut": "Check-in {{from}}. Choose your last night, or the same night again for a one-night stay.",
       "stayChosen": "Check-in {{from}}, check-out {{to}}."
     },
     "mine": {
@@ -3542,6 +3550,8 @@
       "apartmentNotFound": "That apartment is not one you hold for the period you are booking. Choose again.",
       "bookingNotFound": "That booking is gone. The list has been read again.",
       "alreadyCancelled": "That booking is already cancelled, so there is nothing to cancel.",
+      "bookingStarted": "That booking has already begun, so it can no longer be cancelled.",
+      "bookingEnded": "That booking has already ended, so there is nothing left to cancel.",
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
     }
@@ -3657,6 +3667,7 @@
       "withdrawNamed": "Withdraw the application for {{from}} to {{to}}",
       "withdrawing": "Withdrawing...",
       "closedOn": "The board answered this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}.",
       "boardSaid": "The board wrote: {{note}}",
       "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
       "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
@@ -3745,6 +3756,7 @@
       "withdrawing": "Withdrawing...",
       "handedOverOn": "Handed over on {{date}}.",
       "closedOn": "The board answered this on {{date}}.",
+      "withdrawnOn": "You withdrew this on {{date}}.",
       "boardSaid": "The board wrote: {{note}}"
     },
     "queue": {
@@ -3917,7 +3929,7 @@
       "occurrenceInUse": "People have signed up to dates this change would move or remove. Call those dates off, or stand their sign-ups down, first:",
       "occurrenceAlreadyCancelled": "That date is already called off, so there is nothing to call off.",
       "occurrenceNotCancelled": "That date was not called off, so there is nothing to reinstate.",
-      "occurrenceAlreadyBegun": "That date has already begun, so it cannot be reinstated. It did not go ahead, and the calendar cannot say afterwards that it did.",
+      "occurrenceAlreadyBegun": "That date has already begun, so it can no longer be called off or reinstated. The calendar keeps what happened as it was.",
       "rangeInvalid": "The calendar is read two months at a time, ending on or after it begins. Use earlier and later to move the period.",
       "signupNotOffered": "That event takes no sign-ups.",
       "occurrenceCancelled": "The board has called that date off, so it takes no sign-ups.",
@@ -4152,6 +4164,7 @@
       "agendaItemNotFound": "That agenda item no longer exists. Read the meeting again.",
       "meetingAlreadyHeld": "This meeting has been recorded as held, so it can no longer be changed.",
       "meetingNotHeld": "This meeting has not been recorded as held yet, so nothing can be minuted on it.",
+      "meetingDayInTheFuture": "This meeting's day has not come yet, so it cannot be recorded as held.",
       "noticeAlreadyIssued": "The notice for this meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §); the remedy is an extra general meeting.",
       "meetingHasNoAgenda": "A notice states the matters the meeting is to deal with, and this meeting has none. Write the agenda first.",
       "noticeTimeNotOnTheMeetingDay": "That time does not fall on the day of the meeting. The clock skips an hour when summer time begins.",
@@ -4159,15 +4172,18 @@
       "notAMemberOnTheMeetingDay": "The member register does not show this person as a member on the day of this meeting, so they have no vote at it.",
       "proxyHolderHoldsNoAuthority": "This person holds no current authority for this meeting. Register the proxy authorisation first.",
       "assistantPrincipalNotPresent": "An assistant is brought by a member or a proxy holder, and the person named is not on the list. Check them in first.",
+      "assistantAlreadyPresent": "The member or proxy holder named already has an assistant on the list, and each may bring one (EFL 6 kap. 7 §). Strike that assistant off the list first.",
+      "assistantIsTheirOwnPrincipal": "Nobody can be their own assistant. Name the member or proxy holder who brought them.",
       "attendancePrincipalNotApplicable": "Only an assistant is brought by somebody. Leave that field alone for a member or a proxy holder.",
       "attendanceNotFound": "That line is no longer on the list. Read the meeting again.",
       "proxyHolderNotAMember": "Only another member may be a proxy holder, and the member register does not show this person as one on the day of this meeting.",
       "proxyHolderNotPermittedByBylaws": "The bylaws do not let anybody outside the member's spouse or cohabitant or another member hold an authority. Record the clause in settings if they do.",
       "proxyHolderLimitReached": "This person already represents as many members as the bylaws allow at this meeting.",
+      "proxyHolderIsTheMember": "A member cannot be their own proxy holder. A proxy holder acts for a member who is not there themselves (EFL 6 kap. 4 §).",
       "proxyAuthorisationNotFound": "That authority is no longer registered for this meeting. Read the meeting again.",
       "invalidBody": "The form sent something the server could not read. Check the fields and try again.",
       "unknown": "That could not be done. Try again.",
-      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after the day of the meeting. A member cannot have signed on a day that has not arrived.",
+      "proxyAuthorisationNotYetIssued": "The proxy authorisation is dated after today or after the day of the meeting. A member cannot have signed on a day that has not arrived.",
       "proxyAuthorisationExpired": "The proxy authorisation is more than a year older than the meeting. One is good for at most a year from the day the member signed it (EFL 6 kap. 4 §)."
     },
     "kind": {
@@ -4204,6 +4220,7 @@
     "maskedApartment": "Protected, not printed",
     "apartmentItself": "The apartment",
     "remove": "Remove",
+    "removeConfirm": "Remove the charge dated {{chargedOn}}, {{reason}}? It leaves the debiting list, and nothing here puts it back.",
     "stamp": "Debiting list - {{from}} to {{to}} - produced {{date}}",
     "total": "Total {{total}} kr",
     "period": {
@@ -4261,6 +4278,15 @@
       "saving": "Recording",
       "saved": "The charge is recorded."
     },
+    "correct": {
+      "action": "Correct",
+      "heading": "Correct a charge",
+      "description": "The charge is corrected where it stands, and the log shows what changed. Who is charged cannot be changed: if the wrong party was charged, remove the charge and record a new one.",
+      "submit": "Save the correction",
+      "saving": "Saving the correction",
+      "saved": "The charge is corrected.",
+      "cancel": "Cancel"
+    },
     "errors": {
       "notFound": "That charge no longer exists.",
       "personNotFound": "The register does not hold that person.",
@@ -4272,7 +4298,7 @@
       "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
       "dateNotACalendarDate": "That is not a date.",
       "dateInTheFuture": "A charge cannot be dated ahead of today.",
-      "amountNotASum": "State the amount in kronor, with at most two decimal places and no thousands separator.",
+      "amountNotASum": "State the amount in kronor, with at most two decimal places.",
       "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
       "reasonRequired": "State what the charge is for.",
       "vatRateRequired": "State the rate for a charge that carries VAT.",
@@ -4327,6 +4353,7 @@
     "amountWithUnit": "{{amount}} kr",
     "stamp": "Fee register - as it stands on {{date}} - {{total}} kr per month",
     "remove": "Remove",
+    "removeConfirm": "Remove {{kind}} for {{apartment}}? The fee leaves the register, and nothing here puts it back.",
     "removeNamed": "Remove {{kind}} for {{apartment}}",
     "empty": {
       "title": "No apartments in the register",
@@ -4393,6 +4420,7 @@
       "download": "Download the file",
       "notAnInvoice": "A notice is not an invoice. An annual fee is exempt from value added tax (ML 10 kap. 35 §); a taxable line needs a real invoice, which Open BRF does not produce.",
       "documentTitle": "Fee notices",
+      "documentPeriod": "Notices for {{from}} to {{to}}, produced {{issuedOn}}. Due date {{dueOn}}.",
       "column": {
         "period": "Period",
         "dueOn": "Due date",
@@ -4400,8 +4428,11 @@
         "total": "Total",
         "actions": "Actions"
       },
-      "payTo": "Paid to {{bankgiro}}.",
-      "noGiro": "no giro number in the settings"
+      "print": "Print the notices",
+      "close": "Close the notices",
+      "payToBankgiro": "Pay to bankgiro {{number}}.",
+      "payToPlusgiro": "Pay to plusgiro {{number}}.",
+      "noGiro": "No bankgiro or plusgiro is recorded in the settings."
     },
     "notice": {
       "column": {
@@ -5030,7 +5061,8 @@
       "secretOnce": "The secret is shown this once and cannot be shown again. Save it where the app reads it; an app that has lost its secret has to be registered afresh.",
       "noSecret": "This app was given no secret.",
       "errors": {
-        "invalidRedirectUri": "One of the addresses to send the answer back to is not a complete address. Write one address per line, at most eight.",
+        "invalidRedirectUri": "One of the addresses to send the answer back to is incomplete or not allowed. An address has to be https, or http for an app on this machine. Write one address per line, at most eight.",
+        "invalidBody": "The app could not be registered as filled in. Give it a name, and write one to eight addresses to send the answer back to, one per line.",
         "nameTaken": "An app by that name already exists. Choose another.",
         "resourceMissing": "This instance advertises no address for connected apps to sign in to, so the app could not be tied to one. Install a plugin that serves that address first.",
         "failed": "The app could not be registered just now. Try again."

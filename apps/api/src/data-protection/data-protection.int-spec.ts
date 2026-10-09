@@ -1683,6 +1683,90 @@ describe("processors", () => {
     }
   }, 60_000);
 
+  it("keeps a board-recorded recipient ended when the end commits while a classification waits", async () => {
+    /*
+     * Such a recipient exists only while its row is open. A classification
+     * that found it open and then waited for the recipient's key must not
+     * write it back after the board ended it in the meantime: that would put
+     * a recipient the board took off the record back on it. The end takes no
+     * lock, so it commits while the classification is held behind one.
+     */
+    const facts = await app.get(ProcessorFactsService).read();
+    const recorded = await app.get(ProcessorAgreementService).recordExternal(
+      {
+        classification: "NOT_A_PROCESSOR",
+        note: "Ingen behandling for foreningens rakning.",
+        actorPersonId: board.personId,
+      },
+      facts,
+    );
+    const processorKey = recorded.processorKey;
+    const agreementId = recorded.agreement?.agreementId ?? "";
+
+    const key = `processor-agreement:${processorKey}`;
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      const classifying = classify(processorKey, {
+        classification: "INDEPENDENT_CONTROLLER",
+        counterparty: "Nagon annan AB",
+        note: "Bestammer sina egna andamal.",
+      });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      const ended = await inject({
+        method: "POST",
+        url: `/api/data-protection/processor-agreements/${agreementId}/end`,
+        payload: { reason: "Inte langre anlitad." },
+        headers: { cookie: boardCookie },
+      });
+      expect(ended.statusCode).toBe(200);
+
+      releaseHolder?.();
+      await holder;
+
+      // The same refusal the board gets for a recipient that is not there.
+      const refused = await classifying;
+      expect(refused.statusCode).toBe(404);
+      expect(reasonOf(refused)).toBe("processor-not-found");
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+    }
+
+    const rows = await prisma.processorAgreement.findMany({
+      where: { processorKey },
+      select: { id: true, endedAt: true, endReason: true },
+    });
+    expect(rows).toEqual([
+      {
+        id: agreementId,
+        endedAt: expect.any(Date) as Date,
+        endReason: "Inte langre anlitad.",
+      },
+    ]);
+    const listed = await listProcessors();
+    expect(listed.map((processor) => processor.processorKey)).not.toContain(
+      processorKey,
+    );
+  }, 60_000);
+
   it("refuses a second open row for one recipient from a writer that skips the lock", async () => {
     /*
      * The lock above is the path writers take; the partial unique index is

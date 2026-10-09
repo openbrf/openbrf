@@ -1020,6 +1020,12 @@ export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
  * chunk of its own rows, because the register keeps changing for as long as
  * the apply runs.
  *
+ * A row the board decided to skip is not compared while it still asks: it
+ * writes nothing whoever it matches, and stopping the import for it would
+ * leave the rest of the file unwritten for no one's sake. A row decided
+ * otherwise that the preview did not ask about answers no question the board
+ * was shown, and counts as changed.
+ *
  * @param createdByApply The persons earlier chunks of this apply created. The
  *   preview could list none of them, having no id for a person the file has
  *   not written yet, and a later chunk finds them in the register: they are set
@@ -1028,15 +1034,20 @@ export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
 export function changedSincePreview(
   plan: ImportPlan,
   previewed: PreviewedCandidates,
+  decisions: ImportDecisions,
   createdByApply: ReadonlySet<string> = new Set(),
 ): boolean {
   return plan.rows.some((row) => {
     const listed = previewed[String(row.rowNumber)];
-    if (listed === undefined) {
+    if (row.outcome !== "ambiguous") {
+      return listed !== undefined;
+    }
+    const decision = decisions[String(row.rowNumber)];
+    if (decision?.action === "skip") {
       return false;
     }
-    if (row.outcome !== "ambiguous") {
-      return true;
+    if (listed === undefined) {
+      return decision !== undefined;
     }
     const found = row.candidates.flatMap(({ personId }) =>
       createdByApply.has(personId) ? [] : [personId],

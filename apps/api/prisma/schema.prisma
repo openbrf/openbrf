@@ -344,6 +344,12 @@ model Association {
   smtpPasswordCipher String?
   smtpFromAddress    String?
   smtpSecure         Boolean @default(true)
+  /// Whether a connection that starts in cleartext must upgrade through
+  /// STARTTLS before the sign-in. Written on every save of the SMTP settings:
+  /// true unless the host is on loopback. False on a row saved before saving
+  /// set it, which keeps that server working as it did and has the SMTP card
+  /// say the password can go out unencrypted until the settings are saved again.
+  smtpRequireTls     Boolean @default(false)
 
   /// Which SMS driver this instance sends through, or null for none.
   ///

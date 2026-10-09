@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { floorOfApartmentNumber } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 
@@ -145,10 +146,7 @@ export class AddressService {
        * which is the opposite of what `create` deliberately does by letting the
        * database decide.
        */
-      if (
-        cause instanceof Prisma.PrismaClientKnownRequestError &&
-        cause.code === "P2002"
-      ) {
+      if (isUniqueViolation(cause)) {
         throw new AddressError(
           `${input.street} ${input.number} is already an address of this housing cooperative.`,
           "address-exists",

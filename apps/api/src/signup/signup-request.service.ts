@@ -5,10 +5,14 @@ import { lockPersonEmail } from "../address-book/person-email-lock";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { Prisma } from "../generated/prisma/client";
+import { isUniqueViolation } from "../database/unique-violation";
 import { droppedSubmissionId } from "../http/honeypot";
-import { InvitationService } from "../invitations/invitation.service";
-import { failureName } from "../logging/failure";
+import {
+  InvitationError,
+  InvitationService,
+} from "../invitations/invitation.service";
+import { failureFrames, failureName } from "../logging/failure";
+import { isDeliveryFailure } from "../mail/delivery-failure";
 import { MoveService } from "../moves/move.service";
 import { lockApartmentResidencies } from "../registers/residency-lock";
 
@@ -27,6 +31,22 @@ export class SignupRequestError extends Error {
     super(message);
     this.name = "SignupRequestError";
   }
+}
+
+/**
+ * Whether an approval's invitation failed for a reason the board can act on
+ * from the person's view: the mail not leaving, or a person the approval has
+ * just created or linked who has no address or already has an account. Any
+ * other InvitationError straight after the approval (the person not found, for
+ * one) is our own fault.
+ */
+function invitationNotDelivered(cause: unknown): boolean {
+  if (cause instanceof InvitationError) {
+    return (
+      cause.reason === "no-email" || cause.reason === "already-has-account"
+    );
+  }
+  return isDeliveryFailure(cause);
 }
 
 export interface SubmitSignupRequestInput {
@@ -150,13 +170,10 @@ export class SignupRequestService {
         },
         select: { id: true },
       });
-      this.logger.log(`Received signup request ${request.id}`);
+      this.logger.log(`Received account request ${request.id}`);
       return request;
     } catch (cause) {
-      if (
-        cause instanceof Prisma.PrismaClientKnownRequestError &&
-        cause.code === "P2002"
-      ) {
+      if (isUniqueViolation(cause)) {
         return { id: droppedSubmissionId() };
       }
       throw cause;
@@ -394,12 +411,24 @@ export class SignupRequestService {
     } catch (cause) {
       // Named by its class only: a mail server's refusal quotes the envelope,
       // and the envelope holds the address decrypted above.
-      this.logger.warn(
-        `Approved signup request ${request.id}, but the invitation was not sent: ${failureName(cause)}`,
-      );
+      if (invitationNotDelivered(cause)) {
+        this.logger.warn(
+          `Approved account request ${request.id}, but the invitation was not sent: ${failureName(cause)}`,
+        );
+      } else {
+        // A fault in our own code or the database rather than the mail not
+        // leaving, so it is logged as one. The approval has committed all the
+        // same: answering with the error would tell the board it failed, and a
+        // retry would only find it decided. The board is told the invitation
+        // was not sent, which is true, and to send it from the person's view.
+        this.logger.error(
+          `Approved account request ${request.id}, but sending the invitation failed unexpectedly: ${failureName(cause)}`,
+          failureFrames(cause),
+        );
+      }
     }
 
-    this.logger.log(`Approved signup request ${request.id}`);
+    this.logger.log(`Approved account request ${request.id}`);
     return { personId, invitationSent };
   }
 

@@ -779,7 +779,7 @@ export class ImportService implements OnModuleInit {
       indexes: new Map(),
     });
 
-    if (changedSincePreview(plan, previewed)) {
+    if (changedSincePreview(plan, previewed, decisions)) {
       throw new ImportError(
         "Given these decisions, a row the preview showed as needing a " +
           "decision no longer does, or matches other people.",
