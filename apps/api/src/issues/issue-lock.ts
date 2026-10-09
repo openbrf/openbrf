@@ -17,6 +17,9 @@ import type { Prisma } from "../generated/prisma/client";
  * value moves the day the reporter's name and email address are erased - and
  * moves it earlier, which is the direction that cannot be undone.
  *
+ * Attaching a photograph takes it too, for the same shape of reason: the cap
+ * on photographs is a count followed by an insert.
+ *
  * An advisory lock for the reason `legal-hold-lock.ts` gives: the invariant
  * spans a read and a write rather than a row, so no constraint can state it.
  * Held here rather than beside the writer because a lock only works if every

@@ -137,8 +137,9 @@ export async function ensureInstance(
   await api.saveSmtp(request, stack.baseUrl, {
     host: stack.smtpHost,
     port: stack.smtpPort,
-    // Mailpit's 1025 is cleartext. Asking for implicit TLS there hangs the
-    // send rather than failing it.
+    // Mailpit's 1025 opens in cleartext and upgrades through STARTTLS, which
+    // the save requires. Asking for implicit TLS there hangs the send rather
+    // than failing it.
     secure: false,
     user: null,
     fromAddress: "noreply@eksemplet.test",

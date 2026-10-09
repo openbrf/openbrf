@@ -1433,7 +1433,7 @@ describe("closing a granted erasure request on evidence", () => {
         owed: 0,
         kept: 1,
         keptBecause:
-          "an open motion is a matter the association is still dealing with",
+          "an open motion, or one on the agenda of a meeting not yet held, is a matter the association is still dealing with",
       },
     ]);
 

@@ -312,7 +312,7 @@ describe("what a granted erasure request still owes one person", () => {
         owed: 1,
         kept: 1,
         keptBecause:
-          "an open motion is a matter the association is still dealing with",
+          "an open motion, or one on the agenda of a meeting not yet held, is a matter the association is still dealing with",
       },
     ]);
   });

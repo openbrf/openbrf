@@ -70,6 +70,7 @@ export const STORED_MAIL_COLUMNS = {
   smtpHost: true,
   smtpPort: true,
   smtpSecure: true,
+  smtpRequireTls: true,
   smtpUser: true,
   smtpPasswordCipher: true,
   smtpFromAddress: true,
@@ -200,10 +201,14 @@ export class MailSettingsResolver implements OnModuleInit {
         host: association.smtpHost,
         port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
         secure: association.smtpSecure,
-        // As it always was: a server a board entered before this was required
-        // may not offer STARTTLS, and refusing it would stop the mail of an
-        // instance that works today. The host's relay is held to it below.
-        requireTls: false,
+        /*
+         * As the settings were saved. Every save requires STARTTLS unless the
+         * host is on loopback (SettingsService.updateSmtp); a row saved before
+         * that keeps the opportunistic upgrade it always had, because a server
+         * that offers no STARTTLS would otherwise stop the mail of an instance
+         * that works today. The SMTP card says so until the board saves again.
+         */
+        requireTls: association.smtpRequireTls,
         user: association.smtpUser,
         password,
       },

@@ -4,6 +4,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
@@ -22,7 +23,7 @@ import {
   loadBoardMailboxSettings,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
-import { isDataRefusal, isUniqueViolation } from "./database-refusal";
+import { isDataRefusal } from "./database-refusal";
 import {
   type MimeAttachment,
   type ParsedMessage,

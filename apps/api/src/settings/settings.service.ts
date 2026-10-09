@@ -5,6 +5,7 @@ import {
   primaryColorOverride,
 } from "@openbrf/tokens";
 
+import { isLoopbackHost } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
@@ -169,6 +170,14 @@ export interface StoredSmtpSettingsView {
    * turns every board member's browser session into a way to read it.
    */
   passwordSet: boolean;
+  /**
+   * Whether the sign-in can go out unencrypted: the settings were saved before
+   * saving required TLS, name no implicit TLS, and the host is not on loopback.
+   * A server that offers no STARTTLS, or an attacker on the path who strips the
+   * offer, then receives the password in the clear. Saving the settings again
+   * requires TLS, so the screen says that.
+   */
+  tlsOptional: boolean;
   /**
    * Whether the instance can send mail at all. Invitations, activation links
    * and sign-in links all depend on it, so the screens say so plainly while it
@@ -786,6 +795,7 @@ export class SettingsService {
     smtpHost: string | null;
     smtpPort: number | null;
     smtpSecure: boolean;
+    smtpRequireTls: boolean;
     smtpUser: string | null;
     smtpFromAddress: string | null;
     smtpPasswordCipher: string | null;
@@ -810,6 +820,11 @@ export class SettingsService {
       user: association.smtpUser,
       fromAddress: association.smtpFromAddress,
       passwordSet: association.smtpPasswordCipher !== null,
+      tlsOptional:
+        association.smtpHost !== null &&
+        !association.smtpSecure &&
+        !association.smtpRequireTls &&
+        !isLoopbackHost(association.smtpHost),
       configured:
         association.smtpHost !== null && association.smtpFromAddress !== null,
     };
@@ -851,6 +866,13 @@ export class SettingsService {
         smtpHost: input.host,
         smtpPort: input.port,
         smtpSecure: input.secure,
+        /*
+         * Required on every save, not only when the host changes: the board is
+         * saving the credentials this server signs in with, and a password sent
+         * where an attacker on the path stripped STARTTLS is sent in the clear.
+         * A server on loopback is on this machine, where there is no path.
+         */
+        smtpRequireTls: input.host !== null && !isLoopbackHost(input.host),
         smtpUser: input.user,
         smtpFromAddress: input.fromAddress,
         // Left out of the update entirely when undefined, so saving the rest of
