@@ -51,7 +51,33 @@ let catalogDirectory: string;
 let exampleEntry: FixtureCatalogEntry;
 let catalogPath: string;
 /** An installer reading the index at this path, on this run's database. */
-let installerReading: (path: string) => ThemeInstallService;
+let installerReading: (
+  path: string,
+  fetchDelayMs?: number,
+) => ThemeInstallService;
+
+/**
+ * A source whose download takes a while.
+ *
+ * The install gates are read before the download, so the delay is the window
+ * in which another administrator's uninstall can land between a gate and the
+ * write it admitted. Without it the race is a matter of scheduling luck.
+ */
+class SlowCatalogThemeSource extends CatalogThemeSource {
+  constructor(
+    client: CatalogClient,
+    private readonly fetchDelayMs: number,
+  ) {
+    super(client);
+  }
+
+  override async fetchPackage(
+    ...args: Parameters<CatalogThemeSource["fetchPackage"]>
+  ): ReturnType<CatalogThemeSource["fetchPackage"]> {
+    await new Promise((resolve) => setTimeout(resolve, this.fetchDelayMs));
+    return super.fetchPackage(...args);
+  }
+}
 
 /** Restored in afterAll, so the shared database is left as it was found. */
 let associationExisted = false;
@@ -94,19 +120,21 @@ beforeAll(async () => {
   const store = new ThemeStore(env);
 
   themes = new ThemeService(service, audit, store);
-  installerReading = (path) =>
-    new ThemeInstallService(
+  installerReading = (path, fetchDelayMs = 0) => {
+    const client = new CatalogClient({
+      ...env,
+      OPENBRF_CATALOG_URL: pathToFileURL(path).href,
+    });
+    return new ThemeInstallService(
       service,
       audit,
-      new CatalogThemeSource(
-        new CatalogClient({
-          ...env,
-          OPENBRF_CATALOG_URL: pathToFileURL(path).href,
-        }),
-      ),
+      fetchDelayMs === 0
+        ? new CatalogThemeSource(client)
+        : new SlowCatalogThemeSource(client, fetchDelayMs),
       store,
       themes,
     );
+  };
   installer = installerReading(catalog.catalogPath);
 
   const existing = await prisma.association.findUnique({
@@ -519,5 +547,69 @@ describe("preview and activation", () => {
     await expect(
       stat(join(dataDirectory, "themes", "example-theme")),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * Install and uninstall of one id from two administrators at once.
+ *
+ * The id is installed and the entry is deprecated, which is the case the
+ * deprecation gate lets through. Without the lock the install reads
+ * "installed", the uninstall removes the row and the files while the package
+ * downloads, and the install then writes both again: an uninstall followed by
+ * an install of an entry the gate refuses a fresh install of. With it the
+ * uninstall waits, and runs after the install, so the id ends removed.
+ */
+describe("an install racing an uninstall of the same theme", () => {
+  const files = (): string => join(dataDirectory, "themes", "example-theme");
+
+  it("ends with neither a row nor files, never one without the other", async () => {
+    await installer.install(exampleEntry.id, null);
+    const path = await exampleEntryChanged("deprecated-race", {
+      deprecated: true,
+    });
+
+    const reinstall = installerReading(path, 300).install(
+      exampleEntry.id,
+      null,
+    );
+    // Past the gate and into the download before the uninstall starts.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const removal = themes.uninstall(exampleEntry.id);
+
+    const [installed, removed] = await Promise.allSettled([reinstall, removal]);
+    expect(installed.status).toBe("fulfilled");
+    expect(removed.status).toBe("fulfilled");
+
+    const row = await prisma.installedTheme.findUnique({
+      where: { id: exampleEntry.id },
+    });
+    const onDisk = await stat(files()).then(
+      () => true,
+      () => false,
+    );
+    expect(row).toBeNull();
+    expect(onDisk).toBe(false);
+  });
+
+  it("does not make a different id wait", async () => {
+    await installer.install(exampleEntry.id, null);
+    const path = await exampleEntryChanged("deprecated-other", {
+      deprecated: true,
+    });
+
+    const slow = installerReading(path, 600).install(exampleEntry.id, null);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Another id, so another lock: refused at once rather than after the
+    // download above has finished.
+    const started = Date.now();
+    await expect(themes.uninstall("illegible-theme")).rejects.toThrow(
+      /No theme illegible-theme is installed/,
+    );
+    expect(Date.now() - started).toBeLessThan(400);
+
+    await slow;
+    await themes.uninstall(exampleEntry.id);
   });
 });

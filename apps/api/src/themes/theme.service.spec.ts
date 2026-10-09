@@ -100,6 +100,7 @@ function build(
         return deleted;
       }),
     },
+    $executeRaw: vi.fn(async () => 0),
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
       run(prisma),
     ),

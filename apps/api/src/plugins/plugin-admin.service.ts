@@ -30,6 +30,7 @@ import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
+import { withPackageLock } from "../packaging/package-lock";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
   type PluginFinding,
@@ -493,6 +494,21 @@ export class PluginAdminService {
     }
 
     /*
+     * Every gate below reads whether the plugin is already here, and an
+     * uninstall of the same id deletes the row they read, so both run under
+     * the one lock. See {@link withPackageLock}.
+     */
+    return await withPackageLock(this.prisma, "plugin", request.id, () =>
+      this.installLocked(request, actorPersonId, channel),
+    );
+  }
+
+  private async installLocked(
+    request: InstallRequest,
+    actorPersonId: string | null,
+    channel: AuditChannel,
+  ): Promise<{ restarting: boolean }> {
+    /*
      * Read from the source rather than the cache: the screen that sent this
      * browsed the catalog up to a minute ago, and a curator who deprecated
      * the entry or changed what it declares since must be seen by the gates
@@ -673,6 +689,18 @@ export class PluginAdminService {
   }
 
   async uninstall(
+    id: string,
+    actorPersonId: string | null,
+    channel: AuditChannel,
+  ): Promise<{ restarting: boolean }> {
+    // The same lock an install of this id takes, so the two run one after the
+    // other.
+    return await withPackageLock(this.prisma, "plugin", id, () =>
+      this.uninstallLocked(id, actorPersonId, channel),
+    );
+  }
+
+  private async uninstallLocked(
     id: string,
     actorPersonId: string | null,
     channel: AuditChannel,

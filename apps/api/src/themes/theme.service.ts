@@ -24,6 +24,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { withPackageLock } from "../packaging/package-lock";
 import { ThemeStore } from "./theme-store";
 
 /**
@@ -534,6 +535,15 @@ export class ThemeService {
       );
     }
 
+    // The checks below read the row an install of this id writes, and the
+    // removal takes its files with it, so both run under the one lock. See
+    // {@link withPackageLock}.
+    return await withPackageLock(this.prisma, "theme", themeId, () =>
+      this.uninstallLocked(themeId),
+    );
+  }
+
+  private async uninstallLocked(themeId: string): Promise<ThemeSummary[]> {
     const [rows, activeId] = await Promise.all([
       this.installedRows(),
       this.activeThemeId(),

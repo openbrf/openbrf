@@ -20,6 +20,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import type { CatalogThemeEntry } from "../packaging/catalog-entry";
 import { sha512 } from "../packaging/integrity";
+import { withPackageLock } from "../packaging/package-lock";
 import {
   COMPOSED_AUDIT_SOURCE,
   composedChecksum,
@@ -186,6 +187,22 @@ export class ThemeInstallService {
       "Create the housing cooperative before installing a theme.",
     );
 
+    /*
+     * The deprecation gate reads whether the theme is installed, and an
+     * uninstall of the same id deletes that row and then its files. Both take
+     * the one lock, held through the download and the swap of the files, so
+     * the gate and the write it admits see the same state. See
+     * {@link withPackageLock}.
+     */
+    return await withPackageLock(this.prisma, "theme", catalogId, () =>
+      this.installLocked(catalogId, actorPersonId),
+    );
+  }
+
+  private async installLocked(
+    catalogId: string,
+    actorPersonId: string | null,
+  ): Promise<ThemeInstallResult> {
     const entry = await this.source.theme(catalogId);
     if (entry === null) {
       throw new ThemeInstallError(
@@ -273,6 +290,18 @@ export class ThemeInstallService {
       "Create the housing cooperative before composing a theme.",
     );
 
+    // Under the lock an install or an uninstall of this id takes: the check
+    // below reads the row they write, and the composed version is derived
+    // from it.
+    return await withPackageLock(this.prisma, "theme", input.id, () =>
+      this.composeLocked(input, actorPersonId),
+    );
+  }
+
+  private async composeLocked(
+    input: ComposeThemeInput,
+    actorPersonId: string | null,
+  ): Promise<ThemeInstallResult> {
     const existing = await this.prisma.installedTheme.findUnique({
       where: { id: input.id },
       select: { version: true, catalogId: true },

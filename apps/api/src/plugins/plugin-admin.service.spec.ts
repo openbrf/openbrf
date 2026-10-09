@@ -101,7 +101,7 @@ function build(options: Options = {}) {
    * records it have to commit together, and an assertion that the entry was
    * written with "something" cannot tell that apart from the root client.
    */
-  const txClient = { marker: "tx" };
+  const txClient = { marker: "tx", $executeRaw: vi.fn(async () => 0) };
   const prisma = {
     association: { findUnique: async () => ({ defaultLocale: "sv" }) },
     $transaction: vi.fn(
