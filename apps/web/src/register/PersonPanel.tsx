@@ -14,12 +14,14 @@ import {
   type ConsentScope,
   electToBoardPosition,
   endBoardTerm,
+  fetchBoardRecoveryState,
   fetchPerson,
   type MaskableField,
   type PersonBoardPosition,
   type PersonDetail,
   placeLegalHold,
   type PublicationConsent,
+  recoverBoard,
   RegisterRequestError,
   releaseLegalHold,
   revealFields,
@@ -82,7 +84,10 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
   "term-overlaps": "register.person.roles.errors.termOverlaps",
   "elected-too-far-ahead": "register.person.roles.errors.electedTooFarAhead",
+  "recovery-dated-ahead": "register.person.roles.errors.recoveryDatedAhead",
   "board-seat-required": "register.person.roles.errors.boardSeatRequired",
+  "board-not-vacant": "register.person.roles.errors.boardNotVacant",
+  "reason-required": "register.person.roles.recoveryReasonRequired",
   "term-already-ended": "register.person.roles.errors.termAlreadyEnded",
   "ended-before-elected": "register.person.roles.errors.endedBeforeElected",
   "ended-too-far-ahead": "register.person.roles.errors.endedTooFarAhead",
@@ -248,6 +253,14 @@ export function PersonPanel({
   const [electPosition, setElectPosition] =
     useState<BoardPositionType>("BOARD_MEMBER");
   const [electedOn, setElectedOn] = useState("");
+  /**
+   * Whether the board register was vacant when it was read: no seat held today
+   * and none recorded ahead. The election form is then a board recovery, which
+   * is the one write the API takes from somebody who holds no seat, and which
+   * needs a reason.
+   */
+  const [registerVacant, setRegisterVacant] = useState(false);
+  const [recoveryReason, setRecoveryReason] = useState("");
   /** The seat whose end date is being typed, by the two-press pattern. */
   const [endingSeat, setEndingSeat] = useState<string | null>(null);
   /**
@@ -296,8 +309,21 @@ export function PersonPanel({
 
     void (async () => {
       try {
-        const detail = await fetchPerson(personId, controller.signal);
+        const [detail, recovery] = await Promise.all([
+          fetchPerson(personId, controller.signal),
+          /*
+           * Asked only of somebody who could record a board at all. A failure
+           * fails the load like the person's own: reading it as "not vacant"
+           * would offer the ordinary election on a vacant register, which the
+           * server refuses for somebody who holds no seat.
+           */
+          canManageBoardPositions
+            ? fetchBoardRecoveryState(controller.signal)
+            : { vacant: false },
+        ]);
         setPerson(detail);
+        setRegisterVacant(recovery.vacant);
+        setFailed(false);
         /*
          * Whether an outstanding invitation has expired is decided here, at the
          * moment the register was read, rather than during a render: a render
@@ -331,6 +357,13 @@ export function PersonPanel({
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
+        /*
+         * Nothing from an earlier read is kept. A form built on the previous
+         * vacancy answer would offer an act the server may now refuse, and the
+         * board cannot tell a stale form from a current one.
+         */
+        setPerson(null);
+        setRegisterVacant(false);
         setFailed(true);
       }
     })();
@@ -338,7 +371,7 @@ export function PersonPanel({
     return () => {
       controller.abort();
     };
-  }, [personId, reloadToken]);
+  }, [personId, reloadToken, canManageBoardPositions]);
 
   const reveal = useCallback(
     async (field: MaskableField): Promise<void> => {
@@ -513,16 +546,34 @@ export function PersonPanel({
    * server after the button was clicked would read as a fault rather than as
    * the missing date it is.
    */
+  /*
+   * On a vacant register the same form records a board recovery instead: one
+   * seat, the person this panel is about, with the reason the recovery has to
+   * carry. It ends the vacancy, so the person seated records the rest of the
+   * board once they sign in.
+   */
   const elect = useCallback(async (): Promise<void> => {
     if (electedOn === "") {
       setBoardFailure("register.person.roles.electedOnRequired");
+      return;
+    }
+    const reason = recoveryReason.trim();
+    if (registerVacant && reason === "") {
+      setBoardFailure("register.person.roles.recoveryReasonRequired");
       return;
     }
 
     setBoardFailure(null);
     setRoleSaving("elect");
     try {
-      await electToBoardPosition(personId, electPosition, electedOn);
+      if (registerVacant) {
+        await recoverBoard(
+          [{ personId, position: electPosition, electedOn }],
+          reason,
+        );
+      } else {
+        await electToBoardPosition(personId, electPosition, electedOn);
+      }
     } catch (error) {
       setBoardFailure(roleErrorMessage(error));
       return;
@@ -530,9 +581,17 @@ export function PersonPanel({
       setRoleSaving(null);
     }
     setElectedOn("");
+    setRecoveryReason("");
     setReloadToken((token) => token + 1);
     onChanged();
-  }, [personId, electPosition, electedOn, onChanged]);
+  }, [
+    personId,
+    electPosition,
+    electedOn,
+    recoveryReason,
+    registerVacant,
+    onChanged,
+  ]);
 
   /*
    * Saying when a term ends, and correcting that date while it is still ahead.
@@ -1011,6 +1070,30 @@ export function PersonPanel({
                   <p className="text-small text-ink-muted">
                     {t("register.person.roles.historyNote")}
                   </p>
+                  {registerVacant ? (
+                    <div className="flex flex-col gap-2 border-t border-line pt-3">
+                      <p className="text-small text-ink-muted">
+                        {t("register.person.roles.recoveryExplained")}
+                      </p>
+                      <label className="flex flex-col gap-1.5 text-label text-ink-muted uppercase">
+                        {t("register.person.roles.recoveryReasonLabel")}
+                        <textarea
+                          name="boardRecoveryReason"
+                          rows={2}
+                          maxLength={500}
+                          value={recoveryReason}
+                          onChange={(event) => {
+                            setRecoveryReason(event.target.value);
+                            setBoardFailure(null);
+                          }}
+                          className="min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink"
+                        />
+                        <span className="text-small text-ink-muted normal-case">
+                          {t("register.person.roles.recoveryReasonHint")}
+                        </span>
+                      </label>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
                     <label className={LABEL} htmlFor="elect-position">
                       {t("register.person.roles.position")}
@@ -1053,7 +1136,11 @@ export function PersonPanel({
                     >
                       {roleSaving === "elect"
                         ? t("register.person.roles.electWorking")
-                        : t("register.person.roles.elect")}
+                        : t(
+                            registerVacant
+                              ? "register.person.roles.recover"
+                              : "register.person.roles.elect",
+                          )}
                     </button>
                   </div>
                 </>

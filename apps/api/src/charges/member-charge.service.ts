@@ -26,6 +26,7 @@ import {
   writeDebitingList,
 } from "./debiting-list";
 import { lockMemberCharge } from "./member-charge-lock";
+import { memberChargePurgeCutoff } from "./member-charge-retention";
 import {
   MemberChargeError,
   type MemberChargeTextLocation,
@@ -226,6 +227,9 @@ export class MemberChargeService {
     const charge = await this.prisma.$transaction(async (tx) => {
       await this.requireParty(tx, personId, apartmentId);
 
+      const financialYearStartMonth = await financialYearStartMonthInForce(tx);
+      this.refuseDateBeyondRetention(chargedOn, financialYearStartMonth, now);
+
       const created = await tx.memberCharge.create({
         data: {
           personId,
@@ -237,7 +241,7 @@ export class MemberChargeService {
            * entered in. A later change to the setting reaches charges recorded
            * afterwards and no earlier one - see `member-charge-retention.ts`.
            */
-          financialYearStartMonth: await financialYearStartMonthInForce(tx),
+          financialYearStartMonth,
           amount,
           reason,
           vatTreatment: input.vatTreatment,
@@ -314,7 +318,7 @@ export class MemberChargeService {
 
       const charge = await tx.memberCharge.findUnique({
         where: { id },
-        select: CHARGE_FIELDS,
+        select: { ...CHARGE_FIELDS, financialYearStartMonth: true },
       });
       if (charge === null) {
         throw new MemberChargeError("There is no such charge.", "not-found");
@@ -324,6 +328,15 @@ export class MemberChargeService {
         input.chargedOn === undefined
           ? localDayOfColumn(charge.chargedOn)
           : this.readPastDate(input.chargedOn, now);
+      if (input.chargedOn !== undefined) {
+        // Against the books the charge was entered in, which is the clock the
+        // purge erases it on - see `member-charge-retention.ts`.
+        this.refuseDateBeyondRetention(
+          chargedOn,
+          charge.financialYearStartMonth,
+          now,
+        );
+      }
 
       const handedToManagerOn =
         input.handedToManagerOn === undefined
@@ -354,9 +367,16 @@ export class MemberChargeService {
       const reason =
         input.reason === undefined ? undefined : readReason(input.reason);
       const vatTreatment = input.vatTreatment ?? charge.vatTreatment;
+      /*
+       * A rate left out is a rate left alone, also when the treatment is sent
+       * again unchanged: a form that re-sends every field it shows must not be
+       * told the rate it never touched is missing. Only a treatment that moves to
+       * RATE from something else has no stored rate to carry over.
+       */
       const vatRatePercent = readVatRate(
         vatTreatment,
-        input.vatTreatment === undefined && input.vatRatePercent === undefined
+        input.vatRatePercent === undefined &&
+          vatTreatment === charge.vatTreatment
           ? charge.vatRatePercent
           : (input.vatRatePercent ?? null),
       );
@@ -496,7 +516,7 @@ export class MemberChargeService {
     const period = this.readPeriod(input.from, input.to);
 
     const list = await this.audit.withAuditedRead<DebitingList>(
-      {
+      (answered) => ({
         action: "DEBITING_LIST_EXPORTED",
         channel: "WEB",
         actorPersonId: input.actorPersonId,
@@ -504,8 +524,12 @@ export class MemberChargeService {
         // no figure: this entry says who took a copy of what, which is the
         // question a supervisory authority asks, and the copy itself is the
         // file rather than the log.
-        context: { from: period.from, to: period.to },
-      },
+        context: {
+          from: period.from,
+          to: period.to,
+          rowCount: answered.rows.length,
+        },
+      }),
       async (tx) => this.build(tx, period, now),
     );
 
@@ -574,6 +598,28 @@ export class MemberChargeService {
       );
     }
     return day;
+  }
+
+  /**
+   * Refuses a date the purge has already passed.
+   *
+   * A charge dated further back than the preservation period would be erased
+   * by the next night's purge, hours after it had been shown on screen and
+   * perhaps exported: a record the association writes and loses the same day
+   * is worse than a refusal that says why.
+   */
+  private refuseDateBeyondRetention(
+    chargedOn: LocalDay,
+    financialYearStartMonth: number,
+    now: Date,
+  ): void {
+    const cutoff = memberChargePurgeCutoff(now, financialYearStartMonth);
+    if (dateColumnOf(chargedOn) < cutoff) {
+      throw new MemberChargeError(
+        "A charge cannot be dated before the period the association keeps charges for.",
+        "date-beyond-retention",
+      );
+    }
   }
 
   /** The hand-over date, which cannot precede the charge or lie ahead. */

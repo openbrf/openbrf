@@ -1,3 +1,5 @@
+import { localDayOf } from "./stockholm-calendar.ts";
+
 /**
  * The Swedish personal identity number (personnummer), as parsed, normalized,
  * checksum-verified and searched for in free text.
@@ -84,7 +86,8 @@ export function parsePersonalIdentityNumber(
     // Written with the century, so take it at face value.
     fullYear = Number(century) * 100 + twoDigitYear;
   } else {
-    const referenceYear = referenceDate.getFullYear();
+    const referenceDay = localDayOf(referenceDate);
+    const referenceYear = referenceDay.year;
     fullYear = Math.floor(referenceYear / 100) * 100 + twoDigitYear;
     if (separator === "+") {
       // A plus is written from the year a person turns 100, so here it is the
@@ -101,8 +104,7 @@ export function parsePersonalIdentityNumber(
       // unchanged input moved with the clock. The day is compared without a
       // coordination number's offset, which is no date at all.
       (fullYear * 100 + monthNumber) * 100 + actualDay >
-      (referenceYear * 100 + referenceDate.getMonth() + 1) * 100 +
-        referenceDate.getDate()
+      (referenceYear * 100 + referenceDay.month) * 100 + referenceDay.day
     ) {
       fullYear -= 100;
     }
@@ -443,6 +445,22 @@ function yearsFrom(date: Date, years: number): Date {
   const moved = new Date(date.getTime());
   moved.setFullYear(moved.getFullYear() + years);
   return moved;
+}
+
+/**
+ * Finds every run of digits shaped like a personal identity number, valid or
+ * not.
+ *
+ * For hiding rather than refusing: a number mistyped so that its date or check
+ * digit fails is still a person's number with a typo, and a screen that must
+ * not show identity numbers must not show it either.
+ */
+export function scanForPersonalIdentityNumberCandidates(
+  text: string,
+): PersonalIdentityNumberMatch[] {
+  return [...text.matchAll(new RegExp(CANDIDATE_PATTERN.source, "g"))].map(
+    (match) => ({ value: match[0], index: match.index }),
+  );
 }
 
 /** Days in a month, honouring the Gregorian leap-year rule. */

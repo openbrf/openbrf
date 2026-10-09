@@ -42,6 +42,7 @@ export {
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
   personalIdentityNumberNeedsCentury,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
   withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";

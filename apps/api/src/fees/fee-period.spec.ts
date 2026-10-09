@@ -42,9 +42,11 @@ describe("monthsIn", () => {
   it("stops at the bound rather than running on", () => {
     // The period comes from a form, so the bound is what keeps a typing mistake
     // from building a query per month for a century before anything refuses it.
-    expect(
-      monthsIn(day("2026-01-01"), day("2126-01-31")).length,
-    ).toBeLessThanOrEqual(MAX_MONTHS_PER_PERIOD + 1);
+    // One past the bound exactly, which is enough for the issue to refuse it
+    // (`fee-notification.service.spec.ts`) and no more.
+    expect(monthsIn(day("2026-01-01"), day("2126-01-31")).length).toBe(
+      MAX_MONTHS_PER_PERIOD + 1,
+    );
   });
 });
 

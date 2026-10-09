@@ -35,7 +35,9 @@ export function holdReports(app: INestApplication) {
     read,
     options,
   ) => {
-    if (REPORT_ACTIONS.has(entry.action)) {
+    // A report states its entry up front; an entry written from the answer
+    // (the debiting list's row count) belongs to a read that is not one.
+    if (typeof entry !== "function" && REPORT_ACTIONS.has(entry.action)) {
       held += 1;
       await released;
     }
