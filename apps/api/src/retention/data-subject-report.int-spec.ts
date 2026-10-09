@@ -16,9 +16,14 @@ import {
   runPhone,
   runSuffix,
 } from "../testing/integration-env";
+import { holdReports } from "../testing/held-reports";
 import { SECTION_PROCESSING } from "../data-protection/section-processing";
 import type { DataSubjectReport } from "./data-subject-report";
 import { DataSubjectReportService } from "./data-subject-report.service";
+import {
+  BUSY_RETRY_AFTER_SECONDS,
+  MAX_CONCURRENT_EXPORTS,
+} from "./export-slots";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15) over HTTP.
@@ -2018,6 +2023,112 @@ describe("what producing the report records", () => {
         where: { action: "DATA_EXPORTED", targetPersonId: missingPersonId },
       }),
     ).resolves.toBe(before);
+  });
+});
+
+/**
+ * The few slots the report is gathered in, which the board's access report and
+ * the members' own exports share.
+ *
+ * The report holds a database connection for the length of its transaction, so
+ * the slots are what keep a handful of reports from holding the pool. Reports
+ * are held at the door of their transaction rather than run slowly, so filling
+ * every slot holds no connection here.
+ */
+describe("while every report slot is taken", () => {
+  const produceReport = () =>
+    inject({
+      method: "POST",
+      url: `/api/data-subject-reports/persons/${subject.personId}`,
+      payload: {},
+      headers: { cookie: boardCookie },
+    });
+  const exportOwnData = () =>
+    inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie: residentCookie },
+    });
+  const entriesFor = (
+    action: "DATA_EXPORTED" | "DATA_PORTABILITY_EXPORTED",
+    targetPersonId: string,
+  ) => prisma.auditLogEntry.count({ where: { action, targetPersonId } });
+
+  it("refuses the board's report with a 429 and a Retry-After, and writes no entry for it", async () => {
+    const hold = holdReports(app);
+    try {
+      const running = Array.from({ length: MAX_CONCURRENT_EXPORTS }, () =>
+        produceReport(),
+      );
+      await hold.held(MAX_CONCURRENT_EXPORTS);
+      const before = await entriesFor("DATA_EXPORTED", subject.personId);
+
+      const refused = await produceReport();
+
+      expect(refused.statusCode).toBe(429);
+      expect(refused.json<{ reason: string }>().reason).toBe("export-busy");
+      expect(refused.headers["retry-after"]).toBe(
+        String(BUSY_RETRY_AFTER_SECONDS),
+      );
+      // Nothing of the report went out with the refusal.
+      expect(refused.body).not.toContain(IDENTITY_NUMBER);
+      expect(await entriesFor("DATA_EXPORTED", subject.personId)).toBe(before);
+
+      // The reports that held the slots are produced, and only they are logged.
+      hold.release();
+      for (const response of await Promise.all(running)) {
+        expect(response.statusCode).toBe(200);
+      }
+      expect(await entriesFor("DATA_EXPORTED", subject.personId)).toBe(
+        before + MAX_CONCURRENT_EXPORTS,
+      );
+      expect((await produceReport()).statusCode).toBe(200);
+    } finally {
+      hold.restore();
+    }
+  });
+
+  it("shares the slots with the members' own exports", async () => {
+    const hold = holdReports(app);
+    try {
+      // One member's export holding a slot, and the board's reports the rest.
+      const running = [
+        exportOwnData(),
+        ...Array.from({ length: MAX_CONCURRENT_EXPORTS - 1 }, () =>
+          produceReport(),
+        ),
+      ];
+      await hold.held(MAX_CONCURRENT_EXPORTS);
+      const reportsBefore = await entriesFor("DATA_EXPORTED", subject.personId);
+      const exportsBefore = await entriesFor(
+        "DATA_PORTABILITY_EXPORTED",
+        resident.personId,
+      );
+
+      const report = await produceReport();
+      const ownData = await exportOwnData();
+
+      for (const refused of [report, ownData]) {
+        expect(refused.statusCode).toBe(429);
+        expect(refused.json<{ reason: string }>().reason).toBe("export-busy");
+        expect(refused.headers["retry-after"]).toBe(
+          String(BUSY_RETRY_AFTER_SECONDS),
+        );
+      }
+      expect(await entriesFor("DATA_EXPORTED", subject.personId)).toBe(
+        reportsBefore,
+      );
+      expect(
+        await entriesFor("DATA_PORTABILITY_EXPORTED", resident.personId),
+      ).toBe(exportsBefore);
+
+      hold.release();
+      for (const response of await Promise.all(running)) {
+        expect(response.statusCode).toBe(200);
+      }
+    } finally {
+      hold.restore();
+    }
   });
 });
 

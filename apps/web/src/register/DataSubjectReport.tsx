@@ -40,6 +40,7 @@ import {
   type TerminationKind,
   type TransferReportBasis,
   type TransferReversalKind,
+  RegisterRequestError,
   fetchDataSubjectReport,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
@@ -656,6 +657,20 @@ function useDocumentTranslation(): TFunction {
   return t;
 }
 
+/**
+ * What the screen says when the report could not be produced.
+ *
+ * `export-busy` on its own because the board member can do something about it:
+ * the instance gathers only a few reports at once, shared with the members'
+ * own downloads, and a moment later there is room again. Anything else is the
+ * general sentence.
+ */
+function failureKey(error: unknown): TranslationKey {
+  return error instanceof RegisterRequestError && error.reason === "export-busy"
+    ? "register.person.report.busy"
+    : "register.person.report.failed";
+}
+
 export interface DataSubjectReportProps {
   personId: string;
   /** Back to the person the report is about. */
@@ -675,12 +690,14 @@ export function DataSubjectReport({
    */
   const heading = usePanelHeadingFocus();
   const [report, setReport] = useState<Report | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<TranslationKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   /*
-   * One request per mount. The route keys this component on the person, so
-   * opening the report for somebody else remounts rather than refetching, and
-   * a report on screen always belongs to the person whose name is on it.
+   * One request per mount, and one more only when the board member asks again
+   * after a failure. The route keys this component on the person, so opening
+   * the report for somebody else remounts rather than refetching, and a report
+   * on screen always belongs to the person whose name is on it.
    */
   useEffect(() => {
     const controller = new AbortController();
@@ -692,14 +709,14 @@ export function DataSubjectReport({
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
-        setFailed(true);
+        setFailure(failureKey(error));
       }
     })();
 
     return () => {
       controller.abort();
     };
-  }, [personId]);
+  }, [personId, attempt]);
 
   /*
    * `t` is the document's translator from here down, so every label below the
@@ -752,13 +769,25 @@ export function DataSubjectReport({
         {screenT("register.person.report.printHint")}
       </p>
 
-      {failed ? (
-        <Notice tone="danger" live>
-          {screenT("register.person.report.failed")}
-        </Notice>
-      ) : null}
+      {failure === null ? null : (
+        <div className="flex flex-col items-start gap-3 print:hidden">
+          <Notice tone="danger" live>
+            {screenT(failure)}
+          </Notice>
+          <button
+            type="button"
+            onClick={() => {
+              setFailure(null);
+              setAttempt((previous) => previous + 1);
+            }}
+            className={SECONDARY_BUTTON}
+          >
+            {screenT("register.error.retry")}
+          </button>
+        </div>
+      )}
 
-      {report === null && !failed ? (
+      {report === null && failure === null ? (
         <p role="status" className="text-body text-ink-muted">
           {screenT("register.person.report.loading")}
         </p>
