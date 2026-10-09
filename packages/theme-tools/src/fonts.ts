@@ -100,20 +100,33 @@ export function buildFontFaceStylesheet(
   faces: readonly ThemeFontFaceSource[],
 ): string {
   return faces
-    .map((face) => {
-      const source =
-        face.format === null
-          ? `url(${cssString(face.url)})`
-          : `url(${cssString(face.url)}) format(${cssString(face.format)})`;
-      return [
-        "@font-face {",
-        `  font-family: ${cssString(face.family)};`,
-        `  font-style: ${cssFontStyle(face.style)};`,
-        `  font-weight: ${cssFontWeight(face.weight)};`,
-        "  font-display: swap;",
-        `  src: ${source};`,
-        "}",
-      ].join("\n");
+    .flatMap((face) => {
+      /*
+       * A face whose values a CSS string cannot carry is left out, and only
+       * that face: the sheet is the one every page is drawn with, sign-in
+       * included, so one bad face must not take the rest down with it.
+       */
+      try {
+        return [fontFaceRule(face)];
+      } catch {
+        return [];
+      }
     })
     .join("\n\n");
+}
+
+function fontFaceRule(face: ThemeFontFaceSource): string {
+  const source =
+    face.format === null
+      ? `url(${cssString(face.url)})`
+      : `url(${cssString(face.url)}) format(${cssString(face.format)})`;
+  return [
+    "@font-face {",
+    `  font-family: ${cssString(face.family)};`,
+    `  font-style: ${cssFontStyle(face.style)};`,
+    `  font-weight: ${cssFontWeight(face.weight)};`,
+    "  font-display: swap;",
+    `  src: ${source};`,
+    "}",
+  ].join("\n");
 }

@@ -62,6 +62,28 @@ describe("themeFontFaces", () => {
 });
 
 describe("buildFontFaceStylesheet", () => {
+  it("leaves out a face it cannot write, and only that face", () => {
+    const css = buildFontFaceStylesheet([
+      {
+        family: "Inter\u0007",
+        weight: "400",
+        style: "normal",
+        url: "/fonts/broken.woff2",
+        format: "woff2",
+      },
+      {
+        family: "Inter",
+        weight: "700",
+        style: "normal",
+        url: "/fonts/inter-bold.woff2",
+        format: "woff2",
+      },
+    ]);
+
+    expect(css).not.toContain("broken.woff2");
+    expect(css).toContain('src: url("/fonts/inter-bold.woff2") format("woff2");');
+  });
+
   it("renders a face the browser can load", () => {
     const css = buildFontFaceStylesheet([
       {
