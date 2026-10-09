@@ -2444,7 +2444,7 @@
       "anotherImportRunning": "En annan import pågår. Genomför den här när den är klar. Din förhandsgranskning finns kvar.",
       "ambiguousRowsUndecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens, och har inget val ännu.",
       "decisionNotACandidate": "Ett val pekade ut någon som raden inte matchade. Ladda om förhandsgranskningen.",
-      "registerChangedDuringApply": "Registret ändrades medan importen pågick: någon lades till, flyttade in eller fick nya uppgifter, och en rad i filen matchar nu den personen. Importen stoppades i stället för att lägga in personen två gånger. Det som skrevs innan dess finns i registret; importera resten som en ny fil, så visar förhandsgranskningen matchningen.",
+      "registerChangedDuringApply": "Registret ändrades medan importen pågick, och en rad i filen matchar nu andra personer än förut: någon lades till, flyttade in, flyttade ut eller fick nya uppgifter. Importen stoppades där i stället för att lägga in en person två gånger eller genomföra ett val du gjorde mellan andra personer än dem registret nu har. Det som skrevs innan dess finns i registret; importera resten som en ny fil, så visar förhandsgranskningen vem varje rad matchar nu.",
       "applyInterrupted": "Importen stoppades innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "applyAbandoned": "En administratör avbröt importen innan den nådde filens slut. Det som skrevs finns i registret; importera resten som en ny fil.",
       "sessionNotRunning": "Den importen pågår inte längre.",
