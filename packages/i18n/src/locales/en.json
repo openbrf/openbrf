@@ -1150,6 +1150,7 @@
         "notConfigured": "Save a server and a sender address before sending a test.",
         "noEmail": "Your own record has no email address to send the test to.",
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
+        "hostNotPublic": "This instance cannot connect to that server: it could not be found, or it is on a private network. Check the name, or ask whoever runs the instance to allow servers on a private network.",
         "tlsUnavailable": "The server set up no encrypted connection, so nothing was sent to it, not even the password. Check that the server offers STARTTLS on this port, or tick the encrypted connection and use port 465.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
         "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
@@ -1198,6 +1199,7 @@
       "errors": {
         "notConfigured": "Save a provider and a gateway address before sending a test.",
         "noPhone": "Your own record has no phone number to send the test to.",
+        "hostNotPublic": "This instance cannot connect to that gateway: it could not be found, or it is on a private network. Check the address, or ask whoever runs the instance to allow servers on a private network.",
         "unknown": "The message could not be sent. Check the gateway address and the credential."
       }
     },

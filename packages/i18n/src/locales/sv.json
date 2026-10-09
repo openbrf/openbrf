@@ -1150,6 +1150,7 @@
         "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
         "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
         "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
+        "hostNotPublic": "Den här instansen kan inte ansluta till servern: den hittades inte, eller så finns den på ett privat nätverk. Kontrollera namnet, eller be den som driver instansen att tillåta servrar på ett privat nätverk.",
         "tlsUnavailable": "Servern upprättade ingen krypterad anslutning, så ingenting skickades till den, inte heller lösenordet. Kontrollera att servern erbjuder STARTTLS på den här porten, eller kryssa i krypterad anslutning och använd port 465.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
         "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
@@ -1198,6 +1199,7 @@
       "errors": {
         "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
+        "hostNotPublic": "Den här instansen kan inte ansluta till gatewayen: den hittades inte, eller så finns den på ett privat nätverk. Kontrollera adressen, eller be den som driver instansen att tillåta servrar på ett privat nätverk.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln."
       }
     },

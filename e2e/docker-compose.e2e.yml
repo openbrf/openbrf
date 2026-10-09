@@ -94,5 +94,9 @@ services:
       # The one certificate the image does not already trust: mailpit's, so the
       # required STARTTLS verifies it as it verifies any server's.
       NODE_EXTRA_CA_CERTS: /mail-tls/mailpit.crt
+      # The board enters mailpit as its SMTP server, and mailpit is a container
+      # on the compose network: a private address, which the settings refuse
+      # unless whoever runs the instance allows it.
+      OPENBRF_ALLOW_PRIVATE_HOSTS: "true"
     volumes:
       - ${OPENBRF_E2E_MAIL_TLS_DIR:?set by e2e/src/stack.ts}:/mail-tls:ro

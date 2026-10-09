@@ -1,5 +1,6 @@
 import { MailApiError } from "./http-api-mail.driver";
 import { MailNotConfiguredError } from "./mail.service";
+import { MailServerNotPublicError } from "./smtp-mail.driver";
 
 /**
  * The codes a mail that did not leave carries: nodemailer's for the SMTP
@@ -29,8 +30,9 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
  * Whether a failure is the mail not leaving, as opposed to the code that sends
  * it being wrong.
  *
- * Three shapes count: no mail configured, the HTTP mail API refusing or not
- * answering, and an SMTP transport error. A caller that has already committed
+ * Four shapes count: no mail configured, the HTTP mail API refusing or not
+ * answering, an SMTP server this instance may not connect to, and an SMTP
+ * transport error. A caller that has already committed
  * its own work treats these as "not delivered" and carries on; a failure of any
  * other kind is a bug or a database fault and is not the delivery's to explain
  * away. What a caller's own refusals mean (an invitation to a person with no
@@ -39,7 +41,8 @@ const TRANSPORT_CODES: ReadonlySet<string> = new Set([
 export function isDeliveryFailure(cause: unknown): boolean {
   if (
     cause instanceof MailNotConfiguredError ||
-    cause instanceof MailApiError
+    cause instanceof MailApiError ||
+    cause instanceof MailServerNotPublicError
   ) {
     return true;
   }

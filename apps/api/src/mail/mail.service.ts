@@ -236,6 +236,7 @@ export class MailService {
             mail.server.requireTls,
             mail.server.user,
             mail.server.password,
+            mail.server.allowPrivateHosts,
           ]
         : [mail.driver, mail.api.url, mail.api.key, mail.api.messageIdDomain],
     );

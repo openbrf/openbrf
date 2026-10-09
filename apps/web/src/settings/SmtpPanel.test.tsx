@@ -442,6 +442,41 @@ describe("a save the environment refuses", () => {
   });
 });
 
+describe("a server this instance does not connect to", () => {
+  it("is named as such when the save is refused", async () => {
+    saveSmtp.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/kan inte ansluta till servern/i)).toBeTruthy();
+    });
+  });
+
+  it("is named as such when a test message is refused", async () => {
+    // A server saved before the check, or a name that has moved since.
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/kan inte ansluta till servern/i)).toBeTruthy();
+    });
+  });
+});
+
 describe("while the email settings are being saved", () => {
   /** Holds the request open, so the form is observed mid-save. */
   function holdRequest(): (outcome: unknown) => void {

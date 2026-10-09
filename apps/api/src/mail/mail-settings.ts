@@ -211,6 +211,9 @@ export class MailSettingsResolver implements OnModuleInit {
         requireTls: association.smtpRequireTls,
         user: association.smtpUser,
         password,
+        // A server the board entered is held to public addresses unless
+        // whoever runs the instance said the network is theirs.
+        allowPrivateHosts: this.env.OPENBRF_ALLOW_PRIVATE_HOSTS,
       },
       fromAddress: association.smtpFromAddress,
       fromName: null,
@@ -316,6 +319,9 @@ export class MailSettingsResolver implements OnModuleInit {
         requireTls: env.OPENBRF_SMTP_REQUIRE_TLS ?? !isLoopbackHost(host),
         user: env.OPENBRF_SMTP_USER ?? null,
         password: env.OPENBRF_SMTP_PASSWORD ?? null,
+        // Whoever runs the instance chose this host, and a relay on the
+        // Compose network is the ordinary case for one.
+        allowPrivateHosts: true,
       },
     };
   }
