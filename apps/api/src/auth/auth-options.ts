@@ -9,7 +9,7 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
-import { isMetadataDocumentUrlAllowed } from "./cimd-fetch";
+import { metadataDocumentPolicy } from "./cimd-fetch";
 import { cimdMetadataFetch } from "./cimd-redirects";
 import { hashOpaqueToken } from "./opaque-token";
 import type { ProtectedResource } from "./protected-resource";
@@ -339,11 +339,15 @@ export function buildAuthOptions(
         // rate-limit bucket for the whole instance, where a single resident
         // failing to sign in would throttle the entire board.
         //
-        // This assumes the proxy OVERWRITES x-forwarded-for rather than
-        // appending to a client-supplied value, which is the default behaviour
-        // of nginx, Caddy and Traefik. An instance exposed directly to the
-        // internet without a proxy would let a caller spoof this header and
-        // sidestep the rate limit.
+        // Better Auth reads the header alone and never sees the connection,
+        // so the header it gets is not the one that arrived: the Fastify
+        // bridge has already replaced it with the single address the public
+        // forms' limiter resolves (clientAddressOf), from the connection and
+        // the hops the named proxies wrote. No proxy list here, then - one
+        // would make it skip that address whenever it is a proxy's own. With
+        // none named that address is the connection's, so a caller cannot
+        // pick it by sending a header, and every visitor behind a proxy nobody
+        // named shares the proxy's budget until it is named.
         ipAddressHeaders: ["x-forwarded-for"],
       },
     },
@@ -513,7 +517,9 @@ export function buildAuthOptions(
       // the fetch is bounded by us rather than left to the library's defaults.
       cimd({
         fetchClientMetadataResource: cimdMetadataFetch,
-        isMetadataDocumentUrlAllowed,
+        isMetadataDocumentUrlAllowed: metadataDocumentPolicy(
+          env.OPENBRF_OAUTH_CLIENT_METADATA_HOSTS,
+        ),
         ...CIMD_METADATA_RULES,
       }),
     ],

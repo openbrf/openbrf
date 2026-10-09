@@ -54,7 +54,7 @@ let ipCounter = 0;
 function inject(options: {
   method: "GET" | "POST";
   url: string;
-  payload?: object;
+  payload?: object | string;
   headers?: Record<string, string>;
 }) {
   ipCounter += 1;
@@ -232,6 +232,39 @@ describe("sending an invitation", () => {
     });
 
     expect(response.statusCode).toBe(202);
+  });
+
+  it("refuses a form-encoded body, and sends nothing", async () => {
+    // What an HTML form on any page can post, which this route never needs.
+    const cookie = await signIn(board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations",
+      payload: new URLSearchParams({ personId: resident.personId }).toString(),
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    expect(response.statusCode).toBe(415);
+    expect(
+      await prisma.invitation.count({ where: { personId: resident.personId } }),
+    ).toBe(0);
+  });
+
+  it("refuses a form-encoded activation as well", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations/accept",
+      payload: new URLSearchParams({
+        token: "not-a-real-token",
+        password: PASSWORD,
+      }).toString(),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+
+    expect(response.statusCode).toBe(415);
   });
 
   it("never stores the token in the clear", async () => {

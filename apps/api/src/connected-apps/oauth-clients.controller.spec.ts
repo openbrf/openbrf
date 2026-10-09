@@ -6,6 +6,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import type { ConnectedAppsService } from "./connected-apps.service";
 import {
   applicationTypeFor,
   InvalidRedirectUriError,
@@ -42,11 +43,13 @@ interface Built {
   created: Call[];
   linked: Call[];
   recorded: AuditEntryInput[];
+  discarded: string[];
 }
 
 function build(
   create: (call: Call) => Promise<unknown> = () =>
     Promise.resolve({ client_id: "client-1", client_secret: "secret-1" }),
+  failing: { link?: Error; record?: Error } = {},
 ): Built {
   const created: Call[] = [];
   const linked: Call[] = [];
@@ -59,7 +62,9 @@ function build(
         },
         adminLinkClientResource: (call: Call) => {
           linked.push(call);
-          return Promise.resolve({ linked: true });
+          return failing.link === undefined
+            ? Promise.resolve({ linked: true })
+            : Promise.reject(failing.link);
         },
       },
     },
@@ -68,16 +73,28 @@ function build(
   const recorded: AuditEntryInput[] = [];
   const audit = {
     record: (entry: AuditEntryInput) => {
+      if (failing.record !== undefined) {
+        return Promise.reject(failing.record);
+      }
       recorded.push(entry);
       return Promise.resolve();
     },
   } as unknown as AuditLogService;
 
+  const discarded: string[] = [];
+  const apps = {
+    discardClient: (clientId: string) => {
+      discarded.push(clientId);
+      return Promise.resolve();
+    },
+  } as unknown as ConnectedAppsService;
+
   return {
-    controller: new OAuthClientsController(auth, audit, RESOURCE),
+    controller: new OAuthClientsController(auth, audit, apps, RESOURCE),
     created,
     linked,
     recorded,
+    discarded,
   };
 }
 
@@ -141,6 +158,35 @@ describe("registering a client by hand", () => {
       context: { redirectHosts: ["app.exempel.se"] },
     });
     expect(JSON.stringify(recorded[0])).not.toContain("secret-1");
+  });
+});
+
+describe("a registration that fails after the client was created", () => {
+  it("removes the client when the resource link fails", async () => {
+    const failure = new Error("link failed");
+    const { controller, recorded, discarded } = build(undefined, {
+      link: failure,
+    });
+
+    await expect(controller.register(request(), BODY)).rejects.toBe(failure);
+    expect(discarded).toEqual(["client-1"]);
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("removes the client when the audit entry cannot be written", async () => {
+    const failure = new Error("audit failed");
+    const { controller, discarded } = build(undefined, { record: failure });
+
+    await expect(controller.register(request(), BODY)).rejects.toBe(failure);
+    expect(discarded).toEqual(["client-1"]);
+  });
+
+  it("keeps a client whose registration finished", async () => {
+    const { controller, discarded } = build();
+
+    await controller.register(request(), BODY);
+
+    expect(discarded).toHaveLength(0);
   });
 });
 

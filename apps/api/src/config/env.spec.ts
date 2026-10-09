@@ -567,3 +567,81 @@ describe("the sign-in secret in production", () => {
     ).toBe("dev-only-secret-change-me");
   });
 });
+
+/**
+ * The proxies whose forwarded header is believed.
+ *
+ * A wrong entry is a boot error rather than an entry that silently matches
+ * nothing, which would leave every visitor behind the proxy in one bucket with
+ * nothing saying why.
+ */
+describe("the trusted proxies", () => {
+  function withProxies(value: string | undefined): string[] {
+    return loadEnv({ ...REQUIRED, TRUSTED_PROXIES: value }).TRUSTED_PROXIES;
+  }
+
+  it("trusts none when nothing is set", () => {
+    expect(withProxies(undefined)).toEqual([]);
+    expect(withProxies("")).toEqual([]);
+  });
+
+  it("takes addresses and ranges of both families, separated by commas", () => {
+    expect(withProxies(" 127.0.0.1, 172.16.0.0/12 ,::1,fd00::/8")).toEqual([
+      "127.0.0.1",
+      "172.16.0.0/12",
+      "::1",
+      "fd00::/8",
+    ]);
+  });
+
+  it("refuses a host name, a range too wide for its family and a stray slash", () => {
+    for (const value of [
+      "proxy.internal",
+      "10.0.0.0/33",
+      "::/129",
+      "10.0.0.1/",
+      "10.0.0.0/8/1",
+    ]) {
+      expect(() => withProxies(value), value).toThrow(EnvValidationError);
+    }
+  });
+
+  /*
+   * A range that takes in every address trusts every client as a proxy, so a
+   * client could name any address in X-Forwarded-For and be counted by it.
+   */
+  it("refuses a range of every address in either family", () => {
+    for (const value of ["0.0.0.0/0", "::/0", "127.0.0.1, 10.0.0.0/00"]) {
+      expect(() => withProxies(value), value).toThrow(EnvValidationError);
+    }
+  });
+});
+
+describe("the hosts a connected app may identify itself from", () => {
+  function withHosts(value: string | undefined): string[] {
+    return loadEnv({ ...REQUIRED, OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: value })
+      .OPENBRF_OAUTH_CLIENT_METADATA_HOSTS;
+  }
+
+  it("lists none when nothing is set", () => {
+    expect(withHosts(undefined)).toEqual([]);
+    expect(withHosts("")).toEqual([]);
+  });
+
+  it("takes host names separated by commas, in lower case", () => {
+    expect(withHosts(" Apps.Example.se, claude.ai ")).toEqual([
+      "apps.example.se",
+      "claude.ai",
+    ]);
+  });
+
+  it("refuses a URL, a port and a single label", () => {
+    for (const value of [
+      "https://apps.example.se",
+      "apps.example.se:443",
+      "localhost",
+    ]) {
+      expect(() => withHosts(value), value).toThrow(EnvValidationError);
+    }
+  });
+});

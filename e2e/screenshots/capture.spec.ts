@@ -106,15 +106,16 @@ const PERSONAS: Readonly<
 /**
  * A client address per person the walk signs in as.
  *
- * Better Auth identifies a client by X-Forwarded-For, because a deployed
- * instance sits behind a reverse proxy that sets it, and it counts a sign-in
- * attempt against that client: a few in ten seconds, which is what stands
- * between a stolen address list and the accounts on it. One walk visits every
- * screen and signs in as three different people, so one address between them
- * would spend one person's attempts on another's, and the refusal arrives as an
- * ordinary failed sign-in. Separating them is not a way around the limit: these
- * are different members of the housing cooperative, each at home, which is what
- * the instance would really see.
+ * Better Auth identifies a client by X-Forwarded-For when the request comes
+ * from a proxy named in TRUSTED_PROXIES, which screenshots.env does for the
+ * stack's Docker network, as a deployed instance does for its reverse proxy.
+ * It counts a sign-in attempt against that client: a few in ten seconds, which
+ * is what stands between a stolen address list and the accounts on it. One walk
+ * visits every screen and signs in as three different people, so one address
+ * between them would spend one person's attempts on another's, and the refusal
+ * arrives as an ordinary failed sign-in. Separating them is not a way around the
+ * limit: these are different members of the housing cooperative, each at home,
+ * which is what the instance would really see.
  *
  * Keeping each of them inside that allowance is what the sessions below are
  * for: one sign-in per person, however many screens they appear on. The session
