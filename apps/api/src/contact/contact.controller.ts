@@ -5,16 +5,34 @@ import {
   Get,
   HttpCode,
   Param,
+  Post,
   Put,
+  Query,
   Req,
 } from "@nestjs/common";
+import { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
-import { ContactService, type ContactSubmissionView } from "./contact.service";
+import {
+  type ContactInboxPage,
+  ContactService,
+  type ContactSubmissionView,
+} from "./contact.service";
 
 const handledSchema = z.object({ handled: z.boolean() });
+
+const removeSchema = z.object({
+  ids: z
+    .array(z.string().min(1).max(64))
+    .min(1)
+    .max(MAX_CONTACT_SUBMISSIONS_PER_REMOVAL),
+});
+
+const listQuerySchema = z.object({
+  cursor: z.string().min(1).max(200).optional(),
+});
 
 /**
  * The board's inbox for the website's contact form.
@@ -38,8 +56,19 @@ export class ContactSubmissionController {
   constructor(private readonly contact: ContactService) {}
 
   @Get()
-  async list(): Promise<ContactSubmissionView[]> {
-    return this.contact.list();
+  async list(@Query() query: unknown): Promise<ContactInboxPage> {
+    return this.contact.list(listQuerySchema.parse(query).cursor);
+  }
+
+  /**
+   * Removes several messages at once, the way a board clears a burst of junk
+   * out of the inbox. Answers how many were still there to remove.
+   */
+  @Post("remove")
+  @HttpCode(200)
+  async removeMany(@Body() body: unknown): Promise<{ removed: number }> {
+    const input = removeSchema.parse(body);
+    return { removed: await this.contact.removeMany(input.ids) };
   }
 
   @Put(":id/handled")

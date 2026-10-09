@@ -170,6 +170,13 @@ export interface PlannedRow {
    */
   foundUnder: ImportSearchKey | null;
   /**
+   * The persons `foundUnder` found in the register itself, by id, as opposed to
+   * those it found only through what earlier rows of the file write. A second
+   * look at the register under that key that misses one of them finds a
+   * register that has lost them since. Not sent to the preview.
+   */
+  foundInRegister: string[];
+  /**
    * Why a row that matched one person still waits for a decision. Null when it
    * is ambiguous because it matched several, and on every other outcome.
    */
@@ -374,6 +381,8 @@ interface FileWrites {
 interface PersonMatch {
   key: ImportSearchKey | null;
   candidates: readonly FilePerson[];
+  /** The candidates the register snapshot held under the key, by id. */
+  inRegister: readonly string[];
 }
 
 function planRow(
@@ -432,6 +441,7 @@ function planRow(
     matchedPersonName: null,
     matchedBy: null,
     foundUnder: null,
+    foundInRegister: [],
     mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
@@ -503,6 +513,7 @@ function planRow(
       matchedBy:
         earlier === null && !throughUnwrittenNumber ? match.key : "earlierRow",
       foundUnder: match.key,
+      foundInRegister: [...match.inRegister],
       mismatch,
       sameAsRowNumber: earlier,
       // A person an earlier row creates has no id yet to be chosen by. The
@@ -561,6 +572,7 @@ function planRow(
         ? "earlierRow"
         : match.key,
     foundUnder: match.key,
+    foundInRegister: [...match.inRegister],
     sameAsRowNumber:
       only.createdByRow ??
       (throughUnwrittenNumber ? only.identityNumberFromRow : null),
@@ -586,7 +598,7 @@ function matchPerson(
   );
   // Looked up one key at a time, in the constant's order, so the apply asks
   // its second look under the same keys this one stopped at.
-  const lookUp: Record<ImportSearchKey, () => FilePerson[]> = {
+  const lookUp: Record<ImportSearchKey, () => Omit<PersonMatch, "key">> = {
     personalIdentityNumber: () =>
       candidatesUnder(
         snapshot.personsByIdentityNumber,
@@ -617,12 +629,12 @@ function matchPerson(
   };
 
   for (const key of IMPORT_SEARCH_KEYS) {
-    const candidates = lookUp[key]();
-    if (candidates.length > 0) {
-      return { key, candidates };
+    const found = lookUp[key]();
+    if (found.candidates.length > 0) {
+      return { key, ...found };
     }
   }
-  return { key: null, candidates: [] };
+  return { key: null, candidates: [], inRegister: [] };
 }
 
 function candidatesUnder(
@@ -632,12 +644,16 @@ function candidatesUnder(
   fileKey: string | null,
   snapshot: RegisterSnapshot,
   written: FileWrites,
-): FilePerson[] {
-  const registered = (
-    registerKey === null ? [] : (inRegister.get(registerKey) ?? [])
-  ).map((personId) => registeredPerson(personId, snapshot, written));
+): Omit<PersonMatch, "key"> {
+  const ids = registerKey === null ? [] : (inRegister.get(registerKey) ?? []);
+  const registered = ids.map((personId) =>
+    registeredPerson(personId, snapshot, written),
+  );
   const fromFile = fileKey === null ? [] : (inFile.get(fileKey) ?? []);
-  return [...new Set([...registered, ...fromFile])];
+  return {
+    candidates: [...new Set([...registered, ...fromFile])],
+    inRegister: ids,
+  };
 }
 
 /** One register person, the same object every time it is reached. */
@@ -907,6 +923,12 @@ export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
  * chunk of its own rows, because the register keeps changing for as long as
  * the apply runs.
  *
+ * A row the board decided to skip is not compared while it still asks: it
+ * writes nothing whoever it matches, and stopping the import for it would
+ * leave the rest of the file unwritten for no one's sake. A row decided
+ * otherwise that the preview did not ask about answers no question the board
+ * was shown, and counts as changed.
+ *
  * @param createdByApply The persons earlier chunks of this apply created. The
  *   preview could list none of them, having no id for a person the file has
  *   not written yet, and a later chunk finds them in the register: they are set
@@ -915,15 +937,20 @@ export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
 export function changedSincePreview(
   plan: ImportPlan,
   previewed: PreviewedCandidates,
+  decisions: ImportDecisions,
   createdByApply: ReadonlySet<string> = new Set(),
 ): boolean {
   return plan.rows.some((row) => {
     const listed = previewed[String(row.rowNumber)];
-    if (listed === undefined) {
+    if (row.outcome !== "ambiguous") {
+      return listed !== undefined;
+    }
+    const decision = decisions[String(row.rowNumber)];
+    if (decision?.action === "skip") {
       return false;
     }
-    if (row.outcome !== "ambiguous") {
-      return true;
+    if (listed === undefined) {
+      return decision !== undefined;
     }
     const found = row.candidates.flatMap(({ personId }) =>
       createdByApply.has(personId) ? [] : [personId],

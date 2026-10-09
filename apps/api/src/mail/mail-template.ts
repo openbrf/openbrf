@@ -25,8 +25,17 @@ export interface MailTemplateContext {
   brand: MailBrand;
   /** Absolute base URL of this instance, for links. */
   appUrl: string;
-  /** Formats a date in the recipient's locale. */
+  /** Formats the day an instant falls on, in the recipient's locale. */
   formatDate: (date: Date) => string;
+  /**
+   * Formats a `@db.Date` column in the recipient's locale.
+   *
+   * A date column is read back as midnight UTC, and the day it names is that
+   * day whatever the association's clock says. Formatting it as an instant
+   * on the association's clock is right only while that clock is ahead of UTC,
+   * so a date column - a move-in day, a due date - is formatted with this.
+   */
+  formatDateColumn: (date: Date) => string;
   /**
    * Formats a time of day in the recipient's locale, on the association's
    * clock.

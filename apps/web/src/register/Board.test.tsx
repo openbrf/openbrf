@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { Board } from "./Board";
-import type {
-  BoardRow,
-  DirectoryRow,
-  RegisterPage,
-  RegisterFilter,
+import {
+  RESIDENT_FILTERS,
+  type BoardRow,
+  type DirectoryRow,
+  type RegisterPage,
+  type RegisterFilter,
 } from "./register-api";
 
 /**
@@ -306,6 +307,15 @@ describe("the board's furniture", () => {
     renderBoard({ page: page([]) });
 
     expect(screen.getByText("Inget matchar")).not.toBeNull();
+  });
+
+  it("offers only the tabs it is given", () => {
+    // A resident's directory lists who lives here today, so a tab for former
+    // households would only ever be empty.
+    renderBoard({ filters: RESIDENT_FILTERS });
+
+    expect(screen.queryByRole("button", { name: /Utflyttade/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Medlemmar/ })).not.toBeNull();
   });
 
   it("calls back with the filter the reader chose", () => {

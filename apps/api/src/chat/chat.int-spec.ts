@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import {
   loadEnvForIntegrationTests,
@@ -824,5 +826,85 @@ describe("the purge", () => {
     // hold placed after the scan has to win, which is what this asserts by
     // asking the purge to erase for a person it was never given.
     await expect(purge.purgePerson(held.personId, at, 365)).resolves.toBe(0);
+  });
+
+  it("takes a person's places, read markers and reports on a granted erasure request", async () => {
+    /*
+     * The messages were always erased on a request; what else the chat holds
+     * of the person was not, and the request was closed as carried out with
+     * their report and its note still in the moderation queue.
+     */
+    const group = await prisma.chat.create({
+      data: {
+        kind: "GROUP",
+        name: `Erasure ${suffix}`,
+        createdByPersonId: seated.personId,
+      },
+      select: { id: true },
+    });
+    const reported = await prisma.chatMessage.create({
+      data: {
+        chatId: boardChatId,
+        authorPersonId: seated.personId,
+        body: "Ett meddelande nagon anmalde.",
+      },
+      select: { id: true },
+    });
+    await prisma.chatGroupMember.create({
+      data: {
+        chatId: group.id,
+        personId: resident.personId,
+        addedByPersonId: seated.personId,
+      },
+    });
+    await prisma.chatRead.create({
+      data: {
+        chatId: group.id,
+        personId: resident.personId,
+        readAt: new Date(),
+      },
+    });
+    await prisma.chatMessageReport.create({
+      data: {
+        messageId: reported.id,
+        reporterPersonId: resident.personId,
+        note: "Jag tycker att det har var fel.",
+      },
+    });
+    const request = await grantErasure(
+      prisma,
+      resident.personId,
+      seated.personId,
+    );
+
+    try {
+      const now = new Date();
+      expect(await purge.eligible(now, 365)).toContain(resident.personId);
+      await purge.purgePerson(resident.personId, now, 365);
+
+      const where = { personId: resident.personId };
+      expect(await prisma.chatGroupMember.count({ where })).toBe(0);
+      expect(await prisma.chatRead.count({ where })).toBe(0);
+      expect(
+        await prisma.chatMessageReport.count({
+          where: { reporterPersonId: resident.personId },
+        }),
+      ).toBe(0);
+      // And the closing purge, counting the same rows, finds nothing owed.
+      await expect(
+        erasureRemainder(prisma, resident.personId, now),
+      ).resolves.toEqual([]);
+      // The reported message is somebody else's, and stays.
+      expect(
+        await prisma.chatMessage.findUnique({
+          where: { id: reported.id },
+          select: { id: true },
+        }),
+      ).not.toBeNull();
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.chatMessage.deleteMany({ where: { id: reported.id } });
+      await prisma.chat.deleteMany({ where: { id: group.id } });
+    }
   });
 });

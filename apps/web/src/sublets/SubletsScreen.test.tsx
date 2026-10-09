@@ -196,6 +196,29 @@ describe("a member", () => {
     expect(screen.getByText(/hyresnämnden lämnar tillstånd/i)).not.toBeNull();
   });
 
+  it("is told they withdrew an application, not that the board answered it", async () => {
+    // The row is kept for years, so it must say who closed it.
+    fetchSubletIntake.mockResolvedValue({
+      ok: true,
+      value: {
+        apartments: [APARTMENT],
+        applications: [
+          {
+            ...OPEN_APPLICATION,
+            status: "WITHDRAWN",
+            closedAt: "2028-11-05T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    render(<SubletsScreen viewer={viewer(["sublets:apply"])} />);
+
+    await screen.findByText("Dina ansökningar");
+    expect(screen.getByText("Du återkallade den 2028-11-05.")).not.toBeNull();
+    expect(screen.queryByText(/Styrelsen svarade/u)).toBeNull();
+  });
+
   it("has no apartment to apply about, and is told so rather than shown a form", async () => {
     fetchSubletIntake.mockResolvedValue({
       ok: true,

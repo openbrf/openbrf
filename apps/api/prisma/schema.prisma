@@ -344,6 +344,12 @@ model Association {
   smtpPasswordCipher String?
   smtpFromAddress    String?
   smtpSecure         Boolean @default(true)
+  /// Whether a connection that starts in cleartext must upgrade through
+  /// STARTTLS before the sign-in. Written on every save of the SMTP settings:
+  /// true unless the host is on loopback. False on a row saved before saving
+  /// set it, which keeps that server working as it did and has the SMTP card
+  /// say the password can go out unencrypted until the settings are saved again.
+  smtpRequireTls     Boolean @default(false)
 
   /// Which SMS driver this instance sends through, or null for none.
   ///
@@ -2026,7 +2032,13 @@ enum AuditAction {
   /// whoever wrote it. Only a group's message can be struck: the board chat has
   /// no strike-through at all.
   CHAT_MESSAGE_STRUCK
-
+  /// A document in the archive was renamed, re-filed or given to another
+  /// audience. The fields that changed and the audience either side, never the
+  /// title: the audience decides whether its file needs a session at all.
+  DOCUMENT_UPDATED
+  /// The time service data is kept after a move-out was changed, which moves
+  /// every pending purge date at once. The value before and after.
+  ASSOCIATION_RETENTION_RECORDED
   /// An administrator abandoned a member list import that was queued or
   /// applying, so that another one could run. The target is the import session;
   /// the entry carries how far through the file it got, never anything from the
@@ -4213,10 +4225,17 @@ model ContactSubmission {
   /// data has to be purgeable without negotiating with the board's inbox.
   handledByPersonId String?
 
+  /// When the board was queued to be mailed about it. Null while it has not
+  /// been, and for good when the hourly bound left the mail out. The bound
+  /// counts these, so a burst that was not mailed does not keep the next
+  /// message from being.
+  notifiedAt DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([handled, createdAt])
   @@index([emailIndex])
+  @@index([notifiedAt])
   @@map("contact_submission")
 }
 

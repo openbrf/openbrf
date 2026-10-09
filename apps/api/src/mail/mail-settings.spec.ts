@@ -40,6 +40,7 @@ const STORED = {
   smtpHost: "smtp.stored.example",
   smtpPort: null,
   smtpSecure: true,
+  smtpRequireTls: false,
   smtpUser: "styrelsen",
   smtpPasswordCipher: "brf:stored-ciphertext",
   smtpFromAddress: "styrelsen@eksemplet.example",
@@ -232,7 +233,7 @@ describe("the settings", () => {
         host: "smtp.stored.example",
         port: 465,
         secure: true,
-        // What the board entered is used as it always was.
+        // Saved before saving required TLS, so used as it always was.
         requireTls: false,
         user: "styrelsen",
         password: "stored-password",
@@ -244,6 +245,41 @@ describe("the settings", () => {
     expect(decrypt).toHaveBeenCalledWith(
       "association.smtpPassword",
       "brf:stored-ciphertext",
+    );
+  });
+
+  it("require STARTTLS once a save has required it", async () => {
+    const mail = await resolver(BASE_ENV, {
+      ...STORED,
+      smtpSecure: false,
+      smtpRequireTls: true,
+    }).resolver.current();
+
+    expect(mail?.driver === "smtp" ? mail.server : null).toMatchObject({
+      port: 587,
+      secure: false,
+      requireTls: true,
+    });
+  });
+
+  it("decrypt the password once per stored value, not once per message", async () => {
+    // A mailing resolves the mail once per recipient.
+    const { resolver: mail, decrypt, findUnique } = resolver(BASE_ENV);
+
+    await mail.current();
+    await mail.current();
+    expect(decrypt).toHaveBeenCalledTimes(1);
+
+    // A new password saved by the board is decrypted when it is first used.
+    findUnique.mockResolvedValue({
+      ...STORED,
+      smtpPasswordCipher: "brf:new-ciphertext",
+    });
+    await mail.current();
+    expect(decrypt).toHaveBeenCalledTimes(2);
+    expect(decrypt).toHaveBeenLastCalledWith(
+      "association.smtpPassword",
+      "brf:new-ciphertext",
     );
   });
 

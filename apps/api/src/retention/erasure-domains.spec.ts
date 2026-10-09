@@ -108,11 +108,41 @@ const OTHER = "person-2";
 
 /** A row, as each table holds one for the purposes of a count. */
 interface Rows {
+  boardMailboxThreads?: { person: string | null }[];
   bookings?: { person: string }[];
   chatMessages?: { person: string; createdAt: Date }[];
+  chatGroupMembers?: { person: string }[];
+  chatReads?: { person: string }[];
+  chatMessageReports?: { person: string }[];
   eventSignups?: { person: string }[];
+  keyOrders?: { person: string; closedAt: Date | null }[];
   motions?: { person: string; closedAt: Date | null }[];
   newsComments?: { person: string; createdAt: Date }[];
+  subletApplications?: { person: string; closedAt: Date | null }[];
+}
+
+/** A count over rows closed or open, as a `closedAt` filter asks for them. */
+function countByClosing(
+  rows: { person: string; closedAt: Date | null }[] | undefined,
+  person: unknown,
+  closedAt: unknown,
+): number {
+  return (rows ?? []).filter(
+    (row) =>
+      namesPerson(person, row.person) &&
+      // `{ not: null }` asks for closed ones, `null` for open ones.
+      (closedAt === null ? row.closedAt === null : row.closedAt !== null),
+  ).length;
+}
+
+/** A count over rows that name a person in one column. */
+function countNaming(
+  rows: { person: string | null }[] | undefined,
+  person: unknown,
+): number {
+  return (rows ?? []).filter(
+    (row) => row.person !== null && namesPerson(person, row.person),
+  ).length;
 }
 
 /** Whether a where-input's person filter names this person. */
@@ -140,6 +170,42 @@ function atMost(filter: unknown, at: Date): boolean {
  */
 function build(rows: Rows): ErasureDbClient {
   return {
+    boardMailboxThread: {
+      count: async ({ where }: { where: { correspondentPersonId: unknown } }) =>
+        countNaming(rows.boardMailboxThreads, where.correspondentPersonId),
+    },
+    chatGroupMember: {
+      count: async ({ where }: { where: { personId: unknown } }) =>
+        countNaming(rows.chatGroupMembers, where.personId),
+    },
+    chatRead: {
+      count: async ({ where }: { where: { personId: unknown } }) =>
+        countNaming(rows.chatReads, where.personId),
+    },
+    chatMessageReport: {
+      count: async ({ where }: { where: { reporterPersonId: unknown } }) =>
+        countNaming(rows.chatMessageReports, where.reporterPersonId),
+    },
+    keyOrder: {
+      count: async ({
+        where,
+      }: {
+        where: { orderedByPersonId: unknown; closedAt: unknown };
+      }) =>
+        countByClosing(rows.keyOrders, where.orderedByPersonId, where.closedAt),
+    },
+    subletApplication: {
+      count: async ({
+        where,
+      }: {
+        where: { appliedByPersonId: unknown; closedAt: unknown };
+      }) =>
+        countByClosing(
+          rows.subletApplications,
+          where.appliedByPersonId,
+          where.closedAt,
+        ),
+    },
     booking: {
       count: async ({ where }: { where: { bookedByPersonId: unknown } }) =>
         (rows.bookings ?? []).filter((row) =>
@@ -246,15 +312,20 @@ describe("what a granted erasure request still owes one person", () => {
         owed: 1,
         kept: 1,
         keptBecause:
-          "an open motion is a matter the association is still dealing with",
+          "an open motion, or one on the agenda of a meeting not yet held, is a matter the association is still dealing with",
       },
     ]);
   });
 
-  it("leaves a message written after the moment being judged for the next run", async () => {
-    // The chat purge ran at 03:47 and this is 03:53. A message written in
-    // between is not one the earlier run failed to erase, and the request stays
-    // open until a run has taken it.
+  it("does not count a message written after the moment being judged", async () => {
+    /*
+     * The chat purge ran at 03:47 and this is 03:53. A message written in
+     * between is not one the earlier run failed to erase, so it is not counted
+     * as owed and the request closes tonight. That message is then kept on its
+     * own year rather than erased on the request: the gap ADR 0016 accepts,
+     * because a person whose erasure is in force holds no residency and no
+     * seat, and is in no room to write in.
+     */
     const client = build({
       chatMessages: [
         { person: PERSON, createdAt: new Date("2027-06-01T03:59:00.000Z") },
@@ -262,6 +333,60 @@ describe("what a granted erasure request still owes one person", () => {
     });
 
     await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([]);
+  });
+
+  it("counts an open key order and an open subletting application as kept", async () => {
+    // Both are still with the board, which has to answer them. The closed ones
+    // are owed, and the request stays open while either kind stands.
+    const client = build({
+      keyOrders: [
+        { person: PERSON, closedAt: null },
+        { person: PERSON, closedAt: new Date("2027-05-01") },
+      ],
+      subletApplications: [{ person: PERSON, closedAt: null }],
+    });
+
+    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+      {
+        domain: "key orders",
+        owed: 1,
+        kept: 1,
+        keptBecause: "an open key order is still with the board",
+      },
+      {
+        domain: "subletting applications",
+        owed: 0,
+        kept: 1,
+        keptBecause: "an open subletting application is still with the board",
+      },
+    ]);
+  });
+
+  it("counts what the chat holds besides the messages", async () => {
+    // A place in a group, a read marker and a report with its note are all the
+    // person's, and a request closed with any of them standing would be
+    // recorded as carried out when it was not.
+    const client = build({
+      chatGroupMembers: [{ person: PERSON }, { person: OTHER }],
+      chatReads: [{ person: PERSON }],
+      chatMessageReports: [{ person: PERSON }],
+    });
+
+    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+      { domain: "chat", owed: 3, kept: 0 },
+    ]);
+  });
+
+  it("counts the mailbox threads linked to the person, and no other", async () => {
+    // A thread nobody could be established as the correspondent of is linked
+    // to nobody, and a request cannot reach it by an address.
+    const client = build({
+      boardMailboxThreads: [{ person: PERSON }, { person: null }],
+    });
+
+    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+      { domain: "board mailbox threads", owed: 1, kept: 0 },
+    ]);
   });
 
   it("says in one line what a domain is holding and why", () => {

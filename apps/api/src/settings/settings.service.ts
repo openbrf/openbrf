@@ -5,6 +5,7 @@ import {
   primaryColorOverride,
 } from "@openbrf/tokens";
 
+import { isLoopbackHost } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { AuditLogService } from "../audit/audit-log.service";
 import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings";
@@ -29,6 +30,7 @@ import {
 } from "../motions/motion-deadline";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
 import { selectedDriverKind, SmsService } from "../sms/sms.service";
+import { lockRetentionPolicy } from "./retention-lock";
 
 /**
  * A contrast pair that stopped a colour from being saved, in the shape the
@@ -168,6 +170,14 @@ export interface StoredSmtpSettingsView {
    * turns every board member's browser session into a way to read it.
    */
   passwordSet: boolean;
+  /**
+   * Whether the sign-in can go out unencrypted: the settings were saved before
+   * saving required TLS, name no implicit TLS, and the host is not on loopback.
+   * A server that offers no STARTTLS, or an attacker on the path who strips the
+   * offer, then receives the password in the clear. Saving the settings again
+   * requires TLS, so the screen says that.
+   */
+  tlsOptional: boolean;
   /**
    * Whether the instance can send mail at all. Invitations, activation links
    * and sign-in links all depend on it, so the screens say so plainly while it
@@ -785,6 +795,7 @@ export class SettingsService {
     smtpHost: string | null;
     smtpPort: number | null;
     smtpSecure: boolean;
+    smtpRequireTls: boolean;
     smtpUser: string | null;
     smtpFromAddress: string | null;
     smtpPasswordCipher: string | null;
@@ -809,6 +820,11 @@ export class SettingsService {
       user: association.smtpUser,
       fromAddress: association.smtpFromAddress,
       passwordSet: association.smtpPasswordCipher !== null,
+      tlsOptional:
+        association.smtpHost !== null &&
+        !association.smtpSecure &&
+        !association.smtpRequireTls &&
+        !isLoopbackHost(association.smtpHost),
       configured:
         association.smtpHost !== null && association.smtpFromAddress !== null,
     };
@@ -850,6 +866,13 @@ export class SettingsService {
         smtpHost: input.host,
         smtpPort: input.port,
         smtpSecure: input.secure,
+        /*
+         * Required on every save, not only when the host changes: the board is
+         * saving the credentials this server signs in with, and a password sent
+         * where an attacker on the path stripped STARTTLS is sent in the clear.
+         * A server on loopback is on this machine, where there is no path.
+         */
+        smtpRequireTls: input.host !== null && !isLoopbackHost(input.host),
         smtpUser: input.user,
         smtpFromAddress: input.fromAddress,
         // Left out of the update entirely when undefined, so saving the rest of
@@ -1086,13 +1109,45 @@ export class SettingsService {
    * shorten the statutory retention the law requires.
    */
   async updateRetention(input: {
+    actorPersonId: string;
     daysAfterMoveOut: number;
   }): Promise<{ daysAfterMoveOut: number }> {
     await this.requireAssociation();
 
-    const association = await this.prisma.association.update({
-      where: { id: 1 },
-      data: { retentionDaysAfterMoveOut: input.daysAfterMoveOut },
+    /*
+     * Audited, for the reason the finances are: it moves every pending purge
+     * date at once, and who shortened the time a former resident's data is
+     * kept, and from what, is a question the log has to answer. Read in the
+     * transaction that writes and after the lock, so the entry names the value
+     * it replaced even when two saves arrive together.
+     */
+    const association = await this.prisma.$transaction(async (tx) => {
+      await lockRetentionPolicy(tx);
+      const before = await tx.association.findUniqueOrThrow({
+        where: { id: 1 },
+        select: { retentionDaysAfterMoveOut: true },
+      });
+      const updated = await tx.association.update({
+        where: { id: 1 },
+        data: { retentionDaysAfterMoveOut: input.daysAfterMoveOut },
+      });
+      if (before.retentionDaysAfterMoveOut !== input.daysAfterMoveOut) {
+        await this.audit.record(
+          {
+            action: "ASSOCIATION_RETENTION_RECORDED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetKind: "association",
+            targetId: String(updated.id),
+            context: {
+              daysAfterMoveOutFrom: before.retentionDaysAfterMoveOut,
+              daysAfterMoveOutTo: input.daysAfterMoveOut,
+            },
+          },
+          tx,
+        );
+      }
+      return updated;
     });
 
     this.logger.log(

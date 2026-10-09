@@ -623,7 +623,9 @@ export interface ReportMotion {
   closedAt: string | null;
   /**
    * The earliest date the purge can reach this motion, derived from the retention
-   * window and never stored. Null while it is open.
+   * window and never stored. Null while it is open, and while it is on the
+   * agenda of a meeting that has not been held, which the purge and an erasure
+   * both leave alone until then.
    *
    * The earliest, and deliberately not "the date it is erased on", for the reason
    * {@link ReportBooking.erasableFrom} gives: a legal hold suspends every purge
@@ -762,8 +764,9 @@ export interface ReportMemberCharge {
  * Reached through the residency, exactly as an apartment-keyed charge is and by
  * the same rule: a fee names an apartment and never a person, so which of them
  * is this person's is an inference, and the inference is the overlap between
- * the rate's period and the residency's. Both boundaries are closed, for the
- * reason `charges/apartment-charges.ts` argues.
+ * the rate's period and the residency's. The residency ends on the day before
+ * its move-out date and the rate's own period ends on its last day, the rule
+ * `overlapsResidency` states and `charges/apartment-charges.ts` argues.
  *
  * A rate is not necessarily this person's to pay: a household is several people
  * and the association fixes the fee on the flat. It is on the report regardless,

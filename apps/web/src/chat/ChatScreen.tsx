@@ -33,7 +33,7 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
-import { chatFailureKey } from "./chat-failures";
+import { chatFailureKey, chatGroupNameFailureKey } from "./chat-failures";
 import { ChatGroupPanel } from "./ChatGroupPanel";
 import { ChatMessage } from "./ChatMessage";
 import { ChatReportQueue } from "./ChatReportQueue";
@@ -637,7 +637,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         notice={
           createFailure !== null ? (
             <Notice tone="danger" live>
-              {t(chatFailureKey(createFailure))}
+              {t(chatGroupNameFailureKey(createFailure))}
             </Notice>
           ) : null
         }

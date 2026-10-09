@@ -67,6 +67,7 @@ import {
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
 import { connectedAppHost } from "../connected-apps/client-host";
+import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 
@@ -203,6 +204,18 @@ const REPORT_TRANSACTION_TIMEOUT_MS = 30_000;
 export class DataSubjectReportService {
   private readonly logger = new Logger(DataSubjectReportService.name);
 
+  /**
+   * The slots both routes gather in: the board's access report and a member's
+   * export of their own data are the same transaction, so they are bounded
+   * together. Held here rather than beside either route because this service is
+   * the one thing both reach, and a provider is one instance per process.
+   *
+   * Taken before anything is read, the retention setting included, so a
+   * request turned away has cost the database nothing and leaves no audit
+   * entry.
+   */
+  private readonly slots = new ExportSlots();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
@@ -215,20 +228,22 @@ export class DataSubjectReportService {
     now?: Date;
   }): Promise<DataSubjectReport> {
     const now = input.now ?? new Date();
-    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
 
-    const report = await this.audit.withAuditedRead<DataSubjectReport>(
-      {
-        action: "DATA_EXPORTED",
-        channel: "WEB",
-        actorPersonId: input.actorPersonId,
-        targetPersonId: input.personId,
-        // What was assembled, never what it held.
-        context: { report: "dataSubjectAccess", sections: [...SECTIONS] },
-      },
-      async (tx) => this.build(tx, input.personId, now, retentionDays),
-      { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
-    );
+    const report = await this.slots.run(async () => {
+      const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
+      return this.audit.withAuditedRead<DataSubjectReport>(
+        {
+          action: "DATA_EXPORTED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: input.personId,
+          // What was assembled, never what it held.
+          context: { report: "dataSubjectAccess", sections: [...SECTIONS] },
+        },
+        async (tx) => this.build(tx, input.personId, now, retentionDays),
+        { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
+      );
+    });
 
     // The person and the act, and nothing the report was carrying.
     this.logger.log(
@@ -252,24 +267,26 @@ export class DataSubjectReportService {
    */
   async portable(personId: string): Promise<DataSubjectReport> {
     const now = new Date();
-    const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
 
-    const report = await this.audit.withAuditedRead<DataSubjectReport>(
-      {
-        action: "DATA_PORTABILITY_EXPORTED",
-        channel: "WEB",
-        actorPersonId: personId,
-        targetPersonId: personId,
-        // What the file carried, named the way the access report names its
-        // own: how much was disclosed, never what it held.
-        context: {
-          export: "dataPortability",
-          sections: [...PORTABLE_SECTIONS],
+    const report = await this.slots.run(async () => {
+      const retentionDays = await retentionDaysAfterMoveOut(this.prisma);
+      return this.audit.withAuditedRead<DataSubjectReport>(
+        {
+          action: "DATA_PORTABILITY_EXPORTED",
+          channel: "WEB",
+          actorPersonId: personId,
+          targetPersonId: personId,
+          // What the file carried, named the way the access report names its
+          // own: how much was disclosed, never what it held.
+          context: {
+            export: "dataPortability",
+            sections: [...PORTABLE_SECTIONS],
+          },
         },
-      },
-      async (tx) => this.build(tx, personId, now, retentionDays),
-      { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
-    );
+        async (tx) => this.build(tx, personId, now, retentionDays),
+        { timeout: REPORT_TRANSACTION_TIMEOUT_MS },
+      );
+    });
 
     this.logger.log(`Data portability export produced for person ${personId}`);
     return report;
@@ -726,6 +743,8 @@ export class DataSubjectReportService {
         status: true,
         submittedAt: true,
         closedAt: true,
+        meetingId: true,
+        meeting: { select: { concludedAt: true } },
       },
     });
 
@@ -874,8 +893,9 @@ export class DataSubjectReportService {
      *
      * Reached through the residency, exactly as an apartment-keyed charge is: a
      * fee names an apartment and never a person, so the overlap between the
-     * row's own period and the residency is the whole of the inference. Both
-     * boundaries are closed, on `charges/apartment-charges.ts`'s argument.
+     * row's own period and the residency is the whole of the inference. The
+     * residency ends on the day before its move-out date and the row's own
+     * period ends on its last day, as `overlapsResidency` reads them.
      *
      * A rate still in force has no end date, so its overlap is open at that end
      * and it is on the report of anybody living there now.
@@ -1602,10 +1622,17 @@ export class DataSubjectReportService {
          *
          * An instant and not a date column, read on the association's calendar
          * exactly as the booking's is.
+         *
+         * Null as well while the motion is on the agenda of a meeting not yet
+         * held: the purge and an erasure both keep it until then
+         * (MOTIONS_OFF_AGENDAS_TO_COME), so a date from the closing alone could
+         * name a day nothing is going to happen on. Once the meeting is held
+         * the date is the closing's again.
          */
-        erasableFrom: formatDayOfInstant(
-          computeMotionPurgeDate(motion.closedAt),
-        ),
+        erasableFrom:
+          motion.meetingId !== null && motion.meeting?.concludedAt === null
+            ? null
+            : formatDayOfInstant(computeMotionPurgeDate(motion.closedAt)),
       })),
       subletApplications: subletApplications.map((application) => ({
         applicationId: application.id,
@@ -2130,15 +2157,20 @@ async function latestTokenIssuedPerClient(
  * on the charges module: the two are separate concepts with separate tables, and
  * this document is the one place that reads both.
  *
- * Both boundaries are closed, on that module's own argument: a residency that
- * ended on the day a period opened did overlap it, and so did one that began on
- * the day it closed. An open end - a rate still in force, which carries no
- * closing date - overlaps every residency that has not ended before it began.
+ * The residency's end is open, as that module's `isResidencyHeldOn` reads it:
+ * the move-out date is the first day the apartment is no longer held (ADR
+ * 0014), so a period that opens on it is the next holder's, and putting its
+ * notice with its amount and payment reference on the seller's report would
+ * disclose a third party's finances (art. 15(4)). The period's own end is
+ * closed, because `appliesUntil` and `periodTo` are inclusive: a residency that
+ * began on the day a period closed did overlap it. An open end - a rate still
+ * in force, which carries no closing date - overlaps every residency that has
+ * not ended by the day it began.
  *
  * Read as calendar days rather than as instants, because these are date columns
  * and a date column read back is midnight UTC.
  */
-function overlapsResidency(
+export function overlapsResidency(
   residencies: readonly {
     apartmentId: string;
     from: Date;
@@ -2160,7 +2192,7 @@ function overlapsResidency(
       residency.until === null ? null : localDayOfColumn(residency.until);
 
     const startsBeforeResidencyEnds =
-      residencyEnd === null || compareLocalDays(start, residencyEnd) <= 0;
+      residencyEnd === null || compareLocalDays(start, residencyEnd) < 0;
     const endsAfterResidencyStarts =
       end === null || compareLocalDays(end, residencyStart) >= 0;
 

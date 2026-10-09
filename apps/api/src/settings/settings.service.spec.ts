@@ -64,6 +64,7 @@ const STORED = {
   smtpPasswordCipher: null as string | null,
   smtpFromAddress: null as string | null,
   smtpSecure: true,
+  smtpRequireTls: false,
   smsDriver: null as string | null,
   smsGatewayUrl: null as string | null,
   smsGatewayTokenCipher: null as string | null,
@@ -113,6 +114,8 @@ function build(
   let row: Association | null = exists ? { ...STORED, ...overrides } : null;
 
   const prisma = {
+    // The advisory lock a retention change takes.
+    $executeRaw: vi.fn(async () => 0),
     association: {
       findUnique: vi.fn(async () => row),
       findUniqueOrThrow: vi.fn(async () => {
@@ -421,6 +424,64 @@ describe("SMTP settings", () => {
     await service.updateSmtp({ ...filled, password: "" });
 
     expect(current()?.smtpPasswordCipher).toBeNull();
+  });
+
+  it("requires TLS of a server that is not on this machine", async () => {
+    // The sender alone changes, on settings saved before saving required it:
+    // any save requires it, because the save is of the credentials.
+    const { service, current } = build({
+      smtpHost: "smtp.example.se",
+      smtpSecure: false,
+      smtpRequireTls: false,
+    });
+
+    const saved = await service.updateSmtp({
+      ...filled,
+      secure: false,
+      fromAddress: "info@exempel.se",
+    });
+
+    expect(current()?.smtpRequireTls).toBe(true);
+    expect(saved).toMatchObject({ source: "settings", tlsOptional: false });
+  });
+
+  it.each(["localhost", "127.0.0.1", "::1"])(
+    "leaves a server on loopback (%s) to upgrade if it offers to",
+    async (host) => {
+      const { service, current } = build();
+
+      const saved = await service.updateSmtp({
+        ...filled,
+        host,
+        secure: false,
+      });
+
+      expect(current()?.smtpRequireTls).toBe(false);
+      expect(saved).toMatchObject({ tlsOptional: false });
+    },
+  );
+
+  it("flags settings saved before TLS was required", async () => {
+    const legacy = build({
+      smtpHost: "smtp.example.se",
+      smtpFromAddress: "styrelsen@exempel.se",
+      smtpSecure: false,
+      smtpRequireTls: false,
+    });
+    await expect(legacy.service.read()).resolves.toMatchObject({
+      smtp: { tlsOptional: true },
+    });
+
+    // Implicit TLS is encrypted from the first byte, whenever it was saved.
+    const implicit = build({
+      smtpHost: "smtp.example.se",
+      smtpFromAddress: "styrelsen@exempel.se",
+      smtpSecure: true,
+      smtpRequireTls: false,
+    });
+    await expect(implicit.service.read()).resolves.toMatchObject({
+      smtp: { tlsOptional: false },
+    });
   });
 });
 
@@ -861,13 +922,34 @@ describe("the financial year and the giro numbers", () => {
 });
 
 describe("retention and self-signup", () => {
-  it("stores the retention policy", async () => {
-    const { service, current } = build();
+  it("stores the retention policy, and records who changed it from what", async () => {
+    const { service, current, audit } = build();
+    const before = current()?.retentionDaysAfterMoveOut;
 
     await expect(
-      service.updateRetention({ daysAfterMoveOut: 730 }),
+      service.updateRetention({
+        actorPersonId: "person-1",
+        daysAfterMoveOut: 730,
+      }),
     ).resolves.toEqual({ daysAfterMoveOut: 730 });
     expect(current()?.retentionDaysAfterMoveOut).toBe(730);
+
+    // It moves every pending purge date at once.
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ASSOCIATION_RETENTION_RECORDED",
+        actorPersonId: "person-1",
+        context: { daysAfterMoveOutFrom: before, daysAfterMoveOutTo: 730 },
+      }),
+      expect.anything(),
+    );
+
+    // Saved again unchanged, it records nothing.
+    await service.updateRetention({
+      actorPersonId: "person-1",
+      daysAfterMoveOut: 730,
+    });
+    expect(audit.record).toHaveBeenCalledTimes(1);
   });
 
   it("keeps self-signup off unless it is turned on deliberately", async () => {
@@ -901,7 +983,10 @@ describe("retention and self-signup", () => {
     const { service } = build({}, false);
 
     await expect(
-      service.updateRetention({ daysAfterMoveOut: 730 }),
+      service.updateRetention({
+        actorPersonId: "person-1",
+        daysAfterMoveOut: 730,
+      }),
     ).rejects.toMatchObject({ reason: "housing-cooperative-missing" });
     await expect(
       service.updateSelfSignup({ enabled: true }),
