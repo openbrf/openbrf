@@ -1120,6 +1120,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Encrypted connection (TLS)",
+      "secureHint": "Ticked, the connection is encrypted from the start (implicit TLS, usually port 465). Unticked, it is upgraded with STARTTLS (usually port 587). Once these settings are saved, nothing is sent to a server that does not offer STARTTLS, unless it runs on this machine.",
       "user": "User name",
       "password": "Password",
       "passwordKept": "A password is stored. Leave this empty to keep it, or clear it to remove it.",
@@ -1130,14 +1131,17 @@
       "testSent": "A test message is on its way to {{email}}.",
       "notConfigured": "Email is not set up, so invitations and sign-in links cannot be sent. Nobody can be invited until this is done.",
       "configured": "Email is set up.",
+      "tlsOptional": "These settings were saved before an encrypted connection was required, so the password is sent unencrypted if the server does not offer STARTTLS. Save them again to require encryption, then send a test message.",
       "environment": "Mail is sent by whoever runs this instance, through {{host}} from {{fromAddress}}.",
       "environmentHint": "It is set where the instance runs and cannot be changed here.",
       "errors": {
         "notConfigured": "Save a server and a sender address before sending a test.",
         "noEmail": "Your own record has no email address to send the test to.",
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
+        "tlsUnavailable": "The server set up no encrypted connection, so nothing was sent to it, not even the password. Check that the server offers STARTTLS on this port, or tick the encrypted connection and use port 465.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
-        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them."
+        "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
+        "environmentTlsUnavailable": "The message could not be sent because the mail server set up no encrypted connection. Mail is run by whoever runs this instance, so contact them."
       },
       "test": {
         "subject": "Test message from {{association}}",
