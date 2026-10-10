@@ -12,6 +12,11 @@
  * not oblige it to move every reference together, and no updater reads the
  * service image in ci.yml at all. This compares them instead of trusting that.
  *
+ * The Semgrep image is read from the one FROM line of docker/semgrep/Dockerfile,
+ * which the scan workflow runs directly. It is not compared with anything, but
+ * it must keep its digest and stay the only FROM, or the workflow would run
+ * whatever the tag points at that day, or the wrong one of two images.
+ *
  * Only the registry may differ: `name:tag@sha256:digest` must be identical in
  * every file below. Every file must also still carry a reference, so that a
  * rename cannot turn the check into one that compares nothing.
@@ -48,6 +53,48 @@ export function pinsOf(source, name) {
     .filter((pin) => pin !== undefined);
 }
 
+/** The Dockerfile the Semgrep scan reads its image from. */
+const SEMGREP_DOCKERFILE = "docker/semgrep/Dockerfile";
+
+/**
+ * The images named by the FROM instructions of a Dockerfile, with any
+ * `--platform=` flag and `AS stage` alias left out. Comments are skipped.
+ *
+ * @param {string} source
+ * @returns {string[]}
+ */
+export function fromImagesOf(source) {
+  return source
+    .split("\n")
+    .map((line) => /^\s*FROM\s+(?:--\S+\s+)*(?!--)(\S+)/i.exec(line)?.[1])
+    .filter((image) => image !== undefined);
+}
+
+/**
+ * What is wrong with the Semgrep Dockerfile's images, one sentence each; empty
+ * when there is exactly one and it is pinned by digest.
+ *
+ * @param {string[]} images As returned by `fromImagesOf`.
+ * @returns {string[]}
+ */
+export function semgrepFailures(images) {
+  if (images.length !== 1) {
+    return [
+      `${SEMGREP_DOCKERFILE} must have exactly one FROM line, the image the ` +
+        `scan runs, and has ${String(images.length)}.`,
+    ];
+  }
+  if (!/@sha256:[0-9a-f]{64}$/.test(images[0])) {
+    return [
+      `The image on the FROM line of ${SEMGREP_DOCKERFILE} is not pinned by ` +
+        `digest: ${images[0]}. Keep the \`name:tag@sha256:digest\` form, so ` +
+        "the scan runs the image that was reviewed and not whatever the tag " +
+        "points at when it runs.",
+    ];
+  }
+  return [];
+}
+
 /**
  * What is wrong with the pins found, one sentence each; empty when they agree.
  *
@@ -78,14 +125,42 @@ export function disagreements(found) {
   return failures;
 }
 
+/**
+ * A file of the repository, or undefined when there is none at that path, so
+ * that a moved file is reported with the list to update and not as a stack
+ * trace.
+ *
+ * @param {string} path
+ * @returns {string | undefined}
+ */
+function readRepoFile(path) {
+  try {
+    return readFileSync(join(repoRoot, path), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 if (import.meta.main) {
   const found = new Map(
     POSTGRES_FILES.map((path) => [
       path,
-      pinsOf(readFileSync(join(repoRoot, path), "utf8"), "postgres"),
+      pinsOf(readRepoFile(path) ?? "", "postgres"),
     ]),
   );
-  const failures = disagreements(found);
+  const dockerfile = readRepoFile(SEMGREP_DOCKERFILE);
+  const failures = [
+    ...disagreements(found),
+    ...(dockerfile === undefined
+      ? [
+          `${SEMGREP_DOCKERFILE} does not exist. If it moved, update ` +
+            "SEMGREP_DOCKERFILE in scripts/check-image-pins.mjs with it.",
+        ]
+      : semgrepFailures(fromImagesOf(dockerfile))),
+  ];
   if (failures.length > 0) {
     for (const failure of failures) {
       process.stderr.write(`${failure}\n\n`);
@@ -93,6 +168,7 @@ if (import.meta.main) {
     process.exit(1);
   }
   process.stdout.write(
-    `Postgres is pinned identically in ${String(POSTGRES_FILES.length)} files.\n`,
+    `Postgres is pinned identically in ${String(POSTGRES_FILES.length)} files, ` +
+      "and the Semgrep image is pinned by digest.\n",
   );
 }
