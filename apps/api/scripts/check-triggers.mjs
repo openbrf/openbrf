@@ -71,6 +71,22 @@ async function catalogRows(db, query) {
 /** The role this runs as, the schema owner, as an oid. */
 const RUNNING_ROLE = "(SELECT oid FROM pg_roles WHERE rolname = current_user)";
 
+/**
+ * The roles that may own public or pgboss, or hold CREATE there, as a set of
+ * oids: the one this runs as; a superuser, which can do anything in the
+ * database whatever it owns, and which owns public in a database created
+ * before PostgreSQL 15; and pg_database_owner, which owns public in one
+ * created since, while the database's owner it stands for is one of those two.
+ */
+const TRUSTED_ROLES = `(SELECT r.oid FROM pg_roles r
+   WHERE r.rolname = current_user
+      OR r.rolsuper
+      OR (r.rolname = 'pg_database_owner' AND EXISTS (
+            SELECT FROM pg_database d
+            JOIN pg_roles o ON o.oid = d.datdba
+            WHERE d.datname = current_database()
+              AND (o.rolname = current_user OR o.rolsuper))))`;
+
 /** The grantee of an aclexplode row `g`, as a message names it. */
 const GRANTEE = `CASE WHEN g.grantee = 0 THEN 'PUBLIC'
                       ELSE quote_ident(pg_get_userbyid(g.grantee)) END`;
@@ -233,17 +249,51 @@ async function objectFindings(db) {
 }
 
 /**
- * Roles other than a schema's owner, or PUBLIC, that hold CREATE in public or
- * pgboss, or that the owner's default privileges give it to in every schema
+ * public or pgboss, where a role other than the one this runs as owns it.
+ *
+ * A schema's owner can create in it whatever its grants say, and drop or
+ * replace what others put there, so one of another role's is the CREATE that
+ * createFindings looks for and more. Nothing Open BRF runs creates either
+ * schema as another role, and the schema-owner service hands both to the
+ * owner, but an instance on a shared server does not run that service.
+ * pg_database_owner, which owns public in a database created on PostgreSQL 15
+ * or later, stands for whoever owns the database, which need not be the role
+ * this runs as.
+ */
+async function schemaOwnerFindings(db) {
+  const rows = await catalogRows(
+    db,
+    `SELECT quote_ident(n.nspname) AS schema,
+            CASE WHEN o.rolname = 'pg_database_owner'
+                 THEN format('pg_database_owner, which stands for %I',
+                             pg_get_userbyid(d.datdba))
+                 ELSE quote_ident(o.rolname) END AS owner
+     FROM pg_namespace n
+     JOIN pg_roles o ON o.oid = n.nspowner
+     JOIN pg_database d ON d.datname = current_database()
+     WHERE n.nspname IN ('public', 'pgboss')
+       AND n.nspowner NOT IN ${TRUSTED_ROLES}
+     ORDER BY n.nspname`,
+  );
+  return rows.map(
+    (row) => `${row.schema} belongs to ${row.owner}, not the schema owner.`,
+  );
+}
+
+/**
+ * Roles other than the one this runs as, or PUBLIC, that hold CREATE in public
+ * or pgboss, or that the owner's default privileges give it to in every schema
  * the owner creates.
  *
  * CREATE is all it takes to put a function or operator there for the schema
  * owner to run, as objectFindings says, and one the role puts there later
  * would not be seen. PostgreSQL before 15 gave it in public to PUBLIC, and a
  * database restored from a dump of one keeps the grant. The hardening revokes
- * it, but runs after the migrations. The defaults count on a first deploy, when
- * the job schema install creates pgboss as the role this runs as; they apply to
- * schemas in every database, so there are no per-schema ones to read.
+ * it, but runs after the migrations. A schema's owner holds it too, so one of
+ * another role's is named here as well as in schemaOwnerFindings. The defaults
+ * count on a first deploy, when the job schema install creates pgboss as the
+ * role this runs as; they apply to schemas in every database, so there are no
+ * per-schema ones to read.
  */
 async function createFindings(db) {
   const schemas = await catalogRows(
@@ -254,7 +304,7 @@ async function createFindings(db) {
      FROM pg_namespace n
      CROSS JOIN LATERAL aclexplode(n.nspacl) AS g
      WHERE n.nspname IN ('public', 'pgboss')
-       AND g.grantee NOT IN (n.nspowner, ${RUNNING_ROLE})
+       AND g.grantee NOT IN ${TRUSTED_ROLES}
        AND g.privilege_type = 'CREATE'
      GROUP BY g.grantee
      ORDER BY 1`,
@@ -284,7 +334,7 @@ async function createFindings(db) {
  * Stops the deploy while a trigger on a table in public or pgboss is not one
  * Open BRF created, or while a role other than a table's owner can replace one.
  * Also while a function or operator there belongs to a role other than the
- * schema owner, or while such a role can create one.
+ * schema owner, or while such a role owns either schema or can create in it.
  *
  * `stage` names what stops, in the message: "the deploy" before the
  * migrations, "the install" in the job schema install.
@@ -299,8 +349,9 @@ export async function refuseUnsafeTriggers(db, stage) {
   const triggers = await triggerFindings(db);
   const grants = await grantFindings(db);
   const objects = await objectFindings(db);
+  const owners = await schemaOwnerFindings(db);
   const creates = await createFindings(db);
-  const findings = [...triggers, ...grants, ...objects, ...creates];
+  const findings = [...triggers, ...grants, ...objects, ...owners, ...creates];
   if (findings.length === 0) {
     return;
   }
@@ -339,7 +390,17 @@ export async function refuseUnsafeTriggers(db, stage) {
         "Open BRF runs creates one as another role. Find out who created " +
         "those named above and what they do. Then drop each one you do not " +
         "recognise, and hand any you do to the schema owner with ALTER " +
-        "FUNCTION or ALTER OPERATOR ... OWNER TO, as a superuser.",
+        "ROUTINE ... OWNER TO for a function, procedure or aggregate, or " +
+        "ALTER OPERATOR ... OWNER TO, as a superuser.",
+    );
+  }
+  if (owners.length > 0) {
+    console.error(
+      "A schema's owner can create in it whatever its grants say, and drop " +
+        "or replace what is there, so revoking CREATE does not take that " +
+        "away. As a superuser, or as the role that owns it, hand each schema " +
+        "named above to the schema owner with ALTER SCHEMA ... OWNER TO, " +
+        "then look at what that role has put there.",
     );
   }
   if (creates.length > 0) {

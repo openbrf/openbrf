@@ -22,8 +22,8 @@ import { scratchDatabases, withClient } from "../testing/scratch-databases";
  *
  * The same goes for a function or operator in public or pgboss: a name a
  * migration calls can resolve to one, which then runs as the owner, so the
- * check also stops on one of another role's, and on a role that holds CREATE
- * there and so could make one.
+ * check also stops on one of another role's, and on a role that owns either
+ * schema or holds CREATE there and so could make one.
  *
  * The cases that change a trigger, plant a function or operator, or grant
  * CREATE do so on the worker's database and put it back, so the suites after
@@ -144,7 +144,18 @@ describe("the trigger check before the migrations", () => {
   });
 
   it("passes an empty database, as a first deploy meets it", async () => {
-    const passed = check(await scratch.create("triggers_empty"));
+    const databaseUrl = await scratch.create("triggers_empty");
+    // public belongs to pg_database_owner on PostgreSQL 15 and later, which
+    // stands here for the role the check runs as, the database's owner.
+    const owner = await withClient(databaseUrl, async (client) => {
+      const result = await client.query<{ owner: string }>(
+        "SELECT nspowner::regrole::text AS owner FROM pg_namespace WHERE nspname = 'public'",
+      );
+      return result.rows[0]?.owner;
+    });
+    expect(owner).toBe("pg_database_owner");
+
+    const passed = check(databaseUrl);
     expect(passed.status, passed.output).toBe(0);
   });
 
@@ -294,18 +305,27 @@ describe("the trigger check before the migrations", () => {
       what: "a function",
       create: `CREATE FUNCTION public.openbrf_trigger_check_${suffix}_planted(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'`,
       object: `FUNCTION public.openbrf_trigger_check_${suffix}_planted(integer)`,
+      handover: `ROUTINE public.openbrf_trigger_check_${suffix}_planted(integer)`,
       reported: `public.openbrf_trigger_check_${suffix}_planted(integer) is a function`,
+    },
+    {
+      what: "a procedure",
+      create: `CREATE PROCEDURE public.openbrf_trigger_check_${suffix}_planted(integer) LANGUAGE sql AS 'SELECT 1'`,
+      object: `PROCEDURE public.openbrf_trigger_check_${suffix}_planted(integer)`,
+      handover: `ROUTINE public.openbrf_trigger_check_${suffix}_planted(integer)`,
+      reported: `public.openbrf_trigger_check_${suffix}_planted(integer) is a procedure`,
     },
     {
       what: "an operator",
       create:
         "CREATE OPERATOR public.=== (LEFTARG = text, RIGHTARG = text, FUNCTION = pg_catalog.texteq)",
       object: "OPERATOR public.=== (text, text)",
+      handover: "OPERATOR public.=== (text, text)",
       reported: "public.===(text,text) is an operator",
     },
   ])(
-    "stops on $what in public that another role owns",
-    async ({ create, object, reported }) => {
+    "stops on $what in public that another role owns, until the owner is given it",
+    async ({ create, object, handover, reported }) => {
       // What a role with CREATE in public, which a database restored from a
       // dump before PostgreSQL 15 gives every role, could have left there for
       // a name in a migration to resolve to.
@@ -318,12 +338,77 @@ describe("the trigger check before the migrations", () => {
           `${reported} that ${PROBE_ROLE} owns, not the schema owner.`,
         );
         expect(refused.output).toContain("So the deploy stops here.");
+
+        // The statement the message names hands it over: ALTER FUNCTION
+        // refuses a procedure, ALTER ROUTINE takes either.
+        const statement = handover.split(" ")[0];
+        expect(refused.output).toContain(`ALTER ${statement} ... OWNER TO`);
+        await asOwner(`ALTER ${handover} OWNER TO CURRENT_USER`);
+        const passed = check();
+        expect(passed.status, passed.output).toBe(0);
       } finally {
         await asOwner(`DROP ${object}`);
       }
     },
     60_000,
   );
+
+  it.each([
+    { grants: "the grants it was created with", grant: undefined },
+    {
+      grants: "a CREATE grant of its own",
+      grant: `GRANT CREATE ON SCHEMA pgboss TO ${PROBE_ROLE}`,
+    },
+  ])(
+    "stops while another role owns pgboss, with $grants",
+    async ({ grant }) => {
+      // An instance on a shared server does not run the schema-owner service,
+      // which would hand the schema to the owner. Its owner can create in it
+      // whatever its grants say, and replace what pg-boss put there.
+      const databaseUrl = await scratch.create("triggers_schema_owner");
+      await withClient(databaseUrl, async (client) => {
+        await client.query(`CREATE SCHEMA pgboss AUTHORIZATION ${PROBE_ROLE}`);
+        if (grant !== undefined) {
+          await client.query(grant);
+        }
+      });
+      const refused = check(databaseUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        `pgboss belongs to ${PROBE_ROLE}, not the schema owner.`,
+      );
+      expect(refused.output).toContain("ALTER SCHEMA ... OWNER TO");
+      expect(refused.output).toContain("So the deploy stops here.");
+      if (grant !== undefined) {
+        expect(refused.output).toContain(
+          `${PROBE_ROLE} holds CREATE in pgboss.`,
+        );
+      }
+    },
+    60_000,
+  );
+
+  it("stops while public belongs to pg_database_owner and the database to another role", async () => {
+    // pg_database_owner stands for whoever owns the database, which here is
+    // not the role the check runs as.
+    const databaseUrl = await scratch.create("triggers_database_owner");
+    await withClient(databaseUrl, (client) =>
+      client.query(
+        `DO $$ BEGIN
+           EXECUTE format('ALTER DATABASE %I OWNER TO ${PROBE_ROLE}', current_database());
+         END $$`,
+      ),
+    );
+    const refused = check(databaseUrl);
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain(
+      `public belongs to pg_database_owner, which stands for ${PROBE_ROLE}, ` +
+        "not the schema owner.",
+    );
+    expect(refused.output).toContain(
+      "pg_database_owner holds CREATE in public.",
+    );
+  }, 60_000);
 
   it.each([
     { grantee: "PUBLIC", schema: "public" },
