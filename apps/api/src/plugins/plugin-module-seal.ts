@@ -1190,7 +1190,6 @@ function isPlainArray(value: unknown): value is unknown[] {
   );
 }
 
-/** Truthy, which is the test NestJS's `|| []` applies. */
 /**
  * A value NestJS reads fields from when it holds a dependency record.
  *
@@ -1203,6 +1202,7 @@ function isRecord(value: unknown): value is object {
   );
 }
 
+/** Truthy, which is the test NestJS's `|| []` applies. */
 function isPresent(value: unknown): boolean {
   return Boolean(value);
 }
