@@ -19,10 +19,11 @@ is refused as `not-consented`, and a day outside the period as
 change writes a `SUBLET_LETTING_END_RECORDED` audit entry.
 
 From the day after the recorded last day, a granted erasure request no longer
-waits for the consent, and the two-year retention window counts from the later of the
-board's answer and the day after that last day (the day is inclusive: the
-letting runs through it). The period itself stays what the board consented to. The applicant sees the day on their
-own list, and the data subject access report shows it beside the period.
+waits for the consent. The two-year retention window counts from the later of
+the board's answer and the end of that last day (the day is inclusive: the
+letting runs through it). The period itself stays what the board consented to.
+The applicant sees the day on their own list, and the data subject access
+report shows it beside the period.
 
 Migration `20261010100000_sublet_letting_ended_on` adds the column, with a
 check constraint for the same rules.
