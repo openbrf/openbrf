@@ -24,6 +24,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { PackageLock } from "../packaging/package-lock";
 import { lockThemes, underThemeLock } from "./theme-lock";
 import { type DetachedTheme, ThemeStore } from "./theme-store";
 
@@ -236,6 +237,7 @@ export class ThemeService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly store: ThemeStore,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /** The chain entry an installed row contributes to inheritance. */
@@ -565,6 +567,19 @@ export class ThemeService {
       );
     }
 
+    // The checks below read the row an install of this id writes, and the
+    // removal takes its files with it, so both run under the one lock. See
+    // {@link PackageLock}.
+    return await this.packageLock.run("theme", themeId, (lockLost) =>
+      this.uninstallLocked(themeId, actorPersonId, lockLost),
+    );
+  }
+
+  private async uninstallLocked(
+    themeId: string,
+    actorPersonId: string | null,
+    lockLost: AbortSignal,
+  ): Promise<ThemeSummary[]> {
     /*
      * Checked and removed in one transaction under the theme lock, so an
      * activation of this theme, or an install of a child of it, cannot commit
@@ -575,6 +590,12 @@ export class ThemeService {
      * lock instead, they could be the files a reinstall of the same id had
      * written meanwhile, leaving its row with fonts and a logo answering 404.
      * Moved aside, they can also go back if the transaction does not commit.
+     *
+     * The package lock is checked before the row goes and before the files
+     * move: once it is lost an install of the same id may already be putting
+     * its own files in that directory. A lost lock is raised, not recorded: it
+     * is the database session failing under the operation rather than the
+     * volume. The transaction then rolls back and the files are put back.
      */
     let detached: DetachedTheme | undefined;
     try {
@@ -591,6 +612,8 @@ export class ThemeService {
         ]);
         this.assertRemovable(themeId, rows, association?.activeThemeId ?? null);
 
+        lockLost.throwIfAborted();
+
         await tx.installedTheme.delete({ where: { id: themeId } });
         await this.audit.record(
           {
@@ -603,6 +626,7 @@ export class ThemeService {
           tx,
         );
 
+        lockLost.throwIfAborted();
         detached = await this.store.detach(themeId);
       });
     } catch (cause) {
@@ -626,7 +650,7 @@ export class ThemeService {
         cause instanceof Error ? cause.stack : undefined,
       );
     }
-    await this.recomputeResolvedTokens();
+    await this.recomputeResolvedTokens(lockLost);
 
     this.logger.log(`Uninstalled theme ${themeId}`);
     return this.list();
@@ -670,8 +694,14 @@ export class ThemeService {
    * ancestors, so replacing one theme changes what its descendants render, and
    * leaving the stored sets stale would make the interface show values the
    * install lint never measured.
+   *
+   * Run under the package lock of the theme that was installed or removed,
+   * and checked against it before every write. The values written are
+   * computed from the rows read at the start, so once the lock is lost
+   * another install of that id may have written newer ones, and a write from
+   * the older read would pair its declared tokens with stale resolved ones.
    */
-  async recomputeResolvedTokens(): Promise<void> {
+  async recomputeResolvedTokens(lockLost: AbortSignal): Promise<void> {
     const rows = await this.installedRows();
     const lookup = ThemeService.lookupOver(rows);
 
@@ -684,6 +714,7 @@ export class ThemeService {
         continue;
       }
       const resolved = resolveChainTokens(chain.chain);
+      lockLost.throwIfAborted();
       await this.prisma.installedTheme.update({
         where: { id: row.id },
         data: {

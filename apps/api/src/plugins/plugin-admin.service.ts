@@ -30,6 +30,7 @@ import { blankToNull } from "../http/blank-to-null";
 import type { Env } from "../config/env";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
 import { CatalogClient } from "../packaging/catalog.client";
+import { PackageLock } from "../packaging/package-lock";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
   type PluginFinding,
@@ -257,6 +258,7 @@ export class PluginAdminService {
     private readonly facts: ProcessorFactsService,
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /**
@@ -493,6 +495,31 @@ export class PluginAdminService {
     }
 
     /*
+     * Every gate below reads whether the plugin is already here, and an
+     * uninstall of the same id deletes the row they read, so both run under
+     * the one lock. See {@link PackageLock}.
+     */
+    return await this.packageLock.run("plugin", request.id, (lockLost) =>
+      this.installLocked(request, actorPersonId, channel, lockLost),
+    );
+  }
+
+  /**
+   * The install, under the lock.
+   *
+   * Every write below is preceded by a check that the lock is still held. A
+   * lock lost part way stops the install at the next write rather than letting
+   * it go on beside an uninstall that may already have the id: reopening the
+   * processing or queueing the install of a plugin that uninstall has removed
+   * is the race the lock is there to close.
+   */
+  private async installLocked(
+    request: InstallRequest,
+    actorPersonId: string | null,
+    channel: AuditChannel,
+    lockLost: AbortSignal,
+  ): Promise<{ restarting: boolean }> {
+    /*
      * Read from the source rather than the cache: the screen that sent this
      * browsed the catalog up to a minute ago, and a curator who deprecated
      * the entry or changed what it declares since must be seen by the gates
@@ -613,7 +640,9 @@ export class PluginAdminService {
      * reinstalling reopens it and refreshes the declared categories while
      * keeping any wording the board has written.
      */
+    lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
+      lockLost.throwIfAborted();
       await this.registry.consent(
         {
           id: entry.id,
@@ -626,33 +655,6 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
-        },
-        tx,
-      );
-
-      await this.processing.seedPlugin(
-        entry.id,
-        {
-          name: entry.packageName,
-          personalDataCategories: [
-            ...(echoed ? (request.personalData ?? []) : entry.personalData),
-          ],
-        },
-        tx,
-      );
-
-      await this.audit.record(
-        {
-          action: "PLUGIN_INSTALLED",
-          channel,
-          actorPersonId,
-          targetKind: "plugin",
-          targetId: entry.id,
-          context: {
-            version: entry.version,
-            permissions: entry.permissions,
-            personalData: entry.personalData,
-          },
         },
         tx,
       );
@@ -676,16 +678,51 @@ export class PluginAdminService {
        * this install goes on without its answer rather than being refused.
        */
       if (agreement !== undefined) {
+        // The facts are read before the check rather than as an argument after
+        // it: a lock lost while they are read would otherwise reach the write.
+        // The record reads again before it writes, so it checks as well.
+        const facts = await this.facts.read(tx);
+        lockLost.throwIfAborted();
         await this.processors.record(
           pluginProcessorKey(entry.id),
           { ...agreement, actorPersonId, channel },
-          await this.facts.read(tx),
-          { onlyIfUnrecorded: true },
+          facts,
+          { onlyIfUnrecorded: true, lockLost },
           tx,
         );
       }
+
+      lockLost.throwIfAborted();
+      await this.processing.seedPlugin(
+        entry.id,
+        {
+          name: entry.packageName,
+          personalDataCategories: [
+            ...(echoed ? (request.personalData ?? []) : entry.personalData),
+          ],
+        },
+        tx,
+      );
+
+      lockLost.throwIfAborted();
+      await this.audit.record(
+        {
+          action: "PLUGIN_INSTALLED",
+          channel,
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: entry.id,
+          context: {
+            version: entry.version,
+            permissions: entry.permissions,
+            personalData: entry.personalData,
+          },
+        },
+        tx,
+      );
     });
 
+    lockLost.throwIfAborted();
     await this.installer.enqueue({
       reason: `install:${entry.id}`,
       restart: true,
@@ -699,12 +736,33 @@ export class PluginAdminService {
     actorPersonId: string | null,
     channel: AuditChannel,
   ): Promise<{ restarting: boolean }> {
+    // The same lock an install of this id takes, so the two run one after the
+    // other.
+    return await this.packageLock.run("plugin", id, (lockLost) =>
+      this.uninstallLocked(id, actorPersonId, channel, lockLost),
+    );
+  }
+
+  /**
+   * The uninstall, under the lock, checked before every write for the reason
+   * {@link installLocked} is: ending the processing of a plugin an install
+   * has just put back would leave the record saying it stopped.
+   */
+  private async uninstallLocked(
+    id: string,
+    actorPersonId: string | null,
+    channel: AuditChannel,
+    lockLost: AbortSignal,
+  ): Promise<{ restarting: boolean }> {
+    lockLost.throwIfAborted();
     await this.prisma.$transaction(async (tx) => {
+      lockLost.throwIfAborted();
       const removed = await this.registry.remove(id, tx);
       if (!removed) {
         throw new PluginNotFoundError(id);
       }
 
+      lockLost.throwIfAborted();
       await this.audit.record(
         {
           action: "PLUGIN_REMOVED",
@@ -723,6 +781,7 @@ export class PluginAdminService {
        * an agreement covered a period that happened, and closing it is the
        * board's own act on the data protection screen.
        */
+      lockLost.throwIfAborted();
       await this.processing.endPlugin(id, tx);
     });
 
@@ -730,6 +789,7 @@ export class PluginAdminService {
     // restart the reconcile ends in - which a failed reconcile never reaches.
     this.loader.unload(id);
 
+    lockLost.throwIfAborted();
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });
     // What the overview now says, rather than a constant: with plugins
     // switched off nothing runs the reconcile and nothing is replaced, and a

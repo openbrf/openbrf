@@ -20,10 +20,12 @@ import { JobQueueService } from "../jobs/job-queue.service";
 import { CatalogClient } from "../packaging/catalog.client";
 import { type DataPaths, dataPaths } from "../packaging/data-paths";
 import { sha512 } from "../packaging/integrity";
+import { PackageLock } from "../packaging/package-lock";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import type { InstallLock } from "./install-lock";
 import { PluginAdminService } from "./plugin-admin.service";
 import { scanPluginDirectory } from "./plugin-directory";
@@ -696,6 +698,8 @@ describe("the plugin install flow", () => {
  */
 describe("a deprecated catalog entry", () => {
   let admin: PluginAdminService;
+  /** The same service reading the registry through another one. */
+  let adminOver: (registryLike: PluginRegistryService) => PluginAdminService;
 
   beforeAll(async () => {
     const deprecatedPath = join(workspace, "catalog-deprecated.json");
@@ -706,29 +710,40 @@ describe("a deprecated catalog entry", () => {
     };
     const restart = new RestartCoordinator(deprecatedEnv);
 
-    admin = new PluginAdminService(
-      deprecatedEnv,
-      registry,
-      { manifestFor: () => null, get: () => null, report: () => [] } as never,
-      // Records the enqueue and runs nothing: the test runs the reconcile the
-      // job would, so what reaches the volume is read after it.
-      new PluginInstallerService(
+    adminOver = (registryLike) =>
+      new PluginAdminService(
         deprecatedEnv,
-        registry,
-        { send: async () => null } as never,
+        registryLike,
+        {
+          manifestFor: () => null,
+          get: () => null,
+          report: () => [],
+          unload: () => undefined,
+        } as never,
+        // Records the enqueue and runs nothing: the test runs the reconcile the
+        // job would, so what reaches the volume is read after it.
+        new PluginInstallerService(
+          deprecatedEnv,
+          registry,
+          { send: async () => null } as never,
+          new CatalogClient(deprecatedEnv),
+          restart,
+          { needsReconcile: () => false } as never,
+        ),
         new CatalogClient(deprecatedEnv),
+        { record: async () => undefined } as never,
         restart,
-        { needsReconcile: () => false } as never,
-      ),
-      new CatalogClient(deprecatedEnv),
-      { record: async () => undefined } as never,
-      restart,
-      { record: async () => undefined } as never,
-      { seedPlugin: async () => undefined } as never,
-      { read: async () => ({}) } as never,
-      prisma as never,
-      { translatorFor: () => (key: string) => key } as never,
-    );
+        { record: async () => undefined } as never,
+        {
+          seedPlugin: async () => undefined,
+          endPlugin: async () => undefined,
+        } as never,
+        { read: async () => ({}) } as never,
+        prisma as never,
+        { translatorFor: () => (key: string) => key } as never,
+        new PackageLock(deprecatedEnv),
+      );
+    admin = adminOver(registry);
   });
 
   it("is refused as a first install, and writes no row and no files", async () => {
@@ -756,6 +771,51 @@ describe("a deprecated catalog entry", () => {
 
     const record = await registry.find(PLUGIN_ID);
     expect(record?.version).toBe(VERSION);
+  }, 120_000);
+
+  /*
+   * The gate above reads whether the plugin is installed, and an uninstall of
+   * the same id deletes the row it reads. The read is held for a while after
+   * it has answered, which is the window another administrator's uninstall
+   * lands in: unserialised, the reinstall then writes the consent row again
+   * and a deprecated entry is installed afresh over a plugin that was just
+   * removed. Serialised, the uninstall waits and runs second.
+   */
+  it("is not installed afresh by an install racing an uninstall", async () => {
+    await consent(digest, tarball);
+    const slowRegistry: PluginRegistryService = Object.assign(
+      Object.create(registry) as PluginRegistryService,
+      {
+        async find(id: string) {
+          const found = await registry.find(id);
+          await delay(300);
+          return found;
+        },
+      },
+    );
+    const racing = adminOver(slowRegistry);
+
+    const reinstall = racing.install({ id: PLUGIN_ID }, null, "SYSTEM");
+    // The install holds the lock, so its gate runs before the uninstall's.
+    await waitFor(
+      async () =>
+        (await advisoryLockCount(
+          prisma as unknown as PrismaService,
+          `package-install:plugin:${PLUGIN_ID}`,
+          true,
+        )) === 1n,
+    );
+    const removal = racing.uninstall(PLUGIN_ID, null, "SYSTEM");
+
+    await expect(reinstall).resolves.toEqual({ restarting: true });
+    await removal;
+
+    // No row, and so no files once the reconcile the two queued has run.
+    expect(await registry.find(PLUGIN_ID)).toBeNull();
+    const outcome = await installer.reconcile();
+    expect(outcome.installed).not.toContain(PLUGIN_ID);
+    const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
+    expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
   }, 120_000);
 });
 
@@ -788,6 +848,7 @@ describe("an install with a recipient answer", () => {
       } as never),
       service(),
       { translatorFor: () => (key: string) => key } as never,
+      new PackageLock(testEnv),
     );
     return { admin, enqueue };
   }

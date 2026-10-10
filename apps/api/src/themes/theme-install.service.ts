@@ -20,6 +20,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import type { CatalogThemeEntry } from "../packaging/catalog-entry";
 import { sha512 } from "../packaging/integrity";
+import { PackageLock } from "../packaging/package-lock";
 import {
   COMPOSED_AUDIT_SOURCE,
   composedChecksum,
@@ -160,6 +161,7 @@ export class ThemeInstallService {
     private readonly source: CatalogThemeSource,
     private readonly store: ThemeStore,
     private readonly themes: ThemeService,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /** The catalog's themes, each marked with whether it is already installed. */
@@ -199,6 +201,23 @@ export class ThemeInstallService {
       "Create the housing cooperative before installing a theme.",
     );
 
+    /*
+     * The deprecation gate reads whether the theme is installed, and an
+     * uninstall of the same id deletes that row and then its files. Both take
+     * the one lock, held through the download and the swap of the files, so
+     * the gate and the write it admits see the same state. See
+     * {@link PackageLock}.
+     */
+    return await this.packageLock.run("theme", catalogId, (lockLost) =>
+      this.installLocked(catalogId, actorPersonId, lockLost),
+    );
+  }
+
+  private async installLocked(
+    catalogId: string,
+    actorPersonId: string | null,
+    lockLost: AbortSignal,
+  ): Promise<ThemeInstallResult> {
     const entry = await this.source.theme(catalogId);
     if (entry === null) {
       throw new ThemeInstallError(
@@ -269,6 +288,7 @@ export class ThemeInstallService {
         auditSource: entry.artifact.url,
       },
       actorPersonId,
+      lockLost,
     );
   }
 
@@ -299,6 +319,19 @@ export class ThemeInstallService {
       "Create the housing cooperative before composing a theme.",
     );
 
+    // Under the lock an install or an uninstall of this id takes: the check
+    // below reads the row they write, and the composed version is derived
+    // from it.
+    return await this.packageLock.run("theme", input.id, (lockLost) =>
+      this.composeLocked(input, actorPersonId, lockLost),
+    );
+  }
+
+  private async composeLocked(
+    input: ComposeThemeInput,
+    actorPersonId: string | null,
+    lockLost: AbortSignal,
+  ): Promise<ThemeInstallResult> {
     const existing = await this.prisma.installedTheme.findUnique({
       where: { id: input.id },
       select: { version: true, catalogId: true },
@@ -339,6 +372,7 @@ export class ThemeInstallService {
         auditSource: COMPOSED_AUDIT_SOURCE,
       },
       actorPersonId,
+      lockLost,
     );
   }
 
@@ -351,6 +385,13 @@ export class ThemeInstallService {
    * files move into place as its last step, so anything that refuses the write
    * leaves the version already installed exactly as it was rather than pairing
    * an old row with new files.
+   *
+   * Run under the package lock, and checked against it before the files are
+   * staged and again just before they are swapped in. A lock lost on the way
+   * rolls the row back and leaves the files where they were, so an uninstall
+   * or another install that took the id in the meantime is not undone. Lost
+   * after the swap, it stops the recomputation of the resolved tokens before
+   * its next write, for the reason that method gives.
    */
   private async admit(
     manifest: ThemeManifest,
@@ -358,6 +399,7 @@ export class ThemeInstallService {
     raw: Readonly<Record<string, unknown>>,
     provenance: ThemeProvenance,
     actorPersonId: string | null,
+    lockLost: AbortSignal,
   ): Promise<ThemeInstallResult> {
     const lint = await this.lintAgainstInstalled(manifest, files, raw);
     if (!lint.ok) {
@@ -386,6 +428,7 @@ export class ThemeInstallService {
      * open is a connection lost between the two, which no ordering closes
      * without a distributed transaction.
      */
+    lockLost.throwIfAborted();
     const staged = await this.store.stage(manifest.name, files);
 
     const resolved = lint.resolved;
@@ -459,7 +502,9 @@ export class ThemeInstallService {
         }
 
         // Last, so that a swap this cannot complete rolls the row back with it
-        // and the previous version keeps rendering.
+        // and the previous version keeps rendering. The lock is checked here
+        // rather than before the transaction, as late as anything can be.
+        lockLost.throwIfAborted();
         await staged.commit();
       });
     } catch (cause) {
@@ -485,7 +530,7 @@ export class ThemeInstallService {
     }
 
     // A reinstall changes what this theme's descendants render.
-    await this.themes.recomputeResolvedTokens();
+    await this.themes.recomputeResolvedTokens(lockLost);
 
     this.logger.log(
       `Installed theme ${manifest.name}@${manifest.version} from ${provenance.sourceUrl}`,

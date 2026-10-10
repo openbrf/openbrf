@@ -178,6 +178,11 @@ export class ProcessorAgreementService {
    *
    * A transaction given is the one the row and its entry are written in, so
    * the plugin install commits its recipient with its consent or neither.
+   *
+   * `lockLost` is the plugin install's too: the package lock it runs under. The
+   * reads here come before the write, and a lock lost during them means an
+   * uninstall of the plugin may already be running, so it is checked once they
+   * are done, inside the transaction and before the first write.
    */
   async record(
     processorKey: string,
@@ -186,7 +191,7 @@ export class ProcessorAgreementService {
       channel: AuditChannel;
     },
     facts: ProcessorFacts,
-    options: { onlyIfUnrecorded?: boolean } = {},
+    options: { onlyIfUnrecorded?: boolean; lockLost?: AbortSignal } = {},
     client?: Prisma.TransactionClient,
   ): Promise<ProcessorView> {
     const input = foldedText(given, AGREEMENT_TEXT);
@@ -217,6 +222,7 @@ export class ProcessorAgreementService {
       input,
       facts,
       options.onlyIfUnrecorded ?? false,
+      options.lockLost,
       client,
     );
   }
@@ -483,6 +489,7 @@ export class ProcessorAgreementService {
     },
     facts: ProcessorFacts,
     onlyIfUnrecorded: boolean,
+    lockLost: AbortSignal | undefined,
     client: Prisma.TransactionClient | undefined,
   ): Promise<ProcessorView> {
     let replaced = false;
@@ -500,6 +507,7 @@ export class ProcessorAgreementService {
         }
       }
 
+      lockLost?.throwIfAborted();
       const closed = await tx.processorAgreement.updateMany({
         where: { processorKey, endedAt: null },
         data: { endedAt: new Date(), endReason: "replaced" },

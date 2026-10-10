@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
+import {
+  type PackageLock,
+  PackageLockLostError,
+} from "../packaging/package-lock";
 import type { ThemeStore } from "./theme-store";
 import { ThemeError, ThemeService } from "./theme.service";
 
@@ -49,6 +53,7 @@ interface Harness {
   audited: { action: string; targetId: string | null }[];
   removed: string[];
   restored: string[];
+  store: { detach: ReturnType<typeof vi.fn> };
   prisma: {
     $transaction: ReturnType<
       typeof vi.fn<(run: (tx: unknown) => Promise<unknown>) => Promise<unknown>>
@@ -63,6 +68,11 @@ function build(
     association?: boolean;
     /** Makes the filesystem removal fail, as a full volume or a lock would. */
     removalFails?: boolean;
+    /**
+     * When the package lock's session ends: before the work, once the row is
+     * deleted, or while the rows the resolved tokens are computed from are read.
+     */
+    lockLost?: "before" | "after-delete" | "while-recomputing";
   } = {},
 ): Harness {
   let active = options.activeThemeId ?? null;
@@ -70,6 +80,14 @@ function build(
   const audited: { action: string; targetId: string | null }[] = [];
   const removed: string[] = [];
   const restored: string[] = [];
+  const lock = new AbortController();
+  const loseLock = (): void => {
+    lock.abort(new PackageLockLostError("theme", "example-theme"));
+  };
+  if (options.lockLost === "before") {
+    loseLock();
+  }
+  let deleted = false;
 
   const prisma = {
     association: {
@@ -84,7 +102,13 @@ function build(
       ),
     },
     installedTheme: {
-      findMany: vi.fn(async () => [...rows]),
+      findMany: vi.fn(async () => {
+        // Only the read after the removal is the recomputation's.
+        if (options.lockLost === "while-recomputing" && deleted) {
+          loseLock();
+        }
+        return [...rows];
+      }),
       findUnique: vi.fn(
         async (args: { where: { id: string } }) =>
           rows.find((row) => row.id === args.where.id) ?? null,
@@ -102,9 +126,13 @@ function build(
         },
       ),
       delete: vi.fn(async (args: { where: { id: string } }) => {
+        if (options.lockLost === "after-delete") {
+          loseLock();
+        }
+        deleted = true;
         const index = rows.findIndex((row) => row.id === args.where.id);
-        const [deleted] = rows.splice(index, 1);
-        return deleted;
+        const [removedRow] = rows.splice(index, 1);
+        return removedRow;
       }),
     },
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
@@ -147,12 +175,22 @@ function build(
       prisma as unknown as PrismaService,
       audit as unknown as AuditLogService,
       store as unknown as ThemeStore,
+      // The lock has no meaning without a database; package-lock.int-spec.ts
+      // tests it against one.
+      {
+        run: async (
+          _kind: string,
+          _id: string,
+          work: (lockLost: AbortSignal) => unknown,
+        ) => work(lock.signal),
+      } as unknown as PackageLock,
     ),
     rows,
     activeThemeId: () => active,
     audited,
     removed,
     restored,
+    store,
     prisma,
   };
 }
@@ -391,13 +429,61 @@ describe("removal", () => {
     expect(lost.restored).toEqual(["example-theme"]);
     expect(lost.removed).toEqual([]);
   });
+
+  it("removes nothing once the package lock is lost", async () => {
+    const lost = build([themeRow()], { lockLost: "before" });
+
+    await expect(
+      lost.service.uninstall("example-theme", null),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(lost.rows).toHaveLength(1);
+    expect(lost.removed).toEqual([]);
+  });
+
+  /*
+   * With the row gone and the lock lost, an install of the same id may already
+   * be writing into the directory. Its files are not this removal's to take,
+   * and the lost lock is answered as one, not as an ordinary failed removal.
+   */
+  it("leaves the files alone when the lock is lost after the row is deleted", async () => {
+    const lost = build([themeRow()], { lockLost: "after-delete" });
+
+    await expect(
+      lost.service.uninstall("example-theme", null),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+
+    // The files were not moved aside, and so are neither deleted nor put back.
+    expect(lost.removed).toEqual([]);
+    expect(lost.restored).toEqual([]);
+    expect(lost.store.detach).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The recomputation after the removal writes values computed from the rows
+   * it read. With the lock lost during that read, another operation on the id
+   * may already have written newer ones, so none of them is written.
+   */
+  it("writes no resolved tokens once the lock is lost while recomputing them", async () => {
+    const lost = build(
+      [themeRow(), themeRow({ id: "other-theme", name: "Other" })],
+      { lockLost: "while-recomputing" },
+    );
+
+    await expect(
+      lost.service.uninstall("example-theme", null),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+
+    expect(lost.removed).toEqual(["example-theme"]);
+    expect(lost.rows.map((row) => row.id)).toEqual(["other-theme"]);
+    expect(lost.rows[0]?.lightTokens).toEqual({});
+  });
 });
 
 describe("resolved token maintenance", () => {
   it("recomputes what every installed theme renders", async () => {
     // The stored sets start empty; recomputation is what fills them, and it is
     // what a change to an ancestor has to trigger.
-    await harness.service.recomputeResolvedTokens();
+    await harness.service.recomputeResolvedTokens(new AbortController().signal);
     const stored = harness.rows[0]?.lightTokens as Record<string, string>;
     expect(stored["accent-trust"]).toBe("#2F5D50");
     expect(stored["surface-page"]).toBe(PORTTAVLAN_LIGHT["surface-page"]);

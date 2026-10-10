@@ -18,6 +18,12 @@ import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { CatalogClient } from "../packaging/catalog.client";
+import { PackageLock, PackageLockLostError } from "../packaging/package-lock";
+import {
+  advisoryLockCount,
+  terminateAdvisoryLockHolder,
+  waitFor,
+} from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   buildThemeFixtureCatalog,
@@ -57,6 +63,18 @@ let dataDirectory: string;
 let catalogDirectory: string;
 let exampleEntry: FixtureCatalogEntry;
 let catalogPath: string;
+/** What an installer in these specs is built with, apart from the index it reads. */
+interface InstallerOptions {
+  /** How long a download takes; see {@link SlowCatalogThemeSource}. */
+  fetchDelayMs?: number;
+  /** The store it writes through, where not the one the other installers share. */
+  storeFor?: (env: Env) => ThemeStore;
+  /** The database client it uses, where not the shared one. */
+  client?: PrismaService;
+  /** The package lock it runs under, where not the real one. */
+  lock?: PackageLock;
+}
+
 /**
  * An installer reading the index at this path, on this run's database through
  * the client given or the shared one, and writing through the store given or
@@ -64,11 +82,48 @@ let catalogPath: string;
  */
 let installerReading: (
   path: string,
-  storeFor?: (env: Env) => ThemeStore,
-  client?: PrismaService,
+  options?: InstallerOptions,
 ) => ThemeInstallService;
 let audit: AuditLogService;
 let store: ThemeStore;
+let packageLock: PackageLock;
+
+/**
+ * A package lock that excludes nobody: the session that held the lock has
+ * ended and the database has handed it to the next asker, which is how a
+ * second operation on the same id can overlap the first at all. The overlap
+ * itself is what the specs that use it are about.
+ */
+const lockLostToTheNextAsker = {
+  run: async (
+    _kind: string,
+    _id: string,
+    work: (lockLost: AbortSignal) => unknown,
+  ) => work(new AbortController().signal),
+} as unknown as PackageLock;
+
+/**
+ * A source whose download takes a while.
+ *
+ * The install gates are read before the download, so the delay is the window
+ * in which another administrator's uninstall can land between a gate and the
+ * write it admitted. Without it the race is a matter of scheduling luck.
+ */
+class SlowCatalogThemeSource extends CatalogThemeSource {
+  constructor(
+    client: CatalogClient,
+    private readonly fetchDelayMs: number,
+  ) {
+    super(client);
+  }
+
+  override async fetchPackage(
+    ...args: Parameters<CatalogThemeSource["fetchPackage"]>
+  ): ReturnType<CatalogThemeSource["fetchPackage"]> {
+    await new Promise((resolve) => setTimeout(resolve, this.fetchDelayMs));
+    return super.fetchPackage(...args);
+  }
+}
 
 /** Restored in afterAll, so the shared database is left as it was found. */
 let associationExisted = false;
@@ -110,20 +165,25 @@ beforeAll(async () => {
   audit = new AuditLogService(service);
   store = new ThemeStore(env);
 
-  themes = new ThemeService(service, audit, store);
-  installerReading = (path, storeFor, client) =>
-    new ThemeInstallService(
-      client ?? service,
+  packageLock = new PackageLock(env);
+
+  themes = new ThemeService(service, audit, store, packageLock);
+  installerReading = (path, options = {}) => {
+    const client = new CatalogClient({
+      ...env,
+      OPENBRF_CATALOG_URL: pathToFileURL(path).href,
+    });
+    return new ThemeInstallService(
+      options.client ?? service,
       audit,
-      new CatalogThemeSource(
-        new CatalogClient({
-          ...env,
-          OPENBRF_CATALOG_URL: pathToFileURL(path).href,
-        }),
-      ),
-      storeFor?.(env) ?? store,
+      options.fetchDelayMs === undefined
+        ? new CatalogThemeSource(client)
+        : new SlowCatalogThemeSource(client, options.fetchDelayMs),
+      options.storeFor?.(env) ?? store,
       themes,
+      options.lock ?? packageLock,
     );
+  };
   installer = installerReading(catalog.catalogPath);
 
   const existing = await prisma.association.findUnique({
@@ -467,10 +527,9 @@ describe("installing a theme from the catalog", () => {
       }
     }
 
-    const result = await installerReading(
-      catalogPath,
-      (env) => new StoreKeepingThePrevious(env),
-    ).install(exampleEntry.id, null);
+    const result = await installerReading(catalogPath, {
+      storeFor: (env) => new StoreKeepingThePrevious(env),
+    }).install(exampleEntry.id, null);
 
     expect(result.theme.id).toBe(exampleEntry.id);
     expect(staged).toBe(1);
@@ -487,15 +546,14 @@ describe("installing a theme from the catalog", () => {
     const lost = new Error("The connection was lost at the commit.");
     const before = await readdir(join(dataDirectory, "themes"));
     const client = clientRacedBy(async () => {
-      await installer.install(exampleEntry.id, null);
+      await installerReading(catalogPath, {
+        lock: lockLostToTheNextAsker,
+      }).install(exampleEntry.id, null);
       await writeFile(join(themeDirectory(), "later-install"), "");
     }, lost);
 
     await expect(
-      installerReading(catalogPath, undefined, client).install(
-        exampleEntry.id,
-        null,
-      ),
+      installerReading(catalogPath, { client }).install(exampleEntry.id, null),
     ).rejects.toBe(lost);
 
     expect(
@@ -662,10 +720,12 @@ describe("preview and activation", () => {
     await installer.install(exampleEntry.id, null);
     const before = await readdir(join(dataDirectory, "themes"));
     const client = clientRacedBy(async () => {
-      await installer.install(exampleEntry.id, null);
+      await installerReading(catalogPath, {
+        lock: lockLostToTheNextAsker,
+      }).install(exampleEntry.id, null);
     });
 
-    await new ThemeService(client, audit, store).uninstall(
+    await new ThemeService(client, audit, store, packageLock).uninstall(
       exampleEntry.id,
       null,
     );
@@ -679,5 +739,115 @@ describe("preview and activation", () => {
       await themes.asset(exampleEntry.id, "fonts/spline-sans-mono-latin.woff2"),
     ).not.toBeNull();
     expect(await readdir(join(dataDirectory, "themes"))).toEqual(before);
+  });
+});
+
+/**
+ * Install and uninstall of one id from two administrators at once.
+ *
+ * The id is installed and the entry is deprecated, which is the case the
+ * deprecation gate lets through. Without the lock the install reads
+ * "installed", the uninstall removes the row and the files while the package
+ * downloads, and the install then writes both again: an uninstall followed by
+ * an install of an entry the gate refuses a fresh install of. With it the
+ * uninstall waits, and runs after the install, so the id ends removed.
+ */
+describe("an install racing an uninstall of the same theme", () => {
+  const files = (): string => join(dataDirectory, "themes", "example-theme");
+  /** Until the install holds the lock, and so has its gates ahead of it. */
+  const installHoldsLock = (): Promise<void> =>
+    waitFor(
+      async () =>
+        (await advisoryLockCount(
+          prisma as unknown as PrismaService,
+          `package-install:theme:${exampleEntry.id}`,
+          true,
+        )) === 1n,
+    );
+
+  it("ends with neither a row nor files, never one without the other", async () => {
+    await installer.install(exampleEntry.id, null);
+    const path = await exampleEntryChanged("deprecated-race", {
+      deprecated: true,
+    });
+
+    const reinstall = installerReading(path, { fetchDelayMs: 300 }).install(
+      exampleEntry.id,
+      null,
+    );
+    // Past the gate and into the download before the uninstall starts.
+    await installHoldsLock();
+    const removal = themes.uninstall(exampleEntry.id, null);
+
+    const [installed, removed] = await Promise.allSettled([reinstall, removal]);
+    expect(installed.status).toBe("fulfilled");
+    expect(removed.status).toBe("fulfilled");
+
+    const row = await prisma.installedTheme.findUnique({
+      where: { id: exampleEntry.id },
+    });
+    const onDisk = await stat(files()).then(
+      () => true,
+      () => false,
+    );
+    expect(row).toBeNull();
+    expect(onDisk).toBe(false);
+  });
+
+  it("does not make a different id wait", async () => {
+    await installer.install(exampleEntry.id, null);
+    const path = await exampleEntryChanged("deprecated-other", {
+      deprecated: true,
+    });
+
+    const slow = installerReading(path, { fetchDelayMs: 600 }).install(
+      exampleEntry.id,
+      null,
+    );
+    await installHoldsLock();
+
+    // Another id, so another lock: refused at once rather than after the
+    // download above has finished.
+    const started = Date.now();
+    await expect(themes.uninstall("illegible-theme", null)).rejects.toThrow(
+      /No theme illegible-theme is installed/,
+    );
+    expect(Date.now() - started).toBeLessThan(400);
+
+    await slow;
+    await themes.uninstall(exampleEntry.id, null);
+  });
+
+  /*
+   * The lock's own session ends mid-download - the backend terminated, the
+   * database still up - and Postgres hands the lock to the next asker. The
+   * install must not go on to write over whatever that asker did.
+   */
+  it("stops an install whose lock was lost before it writes anything", async () => {
+    await installer.install(exampleEntry.id, null);
+    const before = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: exampleEntry.id },
+      select: { updatedAt: true },
+    });
+
+    const reinstall = installerReading(catalogPath, {
+      fetchDelayMs: 600,
+    }).install(exampleEntry.id, null);
+    await installHoldsLock();
+    expect(
+      await terminateAdvisoryLockHolder(
+        prisma as unknown as PrismaService,
+        `package-install:theme:${exampleEntry.id}`,
+      ),
+    ).toBe(1);
+
+    await expect(reinstall).rejects.toBeInstanceOf(PackageLockLostError);
+    const after = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: exampleEntry.id },
+      select: { updatedAt: true },
+    });
+    expect(after.updatedAt).toEqual(before.updatedAt);
+
+    await themes.uninstall(exampleEntry.id, null);
   });
 });
