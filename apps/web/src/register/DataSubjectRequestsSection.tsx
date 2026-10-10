@@ -18,10 +18,20 @@ import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { ExtensionNote } from "./ExtensionNote";
+import type {
+  ErasureDomain,
+  ErasureRefusal,
+  ErasureWaitingOn,
+} from "./register-api";
 
 export interface DataSubjectRequestsSectionProps {
   personId: string;
   requests: DataSubjectRequestView[];
+  /**
+   * What the granted erasure request that stands is waiting on, or null. Shown
+   * on that request's row.
+   */
+  erasureWaitingOn: ErasureWaitingOn | null;
   onChanged: () => void;
 }
 
@@ -70,6 +80,44 @@ const REASON: Record<string, TranslationKey> = {
   "requested-in-future": "register.person.requests.reasons.requestedInFuture",
 };
 
+/**
+ * The rule that keeps a granted erasure waiting, in the words a refused grant
+ * uses: they are the same rules, met after the grant rather than before it.
+ */
+const REFUSAL: Record<ErasureRefusal, TranslationKey> = {
+  "processing-restricted":
+    "register.person.requests.reasons.processingRestricted",
+  "board-position-current":
+    "register.person.requests.reasons.boardPositionCurrent",
+  "on-legal-hold": "register.person.requests.reasons.onLegalHold",
+  "system-role-current": "register.person.requests.reasons.systemRoleCurrent",
+  "currently-resident": "register.person.requests.reasons.currentlyResident",
+  "person-not-found": "register.person.requests.reasons.personNotFound",
+};
+
+const DOMAIN_LABEL: Record<ErasureDomain, TranslationKey> = {
+  boardMailboxThreads:
+    "register.person.requests.waitingOn.domain.boardMailboxThreads",
+  bookings: "register.person.requests.waitingOn.domain.bookings",
+  chat: "register.person.requests.waitingOn.domain.chat",
+  eventSignups: "register.person.requests.waitingOn.domain.eventSignups",
+  keyOrders: "register.person.requests.waitingOn.domain.keyOrders",
+  motions: "register.person.requests.waitingOn.domain.motions",
+  newsComments: "register.person.requests.waitingOn.domain.newsComments",
+  subletApplications:
+    "register.person.requests.waitingOn.domain.subletApplications",
+};
+
+/** Why a domain keeps rows. Only the domains that keep any have a reason. */
+const KEPT_BECAUSE: Partial<Record<ErasureDomain, TranslationKey>> = {
+  boardMailboxThreads:
+    "register.person.requests.waitingOn.keptBecause.boardMailboxThreads",
+  keyOrders: "register.person.requests.waitingOn.keptBecause.keyOrders",
+  motions: "register.person.requests.waitingOn.keptBecause.motions",
+  subletApplications:
+    "register.person.requests.waitingOn.keptBecause.subletApplications",
+};
+
 const STATE_LABEL: Record<DataSubjectRequestView["state"], TranslationKey> = {
   open: "register.person.requests.state.open",
   overdue: "register.person.requests.state.overdue",
@@ -95,6 +143,7 @@ const STATE_LABEL: Record<DataSubjectRequestView["state"], TranslationKey> = {
 export function DataSubjectRequestsSection({
   personId,
   requests,
+  erasureWaitingOn,
   onChanged,
 }: DataSubjectRequestsSectionProps): ReactElement {
   const { t } = useTranslation();
@@ -117,6 +166,11 @@ export function DataSubjectRequestsSection({
             <RequestRow
               key={request.requestId}
               request={request}
+              waitingOn={
+                erasureWaitingOn?.requestId === request.requestId
+                  ? erasureWaitingOn
+                  : null
+              }
               onChanged={onChanged}
             />
           ))}
@@ -150,9 +204,11 @@ export function DataSubjectRequestsSection({
 
 function RequestRow({
   request,
+  waitingOn,
   onChanged,
 }: {
   request: DataSubjectRequestView;
+  waitingOn: ErasureWaitingOn | null;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -241,6 +297,16 @@ function RequestRow({
         </p>
       )}
 
+      {/*
+       * Granted and not carried out: the one state in which the board can be
+       * waiting on something it does not know about. Without this the row
+       * says "granted" for as long as a hold, an open matter or a running
+       * letting keeps it open, and nothing on the screen says which.
+       */}
+      {request.state === "granted" && waitingOn !== null ? (
+        <ErasureWaitingOnNote waitingOn={waitingOn} />
+      ) : null}
+
       {open ? (
         <>
           <div className="flex gap-2">
@@ -317,6 +383,85 @@ function RequestRow({
         </>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * What a granted erasure request is waiting on: the rule that refuses the
+ * purge, the domains still holding rows and why, and the last day of a
+ * consented letting that keeps one.
+ *
+ * Counts and not rows, as the purge's own account gives them: what somebody
+ * wrote in a room or proposed to a meeting is not shown here by name.
+ */
+function ErasureWaitingOnNote({
+  waitingOn,
+}: {
+  waitingOn: ErasureWaitingOn;
+}): ReactElement {
+  const { t } = useTranslation();
+  const nothingLeft =
+    waitingOn.status === "incomplete" &&
+    waitingOn.refusal === null &&
+    waitingOn.domains.length === 0;
+
+  return (
+    <div className="flex flex-col gap-1 border-l border-line pl-3">
+      <p className="text-small font-semibold">
+        {t("register.person.requests.waitingOn.title")}
+      </p>
+      <p className="text-small text-ink-muted">
+        {nothingLeft
+          ? t("register.person.requests.waitingOn.nothingLeft")
+          : t(`register.person.requests.waitingOn.${waitingOn.status}`)}
+      </p>
+
+      {waitingOn.refusal === null ? null : (
+        <p className="text-small">{t(REFUSAL[waitingOn.refusal])}</p>
+      )}
+
+      {waitingOn.domains.length === 0 ? null : (
+        <ul className="flex flex-col gap-1">
+          {waitingOn.domains.map((domain) => {
+            const keptBecause =
+              domain.kept > 0 ? KEPT_BECAUSE[domain.domain] : undefined;
+            return (
+              <li key={domain.domain} className="text-small">
+                <span className="font-semibold">
+                  {t(DOMAIN_LABEL[domain.domain])}
+                </span>
+                {": "}
+                {[
+                  domain.owed > 0
+                    ? t("register.person.requests.waitingOn.owed", {
+                        count: domain.owed,
+                      })
+                    : null,
+                  domain.kept > 0
+                    ? t("register.person.requests.waitingOn.kept", {
+                        count: domain.kept,
+                      })
+                    : null,
+                ]
+                  .filter((part) => part !== null)
+                  .join(", ")}
+                {keptBecause === undefined ? null : (
+                  <span className="text-ink-muted"> {t(keptBecause)}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {waitingOn.lettingLastDay === null ? null : (
+        <p className="text-small">
+          {t("register.person.requests.waitingOn.lettingLastDay", {
+            date: waitingOn.lettingLastDay,
+          })}
+        </p>
+      )}
+    </div>
   );
 }
 

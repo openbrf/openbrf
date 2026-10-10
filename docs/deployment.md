@@ -937,7 +937,9 @@ failure beside it, while a job that did not run at all logs nothing, because a
 missed occurrence is skipped rather than caught up afterwards. So check that
 each of the jobs above ran, and not only that none of them reported a failure.
 Looking for a log that was never written is how a granted erasure stays
-outstanding for weeks while everybody believes it is in hand. Neither word says anything about
+outstanding for weeks while everybody believes it is in hand. The board sees the same
+status and reason on the person's page, under the granted request, without
+reading the log. Neither word says anything about
 the person: "blocked" is the request waiting, not somebody whose personal data
 is protected. The audit entry for a closing names the request and the domains
 that were verified empty.

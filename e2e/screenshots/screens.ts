@@ -2423,4 +2423,38 @@ export const SCREENS: readonly Screen[] = [
     ],
     waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
   },
+  {
+    /*
+     * A granted erasure request and what it is waiting on, under the request
+     * itself rather than in the purge's log. The person is added here and
+     * never lived in the association - a grant lifts the requirement of a past
+     * residency - so nothing the walk shows elsewhere changes, and the very
+     * last entry is the only one that sees them. They hold nothing in any
+     * domain, so the note says the next nightly purge carries the request out;
+     * the states with rows kept, a rule refusing and a letting's last day are
+     * pinned down by the component's own tests.
+     */
+    name: "person-erasure-waiting-on",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Greta" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { click: { button: "Lägg till i registret" } },
+      { see: { heading: "Greta Exempelsson" } },
+      { click: { button: "Anteckna en begäran" } },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag har aldrig bott här och vill att mitt konto raderas.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Fatta beslut" } },
+      {
+        fill: { label: "Styrelsens skäl" },
+        value: "Uppgifterna behövs inte längre.",
+      },
+      { click: { button: "Spara" } },
+    ],
+    waitFor: { text: "Vad raderingen väntar på" },
+  },
 ];

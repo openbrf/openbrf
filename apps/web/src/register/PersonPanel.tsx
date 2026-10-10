@@ -1469,6 +1469,7 @@ export function PersonPanel({
           <DataSubjectRequestsSection
             personId={person.personId}
             requests={person.dataSubjectRequests}
+            erasureWaitingOn={person.erasureWaitingOn}
             /*
              * The panel refetches itself, the way the legal hold above does
              * and for the same reason: the requests are read from this

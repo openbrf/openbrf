@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -11,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
 import type { DataSubjectRequestView } from "../api/data-protection";
 import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
+import type { ErasureWaitingOn } from "./register-api";
 
 /**
  * Which actions a request offers, and what closing one takes.
@@ -78,15 +80,18 @@ const GRANTED_RESTRICTION = aRequest({
 function renderSection(
   request: DataSubjectRequestView,
   onChanged: () => void = vi.fn(),
+  erasureWaitingOn: ErasureWaitingOn | null = null,
 ) {
   render(
     <DataSubjectRequestsSection
       personId="person-1"
       requests={[request]}
+      erasureWaitingOn={erasureWaitingOn}
       onChanged={onChanged}
     />,
   );
-  return within(screen.getByRole("listitem"));
+  // The row itself, not the lists inside it.
+  return within(screen.getAllByRole("listitem")[0] as HTMLElement);
 }
 
 beforeEach(() => {
@@ -420,5 +425,124 @@ describe("closing a request", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+  });
+});
+
+describe("what a granted erasure request is waiting on", () => {
+  /*
+   * The purge's log line was the only place that said why a granted erasure
+   * stayed open, so the row read "granted" for as long as a hold, an open
+   * matter or a running letting kept it. What is pinned down here is that the
+   * row says which, and the day a letting holds it to - and that nothing of
+   * it shows on any other request.
+   */
+  const GRANTED_ERASURE = aRequest({
+    kind: "ERASURE",
+    erasureGround: "NO_LONGER_NECESSARY",
+    decision: "GRANTED",
+    erasureException: "NONE",
+    decisionGround: "Styrelsen bifaller begäran.",
+    decidedAt: "2026-09-02T10:00:00.000Z",
+    decidedByPersonId: "board-1",
+    state: "granted",
+  });
+
+  function waitingOn(
+    overrides: Partial<ErasureWaitingOn> = {},
+  ): ErasureWaitingOn {
+    return {
+      requestId: GRANTED_ERASURE.requestId,
+      status: "blocked",
+      refusal: null,
+      domains: [{ domain: "subletApplications", owed: 0, kept: 1 }],
+      lettingLastDay: "2027-03-31",
+      ...overrides,
+    };
+  }
+
+  it("names a consented letting holding the request, and its last day", () => {
+    const row = renderSection(GRANTED_ERASURE, vi.fn(), waitingOn());
+
+    expect(row.getByText("Vad raderingen väntar på")).not.toBeNull();
+    expect(row.getByText(/^Hålls öppen\./)).not.toBeNull();
+    expect(
+      row.getByText("Ansökningar om andrahandsupplåtelse").closest("li")
+        ?.textContent,
+    ).toContain("1 sparas");
+    expect(
+      row.getByText(/löper till och med 2027-03-31/).textContent,
+    ).toContain("anteckna dess sista dag");
+  });
+
+  it("names the rule that refuses the purge, beside what the domains still owe", () => {
+    const row = renderSection(
+      GRANTED_ERASURE,
+      vi.fn(),
+      waitingOn({
+        refusal: "on-legal-hold",
+        domains: [
+          { domain: "bookings", owed: 2, kept: 0 },
+          { domain: "motions", owed: 1, kept: 1 },
+        ],
+        lettingLastDay: null,
+      }),
+    );
+
+    expect(
+      row.getByText(
+        "Ett rättsligt bevarandekrav gäller för personen (art. 17.3 e).",
+      ),
+    ).not.toBeNull();
+    expect(row.getByText("Bokningar").closest("li")?.textContent).toBe(
+      "Bokningar: 2 inte raderade än",
+    );
+    expect(row.getByText("Motioner").closest("li")?.textContent).toContain(
+      "1 inte raderad än, 1 sparas",
+    );
+    expect(row.queryByText(/löper till och med/)).toBeNull();
+  });
+
+  it("says the purge has not got through yet, rather than that something holds it", () => {
+    const row = renderSection(
+      GRANTED_ERASURE,
+      vi.fn(),
+      waitingOn({
+        status: "incomplete",
+        domains: [{ domain: "chat", owed: 4, kept: 0 }],
+        lettingLastDay: null,
+      }),
+    );
+
+    expect(row.getByText(/^Inte klar än\./)).not.toBeNull();
+    expect(row.queryByText(/^Hålls öppen/)).toBeNull();
+  });
+
+  it("says the next run closes it where nothing is left", () => {
+    const row = renderSection(
+      GRANTED_ERASURE,
+      vi.fn(),
+      waitingOn({ status: "incomplete", domains: [], lettingLastDay: null }),
+    );
+
+    expect(row.getByText(/^Inget återstår att radera\./)).not.toBeNull();
+  });
+
+  it("shows nothing on a request it is not about, or once the erasure is carried out", () => {
+    const other = renderSection(
+      GRANTED_RESTRICTION,
+      vi.fn(),
+      waitingOn({ requestId: "another-request" }),
+    );
+    expect(other.queryByText("Vad raderingen väntar på")).toBeNull();
+    cleanup();
+
+    // Carried out and not yet closed is the window of a single night, and it
+    // is waiting on nothing.
+    const executed = renderSection(
+      { ...GRANTED_ERASURE, executedAt: "2026-09-03", state: "executed" },
+      vi.fn(),
+      waitingOn(),
+    );
+    expect(executed.queryByText("Vad raderingen väntar på")).toBeNull();
   });
 });

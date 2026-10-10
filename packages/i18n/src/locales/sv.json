@@ -858,6 +858,33 @@
           "purged": "Avslutad när gallringen verkställde den.",
           "movedIn": "Avslutad när personen flyttade in igen."
         },
+        "waitingOn": {
+          "title": "Vad raderingen väntar på",
+          "blocked": "Hålls öppen. Gallringen har gått så långt den får, och begäran väntar på att det som står här ändras.",
+          "incomplete": "Inte klar än. Den nattliga gallringen har inte hunnit med det som står här. Den fortsätter vid nästa körning. Står det kvar efter en natt, be den som driver installationen att titta i gallringens logg.",
+          "nothingLeft": "Inget återstår att radera. Nästa nattliga gallring verkställer begäran och avslutar den.",
+          "domain": {
+            "boardMailboxThreads": "Trådar i styrelsens brevlåda",
+            "bookings": "Bokningar",
+            "chat": "Chatt",
+            "eventSignups": "Anmälningar till evenemang",
+            "keyOrders": "Nyckelbeställningar",
+            "motions": "Motioner",
+            "newsComments": "Nyhetskommentarer",
+            "subletApplications": "Ansökningar om andrahandsupplåtelse"
+          },
+          "owed_one": "{{count}} inte raderad än",
+          "owed_other": "{{count}} inte raderade än",
+          "kept_one": "{{count}} sparas",
+          "kept_other": "{{count}} sparas",
+          "keptBecause": {
+            "boardMailboxThreads": "Trådens adress tillhör någon som har ett rättsligt bevarandekrav eller en begränsning.",
+            "keyOrders": "En öppen nyckelbeställning ligger kvar hos styrelsen. Besvara den så kan raderingen fortsätta.",
+            "motions": "En öppen motion, eller en som står på dagordningen till en stämma som inte har hållits, behandlas fortfarande.",
+            "subletApplications": "En ansökan om andrahandsupplåtelse ligger kvar hos styrelsen, eller så löper en upplåtelse som styrelsen har samtyckt till."
+          },
+          "lettingLastDay": "En upplåtelse som styrelsen har samtyckt till löper till och med {{date}}. Gallringen raderar samtycket natten efter. Om upplåtelsen upphörde tidigare, anteckna dess sista dag under Ansökningar om andrahandsupplåtelse."
+        },
         "reasons": {
           "personNotFound": "Personen finns inte i registret.",
           "issueNotFound": "Det finns inget sådant ärende.",

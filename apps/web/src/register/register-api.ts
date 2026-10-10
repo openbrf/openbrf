@@ -1198,6 +1198,54 @@ export interface PersonDetail {
   /** Dated, so the panel can say since when. Null means none stands. */
   communicationObjectionAt: string | null;
   processingRestrictedAt: string | null;
+  /**
+   * What the granted erasure request that stands is waiting on, or null where
+   * none stands. Read fresh with the person, never stored.
+   */
+  erasureWaitingOn: ErasureWaitingOn | null;
+}
+
+/**
+ * The domains a granted erasure reaches, as the API names them
+ * (`ERASURE_DOMAINS` in `retention/erasure-domains.ts`).
+ */
+export type ErasureDomain =
+  | "boardMailboxThreads"
+  | "bookings"
+  | "chat"
+  | "eventSignups"
+  | "keyOrders"
+  | "motions"
+  | "newsComments"
+  | "subletApplications";
+
+/** The rules that refuse the purge on a granted erasure request. */
+export type ErasureRefusal =
+  | "processing-restricted"
+  | "board-position-current"
+  | "on-legal-hold"
+  | "system-role-current"
+  | "currently-resident"
+  | "person-not-found";
+
+/**
+ * Why a granted erasure request is still open.
+ *
+ * Counts, a rule and a date, never a row: what somebody wrote in a room or
+ * proposed to a meeting is not something this screen may show by name.
+ */
+export interface ErasureWaitingOn {
+  requestId: string;
+  /**
+   * `blocked`: something the purge must not overrule keeps it open, and the
+   * request waits for that to change. `incomplete`: rows are owed and the
+   * nightly purge has not got through them yet.
+   */
+  status: "blocked" | "incomplete";
+  refusal: ErasureRefusal | null;
+  domains: { domain: ErasureDomain; owed: number; kept: number }[];
+  /** The last day of the consented letting holding it, or null. */
+  lettingLastDay: string | null;
 }
 
 export interface RevealedFields {
