@@ -97,6 +97,9 @@ function isHttpsOrLoopback(url: URL): boolean {
  *
  * Both IPv6 forms, because a URL parser always returns the address bracketed
  * and an SMTP host is written as the operator typed it.
+ *
+ * An SMTP server is held to {@link isLoopbackAddress} instead, which does not
+ * take the name `localhost` on trust.
  */
 export function isLoopbackHost(host: string): boolean {
   return (
@@ -105,6 +108,20 @@ export function isLoopbackHost(host: string): boolean {
     host === "[::1]" ||
     host === "::1"
   );
+}
+
+/**
+ * Whether a host is the loopback address written out, which no resolver is
+ * asked about: what an SMTP server may be signed in to without TLS.
+ *
+ * Not `localhost`. The SMTP driver resolves a name through DNS before it reads
+ * the hosts file (resolve4 and resolve6, then lookup), and Node's resolver asks
+ * the network about `localhost` like any other name and uses what it answers,
+ * so whoever can answer the instance's DNS would be sent the sign-in in the
+ * clear. A server on this machine is written 127.0.0.1 or ::1 instead.
+ */
+export function isLoopbackAddress(host: string): boolean {
+  return host === "127.0.0.1" || host === "[::1]" || host === "::1";
 }
 
 /** A DNS name of at least two labels, with no scheme, port or path. */

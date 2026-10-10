@@ -5,7 +5,7 @@ import {
   primaryColorOverride,
 } from "@openbrf/tokens";
 
-import { isLoopbackHost } from "../config/env";
+import { isLoopbackAddress } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -888,9 +888,10 @@ export class SettingsService {
        * Required on every save, not only when the host changes: the board is
        * saving the credentials this server signs in with, and a password sent
        * where an attacker on the path stripped STARTTLS is sent in the clear.
-       * A server on loopback is on this machine, where there is no path.
+       * A server at a loopback address is on this machine, where there is no
+       * path; one named localhost is not trusted to be (isLoopbackAddress).
        */
-      smtpRequireTls: input.host !== null && !isLoopbackHost(input.host),
+      smtpRequireTls: input.host !== null && !isLoopbackAddress(input.host),
       smtpUser: input.user,
       smtpFromAddress: input.fromAddress,
       // Left out of the update entirely when undefined, so saving the rest of

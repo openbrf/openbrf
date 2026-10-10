@@ -67,6 +67,11 @@ const FORGED = [
   ["a carriage return", "smtp.example.se\rUpdated SMTP settings: host=evil"],
   ["a NUL", "smtp.example.se\u0000"],
   ["a tab", "smtp.example.se\t"],
+  ["a DEL", "smtp.example.se\u007f"],
+  ["a next line (C1)", "smtp.example.se\u0085Updated SMTP settings"],
+  ["a C1 control", "smtp.example.se\u009b"],
+  ["a line separator", "smtp.example.se\u2028Updated SMTP settings"],
+  ["a paragraph separator", "smtp.example.se\u2029Updated SMTP settings"],
 ];
 
 describe("the SMTP host", () => {
@@ -83,6 +88,8 @@ describe("the SMTP host", () => {
     "::1",
     "[::1]",
     "smtp.exempel.se.",
+    "smtp.exämpel.se",
+    "smtp.xn--exmpel-cua.se",
   ])("is accepted as a host name or address (%s)", async (host) => {
     const { controller, updateSmtp } = build();
 
