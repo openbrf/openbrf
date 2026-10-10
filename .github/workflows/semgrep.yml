@@ -77,15 +77,26 @@ jobs:
           # Hub, where Dependabot reads the tags; the digest is the one Docker
           # Hub serves under the tag, and the mirror serves the same one. A
           # digest the mirror has not cached yet (a fresh Dependabot bump) falls
-          # back to Docker Hub rather than failing the scan.
+          # back to Docker Hub rather than failing the scan. Only that error does:
+          # the mirror answers a digest it does not have with "manifest unknown"
+          # or "not found". Any other failure (an outage, a timeout, a refused
+          # connection) fails the step, so that a lasting mirror outage is a red
+          # check someone reads and not every run quietly pulling from Docker
+          # Hub and spending its anonymous allowance.
           DOCKER_HUB_IMAGE="$SEMGREP_IMAGE"
           MIRROR_IMAGE="mirror.gcr.io/${DOCKER_HUB_IMAGE}"
-          if docker pull "$MIRROR_IMAGE"; then
+          if PULL_OUTPUT=$(docker pull "$MIRROR_IMAGE" 2>&1); then
+            echo "$PULL_OUTPUT"
             SEMGREP_IMAGE="$MIRROR_IMAGE"
-          else
-            echo "::warning::mirror.gcr.io could not serve ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
+          elif echo "$PULL_OUTPUT" | grep -qiE 'manifest unknown|not found'; then
+            echo "$PULL_OUTPUT" >&2
+            echo "::warning::mirror.gcr.io has not cached ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
             docker pull "$DOCKER_HUB_IMAGE"
             SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
+          else
+            echo "$PULL_OUTPUT" >&2
+            echo "::error::mirror.gcr.io failed for a reason other than a missing digest; not falling back to Docker Hub."
+            exit 1
           fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
