@@ -186,19 +186,34 @@ export const PACKAGE_LOCK_APPLICATION_NAME = "openbrf-package-lock";
 const LOCK_NOT_AVAILABLE = "55P03";
 
 /**
- * Whether a query failed because the server ended its session.
+ * What the server's error says about the session it was sent on: `"ended"`,
+ * `"usable"`, or `undefined` when it cannot be read.
  *
- * Class 08 is a connection exception, and 57P01 to 57P05 are the server
- * ending the session itself: `pg_terminate_backend`, a shutdown or crash, the
- * database dropped, an idle timeout. Not 57014, a cancelled query, after
- * which the session goes on. Any other failure is an error in the query or
- * the database's setup and is left to answer as one.
+ * Told by the error's severity rather than its SQLSTATE. Postgres ends the
+ * session after every FATAL or PANIC and after no ERROR, and the code does not
+ * follow: 57P01 from `pg_terminate_backend` and 25P04 from
+ * `transaction_timeout` are FATAL, while 08P01 - a connection exception by its
+ * class - is an ERROR when the session merely refused a query it does not
+ * take, and the session goes on. So does 57014, a cancelled query.
+ *
+ * The driver keeps only the severity the server translated into its
+ * `lc_messages`, so a Swedish server says FATALT and FEL. A severity in
+ * another language than English cannot be read here, nor can an error that
+ * is not the server's at all.
  */
-function endedTheSession(cause: unknown): boolean {
-  if (!(cause instanceof DatabaseError) || cause.code === undefined) {
-    return false;
+function sessionAfter(cause: unknown): "ended" | "usable" | undefined {
+  if (!(cause instanceof DatabaseError)) {
+    return undefined;
   }
-  return cause.code.startsWith("08") || /^57P0[1-5]$/u.test(cause.code);
+  switch (cause.severity) {
+    case "ERROR":
+      return "usable";
+    case "FATAL":
+    case "PANIC":
+      return "ended";
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -350,10 +365,11 @@ export class PackageLock {
           throw this.waitedTooLong(kind, id, cause);
         }
         // The session ended while it waited, which is the same failure as
-        // ending while it held. A terminated backend says so in an error
-        // that rejects the query before the socket closes, so the signal is
-        // not aborted yet and the error's code is what tells.
-        if (lost.signal.aborted || endedTheSession(cause)) {
+        // ending while it held. A dropped connection has aborted the signal
+        // by now - the driver reports the event before it fails the query -
+        // but a backend the server ended says so in an error that rejects the
+        // query before the socket closes, so the error is what tells.
+        if (lost.signal.aborted || (await this.ended(client, cause))) {
           onLost(cause);
           throw lost.signal.reason;
         }
@@ -366,6 +382,38 @@ export class PackageLock {
       // still holding it.
       closing = true;
       await client.end().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Whether the query failed because its session ended.
+   *
+   * Read from the error where it can be - see {@link sessionAfter} - and
+   * otherwise asked of the session itself. A session the server ended never
+   * answers: the driver fails the question once the socket closes, and a
+   * connection already gone fails it at once. One that has not answered
+   * within the time a connection is given is taken for gone as well.
+   */
+  private async ended(client: Client, cause: unknown): Promise<boolean> {
+    const session = sessionAfter(cause);
+    if (session !== undefined) {
+      return session === "ended";
+    }
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        client.query("SELECT 1"),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error("The session did not answer."));
+          }, this.limits.connectMs);
+        }),
+      ]);
+      return false;
+    } catch {
+      return true;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

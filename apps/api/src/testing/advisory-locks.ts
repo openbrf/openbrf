@@ -69,13 +69,31 @@ export function terminateAdvisoryLockWaiters(
   return terminateAdvisoryLockSessions(prisma, key, false);
 }
 
+/**
+ * Cancels the queries waiting for an advisory lock key, in this database only,
+ * and says how many it cancelled.
+ *
+ * Unlike {@link terminateAdvisoryLockWaiters} the sessions go on: for tests of
+ * what a waiter does when only its query is stopped.
+ */
+export function cancelAdvisoryLockWaiters(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return terminateAdvisoryLockSessions(prisma, key, false, true);
+}
+
 async function terminateAdvisoryLockSessions(
   prisma: PrismaService,
   key: string,
   granted: boolean,
+  cancelOnly = false,
 ): Promise<number> {
   const rows = await prisma.$queryRaw<{ terminated: boolean }[]>`
-    SELECT pg_terminate_backend(pid) AS terminated
+    SELECT CASE WHEN ${cancelOnly}
+      THEN pg_cancel_backend(pid)
+      ELSE pg_terminate_backend(pid)
+    END AS terminated
     FROM pg_locks
     WHERE locktype = 'advisory'
       AND database = (SELECT oid FROM pg_database WHERE datname = current_database())

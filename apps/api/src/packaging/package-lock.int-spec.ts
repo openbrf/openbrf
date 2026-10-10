@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { HttpStatus } from "@nestjs/common";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Client } from "pg";
+import { Client, DatabaseError } from "pg";
 import {
   afterAll,
   afterEach,
@@ -18,6 +18,7 @@ import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import {
   advisoryLockCount,
+  cancelAdvisoryLockWaiters,
   terminateAdvisoryLockHolder,
   terminateAdvisoryLockWaiters,
   waitFor,
@@ -62,6 +63,24 @@ type Kind = "plugin" | "theme";
 
 const lockWith = (limits: Partial<PackageLockLimits> = {}): PackageLock =>
   new PackageLock(env, { ...PACKAGE_LOCK_LIMITS, ...limits });
+
+/**
+ * A process whose lock sessions connect as the schema owner, with these
+ * parameters added to the connection: settings only the owner may make.
+ */
+function lockConnectingWith(
+  parameters: Record<string, string>,
+  limits: Partial<PackageLockLimits> = {},
+): PackageLock {
+  const url = new URL(env.DATABASE_URL);
+  for (const [name, value] of Object.entries(parameters)) {
+    url.searchParams.set(name, value);
+  }
+  return new PackageLock(
+    { ...env, DATABASE_URL: url.toString(), DATABASE_URL_RUNTIME: undefined },
+    { ...PACKAGE_LOCK_LIMITS, ...limits },
+  );
+}
 
 /** The process most tests run in. */
 let process1: PackageLock;
@@ -390,7 +409,7 @@ describe("PackageLock", () => {
   /*
    * The same loss a step earlier: the session ends while it waits for another
    * process's lock. The server's error rejects the wait before the socket
-   * closes, so it has to be told apart by its code rather than by the signal.
+   * closes, so it has to be told apart by the error rather than by the signal.
    */
   it("answers a session lost while waiting as a lost lock, and never runs the work", async () => {
     const other = hold("plugin", "lost-waiting-id", lockWith());
@@ -426,6 +445,106 @@ describe("PackageLock", () => {
     await other.held;
     // Nothing of the lost wait is left for the next one to queue behind.
     await lock("plugin", "lost-waiting-id", async () => undefined);
+  });
+
+  /*
+   * A session the server ends for a reason of its own: `transaction_timeout`
+   * ends the session whose wait - a transaction of its own - outlasts it, with
+   * a FATAL under a SQLSTATE that is not a connection's.
+   */
+  it("answers a wait its transaction timeout ended as a lost lock, and lets the next one in", async () => {
+    const other = hold("theme", "timed-out-id", lockWith());
+    await waitFor(
+      async () => (await locks("theme", "timed-out-id", true)) === 1n,
+    );
+
+    // Admits one, so a place it failed to give back would refuse the next.
+    const timingOut = lockConnectingWith(
+      { options: "-c transaction_timeout=200ms" },
+      { maxOperations: 1 },
+    );
+    let entered = false;
+    const error = await lock(
+      "theme",
+      "timed-out-id",
+      async () => {
+        entered = true;
+      },
+      timingOut,
+    ).catch((caught: unknown) => caught);
+
+    expect(entered).toBe(false);
+    expect(error).toBeInstanceOf(PackageLockLostError);
+    expect((error as PackageLockLostError).cause).toMatchObject({
+      code: "25P04",
+      severity: "FATAL",
+    });
+    const { status, body } = domainResponse(error as PackageLockLostError);
+    expect(status).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(body["reason"]).toBe("package-lock-lost");
+    expect(await locks("theme", "timed-out-id", true)).toBe(1n);
+
+    other.release();
+    await other.held;
+    await lock("theme", "timed-out-id", async () => undefined, timingOut);
+  });
+
+  /*
+   * The session refuses a query and goes on. A walsender session takes no
+   * parameters in a query and says so with an ERROR 08P01 - a connection
+   * exception by its class - and answers the next query all the same, so the
+   * lock was never lost and the failure is the query's.
+   */
+  it("answers a query the session refused as that query's failure", async () => {
+    let entered = false;
+    const error = await lock(
+      "plugin",
+      "refused-id",
+      async () => {
+        entered = true;
+      },
+      lockConnectingWith({ replication: "database" }),
+    ).catch((caught: unknown) => caught);
+
+    expect(entered).toBe(false);
+    expect(error).toBeInstanceOf(DatabaseError);
+    expect(error).toMatchObject({ code: "08P01", severity: "ERROR" });
+  });
+
+  /*
+   * A cancelled wait stops the query and not the session: it is neither a
+   * lost lock nor a busy package, and answers as the cancellation it is.
+   */
+  it("answers a cancelled wait as the cancellation, and never runs the work", async () => {
+    const other = hold("plugin", "cancelled-id", lockWith());
+    await waitFor(
+      async () => (await locks("plugin", "cancelled-id", true)) === 1n,
+    );
+
+    let entered = false;
+    const waiting = lock("plugin", "cancelled-id", async () => {
+      entered = true;
+    }).catch((caught: unknown) => caught);
+    await waitFor(
+      async () => (await locks("plugin", "cancelled-id", false)) === 1n,
+    );
+
+    expect(
+      await cancelAdvisoryLockWaiters(
+        prisma as unknown as PrismaService,
+        `package-install:plugin:${idOf("cancelled-id")}`,
+      ),
+    ).toBe(1);
+    const error = await waiting;
+
+    expect(entered).toBe(false);
+    expect(error).toBeInstanceOf(DatabaseError);
+    expect(error).toMatchObject({ code: "57014", severity: "ERROR" });
+    expect(await locks("plugin", "cancelled-id", true)).toBe(1n);
+
+    other.release();
+    await other.held;
+    await lock("plugin", "cancelled-id", async () => undefined);
   });
 
   /*
