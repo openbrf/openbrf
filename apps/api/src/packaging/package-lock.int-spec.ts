@@ -547,6 +547,147 @@ describe("PackageLock", () => {
     await lock("plugin", "cancelled-id", async () => undefined);
   });
 
+  describe("when the wait's failure does not say whether the session ended", () => {
+    /**
+     * What the session is asked in place of the lock's own question: one it
+     * is still answering when it is signalled.
+     */
+    const SLOW_QUESTION = "SELECT 1 FROM pg_sleep(30)";
+
+    /**
+     * Fails the lock's wait with `failure`, and asks the session `question`
+     * in place of the question that follows it.
+     *
+     * A server whose `lc_messages` is not English translates the severity the
+     * lock reads, and the database here cannot be made to, so the wait's
+     * failure is stood in for. The session is not: what it answers, and when,
+     * is the server's.
+     */
+    function waitFailingWith(
+      failure: Error,
+      question: string = SLOW_QUESTION,
+    ): void {
+      // The driver's own query, called on the client each question is asked
+      // of rather than detached from it.
+      const query = Reflect.get(Client.prototype, "query") as (
+        this: Client,
+        ...args: unknown[]
+      ) => unknown;
+      vi.spyOn(Client.prototype, "query").mockImplementation(function (
+        this: Client,
+        ...args: unknown[]
+      ) {
+        const [text] = args;
+        if (typeof text === "string" && text.includes("pg_advisory_lock")) {
+          return Promise.reject(failure);
+        }
+        return query.apply(this, text === "SELECT 1" ? [question] : args);
+      } as never);
+    }
+
+    /** The wait's failure as a Swedish server sends it. */
+    function translated(severity: string, code: string): DatabaseError {
+      const error = new DatabaseError("översatt", 0, "error");
+      error.severity = severity;
+      error.code = code;
+      return error;
+    }
+
+    /** The lock's sessions busy answering `question`. */
+    async function askedSessions(
+      question: string = SLOW_QUESTION,
+    ): Promise<bigint> {
+      const [row] = await prisma.$queryRaw<{ sessions: bigint }[]>`
+        SELECT count(*) AS sessions
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND application_name = ${PACKAGE_LOCK_APPLICATION_NAME}
+          AND query = ${question}
+          AND state = 'active'`;
+      return row?.sessions ?? 0n;
+    }
+
+    /**
+     * Signals the lock's session while it is being asked, and says how many
+     * sessions the server signalled.
+     */
+    async function signalAsked(how: "cancel" | "terminate"): Promise<number> {
+      await waitFor(async () => (await askedSessions()) === 1n);
+      const rows = await prisma.$queryRaw<{ signalled: boolean }[]>`
+        SELECT CASE WHEN ${how === "cancel"}
+          THEN pg_cancel_backend(pid)
+          ELSE pg_terminate_backend(pid)
+        END AS signalled
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND application_name = ${PACKAGE_LOCK_APPLICATION_NAME}
+          AND query = ${SLOW_QUESTION}
+          AND state = 'active'`;
+      return rows.filter((row) => row.signalled).length;
+    }
+
+    /*
+     * The review's case: a live session that answers later than the lock
+     * gives it. Not answering in time does not make it gone, so the wait's
+     * own failure stands - and the session is closed all the same. The server
+     * notices the close once it has an answer to send, so the answer is kept
+     * short enough to be waited for.
+     */
+    it("keeps the wait's own failure when the session answers late, and closes it", async () => {
+      const failure = translated("FEL", "57014");
+      const late = "SELECT 1 FROM pg_sleep(2)";
+      waitFailingWith(failure, late);
+
+      let entered = false;
+      const waiting = lock(
+        "theme",
+        "late-answer-id",
+        async () => {
+          entered = true;
+        },
+        lockWith({ connectMs: 500 }),
+      ).catch((caught: unknown) => caught);
+      // Still answering, so still alive, when the lock stops waiting for it.
+      await waitFor(async () => (await askedSessions(late)) === 1n);
+      const error = await waiting;
+
+      expect(entered).toBe(false);
+      expect(error).toBe(failure);
+      await waitFor(async () => (await lockSessions()) === 0n);
+    });
+
+    it("keeps the wait's own failure when the session's answer is cancelled", async () => {
+      const failure = translated("FEL", "57014");
+      waitFailingWith(failure);
+
+      const waiting = lock(
+        "plugin",
+        "cancelled-answer-id",
+        async () => undefined,
+      ).catch((caught: unknown) => caught);
+      expect(await signalAsked("cancel")).toBe(1);
+
+      expect(await waiting).toBe(failure);
+    });
+
+    it("answers a lost lock when the session is ended while it answers", async () => {
+      waitFailingWith(translated("FATALT", "57P01"));
+
+      const waiting = lock(
+        "plugin",
+        "ended-answer-id",
+        async () => undefined,
+      ).catch((caught: unknown) => caught);
+      expect(await signalAsked("terminate")).toBe(1);
+      const error = await waiting;
+
+      expect(error).toBeInstanceOf(PackageLockLostError);
+      const { status, body } = domainResponse(error as PackageLockLostError);
+      expect(status).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(body["reason"]).toBe("package-lock-lost");
+    });
+  });
+
   /*
    * A client-side authentication failure - here SCRAM with no password to
    * answer it - rejects the connect and leaves the socket open, and only

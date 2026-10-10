@@ -369,7 +369,10 @@ export class PackageLock {
         // by now - the driver reports the event before it fails the query -
         // but a backend the server ended says so in an error that rejects the
         // query before the socket closes, so the error is what tells.
-        if (lost.signal.aborted || (await this.ended(client, cause))) {
+        if (
+          lost.signal.aborted ||
+          (await this.ended(client, lost.signal, cause))
+        ) {
           onLost(cause);
           throw lost.signal.reason;
         }
@@ -386,32 +389,46 @@ export class PackageLock {
   }
 
   /**
-   * Whether the query failed because its session ended.
+   * Whether the query failed because its session ended, as far as that can be
+   * confirmed.
    *
    * Read from the error where it can be - see {@link sessionAfter} - and
-   * otherwise asked of the session itself. A session the server ended never
-   * answers: the driver fails the question once the socket closes, and a
-   * connection already gone fails it at once. One that has not answered
-   * within the time a connection is given is taken for gone as well.
+   * otherwise asked of the session itself. Only an end that is confirmed
+   * counts: the driver reporting the connection gone, which it does before it
+   * fails the question, or the server answering it with an error that ends
+   * the session. Anything short of that - an answer, a refusal the session
+   * goes on after such as a cancellation, an error that cannot be read, or no
+   * answer within the time a connection is given - leaves the session's fate
+   * unknown, and the query's own failure stands. A slow session is not a lost
+   * one, and taking it for lost would answer a failure the caller may recover
+   * from as the server's.
+   *
+   * A question left unanswered is not waited for: closing the session, which
+   * follows whatever this says, stops it.
    */
-  private async ended(client: Client, cause: unknown): Promise<boolean> {
+  private async ended(
+    client: Client,
+    lost: AbortSignal,
+    cause: unknown,
+  ): Promise<boolean> {
     const session = sessionAfter(cause);
     if (session !== undefined) {
       return session === "ended";
     }
     let timer: NodeJS.Timeout | undefined;
     try {
-      await Promise.race([
-        client.query("SELECT 1"),
-        new Promise<never>((_resolve, reject) => {
+      return await Promise.race([
+        client.query("SELECT 1").then(
+          () => false,
+          (failure: unknown) =>
+            lost.aborted || sessionAfter(failure) === "ended",
+        ),
+        new Promise<boolean>((resolve) => {
           timer = setTimeout(() => {
-            reject(new Error("The session did not answer."));
+            resolve(lost.aborted);
           }, this.limits.connectMs);
         }),
       ]);
-      return false;
-    } catch {
-      return true;
     } finally {
       clearTimeout(timer);
     }
