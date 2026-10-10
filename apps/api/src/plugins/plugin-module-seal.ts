@@ -905,10 +905,9 @@ function declarationReaches(provider: unknown): unknown[] {
     // An alias resolves to what it names, so naming one is holding it.
     reached.push(declaration.useExisting);
   }
-  if (Array.isArray(declaration.inject)) {
-    // A factory's arguments, resolved exactly as a constructor's are.
-    reached.push(...declaration.inject.map(injectedToken));
-  }
+  // A factory's arguments, resolved exactly as a constructor's are. NestJS
+  // reads them with `Array.from`, which takes any iterable.
+  reached.push(...listed(declaration.inject).map(injectedToken));
   return reached;
 }
 

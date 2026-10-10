@@ -1500,6 +1500,25 @@ describe("injection metadata in the shapes NestJS also accepts", () => {
     ).toMatchObject({ reason: "module-refused" });
   });
 
+  it("refuses a factory whose arguments are a set rather than an array", () => {
+    // NestJS reads `inject` with Array.from and resolves what the set holds.
+    class PrismaService {}
+    @Module({
+      providers: [
+        {
+          provide: "plugin-local",
+          useFactory: (db: PrismaService) => db,
+          inject: new Set([PrismaService]) as never,
+        },
+      ],
+    })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
   it("refuses parameter pipes given as a proxy", () => {
     class FieldEncryptionService {}
     @Injectable()
