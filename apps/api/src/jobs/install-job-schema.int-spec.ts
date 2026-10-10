@@ -3,19 +3,13 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Client } from "pg";
+import type { Client } from "pg";
 import { getRollbackPlans, PgBoss } from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { PrismaClient } from "../generated/prisma/client";
-import {
-  BASE_URL_VARIABLE,
-  databaseName,
-  maintenanceUrl,
-  quoteIdentifier,
-  withDatabase,
-} from "../testing/integration-database";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { scratchDatabases, withClient } from "../testing/scratch-databases";
 import { JOB_SCHEMA } from "./job-queue.service";
 
 /**
@@ -41,39 +35,8 @@ const INDEX_SUFFIX = "_i13";
 /** The package root, where `pnpm test:int` runs. */
 const apiDirectory = process.cwd();
 
-const baseUrl = process.env[BASE_URL_VARIABLE] ?? process.env.DATABASE_URL;
-const poolId = process.env.VITEST_POOL_ID ?? "1";
-
-const created: string[] = [];
-
-async function withClient<T>(
-  url: string,
-  use: (client: Client) => Promise<T>,
-): Promise<T> {
-  const client = new Client({ connectionString: url });
-  await client.connect();
-  try {
-    return await use(client);
-  } finally {
-    await client.end();
-  }
-}
-
-/** An empty database on the test cluster, dropped again after the test. */
-async function scratchDatabase(label: string): Promise<string> {
-  if (baseUrl === undefined || baseUrl === "") {
-    throw new Error("Integration tests need DATABASE_URL to be set.");
-  }
-  const name = `${databaseName(baseUrl)}_test_${poolId}_${label}`;
-  await withClient(maintenanceUrl(baseUrl), async (client) => {
-    await client.query(
-      `drop database if exists ${quoteIdentifier(name)} with (force)`,
-    );
-    await client.query(`create database ${quoteIdentifier(name)}`);
-  });
-  created.push(name);
-  return withDatabase(baseUrl, name);
-}
+/** Empty databases on the test cluster, dropped again after each test. */
+const scratch = scratchDatabases();
 
 interface InstallerRun {
   code: number | null;
@@ -210,16 +173,7 @@ async function expectUpgradeFinished(
 }
 
 afterEach(async () => {
-  if (baseUrl === undefined || baseUrl === "") {
-    return;
-  }
-  await withClient(maintenanceUrl(baseUrl), async (client) => {
-    for (const name of created.splice(0)) {
-      await client.query(
-        `drop database if exists ${quoteIdentifier(name)} with (force)`,
-      );
-    }
-  });
+  await scratch.dropAll();
 });
 
 /**
@@ -350,7 +304,7 @@ afterAll(async () => {
 
 describe("install-job-schema", () => {
   it("installs a fresh schema with no index builds left over", async () => {
-    const databaseUrl = await scratchDatabase("job_fresh");
+    const databaseUrl = await scratch.create("job_fresh");
 
     const run = await runInstaller(databaseUrl);
 
@@ -366,7 +320,7 @@ describe("install-job-schema", () => {
   }, 60_000);
 
   it("stops a fresh install whose tables would give another role TRIGGER by default", async () => {
-    const databaseUrl = await scratchDatabase("job_default_trigger");
+    const databaseUrl = await scratch.create("job_default_trigger");
     // A default privilege of the owner's, which every table pg-boss creates
     // takes on. No table holds it before the install, so the defaults are
     // read before pg-boss creates any.
@@ -394,7 +348,7 @@ describe("install-job-schema", () => {
   }, 60_000);
 
   it("finishes every index build an upgrade queues before it exits", async () => {
-    const databaseUrl = await scratchDatabase("job_upgrade");
+    const databaseUrl = await scratch.create("job_upgrade");
     const tables = await schemaBeforeUpgrade(databaseUrl, [
       "install-test-plain",
     ]);
@@ -408,7 +362,7 @@ describe("install-job-schema", () => {
   }, 120_000);
 
   it("fails on an index build that fails, and finishes it on the next run", async () => {
-    const databaseUrl = await scratchDatabase("job_failed_build");
+    const databaseUrl = await scratch.create("job_failed_build");
     const tables = await schemaBeforeUpgrade(databaseUrl, [
       "install-test-duplicates",
     ]);
