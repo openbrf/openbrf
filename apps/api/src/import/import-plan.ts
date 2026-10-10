@@ -1275,9 +1275,10 @@ function readIdentityNumber(
     return null;
   }
   if (!isValidPersonalIdentityNumber(raw)) {
-    // Refused rather than stored: a number that fails its own checksum is a
-    // typing mistake, and the apartment register would carry it as a fact about
-    // a person who does not exist.
+    // Refused rather than stored: a number that fails its own checksum, or
+    // names a birth date nobody alive can have, is a typing mistake or not a
+    // personal identity number at all, and the apartment register would carry
+    // it as a fact about a person who does not exist.
     problems.push({
       field: "personalIdentityNumber",
       reason: "invalid-personal-identity-number",
