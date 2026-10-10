@@ -1,6 +1,8 @@
 /**
  * Checks the triggers on the application's tables and the job schema's, and
- * who can replace them, before anything runs as the schema owner.
+ * who can replace them, before anything runs as the schema owner. Also the
+ * functions and operators in those schemas, which a name the owner's SQL calls
+ * can resolve to, and who can create one.
  *
  * Run at deploy time, as the database owner, before the migrations
  * (docker/entrypoint.sh, step 4): a trigger fires for whoever writes its table,
@@ -48,18 +50,39 @@ export const EXPECTED_TRIGGERS = [
 ];
 
 /**
+ * The rows a query of the catalogs returns, read with search_path pinned to
+ * pg_catalog.
+ *
+ * The owner's own search path takes in public, where a role with CREATE could
+ * have put a function or operator that matches the arguments of one these
+ * queries call better than the built-in does, and that would run as the
+ * owner. pg_get_triggerdef also qualifies a name only where the path would not
+ * find it. SET LOCAL holds for the implicit transaction a query of several
+ * statements runs in, which the pool cannot split across connections or
+ * leave behind on one.
+ */
+async function catalogRows(db, query) {
+  const results = await db.executeSql(
+    `SET LOCAL search_path = pg_catalog;\n${query}`,
+  );
+  return results.at(-1).rows;
+}
+
+/** The role this runs as, the schema owner, as an oid. */
+const RUNNING_ROLE = "(SELECT oid FROM pg_roles WHERE rolname = current_user)";
+
+/** The grantee of an aclexplode row `g`, as a message names it. */
+const GRANTEE = `CASE WHEN g.grantee = 0 THEN 'PUBLIC'
+                      ELSE quote_ident(pg_get_userbyid(g.grantee)) END`;
+
+/**
  * The triggers on the tables in public and pgboss, each with its definition and
  * whether its table's owner owns the function it calls.
- *
- * pg_get_triggerdef qualifies a name only where the search path would not find
- * it, so the path is pinned to pg_catalog for this one query: SET LOCAL in the
- * implicit transaction a query of several statements runs in, which the pool
- * cannot split across connections or leave behind on one.
  */
 export async function currentTriggers(db) {
-  const results = await db.executeSql(
-    `SET LOCAL search_path = pg_catalog;
-     SELECT format('%I.%I', n.nspname, c.relname) AS "table",
+  return catalogRows(
+    db,
+    `SELECT format('%I.%I', n.nspname, c.relname) AS "table",
             pg_get_triggerdef(t.oid) AS definition,
             p.proowner = c.relowner AS "ownersFunction"
      FROM pg_trigger t
@@ -70,7 +93,6 @@ export async function currentTriggers(db) {
        AND n.nspname IN ('public', 'pgboss')
      ORDER BY 1, t.tgname`,
   );
-  return results.at(-1).rows;
 }
 
 /**
@@ -117,10 +139,9 @@ async function triggerFindings(db) {
  * this runs as. A schema's defaults add to the global ones, so both are read.
  */
 async function grantFindings(db) {
-  const grantee = `CASE WHEN g.grantee = 0 THEN 'PUBLIC'
-                        ELSE quote_ident(pg_get_userbyid(g.grantee)) END`;
-  const tables = await db.executeSql(
-    `SELECT ${grantee} AS grantee,
+  const tables = await catalogRows(
+    db,
+    `SELECT ${GRANTEE} AS grantee,
             string_agg(format('%I.%I', n.nspname, c.relname), ', '
                        ORDER BY n.nspname, c.relname) AS tables
      FROM pg_class c
@@ -132,15 +153,16 @@ async function grantFindings(db) {
      GROUP BY g.grantee
      ORDER BY 1`,
   );
-  const defaults = await db.executeSql(
-    `SELECT ${grantee} AS grantee,
+  const defaults = await catalogRows(
+    db,
+    `SELECT ${GRANTEE} AS grantee,
             string_agg(CASE WHEN d.defaclnamespace = 0 THEN 'every schema'
                             ELSE quote_ident(n.nspname) END, ' and in '
                        ORDER BY n.nspname NULLS FIRST) AS schemas
      FROM pg_default_acl d
      LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
      CROSS JOIN LATERAL aclexplode(d.defaclacl) AS g
-     WHERE d.defaclrole = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+     WHERE d.defaclrole = ${RUNNING_ROLE}
        AND d.defaclobjtype = 'r'
        AND (d.defaclnamespace = 0 OR n.nspname IN ('public', 'pgboss'))
        AND g.grantee <> d.defaclrole
@@ -149,10 +171,8 @@ async function grantFindings(db) {
      ORDER BY 1`,
   );
   return [
-    ...tables.rows.map(
-      (row) => `${row.grantee} holds TRIGGER on ${row.tables}.`,
-    ),
-    ...defaults.rows.map(
+    ...tables.map((row) => `${row.grantee} holds TRIGGER on ${row.tables}.`),
+    ...defaults.map(
       (row) =>
         `${row.grantee} is given TRIGGER by default on the tables the schema ` +
         `owner creates in ${row.schemas}.`,
@@ -161,24 +181,130 @@ async function grantFindings(db) {
 }
 
 /**
+ * Functions, procedures, aggregates and operators in public or pgboss that a
+ * role other than the one this runs as owns.
+ *
+ * A name a migration or pg-boss's SQL calls without a schema can resolve to
+ * one of them: PostgreSQL takes the best match for the arguments from every
+ * schema on the path, and pg_catalog wins only a tie. Whatever it resolves to
+ * runs as the caller, the schema owner during the migrations among them, and
+ * whoever owns it can rewrite what it does. Nothing Open BRF runs creates one
+ * as another role, and the schema-owner service hands what the superuser's
+ * migrations created to the owner, so one that is left was put there by hand,
+ * or by a role holding CREATE in the schema. What an extension installed is
+ * left out: only a superuser, or a role trusted with the extension, installs
+ * one, and the extension owns it.
+ */
+async function objectFindings(db) {
+  const rows = await catalogRows(
+    db,
+    `SELECT objects.kind, objects.name,
+            quote_ident(pg_get_userbyid(objects.owner)) AS owner
+     FROM (
+       SELECT CASE p.prokind WHEN 'p' THEN 'a procedure'
+                             WHEN 'a' THEN 'an aggregate'
+                             WHEN 'w' THEN 'a window function'
+                             ELSE 'a function' END AS kind,
+              p.oid::regprocedure::text AS name, p.proowner AS owner,
+              p.oid AS object, 'pg_proc'::regclass AS catalog
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname IN ('public', 'pgboss')
+       UNION ALL
+       SELECT 'an operator', o.oid::regoperator::text, o.oprowner,
+              o.oid, 'pg_operator'::regclass
+       FROM pg_operator o
+       JOIN pg_namespace n ON n.oid = o.oprnamespace
+       WHERE n.nspname IN ('public', 'pgboss')
+     ) AS objects
+     WHERE objects.owner <> ${RUNNING_ROLE}
+       AND NOT EXISTS (
+         SELECT FROM pg_depend d
+         WHERE d.classid = objects.catalog
+           AND d.objid = objects.object
+           AND d.deptype = 'e'
+       )
+     ORDER BY objects.name`,
+  );
+  return rows.map(
+    (row) =>
+      `${row.name} is ${row.kind} that ${row.owner} owns, not the schema owner.`,
+  );
+}
+
+/**
+ * Roles other than a schema's owner, or PUBLIC, that hold CREATE in public or
+ * pgboss, or that the owner's default privileges give it to in every schema
+ * the owner creates.
+ *
+ * CREATE is all it takes to put a function or operator there for the schema
+ * owner to run, as objectFindings says, and one the role puts there later
+ * would not be seen. PostgreSQL before 15 gave it in public to PUBLIC, and a
+ * database restored from a dump of one keeps the grant. The hardening revokes
+ * it, but runs after the migrations. The defaults count on a first deploy, when
+ * the job schema install creates pgboss as the role this runs as; they apply to
+ * schemas in every database, so there are no per-schema ones to read.
+ */
+async function createFindings(db) {
+  const schemas = await catalogRows(
+    db,
+    `SELECT ${GRANTEE} AS grantee,
+            string_agg(quote_ident(n.nspname), ' and '
+                       ORDER BY n.nspname) AS schemas
+     FROM pg_namespace n
+     CROSS JOIN LATERAL aclexplode(n.nspacl) AS g
+     WHERE n.nspname IN ('public', 'pgboss')
+       AND g.grantee NOT IN (n.nspowner, ${RUNNING_ROLE})
+       AND g.privilege_type = 'CREATE'
+     GROUP BY g.grantee
+     ORDER BY 1`,
+  );
+  const defaults = await catalogRows(
+    db,
+    `SELECT DISTINCT ${GRANTEE} AS grantee
+     FROM pg_default_acl d
+     CROSS JOIN LATERAL aclexplode(d.defaclacl) AS g
+     WHERE d.defaclrole = ${RUNNING_ROLE}
+       AND d.defaclobjtype = 'n'
+       AND g.grantee <> d.defaclrole
+       AND g.privilege_type = 'CREATE'
+     ORDER BY 1`,
+  );
+  return [
+    ...schemas.map((row) => `${row.grantee} holds CREATE in ${row.schemas}.`),
+    ...defaults.map(
+      (row) =>
+        `${row.grantee} is given CREATE by default in the schemas the ` +
+        `schema owner creates.`,
+    ),
+  ];
+}
+
+/**
  * Stops the deploy while a trigger on a table in public or pgboss is not one
  * Open BRF created, or while a role other than a table's owner can replace one.
+ * Also while a function or operator there belongs to a role other than the
+ * schema owner, or while such a role can create one.
  *
  * `stage` names what stops, in the message: "the deploy" before the
  * migrations, "the install" in the job schema install.
  *
- * Refuses rather than repairs. A trigger that is not the one created, or a
- * role that could have changed it, means something may have written the
- * archive's tables or the job queue with a guard off, or run code as the
- * owner, and only a person can find out what.
+ * Refuses rather than repairs. A trigger that is not the one created, a
+ * function or operator of another role's, or a role that could have put either
+ * there, means something may have written the archive's tables or the job
+ * queue with a guard off, or run code as the owner, and only a person can find
+ * out what.
  */
 export async function refuseUnsafeTriggers(db, stage) {
   const triggers = await triggerFindings(db);
   const grants = await grantFindings(db);
-  if (triggers.length === 0 && grants.length === 0) {
+  const objects = await objectFindings(db);
+  const creates = await createFindings(db);
+  const findings = [...triggers, ...grants, ...objects, ...creates];
+  if (findings.length === 0) {
     return;
   }
-  for (const finding of [...triggers, ...grants]) {
+  for (const finding of findings) {
     console.error(finding);
   }
   if (triggers.length > 0) {
@@ -205,6 +331,29 @@ export async function refuseUnsafeTriggers(db, stage) {
         "schemas gets it again.",
     );
   }
+  if (objects.length > 0) {
+    console.error(
+      "A name a migration or pg-boss calls without a schema can resolve to " +
+        "a function or operator in public or pgboss, which then runs as the " +
+        "schema owner, and whoever owns it can rewrite what it does. Nothing " +
+        "Open BRF runs creates one as another role. Find out who created " +
+        "those named above and what they do. Then drop each one you do not " +
+        "recognise, and hand any you do to the schema owner with ALTER " +
+        "FUNCTION or ALTER OPERATOR ... OWNER TO, as a superuser.",
+    );
+  }
+  if (creates.length > 0) {
+    console.error(
+      "A role holding CREATE in public or pgboss can put a function or " +
+        "operator there for the schema owner to run. PostgreSQL before 15 " +
+        "gave CREATE in public to PUBLIC, and a database restored from a dump " +
+        "of one keeps the grant. As the schema's owner, REVOKE CREATE ON " +
+        "SCHEMA from each role named above, in each schema named. A grant " +
+        "that comes from default privileges (\\ddp in psql) is revoked " +
+        "there, with ALTER DEFAULT PRIVILEGES, or the next schema the owner " +
+        "creates gets it again.",
+    );
+  }
   console.error(`So ${stage} stops here. Deploy again once that is done.`);
   process.exit(1);
 }
@@ -227,5 +376,8 @@ if (import.meta.main) {
   } finally {
     await client.end();
   }
-  console.log("The triggers are the ones Open BRF creates.");
+  console.log(
+    "The triggers are the ones Open BRF creates, and only the schema owner " +
+      "can create functions or operators in public and pgboss.",
+  );
 }

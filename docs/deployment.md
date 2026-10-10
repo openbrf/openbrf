@@ -160,7 +160,14 @@ changes nothing but the owner's password, which it sets from
    `pgboss.queue` among them. The triggers are checked as well as the grants
    because the hardening in step 6, or the `REVOKE` below for a role you
    manage yourself, takes the grant away and leaves a trigger it was used to
-   replace where it is.
+   replace where it is. A name a migration calls without a schema can resolve
+   to a function or operator in `public` or `pgboss`, which then runs as the
+   owner, so the step also stops on one that a role other than the owner owns,
+   and while such a role, or `PUBLIC`, holds `CREATE` on either schema or is
+   given it by the owner's default privileges. A database restored from a dump
+   made before PostgreSQL 15 still gives `PUBLIC` `CREATE` on `public`: as the
+   schema owner, `REVOKE CREATE ON SCHEMA public FROM PUBLIC` before you
+   deploy.
 5. The job queue schema is installed or migrated, as the owner. It stops on a
    queue that is partitioned or names a job table of its own, which Open BRF
    never declares, because pg-boss builds SQL from those names as the owner.
