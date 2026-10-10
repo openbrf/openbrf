@@ -34,6 +34,8 @@
  * views; nothing here is an extract from either.
  */
 
+import { createHash } from "node:crypto";
+
 import { formatDateColumn } from "@openbrf/shared";
 
 import type {
@@ -41,6 +43,7 @@ import type {
   ResidencyRole,
 } from "../generated/prisma/enums";
 import { hasMovedOut } from "../registers/held-on";
+import type { PersonPurgeFacts } from "../retention/purge-date";
 
 /**
  * Who is looking.
@@ -98,9 +101,12 @@ export type AddressBookContact =
  * housekeeping the board acts on, not something a neighbour needs.
  */
 export interface ResidentDirectoryRow {
-  /** Stable key: one person can hold several residencies. */
+  /**
+   * Stable key: one person can hold several residencies. Opaque: it carries no
+   * person's id, because the directory names who lives where and nothing it
+   * sends a neighbour is a handle on a person.
+   */
   key: string;
-  personId: string;
   name: string;
   apartment: AddressBookApartment | null;
   signs: AddressBookSign[];
@@ -110,11 +116,15 @@ export interface ResidentDirectoryRow {
 
 /** A row as the board and admins see it. */
 export interface AddressBookRow extends ResidentDirectoryRow {
+  /** The board opens the person from here, which residents cannot. */
+  personId: string;
   contact: AddressBookContact;
   /**
-   * Date the service-tier data is erased, derived from the retention policy.
-   * Null while the residency is current. The statutory member register entry is
-   * exempt and is never erased on this date.
+   * Date the person's service-tier data is erased, derived from the retention
+   * policy. The date of the person, the same on each of their rows: null while
+   * any residency, board seat, system role, legal hold or restriction stands in
+   * the way of the purge. The statutory member register entry is exempt and is
+   * never erased on this date.
    */
   purgeOn: string | null;
   protectedPersonalData: boolean;
@@ -148,6 +158,12 @@ export interface AddressBookRecord {
   /** Whether an encrypted value is stored, known without decrypting it. */
   hasEmail: boolean;
   hasPhone: boolean;
+  /**
+   * What the scheduled purge asks about the person, when the audience is the
+   * board and is shown the date. Not the row's own residency: see
+   * `computePersonPurgeDate`.
+   */
+  purgeFacts?: PersonPurgeFacts;
 }
 
 /** Fields that a person with protected personal data has masked. */
@@ -278,6 +294,24 @@ function rowKey(record: AddressBookRecord): string {
 }
 
 /**
+ * The key of a row a neighbour reads: the residency's id, or for somebody with
+ * no apartment a digest of the person's, so the id itself is not sent.
+ *
+ * A one-way digest of an id nobody else holds, which is all an opaque key has
+ * to be: it is stable for one person from one page to the next and says nothing
+ * to a reader.
+ */
+function residentRowKey(record: AddressBookRecord): string {
+  return (
+    record.residencyId ??
+    `person:${createHash("sha256")
+      .update(`resident-directory:${record.personId}`)
+      .digest("base64url")
+      .slice(0, 22)}`
+  );
+}
+
+/**
  * Maps a record to a board row.
  *
  * @param purgeOn Already computed by the caller, which holds the association's
@@ -318,8 +352,7 @@ export function toResidentDirectoryRow(
   options: { today: Date },
 ): ResidentDirectoryRow {
   return {
-    key: rowKey(record),
-    personId: record.personId,
+    key: residentRowKey(record),
     name: fullName(record),
     apartment: record.apartment,
     // A residency held today has no past move-out date, so a date here is a

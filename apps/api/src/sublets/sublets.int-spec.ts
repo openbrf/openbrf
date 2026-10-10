@@ -1327,13 +1327,96 @@ describe("the purge", () => {
       ).not.toBeNull();
       // Nothing owed, and the open ones - this one among them - kept, so the
       // request stays open rather than being called carried out.
-      expect(await erasureRemainder(prisma, member.personId, NOW)).toEqual([
+      expect(
+        await erasureRemainder(
+          prisma,
+          member.personId,
+          NOW,
+          app.get(FieldEncryptionService),
+        ),
+      ).toEqual([
         expect.objectContaining({
           domain: "subletting applications",
           owed: 0,
-          keptBecause: "an open subletting application is still with the board",
+          keptBecause:
+            "a subletting application is still with the board or its letting still runs",
         }),
       ]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: member.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
+
+  it("keeps a consented letting that is still running on a granted erasure request, until its period ends", async () => {
+    /*
+     * The consent is the board's proof that the letting was lawful, and the
+     * letting still runs: erasing it with the member would take that proof away
+     * while a subtenant lives in the flat. It is kept and the request stays
+     * open; the night after the period's last day it goes, and the request can
+     * close.
+     */
+    const running = `su-requested-running-${suffix}`;
+    const ended = `su-requested-ended-${suffix}`;
+    await seedApplication({
+      id: running,
+      personId: member.personId,
+      closedAt: daysBefore(40),
+      periodTo: dayColumn(20),
+      status: "CONSENTED",
+    });
+    await seedApplication({
+      id: ended,
+      personId: member.personId,
+      closedAt: daysBefore(100),
+      periodTo: dayColumn(-1),
+      status: "CONSENTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: member.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      member.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: ended } }),
+      ).toBeNull();
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: running } }),
+      ).not.toBeNull();
+      // Other cases leave applications of this member standing, so what is
+      // asserted is that there is nothing owed and that the running letting is
+      // among those kept.
+      const [remainder] = await erasureRemainder(
+        prisma,
+        member.personId,
+        NOW,
+        app.get(FieldEncryptionService),
+      );
+      expect(remainder).toMatchObject({
+        domain: "subletting applications",
+        owed: 0,
+      });
+      expect(remainder?.kept).toBeGreaterThanOrEqual(1);
+
+      // After the last day of the period: nothing is running, and it goes.
+      const afterThePeriod = new Date(NOW.getTime() + 25 * 24 * 60 * 60 * 1000);
+      await purge.run(afterThePeriod, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: running } }),
+      ).toBeNull();
     } finally {
       await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
       await prisma.residency.updateMany({

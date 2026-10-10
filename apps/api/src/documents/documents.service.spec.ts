@@ -343,6 +343,37 @@ describe("filing a document", () => {
   });
 });
 
+describe("what the title and the binder are stored as", () => {
+  it("stores them folded, the way the scan reads them", async () => {
+    const document = await fakes.service.add({
+      title: "Stadgar\u200B  2024\n(ny)",
+      category: "Stad\u00ADgar",
+      audience: "PUBLIC",
+      bytes: Buffer.from("%PDF-1.7"),
+      fileName: "stadgar.pdf",
+      actorPersonId: "person-1",
+    });
+
+    expect(document.title).toBe("Stadgar 2024 (ny)");
+    expect(document.category).toBe("Stadgar");
+  });
+
+  it("folds a rename, and does not call an unchanged title a change", async () => {
+    const document = await file("PUBLIC");
+    fakes.audit.record.mockClear();
+
+    await fakes.service.edit(document.id, {
+      title: "Stadgar\u200B 2024",
+      category: "Stadgar",
+      audience: "PUBLIC",
+      actorPersonId: "person-1",
+    });
+
+    expect(fakes.documents.get(document.id)?.title).toBe("Stadgar 2024");
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+  });
+});
+
 describe("changing who a document is for", () => {
   it("takes a published document off the street when it goes to the members", async () => {
     const document = await file("PUBLIC");

@@ -9,6 +9,9 @@ import type {
   LegalBasis,
   ProcessingActivitySource,
 } from "../generated/prisma/enums";
+import type { MailTemplate } from "../mail/mail-template";
+import * as coreMailTemplates from "../mail/templates";
+import { pluginMail } from "../plugins/plugin-mail.template";
 import { smsGatewayHost, type ProcessorFacts } from "./processors";
 
 /**
@@ -643,21 +646,34 @@ const STORAGE_BACKED: readonly SeedKey[] = [
 const MESSAGE_SENDING: readonly SeedKey[] = ["newsMailings"];
 
 /**
- * Which seeded rows mail a person, and so name the mail server: a meeting
- * notice, a booking confirmation, an invitation, a sign-in link or a move
- * notice, and the contact form's copy to the board, and the notices to the
- * board of a reporting obligation and of the 72 hours of a breach. The board's
- * move-out reminder is sent under the address book row, which is named already.
- * Art. 30(1)(d) asks for every recipient, and a hosted mail provider is one.
+ * Every mail the instance sends, as the templates its callers hand MailService.
+ *
+ * The core's from the templates' own index, so a template exported there is
+ * here without anybody adding it, and the plugin message beside them.
+ * `mail-processing.spec.ts` walks the source for every template declared
+ * anywhere and fails for one this list does not reach.
+ */
+export const MAIL_TEMPLATES: readonly Pick<
+  MailTemplate<never>,
+  "id" | "processing"
+>[] = [...Object.values(coreMailTemplates), pluginMail];
+
+/**
+ * Which seeded rows mail a person, and so name the mail server: every row a
+ * template declares it is sent under. Art. 30(1)(d) asks for every recipient,
+ * and a hosted mail provider is one.
+ *
+ * Read from the templates rather than kept as a list here, because a list kept
+ * here is what a new mailer forgets: the breach reminder and the reporting
+ * obligation notice both mailed the board for a while from rows that named no
+ * mail server.
  */
 const MAIL_SENDING: readonly SeedKey[] = [
-  "meetingRecords",
-  "addressBookAndAccounts",
-  "bookings",
-  "contactSubmissions",
-  "signupRequestsAndInvitations",
-  "cooperativeHousingRegisterReporting",
-  "personalDataBreaches",
+  ...new Set(
+    MAIL_TEMPLATES.flatMap((template) =>
+      template.processing === null ? [] : [template.processing],
+    ),
+  ),
 ];
 
 /**
@@ -793,7 +809,11 @@ function recipientsFor(
   if (MAILBOX_BACKED.includes(key)) {
     sentences.push(mailboxRecipients(facts, t));
   }
-  if (MESSAGE_SENDING.includes(key) || MAIL_SENDING.includes(key)) {
+  // A mailbox row names the mail server already, as where its replies leave.
+  if (
+    MESSAGE_SENDING.includes(key) ||
+    (MAIL_SENDING.includes(key) && !MAILBOX_BACKED.includes(key))
+  ) {
     sentences.push(messageRecipients(facts, t, MESSAGE_SENDING.includes(key)));
   }
   if (CLIENT_BACKED.includes(key)) {

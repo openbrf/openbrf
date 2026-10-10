@@ -263,3 +263,68 @@ describe("a bucket that answers and then sends slowly", () => {
     expect(read).toEqual(BODY);
   });
 });
+
+/**
+ * How a key becomes a request: under a path the endpoint carries, never
+ * outside the bucket, and once.
+ */
+describe("the requests a key becomes", () => {
+  let recording: Server;
+  let requested: string[] = [];
+  let status = 404;
+
+  beforeAll(async () => {
+    recording = createServer((request, response) => {
+      requested.push(request.url ?? "");
+      response.writeHead(status).end();
+    });
+    await new Promise<void>((resolve) => {
+      recording.listen(0, "127.0.0.1", resolve);
+    });
+  });
+
+  afterAll(async () => {
+    recording.closeAllConnections();
+    await new Promise<void>((resolve) => {
+      recording.close(() => {
+        resolve();
+      });
+    });
+  });
+
+  function behind(path: string): S3StorageDriver {
+    requested = [];
+    return new S3StorageDriver({
+      endpoint: `http://127.0.0.1:${String((recording.address() as AddressInfo).port)}${path}`,
+      region: server.region,
+      bucket: server.bucket,
+      accessKeyId: server.accessKeyId,
+      secretAccessKey: server.secretAccessKey,
+      forcePathStyle: true,
+    });
+  }
+
+  it("keeps the path an endpoint behind a proxy carries", async () => {
+    status = 404;
+    expect(await behind("/minio").open("media/2026/08/a.png")).toBeNull();
+
+    expect(requested).toEqual([`/minio/${server.bucket}/media/2026/08/a.png`]);
+  });
+
+  it.each(["../other-bucket/a.png", "media/./a.png", "media//a.png"])(
+    "refuses the key %s without sending it",
+    async (key) => {
+      await expect(behind("").open(key)).rejects.toThrow(StorageError);
+      expect(requested).toEqual([]);
+    },
+  );
+
+  it("asks a failing bucket once", async () => {
+    status = 503;
+    await expect(behind("").open("media/2026/08/a.png")).rejects.toThrow(
+      StorageError,
+    );
+
+    expect(requested).toHaveLength(1);
+  });
+});

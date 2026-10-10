@@ -35,6 +35,7 @@ export interface BreachReminderMailProps {
  */
 export const breachReminderMail: MailTemplate<BreachReminderMailProps> = {
   id: "personal-data-breach-reminder",
+  processing: "personalDataBreaches",
 
   subject: (props, { t }) =>
     t(

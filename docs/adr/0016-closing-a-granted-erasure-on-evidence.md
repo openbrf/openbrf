@@ -171,3 +171,27 @@ logged as blocked after the domain jobs had already erased rows, which is not an
 erasure that has not started. Every job that erases on a request now selects on
 the same predicate (`erasureRequestedPersonIds` and `isErasureInForce` in
 `retention/withheld-persons.ts`), so "blocked" again means nothing was erased.
+
+## Update, 2026-10-09
+
+A consented subletting application whose period has not ended is kept, as an
+open one is. The erasure used to take every closed application whatever its
+`periodTo`, so a granted request for a member who had since sold the flat erased
+the board's consent to a letting that was still running. The consent is the
+board's proof that the letting was lawful (BRL 7 kap. 18 § 2), and while a
+subtenant lives there it is not the member's data to take away. The closing job
+counts it as kept, so the request stays open; the first run after the period's
+last day erases it and closes the request.
+
+## Update, 2026-10-10
+
+A board mailbox thread linked to the person is kept when the register holds its
+address for somebody under a legal hold or a restriction. That happens when a
+role address changes hands or a household shares one. The mailbox purge already
+kept such a thread, because a hold reaches every thread with the held person's
+address. But the request's scan still selected it every night ahead of the
+bound, and the closing job counted it as owed. The request stayed open for as
+long as the hold stood, saying a job had not got through. The scan now leaves
+the thread out, and the closing job counts it as kept. The mailbox domain needs
+the field encryption for that count, to index the held person's address under
+the thread's field, so `erasureRemainder` takes it.

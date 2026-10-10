@@ -7,6 +7,7 @@ import type { BreachRisk } from "../generated/prisma/enums";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { lockBreach } from "./breach-lock";
 import { BreachError } from "./breach.error";
+import { foldedText } from "./folded-text";
 import {
   BREACH_NOTIFICATION_HOURS,
   breachState,
@@ -177,7 +178,7 @@ export class BreachService {
    * The queue is created before the transaction opens, because creating one is
    * the queue backend's own work on its own connection.
    */
-  async record(input: {
+  async record(given: {
     title: string;
     description: string;
     occurredAt: Date | null;
@@ -192,6 +193,7 @@ export class BreachService {
     actorPersonId: string;
     now?: Date;
   }): Promise<BreachView> {
+    const input = foldedText(given, BREACH_TEXT);
     const now = input.now ?? new Date();
 
     assertNoIdentityNumber([
@@ -316,7 +318,7 @@ export class BreachService {
    */
   async update(
     breachId: string,
-    input: {
+    given: {
       title?: string;
       description?: string;
       occurredAt?: Date | null;
@@ -334,6 +336,7 @@ export class BreachService {
       actorPersonId: string;
     },
   ): Promise<BreachView> {
+    const input = foldedText(given, BREACH_TEXT);
     const existing = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
       select: {
@@ -522,7 +525,7 @@ export class BreachService {
   /** Records the two decisions art. 33 and art. 34 ask for. */
   async decide(
     breachId: string,
-    input: {
+    given: {
       risk: BreachRisk;
       imyNotificationRequired: boolean;
       imyDecisionGround: string;
@@ -534,6 +537,7 @@ export class BreachService {
       actorPersonId: string;
     },
   ): Promise<BreachView> {
+    const input = foldedText(given, BREACH_TEXT);
     const existing = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
       select: {
@@ -1008,6 +1012,19 @@ function assertDelayReasons(input: {
     );
   }
 }
+
+const BREACH_TEXT = {
+  oneLine: ["title"],
+  freeText: [
+    "description",
+    "dataDescription",
+    "effects",
+    "measures",
+    "imyDecisionGround",
+    "subjectsDecisionGround",
+    "delayReasons",
+  ],
+} as const;
 
 /** Refuses an identity number in anything the board typed. */
 function assertNoIdentityNumber(values: readonly (string | undefined)[]): void {

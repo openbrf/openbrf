@@ -64,7 +64,9 @@ a caller can be holding last week's document and calling against it.
 `deprecatedAliases` carries an old name onto the definition that replaced it: an
 alias resolves on dispatch, is never enumerated in a listing, and collides with a
 registered name or another alias exactly as a name would - `register` refuses
-both with "Two actions claim the name".
+both with "Two actions claim the name". A plugin's aliases are composed under its own id
+exactly as its names are, so an old action id `summary` stays callable as
+`<plugin>_summary` and no alias can claim a name outside the plugin.
 
 ### The per-plugin name budget
 

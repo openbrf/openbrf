@@ -54,7 +54,18 @@ const REPORT = {
     preferredLocale: "sv",
     recordedAt: "2020-01-01T00:00:00.000Z",
   },
-  residencies: [{ residencyId: "res-1" }],
+  residencies: [
+    {
+      residencyId: "res-1",
+      apartmentNumber: "1201",
+      addressLabel: "Storgatan 1",
+      role: "MEMBER",
+      movedInOn: "2020-01-01",
+      movedOutOn: "2026-08-01",
+      // Derived by the association from its retention policy.
+      purgeOn: "2027-08-01",
+    },
+  ],
   boardPositions: [{ position: "CHAIR" }],
   systemRoles: ["ADMIN"],
   account: {
@@ -96,14 +107,54 @@ const REPORT = {
   terminations: [{ terminationId: "termination-1" }],
   lienNotes: [{ lienNoteId: "lien-1" }],
   registerReportObligations: [{ obligationId: "obligation-1" }],
-  publicationConsents: [{ scope: "PHOTO" }],
+  publicationConsents: [
+    {
+      scope: "PHOTO",
+      grantedOn: "2024-06-01",
+      withdrawnOn: null,
+      // The board's own words about the consent.
+      note: "Sagt ja pa arsstamman",
+    },
+  ],
   legalHolds: [{ holdId: "hold-1", reason: "Tvist" }],
   issues: [{ issueId: "issue-1" }],
   documents: [{ documentId: "document-1" }],
   apartmentDocuments: [{ apartmentDocumentId: "apartment-document-1" }],
-  bookings: [{ bookingId: "booking-1" }],
-  motions: [{ motionId: "motion-1" }],
-  eventSignups: [{ signupId: "signup-1" }],
+  bookings: [
+    {
+      bookingId: "booking-1",
+      resourceName: "Tvättstugan",
+      status: "BOOKED",
+      startsAt: "2026-09-10T08:00:00.000Z",
+      endsAt: "2026-09-10T11:00:00.000Z",
+      apartment: "1201",
+      erasableFrom: "2027-09-10",
+    },
+  ],
+  motions: [
+    {
+      motionId: "motion-1",
+      title: "Laddstolpar",
+      body: "Vi föreslår laddstolpar i garaget.",
+      status: "ACKNOWLEDGED",
+      submittedAt: "2026-03-01T09:00:00.000Z",
+      closedAt: "2026-04-01T09:00:00.000Z",
+      erasableFrom: "2028-04-01",
+    },
+  ],
+  eventSignups: [
+    {
+      signupId: "signup-1",
+      eventTitle: "Städdag",
+      startsAt: "2026-10-10T08:00:00.000Z",
+      endsAt: "2026-10-10T12:00:00.000Z",
+      on: "2026-10-10",
+      signedUpAt: "2026-09-01T09:00:00.000Z",
+      withdrawnOn: null,
+      calledOff: true,
+      erasableFrom: "2027-10-10",
+    },
+  ],
   memberCharges: [{ chargeId: "charge-1" }],
   fees: [{ feeId: "fee-1" }],
   feeNotices: [{ noticeId: "notice-1" }],
@@ -395,6 +446,16 @@ describe("what the export leaves on the access report", () => {
       ],
       keyOrders: ["status", "closedAt", "boardNote", "erasableFrom"],
       /*
+       * What the association derived or wrote beside the person's own row: the
+       * date its purge can reach it, the board's note on a consent, what became
+       * of a motion, whether the board called a date off.
+       */
+      residencies: ["purgeOn"],
+      publicationConsents: ["note"],
+      bookings: ["erasableFrom"],
+      motions: ["status", "closedAt", "erasableFrom"],
+      eventSignups: ["calledOff", "erasableFrom"],
+      /*
        * The grant is theirs; when the association last issued a token for it is
        * the association's own observation of the connection working, and the
        * token rows it is read from never leave the instance in any form.
@@ -416,6 +477,26 @@ describe("what the export leaves on the access report", () => {
         expect(row?.[field]).toBeUndefined();
       }
     }
+  });
+
+  it("carries the address they sign in with, and nothing else of the account", () => {
+    const exported = toDataPortabilityExport(
+      {
+        ...REPORT,
+        account: { ...REPORT.account, email: "astrid@jobbet.example" },
+      } as unknown as DataSubjectReport,
+      t,
+    );
+
+    // They gave it, and it may differ from the register's.
+    expect(exported.person.signInEmail).toBe("astrid@jobbet.example");
+    expect(JSON.stringify(exported)).not.toContain("Telefonen");
+    expect(
+      toDataPortabilityExport(
+        { ...REPORT, account: null } as unknown as DataSubjectReport,
+        t,
+      ).person.signInEmail,
+    ).toBeNull();
   });
 
   it("carries no personal identity number, although the person gave it", () => {
