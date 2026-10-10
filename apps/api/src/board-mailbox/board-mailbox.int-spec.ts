@@ -1716,9 +1716,22 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
-    const spy = vi
-      .spyOn(prisma, "$transaction")
-      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    /*
+     * The second transaction, not the first: storing the attachment writes its
+     * row and the entry that records the upload in a transaction of its own,
+     * and that one has to commit for there to be a file to take back out. The
+     * one that fails is the one that would have written the letter's rows.
+     */
+    const transaction = prisma.$transaction.bind(prisma);
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      calls += 1;
+      return calls === 2
+        ? Promise.reject(new Error("Connection terminated unexpectedly"))
+        : (transaction as (...rest: unknown[]) => Promise<unknown>)(...args);
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
     const files = await prisma.mediaFile.count();
 
@@ -1762,17 +1775,23 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
+    // The second transaction, for the reason the test above gives: the first
+    // is the attachment's own upload, which has to succeed untouched.
     const transaction = prisma.$transaction.bind(prisma);
-    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
       ...args: unknown[]
-    ) =>
-      (
-        (transaction as (...rest: unknown[]) => Promise<unknown>)(
-          ...args,
-        ) as Promise<unknown>
-      ).then(() => {
-        throw new Error("Connection terminated unexpectedly");
-      })) as typeof prisma.$transaction);
+    ) => {
+      calls += 1;
+      const run = (transaction as (...rest: unknown[]) => Promise<unknown>)(
+        ...args,
+      );
+      return calls === 2
+        ? run.then(() => {
+            throw new Error("Connection terminated unexpectedly");
+          })
+        : run;
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
 
     try {

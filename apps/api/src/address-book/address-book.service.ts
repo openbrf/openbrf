@@ -11,11 +11,15 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { activeBoardSeatWhere } from "../mail/board-recipients";
 import {
-  boardSeatHeldOn,
+  boardSeatNotEndedOn,
   hasMovedOut,
+  isBoardSeatHeldOn,
   residencyHeldOn,
 } from "../registers/held-on";
-import { computePurgeDate } from "../retention/purge-date";
+import {
+  computePersonPurgeDate,
+  type PersonPurgeFacts,
+} from "../retention/purge-date";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
   APARTMENT_FIELDS,
@@ -142,7 +146,9 @@ export class AddressBookService {
         toAddressBookRow(record, {
           today: now,
           purgeOn: formatDateColumn(
-            computePurgeDate(record.movedOutOn, retentionDays),
+            record.purgeFacts === undefined
+              ? null
+              : computePersonPurgeDate(record.purgeFacts, retentionDays, now),
           ),
         }),
     });
@@ -327,9 +333,15 @@ export class AddressBookService {
       options.audience === "board"
         ? BOARD_PERSON_FIELDS
         : RESIDENT_PERSON_FIELDS;
+    /*
+     * Every seat that has not ended, not only those held today: the purge
+     * leaves a person alone for a term whose election is still to come, so the
+     * date shown needs its end. The signs a row displays are the ones held
+     * today, picked out in `toRecord`.
+     */
     const boardPositionFilter = {
-      where: boardSeatHeldOn(localDayOf(now)),
-      select: { position: true },
+      where: boardSeatNotEndedOn(localDayOf(now)),
+      select: { position: true, electedOn: true, endedOn: true },
     } as const;
 
     const [residencies, withoutApartment] = await Promise.all([
@@ -383,6 +395,7 @@ export class AddressBookService {
           movedOutOn: residency.movedOutOn,
           apartment: residency.apartment,
           person: residency.person,
+          now,
         }),
       ),
       ...withoutApartment.map((person) =>
@@ -393,6 +406,7 @@ export class AddressBookService {
           movedOutOn: null,
           apartment: null,
           person,
+          now,
         }),
       ),
     ];
@@ -441,6 +455,7 @@ export class AddressBookService {
     movedInOn: Date | null;
     movedOutOn: Date | null;
     apartment: AddressBookApartment | null;
+    now: Date;
     person: {
       id: string;
       firstName: string;
@@ -455,9 +470,16 @@ export class AddressBookService {
       processingRestrictedAt: Date | null;
       emailCipher?: string | null;
       phoneCipher?: string | null;
+      // The seats not ended, with their dates: the purge reads the ends.
       boardPositions: {
         position: AddressBookRecord["boardPositions"][number];
+        electedOn: Date;
+        endedOn: Date | null;
       }[];
+      // Selected for the board audience only.
+      residencies?: { movedOutOn: Date | null }[];
+      systemRoles?: { role: string }[];
+      legalHolds?: { id: string }[];
     };
   }): AddressBookRecord & {
     emailCipher?: string | null;
@@ -470,13 +492,14 @@ export class AddressBookService {
       lastName: input.person.lastName,
       protectedPersonalData: input.person.protectedPersonalData,
       processingRestricted: input.person.processingRestrictedAt != null,
+      purgeFacts: purgeFactsOf(input.person),
       apartment: input.apartment,
       role: input.role,
       movedInOn: input.movedInOn,
       movedOutOn: input.movedOutOn,
-      boardPositions: input.person.boardPositions.map(
-        (position) => position.position,
-      ),
+      boardPositions: input.person.boardPositions
+        .filter((seat) => isBoardSeatHeldOn(seat, localDayOf(input.now)))
+        .map((seat) => seat.position),
       email: null,
       phone: null,
       hasEmail: input.person.emailCipher != null,
@@ -860,5 +883,35 @@ function residentVisibilityWhere(
       { protectedPersonalData: false, processingRestrictedAt: null },
       { id: viewerPersonId },
     ],
+  };
+}
+
+/**
+ * What the purge asks about a person, from the board's person projection, or
+ * undefined for the audience that is not shown the date.
+ *
+ * The seats are those not ended, with their end dates: a term recorded from a
+ * day to come keeps the person from the purge as much as one held today.
+ */
+function purgeFactsOf(person: {
+  processingRestrictedAt: Date | null;
+  boardPositions: readonly { endedOn: Date | null }[];
+  residencies?: { movedOutOn: Date | null }[];
+  systemRoles?: unknown[];
+  legalHolds?: unknown[];
+}): PersonPurgeFacts | undefined {
+  if (
+    person.residencies === undefined ||
+    person.systemRoles === undefined ||
+    person.legalHolds === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    residencies: person.residencies,
+    boardPositions: person.boardPositions,
+    systemRoles: person.systemRoles.length,
+    withheld:
+      person.legalHolds.length > 0 || person.processingRestrictedAt !== null,
   };
 }

@@ -419,8 +419,15 @@ export interface DataSubjectRequestView {
   personId: string;
   kind: DataSubjectRequestKind;
   requestedOn: string | null;
-  /** The month art. 12(3) gives, derived from the request date. */
+  /**
+   * The month art. 12(3) gives, derived from the request date: three months
+   * where the board has extended it.
+   */
   dueOn: string | null;
+  /** The day the board extended the month by two, or null. */
+  extendedOn: string | null;
+  /** What the person was told the extension was for. */
+  extensionReason: string | null;
   ground: string;
   erasureGround: ErasureGround | null;
   issueId: string | null;
@@ -470,6 +477,18 @@ export function decideDataSubjectRequest(
   return apiRequest(
     "POST",
     `/api/data-subject-requests/${requestId}/decision`,
+    input,
+  );
+}
+
+/** Extends the month by two (art. 12(3)), with the reason the person was told. */
+export function extendDataSubjectRequest(
+  requestId: string,
+  input: { reason: string },
+): Promise<ApiResult<DataSubjectRequestView>> {
+  return apiRequest(
+    "POST",
+    `/api/data-subject-requests/${requestId}/extension`,
     input,
   );
 }

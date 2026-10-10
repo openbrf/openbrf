@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { AddPersonPanel } from "./AddPersonPanel";
+import { createPerson, RegisterRequestError } from "./register-api";
 
 /**
  * The add-person form's faces.
@@ -27,6 +28,14 @@ import { AddPersonPanel } from "./AddPersonPanel";
 
 vi.mock("./register-api", () => ({
   createPerson: vi.fn(),
+  RegisterRequestError: class RegisterRequestError extends Error {
+    constructor(
+      readonly status: number,
+      readonly reason: string | null,
+    ) {
+      super("failed");
+    }
+  },
 }));
 
 const noop = (): void => {
@@ -56,5 +65,29 @@ describe("the add-person form", () => {
     expect(screen.getByLabelText("Förnamn").className).not.toMatch(
       /\bfont-data\b/,
     );
+  });
+
+  it("names a phone number the register could not read, instead of a general failure", async () => {
+    vi.mocked(createPerson).mockRejectedValueOnce(
+      new RegisterRequestError(400, "invalid-phone"),
+    );
+    renderPanel();
+
+    fireEvent.change(screen.getByLabelText("Förnamn"), {
+      target: { value: "Ringa" },
+    });
+    fireEvent.change(screen.getByLabelText("Efternamn"), {
+      target: { value: "Svensson" },
+    });
+    fireEvent.change(screen.getByLabelText("Telefonnummer"), {
+      target: { value: "ring mig" },
+    });
+    fireEvent.submit(screen.getByLabelText("Förnamn").closest("form")!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Telefonnumret gick inte att läsa.",
+      );
+    });
   });
 });

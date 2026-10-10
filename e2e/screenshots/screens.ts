@@ -905,6 +905,38 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Häv det rättsliga bevarandekravet" },
   },
   {
+    // The art. 12(3) extension, asked for: the form with its warning and the
+    // reason field, under a request the person made today. An objection rather
+    // than an erasure, so the request asks for no ground under art. 17(1) and
+    // nothing in the walk after it is erased.
+    name: "person-request-extension-form",
+    prepare: [
+      { click: { button: "Anteckna en begäran" } },
+      { select: { label: "Vad personen begär" }, option: "Invändning" },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag vill inte få inbjudningar till evenemang.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Förläng med två månader" } },
+    ],
+    waitFor: { button: "Förläng begäran" },
+  },
+  {
+    // The same request once extended: the date in the register face, the reason
+    // the person was told in the ordinary one, and the due day moved to three
+    // months.
+    name: "person-request-extended",
+    prepare: [
+      {
+        fill: { label: "Varför månaden förlängs" },
+        value: "Begäran gäller flera system och behöver utredas.",
+      },
+      { click: { button: "Förläng begäran" } },
+    ],
+    waitFor: { text: /Förlängd\s+\d{4}-\d{2}-\d{2}/ },
+  },
+  {
     // The whole document, scrolled: it is printed and handed over, so the
     // picture has to show what comes out of the printer rather than the top of
     // it. Astrid holds no personal identity number, which the safety check
@@ -914,6 +946,21 @@ export const SCREENS: readonly Screen[] = [
     // A section heading the document renders only once the report has arrived.
     waitFor: { heading: "Medlemsförteckningen" },
     capture: "page",
+  },
+  {
+    // The form refusing what it cannot read, in words that name the field. A
+    // number that normalizes to nothing is refused rather than stored looking
+    // like one on file. Nothing is written, so the walk after it is unchanged.
+    name: "add-person-invalid-phone",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Edit" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { fill: { label: "Telefonnummer" }, value: "ring mig" },
+      { click: { button: "Lägg till i registret" } },
+    ],
+    waitFor: { text: "Telefonnumret gick inte att läsa." },
   },
 
   // --- the association's own website, from the board's side ------------------

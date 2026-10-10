@@ -205,8 +205,14 @@ export class PluginRegistryService {
     return removed.count > 0;
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<PluginRecord | null> {
-    const rows = await this.prisma.installedPlugin.updateManyAndReturn({
+  async setEnabled(
+    id: string,
+    enabled: boolean,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord | null> {
+    const rows = await (
+      client ?? this.prisma
+    ).installedPlugin.updateManyAndReturn({
       where: { id },
       data: { enabled },
     });
@@ -243,8 +249,9 @@ export class PluginRegistryService {
   async writeSettings(
     id: string,
     settings: Record<string, unknown>,
+    client?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.prisma.installedPlugin.updateMany({
+    await (client ?? this.prisma).installedPlugin.updateMany({
       where: { id },
       // Cast at the persistence boundary: the values are already validated
       // against the plugin's settingsSchema, and Prisma types a JSON column
