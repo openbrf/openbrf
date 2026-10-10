@@ -642,13 +642,36 @@ export class MediaService {
     channel: AuditChannel,
     options: { recordFileName?: boolean } = {},
   ): Promise<void> {
-    const file = await this.prisma.mediaFile.findUnique({ where: { id } });
-    if (file === null) {
+    const known = await this.prisma.mediaFile.findUnique({
+      where: { id },
+      select: { unencryptedStorageKey: true },
+    });
+    if (known === null) {
       return;
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.mediaFile.delete({ where: { id } });
+    /*
+     * An unencrypted copy the job at start has not yet removed goes first, and
+     * a failure refuses the deletion: the row is its only record (ADR 0015),
+     * so removing the row first would leave a plaintext copy of a personal
+     * file in storage with nothing naming it. The sealed copy is still there,
+     * so nothing the row serves is lost if the transaction then fails.
+     */
+    if (known.unencryptedStorageKey !== null) {
+      await this.storage.remove(known.unencryptedStorageKey);
+    }
+
+    // Read and removed in the transaction, so a deletion running alongside
+    // finds nothing left to remove rather than failing on a row already gone.
+    const file = await this.prisma.$transaction(async (tx) => {
+      const held = await tx.mediaFile.findUnique({ where: { id } });
+      if (held === null) {
+        return null;
+      }
+      const { count } = await tx.mediaFile.deleteMany({ where: { id } });
+      if (count === 0) {
+        return null;
+      }
       await this.audit.record(
         {
           action: "MEDIA_DELETED",
@@ -657,11 +680,15 @@ export class MediaService {
           targetKind: "media",
           targetId: id,
           context:
-            (options.recordFileName ?? true) ? { fileName: file.fileName } : {},
+            (options.recordFileName ?? true) ? { fileName: held.fileName } : {},
         },
         tx,
       );
+      return held;
     });
+    if (file === null) {
+      return;
+    }
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {
       this.logger.error(
@@ -670,9 +697,12 @@ export class MediaService {
       );
     });
 
-    // The unencrypted object the job at start replaced, if its removal has not
-    // succeeded yet. The row was its only record, so it goes now or never.
-    if (file.unencryptedStorageKey !== null) {
+    // One the job at start recorded after the read above, which is still the
+    // row's to remove: the row was its only record, so it goes now or never.
+    if (
+      file.unencryptedStorageKey !== null &&
+      file.unencryptedStorageKey !== known.unencryptedStorageKey
+    ) {
       const unencrypted = file.unencryptedStorageKey;
       await this.storage.remove(unencrypted).catch((cause: unknown) => {
         this.logger.error(

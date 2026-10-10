@@ -1,6 +1,42 @@
+import { execFile } from "node:child_process";
+import type { PathLike } from "node:fs";
+import { type FileHandle, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fetchBytes, ResourceFetchError } from "./fetch-resource";
+
+/**
+ * What the file system tells the code under test, where a test needs it to
+ * change between two calls the way another process could change it.
+ */
+const files = vi.hoisted(() => ({
+  /** Has the check before the open see a regular file, whatever is there. */
+  statSaysRegular: false,
+  /** Called with each handle the code under test opens. */
+  opened: undefined as ((handle: FileHandle) => void) | undefined,
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    stat: async (path: PathLike) => {
+      const stats = await actual.stat(path);
+      return files.statSaysRegular
+        ? Object.assign(stats, { isFile: () => true })
+        : stats;
+    },
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      files.opened?.(handle);
+      return handle;
+    },
+  };
+});
 
 /**
  * The deadline.
@@ -155,5 +191,57 @@ describe("fetchBytes without a deadline", () => {
     expect(reading()).toBe(true);
     expect(settled()).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+/**
+ * A file: source is checked, opened and checked again, and the path can be
+ * replaced between the first check and the open.
+ */
+describe("fetchBytes from a file", () => {
+  const LOCAL = { allowUncuratedSources: true } as const;
+  let workspace: string | undefined;
+
+  afterEach(async () => {
+    files.statSaysRegular = false;
+    files.opened = undefined;
+    if (workspace !== undefined) {
+      await rm(workspace, { recursive: true, force: true });
+      workspace = undefined;
+    }
+  });
+
+  it("refuses a FIFO that replaced the file after the check, without waiting for a writer", async () => {
+    workspace = await mkdtemp(join(tmpdir(), "openbrf-fetch-"));
+    const fifo = join(workspace, "pipe.tgz");
+    await promisify(execFile)("mkfifo", [fifo]);
+    // The check before the open saw a regular file; a FIFO is there now, and
+    // nothing will ever open it for writing.
+    files.statSaysRegular = true;
+
+    await expect(
+      fetchBytes(pathToFileURL(fifo).href, LOCAL),
+    ).rejects.toMatchObject({ reason: "unreachable" });
+  });
+
+  it("closes what it opened when the check after the open fails", async () => {
+    workspace = await mkdtemp(join(tmpdir(), "openbrf-fetch-"));
+    const source = join(workspace, "theme.tgz");
+    await writeFile(source, "tarball");
+    let closed = false;
+    files.opened = (handle) => {
+      handle.stat = (() =>
+        Promise.reject(new Error("EIO"))) as FileHandle["stat"];
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        closed = true;
+        await close();
+      };
+    };
+
+    await expect(
+      fetchBytes(pathToFileURL(source).href, LOCAL),
+    ).rejects.toMatchObject({ reason: "unreachable" });
+    expect(closed).toBe(true);
   });
 });

@@ -1,3 +1,4 @@
+import { execFile, spawn } from "node:child_process";
 import {
   createServer,
   type IncomingMessage,
@@ -6,6 +7,7 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -16,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { formatSha512, IntegrityError } from "@openbrf/plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -238,6 +241,37 @@ describe("ensureArchive", () => {
     expect(await exists(storedPath())).toBe(false);
   });
 
+  it("keeps a cached archive when the declared digest cannot be read", async () => {
+    // A mistyped digest is a fault in the catalog or the consent row, not in
+    // the file, and the file may be the only copy a rebuild without network
+    // has.
+    await ensureArchive(store, PLUGIN_ID, VERSION, artifact(), HARNESS);
+
+    await expect(
+      ensureArchive(
+        store,
+        PLUGIN_ID,
+        VERSION,
+        artifact({ sha512: "sha512-not-a-digest" }),
+        HARNESS,
+      ),
+    ).rejects.toMatchObject({ reason: "malformed-digest" });
+
+    expect((await readFile(storedPath())).equals(CONTENT)).toBe(true);
+  });
+
+  it("leaves no temporary file behind when the archive cannot be put in place", async () => {
+    // A directory under the archive's name makes the rename fail after the
+    // temporary file was written.
+    await mkdir(join(storedPath(), "occupied"), { recursive: true });
+
+    await expect(
+      ensureArchive(store, PLUGIN_ID, VERSION, artifact(), HARNESS),
+    ).rejects.toThrow();
+
+    expect(await readdir(store)).toEqual([archiveFileName(PLUGIN_ID, VERSION)]);
+  });
+
   it("refuses an artifact URL whose scheme is not allowed", async () => {
     await expect(
       ensureArchive(
@@ -299,6 +333,19 @@ describe("fetchBytes", () => {
     // is a source that is temporarily gone.
     const missing = pathToFileURL(join(workspace, "absent.tgz")).href;
     expect(await refusalReason(missing)).toBe("unreachable");
+  });
+
+  it("refuses a file: URL naming something other than a regular file", async () => {
+    // A FIFO reports a size of nothing and reads for as long as its writer
+    // writes, so the size it states bounds nothing.
+    const fifo = join(workspace, "pipe.tgz");
+    await promisify(execFile)("mkfifo", [fifo]);
+    const writer = spawn("sh", ["-c", 'printf tarball > "$0"', fifo]);
+    try {
+      expect(await refusalReason(pathToFileURL(fifo).href)).toBe("unreachable");
+    } finally {
+      writer.kill();
+    }
   });
 
   it("enforces maxBytes", async () => {

@@ -155,6 +155,15 @@ describe("token value validation", () => {
     expect(tokenValueProblem(value)).toBeNull();
   });
 
+  it("writes no name the contract does not have", () => {
+    const css = tokensToCssDeclarations({
+      "surface-page": "#FFFFFF",
+      "x:0}*{background:red}:root{--y": "#000000",
+    } as never);
+
+    expect(css).toBe("  --obrf-surface-page: #FFFFFF;");
+  });
+
   it("refuses to emit a stylesheet at all rather than emitting injected CSS", () => {
     const hostile = {
       ...PORTTAVLAN_LIGHT,

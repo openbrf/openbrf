@@ -4,6 +4,7 @@ import type { TFunction } from "i18next";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type { LegalBasis } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { foldedText } from "./folded-text";
@@ -300,6 +301,7 @@ export class ProcessingActivityService {
   async seedPlugin(
     pluginId: string,
     input: { name: string; personalDataCategories: string[] },
+    client?: Prisma.TransactionClient,
   ): Promise<void> {
     const sourceKey = pluginProcessorKey(pluginId);
 
@@ -309,7 +311,7 @@ export class ProcessingActivityService {
      * unique key, leaving the art. 30 record without the processing an
      * installed plugin performs.
      */
-    await this.prisma.processingActivity.upsert({
+    await (client ?? this.prisma).processingActivity.upsert({
       where: { sourceKey },
       create: {
         sourceKey,
@@ -332,8 +334,11 @@ export class ProcessingActivityService {
   }
 
   /** Ends the processing a removed plugin performed. The row stays. */
-  async endPlugin(pluginId: string): Promise<void> {
-    await this.prisma.processingActivity.updateMany({
+  async endPlugin(
+    pluginId: string,
+    client?: Prisma.TransactionClient,
+  ): Promise<void> {
+    await (client ?? this.prisma).processingActivity.updateMany({
       where: { sourceKey: pluginProcessorKey(pluginId), endedAt: null },
       data: { endedAt: new Date(), revision: { increment: 1 } },
     });

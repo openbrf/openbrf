@@ -1,11 +1,17 @@
 import type { DynamicModule } from "@nestjs/common";
 import {
   CONTROLLER_WATERMARK,
+  EXCEPTION_FILTERS_METADATA,
   GLOBAL_MODULE_METADATA,
+  GUARDS_METADATA,
   HOST_METADATA,
+  INTERCEPTORS_METADATA,
   METHOD_METADATA,
   MODULE_METADATA,
   PATH_METADATA,
+  PIPES_METADATA,
+  PROPERTY_DEPS_METADATA,
+  ROUTE_ARGS_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
@@ -111,7 +117,9 @@ export interface DeniedInjection {
  * boundary is exactly what the module-identity check exists to catch
  * separately. A plugin reaching for one of these gets `forbidden-injection`.
  *
- * This covers what a provider DECLARES. Resolving the same class through
+ * This covers what a provider, a controller or a guard, interceptor, pipe or
+ * filter a controller names DECLARES, by constructor or by field. Resolving the
+ * same class through
  * `ModuleRef` at runtime is a second half that a declaration check cannot see;
  * the injector handles below are what make a plugin declaring one of those a
  * boot finding rather than a silent reach.
@@ -451,6 +459,14 @@ function walk(entry: unknown, state: WalkState): string | null {
     ...asArray(reflect(moduleClass, MODULE_METADATA.CONTROLLERS)),
     ...asArray(dynamic?.controllers),
   ]) {
+    const reached = firstForbidden(controllerReaches(controller));
+    if (reached !== null) {
+      state.outcome.refusedFor = "forbidden-injection";
+      return (
+        `A controller in "${moduleClass.name}" reaches ` +
+        `${reached}, which a plugin may not hold.`
+      );
+    }
     if (!state.controllers.includes(controller)) {
       state.controllers.push(controller);
     }
@@ -707,13 +723,20 @@ function isDynamicModule(value: unknown): value is DynamicModule {
  * narrowing and not a closure, and ADR 0008 records what remains.
  */
 function forbiddenInjection(provider: unknown): string | null {
-  for (const entry of declarationReaches(provider)) {
+  return firstForbidden(declarationReaches(provider));
+}
+
+/** The first denied service among tokens a declaration names, if any. */
+function firstForbidden(tokens: readonly unknown[]): string | null {
+  for (const entry of tokens) {
     const reached = resolveInjectionToken(entry);
     if (reached === UNRESOLVED) {
       return "a forward reference that could not be resolved";
     }
-    const name = tokenName(reached);
-    if (name !== null && FORBIDDEN_INJECTIONS.has(name)) {
+    const name = tokenNames(reached).find((each) =>
+      FORBIDDEN_INJECTIONS.has(each),
+    );
+    if (name !== undefined) {
       return name;
     }
   }
@@ -730,21 +753,34 @@ function forbiddenInjection(provider: unknown): string | null {
  * without ever being able to match: neither `ENV` nor `PROTECTED_RESOURCE` is a
  * function, so the old check passed straight over both.
  *
- * Null for anything else, which is every token that cannot be one of ours: an
- * object, a number, undefined. A token with no description is null for the same
- * reason - `Symbol()` names nothing, so it names nothing on this list either.
+ * A class answers with every name on its prototype chain, because a subclass is
+ * constructed as its base is: `class Db extends PrismaService {}` is the whole
+ * database under a name the denylist never wrote down.
+ *
+ * Empty for anything else, which is every token that cannot be one of ours: an
+ * object, a number, undefined. A token with no description is empty for the
+ * same reason - `Symbol()` names nothing, so it names nothing on this list
+ * either.
  */
-function tokenName(token: unknown): string | null {
+function tokenNames(token: unknown): string[] {
   if (typeof token === "function") {
-    return token.name;
+    const names: string[] = [];
+    for (
+      let current: unknown = token;
+      typeof current === "function" && current !== Function.prototype;
+      current = Reflect.getPrototypeOf(current)
+    ) {
+      names.push(current.name);
+    }
+    return names;
   }
   if (typeof token === "symbol") {
-    return token.description ?? null;
+    return token.description === undefined ? [] : [token.description];
   }
   if (typeof token === "string") {
-    return token;
+    return [token];
   }
-  return null;
+  return [];
 }
 
 /** A forward reference whose thunk would not produce a token. */
@@ -829,15 +865,97 @@ function declarationReaches(provider: unknown): unknown[] {
   return reached;
 }
 
+/**
+ * What the container hands a class when it builds one: its constructor's
+ * parameters and the fields it marked with `@Inject()`.
+ *
+ * The fields are the half a constructor check never sees. NestJS assigns them
+ * after construction from `PROPERTY_DEPS_METADATA`, from the same root
+ * injector, so `@Inject(PrismaService) private db` is as much a reach as the
+ * constructor parameter it replaces.
+ */
 function constructorReaches(token: unknown): unknown[] {
   if (typeof token !== "function") {
     return [];
   }
+  /*
+   * One token per parameter, as the container picks it: the `@Inject()` token
+   * where the parameter has one, the design type otherwise. A parameter typed
+   * `PrismaService` but injected as `"plugin-local"` is handed the latter, so
+   * counting both would refuse a class that never asks for the database.
+   */
+  const designed = asArray<unknown>(reflect(token, "design:paramtypes"));
+  const explicit = new Map<number, unknown>();
+  for (const entry of asArray<{ index?: unknown; param?: unknown }>(
+    reflect(token, SELF_DECLARED_DEPS_METADATA),
+  )) {
+    if (typeof entry.index === "number") {
+      explicit.set(entry.index, entry.param);
+    }
+  }
+  const length = Math.max(
+    designed.length,
+    ...[...explicit.keys()].map((i) => i + 1),
+  );
+  const parameters = Array.from({ length }, (_unused, index) =>
+    explicit.has(index) ? explicit.get(index) : designed[index],
+  );
   return [
-    ...asArray<unknown>(reflect(token, "design:paramtypes")),
-    ...asArray<{ param?: unknown }>(
-      reflect(token, SELF_DECLARED_DEPS_METADATA),
-    ).map((entry) => entry.param),
+    ...parameters,
+    ...asArray<{ type?: unknown }>(reflect(token, PROPERTY_DEPS_METADATA)).map(
+      (entry) => entry.type,
+    ),
+  ];
+}
+
+/** Where a controller names a class the container builds for it. */
+const ENHANCER_METADATA = [
+  GUARDS_METADATA,
+  INTERCEPTORS_METADATA,
+  PIPES_METADATA,
+  EXCEPTION_FILTERS_METADATA,
+] as const;
+
+/**
+ * Every token a controller would be handed, its own and its enhancers'.
+ *
+ * A controller is built by the same injector as a provider, so its constructor
+ * and fields reach exactly as far. So does a guard, interceptor, pipe or filter
+ * it names by class - `@UseGuards(Sneaky)` has the container construct
+ * `Sneaky` with whatever it asks for, at class or at handler level - and a pipe
+ * given to one parameter (`@Body(Sneaky)`). One given as an instance was built
+ * by the plugin itself and is handed nothing.
+ */
+function controllerReaches(controller: unknown): unknown[] {
+  if (typeof controller !== "function") {
+    return [];
+  }
+  const enhancers: unknown[] = ENHANCER_METADATA.flatMap((key) =>
+    asArray<unknown>(reflect(controller, key)),
+  );
+  const prototype: unknown = controller.prototype;
+  if (typeof prototype === "object" && prototype !== null) {
+    for (const { name, handler } of handlers(prototype)) {
+      for (const key of ENHANCER_METADATA) {
+        enhancers.push(...asArray<unknown>(reflect(handler, key)));
+      }
+      const parameters = Reflect.getMetadata(
+        ROUTE_ARGS_METADATA,
+        controller,
+        name,
+      ) as Record<string, { pipes?: unknown }> | undefined;
+      for (const parameter of Object.values(parameters ?? {})) {
+        enhancers.push(...asArray<unknown>(parameter.pipes));
+      }
+    }
+  }
+  return [
+    ...constructorReaches(controller),
+    ...enhancers.flatMap((enhancer) =>
+      typeof enhancer === "function"
+        ? [enhancer, ...constructorReaches(enhancer)]
+        : [],
+    ),
   ];
 }
 

@@ -2072,6 +2072,9 @@ enum AuditAction {
   /// the entry carries how far through the file it got, never anything from the
   /// file. What the import already wrote stays in the register.
   IMPORT_ABANDONED
+
+  /// An administrator removed an installed or composed theme.
+  THEME_REMOVED
 }
 
 /// Which way a change reached the association's records (granskningskanal).

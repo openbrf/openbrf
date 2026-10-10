@@ -6,6 +6,7 @@ import type { TFunction } from "i18next";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type {
   AuditChannel,
   ProcessorAgreementStatus,
@@ -124,8 +125,11 @@ export class ProcessorAgreementService {
   ) {}
 
   /** Every current recipient, joined with what the board has recorded. */
-  async list(facts: ProcessorFacts): Promise<ProcessorView[]> {
-    const open = await this.openRows();
+  async list(
+    facts: ProcessorFacts,
+    client?: Prisma.TransactionClient,
+  ): Promise<ProcessorView[]> {
+    const open = await this.openRows(client);
     const byKey = new Map(open.map((row) => [row.processorKey, row]));
 
     return currentProcessors(facts, open).map((descriptor) => {
@@ -172,6 +176,9 @@ export class ProcessorAgreementService {
    * back into one being made by the next update of the plugin. What is returned
    * is then the row that was kept.
    *
+   * A transaction given is the one the row and its entry are written in, so
+   * the plugin install commits its recipient with its consent or neither.
+   *
    * `lockLost` is the plugin install's too: the package lock it runs under. The
    * reads here come before the write, and a lock lost during them means an
    * uninstall of the plugin may already be running, so it is checked once they
@@ -185,6 +192,7 @@ export class ProcessorAgreementService {
     },
     facts: ProcessorFacts,
     options: { onlyIfUnrecorded?: boolean; lockLost?: AbortSignal } = {},
+    client?: Prisma.TransactionClient,
   ): Promise<ProcessorView> {
     const input = foldedText(given, AGREEMENT_TEXT);
     const parsed = parseProcessorKey(processorKey);
@@ -195,7 +203,7 @@ export class ProcessorAgreementService {
       );
     }
 
-    const open = await this.openRows();
+    const open = await this.openRows(client);
     const known = currentProcessors(facts, open).some(
       (descriptor) => descriptor.processorKey === processorKey,
     );
@@ -215,6 +223,7 @@ export class ProcessorAgreementService {
       facts,
       options.onlyIfUnrecorded ?? false,
       options.lockLost,
+      client,
     );
   }
 
@@ -464,8 +473,8 @@ export class ProcessorAgreementService {
     });
   }
 
-  private async openRows() {
-    return this.prisma.processorAgreement.findMany({
+  private async openRows(client?: Prisma.TransactionClient) {
+    return (client ?? this.prisma).processorAgreement.findMany({
       where: { endedAt: null },
       select: AGREEMENT_SELECT,
     });
@@ -480,11 +489,12 @@ export class ProcessorAgreementService {
     },
     facts: ProcessorFacts,
     onlyIfUnrecorded: boolean,
-    lockLost?: AbortSignal,
+    lockLost: AbortSignal | undefined,
+    client: Prisma.TransactionClient | undefined,
   ): Promise<ProcessorView> {
     let replaced = false;
 
-    await this.prisma.$transaction(async (tx) => {
+    const write = async (tx: Prisma.TransactionClient): Promise<void> => {
       // One writer per recipient at a time; see the lock for why.
       await lockProcessorAgreement(tx, processorKey);
 
@@ -568,9 +578,15 @@ export class ProcessorAgreementService {
         },
         tx,
       );
-    });
+    };
 
-    const view = (await this.list(facts)).find(
+    if (client === undefined) {
+      await this.prisma.$transaction(write);
+    } else {
+      await write(client);
+    }
+
+    const view = (await this.list(facts, client)).find(
       (candidate) => candidate.processorKey === processorKey,
     );
     if (view === undefined) {

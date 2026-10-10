@@ -545,6 +545,7 @@ const AUDIT_ACTION_LABEL = {
   ASSOCIATION_RETENTION_RECORDED:
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**

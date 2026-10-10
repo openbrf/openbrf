@@ -19,13 +19,15 @@ import {
   type TokenSet,
 } from "@openbrf/tokens";
 
+import { failureName } from "../logging/failure";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { PackageLock } from "../packaging/package-lock";
-import { ThemeStore } from "./theme-store";
+import { lockThemes, underThemeLock } from "./theme-lock";
+import { type DetachedTheme, ThemeStore } from "./theme-store";
 
 /**
  * The themes an instance has, and which one it renders.
@@ -148,9 +150,17 @@ export interface ThemeRendering {
  *
  * Built here so the browser never constructs a path into the data volume: it
  * receives finished URLs, and the server decides which files exist.
+ *
+ * Carries the start of the package's checksum, which the route ignores: the
+ * asset is cached for an hour, and an upgrade that keeps a file's path must
+ * not keep serving the old bytes under it.
  */
-export function themeAssetUrl(themeId: string, path: string): string {
-  return `/api/themes/asset?theme=${encodeURIComponent(themeId)}&file=${encodeURIComponent(path)}`;
+export function themeAssetUrl(
+  themeId: string,
+  path: string,
+  checksum: string,
+): string {
+  return `/api/themes/asset?theme=${encodeURIComponent(themeId)}&file=${encodeURIComponent(path)}&v=${encodeURIComponent(checksum.slice(0, 16))}`;
 }
 
 /** Reads a JSON column back as token values, ignoring anything else. */
@@ -403,10 +413,14 @@ export class ThemeService {
       name: row.name,
       builtIn: false,
       modes: { light: resolved.light.tokens, dark: resolved.dark.tokens },
-      fontFaces: themeFontFaces(fonts, (path) => themeAssetUrl(row.id, path)),
+      fontFaces: themeFontFaces(fonts, (path) =>
+        themeAssetUrl(row.id, path, row.checksum),
+      ),
       viewVariants: resolvedViewVariants(asVariantSelection(row.viewVariants)),
       logoUrl:
-        row.logoPath === null ? null : themeAssetUrl(row.id, row.logoPath),
+        row.logoPath === null
+          ? null
+          : themeAssetUrl(row.id, row.logoPath, row.checksum),
     };
   }
 
@@ -501,6 +515,21 @@ export class ThemeService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // Under the theme lock, so a theme removed since the check above is
+      // not made the active one.
+      await lockThemes(tx);
+      if (
+        target !== null &&
+        (await tx.installedTheme.findUnique({
+          where: { id: target },
+          select: { id: true },
+        })) === null
+      ) {
+        throw new ThemeError(
+          `No theme ${target} is installed.`,
+          "theme-not-installed",
+        );
+      }
       await tx.association.update({
         where: { id: 1 },
         data: { activeThemeId: target },
@@ -528,7 +557,10 @@ export class ThemeService {
    * it: both would leave the instance pointing at values that no longer exist.
    * The built-in theme has no row and can never be removed.
    */
-  async uninstall(themeId: string): Promise<ThemeSummary[]> {
+  async uninstall(
+    themeId: string,
+    actorPersonId: string | null,
+  ): Promise<ThemeSummary[]> {
     if (themeId === PORTTAVLAN_ID) {
       throw new ThemeError(
         "The default theme is built into the core and cannot be removed.",
@@ -540,19 +572,105 @@ export class ThemeService {
     // removal takes its files with it, so both run under the one lock. See
     // {@link PackageLock}.
     return await this.packageLock.run("theme", themeId, (lockLost) =>
-      this.uninstallLocked(themeId, lockLost),
+      this.uninstallLocked(themeId, actorPersonId, lockLost),
     );
   }
 
   private async uninstallLocked(
     themeId: string,
+    actorPersonId: string | null,
     lockLost: AbortSignal,
   ): Promise<ThemeSummary[]> {
-    const [rows, activeId] = await Promise.all([
-      this.installedRows(),
-      this.activeThemeId(),
-    ]);
+    /*
+     * Checked and removed in one transaction under the theme lock, so an
+     * activation of this theme, or an install of a child of it, cannot commit
+     * between the check and the removal.
+     *
+     * The files are moved aside as the transaction's last step, still under
+     * the lock, and deleted only once it has committed. Deleted after the
+     * lock instead, they could be the files a reinstall of the same id had
+     * written meanwhile, leaving its row with fonts and a logo answering 404.
+     * Moved aside, they can also go back if the transaction does not commit.
+     *
+     * The package lock is checked before the row goes and before the files
+     * move: once it is lost an install of the same id may already be putting
+     * its own files in that directory. A lost lock is raised, not recorded: it
+     * is the database session failing under the operation rather than the
+     * volume. The transaction then rolls back and the files are put back.
+     */
+    let detached: DetachedTheme | undefined;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await lockThemes(tx);
+        const [rows, association] = await Promise.all([
+          tx.installedTheme.findMany({
+            select: { id: true, extendsThemeId: true },
+          }),
+          tx.association.findUnique({
+            where: { id: 1 },
+            select: { activeThemeId: true },
+          }),
+        ]);
+        this.assertRemovable(themeId, rows, association?.activeThemeId ?? null);
 
+        lockLost.throwIfAborted();
+
+        await tx.installedTheme.delete({ where: { id: themeId } });
+        await this.audit.record(
+          {
+            action: "THEME_REMOVED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "theme",
+            targetId: themeId,
+          },
+          tx,
+        );
+
+        lockLost.throwIfAborted();
+        detached = await this.store.detach(themeId);
+      });
+    } catch (cause) {
+      const moved = detached;
+      if (moved !== undefined) {
+        await underThemeLock(this.prisma, () => moved.restore()).catch(
+          (undo: unknown) => {
+            // The uninstall's own failure is the one the caller needs; this
+            // one is for the operator, who has to find the files.
+            this.logger.error(
+              `Theme ${themeId} was not uninstalled, and moving its files back failed with ${failureName(undo)}. They are under a .removed- directory in ${this.store.root}.`,
+            );
+          },
+        );
+      }
+      throw cause;
+    }
+
+    /*
+     * A failed removal of the files is recorded and not raised: the uninstall
+     * did happen, and reporting it as a failure would send a board member to
+     * retry an operation that has already succeeded.
+     */
+    try {
+      await detached?.finalize();
+    } catch (cause) {
+      this.logger.warn(
+        `Theme ${themeId} was uninstalled, but its files could not be deleted from ${this.store.root}. Nothing refers to them any more.`,
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
+    await this.recomputeResolvedTokens(lockLost);
+
+    this.logger.log(`Uninstalled theme ${themeId}`);
+    return this.list();
+  }
+
+  /** Refuses a removal that would leave the instance pointing at nothing. */
+  private assertRemovable(
+    themeId: string,
+    rows: readonly { id: string; extendsThemeId: string | null }[],
+    activeId: string | null,
+  ): void {
     if (!rows.some((row) => row.id === themeId)) {
       throw new ThemeError(
         `No theme ${themeId} is installed.`,
@@ -576,41 +694,6 @@ export class ThemeService {
         dependants,
       );
     }
-
-    /*
-     * The row goes first, and it is what the instance reads. A directory with
-     * no row is unreferenced - nothing lists it, the asset route builds its
-     * allowlist from the row, and the next install of that id replaces it -
-     * while a row whose files are gone would leave a theme listed and offered
-     * for activation with its fonts and logo answering 404.
-     *
-     * So a failed removal is recorded and not raised: the uninstall did happen,
-     * and reporting it as a failure would send a board member to retry an
-     * operation that has already succeeded.
-     *
-     * Both are checked against the package lock first. The files most of all:
-     * once the row is gone an install of the same id may already be putting
-     * its own files in that directory, and with the lock lost nothing would
-     * stop this removal from taking them. A lost lock is raised, not recorded:
-     * it is the database session failing under the operation rather than the
-     * volume, and it gets the answer it gets everywhere else. The files it
-     * leaves are unreferenced like any other.
-     */
-    lockLost.throwIfAborted();
-    await this.prisma.installedTheme.delete({ where: { id: themeId } });
-    lockLost.throwIfAborted();
-    try {
-      await this.store.remove(themeId);
-    } catch (cause) {
-      this.logger.warn(
-        `Theme ${themeId} was uninstalled, but its files under ${this.store.directoryFor(themeId)} could not be removed. They are unreferenced and a reinstall of that id replaces them.`,
-        cause instanceof Error ? cause.stack : undefined,
-      );
-    }
-    await this.recomputeResolvedTokens(lockLost);
-
-    this.logger.log(`Uninstalled theme ${themeId}`);
-    return this.list();
   }
 
   /**

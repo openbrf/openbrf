@@ -7,9 +7,13 @@ import { promisify } from "node:util";
 
 import { formatSha512 } from "@openbrf/plugin-sdk";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";
+import { ProcessingActivityService } from "../data-protection/processing-activity.service";
+import { ProcessorAgreementService } from "../data-protection/processor-agreement.service";
+import { ProcessorFactsService } from "../data-protection/processor-facts.service";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
@@ -419,14 +423,18 @@ describe("the plugin install flow", () => {
   /**
    * The digest is the whole of the trust model for the bytes that arrive. A
    * mismatch must leave the row failed and the volume untouched, never
-   * unpacked and hoped for.
+   * unpacked and hoped for - so the volume holds a working release first, and
+   * it is the upgrade whose archive does not match.
    */
   it("refuses an archive whose digest does not match the catalog", async () => {
+    await consent(digest, tarball);
+    await installer.reconcile();
+
     await registry.consent({
       id: PLUGIN_ID,
       packageName: PACKAGE_NAME,
-      version: VERSION,
-      tarballUrl: pathToFileURL(tarball).href,
+      version: NEXT_VERSION,
+      tarballUrl: pathToFileURL(nextTarball).href,
       checksum: formatSha512(sha512(Buffer.from("not this archive"))),
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
@@ -447,8 +455,10 @@ describe("the plugin install flow", () => {
     });
 
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
-    expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
-  }, 120_000);
+    expect(
+      scan.plugins.map((plugin) => [plugin.id, plugin.version]),
+    ).toContainEqual([PLUGIN_ID, VERSION]);
+  }, 180_000);
 
   /**
    * A failure is cleared by the run that gets past it, all three columns of
@@ -496,17 +506,20 @@ describe("the plugin install flow", () => {
   it("records a failure whose values Postgres could not store as written", async () => {
     await consent(digest, tarball);
 
-    await registry.markFailed(PLUGIN_ID, {
-      reason: "archive-package-mismatch",
-      detail: {
-        packageName: PACKAGE_NAME,
-        // Cut at 213 units, which falls inside the emoji.
-        heldName: `@acme/occ\0upancy-\ud800-${"x".repeat(193)}😀${"x".repeat(10)}`,
-        heldVersion: VERSION,
+    await registry.markFailed(
+      { id: PLUGIN_ID, version: VERSION, checksum: digest },
+      {
+        reason: "archive-package-mismatch",
+        detail: {
+          packageName: PACKAGE_NAME,
+          // Cut at 213 units, which falls inside the emoji.
+          heldName: `@acme/occ\0upancy-\ud800-${"x".repeat(193)}😀${"x".repeat(10)}`,
+          heldVersion: VERSION,
+        },
+        // Cut at 2000 units, which falls inside the emoji.
+        cause: `PluginInstallError: @acme/occ\0upancy-\ud800 ${"x".repeat(1960)}😀`,
       },
-      // Cut at 2000 units, which falls inside the emoji.
-      cause: `PluginInstallError: @acme/occ\0upancy-\ud800 ${"x".repeat(1960)}😀`,
-    });
+    );
 
     const row = await prisma.installedPlugin.findUniqueOrThrow({
       where: { id: PLUGIN_ID },
@@ -647,6 +660,30 @@ describe("the plugin install flow", () => {
     const scan = await scanPluginDirectory(root);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
   }, 300_000);
+
+  /**
+   * A board can consent to another release while a run is in npm; the run
+   * works from the rows it read, and its outcome is that release's, not the
+   * newer one's.
+   */
+  it("does not record its outcome on a release consented while it ran", async () => {
+    await consent(digest, tarball);
+    const committing = deferred();
+    const mayCommit = deferred();
+    const run = new ObservedInstaller("stale", [], {
+      atCommit: committing.resolve,
+      hold: () => mayCommit.promise,
+    }).reconcile();
+    await committing.promise;
+
+    await consent(nextDigest, nextTarball, NEXT_VERSION);
+    mayCommit.resolve();
+    await run;
+
+    const record = await registry.find(PLUGIN_ID);
+    expect(record?.version).toBe(NEXT_VERSION);
+    expect(record?.status).toBe("PENDING");
+  }, 300_000);
 });
 
 /**
@@ -677,7 +714,12 @@ describe("a deprecated catalog entry", () => {
       new PluginAdminService(
         deprecatedEnv,
         registryLike,
-        { manifestFor: () => null, get: () => null, report: () => [] } as never,
+        {
+          manifestFor: () => null,
+          get: () => null,
+          report: () => [],
+          unload: () => undefined,
+        } as never,
         // Records the enqueue and runs nothing: the test runs the reconcile the
         // job would, so what reaches the volume is read after it.
         new PluginInstallerService(
@@ -774,5 +816,129 @@ describe("a deprecated catalog entry", () => {
     expect(outcome.installed).not.toContain(PLUGIN_ID);
     const scan = await scanPluginDirectory(dataPaths(dataDir).plugins);
     expect(scan.plugins.map((plugin) => plugin.id)).not.toContain(PLUGIN_ID);
+  }, 120_000);
+});
+
+/*
+ * The recipient answer is part of the consent: an install that records the
+ * consent and then fails to record the answer has queued no reconcile, and the
+ * board retrying it is told the plugin is already consented to. Written
+ * against the real record and the real audit log, because what has to roll
+ * back is every row the install writes.
+ */
+describe("an install with a recipient answer", () => {
+  const recipientKey = `plugin:${PLUGIN_ID}`;
+  const service = () => prisma as unknown as PrismaService;
+
+  /** An install service on this run's rows, its audit log passed through `audit`. */
+  function adminWith(audit: AuditLogService) {
+    const enqueue = vi.fn(async () => undefined);
+    const admin = new PluginAdminService(
+      testEnv,
+      registry,
+      { manifestFor: () => null, get: () => null, report: () => [] } as never,
+      { enqueue } as never,
+      new CatalogClient(testEnv),
+      audit,
+      new RestartCoordinator(testEnv),
+      new ProcessorAgreementService(service(), audit),
+      new ProcessingActivityService(service(), audit),
+      new ProcessorFactsService(testEnv, service(), {
+        describe: async () => null,
+      } as never),
+      service(),
+      { translatorFor: () => (key: string) => key } as never,
+      new PackageLock(testEnv),
+    );
+    return { admin, enqueue };
+  }
+
+  const answer = {
+    sendsPersonalDataOutside: true,
+    recipient: "Driftleverantoren AB",
+    classification: "PROCESSOR",
+    status: "PENDING",
+  } as const;
+
+  const installs = () =>
+    prisma.auditLogEntry.count({
+      where: { action: "PLUGIN_INSTALLED", targetId: PLUGIN_ID },
+    });
+
+  afterAll(async () => {
+    await prisma.processorAgreement.deleteMany({
+      where: { processorKey: recipientKey },
+    });
+    await prisma.processingActivity.deleteMany({
+      where: { sourceKey: recipientKey },
+    });
+  });
+
+  it("writes nothing and queues nothing when the answer cannot be recorded", async () => {
+    await registry.remove(PLUGIN_ID);
+    const real = new AuditLogService(service());
+    const refusing = {
+      record: (entry: Parameters<AuditLogService["record"]>[0], tx?: never) =>
+        entry.action === "PROCESSOR_AGREEMENT_RECORDED"
+          ? Promise.reject(new Error("The audit log refused the entry."))
+          : real.record(entry, tx),
+    } as unknown as AuditLogService;
+    const { admin, enqueue } = adminWith(refusing);
+    const installsBefore = await installs();
+
+    await expect(
+      admin.install(
+        { id: PLUGIN_ID, processorAgreement: answer },
+        null,
+        "SYSTEM",
+      ),
+    ).rejects.toThrow("The audit log refused the entry.");
+
+    expect(await registry.find(PLUGIN_ID)).toBeNull();
+    expect(await installs()).toBe(installsBefore);
+    expect(
+      await prisma.processingActivity.findMany({
+        where: { sourceKey: recipientKey, endedAt: null },
+      }),
+    ).toEqual([]);
+    expect(
+      await prisma.processorAgreement.findMany({
+        where: { processorKey: recipientKey },
+      }),
+    ).toEqual([]);
+    expect(enqueue).not.toHaveBeenCalled();
+  }, 120_000);
+
+  /*
+   * The recipient is only known to the record once the plugin is installed,
+   * and in the transaction it is: a first install is the case where the
+   * answer would otherwise be refused as naming nobody.
+   */
+  it("records the answer with a first install", async () => {
+    await registry.remove(PLUGIN_ID);
+    const { admin, enqueue } = adminWith(new AuditLogService(service()));
+
+    await expect(
+      admin.install(
+        { id: PLUGIN_ID, processorAgreement: answer },
+        null,
+        "SYSTEM",
+      ),
+    ).resolves.toEqual({ restarting: true });
+
+    expect(await registry.find(PLUGIN_ID)).not.toBeNull();
+    expect(
+      await prisma.processorAgreement.findMany({
+        where: { processorKey: recipientKey, endedAt: null },
+        select: { classification: true, status: true, counterparty: true },
+      }),
+    ).toEqual([
+      {
+        classification: "PROCESSOR",
+        status: "PENDING",
+        counterparty: "Driftleverantoren AB",
+      },
+    ]);
+    expect(enqueue).toHaveBeenCalledTimes(1);
   }, 120_000);
 });

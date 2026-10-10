@@ -631,72 +631,99 @@ export class PluginAdminService {
         ? undefined
         : await this.pluginAgreementInput(request.processorAgreement);
 
-    lockLost.throwIfAborted();
-    await this.registry.consent({
-      id: entry.id,
-      packageName: entry.packageName,
-      version: entry.version,
-      tarballUrl: entry.artifact.url,
-      checksum: entry.artifact.sha512,
-      permissions: echoed ? (request.permissions ?? []) : entry.permissions,
-      personalData: echoed ? (request.personalData ?? []) : entry.personalData,
-      actions: echoed ? (request.actions ?? []) : entry.actions,
-    });
-
     /*
-     * After the consent row, and deliberately outside it: the declaration a
-     * reinstall compares against is the permissions and the personal data, and
-     * a classification recorded beside them would make a board's answer about
-     * a mail server look like a change to what the plugin asked for.
-     *
-     * The recipient is keyed on the plugin id rather than on the installed row,
-     * so it survives the reinstall that rewrites that row.
-     *
-     * Only where the record is still empty: the check above was taken before
-     * the consent row, so a classification written in between is kept and this
-     * install goes on without its answer rather than failing after the consent
-     * is already committed.
+     * The consent row, the processing in the art. 30 record, the entry that
+     * says who installed it and the recipient's classification commit
+     * together or not at all. Update-or-
+     * create for the processing, so a plugin removed and installed again reads
+     * as running rather than ended: the row was closed with a date, and
+     * reinstalling reopens it and refreshes the declared categories while
+     * keeping any wording the board has written.
      */
-    if (agreement !== undefined) {
-      // The facts are read before the check rather than as an argument after
-      // it: a lock lost while they are read would otherwise reach the write.
-      // The record reads again before it writes, so it checks as well.
-      const facts = await this.facts.read();
+    lockLost.throwIfAborted();
+    await this.prisma.$transaction(async (tx) => {
       lockLost.throwIfAborted();
-      await this.processors.record(
-        pluginProcessorKey(entry.id),
-        { ...agreement, actorPersonId, channel },
-        facts,
-        { onlyIfUnrecorded: true, lockLost },
+      await this.registry.consent(
+        {
+          id: entry.id,
+          packageName: entry.packageName,
+          version: entry.version,
+          tarballUrl: entry.artifact.url,
+          checksum: entry.artifact.sha512,
+          permissions: echoed ? (request.permissions ?? []) : entry.permissions,
+          personalData: echoed
+            ? (request.personalData ?? [])
+            : entry.personalData,
+          actions: echoed ? (request.actions ?? []) : entry.actions,
+        },
+        tx,
       );
-    }
 
-    /*
-     * And the processing itself, in the art. 30 record. Update-or-create, so a
-     * plugin removed and installed again reads as running rather than ended:
-     * the row was closed with a date, and reinstalling reopens it and refreshes
-     * the declared categories while keeping any wording the board has written.
-     */
-    lockLost.throwIfAborted();
-    await this.processing.seedPlugin(entry.id, {
-      name: entry.packageName,
-      personalDataCategories: [
-        ...(echoed ? (request.personalData ?? []) : entry.personalData),
-      ],
-    });
+      /*
+       * In the same transaction, so a recipient answer that cannot be written
+       * takes the consent with it: a consent committed without it would have
+       * no reconcile queued, and a board retrying would be told the plugin was
+       * already consented to. It is still a record of its own, written with its
+       * own entry, rather than a field of the consent row: the declaration a
+       * reinstall compares against is the permissions and the personal data,
+       * and a classification recorded beside them would make a board's answer
+       * about a mail server look like a change to what the plugin asked for.
+       *
+       * The recipient is keyed on the plugin id rather than on the installed
+       * row, so it survives the reinstall that rewrites that row. The facts are
+       * read in the transaction, where the consent row above is already there.
+       *
+       * Only where the record is still empty: the check above was taken before
+       * this transaction, so a classification written in between is kept and
+       * this install goes on without its answer rather than being refused.
+       */
+      if (agreement !== undefined) {
+        // The facts are read before the check rather than as an argument after
+        // it: a lock lost while they are read would otherwise reach the write.
+        // The record reads again before it writes, so it checks as well.
+        const facts = await this.facts.read(tx);
+        lockLost.throwIfAborted();
+        await this.processors.record(
+          pluginProcessorKey(entry.id),
+          { ...agreement, actorPersonId, channel },
+          facts,
+          { onlyIfUnrecorded: true, lockLost },
+          tx,
+        );
+      }
 
-    lockLost.throwIfAborted();
-    await this.audit.record({
-      action: "PLUGIN_INSTALLED",
-      channel,
-      actorPersonId,
-      targetKind: "plugin",
-      targetId: entry.id,
-      context: {
-        version: entry.version,
-        permissions: entry.permissions,
-        personalData: entry.personalData,
-      },
+      lockLost.throwIfAborted();
+      await this.processing.seedPlugin(
+        entry.id,
+        {
+          name: entry.packageName,
+          personalDataCategories: [
+            ...(echoed ? (request.personalData ?? []) : entry.personalData),
+          ],
+        },
+        tx,
+      );
+
+      lockLost.throwIfAborted();
+      await this.audit.record(
+        {
+          action: "PLUGIN_INSTALLED",
+          channel,
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: entry.id,
+          context: {
+            version: entry.version,
+            permissions: echoed
+              ? (request.permissions ?? [])
+              : entry.permissions,
+            personalData: echoed
+              ? (request.personalData ?? [])
+              : entry.personalData,
+          },
+        },
+        tx,
+      );
     });
 
     lockLost.throwIfAborted();
@@ -732,29 +759,39 @@ export class PluginAdminService {
     lockLost: AbortSignal,
   ): Promise<{ restarting: boolean }> {
     lockLost.throwIfAborted();
-    const removed = await this.registry.remove(id);
-    if (!removed) {
-      throw new PluginNotFoundError(id);
-    }
+    await this.prisma.$transaction(async (tx) => {
+      lockLost.throwIfAborted();
+      const removed = await this.registry.remove(id, tx);
+      if (!removed) {
+        throw new PluginNotFoundError(id);
+      }
 
-    lockLost.throwIfAborted();
-    await this.audit.record({
-      action: "PLUGIN_REMOVED",
-      channel,
-      actorPersonId,
-      targetKind: "plugin",
-      targetId: id,
+      lockLost.throwIfAborted();
+      await this.audit.record(
+        {
+          action: "PLUGIN_REMOVED",
+          channel,
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+        },
+        tx,
+      );
+
+      /*
+       * The processing stops; the row stays with the date it stopped, because
+       * the record has to be able to say that the association did this and
+       * until when. The recipient's classification is left open deliberately:
+       * an agreement covered a period that happened, and closing it is the
+       * board's own act on the data protection screen.
+       */
+      lockLost.throwIfAborted();
+      await this.processing.endPlugin(id, tx);
     });
 
-    /*
-     * The processing stops; the row stays with the date it stopped, because
-     * the record has to be able to say that the association did this and until
-     * when. The recipient's classification is left open deliberately: an
-     * agreement covered a period that happened, and closing it is the board's
-     * own act on the data protection screen.
-     */
-    lockLost.throwIfAborted();
-    await this.processing.endPlugin(id);
+    // Stops serving at once, as switching it off does, rather than at the
+    // restart the reconcile ends in - which a failed reconcile never reaches.
+    this.loader.unload(id);
 
     lockLost.throwIfAborted();
     await this.installer.enqueue({ reason: `remove:${id}`, restart: true });

@@ -100,11 +100,12 @@ function build(options: Options = {}) {
   const recordProcessor = vi.fn(async () => undefined);
   const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
+  const remove = vi.fn(async () => true);
   const setEnabled = vi.fn(async () => ({ id: "occupancy" }));
   const writeSettings = vi.fn(async () => undefined);
+  const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
   const record = vi.fn(async () => undefined);
-  const remove = vi.fn(async () => true);
   /*
    * The transaction client, as its own object. Arming and the entry that
    * records it have to commit together, and an assertion that the entry was
@@ -153,7 +154,7 @@ function build(options: Options = {}) {
       record: recordProcessor,
       forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
-    { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
+    { seedPlugin, endPlugin } as never,
     {
       read: async () => {
         options.whileReadingFacts?.();
@@ -180,11 +181,12 @@ function build(options: Options = {}) {
     recordProcessor,
     seedPlugin,
     setActionArmed,
+    remove,
     setEnabled,
     writeSettings,
+    endPlugin,
     unload,
     record,
-    remove,
     prisma,
     txClient,
     restart,
@@ -366,6 +368,32 @@ describe("the consent echo gate", () => {
     expect(recorded().personalData).toEqual(confirmedData);
   });
 
+  it("records the confirmed declaration in the audit entry too", async () => {
+    // The entry is what the association answers a member with about what was
+    // agreed to, so it carries the declaration that was confirmed, in the
+    // order it was echoed, and not the catalog's copy of it.
+    const built = build();
+    const confirmed: PluginPermission[] = ["mail:send", "addressBook:read"];
+    const confirmedData: PluginPersonalDataCategory[] = ["apartment", "name"];
+
+    await built.service.install(
+      { id: "occupancy", permissions: confirmed, personalData: confirmedData },
+      null,
+      "WEB",
+    );
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({
+          permissions: confirmed,
+          personalData: confirmedData,
+        }),
+      }),
+      built.txClient,
+    );
+  });
+
   it("records the catalog's declaration when nothing was echoed", async () => {
     // The command-line tool: running the command is the consent, there is no
     // earlier screen for the catalog to have changed since, and the tool
@@ -374,6 +402,23 @@ describe("the consent echo gate", () => {
 
     expect(recorded().permissions).toEqual(ENTRY.permissions);
     expect(recorded().personalData).toEqual(ENTRY.personalData);
+  });
+
+  it("records the catalog's declaration in the audit entry when nothing was echoed", async () => {
+    const built = build();
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({
+          permissions: ENTRY.permissions,
+          personalData: ENTRY.personalData,
+        }),
+      }),
+      built.txClient,
+    );
   });
 });
 
@@ -1079,6 +1124,97 @@ describe("a deprecated catalog entry", () => {
       service.install({ id: ENTRY.id }, null, "WEB"),
     ).resolves.toEqual({ restarting: true });
     expect(consent).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * A plugin's rows and the entry naming who changed them commit together, so
+ * an audit insert that fails takes the change with it rather than leaving a
+ * change nobody is recorded as having made.
+ */
+describe("what an operation writes, and with what", () => {
+  it("installs the consent, the processing and its entry in one transaction", async () => {
+    const built = build();
+
+    await built.service.install({ id: ENTRY.id }, "person-1", "WEB");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: ENTRY.id }),
+      built.txClient,
+    );
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      ENTRY.id,
+      expect.anything(),
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_INSTALLED" }),
+      built.txClient,
+    );
+  });
+
+  it("removes the row, ends the processing and records it in one transaction", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.remove).toHaveBeenCalledWith(ENTRY.id, built.txClient);
+    expect(built.endPlugin).toHaveBeenCalledWith(ENTRY.id, built.txClient);
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      built.txClient,
+    );
+  });
+
+  it("stops serving a removed plugin at once rather than at the restart", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
+  });
+
+  it("records which settings changed, never their values", async () => {
+    const built = build({
+      installed: [
+        {
+          id: ENTRY.id,
+          manifest: {
+            settingsSchema: {
+              fields: [
+                {
+                  key: "heading",
+                  labelKey: "settings.heading",
+                  type: "text",
+                  default: "Occupancy",
+                },
+              ],
+            },
+          } as never,
+        },
+      ],
+    });
+
+    await built.service.writeSettings(
+      ENTRY.id,
+      { heading: "Belaggning" },
+      "person-1",
+    );
+
+    expect(built.writeSettings).toHaveBeenCalledWith(
+      ENTRY.id,
+      { heading: "Belaggning" },
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_SETTINGS_CHANGED",
+        actorPersonId: "person-1",
+        context: { fields: ["heading"] },
+      }),
+      built.txClient,
+    );
+    expect(JSON.stringify(built.record.mock.calls)).not.toContain("Belaggning");
   });
 });
 
