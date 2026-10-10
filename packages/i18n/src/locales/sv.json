@@ -1132,7 +1132,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Krypterad anslutning (TLS)",
-      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587). När inställningarna har sparats skickas ingenting till en server som inte erbjuder STARTTLS, om den inte körs på den här maskinen.",
+      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587). Ingenting skickas till en server som inte erbjuder STARTTLS, om den inte körs på den här maskinen och anges som 127.0.0.1 eller ::1.",
       "user": "Användarnamn",
       "password": "Lösenord",
       "passwordKept": "Ett lösenord är sparat. Lämna fältet tomt för att behålla det, eller töm det för att ta bort det.",

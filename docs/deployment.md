@@ -749,7 +749,7 @@ answers itself. Where they go out is decided in one of two places:
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
 | `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
-| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is on loopback. See "The SMTP relay" below                |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is at `127.0.0.1` or `::1`. See "The SMTP relay" below    |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
@@ -783,8 +783,11 @@ service that ties a display name to the key.
 **The SMTP relay.** A connection to `OPENBRF_SMTP_HOST` that starts in cleartext
 must upgrade through STARTTLS before the instance signs in, and a relay that does
 not offer it is a failed send rather than a password sent in the clear. Only a
-relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
-with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+relay on this machine written as a loopback address (`127.0.0.1`, `::1`) is
+exempt. The name `localhost` is not: the SMTP driver asks DNS what a name is
+before it reads `/etc/hosts`, so whoever answers the instance's DNS could point
+`localhost` at a server of their own. Use port 465 with
+`OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
 
 A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
 Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
@@ -792,12 +795,12 @@ Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
 offers STARTTLS, but otherwise sends the sign-in and every message in the clear,
 and so does it when something on the path removes the relay's offer. Set it only when you control every hop between the two, such as a network
 that only these containers share. The instance logs a warning at start while it
-is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
-loopback too.
+is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay at a
+loopback address too.
 
 A server the board enters in the settings is held to the same rule, loopback
-exemption included. Settings saved by an earlier version are moved to it by the
-upgrade's migration, so a connection that starts in cleartext to a server that
+address exemption included. Settings saved by an earlier version are moved to it
+by the upgrade's migration, so a connection that starts in cleartext to a server that
 offers no STARTTLS, which sent mail before the upgrade, sends none after it.
 Implicit TLS is not affected, as the connection is encrypted from the start.
 Every send through such a connection fails with the reason
@@ -806,8 +809,9 @@ message from the SMTP card after upgrading. If it fails that way, have the board
 switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
 587). Settings that do not require STARTTLS anyway, such as those a data-only
 restore of an older backup brings back, are held to it all the same: the
-instance requires STARTTLS of a server that is not on loopback when it sends,
-whatever the stored settings say.
+instance requires STARTTLS of a server that is not at a loopback address when
+it sends, whatever the stored settings say. That includes settings the upgrade
+left alone because their server was named `localhost`.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that
