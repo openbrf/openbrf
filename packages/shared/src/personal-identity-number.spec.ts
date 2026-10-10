@@ -372,6 +372,12 @@ describe("scanForPersonalIdentityNumbers", () => {
     ["a two-em dash", "811228\u2E3A9874"],
     ["a double oblique hyphen", "811228\u2E179874"],
     ["an Armenian hyphen", "811228\u058A9874"],
+    ["a modifier letter minus", "811228\u02D79874"],
+    ["a hyphen bullet", "811228\u20439874"],
+    ["a heavy minus sign", "811228\u27969874"],
+    ["a box drawings light horizontal", "811228\u25009874"],
+    ["a box drawings heavy horizontal", "811228\u25019874"],
+    ["a horizontal line extension", "811228\u23AF9874"],
   ])(
     "finds a number written with %s between the date and the last four",
     (_name, written) => {

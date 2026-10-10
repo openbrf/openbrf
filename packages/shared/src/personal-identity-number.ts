@@ -264,15 +264,21 @@ const SEPARATOR = /[\t\n\v\f\r\u0085\p{Z}]/u;
 
 /**
  * A dash, as the scan reads one: every character Unicode files as dash
- * punctuation (`\p{Pd}`), and the minus sign, which it files as a math symbol.
+ * punctuation (`\p{Pd}`), and the look-alikes it files elsewhere: the minus sign
+ * (U+2212) and the modifier letter minus (U+02D7), the hyphen bullet (U+2043),
+ * the heavy minus sign (U+2796), the box drawings light and heavy horizontal
+ * (U+2500, U+2501) and the horizontal line extension (U+23AF).
  *
  * The whole category rather than a list, because a list is never finished: a
  * word processor turns a hyphen into an en or em dash, and the horizontal bar,
  * the Armenian hyphen and the double oblique hyphen are dashes as well, which a
- * reader takes for the sign and NFKC leaves as they are. The category is
- * disjoint from {@link SEPARATOR}, which keeps the candidate pattern linear.
+ * reader takes for the sign and NFKC leaves as they are. The look-alikes are a
+ * list nonetheless, because they are not dashes to Unicode and a reader takes
+ * them for the sign all the same. None is a {@link SEPARATOR} or invisible, so
+ * the class stays disjoint from {@link SEPARATOR}, which keeps the candidate
+ * pattern linear.
  */
-const DASH = String.raw`\p{Pd}\u2212`;
+const DASH = String.raw`\p{Pd}\u02D7\u2043\u2212\u2500\u2501\u23AF\u2796`;
 
 /**
  * The sign between the date and the last four, as the scan accepts it: the plus
