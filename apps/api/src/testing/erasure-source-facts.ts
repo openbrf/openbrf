@@ -233,7 +233,7 @@ function mailTemplateId(node: SyntaxNode): string | null | undefined {
       rendered.add(key);
     } else if (property.type === "KeyValueProperty") {
       const value = unwrapped(property.value);
-      if (isNode(value) && !/Literal$/.test(value.type)) {
+      if (isNode(value) && !value.type.endsWith("Literal")) {
         rendered.add(key);
       }
     }
