@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { erasureSourceFacts } from "./erasure-source-facts";
+import {
+  registryCoverageProblems,
+  unexplainedNoProcessing,
+} from "./mail-template-checks";
 
 const directories: string[] = [];
 
@@ -13,11 +17,17 @@ afterEach(() => {
   }
 });
 
-function idsIn(source: string): (string | null)[] {
+function declaredIn(source: string): { path: string; id: string | null }[] {
   const directory = mkdtempSync(join(tmpdir(), "mail-template-"));
   directories.push(directory);
   writeFileSync(join(directory, "template.ts"), source);
-  return erasureSourceFacts(directory).flatMap((file) => file.mailTemplateIds);
+  return erasureSourceFacts(directory).flatMap((file) =>
+    file.mailTemplateIds.map((id) => ({ path: file.path, id })),
+  );
+}
+
+function idsIn(source: string): (string | null)[] {
+  return declaredIn(source).map((template) => template.id);
 }
 
 describe("discovering mail templates", () => {
@@ -57,6 +67,43 @@ export const a = { id: "short", subject, body };`),
       idsIn(
         `export const q = { select: { id: true, subject: true, body: true } };`,
       ),
+    ).toEqual([]);
+  });
+
+  it("fails the registry check for a discovered template that is not registered", () => {
+    const declared = declaredIn(
+      `export const a = { id: "extra", processing: null, subject: other.subject, body: other.body };`,
+    );
+
+    expect(registryCoverageProblems(declared, [{ id: "other" }])).toEqual([
+      "template.ts declares extra, which the registry does not reach",
+      "other is registered and declared nowhere in the source",
+    ]);
+    expect(registryCoverageProblems(declared, [{ id: "extra" }])).toEqual([]);
+  });
+
+  it("fails the registry check for a discovered template whose id is not a literal", () => {
+    const declared = declaredIn(
+      `const id = "x"; export const a = { id, subject: o.subject, body: o.body };`,
+    );
+
+    expect(registryCoverageProblems(declared, [{ id: "x" }])).toContain(
+      "template.ts declares a mail template whose id is not a literal",
+    );
+  });
+
+  it("fails the exception check for a template with no processing that is not on the list", () => {
+    const registered = [
+      { id: "extra", processing: null },
+      { id: "listed", processing: null },
+      { id: "sent", processing: "newsMailings" },
+    ];
+
+    expect(unexplainedNoProcessing(registered, { listed: "why" })).toEqual([
+      "extra declares no processing and is not one of the mails sent on none",
+    ]);
+    expect(
+      unexplainedNoProcessing(registered, { extra: "why", listed: "why" }),
     ).toEqual([]);
   });
 });
