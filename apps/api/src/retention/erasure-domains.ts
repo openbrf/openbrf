@@ -355,6 +355,50 @@ export function subletApplicationsKeptFromErasure(
   };
 }
 
+/**
+ * The last day of the latest-running consented letting that keeps a person's
+ * subletting application from a granted erasure, or null where none does.
+ *
+ * The day the board can do something about. A kept application that is still
+ * with the board is closed by answering it; a consent is kept for as long as
+ * its letting runs, through this day, and the night after it the purge takes it
+ * and the request can close. A letting that stopped earlier is the board's to
+ * record (`lettingEndedOn`), and the day moves to the one it records.
+ *
+ * The latest of them where there are several, because the request waits for
+ * every one.
+ */
+export async function lastDayOfRunningConsentedLetting(
+  client: ErasureDbClient,
+  personId: string,
+  now: Date,
+): Promise<Date | null> {
+  const lettings = await client.subletApplication.findMany({
+    where: { appliedByPersonId: personId, ...runningConsentedLetting(now) },
+    select: { periodTo: true, lettingEndedOn: true },
+  });
+  let last: Date | null = null;
+  for (const letting of lettings) {
+    // The recorded end where there is one: it is never after the period's.
+    const day = letting.lettingEndedOn ?? letting.periodTo;
+    if (last === null || day.getTime() > last.getTime()) {
+      last = day;
+    }
+  }
+  return last;
+}
+
+/** The domains {@link ERASURE_DOMAINS} registers, as the board's screen names them. */
+export type ErasureDomainKey =
+  | "boardMailboxThreads"
+  | "bookings"
+  | "chat"
+  | "eventSignups"
+  | "keyOrders"
+  | "motions"
+  | "newsComments"
+  | "subletApplications";
+
 /** One domain a granted erasure request reaches, and how to ask it. */
 export interface ErasureDomain {
   /**
@@ -367,6 +411,12 @@ export interface ErasureDomain {
    * is gone survives a test run.
    */
   readonly job: string;
+  /**
+   * What the board's screen calls the domain: a stable identifier it looks the
+   * words up by, in the board's language. The {@link name} is English prose
+   * for a log line and may be reworded; this may not.
+   */
+  readonly key: ErasureDomainKey;
   /** What a log line and a summary call the domain. */
   readonly name: string;
   /**
@@ -403,6 +453,7 @@ export interface ErasureDomain {
 export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   {
     job: "board-mailbox/board-mailbox-purge.service.ts",
+    key: "boardMailboxThreads",
     name: "board mailbox threads",
     countOwed: async (client, personId, _now, encryption) =>
       client.boardMailboxThread.count({
@@ -425,12 +476,14 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "bookings/booking-purge.service.ts",
+    key: "bookings",
     name: "bookings",
     countOwed: async (client, personId) =>
       client.booking.count({ where: bookingsErasedOnRequest(personId) }),
   },
   {
     job: "chat/chat-purge.service.ts",
+    key: "chat",
     name: "chat",
     countOwed: async (client, personId, now) => {
       const traces = chatTracesErasedOnRequest(personId);
@@ -446,6 +499,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "events/event-signup-purge.service.ts",
+    key: "eventSignups",
     name: "event sign-ups",
     countOwed: async (client, personId) =>
       client.eventSignup.count({
@@ -454,6 +508,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "key-orders/key-order-purge.service.ts",
+    key: "keyOrders",
     name: "key orders",
     countOwed: async (client, personId) =>
       client.keyOrder.count({ where: keyOrdersErasedOnRequest(personId) }),
@@ -465,6 +520,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "motions/motion-purge.service.ts",
+    key: "motions",
     name: "motions",
     countOwed: async (client, personId, now) =>
       client.motion.count({ where: motionsErasedOnRequest(personId, now) }),
@@ -477,6 +533,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "news/news-comment-purge.service.ts",
+    key: "newsComments",
     name: "news comments",
     countOwed: async (client, personId, now) =>
       client.newsComment.count({
@@ -485,6 +542,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   },
   {
     job: "sublets/sublet-purge.service.ts",
+    key: "subletApplications",
     name: "subletting applications",
     countOwed: async (client, personId, now) =>
       client.subletApplication.count({
@@ -511,6 +569,26 @@ export interface ErasureRemainder {
   readonly kept: number;
   /** Why the kept rows stay. Absent where the domain keeps none. */
   readonly keptBecause?: string;
+}
+
+/**
+ * The key of the domain a remainder is about.
+ *
+ * Looked up rather than carried on the remainder, which is the shape the log
+ * line, the run summary and the audit entry have always had.
+ */
+export function erasureDomainKey(
+  remainder: ErasureRemainder,
+): ErasureDomainKey {
+  const domain = ERASURE_DOMAINS.find(
+    (candidate) => candidate.name === remainder.domain,
+  );
+  if (domain === undefined) {
+    // Unreachable for a remainder erasureRemainder answered: it names only
+    // registered domains.
+    throw new Error(`Not a registered erasure domain: ${remainder.domain}`);
+  }
+  return domain.key;
 }
 
 /**

@@ -99,6 +99,7 @@ const PROTECTED_PERSON: PersonDetail = {
   dataSubjectRequests: [],
   communicationObjectionAt: null,
   processingRestrictedAt: null,
+  erasureWaitingOn: null,
 };
 
 const PLAIN_PERSON: PersonDetail = {

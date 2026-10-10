@@ -858,6 +858,33 @@
           "purged": "Closed when the purge carried it out.",
           "movedIn": "Closed when the person moved in again."
         },
+        "waitingOn": {
+          "title": "What the erasure is waiting on",
+          "blocked": "Held open. The purge has gone as far as it may, and the request waits for what is listed here to change.",
+          "incomplete": "Not finished yet. The nightly purge has not got through what is listed here. It carries on at its next run. If this is still here after a night, ask whoever runs the instance to look at the purge's log.",
+          "nothingLeft": "Nothing is left to erase. The next nightly purge carries out the request and closes it.",
+          "domain": {
+            "boardMailboxThreads": "Board mailbox threads",
+            "bookings": "Bookings",
+            "chat": "Chat",
+            "eventSignups": "Event sign-ups",
+            "keyOrders": "Key orders",
+            "motions": "Motions",
+            "newsComments": "News comments",
+            "subletApplications": "Subletting applications"
+          },
+          "owed_one": "{{count}} not erased yet",
+          "owed_other": "{{count}} not erased yet",
+          "kept_one": "{{count}} kept",
+          "kept_other": "{{count}} kept",
+          "keptBecause": {
+            "boardMailboxThreads": "The thread's address belongs to somebody under a legal hold or a restriction.",
+            "keyOrders": "An open key order is still with the board. Answer it and the erasure can go on.",
+            "motions": "An open motion, or one on the agenda of a meeting not yet held, is still being dealt with.",
+            "subletApplications": "A subletting application is still with the board, or a consented letting still runs."
+          },
+          "lettingLastDay": "A consented letting runs through {{date}}. The purge erases the consent the night after. If the letting ended earlier, record its last day under Subletting applications."
+        },
         "reasons": {
           "personNotFound": "There is no such person in the register.",
           "issueNotFound": "There is no such issue.",

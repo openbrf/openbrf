@@ -216,9 +216,9 @@ The residual: a consent the board never records as ended is kept until its
 period ends, at most about five years after it was applied for. In the
 meantime the rest of the erasure is carried out as the Decision describes. The
 contact details and the account go on the first night, and only the
-application and the open request wait. The board does not yet see on the
-request itself that a consent is what it waits on. That reaches the run's log
-and the audit entry, not the screen.
+application and the open request wait. The board sees on the request itself
+that a consent is what it waits on, and until which day: see "What the board
+sees" below.
 
 A board mailbox thread linked to the person is kept when the register holds its
 address for somebody under a legal hold or a restriction. That happens when a
@@ -230,3 +230,28 @@ long as the hold stood, saying a job had not got through. The scan now leaves
 the thread out, and the closing job counts it as kept. The mailbox domain needs
 the field encryption for that count, to index the held person's address under
 the thread's field, so `erasureRemainder` takes it.
+
+## Update, 2026-10-10: what the board sees
+
+What a request left open is waiting on reached only the run's log line and
+the audit entry. A board reading the person's page saw "granted" and nothing
+more, so it could not tell that a hold it placed, a matter it had not closed
+or a letting whose end it had not recorded was keeping the request open.
+
+The person view the board reads (`GET api/address-book/persons/:id`) now
+carries `erasureWaitingOn` beside the requests: the status (blocked or
+incomplete), the rule that refuses the purge if one does, each domain still
+holding rows with its owed and kept counts, and the last day of a consented
+letting that keeps an application. The request's row shows it. It is computed
+on every read and never stored, because each part of it changes without the
+request changing. Like the log line, it carries counts and a rule and never a
+row.
+
+The run's account and the screen read an open request the same way. Both call
+`erasureWaitingOn` in `retention/erasure-waiting-on.ts`, which builds on
+`erasureRemainder` and on the purge's refusal rules, now in
+`retention/purge-refusal.ts` and answered as codes the screen can translate.
+The run adds the one thing only it knows, that its own erasure threw for
+somebody. On a read, a request with rows owed is incomplete whether the jobs
+have not yet run since the grant or did not get through, so the screen says
+the purge carries on at its next run.
