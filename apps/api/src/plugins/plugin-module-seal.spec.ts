@@ -17,7 +17,12 @@ import {
   UseInterceptors,
   UsePipes,
 } from "@nestjs/common";
-import { HOST_METADATA, PATH_METADATA } from "@nestjs/common/constants";
+import {
+  HOST_METADATA,
+  PATH_METADATA,
+  ROUTE_ARGS_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
+} from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 
@@ -1066,6 +1071,336 @@ describe("what a plugin's controller may be constructed with", () => {
     }
 
     expect(sealed(Rooms).ok).toBe(true);
+  });
+});
+
+/**
+ * NestJS registers every module class as a provider of its own module and
+ * builds it from the same injector, so the class a plugin hands over is
+ * constructed with whatever it asks for.
+ */
+describe("what a plugin's module class may be constructed with", () => {
+  it("refuses one whose constructor asks for the database", () => {
+    class PrismaService {}
+    @Module({})
+    class PluginModule {
+      constructor(private readonly db: PrismaService) {}
+    }
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses one that takes the configuration as an injected field", () => {
+    const ENV = Symbol("OPENBRF_ENV");
+    @Module({})
+    class PluginModule {
+      @Inject(ENV) private readonly env!: unknown;
+    }
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses one reached through a nested module of its own", () => {
+    class AuditLogService {}
+    @Module({})
+    class Inner {
+      constructor(private readonly audit: AuditLogService) {}
+    }
+    @Module({ imports: [Inner] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("Inner");
+  });
+
+  it("accepts one constructed with the plugin's own services", () => {
+    class OwnHelper {}
+    @Module({ providers: [OwnHelper] })
+    class PluginModule {
+      constructor(private readonly helper: OwnHelper) {}
+    }
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+  });
+});
+
+/**
+ * NestJS builds the guards, interceptors, pipes and filters a provider names
+ * exactly as it builds a controller's, whether or not the provider serves a
+ * route.
+ */
+describe("what a plugin's provider may name as an enhancer", () => {
+  function sealed(provider: Type) {
+    @Module({ providers: [provider] })
+    class PluginModule {}
+    return seal({ module: PluginModule });
+  }
+
+  it("refuses a guard named on the class that asks for the database", () => {
+    class PrismaService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly db: PrismaService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Injectable()
+    @UseGuards(SneakyGuard)
+    class Helper {}
+
+    const result = sealed(Helper);
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses an interceptor named on one method", () => {
+    class MailService {}
+    @Injectable()
+    class SneakyInterceptor {
+      constructor(private readonly mail: MailService) {}
+      intercept() {
+        return undefined;
+      }
+    }
+    @Injectable()
+    class Helper {
+      @UseInterceptors(SneakyInterceptor)
+      run() {
+        return undefined;
+      }
+    }
+
+    expect(sealed(Helper)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses a pipe given to one parameter", () => {
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Injectable()
+    class Helper {
+      run(@Body(SneakyPipe) body: unknown) {
+        return body;
+      }
+    }
+
+    expect(sealed(Helper)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses one named by the class a string token is built as", () => {
+    class AuditLogService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly audit: AuditLogService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Injectable()
+    @UseGuards(SneakyGuard)
+    class Helper {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        providers: [{ provide: "HELPER", useClass: Helper }],
+      }),
+    ).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses an enhancer the module class itself names", () => {
+    class PrismaService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly db: PrismaService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Module({})
+    @UseGuards(SneakyGuard)
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("accepts a provider naming the plugin's own enhancers", () => {
+    class OwnHelper {}
+    @Injectable()
+    class OwnGuard implements CanActivate {
+      constructor(private readonly helper: OwnHelper) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Injectable()
+    @UseGuards(OwnGuard)
+    class Helper {}
+    @Module({ providers: [OwnHelper, Helper] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+  });
+});
+
+/**
+ * Metadata written by hand rather than by a decorator, read as NestJS reads it.
+ *
+ * A decorator always writes a numeric index and an array, but nothing makes a
+ * plugin use one, and NestJS does not check either: it assigns
+ * `parameters[index] = param` and iterates whatever list it is given.
+ */
+describe("injection metadata in the shapes NestJS also accepts", () => {
+  it("refuses a self-declared parameter whose index is a string", () => {
+    // `parameters["0"]` is `parameters[0]`, so NestJS hands this class the
+    // database in place of the declared OwnHelper.
+    class OwnHelper {}
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly helper: OwnHelper) {}
+    }
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: "0", param: PrismaService }],
+      Sneaky,
+    );
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("reads the token a string index replaces a design type with", () => {
+    // The same assignment in the other direction: the database is only the
+    // annotation, and NestJS hands this class "plugin-local".
+    class PrismaService {}
+    @Injectable()
+    class Ordinary {
+      constructor(private readonly local: PrismaService) {}
+    }
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: "0", param: "plugin-local" }],
+      Ordinary,
+    );
+    @Module({ providers: [Ordinary] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+  });
+
+  it("refuses a self-declared parameter past the declared ones", () => {
+    // Writing past the end stretches the array for NestJS, so the parameter
+    // is resolved like any other.
+    class AuditLogService {}
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: 3, param: AuditLogService }],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses an index that is an object, whose position its own code decides", () => {
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: { toString: () => "0" }, param: "plugin-local" }],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses constructor metadata given as a set rather than an array", () => {
+    // NestJS spreads it and resolves what the set holds. The entry over
+    // parameter 0 leaves NestJS still resolving parameter 1, the database.
+    class OwnHelper {}
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      "design:paramtypes",
+      new Set([OwnHelper, PrismaService]),
+      Sneaky,
+    );
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: 0, param: "plugin-local" }],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a parameter pipe given as one class rather than a list", () => {
+    // NestJS flattens a parameter's pipes one level, so a single class is
+    // built as surely as a list holding it.
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Controller("rooms")
+    class Rooms {
+      @Post()
+      create() {
+        return undefined;
+      }
+    }
+    Reflect.defineMetadata(
+      ROUTE_ARGS_METADATA,
+      { "3:0": { index: 0, pipes: SneakyPipe } },
+      Rooms,
+      "create",
+    );
+    @Module({ controllers: [Rooms] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
   });
 });
 

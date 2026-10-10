@@ -117,12 +117,12 @@ export interface DeniedInjection {
  * boundary is exactly what the module-identity check exists to catch
  * separately. A plugin reaching for one of these gets `forbidden-injection`.
  *
- * This covers what a provider, a controller or a guard, interceptor, pipe or
- * filter a controller names DECLARES, by constructor or by field. Resolving the
- * same class through
- * `ModuleRef` at runtime is a second half that a declaration check cannot see;
- * the injector handles below are what make a plugin declaring one of those a
- * boot finding rather than a silent reach.
+ * This covers what a module class, a provider, a controller or a guard,
+ * interceptor, pipe or filter one of them names DECLARES, by constructor or by
+ * field. Resolving the same class through `ModuleRef` at runtime is a second
+ * half that a declaration check cannot see; the injector handles below are what
+ * make a plugin declaring one of those a boot finding rather than a silent
+ * reach.
  */
 export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
   {
@@ -432,6 +432,17 @@ function walk(entry: unknown, state: WalkState): string | null {
     );
   }
 
+  // NestJS registers every module class as a provider of its own module and
+  // builds it from the same injector, so the class is checked as one.
+  const reachedByModule = firstForbidden(classReaches(moduleClass));
+  if (reachedByModule !== null) {
+    state.outcome.refusedFor = "forbidden-injection";
+    return (
+      `The module "${moduleClass.name}" reaches ` +
+      `${reachedByModule}, which a plugin may not hold.`
+    );
+  }
+
   const providers = [
     ...asArray(reflect(moduleClass, MODULE_METADATA.PROVIDERS)),
     ...asArray(dynamic?.providers),
@@ -459,7 +470,7 @@ function walk(entry: unknown, state: WalkState): string | null {
     ...asArray(reflect(moduleClass, MODULE_METADATA.CONTROLLERS)),
     ...asArray(dynamic?.controllers),
   ]) {
-    const reached = firstForbidden(controllerReaches(controller));
+    const reached = firstForbidden(classReaches(controller));
     if (reached !== null) {
       state.outcome.refusedFor = "forbidden-injection";
       return (
@@ -729,6 +740,9 @@ function forbiddenInjection(provider: unknown): string | null {
 /** The first denied service among tokens a declaration names, if any. */
 function firstForbidden(tokens: readonly unknown[]): string | null {
   for (const entry of tokens) {
+    if (entry === UNREADABLE) {
+      return "injection metadata that could not be read as NestJS reads it";
+    }
     const reached = resolveInjectionToken(entry);
     if (reached === UNRESOLVED) {
       return "a forward reference that could not be resolved";
@@ -787,6 +801,14 @@ function tokenNames(token: unknown): string[] {
 const UNRESOLVED = Symbol("openbrf.unresolvedForwardReference");
 
 /**
+ * Injection metadata the seal cannot read the way NestJS will.
+ *
+ * Refused rather than passed over, for the reason an unresolved forward
+ * reference is: what the seal cannot read, it cannot vouch for.
+ */
+const UNREADABLE = Symbol("openbrf.unreadableInjectionMetadata");
+
+/**
  * A token as the container will finally see it.
  *
  * `forwardRef(() => X)` is `{ forwardRef: thunk }`, and NestJS calls the thunk
@@ -827,7 +849,7 @@ function resolveInjectionToken(token: unknown): unknown {
 function declarationReaches(provider: unknown): unknown[] {
   if (typeof provider === "function") {
     // A bare class is both the token and what is constructed.
-    return [provider, ...constructorReaches(provider)];
+    return [provider, ...classReaches(provider)];
   }
   if (typeof provider !== "object" || provider === null) {
     return [];
@@ -841,18 +863,16 @@ function declarationReaches(provider: unknown): unknown[] {
   };
   const reached: unknown[] = [];
 
+  /*
+   * NestJS reads the enhancers of a bare class provider only, but checking
+   * these two as well costs nothing and does not lean on that detail.
+   */
   if (typeof declaration.provide === "function") {
-    reached.push(
-      declaration.provide,
-      ...constructorReaches(declaration.provide),
-    );
+    reached.push(declaration.provide, ...classReaches(declaration.provide));
   }
   if (typeof declaration.useClass === "function") {
     // What is actually constructed when the token is not the class itself.
-    reached.push(
-      declaration.useClass,
-      ...constructorReaches(declaration.useClass),
-    );
+    reached.push(declaration.useClass, ...classReaches(declaration.useClass));
   }
   if (declaration.useExisting !== undefined) {
     // An alias resolves to what it names, so naming one is holding it.
@@ -883,32 +903,73 @@ function constructorReaches(token: unknown): unknown[] {
    * where the parameter has one, the design type otherwise. A parameter typed
    * `PrismaService` but injected as `"plugin-local"` is handed the latter, so
    * counting both would refuse a class that never asks for the database.
+   *
+   * Built the way NestJS builds it (`Injector.reflectConstructorParams`): the
+   * design types copied into an array, then every self-declared entry written
+   * over it with a plain `parameters[index] = param`. The assignment is the
+   * point. NestJS does not check that `index` is a number, so `{ index: "0" }`
+   * replaces parameter 0 exactly as `{ index: 0 }` does, and a check that kept
+   * only numbers would have read the design type the container never uses.
    */
-  const designed = asArray<unknown>(reflect(token, "design:paramtypes"));
-  const explicit = new Map<number, unknown>();
-  for (const entry of asArray<{ index?: unknown; param?: unknown }>(
-    reflect(token, SELF_DECLARED_DEPS_METADATA),
-  )) {
-    if (typeof entry.index === "number") {
-      explicit.set(entry.index, entry.param);
-    }
+  const parameters: unknown[] = [];
+  const designed = listed(reflect(token, "design:paramtypes"));
+  if (designed.includes(UNREADABLE)) {
+    // Refused here rather than carried, where an entry below could write over
+    // it while NestJS still resolves the rest of what it would have held.
+    return [UNREADABLE];
   }
-  const length = Math.max(
-    designed.length,
-    ...[...explicit.keys()].map((i) => i + 1),
-  );
-  const parameters = Array.from({ length }, (_unused, index) =>
-    explicit.has(index) ? explicit.get(index) : designed[index],
-  );
+  for (const index of arrayIndexes(designed)) {
+    parameters[index] = designed[index];
+  }
+  for (const entry of listed(reflect(token, SELF_DECLARED_DEPS_METADATA))) {
+    if (entry === UNREADABLE) {
+      return [UNREADABLE];
+    }
+    if (typeof entry !== "object" || entry === null) {
+      // NestJS destructures the entry, which fails the boot for these.
+      continue;
+    }
+    const { index, param } = entry as { index?: unknown; param?: unknown };
+    if (
+      (typeof index === "object" && index !== null) ||
+      typeof index === "function"
+    ) {
+      // Which parameter this is would be the plugin's own `toString` to say,
+      // and it could say one thing here and another to NestJS.
+      return [UNREADABLE];
+    }
+    parameters[index as number] = param;
+  }
+
   return [
-    ...parameters,
-    ...asArray<{ type?: unknown }>(reflect(token, PROPERTY_DEPS_METADATA)).map(
-      (entry) => entry.type,
+    // What `Array.from` keeps: the array's elements, and no other key a
+    // non-numeric index wrote onto it.
+    ...arrayIndexes(parameters).map((index) => parameters[index]),
+    ...listed(reflect(token, PROPERTY_DEPS_METADATA)).map((entry) =>
+      entry === UNREADABLE
+        ? entry
+        : typeof entry === "object" && entry !== null
+          ? (entry as { type?: unknown }).type
+          : undefined,
     ),
   ];
 }
 
-/** Where a controller names a class the container builds for it. */
+/**
+ * The positions an array holds a value at.
+ *
+ * Read from its keys rather than counted up to its length, because a plugin
+ * that writes index 4294967294 gives the array a length of four billion and a
+ * loop over it would hold the boot for as long as it took.
+ */
+function arrayIndexes(array: readonly unknown[]): number[] {
+  return Object.keys(array)
+    .filter((key) => /^(?:0|[1-9]\d*)$/.test(key))
+    .map(Number)
+    .filter((index) => index < 2 ** 32 - 1);
+}
+
+/** Where a class names another class the container builds alongside it. */
 const ENHANCER_METADATA = [
   GUARDS_METADATA,
   INTERCEPTORS_METADATA,
@@ -917,46 +978,86 @@ const ENHANCER_METADATA = [
 ] as const;
 
 /**
- * Every token a controller would be handed, its own and its enhancers'.
+ * Every token a class the container builds would be handed, its own and its
+ * enhancers'.
  *
- * A controller is built by the same injector as a provider, so its constructor
- * and fields reach exactly as far. So does a guard, interceptor, pipe or filter
- * it names by class - `@UseGuards(Sneaky)` has the container construct
- * `Sneaky` with whatever it asks for, at class or at handler level - and a pipe
- * given to one parameter (`@Body(Sneaky)`). One given as an instance was built
- * by the plugin itself and is handed nothing.
+ * One reading for every class a plugin's module puts in front of the injector:
+ * the module class itself, which NestJS registers as a provider of its own
+ * module, every provider class and every controller. Their constructors and
+ * fields reach as far as a provider's do. So does a guard, interceptor, pipe or
+ * filter one of them names by class - `@UseGuards(Sneaky)` has the container
+ * construct `Sneaky` with whatever it asks for, at class or at handler level -
+ * and a pipe given to one parameter (`@Body(Sneaky)`). NestJS reads those on a
+ * provider exactly as on a controller (`DependenciesScanner
+ * .reflectDynamicMetadata`), so a provider that serves no route builds them all
+ * the same. One given as an instance was built by the plugin itself and is
+ * handed nothing.
  */
-function controllerReaches(controller: unknown): unknown[] {
-  if (typeof controller !== "function") {
+function classReaches(target: unknown): unknown[] {
+  if (typeof target !== "function") {
     return [];
   }
   const enhancers: unknown[] = ENHANCER_METADATA.flatMap((key) =>
-    asArray<unknown>(reflect(controller, key)),
+    listed(reflect(target, key)),
   );
-  const prototype: unknown = controller.prototype;
+  const prototype: unknown = target.prototype;
   if (typeof prototype === "object" && prototype !== null) {
     for (const { name, handler } of handlers(prototype)) {
       for (const key of ENHANCER_METADATA) {
-        enhancers.push(...asArray<unknown>(reflect(handler, key)));
+        enhancers.push(...listed(reflect(handler, key)));
       }
-      const parameters = Reflect.getMetadata(
+      const parameters: unknown = Reflect.getMetadata(
         ROUTE_ARGS_METADATA,
-        controller,
+        target,
         name,
-      ) as Record<string, { pipes?: unknown }> | undefined;
-      for (const parameter of Object.values(parameters ?? {})) {
-        enhancers.push(...asArray<unknown>(parameter.pipes));
+      );
+      if (!isPresent(parameters)) {
+        continue;
+      }
+      /*
+       * NestJS flattens each parameter's `pipes` one level, so a single class
+       * written there rather than in a list is built all the same.
+       */
+      for (const parameter of Object.values(
+        parameters as object,
+      ) as unknown[]) {
+        const pipes =
+          typeof parameter === "object" && parameter !== null
+            ? (parameter as { pipes?: unknown }).pipes
+            : undefined;
+        enhancers.push(...(Array.isArray(pipes) ? pipes : [pipes]));
       }
     }
   }
   return [
-    ...constructorReaches(controller),
+    ...constructorReaches(target),
     ...enhancers.flatMap((enhancer) =>
-      typeof enhancer === "function"
-        ? [enhancer, ...constructorReaches(enhancer)]
-        : [],
+      enhancer === UNREADABLE
+        ? [enhancer]
+        : typeof enhancer === "function"
+          ? [enhancer, ...constructorReaches(enhancer)]
+          : [],
     ),
   ];
+}
+
+/**
+ * A metadata list as NestJS reads it: `Reflect.getMetadata(key) || []`.
+ *
+ * Absent is empty, as it is for NestJS. Anything else that is not an array is
+ * refused rather than read as empty, because NestJS goes on to iterate it - a
+ * `Set` of tokens works there - and the seal would have checked nothing.
+ */
+function listed(value: unknown): unknown[] {
+  if (!isPresent(value)) {
+    return [];
+  }
+  return Array.isArray(value) ? (value as unknown[]) : [UNREADABLE];
+}
+
+/** Truthy, which is the test NestJS's `|| []` applies. */
+function isPresent(value: unknown): boolean {
+  return Boolean(value);
 }
 
 /** An inject entry is a token, or `{ token, optional }` around one. */
