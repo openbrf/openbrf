@@ -15,6 +15,8 @@ import { setTimeout } from "node:timers/promises";
 
 import { PgBoss } from "pg-boss";
 
+import { refuseUnsafeTriggers } from "./check-triggers.mjs";
+
 function loadNearestEnvFile(startDirectory = process.cwd()) {
   const { root } = parse(startDirectory);
   let directory = startDirectory;
@@ -65,6 +67,49 @@ boss.on("bam", ({ name, table, status }) => {
 });
 
 /**
+ * Makes pgboss.queue refuse, for every role, a row that is partitioned or names
+ * a job table other than the shared one - the rows the check below stops the
+ * install for.
+ *
+ * Owned by the role that runs this, so the runtime role cannot drop or disable
+ * it: both need ownership of the table. Creating it takes a lock that waits
+ * for every transaction already writing the table, so a row written before
+ * the trigger is committed by the time the check reads it. Run before the
+ * check, so no row can get past the check afterwards, and again after pg-boss
+ * has started, which creates the table on a fresh install. Replacing it leaves
+ * nothing to clean up, and does nothing while the table does not exist.
+ */
+async function guardQueueTable(db) {
+  const { rows } = await db.executeSql(
+    "SELECT to_regclass('pgboss.queue') IS NOT NULL AS queue",
+  );
+  if (!rows[0].queue) {
+    return;
+  }
+  await db.executeSql(
+    `CREATE OR REPLACE FUNCTION pgboss.refuse_own_job_table() RETURNS trigger
+     LANGUAGE plpgsql
+     SET search_path = pg_catalog, pg_temp
+     AS $body$
+     BEGIN
+       IF NEW.partition IS DISTINCT FROM false
+          OR NEW.table_name IS DISTINCT FROM 'job_common' THEN
+         RAISE EXCEPTION USING
+           ERRCODE = 'check_violation',
+           MESSAGE = format(
+             'Queue %L cannot be partitioned or name a job table of its own: pg-boss builds SQL from that name as the schema owner.',
+             NEW.name);
+       END IF;
+       RETURN NEW;
+     END
+     $body$;
+     CREATE OR REPLACE TRIGGER refuse_own_job_table
+       BEFORE INSERT OR UPDATE ON pgboss.queue
+       FOR EACH ROW EXECUTE FUNCTION pgboss.refuse_own_job_table();`,
+  );
+}
+
+/**
  * The rows in the job schema that pg-boss, migrating as the owner, turns into
  * SQL of its own, checked before it gets the chance.
  *
@@ -81,9 +126,10 @@ boss.on("bam", ({ name, table, status }) => {
  * first revoked that - because it cannot then be told from one that role
  * wrote. Once only the owner can, the builds are the owner's and are left.
  *
- * This is a check, not a lock: a role that can write pgboss.queue could change
- * a row between it and the migration pg-boss runs next. Closing that takes a
- * trigger on the table, which is a change of its own.
+ * The check alone would not be a lock: a role that can write pgboss.queue
+ * could change a row between it and the migration pg-boss runs next. So the
+ * trigger from guardQueueTable goes in first, and a row that would fail the
+ * check can no longer be written once the check has looked.
  */
 async function refuseRowsTheOwnerWouldRun(db) {
   const { rows } = await db.executeSql(
@@ -91,6 +137,7 @@ async function refuseRowsTheOwnerWouldRun(db) {
             to_regclass('pgboss.bam') IS NOT NULL AS bam`,
   );
   if (rows[0].queue) {
+    await guardQueueTable(db);
     const queues = await db.executeSql(
       `SELECT count(*)::int AS count FROM pgboss.queue
        WHERE partition OR table_name IS DISTINCT FROM 'job_common'`,
@@ -137,9 +184,17 @@ async function refuseRowsTheOwnerWouldRun(db) {
   }
 }
 
-// Opened here so that the check runs on the pool pg-boss then starts on.
+// Opened here so that the checks run on the pool pg-boss then starts on.
+//
+// The triggers on the job schema's tables and the application's, and who can
+// replace them, are checked first (scripts/check-triggers.mjs). The deploy
+// checks them before the migrations as well; this covers an install run on its
+// own, and comes before guardQueueTable puts back the trigger on pgboss.queue,
+// which would hide one that had been replaced. They are checked again once
+// pg-boss has started, on the tables it has created by then.
 const db = boss.getDb();
 await db.open();
+await refuseUnsafeTriggers(db, "the install");
 await refuseRowsTheOwnerWouldRun(db);
 
 // A migration that adds an index to a job table that already exists does not
@@ -171,6 +226,8 @@ async function finishIndexBuilds() {
 
 await boss.start();
 try {
+  await refuseUnsafeTriggers(db, "the install");
+  await guardQueueTable(db);
   await finishIndexBuilds();
   console.log('Job schema "pgboss" is installed and up to date.');
 } catch (error) {

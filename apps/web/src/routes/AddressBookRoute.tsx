@@ -333,7 +333,9 @@ export function AddressBookRoute(): ReactElement {
                   stampKey="register.stamp.addressBook"
                   contactOf={(row) => row.contact}
                   purgeOf={(row) => row.purgeOn}
-                  onOpenPerson={openPerson}
+                  onOpenPerson={(row) => {
+                    openPerson(row.personId);
+                  }}
                   onOpenApartment={openApartment}
                   loading={refreshing}
                 />

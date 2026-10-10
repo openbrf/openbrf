@@ -97,6 +97,7 @@ export interface MeetingNoticeMailProps {
  */
 export const meetingNoticeMail: MailTemplate<MeetingNoticeMailProps> = {
   id: "meeting-notice",
+  processing: "meetingRecords",
 
   subject: (props, context) =>
     context.t("email.meetingNotice.subject", {

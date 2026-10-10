@@ -64,8 +64,11 @@ export interface BoardProps<TRow extends DirectoryRow> {
   contactOf?: (row: TRow) => RegisterContact;
   /** Board audience only: the derived service-tier erasure date. */
   purgeOf?: (row: TRow) => string | null;
-  /** Board audience only: rows become openable when these are given. */
-  onOpenPerson?: (personId: string) => void;
+  /**
+   * Board audience only: rows become openable when these are given. Takes the
+   * row and not an id, because only the board's rows name a person.
+   */
+  onOpenPerson?: (row: TRow) => void;
   onOpenApartment?: (apartmentId: string) => void;
   /** Dims the panel while a new page is in flight, without unmounting it. */
   loading: boolean;
@@ -427,7 +430,7 @@ function BoardRowView<TRow extends DirectoryRow>({
   contact: RegisterContact | undefined;
   purgeOn: string | null;
   showContact: boolean;
-  onOpenPerson?: (personId: string) => void;
+  onOpenPerson?: (row: TRow) => void;
   onOpenApartment?: (apartmentId: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -468,7 +471,7 @@ function BoardRowView<TRow extends DirectoryRow>({
             <button
               type="button"
               onClick={() => {
-                onOpenPerson(row.personId);
+                onOpenPerson(row);
               }}
               aria-label={t("register.actions.openPerson", { name: row.name })}
               className={`flex min-h-11 items-center text-left text-body font-medium underline-offset-4 hover:underline focus-visible:outline-trust-register ${nameInk}`}

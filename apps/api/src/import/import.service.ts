@@ -27,6 +27,7 @@ import {
 } from "./import-columns";
 import { ImportError } from "./import-errors";
 import { lockImportApply } from "./import-lock";
+import { readImportRevision } from "./import-revision";
 import {
   changedSincePreview,
   findUndecided,
@@ -297,6 +298,11 @@ export class ImportService implements OnModuleInit {
   ): Promise<ImportPreview> {
     const session = await this.loadForPreview(sessionId);
 
+    // Read before the register is, not after the plan is made. An import that
+    // writes while this plan is being worked out may or may not be in what the
+    // plan read, and the apply can only refuse it if it moved this count too.
+    const previewedRevision = await readImportRevision(this.prisma);
+
     const plan = await this.planner.plan({
       rows: await this.planner.decryptRows(session.rowsCipher),
       columnCount: session.columns.length,
@@ -327,6 +333,8 @@ export class ImportService implements OnModuleInit {
         defaultMovedInOn: input.defaultMovedInOn,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
         previewDigest: planDigest(plan),
+        previewedRevision,
+        previewCount: { increment: 1 },
         previewedAt: new Date(),
       },
     });
@@ -366,6 +374,14 @@ export class ImportService implements OnModuleInit {
    * for as long as a hung attempt takes to time out and be retried, and for a
    * session whose job was lost, until the next start re-queues it - or until
    * an administrator abandons it (`abandon`).
+   *
+   * And an import that wrote to the register after this one was previewed makes
+   * the preview out of date. The counts it showed may no longer hold, and a row
+   * it matched to one person can match two now - which the job would find on
+   * its first chunk and stop on, leaving a FAILED session that has to be
+   * uploaded again. Refused instead, before anything is claimed: the session
+   * stays in MAPPING, and previewing it again shows the board what the apply
+   * would do now and asks again about every row that needs a decision.
    */
   async apply(
     sessionId: string,
@@ -398,6 +414,36 @@ export class ImportService implements OnModuleInit {
       await lockImportApply(tx);
       await refuseWhileAnotherRuns(tx, sessionId);
 
+      // Under the lock and with nothing else running, so no chunk can move the
+      // count between this read and the claim. A session previewed before
+      // there was a count has none, and is previewed again like one that is
+      // behind it.
+      //
+      // Only a chunk that wrote moves the count. An import that stopped before
+      // writing, or whose rows were all skipped or in error, left the register
+      // as this preview saw it, and a second preview would show the same.
+      //
+      // The preview read before the lock may have been replaced since, by
+      // another tab, and its revision is the one that tab recorded. That is
+      // the replaced preview's own refusal, not an outdated one: previewing
+      // again from here would overwrite the newer preview.
+      const recorded = await tx.importSession.findUnique({
+        where: { id: sessionId },
+        select: { previewCount: true },
+      });
+      if (recorded !== null && recorded.previewCount !== session.previewCount) {
+        throw new ImportError(
+          "The import was previewed again while it was being started.",
+          "preview-replaced",
+        );
+      }
+      if (session.previewedRevision !== (await readImportRevision(tx))) {
+        throw new ImportError(
+          "Another import changed the register after this one was previewed. Preview it again.",
+          "preview-outdated",
+        );
+      }
+
       const claim = await tx.importSession.updateMany({
         // The preview this apply was checked against. One taken meanwhile
         // may have recorded another mapping, and its rows are not the ones
@@ -405,7 +451,7 @@ export class ImportService implements OnModuleInit {
         where: {
           id: sessionId,
           status: "MAPPING",
-          previewedAt: session.previewedAt,
+          previewCount: session.previewCount,
         },
         data: {
           status: "QUEUED",
@@ -758,6 +804,8 @@ export class ImportService implements OnModuleInit {
     defaultRole: ImportRole | null;
     defaultMovedInOn: string | null;
     previewedAt: Date | null;
+    previewedRevision: number | null;
+    previewCount: number;
     ambiguousRows: Prisma.JsonValue;
     previewDigest: string | null;
   }> {
@@ -771,6 +819,8 @@ export class ImportService implements OnModuleInit {
         defaultRole: true,
         defaultMovedInOn: true,
         previewedAt: true,
+        previewedRevision: true,
+        previewCount: true,
         ambiguousRows: true,
         previewDigest: true,
         status: true,

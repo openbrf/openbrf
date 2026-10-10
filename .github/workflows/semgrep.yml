@@ -71,6 +71,22 @@ jobs:
             echo "docker/semgrep/Dockerfile names no image." >&2
             exit 1
           fi
+          # Pulled through Google's mirror of Docker Hub, which does not limit
+          # anonymous pulls per address as Docker Hub does on runners whose
+          # addresses everyone else's CI shares. The pin itself stays on Docker
+          # Hub, where Dependabot reads the tags; the digest is the one Docker
+          # Hub serves under the tag, and the mirror serves the same one. A
+          # digest the mirror has not cached yet (a fresh Dependabot bump) falls
+          # back to Docker Hub rather than failing the scan.
+          DOCKER_HUB_IMAGE="$SEMGREP_IMAGE"
+          MIRROR_IMAGE="mirror.gcr.io/${DOCKER_HUB_IMAGE}"
+          if docker pull "$MIRROR_IMAGE"; then
+            SEMGREP_IMAGE="$MIRROR_IMAGE"
+          else
+            echo "::warning::mirror.gcr.io could not serve ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
+            docker pull "$DOCKER_HUB_IMAGE"
+            SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
+          fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
             --config=p/typescript \
@@ -123,7 +139,7 @@ jobs:
       # fails the run closed instead - no artifact, so nothing to upload.
       - name: Upload SARIF artifact
         if: ${{ !cancelled() && steps.filter_sarif.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: semgrep-sarif
           path: semgrep.sarif
@@ -154,7 +170,7 @@ jobs:
           persist-credentials: false
 
       - name: Download SARIF artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: semgrep-sarif
 

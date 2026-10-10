@@ -78,7 +78,7 @@ export class DataProtectionOverviewService {
       }),
       this.prisma.dataSubjectRequest.findMany({
         where: { decision: null, closedAt: null },
-        select: { requestedOn: true },
+        select: { requestedOn: true, extendedAt: true },
       }),
       this.notice.coverage(),
       this.facts.read().then((facts) => this.processors.list(facts)),
@@ -106,9 +106,7 @@ export class DataProtectionOverviewService {
         open: requests.length,
         // Past the month art. 12(3) gives, and still owed: an overdue answer is
         // not an answer the association no longer has to give.
-        overdue: requests.filter((request) =>
-          isPastDue(request.requestedOn, now),
-        ).length,
+        overdue: requests.filter((request) => isPastDue(request, now)).length,
       },
       processors: {
         notRecorded: processors.filter(

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
+import { PackageLockLostError } from "../packaging/package-lock";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
@@ -66,6 +67,10 @@ interface Options {
   recipients?: ReadonlyMap<string, string>;
   /** OPENBRF_PLUGINS_ENABLED; on unless the instance is the subject. */
   pluginsEnabled?: boolean;
+  /** What the package lock hands the work; a lock still held unless given. */
+  lockLost?: AbortSignal;
+  /** Runs while the configuration the recipients are read from is pending. */
+  whileReadingFacts?: () => void;
 }
 
 function build(options: Options = {}) {
@@ -95,6 +100,11 @@ function build(options: Options = {}) {
   const recordProcessor = vi.fn(async () => undefined);
   const seedPlugin = vi.fn(async () => undefined);
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
+  const remove = vi.fn(async () => true);
+  const setEnabled = vi.fn(async () => ({ id: "occupancy" }));
+  const writeSettings = vi.fn(async () => undefined);
+  const endPlugin = vi.fn(async () => undefined);
+  const unload = vi.fn();
   const record = vi.fn(async () => undefined);
   /*
    * The transaction client, as its own object. Arming and the entry that
@@ -114,14 +124,17 @@ function build(options: Options = {}) {
     {
       consent,
       setActionArmed,
+      setEnabled,
+      writeSettings,
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
-      remove: async () => true,
+      remove,
     } as never,
     {
       report: () => [],
       get: () => null,
+      unload,
       manifestFor: (id: string) =>
         installed.find((record) => record.id === id)?.manifest ?? null,
     } as never,
@@ -141,12 +154,26 @@ function build(options: Options = {}) {
       record: recordProcessor,
       forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
-    { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
-    { read: async () => FACTS } as never,
+    { seedPlugin, endPlugin } as never,
+    {
+      read: async () => {
+        options.whileReadingFacts?.();
+        return FACTS;
+      },
+    } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
     prisma as never,
     { translatorFor: () => (key: string) => key } as never,
+    // The lock has no meaning without a database; package-lock.int-spec.ts
+    // tests it against one.
+    {
+      run: async (
+        _kind: string,
+        _id: string,
+        work: (lockLost: AbortSignal) => unknown,
+      ) => work(options.lockLost ?? new AbortController().signal),
+    } as never,
   );
   return {
     service,
@@ -154,6 +181,11 @@ function build(options: Options = {}) {
     recordProcessor,
     seedPlugin,
     setActionArmed,
+    remove,
+    setEnabled,
+    writeSettings,
+    endPlugin,
+    unload,
     record,
     prisma,
     txClient,
@@ -336,6 +368,32 @@ describe("the consent echo gate", () => {
     expect(recorded().personalData).toEqual(confirmedData);
   });
 
+  it("records the confirmed declaration in the audit entry too", async () => {
+    // The entry is what the association answers a member with about what was
+    // agreed to, so it carries the declaration that was confirmed, in the
+    // order it was echoed, and not the catalog's copy of it.
+    const built = build();
+    const confirmed: PluginPermission[] = ["mail:send", "addressBook:read"];
+    const confirmedData: PluginPersonalDataCategory[] = ["apartment", "name"];
+
+    await built.service.install(
+      { id: "occupancy", permissions: confirmed, personalData: confirmedData },
+      null,
+      "WEB",
+    );
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({
+          permissions: confirmed,
+          personalData: confirmedData,
+        }),
+      }),
+      built.txClient,
+    );
+  });
+
   it("records the catalog's declaration when nothing was echoed", async () => {
     // The command-line tool: running the command is the consent, there is no
     // earlier screen for the catalog to have changed since, and the tool
@@ -344,6 +402,23 @@ describe("the consent echo gate", () => {
 
     expect(recorded().permissions).toEqual(ENTRY.permissions);
     expect(recorded().personalData).toEqual(ENTRY.personalData);
+  });
+
+  it("records the catalog's declaration in the audit entry when nothing was echoed", async () => {
+    const built = build();
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({
+          permissions: ENTRY.permissions,
+          personalData: ENTRY.personalData,
+        }),
+      }),
+      built.txClient,
+    );
   });
 });
 
@@ -749,6 +824,7 @@ describe("what the consent step records about the recipient", () => {
 
     expect(recordProcessor.mock.calls[0]?.[3]).toEqual({
       onlyIfUnrecorded: true,
+      lockLost: expect.any(AbortSignal),
     });
   });
 });
@@ -905,6 +981,58 @@ describe("arming an action, which is what exposes it", () => {
   });
 });
 
+describe("switching a plugin on or off", () => {
+  it("writes the change and the entry naming who made it in one transaction", async () => {
+    const built = build();
+
+    await built.service.setEnabled("occupancy", false, "admin-1");
+
+    expect(built.setEnabled).toHaveBeenCalledWith(
+      "occupancy",
+      false,
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_DISABLED",
+        actorPersonId: "admin-1",
+        targetKind: "plugin",
+        targetId: "occupancy",
+      }),
+      built.txClient,
+    );
+    expect(built.unload).toHaveBeenCalledWith("occupancy");
+  });
+
+  it("names the switching on for what it is", async () => {
+    const built = build();
+    // Enabling replaces the process, which a unit test must not do.
+    vi.spyOn(built.restart, "restartWhenCommitted").mockResolvedValue();
+
+    await built.service.setEnabled("occupancy", true, "admin-1");
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_ENABLED",
+        actorPersonId: "admin-1",
+      }),
+      built.txClient,
+    );
+  });
+
+  it("writes no entry for a plugin that is not there", async () => {
+    const built = build();
+    built.setEnabled.mockResolvedValue(null as never);
+
+    await expect(
+      built.service.setEnabled("occupancy", false, "admin-1"),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+
+    expect(built.record).not.toHaveBeenCalled();
+    expect(built.unload).not.toHaveBeenCalled();
+  });
+});
+
 describe("the catalog entries the consent screen reads", () => {
   it("carries the connected-app sign-in route an entry declares", async () => {
     const { service } = build({
@@ -996,6 +1124,97 @@ describe("a deprecated catalog entry", () => {
       service.install({ id: ENTRY.id }, null, "WEB"),
     ).resolves.toEqual({ restarting: true });
     expect(consent).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * A plugin's rows and the entry naming who changed them commit together, so
+ * an audit insert that fails takes the change with it rather than leaving a
+ * change nobody is recorded as having made.
+ */
+describe("what an operation writes, and with what", () => {
+  it("installs the consent, the processing and its entry in one transaction", async () => {
+    const built = build();
+
+    await built.service.install({ id: ENTRY.id }, "person-1", "WEB");
+
+    expect(built.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: ENTRY.id }),
+      built.txClient,
+    );
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      ENTRY.id,
+      expect.anything(),
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_INSTALLED" }),
+      built.txClient,
+    );
+  });
+
+  it("removes the row, ends the processing and records it in one transaction", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.remove).toHaveBeenCalledWith(ENTRY.id, built.txClient);
+    expect(built.endPlugin).toHaveBeenCalledWith(ENTRY.id, built.txClient);
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "PLUGIN_REMOVED" }),
+      built.txClient,
+    );
+  });
+
+  it("stops serving a removed plugin at once rather than at the restart", async () => {
+    const built = build();
+
+    await built.service.uninstall(ENTRY.id, "person-1", "WEB");
+
+    expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
+  });
+
+  it("records which settings changed, never their values", async () => {
+    const built = build({
+      installed: [
+        {
+          id: ENTRY.id,
+          manifest: {
+            settingsSchema: {
+              fields: [
+                {
+                  key: "heading",
+                  labelKey: "settings.heading",
+                  type: "text",
+                  default: "Occupancy",
+                },
+              ],
+            },
+          } as never,
+        },
+      ],
+    });
+
+    await built.service.writeSettings(
+      ENTRY.id,
+      { heading: "Belaggning" },
+      "person-1",
+    );
+
+    expect(built.writeSettings).toHaveBeenCalledWith(
+      ENTRY.id,
+      { heading: "Belaggning" },
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_SETTINGS_CHANGED",
+        actorPersonId: "person-1",
+        context: { fields: ["heading"] },
+      }),
+      built.txClient,
+    );
+    expect(JSON.stringify(built.record.mock.calls)).not.toContain("Belaggning");
   });
 });
 
@@ -1234,5 +1453,70 @@ describe("the gates on the OAuth protected resource", () => {
 
     await done;
     expect(consent).toHaveBeenCalledOnce();
+  });
+});
+
+describe("an operation whose package lock was lost", () => {
+  /*
+   * The session holding the lock ended, so another operation on the id may
+   * already be running. Nothing may be written after that, however far the
+   * gates got.
+   */
+  const lost = (): AbortSignal => {
+    const controller = new AbortController();
+    controller.abort(new PackageLockLostError("plugin", "occupancy"));
+    return controller.signal;
+  };
+
+  it("installs nothing", async () => {
+    const built = build({ lockLost: lost() });
+
+    await expect(
+      built.service.install({ id: "occupancy" }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The recipient is classified after a read of the instance's configuration,
+   * and the lock can be lost while that read is pending. The check comes after
+   * it, so the classification is not written either.
+   */
+  it("records no recipient when the lock is lost while the facts are read", async () => {
+    const lock = new AbortController();
+    const built = build({
+      lockLost: lock.signal,
+      whileReadingFacts: () => {
+        lock.abort(new PackageLockLostError("plugin", "occupancy"));
+      },
+    });
+
+    await expect(
+      built.service.install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: { sendsPersonalDataOutside: false },
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.consent).toHaveBeenCalledOnce();
+    expect(built.recordProcessor).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+  });
+
+  it("removes nothing", async () => {
+    const built = build({ lockLost: lost() });
+
+    await expect(
+      built.service.uninstall("occupancy", null, "WEB"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.remove).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
   });
 });

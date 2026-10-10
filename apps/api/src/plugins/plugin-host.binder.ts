@@ -128,6 +128,17 @@ export class PluginHostBinder {
               definition: {
                 ...registration.definition,
                 name: composedActionName(plugin.id, registration.id),
+                /*
+                 * In the plugin's own namespace, as the name is. An alias is
+                 * a name a caller reaches the action by, and one a plugin
+                 * chose freely could claim a core action's name - taken first,
+                 * it would stop the core registering its own and the instance
+                 * starting at all.
+                 */
+                deprecatedAliases:
+                  registration.definition.deprecatedAliases?.map((alias) =>
+                    composedActionName(plugin.id, alias),
+                  ),
               },
             },
             {

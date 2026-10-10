@@ -4,6 +4,9 @@
  *
  * Both IPv6 forms, because a URL parser always returns the address bracketed
  * and an SMTP host is written as the operator typed it.
+ *
+ * An SMTP server is held to the API's `isLoopbackAddress` instead, which does
+ * not take the name `localhost` on trust.
  */
 export function isLoopbackHost(host: string): boolean {
   return (

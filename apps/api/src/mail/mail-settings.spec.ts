@@ -145,8 +145,8 @@ describe("the environment", () => {
     });
   });
 
-  it("lets a relay on this machine go without STARTTLS", async () => {
-    for (const host of ["localhost", "127.0.0.1", "::1", "[::1]"]) {
+  it("lets a relay at a loopback address go without STARTTLS", async () => {
+    for (const host of ["127.0.0.1", "::1", "[::1]"]) {
       const mail = await resolver({
         ...SMTP_ENV,
         OPENBRF_SMTP_HOST: host,
@@ -156,6 +156,17 @@ describe("the environment", () => {
         false,
       );
     }
+  });
+
+  it("requires STARTTLS of a relay named localhost", async () => {
+    // The SMTP driver asks DNS what localhost is before it reads the hosts
+    // file, and whoever answers the instance's DNS may answer it.
+    const mail = await resolver({
+      ...SMTP_ENV,
+      OPENBRF_SMTP_HOST: "localhost",
+    }).resolver.current();
+
+    expect(mail?.driver === "smtp" ? mail.server.requireTls : null).toBe(true);
   });
 
   it("lets the host vouch for the network to a relay elsewhere", async () => {
@@ -207,7 +218,7 @@ describe("the warning at start", () => {
 
   it("says nothing when STARTTLS is required or the connection is TLS from the start", () => {
     expect(warnings(SMTP_ENV)).toEqual([]);
-    expect(warnings({ ...SMTP_ENV, OPENBRF_SMTP_HOST: "localhost" })).toEqual(
+    expect(warnings({ ...SMTP_ENV, OPENBRF_SMTP_HOST: "127.0.0.1" })).toEqual(
       [],
     );
     expect(
@@ -233,8 +244,8 @@ describe("the settings", () => {
         host: "smtp.stored.example",
         port: 465,
         secure: true,
-        // Saved before saving required TLS, so used as it always was.
-        requireTls: false,
+        // Not on loopback, so required whatever the column says.
+        requireTls: true,
         user: "styrelsen",
         password: "stored-password",
       },
@@ -295,6 +306,54 @@ describe("the settings", () => {
     ).toBe(null);
     expect(await resolver(BASE_ENV, null).resolver.describe()).toBe(null);
   });
+});
+
+describe("STARTTLS stored as not required", () => {
+  /*
+   * A row no save writes for a server elsewhere, and migration 20261009120000
+   * leaves none behind, but a data-only restore of an older backup or an edit
+   * made in SQL brings one back.
+   */
+  const NOT_REQUIRED = {
+    ...STORED,
+    smtpPort: 25,
+    smtpSecure: false,
+    smtpRequireTls: false,
+  };
+
+  async function server(row: object) {
+    const mail = await resolver(BASE_ENV, row).resolver.current();
+    return mail?.driver === "smtp" ? mail.server : null;
+  }
+
+  it("is required anyway of a server that is not at a loopback address", async () => {
+    expect(await server(NOT_REQUIRED)).toMatchObject({
+      host: "smtp.stored.example",
+      port: 25,
+      secure: false,
+      requireTls: true,
+    });
+  });
+
+  it("is required anyway of a server named localhost", async () => {
+    // Migration 20261009120000 left such a row false, trusting the name.
+    expect(
+      await server({ ...NOT_REQUIRED, smtpHost: "localhost" }),
+    ).toMatchObject({ host: "localhost", requireTls: true });
+  });
+
+  it.each(["127.0.0.1", "::1", "[::1]"])(
+    "stays as stored for a server at a loopback address (%s)",
+    async (host) => {
+      expect(await server({ ...NOT_REQUIRED, smtpHost: host })).toMatchObject({
+        host,
+        requireTls: false,
+      });
+      expect(
+        await server({ ...NOT_REQUIRED, smtpHost: host, smtpRequireTls: true }),
+      ).toMatchObject({ host, requireTls: true });
+    },
+  );
 });
 
 describe("the description", () => {

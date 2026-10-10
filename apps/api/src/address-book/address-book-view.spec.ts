@@ -162,9 +162,40 @@ describe("resident-facing rows", () => {
       "movedInOn",
       "movedOutOn",
       "name",
-      "personId",
       "signs",
     ]);
+  });
+
+  it("carries no person's id, in a field or in the key", () => {
+    const withApartment = toResidentDirectoryRow(
+      record({ personId: "person-secret-1" }),
+      { today: TODAY },
+    );
+    const withoutApartment = toResidentDirectoryRow(
+      record({
+        personId: "person-secret-1",
+        residencyId: null,
+        apartment: null,
+        role: null,
+      }),
+      { today: TODAY },
+    );
+
+    expect(serialize(withApartment)).not.toContain("person-secret-1");
+    expect(serialize(withoutApartment)).not.toContain("person-secret-1");
+    expect(withoutApartment.key).toMatch(/^person:[\w-]{22}$/);
+    // Stable, so a page and the next one agree on who the row is.
+    expect(
+      toResidentDirectoryRow(
+        record({
+          personId: "person-secret-1",
+          residencyId: null,
+          apartment: null,
+          role: null,
+        }),
+        { today: TODAY },
+      ).key,
+    ).toBe(withoutApartment.key);
   });
 
   it("leaks no contact value even when the record carries one", () => {

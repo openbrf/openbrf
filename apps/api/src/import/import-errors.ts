@@ -35,6 +35,12 @@ export type ImportErrorReason =
   | "too-many-rows"
   | "mapping-invalid"
   | "preview-required"
+  /**
+   * The preview no longer matches the register: another import finished
+   * writing after it was taken, or, given the decisions, the plan differs
+   * from what the preview showed. Answered with 400; the session stays in MAPPING and is previewed
+   * again.
+   */
   | "preview-outdated"
   /**
    * Somebody previewed the session again while this apply was starting, so

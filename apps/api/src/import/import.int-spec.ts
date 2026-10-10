@@ -123,6 +123,8 @@ const actors = {
   /** Two people of the same name in one apartment: the ambiguous case. */
   twinA: { personId: `imp-twin-a-${suffix}` },
   twinB: { personId: `imp-twin-b-${suffix}` },
+  /** Joins a newcomer's name and apartment after an import has created them. */
+  lateTwin: { personId: `imp-late-twin-${suffix}` },
   /** Already in the register, and moving in while their row is applied. */
   mover: {
     personId: `imp-mover-${suffix}`,
@@ -150,6 +152,8 @@ const twinFirstName = "Dubbel";
 const newcomerEmail = `imp-nina-${suffix}@exempel.se`;
 /** A second newcomer, used by the concurrent-apply case and nowhere else. */
 const raceEmail = `imp-race-${suffix}@exempel.se`;
+/** A newcomer two files both list, used by the outdated-preview case. */
+const listedTwiceEmail = `imp-overtaken-${suffix}@exempel.se`;
 
 const personIds = [
   actors.board.personId,
@@ -158,6 +162,7 @@ const personIds = [
   actors.existing.personId,
   actors.twinA.personId,
   actors.twinB.personId,
+  actors.lateTwin.personId,
 ];
 
 let ipCounter = 0;
@@ -337,6 +342,15 @@ async function uploadAndPreview(
   rows: string[][],
 ): Promise<ImportSessionView> {
   const session = await upload(cookie, fileName, encode(writeCsv(rows)));
+  await previewAgain(cookie, session);
+  return session;
+}
+
+/** Previews an upload with the mapping it suggested, and returns the preview. */
+async function previewAgain(
+  cookie: string,
+  session: ImportSessionView,
+): Promise<ImportPreview> {
   const response = await inject({
     method: "POST",
     url: `/api/import/sessions/${session.sessionId}/preview`,
@@ -344,7 +358,7 @@ async function uploadAndPreview(
     headers: { cookie },
   });
   expect(response.statusCode).toBe(200);
-  return session;
+  return JSON.parse(response.body) as ImportPreview;
 }
 
 function applyImport(
@@ -1489,6 +1503,167 @@ describe("an apply and a preview of one session", () => {
       rowsDone: 0,
     });
   }, 60_000);
+
+  it("answers preview-replaced, not preview-outdated, when the preview was replaced after another import moved the revision", async () => {
+    // The apply read the preview before the lock; another tab previews the
+    // session meanwhile, after another import changed the register. The
+    // revision that tab recorded is not the one the apply holds, but the
+    // refusal is still the replaced preview's: re-previewing from here would
+    // overwrite the newer one.
+    const cookie = await signIn(actors.board.email);
+    const other = await uploadAndPreview(cookie, "annan.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        "Annan",
+        surname,
+        // A resident, not a member: written, so the revision moves, but with
+        // no ENTRY row to keep apartment 2102 in the archive after the suite.
+        "Boende",
+        "",
+        "",
+        // A date the importer accepts. With the row in error nothing would be
+        // written, and the order of the two refusals would go untested.
+        "2023-02-01",
+      ],
+    ]);
+    const session = await uploadAndPreview(cookie, "ersatt-igen.csv", [
+      HEADERS,
+      [addressLabel, "2101", "Ersatt", surname, "Medlem", "", "", "1/2/23"],
+    ]);
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const checked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const ensureQueues = applies.ensureQueues.bind(applies);
+    const paused = vi
+      .spyOn(applies, "ensureQueues")
+      .mockImplementationOnce(async () => {
+        reached();
+        await held;
+        await ensureQueues();
+      });
+
+    let response: Awaited<ReturnType<typeof applyImport>>;
+    try {
+      const applying = applyImport(cookie, session.sessionId);
+      try {
+        await Promise.race([checked, applying]);
+        // Another import finishes and moves the revision, then another tab
+        // previews this session against the moved register.
+        expect((await applyImport(cookie, other.sessionId)).statusCode).toBe(
+          202,
+        );
+        const otherRun = await waitForRun(
+          cookie,
+          other.sessionId,
+          (candidate) => candidate.status === "APPLIED",
+        );
+        expect(otherRun.result.personsCreated).toBe(1);
+        const replaced = await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/preview`,
+          payload: {
+            mapping: session.suggestedMapping,
+            defaultMovedInOn: "2023-02-01",
+          },
+          headers: { cookie },
+        });
+        expect(replaced.statusCode).toBe(200);
+      } finally {
+        release();
+      }
+      response = await applying;
+    } finally {
+      paused.mockRestore();
+    }
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("preview-replaced");
+    expect(await readRun(cookie, session.sessionId)).toMatchObject({
+      status: "MAPPING",
+    });
+  }, 60_000);
+
+  it("does not start the import when the replacing preview was recorded in the same millisecond", async () => {
+    // Two previews can record one previewedAt. The replacing preview here is
+    // given the time of the one the apply was checked against, which is what
+    // such a collision leaves behind, and the apply must still see that the
+    // session was previewed again.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "samma-tid.csv", [
+      HEADERS,
+      [addressLabel, "2101", "Samtidig", surname, "Medlem", "", "", "1/2/23"],
+    ]);
+    const { previewedAt: checkedAt } =
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.sessionId },
+        select: { previewedAt: true },
+      });
+
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const checked = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const ensureQueues = applies.ensureQueues.bind(applies);
+    const paused = vi
+      .spyOn(applies, "ensureQueues")
+      .mockImplementationOnce(async () => {
+        reached();
+        await held;
+        await ensureQueues();
+      });
+
+    let response: Awaited<ReturnType<typeof applyImport>>;
+    try {
+      const applying = applyImport(cookie, session.sessionId);
+      try {
+        await Promise.race([checked, applying]);
+        const replaced = await inject({
+          method: "POST",
+          url: `/api/import/sessions/${session.sessionId}/preview`,
+          payload: {
+            mapping: session.suggestedMapping,
+            defaultMovedInOn: "2023-02-01",
+          },
+          headers: { cookie },
+        });
+        expect(replaced.statusCode).toBe(200);
+        await prisma.importSession.update({
+          where: { id: session.sessionId },
+          data: { previewedAt: checkedAt },
+        });
+      } finally {
+        release();
+      }
+      response = await applying;
+    } finally {
+      paused.mockRestore();
+    }
+
+    expect(response.statusCode).toBe(409);
+    expect(reasonOf(response)).toBe("preview-replaced");
+    expect(
+      await prisma.importSession.findUniqueOrThrow({
+        where: { id: session.sessionId },
+        select: { status: true, defaultMovedInOn: true, decisions: true },
+      }),
+    ).toEqual({
+      status: "MAPPING",
+      defaultMovedInOn: "2023-02-01",
+      decisions: null,
+    });
+  }, 60_000);
 });
 
 describe("two imports of two files", () => {
@@ -1551,6 +1726,9 @@ describe("two imports of two files", () => {
     await applies.runApply(first.sessionId);
     expect((await readRun(cookie, first.sessionId)).status).toBe("APPLIED");
 
+    // The first finished after the second was previewed, but its only row was
+    // in error and it wrote nothing, so the second's preview still holds and
+    // it applies without being previewed again.
     const afterwards = await applyImport(cookie, second.sessionId);
     expect(afterwards.statusCode).toBe(202);
     const run = await waitForRun(
@@ -2131,6 +2309,383 @@ describe("abandoning an import that is stuck", () => {
         where: { action: "IMPORT_ABANDONED", targetId: session.sessionId },
       }),
     ).toBe(0);
+  }, 60_000);
+});
+
+describe("a preview another import has overtaken", () => {
+  /** One newcomer, in an apartment the suite removes again afterwards. */
+  function listedTwiceRows(firstName: string): string[][] {
+    return [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        firstName,
+        surname,
+        "Boende",
+        listedTwiceEmail,
+        "",
+        "2023-02-01",
+      ],
+    ];
+  }
+
+  it("is refused until it is previewed again, and then runs what the new preview showed", async () => {
+    // Both files list the same newcomer. The second was previewed while the
+    // register did not have them yet, so its preview says "create" - and once
+    // the first has applied, that is no longer what it would do. Applying it
+    // anyway would run against a register its preview never saw, and a row
+    // that has become ambiguous meanwhile would stop the job on its first
+    // chunk with a FAILED session that has to be uploaded again.
+    const cookie = await signIn(actors.board.email);
+    const first = await uploadAndPreview(
+      cookie,
+      "forst-listad.csv",
+      listedTwiceRows("Nyinflyttad"),
+    );
+    const second = await upload(
+      cookie,
+      "sedan-listad.csv",
+      encode(writeCsv(listedTwiceRows("Nyinflyttad"))),
+    );
+    const before = await previewAgain(cookie, second);
+    expect(before.summary).toMatchObject({ create: 1, update: 0 });
+
+    expect((await applyImport(cookie, first.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      first.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+
+    const refused = await applyImport(cookie, second.sessionId);
+    expect(refused.statusCode).toBe(400);
+    expect(reasonOf(refused)).toBe("preview-outdated");
+    // Refused before anything was claimed, so the upload is still there to be
+    // previewed again rather than failed and gone.
+    expect(await readRun(cookie, second.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
+
+    const after = await previewAgain(cookie, second);
+    expect(after.summary).toMatchObject({ create: 0, update: 1 });
+
+    expect((await applyImport(cookie, second.sessionId)).statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      second.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result.personsCreated).toBe(0);
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Nyinflyttad", lastName: surname },
+      }),
+    ).toBe(1);
+  }, 60_000);
+
+  it("is not refused over an import that finished before it was previewed", async () => {
+    const cookie = await signIn(actors.board.email);
+    const earlier = await uploadAndPreview(cookie, "tidigare.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        "Tidigare",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
+    ]);
+    expect((await applyImport(cookie, earlier.sessionId)).statusCode).toBe(202);
+    const written = await waitForRun(
+      cookie,
+      earlier.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    // It wrote to the register, so this is about when it did, not whether.
+    expect(written.result.personsCreated).toBe(1);
+
+    const later = await uploadAndPreview(cookie, "senare.csv", [
+      HEADERS,
+      [addressLabel, "2102", "Senare", surname, "Boende", "", "", "2023-02-01"],
+    ]);
+    expect((await applyImport(cookie, later.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      later.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+
+  it("is not refused over an import that stopped before it wrote anything", async () => {
+    // A refusal recorded before the first chunk committed leaves the register
+    // as the preview saw it, and a second preview would show the same thing.
+    const cookie = await signIn(actors.board.email);
+    const waiting = await uploadAndPreview(cookie, "vantande.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        "Vantande",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
+    ]);
+    const stopped = await uploadAndPreview(cookie, "stoppad.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        "Stoppad",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
+    ]);
+    await prisma.importSession.update({
+      where: { id: stopped.sessionId },
+      data: {
+        status: "FAILED",
+        failureReason: "mapping-invalid",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    });
+
+    expect((await applyImport(cookie, waiting.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      waiting.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+
+  it("is not refused over an import that reached a person it had nothing to add to", async () => {
+    // An update fills in what the register lacks. A file restating what the
+    // register already has counts its row as an update and writes nothing.
+    const cookie = await signIn(actors.board.email);
+    const row = [
+      addressLabel,
+      "2102",
+      "Oforandrad",
+      surname,
+      "Boende",
+      "",
+      "",
+      "2023-02-01",
+    ];
+    const created = await uploadAndPreview(cookie, "forsta-gangen.csv", [
+      HEADERS,
+      row,
+    ]);
+    expect((await applyImport(cookie, created.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      created.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+
+    const restated = await upload(
+      cookie,
+      "andra-gangen.csv",
+      encode(writeCsv([HEADERS, row])),
+    );
+    expect((await previewAgain(cookie, restated)).summary).toMatchObject({
+      create: 0,
+      update: 1,
+    });
+    const waiting = await uploadAndPreview(cookie, "vantar-pa-tur.csv", [
+      HEADERS,
+      [addressLabel, "2102", "PaTur", surname, "Boende", "", "", "2023-02-01"],
+    ]);
+
+    expect((await applyImport(cookie, restated.sessionId)).statusCode).toBe(
+      202,
+    );
+    const unchanged = await waitForRun(
+      cookie,
+      restated.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(unchanged.result).toMatchObject({
+      personsCreated: 0,
+      personsUpdated: 1,
+      residenciesCreated: 0,
+      memberRegisterEntriesCreated: 0,
+    });
+
+    expect((await applyImport(cookie, waiting.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      waiting.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+});
+
+describe("a preview another import has overtaken, afterwards", () => {
+  function rowFor(firstName: string): string[][] {
+    return [
+      HEADERS,
+      [
+        addressLabel,
+        "2102",
+        firstName,
+        surname,
+        "Boende",
+        "",
+        "",
+        "2023-02-01",
+      ],
+    ];
+  }
+
+  it("sees the write itself, not what the other session records about it", async () => {
+    // What the other session says is the wrong thing to ask. Its finishing
+    // time is written after its last chunk commits, by whichever process ran
+    // it, so a clock behind the preview's makes it look finished before the
+    // preview was taken. And the purge deletes it once its upload expires,
+    // which can be long before this upload does.
+    const imports = app.get(ImportService);
+    const cookie = await signIn(actors.board.email);
+    const first = await uploadAndPreview(
+      cookie,
+      "gammal-men-klar.csv",
+      rowFor("Utgangen"),
+    );
+    const second = await uploadAndPreview(
+      cookie,
+      "ny-och-forhandsgranskad.csv",
+      rowFor("Kvarlamnad"),
+    );
+
+    expect((await applyImport(cookie, first.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      first.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+
+    // Recorded as finished an hour before the second was previewed.
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { finishedAt: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    const behindTheClock = await applyImport(cookie, second.sessionId);
+    expect(behindTheClock.statusCode).toBe(400);
+    expect(reasonOf(behindTheClock)).toBe("preview-outdated");
+
+    // And gone altogether.
+    await prisma.importSession.update({
+      where: { id: first.sessionId },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+    await imports.purgeExpiredSessions();
+    expect(
+      await prisma.importSession.findUnique({ where: { id: first.sessionId } }),
+    ).toBeNull();
+    const afterThePurge = await applyImport(cookie, second.sessionId);
+    expect(afterThePurge.statusCode).toBe(400);
+    expect(reasonOf(afterThePurge)).toBe("preview-outdated");
+
+    await previewAgain(cookie, second);
+    expect((await applyImport(cookie, second.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      second.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+
+  it("is refused when it was previewed before previews recorded what they read", async () => {
+    // A session previewed before the migration that added the count has none,
+    // and nothing says whether an import wrote after it.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(
+      cookie,
+      "fran-fore-uppgraderingen.csv",
+      rowFor("Uppgraderad"),
+    );
+    await prisma.importSession.update({
+      where: { id: session.sessionId },
+      data: { previewedRevision: null },
+    });
+
+    const refused = await applyImport(cookie, session.sessionId);
+    expect(refused.statusCode).toBe(400);
+    expect(reasonOf(refused)).toBe("preview-outdated");
+
+    await previewAgain(cookie, session);
+    expect((await applyImport(cookie, session.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+  }, 60_000);
+
+  it("asks about a row that has become ambiguous since, instead of failing the job", async () => {
+    // The first import creates the newcomer, and somebody of the same name has
+    // joined the apartment by the time the second is applied, so the row the
+    // second preview called "create" now matches two people.
+    const cookie = await signIn(actors.board.email);
+    const first = await uploadAndPreview(
+      cookie,
+      "forst.csv",
+      rowFor("Tillkommande"),
+    );
+    const second = await upload(
+      cookie,
+      "sedan.csv",
+      encode(writeCsv(rowFor("Tillkommande"))),
+    );
+    expect((await previewAgain(cookie, second)).summary).toMatchObject({
+      create: 1,
+      ambiguous: 0,
+    });
+
+    expect((await applyImport(cookie, first.sessionId)).statusCode).toBe(202);
+    await waitForRun(
+      cookie,
+      first.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    await createPerson({
+      personId: actors.lateTwin.personId,
+      firstName: "Tillkommande",
+    });
+    await prisma.residency.create({
+      data: {
+        personId: actors.lateTwin.personId,
+        apartmentId: apartments.b,
+        role: "RESIDENT",
+        movedInOn: new Date("2023-02-01T00:00:00.000Z"),
+      },
+    });
+
+    const refused = await applyImport(cookie, second.sessionId);
+    expect(refused.statusCode).toBe(400);
+    expect(reasonOf(refused)).toBe("preview-outdated");
+
+    const again = await previewAgain(cookie, second);
+    expect(again.summary).toMatchObject({ create: 0, ambiguous: 1 });
+    const undecided = await applyImport(cookie, second.sessionId);
+    expect(undecided.statusCode).toBe(400);
+    expect(reasonOf(undecided)).toBe("ambiguous-rows-undecided");
+    // Neither refusal claimed anything: the upload is still waiting.
+    expect(await readRun(cookie, second.sessionId)).toMatchObject({
+      status: "MAPPING",
+      rowsDone: 0,
+    });
   }, 60_000);
 });
 

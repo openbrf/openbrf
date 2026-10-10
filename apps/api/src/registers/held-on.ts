@@ -69,6 +69,22 @@ export function boardSeatNotEndedOn(
 }
 
 /**
+ * Whether a board seat already read is held on a day.
+ *
+ * {@link boardSeatHeldOn} for a row in hand, and the same rule.
+ */
+export function isBoardSeatHeldOn(
+  seat: { electedOn: Date; endedOn: Date | null },
+  day: LocalDay,
+): boolean {
+  const on = dateColumnOf(day).getTime();
+  return (
+    seat.electedOn.getTime() <= on &&
+    (seat.endedOn === null || seat.endedOn.getTime() > on)
+  );
+}
+
+/**
  * The residencies that have not ended by a day: held on it, or recorded from a
  * day still to come.
  *
