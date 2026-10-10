@@ -449,7 +449,9 @@ unset RUNTIME_DB_PASSWORD
 ```
 
 Otherwise revoke the privileges the release took away, as the superuser,
-naming your role. pg-boss's maintenance stamps the times it ran on the
+naming your role and the role that owns the schemas (`my_schema_owner` below).
+The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
+because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
 column of that table except `version`, read from the catalog as the hardening
 script does. Without it, the application's maintenance fails.
@@ -463,6 +465,10 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
 REVOKE TRIGGER, REFERENCES, TRUNCATE ON ALL TABLES IN SCHEMA public, pgboss
   FROM my_runtime_role, PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner IN SCHEMA public, pgboss
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
 SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
   string_agg(quote_ident(attname), ', ' ORDER BY attnum))
 FROM pg_attribute
