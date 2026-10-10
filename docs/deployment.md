@@ -457,7 +457,7 @@ database's `CONNECT` for `PUBLIC`, which is every role on the server. The role
 keeps its own `CONNECT` grant, so the block gives it that first. Any other role
 that connects - a monitoring or a backup user - needs its own
 `GRANT CONNECT ON DATABASE openbrf TO <role>` afterwards, as the
-[shared database server](#an-instance-on-a-shared-database-server) notes below
+[shared database server](#several-instances-on-one-database-server) notes below
 explain.
 The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
 because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
