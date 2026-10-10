@@ -778,6 +778,8 @@ function normalizeSegment(path: unknown): string | null {
  * replaced by what that resolves to, and it calls the `forwardRef` of anything
  * that has one. It unwraps a second time when it compiles the module, so a
  * reference that resolves to another reference is refused rather than followed.
+ * And where it registers a dynamic module's imports it asks for `module` before
+ * `forwardRef`, so an entry with both is registered both ways and is refused.
  */
 function resolveForwardReference(
   entry: unknown,
@@ -791,6 +793,13 @@ function resolveForwardReference(
   const forwardRef = (entry as { forwardRef?: unknown }).forwardRef;
   if (!isPresent(forwardRef)) {
     return { entry };
+  }
+  if (readsAsDynamicModule(entry)) {
+    return {
+      refusal:
+        "A module in the graph is both a forward reference and a dynamic " +
+        "module, which NestJS reads two ways.",
+    };
   }
   let resolved: unknown;
   try {

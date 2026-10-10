@@ -2059,6 +2059,72 @@ describe("a class NestJS reads by its fields", () => {
 
     expect(result.ok ? "" : result.log).toContain("global");
   });
+
+  it("is refused as an import with a static forwardRef and module", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class Elsewhere {}
+    @Controller("api/elsewhere")
+    class Unsealed {}
+    class Both {
+      static forwardRef = () => Harmless;
+      static module = Elsewhere;
+      static controllers = [Unsealed];
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, imports: [Both] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+});
+
+/**
+ * NestJS follows the `forwardRef` of an import when it scans the graph, but
+ * registers a dynamic module's imports by their `module` first, so an entry
+ * with both would be registered as each and checked as only one.
+ */
+describe("a module that is also a forward reference", () => {
+  it("is refused as the plugin's module", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        global: true,
+        forwardRef: () => Harmless,
+      } as DynamicModule),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is refused as an import", () => {
+    @Injectable()
+    class Anything {}
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class Elsewhere {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        imports: [
+          {
+            module: Elsewhere,
+            providers: [{ provide: APP_GUARD, useClass: Anything }],
+            forwardRef: () => Harmless,
+          } as DynamicModule,
+        ],
+      }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
 });
 
 /**
