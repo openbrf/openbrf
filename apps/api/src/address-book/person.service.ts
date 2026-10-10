@@ -19,7 +19,7 @@ import {
   toDataSubjectRequestView,
   type DataSubjectRequestView,
 } from "../data-protection/data-subject-request";
-import { computePurgeDate } from "../retention/purge-date";
+import { computePersonPurgeDate } from "../retention/purge-date";
 import { isErasureInForce } from "../retention/withheld-persons";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -42,6 +42,7 @@ export class PersonError extends Error {
       | "invalid-personal-identity-number"
       | "personal-identity-number-needs-century"
       | "invalid-email"
+      | "invalid-phone"
       | "field-not-masked"
       | "personal-identity-number",
   ) {
@@ -296,6 +297,8 @@ export class PersonService {
             decisionGround: true,
             decidedAt: true,
             decidedByPersonId: true,
+            extendedAt: true,
+            extensionReason: true,
             executedAt: true,
             closedAt: true,
             closeReason: true,
@@ -325,6 +328,21 @@ export class PersonService {
     }
 
     const protectedData = person.protectedPersonalData;
+
+    const purgeOn = formatDateColumn(
+      computePersonPurgeDate(
+        {
+          residencies: person.residencies,
+          boardPositions: person.boardPositions,
+          systemRoles: person.systemRoles.length,
+          withheld:
+            person.legalHolds.length > 0 ||
+            person.processingRestrictedAt !== null,
+        },
+        retentionDays,
+        now,
+      ),
+    );
 
     const contact: AddressBookContact = protectedData
       ? {
@@ -388,9 +406,9 @@ export class PersonService {
         role: residency.role,
         movedInOn: formatDateColumn(residency.movedInOn),
         movedOutOn: formatDateColumn(residency.movedOutOn),
-        purgeOn: formatDateColumn(
-          computePurgeDate(residency.movedOutOn, retentionDays),
-        ),
+        // The person's date, on every residency that has ended: the purge acts
+        // on the person, after the last residency, and not on this one alone.
+        purgeOn: residency.movedOutOn === null ? null : purgeOn,
       })),
       boardPositions: person.boardPositions.map((position) => ({
         boardPositionId: position.id,
@@ -593,6 +611,15 @@ export class PersonService {
       input.phone === undefined || input.phone.trim() === ""
         ? null
         : await this.encryption.encrypt("person.phone", input.phone);
+    if (phone !== null && phone.index === null) {
+      // As an address that cannot be read is refused: a number that normalizes
+      // to nothing is stored, unmatched by any search, and looks like a number
+      // on file.
+      throw new PersonError(
+        "That phone number could not be read.",
+        "invalid-phone",
+      );
+    }
 
     let identityNumber = null;
     if (

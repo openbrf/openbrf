@@ -107,7 +107,10 @@ interface Fakes {
     findUnique: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
   };
-  transactionMediaFile: { delete: ReturnType<typeof vi.fn> };
+  transactionMediaFile: {
+    create: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+  };
 }
 
 function build(
@@ -150,22 +153,24 @@ function build(
     }),
   };
 
+  const createRow = async ({ data }: { data: Omit<Row, "id"> }) => {
+    if (options.createFails === true) {
+      throw new Error("the row could not be written");
+    }
+    nextId += 1;
+    // A nullable column the write leaves out is null, as in the database.
+    const row: Row = {
+      id: `file-${String(nextId)}`,
+      ...data,
+      unencryptedStorageKey: data.unencryptedStorageKey ?? null,
+      apartmentId: data.apartmentId ?? null,
+    };
+    rows.set(row.id, row);
+    return row;
+  };
+
   const mediaFile = {
-    create: vi.fn(async ({ data }: { data: Omit<Row, "id"> }) => {
-      if (options.createFails === true) {
-        throw new Error("the row could not be written");
-      }
-      nextId += 1;
-      // A nullable column the write leaves out is null, as in the database.
-      const row: Row = {
-        id: `file-${String(nextId)}`,
-        ...data,
-        unencryptedStorageKey: data.unencryptedStorageKey ?? null,
-        apartmentId: data.apartmentId ?? null,
-      };
-      rows.set(row.id, row);
-      return row;
-    }),
+    create: vi.fn(createRow),
     findUnique: vi.fn(
       async ({ where }: { where: { id: string } }) =>
         rows.get(where.id) ?? null,
@@ -183,6 +188,7 @@ function build(
    * delegate would let that pass.
    */
   const transactionMediaFile = {
+    create: vi.fn(createRow),
     delete: vi.fn(async ({ where }: { where: { id: string } }) => {
       rows.delete(where.id);
     }),
@@ -635,8 +641,33 @@ describe("uploading", () => {
     });
 
     expect(fakes.audited).toContainEqual(
-      expect.objectContaining({ action: "MEDIA_UPLOADED", targetId: file.id }),
+      expect.objectContaining({
+        action: "MEDIA_UPLOADED",
+        targetId: file.id,
+        // With the row, so the two stand or fall together.
+        inTransaction: true,
+      }),
     );
+    expect(fakes.transactionMediaFile.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves neither a row nor an object when the audit entry cannot be written", async () => {
+    const failing = build({ auditFailsOn: "MEDIA_UPLOADED" });
+
+    await expect(
+      failing.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "logotyp.png",
+        visibility: "PUBLIC",
+        showsIdentifiablePersons: false,
+        channel: "WEB",
+      }),
+    ).rejects.toThrow("the audit entry could not be written");
+
+    // The row is rolled back with the entry, and the object it described is
+    // removed: nothing is left that no caller knows of.
+    expect(failing.rows.size).toBe(0);
+    expect(failing.objects.size).toBe(0);
   });
 
   it("removes the object again when its row cannot be written", async () => {

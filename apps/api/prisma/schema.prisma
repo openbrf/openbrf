@@ -1672,6 +1672,18 @@ enum AuditAction {
   PLUGIN_ACTION_ARMED
   /// An administrator switched one off again.
   PLUGIN_ACTION_DISARMED
+  /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
+  ISSUE_STATUS_CHANGED
+  /// A person was moved into an apartment.
+  MOVE_IN_RECORDED
+  /// A residency was given its move-out date.
+  MOVE_OUT_RECORDED
+  /// An administrator switched a plugin on.
+  PLUGIN_ENABLED
+  /// An administrator switched a plugin off.
+  PLUGIN_DISABLED
+  /// An administrator changed a plugin's settings. The entry names the fields, never the values.
+  PLUGIN_SETTINGS_CHANGED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the
@@ -1952,6 +1964,7 @@ enum AuditAction {
   /// overtaken by the person moving in again. The entry says whether it was
   /// executed.
   DATA_SUBJECT_REQUEST_CLOSED
+  DATA_SUBJECT_REQUEST_EXTENDED
 
   /// A person exported their own data (GDPR art. 20). Actor and subject are the
   /// same person, which is what distinguishes it from the board-produced access
@@ -3875,6 +3888,15 @@ model PersonalDataBreach {
 
   recordedByPersonId String
 
+  /// The board members the 72-hour reminder has reached, per discovery instant:
+  /// an object keyed by the instant as an ISO string, each value the list of
+  /// person ids. Read and written under the breach's lock, so a reminder queued
+  /// twice sends once, and a send that reached some of the board is retried only
+  /// for the rest. A different discovery is a different clock with a list of its
+  /// own, and the others are kept: a time corrected from A to B and back to A
+  /// must find A's receipts still there.
+  reminderReceipts Json @default("{}")
+
   subjects PersonalDataBreachSubject[]
 
   createdAt DateTime @default(now())
@@ -4124,6 +4146,13 @@ model DataSubjectRequest {
 
   decidedAt         DateTime?
   decidedByPersonId String?
+
+  /// GDPR art. 12(3): the association may extend the month by two further
+  /// months where the request is complex or there are many, if it tells the
+  /// person within the first month and says why. Set once, before the first due
+  /// day, and what moves the due date; the reason is what the person was told.
+  extendedAt      DateTime?
+  extensionReason String?
 
   /// The night the purge executed a granted erasure.
   executedAt DateTime?

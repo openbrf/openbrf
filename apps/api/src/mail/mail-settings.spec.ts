@@ -233,8 +233,8 @@ describe("the settings", () => {
         host: "smtp.stored.example",
         port: 465,
         secure: true,
-        // As stored, never changed on the way.
-        requireTls: false,
+        // Not on loopback, so required whatever the column says.
+        requireTls: true,
         user: "styrelsen",
         password: "stored-password",
       },
@@ -297,66 +297,45 @@ describe("the settings", () => {
   });
 });
 
-describe("the warning at the first send", () => {
-  /** Stored settings that do not require STARTTLS of a server elsewhere. */
-  const TLS_OPTIONAL = {
+describe("STARTTLS stored as not required", () => {
+  /*
+   * A row no save writes for a server elsewhere, and migration 20261009120000
+   * leaves none behind, but a data-only restore of an older backup or an edit
+   * made in SQL brings one back.
+   */
+  const NOT_REQUIRED = {
     ...STORED,
     smtpPort: 25,
     smtpSecure: false,
     smtpRequireTls: false,
   };
 
-  async function warnings(
-    row: object,
-    sends = 1,
-    env: Env = BASE_ENV,
-  ): Promise<unknown[][]> {
-    const warn = vi
-      .spyOn(Logger.prototype, "warn")
-      .mockImplementation(() => undefined);
-    try {
-      const { resolver: mail } = resolver(env, row);
-      mail.onModuleInit();
-      for (let send = 0; send < sends; send += 1) {
-        await mail.current();
-      }
-      return warn.mock.calls;
-    } finally {
-      warn.mockRestore();
-    }
+  async function server(row: object) {
+    const mail = await resolver(BASE_ENV, row).resolver.current();
+    return mail?.driver === "smtp" ? mail.server : null;
   }
 
-  it("names the server whose settings do not require STARTTLS, once", async () => {
-    // A mailing resolves the mail once per recipient.
-    const logged = await warnings(TLS_OPTIONAL, 3);
-
-    expect(logged).toHaveLength(1);
-    const message = String(logged[0]?.[0]);
-    expect(message).toContain("smtp.stored.example:25");
-    expect(message).toContain("cleartext");
-    // Neither the user nor the password, nor what the password is stored as.
-    expect(message).not.toContain("styrelsen");
-    expect(message).not.toContain("stored-password");
-    expect(message).not.toContain("ciphertext");
+  it("is required anyway of a server that is not on loopback", async () => {
+    expect(await server(NOT_REQUIRED)).toMatchObject({
+      host: "smtp.stored.example",
+      port: 25,
+      secure: false,
+      requireTls: true,
+    });
   });
 
   it.each(["localhost", "127.0.0.1", "::1", "[::1]"])(
-    "says nothing of a server on loopback (%s)",
+    "stays as stored for a server on loopback (%s)",
     async (host) => {
-      expect(await warnings({ ...TLS_OPTIONAL, smtpHost: host })).toEqual([]);
+      expect(await server({ ...NOT_REQUIRED, smtpHost: host })).toMatchObject({
+        host,
+        requireTls: false,
+      });
+      expect(
+        await server({ ...NOT_REQUIRED, smtpHost: host, smtpRequireTls: true }),
+      ).toMatchObject({ host, requireTls: true });
     },
   );
-
-  it("says nothing when STARTTLS is required or the connection is TLS from the start", async () => {
-    expect(await warnings({ ...TLS_OPTIONAL, smtpRequireTls: true })).toEqual(
-      [],
-    );
-    expect(await warnings({ ...TLS_OPTIONAL, smtpSecure: true })).toEqual([]);
-  });
-
-  it("says nothing while the environment sets the mail", async () => {
-    expect(await warnings(TLS_OPTIONAL, 1, SMTP_ENV)).toEqual([]);
-  });
 });
 
 describe("the description", () => {

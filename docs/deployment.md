@@ -155,10 +155,9 @@ changes nothing but the owner's password, which it sets from
    step waits until every build has finished: the application never runs
    pg-boss migrations, so nothing would finish one later. A build that fails
    stops the deploy with its error, which also stays in `pgboss.bam`, and the
-   next deploy retries it. The check and the migration are two steps, not one
-   transaction, so a running application that could be made to rewrite
-   `pgboss.queue` between them is not covered: stop it before the deploy if you
-   cannot rely on it.
+   next deploy retries it. A trigger on `pgboss.queue`, owned by the schema
+   owner, makes the table refuse such a queue from then on, so the application
+   cannot write one between the check and the migration.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
@@ -806,9 +805,9 @@ Every send through such a connection fails with the reason
 message from the SMTP card after upgrading. If it fails that way, have the board
 switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
 587). Settings that do not require STARTTLS anyway, such as those a data-only
-restore of an older backup brings back, are flagged on the SMTP card until they
-are saved again, and the instance logs a warning naming the server the first
-time it sends through them.
+restore of an older backup brings back, are held to it all the same: the
+instance requires STARTTLS of a server that is not on loopback when it sends,
+whatever the stored settings say.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that

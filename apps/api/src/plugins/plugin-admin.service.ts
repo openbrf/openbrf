@@ -772,11 +772,30 @@ export class PluginAdminService {
   async setEnabled(
     id: string,
     enabled: boolean,
+    actorPersonId: string,
   ): Promise<{ restarting: boolean }> {
-    const record = await this.registry.setEnabled(id, enabled);
-    if (record === null) {
-      throw new PluginNotFoundError(id);
-    }
+    /*
+     * The switch and the entry that records it, in one transaction: a plugin
+     * runs with what its install consented to, so who switched it on or off is
+     * the question an incident asks, and a change that committed with its entry
+     * lost would leave nobody named for it.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      const record = await this.registry.setEnabled(id, enabled, tx);
+      if (record === null) {
+        throw new PluginNotFoundError(id);
+      }
+      await this.audit.record(
+        {
+          action: enabled ? "PLUGIN_ENABLED" : "PLUGIN_DISABLED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+        },
+        tx,
+      );
+    });
 
     // Disabling takes effect at once: the guard in front of a plugin's routes
     // and the view list both read the loaded set, and both drop the plugin as
@@ -818,6 +837,7 @@ export class PluginAdminService {
   async writeSettings(
     id: string,
     values: unknown,
+    actorPersonId: string,
   ): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
     if (record === null) {
@@ -831,7 +851,22 @@ export class PluginAdminService {
     // Throws a ZodError, which the domain exception filter answers as a 400
     // listing the failing fields.
     const parsed = settingsValidator(schema).parse(values);
-    await this.registry.writeSettings(id, parsed);
+    await this.prisma.$transaction(async (tx) => {
+      await this.registry.writeSettings(id, parsed, tx);
+      await this.audit.record(
+        {
+          action: "PLUGIN_SETTINGS_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "plugin",
+          targetId: id,
+          // The fields, never the values: a setting can hold a key, and the log
+          // outlives the plugin.
+          context: { fields: Object.keys(parsed).sort() },
+        },
+        tx,
+      );
+    });
     return { id, schema, values: parsed };
   }
 

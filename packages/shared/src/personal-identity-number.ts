@@ -273,6 +273,18 @@ const INVISIBLE = /[\p{C}\p{Default_Ignorable_Code_Point}]/u;
  */
 const SEPARATOR = /[\t\n\v\f\r\u0085\p{Z}]/u;
 
+/**
+ * The sign between the date and the last four, as the scan accepts it: the
+ * hyphen-minus and the plus the parser knows, and the dashes a word processor
+ * turns a hyphen into - the Unicode hyphen, the non-breaking hyphen, the
+ * figure dash, the en and em dash, and the minus sign (`811228 – 9874`). A
+ * reader takes all of them as the sign, so a scan that let them through would
+ * let the number be published. Only the scan accepts them; the parser a stored
+ * value goes through is unchanged, because a blind index is a keyed hash of its
+ * output (see the top of this file).
+ */
+const SIGN = /[-+\u2010-\u2014\u2212]/u;
+
 /** {@link SEPARATOR} as a run, for collapsing to one space. */
 const SEPARATOR_RUN = new RegExp(`${SEPARATOR.source}+`, "gu");
 
@@ -387,7 +399,7 @@ function foldForScan(text: string): FoldedText {
  * scanned is a whole page block, which can be a megabyte.
  */
 const CANDIDATE_PATTERN = new RegExp(
-  `(?<!\\d)(?:\\d{2})?\\d{6}${SEPARATOR.source}*(?:[-+]${SEPARATOR.source}*)?\\d{4}(?!\\d)`,
+  `(?<!\\d)(?:\\d{2})?\\d{6}${SEPARATOR.source}*(?:${SIGN.source}${SEPARATOR.source}*)?\\d{4}(?!\\d)`,
   "gu",
 );
 
@@ -433,7 +445,9 @@ export function scanForPersonalIdentityNumbers(
     const [candidate] = match;
     // The parser drops what JavaScript calls whitespace, which a next-line
     // character is not, so the separators the pattern let through go first.
-    const compact = candidate.replace(SEPARATOR_RUN, "");
+    const compact = candidate
+      .replace(SEPARATOR_RUN, "")
+      .replace(/[\u2010-\u2014\u2212]/u, "-");
     if (isValidPersonalIdentityNumber(compact, referenceDate)) {
       const start = folded.starts[match.index] ?? 0;
       const end = folded.ends[match.index + candidate.length - 1] ?? start;

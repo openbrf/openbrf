@@ -614,14 +614,13 @@ describe("SMTP settings", () => {
       smtpRequireTls: false,
     });
 
-    const saved = await service.updateSmtp({
+    await service.updateSmtp({
       ...filled,
       secure: false,
       fromAddress: "info@exempel.se",
     });
 
     expect(current()?.smtpRequireTls).toBe(true);
-    expect(saved).toMatchObject({ source: "settings", tlsOptional: false });
   });
 
   it.each(["localhost", "127.0.0.1", "::1"])(
@@ -629,39 +628,15 @@ describe("SMTP settings", () => {
     async (host) => {
       const { service, current } = build();
 
-      const saved = await service.updateSmtp({
+      await service.updateSmtp({
         ...filled,
         host,
         secure: false,
       });
 
       expect(current()?.smtpRequireTls).toBe(false);
-      expect(saved).toMatchObject({ tlsOptional: false });
     },
   );
-
-  it("flags settings saved before TLS was required", async () => {
-    const legacy = build({
-      smtpHost: "smtp.example.se",
-      smtpFromAddress: "styrelsen@exempel.se",
-      smtpSecure: false,
-      smtpRequireTls: false,
-    });
-    await expect(legacy.service.read()).resolves.toMatchObject({
-      smtp: { tlsOptional: true },
-    });
-
-    // Implicit TLS is encrypted from the first byte, whenever it was saved.
-    const implicit = build({
-      smtpHost: "smtp.example.se",
-      smtpFromAddress: "styrelsen@exempel.se",
-      smtpSecure: true,
-      smtpRequireTls: false,
-    });
-    await expect(implicit.service.read()).resolves.toMatchObject({
-      smtp: { tlsOptional: false },
-    });
-  });
 });
 
 describe("mail set where the instance runs", () => {

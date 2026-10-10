@@ -1,5 +1,8 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  normalizeSingleLineText,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
@@ -123,6 +126,21 @@ function transportFor(audience: DocumentAudience): {
         requiredCapability: "documents:manage",
       };
   }
+}
+
+/**
+ * The title and the binder as they are stored: what is invisible on screen
+ * gone, and a line break a space. The scan folds the same way, so what is
+ * checked is what is kept.
+ */
+function foldedLabels<T extends { title: string; category: string }>(
+  input: T,
+): T {
+  return {
+    ...input,
+    title: normalizeSingleLineText(input.title),
+    category: normalizeSingleLineText(input.category),
+  };
 }
 
 /**
@@ -268,7 +286,8 @@ export class DocumentsService {
    * rows: this order can only ever leave an unreferenced file, while the other
    * would leave a document pointing at nothing.
    */
-  async add(input: AddDocumentInput): Promise<DocumentView> {
+  async add(given: AddDocumentInput): Promise<DocumentView> {
+    const input = foldedLabels(given);
     /*
      * Before the upload, so a refused document leaves no file behind. And of
      * the name as it will be stored rather than as it arrived: `safeFileName`
@@ -340,7 +359,8 @@ export class DocumentsService {
    * file was still PUBLIC would stay readable at its own address by anyone who
    * had ever seen it.
    */
-  async edit(id: string, input: EditDocumentInput): Promise<DocumentView> {
+  async edit(id: string, given: EditDocumentInput): Promise<DocumentView> {
+    const input = foldedLabels(given);
     const transport = transportFor(input.audience);
 
     return this.prisma.$transaction(async (tx) => {

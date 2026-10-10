@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pullWithRetry } from "./image-pull";
 
 /**
  * The compose stack the suite runs against.
@@ -203,7 +205,48 @@ function compose(args: readonly string[], timeoutMs: number): void {
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
   writeMailTls();
+  pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+/**
+ * Pulls the stack's registry images, retrying a throttled or transient failure
+ * (see image-pull.ts) and nothing else. Images built from the repository are
+ * left to `up --build`.
+ */
+function pullImages(): void {
+  pullWithRetry(pullOnce);
+}
+
+/**
+ * One `compose pull`, failing with what compose wrote to its error stream.
+ *
+ * That stream is where compose reports progress and a registry's answer, and
+ * it is read to tell a throttled pull from a missing image, so it is captured
+ * rather than inherited and then passed on whole, success or not.
+ */
+function pullOnce(): void {
+  const result = spawnSync(
+    "docker",
+    [...COMPOSE_ARGS, "pull", "--ignore-buildable"],
+    {
+      cwd: repositoryRoot,
+      env: COMPOSE_ENV,
+      encoding: "utf8",
+      stdio: ["ignore", "inherit", "pipe"],
+      timeout: 10 * 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  process.stderr.write(result.stderr ?? "");
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `docker compose pull exited with ${result.status ?? result.signal}:\n${result.stderr}`,
+    );
+  }
 }
 
 /**
