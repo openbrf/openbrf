@@ -165,6 +165,8 @@ export function BoardMailboxScreen(): ReactElement {
    */
   const [pages, setPages] = useState<AppendedPages>(NO_APPENDED);
   const [readingMore, setReadingMore] = useState(false);
+  /** The load a "more" read failed against, held like the pages it failed to add. */
+  const [moreFailedFor, setMoreFailedFor] = useState<Loaded | null>(null);
   const appended = pages.of === loaded ? pages : NO_APPENDED;
 
   const cursor = appended.of === null ? nextCursor : appended.cursor;
@@ -175,16 +177,30 @@ export function BoardMailboxScreen(): ReactElement {
       return;
     }
     setReadingMore(true);
+    setMoreFailedFor(null);
     void fetchBoardMailboxThreads(cursor).then((page) => {
       setReadingMore(false);
       if (!page.ok) {
+        setMoreFailedFor(loaded);
         return;
       }
-      setPages((held) => ({
-        rows: [...(held.of === loaded ? held.rows : []), ...page.value.threads],
-        cursor: page.value.nextCursor,
-        of: loaded,
-      }));
+      setPages((held) => {
+        const rows = held.of === loaded ? held.rows : [];
+        /*
+         * The server sorts by status and last message but pages by an id
+         * cursor, so a thread that changed between two reads can be on both
+         * pages. It is listed where it was first seen.
+         */
+        const seen = new Set([...loaded.threads, ...rows].map((row) => row.id));
+        return {
+          rows: [
+            ...rows,
+            ...page.value.threads.filter((row) => !seen.has(row.id)),
+          ],
+          cursor: page.value.nextCursor,
+          of: loaded,
+        };
+      });
     });
   }, [cursor, loaded]);
 
@@ -269,6 +285,13 @@ export function BoardMailboxScreen(): ReactElement {
         <Panel
           title={t("boardMailbox.inbox.title")}
           description={t("boardMailbox.inbox.description")}
+          notice={
+            moreFailedFor === loaded ? (
+              <Notice tone="danger" live>
+                {t("boardMailbox.inbox.moreFailed")}
+              </Notice>
+            ) : null
+          }
         >
           {listed.length === 0 ? (
             <p className="text-body text-ink-muted">

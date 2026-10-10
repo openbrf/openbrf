@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useMeetingPeople } from "./use-meeting-people";
@@ -224,5 +224,29 @@ describe("the people a meeting names", () => {
     // Null is a real answer: the screens render an identifier rather than a
     // blank, and a meeting stays workable.
     expect(result.current.find("person-1")).toBeNull();
+  });
+
+  it("reads the book again when asked, after a failure", async () => {
+    // One temporary error must not leave the check-in and proxy forms with
+    // nobody to offer until the page is reloaded.
+    fetchBoardRegister
+      .mockRejectedValueOnce(new Error("no"))
+      .mockResolvedValue(
+        page([row("person-1", "Astrid Lindqvist", "1001")], 1),
+      );
+
+    const { result } = renderHook(() => useMeetingPeople(true));
+    await waitFor(() => {
+      expect(result.current.failed).toBe(true);
+    });
+
+    act(() => {
+      result.current.retry();
+    });
+
+    await waitFor(() => {
+      expect(result.current.failed).toBe(false);
+    });
+    expect(result.current.find("person-1")?.name).toBe("Astrid Lindqvist");
   });
 });

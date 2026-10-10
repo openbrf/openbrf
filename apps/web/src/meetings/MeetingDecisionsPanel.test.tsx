@@ -52,6 +52,7 @@ const people: MeetingPeople = {
   failed: false,
   everyone: PEOPLE,
   find: (personId) => PEOPLE.find((p) => p.personId === personId) ?? null,
+  retry: () => undefined,
 };
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
@@ -108,6 +109,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={onChanged}
       />,
     );
@@ -148,6 +151,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -177,6 +182,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -212,6 +219,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting()}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -254,6 +263,8 @@ describe("what the meeting decided", () => {
           ],
         })}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );
@@ -277,6 +288,8 @@ describe("what the meeting decided", () => {
       <MeetingDecisionsPanel
         meeting={meeting({ concludedAt: null })}
         people={people}
+        savedItemId={null}
+        onSaved={() => undefined}
         onChanged={() => undefined}
       />,
     );

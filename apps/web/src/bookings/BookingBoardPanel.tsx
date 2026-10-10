@@ -181,6 +181,9 @@ export function BookingBoardPanel({
             value={resourceId}
             onChange={(event) => {
               setResourceId(event.target.value);
+              // A refusal is about the month and resource it was sent from, and
+              // over another one it would hide that one's own failed read.
+              cancel.reset();
             }}
             className={FIELD}
           >
@@ -199,6 +202,7 @@ export function BookingBoardPanel({
           type="button"
           className={QUIET_BUTTON}
           onClick={() => {
+            cancel.reset();
             setFrom((current) => shiftLocalDay(current, -WINDOW_DAYS));
           }}
         >
@@ -215,6 +219,7 @@ export function BookingBoardPanel({
           type="button"
           className={`${QUIET_BUTTON} ml-auto`}
           onClick={() => {
+            cancel.reset();
             setFrom((current) => shiftLocalDay(current, WINDOW_DAYS));
           }}
         >

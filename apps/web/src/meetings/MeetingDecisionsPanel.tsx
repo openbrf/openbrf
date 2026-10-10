@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -20,6 +20,9 @@ import type { MeetingPeople } from "./use-meeting-people";
 export interface MeetingDecisionsPanelProps {
   meeting: Meeting;
   people: MeetingPeople;
+  /** The item whose last decision save landed, held by the screen. */
+  savedItemId: string | null;
+  onSaved: (agendaItemId: string, landed: boolean) => void;
   onChanged: () => void;
 }
 
@@ -69,6 +72,8 @@ export interface MeetingDecisionsPanelProps {
 export function MeetingDecisionsPanel({
   meeting,
   people,
+  savedItemId,
+  onSaved,
   onChanged,
 }: MeetingDecisionsPanelProps): ReactElement {
   const { t } = useTranslation();
@@ -99,6 +104,10 @@ export function MeetingDecisionsPanel({
                 item={item}
                 held={held}
                 people={people}
+                saved={savedItemId === item.id}
+                onSaved={(landed) => {
+                  onSaved(item.id, landed);
+                }}
                 onChanged={onChanged}
               />
             </li>
@@ -124,12 +133,16 @@ function ItemDecision({
   item,
   held,
   people,
+  saved,
+  onSaved,
   onChanged,
 }: {
   meetingId: string;
   item: AgendaItem;
   held: boolean;
   people: MeetingPeople;
+  saved: boolean;
+  onSaved: (landed: boolean) => void;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -151,6 +164,11 @@ function ItemDecision({
     recorded?.closedBallot ?? false,
   );
 
+  /*
+   * Counts the edits to the draft. A save is for the draft as it was when it
+   * was sent, so one that settles after an edit must not claim the edit.
+   */
+  const draftRevision = useRef(0);
   const save = useSaveAction(recordDecision);
 
   const counts = [votesFor, votesAgainst, votesAbstaining].map(countIn);
@@ -158,6 +176,9 @@ function ItemDecision({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+    if (save.pending) {
+      return;
+    }
     const [forCount, againstCount, abstainingCount] = counts;
     if (
       forCount === null ||
@@ -169,6 +190,7 @@ function ItemDecision({
     ) {
       return;
     }
+    const sent = draftRevision.current;
     void save
       .submit({
         id: meetingId,
@@ -181,9 +203,29 @@ function ItemDecision({
           closedBallot,
         },
       })
-      .then(() => {
-        onChanged();
+      .then((landed) => {
+        // A save the draft has moved on from says nothing about what is on
+        // screen now, and the re-read would remount the panel over the edit.
+        if (draftRevision.current === sent) {
+          onSaved(landed);
+          onChanged();
+        }
       });
+  };
+
+  /*
+   * The fields no longer say what was recorded, so the confirmation goes: the
+   * one this action holds, and the one the screen keeps across the re-read that
+   * remounts this form.
+   */
+  const edited = (): void => {
+    draftRevision.current += 1;
+    if (save.state.kind === "saved" || save.state.kind === "saving") {
+      save.reset();
+    }
+    if (saved) {
+      onSaved(false);
+    }
   };
 
   const formId = `meeting-decision-${item.id}`;
@@ -243,7 +285,8 @@ function ItemDecision({
         <Notice tone="danger" live>
           {t(meetingFailureKey(save.state.failure))}
         </Notice>
-      ) : save.state.kind === "saved" ? (
+      ) : save.state.kind === "saved" ||
+        (saved && save.state.kind === "idle") ? (
         <Notice tone="ok" live>
           {t("meetings.decisions.saved")}
         </Notice>
@@ -263,6 +306,7 @@ function ItemDecision({
                 className={`${FIELD} w-48`}
                 value={outcome}
                 onChange={(event) => {
+                  edited();
                   setOutcome(event.target.value as MeetingDecisionOutcome);
                 }}
               >
@@ -277,17 +321,26 @@ function ItemDecision({
             <CountField
               label={t("meetings.decisions.votesFor")}
               value={votesFor}
-              onChange={setVotesFor}
+              onChange={(value) => {
+                edited();
+                setVotesFor(value);
+              }}
             />
             <CountField
               label={t("meetings.decisions.votesAgainst")}
               value={votesAgainst}
-              onChange={setVotesAgainst}
+              onChange={(value) => {
+                edited();
+                setVotesAgainst(value);
+              }}
             />
             <CountField
               label={t("meetings.decisions.votesAbstaining")}
               value={votesAbstaining}
-              onChange={setVotesAbstaining}
+              onChange={(value) => {
+                edited();
+                setVotesAbstaining(value);
+              }}
             />
 
             <label className="flex min-h-11 items-center gap-2 text-small">
@@ -295,6 +348,7 @@ function ItemDecision({
                 type="checkbox"
                 checked={closedBallot}
                 onChange={(event) => {
+                  edited();
                   setClosedBallot(event.target.checked);
                 }}
               />
@@ -307,7 +361,7 @@ function ItemDecision({
               type="submit"
               form={formId}
               className={PRIMARY_BUTTON}
-              disabled={save.state.kind === "saving" || !sendable}
+              disabled={save.pending || !sendable}
               aria-label={t("meetings.decisions.recordNamed", {
                 title: item.title,
               })}

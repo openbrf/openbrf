@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -443,6 +443,299 @@ describe("noting a lien", () => {
       notedOn: "2026-03-14",
       amount: null,
     });
+  });
+
+  it("reads an amount typed with a decimal comma and grouped with spaces", async () => {
+    // The field offers a Swedish keyboard its comma key, and the API reads only
+    // a point.
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Notera pant/ }),
+    );
+    await session.type(screen.getByLabelText(/Panthavare/), "Handelsbanken");
+    await session.type(screen.getByLabelText(/Anteckningsdag/), "2026-03-14");
+    await session.type(screen.getByLabelText(/^Belopp/), "1 500 000,50");
+    await session.click(screen.getByRole("button", { name: /Notera panten/ }));
+
+    expect(noteLien).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: "1500000.50" }),
+    );
+  });
+
+  it("names the amount when a lien is refused", async () => {
+    noteLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Notera pant/ }),
+    );
+    await session.type(screen.getByLabelText(/Panthavare/), "Handelsbanken");
+    await session.type(screen.getByLabelText(/Anteckningsdag/), "2026-03-14");
+    await session.click(screen.getByRole("button", { name: /Notera panten/ }));
+
+    expect(
+      (await screen.findByText(/Panten kunde inte registreras/)).textContent,
+    ).toMatch(/belopp/);
+  });
+
+  it("notes the lien once however often the form is submitted", async () => {
+    // lien_note is append-only with no uniqueness rule, so a second click on a
+    // slow request writes a second lien into the statutory register.
+    let settle = (): void => {};
+    noteLien.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve({ ok: true, value: {} });
+          };
+        }),
+    );
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Notera pant/ }),
+    );
+    await session.type(screen.getByLabelText(/Panthavare/), "Handelsbanken");
+    await session.type(screen.getByLabelText(/Anteckningsdag/), "2026-03-14");
+    const submit = screen.getByRole("button", { name: /Notera panten/ });
+    await session.click(submit);
+    await session.click(submit);
+
+    expect(noteLien).toHaveBeenCalledTimes(1);
+
+    settle();
+    await screen.findByRole("button", { name: /Notera pant/ });
+  });
+});
+
+describe("releasing a lien", () => {
+  it("asks for the day of the release before recording it", async () => {
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Avnotera panten från Sparbanken, 2019-06-15, 1500000.00",
+      }),
+    );
+    expect(releaseLien).not.toHaveBeenCalled();
+
+    const day = screen.getByLabelText(/Avnoterad den/) as HTMLInputElement;
+    // Bounded by the association's calendar and by the day it was noted, the
+    // two limits the server holds a release to.
+    expect(day.max).toBe("2026-09-01");
+    expect(day.min).toBe("2019-06-15");
+    await session.clear(day);
+    await session.type(day, "2026-08-25");
+    await session.click(
+      screen.getByRole("button", {
+        name: "Registrera avnoteringen av panten från Sparbanken, 2019-06-15, 1500000.00",
+      }),
+    );
+
+    expect(releaseLien).toHaveBeenCalledWith({
+      lienId: "lien-1",
+      releasedOn: "2026-08-25",
+    });
+  });
+
+  it("releases the lien once however often it is confirmed", async () => {
+    // The route refuses a second release, so a double click would report a
+    // failure after the release has succeeded.
+    let settle = (): void => {};
+    releaseLien.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          settle = () => {
+            resolve({ ok: true, value: {} });
+          };
+        }),
+    );
+    const session = userEvent.setup();
+    render(<ApartmentRegisterScreen />);
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Avnotera panten från Sparbanken, 2019-06-15, 1500000.00",
+      }),
+    );
+    const confirm = screen.getByRole("button", {
+      name: "Registrera avnoteringen av panten från Sparbanken, 2019-06-15, 1500000.00",
+    });
+    await session.click(confirm);
+    await session.click(confirm);
+
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+
+    settle();
+    await screen.findByRole("button", {
+      name: "Avnotera panten från Sparbanken, 2019-06-15, 1500000.00",
+    });
+  });
+});
+
+describe("releasing a lien when the register cannot be read back", () => {
+  const SPARBANKEN = (releasedOn: string | null) => ({
+    id: "lien-1",
+    creditor: "Sparbanken",
+    notedOn: "2019-06-15",
+    releasedOn,
+    amount: "1500000.00",
+  });
+  const withLien = (releasedOn: string | null): ApartmentRegisterExtract => ({
+    ...MASKED,
+    rows: MASKED.rows.map((row) => ({
+      ...row,
+      liens: [SPARBANKEN(releasedOn)],
+    })),
+  });
+
+  it("keeps the release as recorded and offers to read again, not to release again", async () => {
+    /*
+     * The release was written; the read after it failed, so the extract still
+     * shows the lien as open. Closing the form would offer the same release
+     * a second time, which the route refuses.
+     */
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    fetchApartmentRegister.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Avnoteringen är registrerad, men registret/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: `Avnotera panten från ${name}` }),
+    ).toBeNull();
+
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien("2026-09-01"),
+    });
+    await session.click(
+      screen.getByRole("button", { name: "Läs om registret" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Avnoteringen är registrerad, men/)).toBeNull();
+    });
+    expect(screen.getByText(/Avnoterad 2026-09-01/)).toBeTruthy();
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells two open liens from one creditor apart by name", async () => {
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [
+            SPARBANKEN(null),
+            { ...SPARBANKEN(null), id: "lien-2", notedOn: "2021-02-03" },
+          ],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+
+    const buttons = await screen.findAllByRole("button", {
+      name: /^Avnotera panten från Sparbanken/,
+    });
+    const names = buttons.map((button) => button.getAttribute("aria-label"));
+
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it("tells two identical open liens apart by their place among them", async () => {
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [SPARBANKEN(null), { ...SPARBANKEN(null), id: "lien-2" }],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+
+    const buttons = await screen.findAllByRole("button", {
+      name: /^Avnotera panten från Sparbanken/,
+    });
+    const names = buttons.map((button) => button.getAttribute("aria-label"));
+
+    expect(new Set(names).size).toBe(2);
+    expect(screen.getByText("Notering 2 av 2")).toBeTruthy();
+  });
+
+  it("does not number a lien that has no twin", async () => {
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+
+    await screen.findByRole("button", { name: /^Avnotera panten från/ });
+
+    expect(screen.queryByText(/^Notering \d+ av/)).toBeNull();
+  });
+
+  it("keeps the warning that the lien looks open when the extract is printed", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    await session.click(
+      await screen.findByRole("button", { name: /^Avnotera panten från/ }),
+    );
+    fetchApartmentRegister.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(
+      screen.getByRole("button", { name: /^Registrera avnoteringen/ }),
+    );
+
+    const warning = await screen.findByText(
+      /Avnoteringen är registrerad, men registret/,
+    );
+
+    // jsdom applies no print stylesheet, so the class is what is checked.
+    expect(warning.closest(".print\\:hidden")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Läs om registret" })
+        .className.includes("print:hidden"),
+    ).toBe(true);
   });
 });
 

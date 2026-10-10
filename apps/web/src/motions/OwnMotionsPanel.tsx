@@ -43,10 +43,20 @@ export function OwnMotionsPanel({
   /** Which row is mid-request, so only that row reads as busy. */
   const [actingOn, setActingOn] = useState<string | null>(null);
 
-  const withdraw = useSaveAction(withdrawMotion, () => {
+  /*
+   * Read again whatever the answer. The likely refusal is the board having
+   * acknowledged the motion meanwhile, and then the row on the screen is the
+   * thing that is wrong: left as it is, it keeps a button every retry of which
+   * is refused.
+   */
+  const settled = (): void => {
     setActingOn(null);
     onChanged();
-  });
+  };
+  const withdraw = useSaveAction(withdrawMotion, settled, settled);
+  // Every row waits while one withdrawal is out, so a second row pressed
+  // meanwhile cannot be freed by the first one's answer and sent twice.
+  const saving = withdraw.state.kind === "saving";
 
   const failure =
     withdraw.state.kind === "failed" ? withdraw.state.failure : null;
@@ -101,15 +111,13 @@ export function OwnMotionsPanel({
                     aria-label={t("motions.mine.withdrawNamed", {
                       title: motion.title,
                     })}
-                    disabled={
-                      actingOn === motion.id && withdraw.state.kind === "saving"
-                    }
+                    disabled={saving}
                     onClick={() => {
                       setActingOn(motion.id);
                       void withdraw.submit({ motionId: motion.id });
                     }}
                   >
-                    {actingOn === motion.id && withdraw.state.kind === "saving"
+                    {actingOn === motion.id && saving
                       ? t("motions.mine.withdrawing")
                       : t("motions.mine.withdraw")}
                   </button>

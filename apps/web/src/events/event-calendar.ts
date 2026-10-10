@@ -20,8 +20,7 @@
  * importing `localDayNow` from there instead of restating it.
  */
 
-/** "YYYY-MM-DD", the form the API states an occurrence's local date in. */
-const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+import { instantOfNoon } from "../bookings/booking-calendar";
 
 /**
  * A calendar date as a person reads it: "onsdag 7 januari 2027".
@@ -29,9 +28,7 @@ const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
  * The weekday is there because that is how somebody reads a cleaning day, and
  * the year is there because this calendar reaches past a new year. Text that is
  * not a real date is answered unchanged rather than being turned into a
- * different real date: `Date.UTC` reads the 40th of a month as the month after,
- * so the round trip below is what refuses "2026-13-40" instead of rendering it
- * as a day in February 2027.
+ * different real date, as {@link instantOfNoon} refuses it.
  */
 export function formatEventDay(day: string, locale: string): string {
   const value = instantOfNoon(day);
@@ -83,32 +80,5 @@ export function timeValueOfMinute(minute: number): string {
   return (
     `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:` +
     `${String(wrapped % 60).padStart(2, "0")}`
-  );
-}
-
-/**
- * A date understood as noon UTC, for formatting a bare calendar date.
- *
- * Noon rather than midnight, so no zone the formatter could be handed puts the
- * date on the day before or after. The same construction the booking calendar
- * uses, for the same reason.
- */
-function instantOfNoon(day: string): Date | null {
-  const match = DAY_PATTERN.exec(day);
-  if (match === null) {
-    return null;
-  }
-  const value = new Date(
-    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12),
-  );
-  return formatUtcDay(value) === day ? value : null;
-}
-
-/** The calendar fields of an instant read as UTC, as "YYYY-MM-DD". */
-function formatUtcDay(instant: Date): string {
-  return (
-    `${String(instant.getUTCFullYear()).padStart(4, "0")}-` +
-    `${String(instant.getUTCMonth() + 1).padStart(2, "0")}-` +
-    `${String(instant.getUTCDate()).padStart(2, "0")}`
   );
 }

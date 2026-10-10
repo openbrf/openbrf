@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -22,6 +22,9 @@ import { meetingFailureKey } from "./meeting-failures";
 
 export interface MeetingAgendaPanelProps {
   meeting: Meeting;
+  /** Whether the last save of this meeting's agenda landed, held by the screen. */
+  saved: boolean;
+  onSaved: (landed: boolean) => void;
   onChanged: () => void;
 }
 
@@ -102,6 +105,8 @@ function draftFrom(values: readonly string[]): DraftItem[] {
  */
 export function MeetingAgendaPanel({
   meeting,
+  saved,
+  onSaved,
   onChanged,
 }: MeetingAgendaPanelProps): ReactElement {
   const { t } = useTranslation();
@@ -116,6 +121,11 @@ export function MeetingAgendaPanel({
     ),
   );
 
+  /*
+   * Counts the edits to the draft. A save is for the draft as it was when it
+   * was sent, so one that settles after an edit must not claim the edit.
+   */
+  const draftRevision = useRef(0);
   const save = useSaveAction(setMeetingAgenda);
 
   const stated = items
@@ -131,26 +141,49 @@ export function MeetingAgendaPanel({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!sendable) {
+    if (!sendable || save.pending) {
       return;
     }
+    const sent = draftRevision.current;
     void save
       .submit({
         id: meeting.id,
         values: { items: stated.map((title) => ({ title })) },
       })
-      .then(() => {
-        onChanged();
+      .then((landed) => {
+        // A save the draft has moved on from says nothing about what is on
+        // screen now, and the re-read would remount the panel over the edit.
+        if (draftRevision.current === sent) {
+          onSaved(landed);
+          onChanged();
+        }
       });
   };
 
+  /*
+   * The draft no longer says what was saved, so the confirmation goes. It is
+   * held by this panel's own save and, across the re-read that remounts the
+   * panel, by the screen's flag; both are let go on the first edit.
+   */
+  const edited = (): void => {
+    draftRevision.current += 1;
+    if (save.state.kind === "saved" || save.state.kind === "saving") {
+      save.reset();
+    }
+    if (saved) {
+      onSaved(false);
+    }
+  };
+
   const change = (key: number, title: string): void => {
+    edited();
     setItems((rows) =>
       rows.map((row) => (row.key === key ? { ...row, title } : row)),
     );
   };
 
   const remove = (key: number): void => {
+    edited();
     setItems((rows) => {
       const next = rows.filter((row) => row.key !== key);
       // Never nothing: an empty list would leave the board with no field to type
@@ -160,6 +193,7 @@ export function MeetingAgendaPanel({
   };
 
   const move = (index: number, by: -1 | 1): void => {
+    edited();
     setItems((rows) => {
       const to = index + by;
       const moved = rows[index];
@@ -189,7 +223,8 @@ export function MeetingAgendaPanel({
             <Notice tone="danger" live>
               {t(meetingFailureKey(save.state.failure))}
             </Notice>
-          ) : save.state.kind === "saved" ? (
+          ) : save.state.kind === "saved" ||
+            (saved && save.state.kind === "idle") ? (
             <Notice tone="ok" live>
               {t("meetings.agenda.saved")}
             </Notice>
@@ -208,7 +243,7 @@ export function MeetingAgendaPanel({
               type="submit"
               form="meeting-agenda"
               className={PRIMARY_BUTTON}
-              disabled={save.state.kind === "saving" || !sendable}
+              disabled={save.pending || !sendable}
             >
               {save.state.kind === "saving"
                 ? t("meetings.agenda.saving")
@@ -219,6 +254,7 @@ export function MeetingAgendaPanel({
               className={SECONDARY_BUTTON}
               disabled={items.length >= MEETING_AGENDA_MAX_ITEMS}
               onClick={() => {
+                edited();
                 setItems((rows) => [...rows, ...draftFrom([""])]);
               }}
             >

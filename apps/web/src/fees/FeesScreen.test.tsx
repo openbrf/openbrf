@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -809,6 +816,27 @@ describe("reads that fail", () => {
     expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
   });
 
+  it("offers no removal from the previous day's register while the next one is read", async () => {
+    // The register on screen is the old date's, and a "Ta bort" beside it
+    // would remove a fee the board believes it is looking at on the new one.
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller 2026-09-18/u);
+    expect(
+      screen.getAllByRole("button", { name: /^Ta bort/u }),
+    ).not.toHaveLength(0);
+
+    fetchFeeRegister.mockReturnValue(new Promise(() => undefined));
+    fireEvent.change(screen.getByLabelText("Gäller den"), {
+      target: { value: "2026-10-15" },
+    });
+
+    await waitFor(() => {
+      expect(fetchFeeRegister).toHaveBeenLastCalledWith("2026-10-15");
+    });
+    expect(screen.queryByRole("button", { name: /^Ta bort/u })).toBeNull();
+    expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
+  });
+
   it("does not read the register for an emptied date", async () => {
     // An emptied date field is not a day. Sent, it came back as a failed read
     // with a retry that asked for the same empty day again.
@@ -829,6 +857,8 @@ describe("reads that fail", () => {
     expect(
       screen.queryByText("Avgifterna kunde inte läsas just nu."),
     ).toBeNull();
+    // Nothing is read for it, so a loading status would never turn off.
+    expect(screen.queryByText("Läser in avgifterna")).toBeNull();
   });
 
   it.each([

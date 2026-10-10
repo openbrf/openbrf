@@ -21,6 +21,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -90,11 +91,6 @@ function defaultPeriod(): { from: string; to: string } {
   return { from: `${year}-01-01`, to: `${year}-12-31` };
 }
 
-/** The file as something a browser will save, per the module comment. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
-
 export function ChargesScreen(): ReactElement {
   const { t } = useTranslation();
   const initial = defaultPeriod();
@@ -126,10 +122,19 @@ export function ChargesScreen(): ReactElement {
    * Nothing below this line calls `t` outside the render.
    */
   const [refusal, setRefusal] = useState<TranslationKey | null>(null);
+  /*
+   * The period's own refusal, kept apart from the one an action produced: a
+   * read that answers later must clear only what a read said, or a removal
+   * that failed while it was in flight would lose its notice and the board
+   * would take the charge for removed.
+   */
+  const [listRefusal, setListRefusal] = useState<TranslationKey | null>(null);
   const [file, setFile] = useState<{ fileName: string; csv: string } | null>(
     null,
   );
   const [reload, setReload] = useState(0);
+  /** Its own counter, so a recorded or removed charge re-reads only the list. */
+  const [partiesRead, setPartiesRead] = useState(0);
 
   /*
    * The parties are read once and the list on every period change, so changing
@@ -163,7 +168,7 @@ export function ChargesScreen(): ReactElement {
     return () => {
       controller.abort();
     };
-  }, [reload]);
+  }, [partiesRead]);
 
   /*
    * Which read the list on the screen came from. The period cannot say it on
@@ -197,6 +202,8 @@ export function ChargesScreen(): ReactElement {
         setList(result.value);
         setListFailed(false);
         setForbidden(false);
+        // A period the server refused is no longer the one on the controls.
+        setListRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
@@ -221,7 +228,7 @@ export function ChargesScreen(): ReactElement {
        */
       if (result.failure.status === 422 || result.failure.status === 400) {
         setListFailed(false);
-        setRefusal(chargeFailureKey(result.failure));
+        setListRefusal(chargeFailureKey(result.failure));
         return;
       }
       setListFailed(true);
@@ -245,12 +252,17 @@ export function ChargesScreen(): ReactElement {
     list !== null && list.from === from && list.to === to ? list : null;
   const shownFile = shown === null ? null : file;
 
+  const notice = refusal ?? listRefusal;
+
   const retry = useCallback(() => {
     setPartiesFailed(false);
     setListFailed(false);
     setLoading(true);
     setReload((count) => count + 1);
-  }, []);
+    if (parties === null) {
+      setPartiesRead((count) => count + 1);
+    }
+  }, [parties]);
 
   const refresh = useCallback(() => {
     // The file is from the period as it stood; a charge recorded or removed
@@ -389,6 +401,7 @@ export function ChargesScreen(): ReactElement {
                 onChange={(event) => {
                   setFrom(event.target.value);
                   setFile(null);
+                  setRefusal(null);
                 }}
                 className={FIELD_DATA}
               />
@@ -401,6 +414,7 @@ export function ChargesScreen(): ReactElement {
                 onChange={(event) => {
                   setTo(event.target.value);
                   setFile(null);
+                  setRefusal(null);
                 }}
                 className={FIELD_DATA}
               />
@@ -446,9 +460,9 @@ export function ChargesScreen(): ReactElement {
         </p>
       )}
 
-      {refusal === null ? null : (
+      {notice === null ? null : (
         <Notice tone="danger" live>
-          {t(refusal)}
+          {t(notice)}
         </Notice>
       )}
 

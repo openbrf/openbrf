@@ -13,6 +13,7 @@ import {
   PANEL,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { formatAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import {
@@ -67,11 +68,6 @@ import { accountingFailureKey } from "./accounting-failures";
  * would be the one it had already stopped looking at. The debiting list drops
  * its own file on the same event and for the same reason.
  */
-
-/** The file as something a browser will save. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
 
 /**
  * What the endpoint requires, mirrored from its own `@RequireCapability`.

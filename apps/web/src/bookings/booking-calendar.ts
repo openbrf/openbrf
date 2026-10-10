@@ -24,7 +24,13 @@
  * uses, for the same reason.
  */
 
-import { ASSOCIATION_TIME_ZONE, formatDayOfInstant } from "@openbrf/shared";
+import {
+  addLocalDays,
+  ASSOCIATION_TIME_ZONE,
+  formatDayOfInstant,
+  formatLocalDay,
+  parseLocalDay,
+} from "@openbrf/shared";
 
 /**
  * The association's clock, as the API states it.
@@ -35,11 +41,6 @@ import { ASSOCIATION_TIME_ZONE, formatDayOfInstant } from "@openbrf/shared";
  * screen cannot quietly render a booking in the viewer's own.
  */
 export { ASSOCIATION_TIME_ZONE };
-
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/** "YYYY-MM-DD", the form a calendar request and a slot state a date in. */
-const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
  * How many days a resource's calendar shows at once.
@@ -61,17 +62,7 @@ export function windowDaysFor(mode: string): number {
  * building's day, and just after midnight in Stockholm the two disagree.
  */
 export function localDayNow(now: Date = new Date()): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: ASSOCIATION_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const field = (type: "year" | "month" | "day"): string =>
-    parts.find((part) => part.type === type)?.value ?? "";
-
-  return `${field("year")}-${field("month")}-${field("day")}`;
+  return formatDayOfInstant(now);
 }
 
 /**
@@ -107,32 +98,11 @@ export function localDayOfInstant(iso: string): string {
  * The shape alone is not enough to tell: `Date.UTC` reads month 13 as January
  * of the next year and the 40th of a month as the month after, so "2026-13-40"
  * would otherwise come back as a date in February 2027 that nobody asked for.
- * The round trip below is what refuses that, and it is the rule the server's
- * own parser applies to the same text.
+ * `parseLocalDay` is what refuses that, the server's own parser.
  */
 export function shiftLocalDay(day: string, days: number): string {
-  const match = DAY_PATTERN.exec(day);
-  if (match === null) {
-    return day;
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const date = Number(match[3]);
-  if (formatUtcDay(new Date(Date.UTC(year, month - 1, date))) !== day) {
-    return day;
-  }
-  return formatUtcDay(
-    new Date(Date.UTC(year, month - 1, date) + days * MILLISECONDS_PER_DAY),
-  );
-}
-
-/** The calendar fields of an instant read as UTC, as "YYYY-MM-DD". */
-function formatUtcDay(instant: Date): string {
-  return (
-    `${String(instant.getUTCFullYear()).padStart(4, "0")}-` +
-    `${String(instant.getUTCMonth() + 1).padStart(2, "0")}-` +
-    `${String(instant.getUTCDate()).padStart(2, "0")}`
-  );
+  const parsed = parseLocalDay(day);
+  return parsed === null ? day : formatLocalDay(addLocalDays(parsed, days));
 }
 
 /** Negative, zero or positive as the first date is before, on or after. */
@@ -198,13 +168,12 @@ export function formatBookingDate(instant: string, locale: string): string {
  * date on the day before or after. The formatter above is told UTC in any case;
  * this is belt and braces on a value that is a date and not an instant, and it
  * is why nothing in this file formats a bare date in the association's zone.
+ * Null for text that is not a real date, so "2026-13-40" is never rendered as
+ * a day in February 2027.
  */
-function instantOfNoon(day: string): Date | null {
-  const match = DAY_PATTERN.exec(day);
-  if (match === null) {
-    return null;
-  }
-  return new Date(
-    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12),
-  );
+export function instantOfNoon(day: string): Date | null {
+  const parsed = parseLocalDay(day);
+  return parsed === null
+    ? null
+    : new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day, 12));
 }

@@ -234,6 +234,8 @@ describe("an association that cannot yet be identified in the file", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("organisationsnummer");
     expect(alert.textContent).not.toContain("behörighet");
+    // Recorded in the settings; the apartment register only shows it.
+    expect(alert.textContent).toContain("Inställningar");
   });
 });
 

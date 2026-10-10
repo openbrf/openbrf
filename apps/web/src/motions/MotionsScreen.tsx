@@ -146,6 +146,14 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    * failed earlier page, applied to the queue.
    */
   const [moreFailed, setMoreFailed] = useState(false);
+  /**
+   * How many pages of the queue the board has read down to.
+   *
+   * A re-read after an act reads as many again, so an item handled on the third
+   * page is still in view afterwards rather than the queue collapsing to its
+   * first page and taking the item with it.
+   */
+  const queuePages = useRef(1);
 
   /*
    * Answers with a step from what is on the screen rather than a whole new
@@ -155,14 +163,58 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    * read failed - sentences about the association made from a request that
    * never answered. The meetings screen keeps its meeting the same way.
    */
-  const read = useCallback(async (): Promise<(held: Loaded) => Loaded> => {
-    const [intake, queue, meetings] = await Promise.all([
+  const read = useCallback(async (): Promise<{
+    apply: (held: Loaded) => Loaded;
+    /**
+     * True where the re-read reached the first page and failed on a later one.
+     *
+     * The queue then holds the pages read before the failure and the cursor
+     * points at the page that failed, so the control below the queue can offer
+     * that page again. It is not `loadFailed`: the rows on the screen are good.
+     */
+    laterPageFailed: boolean;
+    /** How many pages of the queue this read holds, for the caller to keep. */
+    pagesHeld: number;
+  }> => {
+    // Fixed for this read: another read finishing meanwhile must not move it.
+    const target = queuePages.current;
+    const [intake, firstPage, meetings] = await Promise.all([
       canSubmit ? fetchMotionIntake() : null,
       canHandle ? fetchMotionQueue() : null,
       canHandle && canReadMeetings ? fetchMeetings() : null,
     ]);
+    let queue = firstPage;
+    let laterPageFailed = false;
+    let pagesHeld = 1;
+    for (
+      ;
+      pagesHeld < target &&
+      queue?.ok === true &&
+      queue.value.nextCursor !== null;
+      pagesHeld += 1
+    ) {
+      const next = await fetchMotionQueue({ after: queue.value.nextCursor });
+      if (!next.ok) {
+        /*
+         * Stop, and keep what the earlier pages gave. The first page is good
+         * and so are the ones merged so far; throwing them away for one failed
+         * request would empty a queue the board is working down. The cursor
+         * stays where it is, on the page that failed, so the control offers
+         * that page again.
+         */
+        laterPageFailed = true;
+        break;
+      }
+      queue = {
+        ok: true,
+        value: {
+          ...next.value,
+          motions: mergeQueuePage(queue.value.motions, next.value.motions),
+        },
+      };
+    }
 
-    return (held) => ({
+    const apply = (held: Loaded): Loaded => ({
       ready: true,
       /*
        * The board's answer first where there is one, because a board member who
@@ -189,6 +241,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       meetingsFailed: meetings?.ok === false,
       loadFailed: intake?.ok === false || queue?.ok === false,
     });
+    return { apply, laterPageFailed, pagesHeld };
   }, [canSubmit, canHandle, canReadMeetings]);
 
   /**
@@ -199,14 +252,22 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    */
   const reload = useCallback((): void => {
     const version = ++currentRead.current;
-    void read().then((apply) => {
+    void read().then(({ apply, laterPageFailed, pagesHeld }) => {
       if (version === currentRead.current) {
+        if (laterPageFailed) {
+          // The board has read as far as the pages in hand, so a retry appends
+          // the next one rather than skipping past it. Only once this read is
+          // known to be the newest: a superseded one that stopped short must
+          // not shorten what the next re-read asks for.
+          queuePages.current = pagesHeld;
+        }
         setLoaded(apply);
         // The queue has been read again from the top, so a failure to read a
         // page below the old one is no longer about anything on the screen.
         // Cleared as the new queue lands rather than as the read starts, so the
         // sentence never disappears while the rows it was about are still up.
-        setMoreFailed(false);
+        // Raised instead where the re-read itself stopped short of a page.
+        setMoreFailed(laterPageFailed);
       }
     });
   }, [read]);
@@ -237,6 +298,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           setMoreFailed(true);
           return;
         }
+        queuePages.current += 1;
         setLoaded((held) => {
           /*
            * Merged by id rather than appended, because the queue is written
@@ -258,14 +320,9 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
            * own ordering. Deleting first puts it where this page puts it, which
            * is where the server's ordering now has it.
            */
-          const byId = new Map(held.queue.map((motion) => [motion.id, motion]));
-          for (const motion of answer.value.motions) {
-            byId.delete(motion.id);
-            byId.set(motion.id, motion);
-          }
           return {
             ...held,
-            queue: [...byId.values()],
+            queue: mergeQueuePage(held.queue, answer.value.motions),
             queueCursor: answer.value.nextCursor,
           };
         });
@@ -338,4 +395,20 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       ) : null}
     </div>
   );
+}
+
+/**
+ * The queue with the page below added to it, by id, the newer copy in its newer
+ * place - see where "more" calls it for why.
+ */
+function mergeQueuePage(
+  held: readonly QueuedMotion[],
+  page: readonly QueuedMotion[],
+): QueuedMotion[] {
+  const byId = new Map(held.map((motion) => [motion.id, motion]));
+  for (const motion of page) {
+    byId.delete(motion.id);
+    byId.set(motion.id, motion);
+  }
+  return [...byId.values()];
 }

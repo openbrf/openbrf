@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -356,6 +356,98 @@ describe("taking a free slot", () => {
   });
 });
 
+describe("a slot lost to somebody quicker", () => {
+  async function refused(): Promise<void> {
+    bookSlot.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "slot-taken" },
+    });
+    const session = userEvent.setup();
+    await open();
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await screen.findByText(
+      "Någon hann före på den tiden. Kalendern har lästs om.",
+    );
+  }
+
+  it("reads the calendar again, as the sentence says it has", async () => {
+    await refused();
+
+    // The first read, and the one the refusal asked for.
+    await waitFor(() => {
+      expect(fetchBookableSlots).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("is not said over another week's calendar", async () => {
+    await refused();
+
+    // The next week cannot be read: that is what has to be said now.
+    fetchBookableSlots.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Senare" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Någon hann före på den tiden. Kalendern har lästs om.",
+        ),
+      ).toBeNull();
+    });
+  });
+});
+
+describe("a booking that settles after the reader moved on", () => {
+  it("is neither confirmed nor refused over the next week's calendar", async () => {
+    /*
+     * Moving on clears the action's state, but the request is still in flight.
+     * Its answer used to set the state again, so the next week opened with a
+     * refusal - or a confirmation - about a slot it does not show.
+     */
+    let settle!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await pending;
+      return { ok: false, failure: { status: 409, reason: "slot-taken" } };
+    });
+    const session = userEvent.setup();
+    await open();
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Bokar...")).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    settle();
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(1);
+    });
+    // The refusal asks for a read; wait for it so the answer has been applied.
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    expect(
+      screen.queryByText(
+        "Någon hann före på den tiden. Kalendern har lästs om.",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("a quota that has been spent", () => {
   /** Clicks the free slot and waits for whatever the refusal says. */
   async function refuse(detail: unknown): Promise<void> {
@@ -489,6 +581,65 @@ describe("a stay of several nights", () => {
         endsAt: "2026-09-16T22:00:00.000Z",
       });
     });
+  });
+
+  it("starts again when the window moves", async () => {
+    // The check for a held night in between sees only the window on screen, so
+    // a stay may not reach into one that is no longer shown.
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    expect(screen.queryByText(/^Ankomst/u)).toBeNull();
+  });
+
+  it("keeps a stay chosen on returning to a window while an earlier booking settles", async () => {
+    // Coming back gives the window the same key, so the key alone cannot say
+    // the stay on screen is not the one that was sent.
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let answered!: () => void;
+    const answer = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await claimed;
+      answered();
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+
+    // The panel says nothing of a booking made from a window since left, so
+    // there is no confirmation to wait for: the answer is what is awaited, and
+    // the act flushes what the panel does with it.
+    await act(async () => {
+      release();
+      await answer;
+    });
+
+    expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
   });
 
   it("cannot be made to span a night somebody else holds", async () => {

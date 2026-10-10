@@ -252,6 +252,7 @@
       },
       "current": "Current",
       "ended": "Ended",
+      "upcoming": "Upcoming",
       "electedOn": "Elected",
       "endedOn": "Ended",
       "protectionFailed": "The masking could not be changed. Try again.",
@@ -2031,9 +2032,16 @@
         "cancel": "Cancel",
         "submit": "Note the lien",
         "release": "Release",
-        "releaseLabel": "Release the lien from {{creditor}}",
+        "entry": "Note {{position}} of {{total}}",
+        "releaseLabel": "Release the lien from {{lien}}",
+        "releasedOnLabel": "Released on",
+        "releasedOnLabelFor": "Released on, for the lien from {{lien}}",
+        "releaseSubmit": "Record the release",
+        "releaseSubmitLabel": "Record the release of the lien from {{lien}}",
         "releasing": "Releasing",
-        "failed": "The lien could not be recorded. Check the creditor and the date."
+        "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may still appear open until the register has been read again.",
+        "readAgain": "Read the register again",
+        "failed": "The lien could not be recorded. Check the creditor, the date and the amount."
       },
       "transfers": {
         "heading": "Grants and transfers",
@@ -2226,7 +2234,7 @@
           "forbidden": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
           "association-not-set-up": "The association's own record is missing, so the file would identify nobody. Complete the setup first.",
           "association-name-missing": "The association has no name recorded, so the file would identify nobody. Record it in settings first.",
-          "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it on the apartment register screen first.",
+          "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it in Settings, under The housing cooperative, first.",
           "unexpected": "The initial supply could not be produced just now. Please try again."
         },
         "download": "Save the file",
@@ -2828,6 +2836,7 @@
       "summary_one": "From {{correspondent}}. One message.",
       "summary_other": "From {{correspondent}}. {{count}} messages.",
       "more": "Show older threads",
+      "moreFailed": "The older threads could not be read just now. Try again.",
       "reading": "Reading..."
     },
     "thread": {
@@ -2849,7 +2858,8 @@
       "replyRemaining_other": "{{count}} characters left.",
       "olderNotShown": "Showing the last {{shown}} of {{total}} messages on this thread.",
       "readEarlier": "Show earlier messages",
-      "readingEarlier": "Reading..."
+      "readingEarlier": "Reading...",
+      "earlierFailed": "The earlier messages could not be read just now. Try again."
     },
     "message": {
       "received": "Received",
@@ -2886,6 +2896,7 @@
     "description": "Everybody holding a board seat is in this room, and nobody else. Nothing here is published, nothing is mailed, and nothing is shown on the association's website.",
     "loading": "Opening the chat...",
     "loadFailed": "The chat could not be opened just now. Reload the page.",
+    "relistFailed": "The list of rooms could not be read again just now.",
     "notOffered": "The chat is for the board and for the people who live in the building. An account that holds neither a board seat nor a home here does not reach it.",
     "reading": "Reading the messages...",
     "empty": "Nothing has been written here yet.",
