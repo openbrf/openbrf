@@ -18,7 +18,8 @@ Harden how plugins are sealed, installed and switched.
   rows alone when another run took the installation over, and does not restart
   the process after a run that failed and changed nothing. Each archive's
   `openbrf.id` is checked before npm runs, and npm is given no git.
-- Installing and removing a plugin commit their rows, the art. 30 record and
-  the audit entry together; a removed plugin stops being served at once.
+- Installing and removing a plugin commit their rows, the art. 30 record, the
+  recipient's art. 28 classification and the audit entries together; a removed
+  plugin stops being served at once.
   Switching a plugin on or off and changing its settings are now audited
   (`PLUGIN_ENABLED`, `PLUGIN_DISABLED`, `PLUGIN_SETTINGS_CHANGED`).

@@ -605,8 +605,9 @@ export class PluginAdminService {
         : await this.pluginAgreementInput(request.processorAgreement);
 
     /*
-     * The consent row, the processing in the art. 30 record and the entry
-     * that says who installed it commit together or not at all. Update-or-
+     * The consent row, the processing in the art. 30 record, the entry that
+     * says who installed it and the recipient's classification commit
+     * together or not at all. Update-or-
      * create for the processing, so a plugin removed and installed again reads
      * as running rather than ended: the row was closed with a date, and
      * reinstalling reopens it and refreshes the declared categories while
@@ -655,31 +656,35 @@ export class PluginAdminService {
         },
         tx,
       );
-    });
 
-    /*
-     * After the consent row has committed, and deliberately outside it: the
-     * declaration a reinstall compares against is the permissions and the
-     * personal data, and a classification recorded beside them would make a
-     * board's answer about a mail server look like a change to what the
-     * plugin asked for. It is a record of its own, written with its own entry.
-     *
-     * The recipient is keyed on the plugin id rather than on the installed row,
-     * so it survives the reinstall that rewrites that row.
-     *
-     * Only where the record is still empty: the check above was taken before
-     * the consent row, so a classification written in between is kept and this
-     * install goes on without its answer rather than failing after the consent
-     * is already committed.
-     */
-    if (agreement !== undefined) {
-      await this.processors.record(
-        pluginProcessorKey(entry.id),
-        { ...agreement, actorPersonId, channel },
-        await this.facts.read(),
-        { onlyIfUnrecorded: true },
-      );
-    }
+      /*
+       * In the same transaction, so a recipient answer that cannot be written
+       * takes the consent with it: a consent committed without it would have
+       * no reconcile queued, and a board retrying would be told the plugin was
+       * already consented to. It is still a record of its own, written with its
+       * own entry, rather than a field of the consent row: the declaration a
+       * reinstall compares against is the permissions and the personal data,
+       * and a classification recorded beside them would make a board's answer
+       * about a mail server look like a change to what the plugin asked for.
+       *
+       * The recipient is keyed on the plugin id rather than on the installed
+       * row, so it survives the reinstall that rewrites that row. The facts are
+       * read in the transaction, where the consent row above is already there.
+       *
+       * Only where the record is still empty: the check above was taken before
+       * this transaction, so a classification written in between is kept and
+       * this install goes on without its answer rather than being refused.
+       */
+      if (agreement !== undefined) {
+        await this.processors.record(
+          pluginProcessorKey(entry.id),
+          { ...agreement, actorPersonId, channel },
+          await this.facts.read(tx),
+          { onlyIfUnrecorded: true },
+          tx,
+        );
+      }
+    });
 
     await this.installer.enqueue({
       reason: `install:${entry.id}`,
