@@ -456,9 +456,11 @@ function ErasureWaitingOnNote({
 
       {waitingOn.lettingLastDay === null ? null : (
         <p className="text-small">
-          {t("register.person.requests.waitingOn.lettingLastDay", {
-            date: waitingOn.lettingLastDay,
-          })}
+          {t("register.person.requests.waitingOn.lettingLastDay")}{" "}
+          {/* Mono like every other date; the sentence around it stays in the
+              UI face, so it is three parts rather than one interpolation. */}
+          <span className="font-data">{waitingOn.lettingLastDay}</span>.{" "}
+          {t("register.person.requests.waitingOn.lettingLastDayNote")}
         </p>
       )}
     </div>

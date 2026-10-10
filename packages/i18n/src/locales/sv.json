@@ -883,7 +883,8 @@
             "motions": "En öppen motion, eller en som står på dagordningen till en stämma som inte har hållits, behandlas fortfarande.",
             "subletApplications": "En ansökan om andrahandsupplåtelse ligger kvar hos styrelsen, eller så löper en upplåtelse som styrelsen har samtyckt till."
           },
-          "lettingLastDay": "En upplåtelse som styrelsen har samtyckt till löper till och med {{date}}. Gallringen raderar samtycket natten efter. Om upplåtelsen upphörde tidigare, anteckna dess sista dag under Ansökningar om andrahandsupplåtelse."
+          "lettingLastDay": "En upplåtelse som styrelsen har samtyckt till löper till och med",
+          "lettingLastDayNote": "Efter den dagen håller upplåtelsen inte längre tillbaka raderingen. Raderingen kräver också att alla andra hinder, som ett rättsligt bevarandekrav eller en begränsning, har upphört. Om upplåtelsen upphörde tidigare, anteckna dess sista dag under Ansökningar om andrahandsupplåtelse."
         },
         "reasons": {
           "personNotFound": "Personen finns inte i registret.",

@@ -469,9 +469,32 @@ describe("what a granted erasure request is waiting on", () => {
       row.getByText("Ansökningar om andrahandsupplåtelse").closest("li")
         ?.textContent,
     ).toContain("1 sparas");
+    const note = row.getByText(/löper till och med/);
+    expect(note.textContent).toContain("anteckna dess sista dag");
+    // The date alone is in the register face; the sentence stays in the UI face.
+    const date = row.getByText("2027-03-31");
+    expect(date.className).toContain("font-data");
+    expect(note.className).not.toContain("font-data");
+  });
+
+  it("does not promise the erasure the day the letting ends while a legal hold also stands", () => {
+    const row = renderSection(
+      GRANTED_ERASURE,
+      vi.fn(),
+      waitingOn({ refusal: "on-legal-hold" }),
+    );
+
     expect(
-      row.getByText(/löper till och med 2027-03-31/).textContent,
-    ).toContain("anteckna dess sista dag");
+      row.getByText(
+        "Ett rättsligt bevarandekrav gäller för personen (art. 17.3 e).",
+      ),
+    ).not.toBeNull();
+    const note = row.getByText(/löper till och med/).textContent;
+    expect(note).toContain(
+      "håller upplåtelsen inte längre tillbaka raderingen",
+    );
+    expect(note).toContain("alla andra hinder");
+    expect(note).not.toContain("natten efter");
   });
 
   it("names the rule that refuses the purge, beside what the domains still owe", () => {

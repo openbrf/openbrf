@@ -883,7 +883,8 @@
             "motions": "An open motion, or one on the agenda of a meeting not yet held, is still being dealt with.",
             "subletApplications": "A subletting application is still with the board, or a consented letting still runs."
           },
-          "lettingLastDay": "A consented letting runs through {{date}}. The purge erases the consent the night after. If the letting ended earlier, record its last day under Subletting applications."
+          "lettingLastDay": "A consented letting runs through",
+          "lettingLastDayNote": "After that day the letting no longer holds the erasure back. The erasure also needs every other hold, such as a legal hold or a restriction, to have lifted. If the letting ended earlier, record its last day under Subletting applications."
         },
         "reasons": {
           "personNotFound": "There is no such person in the register.",
