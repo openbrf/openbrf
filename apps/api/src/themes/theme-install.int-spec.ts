@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -51,14 +58,17 @@ let catalogDirectory: string;
 let exampleEntry: FixtureCatalogEntry;
 let catalogPath: string;
 /**
- * An installer reading the index at this path, on this run's database, and
- * writing through the store given, or through the one the other installers
- * share.
+ * An installer reading the index at this path, on this run's database through
+ * the client given or the shared one, and writing through the store given or
+ * the one the other installers share.
  */
 let installerReading: (
   path: string,
   storeFor?: (env: Env) => ThemeStore,
+  client?: PrismaService,
 ) => ThemeInstallService;
+let audit: AuditLogService;
+let store: ThemeStore;
 
 /** Restored in afterAll, so the shared database is left as it was found. */
 let associationExisted = false;
@@ -97,13 +107,13 @@ beforeAll(async () => {
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });
   const service = prisma as unknown as PrismaService;
-  const audit = new AuditLogService(service);
-  const store = new ThemeStore(env);
+  audit = new AuditLogService(service);
+  store = new ThemeStore(env);
 
   themes = new ThemeService(service, audit, store);
-  installerReading = (path, storeFor) =>
+  installerReading = (path, storeFor, client) =>
     new ThemeInstallService(
-      service,
+      client ?? service,
       audit,
       new CatalogThemeSource(
         new CatalogClient({
@@ -465,7 +475,86 @@ describe("installing a theme from the catalog", () => {
     expect(result.theme.id).toBe(exampleEntry.id);
     expect(staged).toBe(1);
   });
+
+  /*
+   * The install's transaction fails once its callback has returned, which
+   * releases the lock before the files are undone, and another install of the
+   * same id commits in between. Its row is the one left, so its files must be
+   * the ones on the volume. Runs after the installs above, so there is a
+   * previous version the failed install moved aside.
+   */
+  it("keeps a later install's files when an earlier one is undone", async () => {
+    const lost = new Error("The connection was lost at the commit.");
+    const before = await readdir(join(dataDirectory, "themes"));
+    const client = clientRacedBy(async () => {
+      await installer.install(exampleEntry.id, null);
+      await writeFile(join(themeDirectory(), "later-install"), "");
+    }, lost);
+
+    await expect(
+      installerReading(catalogPath, undefined, client).install(
+        exampleEntry.id,
+        null,
+      ),
+    ).rejects.toBe(lost);
+
+    expect(
+      await prisma.installedTheme.findUnique({
+        where: { id: exampleEntry.id },
+      }),
+    ).not.toBeNull();
+    await expect(
+      stat(join(themeDirectory(), "later-install")),
+    ).resolves.toBeDefined();
+    expect(
+      await themes.asset(exampleEntry.id, "fonts/spline-sans-mono-latin.woff2"),
+    ).not.toBeNull();
+    // Nothing the failed install moved aside is left behind either.
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual(before);
+  });
 });
+
+function themeDirectory(): string {
+  return join(dataDirectory, "themes", exampleEntry.id);
+}
+
+/**
+ * This run's client, with its first transaction raced: `between` runs once
+ * that transaction has ended, and so once its lock is released, before the
+ * caller hears how it ended. Given `lost`, the transaction rolls back after
+ * its callback has run and the caller is answered with `lost`, as when the
+ * connection drops at the commit. Every later transaction is passed through.
+ */
+function clientRacedBy(
+  between: () => Promise<void>,
+  lost?: Error,
+): PrismaService {
+  type Run = (tx: unknown) => Promise<unknown>;
+  let raced = false;
+  const transaction = async (run: Run): Promise<unknown> => {
+    if (raced) {
+      return prisma.$transaction(run as never);
+    }
+    raced = true;
+    if (lost === undefined) {
+      const result = await prisma.$transaction(run as never);
+      await between();
+      return result;
+    }
+    await prisma
+      .$transaction((async (tx: unknown) => {
+        await run(tx);
+        throw lost;
+      }) as never)
+      .catch(() => undefined);
+    await between();
+    throw lost;
+  };
+  return new Proxy(prisma, {
+    get: (target, property) =>
+      property === "$transaction" ? transaction : Reflect.get(target, property),
+  }) as unknown as PrismaService;
+}
 
 /**
  * A copy of the fixture index with the example entry changed, as a curator's
@@ -561,5 +650,34 @@ describe("preview and activation", () => {
     await expect(
       stat(join(dataDirectory, "themes", "example-theme")),
     ).rejects.toThrow();
+  });
+
+  /*
+   * The removal has committed and released the lock, and a reinstall of the
+   * same id commits before the files are deleted. Those files are the
+   * reinstall's now, and deleting them would leave its row listed with every
+   * font and the logo answering 404.
+   */
+  it("does not delete the files of a reinstall that commits after it", async () => {
+    await installer.install(exampleEntry.id, null);
+    const before = await readdir(join(dataDirectory, "themes"));
+    const client = clientRacedBy(async () => {
+      await installer.install(exampleEntry.id, null);
+    });
+
+    await new ThemeService(client, audit, store).uninstall(
+      exampleEntry.id,
+      null,
+    );
+
+    expect(
+      await prisma.installedTheme.findUnique({
+        where: { id: exampleEntry.id },
+      }),
+    ).not.toBeNull();
+    expect(
+      await themes.asset(exampleEntry.id, "fonts/spline-sans-mono-latin.woff2"),
+    ).not.toBeNull();
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual(before);
   });
 });

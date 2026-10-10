@@ -28,7 +28,7 @@ import {
   type ComposeThemeInput,
 } from "./theme-compose";
 import { CatalogThemeSource } from "./theme-source";
-import { lockThemes } from "./theme-lock";
+import { lockThemes, underThemeLock } from "./theme-lock";
 import { ThemeStore } from "./theme-store";
 import { ThemeService, type ThemeSummary } from "./theme.service";
 
@@ -465,7 +465,8 @@ export class ThemeInstallService {
     } catch (cause) {
       // Also after the commit: the transaction can still fail to commit once
       // its callback has returned, and the previous version goes back then.
-      await staged.discard();
+      // Under the lock again, which the rollback released.
+      await underThemeLock(this.prisma, () => staged.discard());
       throw cause;
     }
 

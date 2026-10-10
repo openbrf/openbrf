@@ -48,6 +48,7 @@ interface Harness {
   activeThemeId: () => string | null;
   audited: { action: string; targetId: string | null }[];
   removed: string[];
+  restored: string[];
   prisma: {
     $transaction: ReturnType<
       typeof vi.fn<(run: (tx: unknown) => Promise<unknown>) => Promise<unknown>>
@@ -68,6 +69,7 @@ function build(
   const exists = options.association ?? true;
   const audited: { action: string; targetId: string | null }[] = [];
   const removed: string[] = [];
+  const restored: string[] = [];
 
   const prisma = {
     association: {
@@ -125,12 +127,18 @@ function build(
 
   const store = {
     directoryFor: (id: string) => `/data/themes/${id}`,
-    remove: vi.fn(async (id: string) => {
-      if (options.removalFails === true) {
-        throw new Error("The directory could not be removed.");
-      }
-      removed.push(id);
-    }),
+    root: "/data/themes",
+    detach: vi.fn(async (id: string) => ({
+      finalize: async () => {
+        if (options.removalFails === true) {
+          throw new Error("The directory could not be removed.");
+        }
+        removed.push(id);
+      },
+      restore: async () => {
+        restored.push(id);
+      },
+    })),
     readAsset: vi.fn(async () => Buffer.from("asset")),
   };
 
@@ -144,6 +152,7 @@ function build(
     activeThemeId: () => active,
     audited,
     removed,
+    restored,
     prisma,
   };
 }
@@ -366,6 +375,21 @@ describe("removal", () => {
 
     expect(stuck.rows).toEqual([]);
     expect(themes.some((theme) => theme.id === "example-theme")).toBe(false);
+  });
+
+  it("puts the files back when the removal does not commit", async () => {
+    const lost = build([themeRow()]);
+    const original = lost.prisma.$transaction.getMockImplementation();
+    lost.prisma.$transaction.mockImplementationOnce(async (run) => {
+      await original?.(run);
+      throw new Error("The connection was lost at the commit.");
+    });
+
+    await expect(lost.service.uninstall("example-theme", null)).rejects.toThrow(
+      /connection was lost/,
+    );
+    expect(lost.restored).toEqual(["example-theme"]);
+    expect(lost.removed).toEqual([]);
   });
 });
 

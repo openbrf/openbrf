@@ -116,7 +116,17 @@ describe("ThemeStore", () => {
 
   it("removes a theme", async () => {
     await install("example-theme", filesOf({ "theme.json": "{}" }));
-    await store.remove("example-theme");
+    const detached = await store.detach("example-theme");
+    expect(await store.readAsset("example-theme", "theme.json")).toBeNull();
+
+    await detached.finalize();
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([]);
+  });
+
+  it("removes a theme that has no files on the volume", async () => {
+    const detached = await store.detach("example-theme");
+    await detached.finalize();
+    await detached.restore();
     expect(await store.readAsset("example-theme", "theme.json")).toBeNull();
   });
 
@@ -241,6 +251,109 @@ describe("an install that does not complete", () => {
     ).toBe("old");
     expect(
       await store.readAsset("example-theme", "fonts/new.woff2"),
+    ).toBeNull();
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([
+      "example-theme",
+    ]);
+  });
+
+  /*
+   * The transaction around the commit failed, and before the undo another
+   * install of the same id committed its row and its files. Those are what the
+   * row describes now, so the undo leaves them and drops the version it had
+   * moved aside rather than putting it back under the later row.
+   */
+  it("leaves a later install's files in place when it is undone", async () => {
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/old.woff2": "old" }),
+    );
+    const failed = await store.stage(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/failed.woff2": "failed" }),
+    );
+    await failed.commit();
+
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/later.woff2": "later" }),
+    );
+    await failed.discard();
+
+    expect(
+      (await store.readAsset("example-theme", "fonts/later.woff2"))?.toString(
+        "utf8",
+      ),
+    ).toBe("later");
+    expect(
+      await store.readAsset("example-theme", "fonts/old.woff2"),
+    ).toBeNull();
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([
+      "example-theme",
+    ]);
+  });
+});
+
+/**
+ * What a removal does to the files, which it moves aside in its transaction
+ * and deletes once that has committed.
+ */
+describe("a removal", () => {
+  it("puts the files back when its transaction does not commit", async () => {
+    await install("example-theme", filesOf({ "theme.json": "{}" }));
+    const detached = await store.detach("example-theme");
+
+    await detached.restore();
+
+    expect(
+      (await store.readAsset("example-theme", "theme.json"))?.toString("utf8"),
+    ).toBe("{}");
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([
+      "example-theme",
+    ]);
+  });
+
+  it("deletes only its own files, not a reinstall's", async () => {
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/old.woff2": "old" }),
+    );
+    const detached = await store.detach("example-theme");
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/new.woff2": "new" }),
+    );
+
+    await detached.finalize();
+
+    expect(
+      (await store.readAsset("example-theme", "fonts/new.woff2"))?.toString(
+        "utf8",
+      ),
+    ).toBe("new");
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([
+      "example-theme",
+    ]);
+  });
+
+  it("does not put its files back over a reinstall's", async () => {
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/old.woff2": "old" }),
+    );
+    const detached = await store.detach("example-theme");
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/new.woff2": "new" }),
+    );
+
+    await detached.restore();
+
+    expect(
+      await store.readAsset("example-theme", "fonts/new.woff2"),
+    ).not.toBeNull();
+    expect(
+      await store.readAsset("example-theme", "fonts/old.woff2"),
     ).toBeNull();
     expect(await readdir(join(dataDirectory, "themes"))).toEqual([
       "example-theme",

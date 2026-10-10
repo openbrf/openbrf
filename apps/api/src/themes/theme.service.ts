@@ -24,8 +24,8 @@ import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
-import { lockThemes } from "./theme-lock";
-import { ThemeStore } from "./theme-store";
+import { lockThemes, underThemeLock } from "./theme-lock";
+import { type DetachedTheme, ThemeStore } from "./theme-store";
 
 /**
  * The themes an instance has, and which one it renders.
@@ -568,38 +568,50 @@ export class ThemeService {
     /*
      * Checked and removed in one transaction under the theme lock, so an
      * activation of this theme, or an install of a child of it, cannot commit
-     * between the check and the removal. The row goes first, and it is what
-     * the instance reads. A directory with no row is unreferenced - nothing
-     * lists it, the asset route builds its allowlist from the row, and the
-     * next install of that id replaces it - while a row whose files are gone
-     * would leave a theme listed and offered for activation with its fonts and
-     * logo answering 404.
+     * between the check and the removal.
+     *
+     * The files are moved aside as the transaction's last step, still under
+     * the lock, and deleted only once it has committed. Deleted after the
+     * lock instead, they could be the files a reinstall of the same id had
+     * written meanwhile, leaving its row with fonts and a logo answering 404.
+     * Moved aside, they can also go back if the transaction does not commit.
      */
-    await this.prisma.$transaction(async (tx) => {
-      await lockThemes(tx);
-      const [rows, association] = await Promise.all([
-        tx.installedTheme.findMany({
-          select: { id: true, extendsThemeId: true },
-        }),
-        tx.association.findUnique({
-          where: { id: 1 },
-          select: { activeThemeId: true },
-        }),
-      ]);
-      this.assertRemovable(themeId, rows, association?.activeThemeId ?? null);
+    let detached: DetachedTheme | undefined;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await lockThemes(tx);
+        const [rows, association] = await Promise.all([
+          tx.installedTheme.findMany({
+            select: { id: true, extendsThemeId: true },
+          }),
+          tx.association.findUnique({
+            where: { id: 1 },
+            select: { activeThemeId: true },
+          }),
+        ]);
+        this.assertRemovable(themeId, rows, association?.activeThemeId ?? null);
 
-      await tx.installedTheme.delete({ where: { id: themeId } });
-      await this.audit.record(
-        {
-          action: "THEME_REMOVED",
-          channel: "WEB",
-          actorPersonId,
-          targetKind: "theme",
-          targetId: themeId,
-        },
-        tx,
-      );
-    });
+        await tx.installedTheme.delete({ where: { id: themeId } });
+        await this.audit.record(
+          {
+            action: "THEME_REMOVED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "theme",
+            targetId: themeId,
+          },
+          tx,
+        );
+
+        detached = await this.store.detach(themeId);
+      });
+    } catch (cause) {
+      const moved = detached;
+      if (moved !== undefined) {
+        await underThemeLock(this.prisma, () => moved.restore());
+      }
+      throw cause;
+    }
 
     /*
      * A failed removal of the files is recorded and not raised: the uninstall
@@ -607,10 +619,10 @@ export class ThemeService {
      * retry an operation that has already succeeded.
      */
     try {
-      await this.store.remove(themeId);
+      await detached?.finalize();
     } catch (cause) {
       this.logger.warn(
-        `Theme ${themeId} was uninstalled, but its files under ${this.store.directoryFor(themeId)} could not be removed. They are unreferenced and a reinstall of that id replaces them.`,
+        `Theme ${themeId} was uninstalled, but its files could not be deleted from ${this.store.root}. Nothing refers to them any more.`,
         cause instanceof Error ? cause.stack : undefined,
       );
     }
