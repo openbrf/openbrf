@@ -14,6 +14,7 @@ import {
   type ThemeManifest,
 } from "@openbrf/theme-tools";
 
+import { failureName } from "../logging/failure";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -511,7 +512,15 @@ export class ThemeInstallService {
       // Also after the commit: the transaction can still fail to commit once
       // its callback has returned, and the previous version goes back then.
       // Under the lock again, which the rollback released.
-      await underThemeLock(this.prisma, () => staged.discard());
+      await underThemeLock(this.prisma, () => staged.discard()).catch(
+        (undo: unknown) => {
+          // The install's own failure is the one the caller needs; this one
+          // is for the operator, who has to find the files it left behind.
+          this.logger.error(
+            `Theme ${manifest.name} failed to install, and putting back its previous files failed with ${failureName(undo)}. They are under a .replaced- directory in ${this.store.root}.`,
+          );
+        },
+      );
       throw cause;
     }
 
@@ -552,7 +561,6 @@ export class ThemeInstallService {
     };
   }
 
-  /** Refuses anything that configures an instance nobody has claimed yet. */
   /**
    * The checks that depend on other rows, made again under the theme lock.
    *
@@ -603,6 +611,7 @@ export class ThemeInstallService {
     }
   }
 
+  /** Refuses anything that configures an instance nobody has claimed yet. */
   private async assertHousingCooperativeExists(message: string): Promise<void> {
     const association = await this.prisma.association.findUnique({
       where: { id: 1 },

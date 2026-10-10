@@ -19,6 +19,7 @@ import {
   type TokenSet,
 } from "@openbrf/tokens";
 
+import { failureName } from "../logging/failure";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
@@ -632,7 +633,15 @@ export class ThemeService {
     } catch (cause) {
       const moved = detached;
       if (moved !== undefined) {
-        await underThemeLock(this.prisma, () => moved.restore());
+        await underThemeLock(this.prisma, () => moved.restore()).catch(
+          (undo: unknown) => {
+            // The uninstall's own failure is the one the caller needs; this
+            // one is for the operator, who has to find the files.
+            this.logger.error(
+              `Theme ${themeId} was not uninstalled, and moving its files back failed with ${failureName(undo)}. They are under a .removed- directory in ${this.store.root}.`,
+            );
+          },
+        );
       }
       throw cause;
     }

@@ -570,6 +570,30 @@ describe("installing a theme from the catalog", () => {
     // Nothing the failed install moved aside is left behind either.
     expect(await readdir(join(dataDirectory, "themes"))).toEqual(before);
   });
+
+  /*
+   * Last, because it leaves the volume as a failed undo does. The caller is
+   * told why the install failed; that the files could not be put back is for
+   * the log.
+   */
+  it("answers with the install's own failure when its files cannot be put back", async () => {
+    const lost = new Error("The connection was lost at the commit.");
+    class StoreThatCannotUndo extends ThemeStore {
+      override async stage(
+        ...args: Parameters<ThemeStore["stage"]>
+      ): Promise<StagedTheme> {
+        const stage = await super.stage(...args);
+        return { ...stage, discard: () => Promise.reject(new Error("EBUSY")) };
+      }
+    }
+
+    await expect(
+      installerReading(catalogPath, {
+        client: clientRacedBy(async () => undefined, lost),
+        storeFor: (env) => new StoreThatCannotUndo(env),
+      }).install(exampleEntry.id, null),
+    ).rejects.toBe(lost);
+  });
 });
 
 function themeDirectory(): string {

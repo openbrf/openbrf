@@ -68,6 +68,8 @@ function build(
     association?: boolean;
     /** Makes the filesystem removal fail, as a full volume or a lock would. */
     removalFails?: boolean;
+    /** Makes putting the files back fail, as it would on the same full volume. */
+    restoreFails?: boolean;
     /**
      * When the package lock's session ends: before the work, once the row is
      * deleted, or while the rows the resolved tokens are computed from are read.
@@ -164,6 +166,9 @@ function build(
         removed.push(id);
       },
       restore: async () => {
+        if (options.restoreFails === true) {
+          throw new Error("The directory could not be moved back.");
+        }
         restored.push(id);
       },
     })),
@@ -428,6 +433,19 @@ describe("removal", () => {
     );
     expect(lost.restored).toEqual(["example-theme"]);
     expect(lost.removed).toEqual([]);
+  });
+
+  it("answers with the commit failure when the files cannot be put back either", async () => {
+    const stuck = build([themeRow()], { restoreFails: true });
+    const original = stuck.prisma.$transaction.getMockImplementation();
+    stuck.prisma.$transaction.mockImplementationOnce(async (run) => {
+      await original?.(run);
+      throw new Error("The connection was lost at the commit.");
+    });
+
+    await expect(
+      stuck.service.uninstall("example-theme", null),
+    ).rejects.toThrow(/connection was lost/);
   });
 
   it("removes nothing once the package lock is lost", async () => {
