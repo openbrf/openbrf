@@ -1,7 +1,9 @@
 import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
+import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { withheldAddressIndexes } from "./withheld-addresses";
 
 /**
  * What a granted erasure request still owes one person, domain by domain.
@@ -35,7 +37,9 @@ import type { Prisma } from "../generated/prisma/client";
  * motion, a key order or a subletting application that is still open. Each is a
  * matter the association is still dealing with, and a motion's member has a
  * right to have it dealt with, so the purge leaves it standing however the
- * board decided the erasure. Those rows are counted apart, because the record has to
+ * board decided the erasure. A board mailbox thread whose address somebody
+ * under a legal hold or a restriction now holds stays for that person's sake
+ * rather than the asker's. Those rows are counted apart, because the record has to
  * say which of two very different things happened - a job that has not got
  * through this person yet, or a row that is deliberately staying. Neither
  * closes the request, and a request left open says which it was.
@@ -176,18 +180,84 @@ export function newsCommentsErasedOnRequest(
 
 /**
  * The board mailbox threads a granted erasure request erases: those the thread
- * was linked to the person by, as it was opened.
+ * was linked to the person by, as it was opened, and whose address no withheld
+ * person holds.
  *
  * Only `correspondentPersonId`, never an address. A thread whose correspondent
  * could not be established as exactly one person is linked to nobody, and the
  * access report does not list it either - erasing it on the strength of an
  * address somebody else may hold now would be the attribution the mailbox
  * refuses.
+ *
+ * The address still decides what is kept. An address changes hands - a role
+ * address passes to whoever takes the seat, a household shares one - so the
+ * thread linked to the person asking may carry an address the register now
+ * holds for somebody under a legal hold or a restriction, and the purge keeps
+ * every thread with that address whoever it is linked to. Leaving those out
+ * here keeps the scan from selecting a thread the purge will refuse, every
+ * night, ahead of its bound.
+ *
+ * @param withheldAddresses This table's blind index of every withheld person's
+ *   address, as {@link boardMailboxWithheldAddresses} reads it.
  */
 export function boardMailboxThreadsErasedOnRequest(
   personId: ErasurePersonFilter,
+  withheldAddresses: readonly string[],
 ): Prisma.BoardMailboxThreadWhereInput {
-  return { correspondentPersonId: personId };
+  return {
+    correspondentPersonId: personId,
+    // The null branch beside the list, because `NOT IN` does not answer true
+    // for null - the reason the window's own scan gives in
+    // `board-mailbox-purge.service.ts`.
+    ...(withheldAddresses.length > 0
+      ? {
+          OR: [
+            { correspondentEmailIndex: { notIn: [...withheldAddresses] } },
+            { correspondentEmailIndex: null },
+          ],
+        }
+      : {}),
+  };
+}
+
+/**
+ * The board mailbox threads a granted erasure request leaves standing: those
+ * linked to the person whose address a withheld person holds.
+ *
+ * Null where nobody is withheld, so the count is not asked with an empty list.
+ */
+export function boardMailboxThreadsKeptFromErasure(
+  personId: ErasurePersonFilter,
+  withheldAddresses: readonly string[],
+): Prisma.BoardMailboxThreadWhereInput | null {
+  if (withheldAddresses.length === 0) {
+    return null;
+  }
+  return {
+    correspondentPersonId: personId,
+    correspondentEmailIndex: { in: [...withheldAddresses] },
+  };
+}
+
+/**
+ * This table's blind index of every withheld person's address.
+ *
+ * `retention/withheld-addresses.ts` says how, and why the register's own index
+ * cannot be compared with the thread's.
+ */
+export async function boardMailboxWithheldAddresses(
+  client: ErasureDbClient,
+  encryption: FieldEncryptionService,
+): Promise<string[]> {
+  return [
+    ...(
+      await withheldAddressIndexes(
+        client,
+        encryption,
+        "boardMailboxThread.correspondentEmail",
+      )
+    ).keys(),
+  ];
 }
 
 /**
@@ -291,11 +361,18 @@ export interface ErasureDomain {
   readonly job: string;
   /** What a log line and a summary call the domain. */
   readonly name: string;
-  /** Rows the domain's own job has not erased yet. */
+  /**
+   * Rows the domain's own job has not erased yet.
+   *
+   * Handed the field encryption for the domain keyed on an address, which
+   * can only tell a withheld person's address by indexing it under its own
+   * field.
+   */
   countOwed(
     client: ErasureDbClient,
     personId: string,
     now: Date,
+    encryption: FieldEncryptionService,
   ): Promise<number>;
   /** Rows the domain keeps whatever the board granted, and why. */
   readonly kept?: {
@@ -304,6 +381,7 @@ export interface ErasureDomain {
       client: ErasureDbClient,
       personId: string,
       now: Date,
+      encryption: FieldEncryptionService,
     ): Promise<number>;
   };
 }
@@ -318,10 +396,24 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   {
     job: "board-mailbox/board-mailbox-purge.service.ts",
     name: "board mailbox threads",
-    countOwed: async (client, personId) =>
+    countOwed: async (client, personId, _now, encryption) =>
       client.boardMailboxThread.count({
-        where: boardMailboxThreadsErasedOnRequest(personId),
+        where: boardMailboxThreadsErasedOnRequest(
+          personId,
+          await boardMailboxWithheldAddresses(client, encryption),
+        ),
       }),
+    kept: {
+      because:
+        "a thread's address is held by somebody under a legal hold or a restriction",
+      count: async (client, personId, _now, encryption) => {
+        const where = boardMailboxThreadsKeptFromErasure(
+          personId,
+          await boardMailboxWithheldAddresses(client, encryption),
+        );
+        return where === null ? 0 : client.boardMailboxThread.count({ where });
+      },
+    },
   },
   {
     job: "bookings/booking-purge.service.ts",
@@ -428,14 +520,15 @@ export async function erasureRemainder(
   client: ErasureDbClient,
   personId: string,
   now: Date,
+  encryption: FieldEncryptionService,
 ): Promise<ErasureRemainder[]> {
   const remainders: ErasureRemainder[] = [];
   for (const domain of ERASURE_DOMAINS) {
-    const owed = await domain.countOwed(client, personId, now);
+    const owed = await domain.countOwed(client, personId, now, encryption);
     const kept =
       domain.kept === undefined
         ? 0
-        : await domain.kept.count(client, personId, now);
+        : await domain.kept.count(client, personId, now, encryption);
     if (owed === 0 && kept === 0) {
       continue;
     }
