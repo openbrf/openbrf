@@ -15,3 +15,5 @@ Harden the archive store, the storage drivers and media files.
 - An upload and its audit entry commit together. A deletion removes an
   unencrypted copy the row still names first, and two deletions of one file no
   longer fail. A public file's cached copy is revalidated on every use.
+  Public files were served as `immutable` before, so an instance behind a CDN
+  should purge `/api/media/*` from it once after upgrading.
