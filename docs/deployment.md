@@ -493,6 +493,7 @@ SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
 FROM pg_attribute
 WHERE attrelid = 'pgboss.version'::regclass
   AND attnum > 0 AND NOT attisdropped AND attname <> 'version'
+HAVING count(*) > 0
 \gexec
 COMMIT;
 SQL
