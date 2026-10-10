@@ -475,35 +475,37 @@ describe("pluginPackageProblems", () => {
   });
 
   /**
-   * How many times longer the check takes on a bundle four times the size:
-   * about 4 when it reads in linear time and about 16 when in quadratic, on a
-   * fast machine or a loaded runner alike. Each size counts its fastest of a
-   * few runs, so one pause does not decide the answer.
+   * How many times longer the check takes on a bundle sixteen times the size:
+   * about 16 when it reads in linear time and about 256 when in quadratic. The
+   * two stay far apart on a loaded runner, where a pause can inflate the ratio
+   * severalfold. Each size counts its fastest of a few runs, so one pause does
+   * not decide the answer.
    */
   function growth(hostile: (copies: number) => string, copies: number): number {
-    const fastest = (source: string): number => {
+    const fastest = (source: string, runs: number): number => {
       let best = Number.POSITIVE_INFINITY;
-      for (let run = 0; run < 3; run += 1) {
+      for (let run = 0; run < runs; run += 1) {
         const started = performance.now();
         problemsWith(source);
         best = Math.min(best, performance.now() - started);
       }
       return best;
     };
-    const small = fastest(hostile(copies));
-    return fastest(hostile(copies * 4)) / small;
+    // The smaller bundle is cheap, so it gets more runs.
+    const small = fastest(hostile(copies), 7);
+    return fastest(hostile(copies * 16), 3) / small;
   }
 
-  /** Between the growth of a linear reading and that of a quadratic one. */
-  const LINEAR_GROWTH = 8;
+  /** Four times a linear reading's growth and a quarter of a quadratic one's. */
+  const LINEAR_GROWTH = 64;
 
   // Comments between the word and its parenthesis once made the reading
   // backtrack exponentially: forty of them ran for hours.
   it("reads a bundle of adjacent comments in linear time", () => {
     const hostile = (copies: number): string =>
       `require${"/**/".repeat(copies)}x`;
-    expect(problemsWith(hostile(100_000))).toEqual([]);
-    expect(growth(hostile, 100_000)).toBeLessThan(LINEAR_GROWTH);
+    expect(problemsWith(hostile(25_000))).toEqual([]);
+    expect(growth(hostile, 25_000)).toBeLessThan(LINEAR_GROWTH);
   });
 
   // Each count makes the smaller bundle take a few milliseconds, long enough
