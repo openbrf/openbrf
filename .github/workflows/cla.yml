@@ -44,4 +44,8 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/openbrf/openbrf/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: neeo,dependabot[bot]
+          # Entries match the GitHub login a commit is linked to. Copilot is the
+          # login on commits GitHub's Copilot agent writes into a pull request,
+          # such as a merge that resolves conflicts; unlike Dependabot's, that
+          # login has no [bot] suffix.
+          allowlist: neeo,dependabot[bot],Copilot
