@@ -54,8 +54,25 @@ const brandingSchema = z.object({
   primaryColor: z.string().min(1).max(64).nullable(),
 });
 
+/**
+ * A mail server's host name or address.
+ *
+ * Refused with a line break or any other control character in it: no host name
+ * or address has one, and the host is written into the log when the settings
+ * are saved, where a line break would let whoever saves them write a line of
+ * their own.
+ */
+const mailServerHostSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(
+    (value) => !hasControlCharacter(value),
+    "must be one line, with no line break or other control character",
+  );
+
 const smtpSchema = z.object({
-  host: z.string().min(1).max(255).nullable(),
+  host: mailServerHostSchema.nullable(),
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
   user: z.string().max(255).nullable(),
@@ -92,7 +109,7 @@ const pop3Line = (value: string): boolean => !hasControlCharacter(value);
 
 const boardMailboxSchema = z.object({
   address: z.email().max(320).nullable(),
-  host: z.string().min(1).max(255).refine(pop3Line).nullable(),
+  host: mailServerHostSchema.nullable(),
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
   /**

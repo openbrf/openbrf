@@ -202,13 +202,16 @@ export class MailSettingsResolver implements OnModuleInit {
         port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
         secure: association.smtpSecure,
         /*
-         * As the settings were saved. Every save requires STARTTLS unless the
-         * host is on loopback (SettingsService.updateSmtp); a row saved before
-         * that keeps the opportunistic upgrade it always had, because a server
-         * that offers no STARTTLS would otherwise stop the mail of an instance
-         * that works today. The SMTP card says so until the board saves again.
+         * Required of a server that is not on loopback whatever the column
+         * says, so the column only decides for one that is. Every save stores
+         * true for such a server (SettingsService.updateSmtp), and migration
+         * 20261009120000 stored it for the rows saved before, but a row can
+         * still come back false - from a data-only restore of an older backup,
+         * or an edit made in SQL - and its password would then go wherever an
+         * attacker on the path stripped STARTTLS.
          */
-        requireTls: association.smtpRequireTls,
+        requireTls:
+          association.smtpRequireTls || !isLoopbackHost(association.smtpHost),
         user: association.smtpUser,
         password,
       },

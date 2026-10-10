@@ -59,6 +59,7 @@ const ASSOCIATION = {
   smtpPort: null,
   smtpUser: null,
   smtpSecure: true,
+  smtpRequireTls: false,
 };
 
 /**
@@ -391,6 +392,8 @@ const STORED = {
   smtpFromAddress: "styrelsen@eksemplet.example",
   smtpPort: 587,
   smtpSecure: false,
+  // As a save stores it for a server that is not on loopback.
+  smtpRequireTls: true,
   boardMailboxAddress: "styrelsen@eksemplet.example",
   boardMailboxPop3Host: "pop.eksemplet.example",
   boardMailboxPop3User: "styrelsen",

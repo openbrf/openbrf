@@ -1143,7 +1143,6 @@
       "testSent": "A test message is on its way to {{email}}.",
       "notConfigured": "Email is not set up, so invitations and sign-in links cannot be sent. Nobody can be invited until this is done.",
       "configured": "Email is set up.",
-      "tlsOptional": "These settings were saved before an encrypted connection was required, so the password is sent unencrypted if the server does not offer STARTTLS. Save them again to require encryption, then send a test message.",
       "environment": "Mail is sent by whoever runs this instance, through {{host}} from {{fromAddress}}.",
       "environmentHint": "It is set where the instance runs and cannot be changed here.",
       "errors": {

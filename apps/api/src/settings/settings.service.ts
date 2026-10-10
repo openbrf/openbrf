@@ -177,14 +177,6 @@ export interface StoredSmtpSettingsView {
    */
   passwordSet: boolean;
   /**
-   * Whether the sign-in can go out unencrypted: the settings were saved before
-   * saving required TLS, name no implicit TLS, and the host is not on loopback.
-   * A server that offers no STARTTLS, or an attacker on the path who strips the
-   * offer, then receives the password in the clear. Saving the settings again
-   * requires TLS, so the screen says that.
-   */
-  tlsOptional: boolean;
-  /**
    * Whether the instance can send mail at all. Invitations, activation links
    * and sign-in links all depend on it, so the screens say so plainly while it
    * is false.
@@ -810,7 +802,6 @@ export class SettingsService {
     smtpHost: string | null;
     smtpPort: number | null;
     smtpSecure: boolean;
-    smtpRequireTls: boolean;
     smtpUser: string | null;
     smtpFromAddress: string | null;
     smtpPasswordCipher: string | null;
@@ -835,11 +826,6 @@ export class SettingsService {
       user: association.smtpUser,
       fromAddress: association.smtpFromAddress,
       passwordSet: association.smtpPasswordCipher !== null,
-      tlsOptional:
-        association.smtpHost !== null &&
-        !association.smtpSecure &&
-        !association.smtpRequireTls &&
-        !isLoopbackHost(association.smtpHost),
       configured:
         association.smtpHost !== null && association.smtpFromAddress !== null,
     };

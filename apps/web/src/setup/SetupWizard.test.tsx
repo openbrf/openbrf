@@ -53,7 +53,6 @@ const SETTINGS = {
     user: null,
     fromAddress: null,
     passwordSet: false,
-    tlsOptional: false,
     configured: false,
   },
   retention: { daysAfterMoveOut: 365 },

@@ -226,7 +226,12 @@ jobs:
           # file runs it: the schema owner created as the superuser; then key
           # provisioning, every migration, the job schema and the runtime role
           # as that owner; then the server, given neither password.
-          postgres="$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
+          #
+          # The same digest, pulled from Amazon's copy of the Docker official
+          # images rather than from Docker Hub, which limits anonymous pulls
+          # per address on runners whose addresses everyone else's CI shares.
+          # A release run that fails here cannot be repeated on its tag.
+          postgres="public.ecr.aws/docker/library/$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
           docker network create openbrf-smoke
           docker volume create openbrf-smoke-data
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \

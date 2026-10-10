@@ -1143,7 +1143,6 @@
       "testSent": "Ett testmeddelande är på väg till {{email}}.",
       "notConfigured": "E-post är inte inställt, så inbjudningar och inloggningslänkar kan inte skickas. Ingen kan bjudas in innan det är gjort.",
       "configured": "E-post är inställt.",
-      "tlsOptional": "Inställningarna sparades innan en krypterad anslutning krävdes, så lösenordet skickas okrypterat om servern inte erbjuder STARTTLS. Spara dem igen för att kräva kryptering och skicka sedan ett testmeddelande.",
       "environment": "E-post skickas av den som driver instansen, via {{host}} från {{fromAddress}}.",
       "environmentHint": "Den ställs in där instansen körs och kan inte ändras här.",
       "errors": {

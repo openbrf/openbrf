@@ -233,8 +233,8 @@ describe("the settings", () => {
         host: "smtp.stored.example",
         port: 465,
         secure: true,
-        // Saved before saving required TLS, so used as it always was.
-        requireTls: false,
+        // Not on loopback, so required whatever the column says.
+        requireTls: true,
         user: "styrelsen",
         password: "stored-password",
       },
@@ -295,6 +295,47 @@ describe("the settings", () => {
     ).toBe(null);
     expect(await resolver(BASE_ENV, null).resolver.describe()).toBe(null);
   });
+});
+
+describe("STARTTLS stored as not required", () => {
+  /*
+   * A row no save writes for a server elsewhere, and migration 20261009120000
+   * leaves none behind, but a data-only restore of an older backup or an edit
+   * made in SQL brings one back.
+   */
+  const NOT_REQUIRED = {
+    ...STORED,
+    smtpPort: 25,
+    smtpSecure: false,
+    smtpRequireTls: false,
+  };
+
+  async function server(row: object) {
+    const mail = await resolver(BASE_ENV, row).resolver.current();
+    return mail?.driver === "smtp" ? mail.server : null;
+  }
+
+  it("is required anyway of a server that is not on loopback", async () => {
+    expect(await server(NOT_REQUIRED)).toMatchObject({
+      host: "smtp.stored.example",
+      port: 25,
+      secure: false,
+      requireTls: true,
+    });
+  });
+
+  it.each(["localhost", "127.0.0.1", "::1", "[::1]"])(
+    "stays as stored for a server on loopback (%s)",
+    async (host) => {
+      expect(await server({ ...NOT_REQUIRED, smtpHost: host })).toMatchObject({
+        host,
+        requireTls: false,
+      });
+      expect(
+        await server({ ...NOT_REQUIRED, smtpHost: host, smtpRequireTls: true }),
+      ).toMatchObject({ host, requireTls: true });
+    },
+  );
 });
 
 describe("the description", () => {

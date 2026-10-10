@@ -28,6 +28,13 @@ The suite imports `@openbrf/shared`, so the package has to be built.
 `pnpm test:e2e` builds it first. To run `playwright test` directly from `e2e/`,
 build it once with `pnpm --filter @openbrf/shared build`.
 
+Starting the stack pulls its registry images first. A pull the registry
+throttles, or that fails on the way there, is attempted up to four times in all,
+with a growing pause between attempts; one that cannot succeed - a missing digest, a refused pull, a
+compose file that does not parse - fails the run at once. That decision lives
+in `src/image-pull.ts` and is tested without Docker by the workspace's Vitest
+tests (`src/*.test.ts`), which `pnpm test` runs with the rest of the monorepo.
+
 While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and
