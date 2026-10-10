@@ -90,8 +90,8 @@ export interface SourceFacts {
   writtenDelegates: string[];
   /**
    * The id of every mail template the file declares, read as an object with an
-   * `id` and a `subject` and `body` that are functions, which is the shape
-   * MailService renders. An id that is not a literal is listed as null.
+   * `id` and a `subject` and `body` that are not literals (functions in place,
+   * references or shorthand), which is the shape MailService renders. An id that is not a literal is listed as null.
    */
   mailTemplateIds: (string | null)[];
 }
@@ -198,16 +198,6 @@ function propertiesOf(node: SyntaxNode): Map<string, unknown> {
   return properties;
 }
 
-/** Whether a value is a function written in place. */
-function isFunction(node: unknown): boolean {
-  const expression = unwrapped(node);
-  return (
-    isNode(expression) &&
-    (expression.type === "ArrowFunctionExpression" ||
-      expression.type === "FunctionExpression")
-  );
-}
-
 /**
  * The id of the mail template an object literal is, or undefined where it is
  * not one: a `select` asking for a thread's id, subject and body has the names
@@ -217,27 +207,43 @@ function mailTemplateId(node: SyntaxNode): string | null | undefined {
   if (node.type !== "ObjectExpression" || !Array.isArray(node.properties)) {
     return undefined;
   }
-  const functions = new Set<string>();
+  // Functions may be written in place, referenced (`subject: other.subject`)
+  // or shorthand (`{ id, subject, body }`); only a literal, as a `select`'s
+  // `subject: true`, is not one.
+  const rendered = new Set<string>();
+  const named = new Set<string>();
   for (const property of node.properties as unknown[]) {
     if (!isNode(property)) {
       continue;
     }
+    if (property.type === "Identifier") {
+      const shorthand = nameOf(property);
+      if (shorthand !== undefined) {
+        named.add(shorthand);
+        rendered.add(shorthand);
+      }
+      continue;
+    }
     const key = nameOf(property.key);
-    if (
-      key !== undefined &&
-      (property.type === "MethodProperty" ||
-        (property.type === "KeyValueProperty" && isFunction(property.value)))
-    ) {
-      functions.add(key);
+    if (key === undefined) {
+      continue;
+    }
+    named.add(key);
+    if (property.type === "MethodProperty") {
+      rendered.add(key);
+    } else if (property.type === "KeyValueProperty") {
+      const value = unwrapped(property.value);
+      if (isNode(value) && !/Literal$/.test(value.type)) {
+        rendered.add(key);
+      }
     }
   }
   const properties = propertiesOf(node);
-  if (
-    !properties.has("id") ||
-    !functions.has("subject") ||
-    !functions.has("body")
-  ) {
+  if (!named.has("id") || !rendered.has("subject") || !rendered.has("body")) {
     return undefined;
+  }
+  if (!properties.has("id")) {
+    return null;
   }
   return stringValue(properties.get("id")) ?? null;
 }
