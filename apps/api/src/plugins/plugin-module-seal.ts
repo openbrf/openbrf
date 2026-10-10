@@ -456,7 +456,9 @@ function walk(entry: unknown, state: WalkState): string | null {
   }
   state.seen.add(resolved);
 
-  const dynamic = isDynamicModule(resolved) ? resolved : null;
+  // NestJS takes anything with a `module` for a dynamic module, a class
+  // included, and registers that `module` rather than the class.
+  const dynamic = readsAsDynamicModule(resolved) ? resolved : null;
   const moduleClass = dynamic === null ? resolved : dynamic.module;
 
   if (typeof moduleClass !== "function") {
@@ -533,6 +535,13 @@ function walk(entry: unknown, state: WalkState): string | null {
       return (
         `A provider in "${moduleClass.name}" is an object with a prototype, ` +
         "which NestJS would read enhancers from as if it were a class."
+      );
+    }
+    if (declaresProvider(provider)) {
+      return (
+        `A provider in "${moduleClass.name}" is a class with a static ` +
+        "`provide`, which NestJS would register as the declaration it " +
+        "describes rather than as the class."
       );
     }
 
@@ -629,10 +638,15 @@ function sealController(
   // Handler paths stay relative to the controller, so only their shape is
   // checked. Stripping @Public() has to happen here as well as on the class:
   // the guard reads the handler first and a method-level opt-out would win.
+  // NestJS routes every method with a path, whether or not it names a request
+  // method, and scans a prototype that is a function as it scans an object.
   const prototype: unknown = controller.prototype;
-  if (typeof prototype === "object" && prototype !== null) {
+  if (isRecord(prototype)) {
     for (const { name, handler } of handlers(prototype)) {
-      if (reflect(handler, METHOD_METADATA) === undefined) {
+      if (
+        reflect(handler, PATH_METADATA) === undefined &&
+        reflect(handler, METHOD_METADATA) === undefined
+      ) {
         continue;
       }
       const methodPath = reflect(handler, PATH_METADATA);
@@ -756,26 +770,31 @@ function normalizeSegment(path: unknown): string | null {
   return trimmed;
 }
 
-/** Unwraps a forwardRef, or explains why the entry cannot be checked. */
+/**
+ * Unwraps a forwardRef, or explains why the entry cannot be checked.
+ *
+ * Read from a class as from an object, because NestJS asks both the same
+ * questions: it awaits every module it registers, so anything with a `then` is
+ * replaced by what that resolves to, and it calls the `forwardRef` of anything
+ * that has one. It unwraps a second time when it compiles the module, so a
+ * reference that resolves to another reference is refused rather than followed.
+ */
 function resolveForwardReference(
   entry: unknown,
 ): { entry: unknown } | { refusal: string } {
-  if (typeof entry !== "object" || entry === null) {
+  if (!isRecord(entry)) {
     return { entry };
   }
   if ("then" in entry) {
-    return {
-      refusal:
-        "A module in the graph is imported as a promise, which cannot be " +
-        "checked before the application is built.",
-    };
+    return { refusal: promisedModule() };
   }
   const forwardRef = (entry as { forwardRef?: unknown }).forwardRef;
-  if (typeof forwardRef !== "function") {
+  if (!isPresent(forwardRef)) {
     return { entry };
   }
+  let resolved: unknown;
   try {
-    return { entry: (forwardRef as () => unknown)() };
+    resolved = (forwardRef as () => unknown)();
   } catch (cause) {
     // The thunk is the plugin's, so what it threw is the plugin's text and
     // stays out of the refusal, which is written to the log.
@@ -785,6 +804,47 @@ function resolveForwardReference(
         `${failureName(cause)} and could not be resolved.`,
     };
   }
+  if (isRecord(resolved)) {
+    if ("then" in resolved) {
+      return { refusal: promisedModule() };
+    }
+    if (isPresent((resolved as { forwardRef?: unknown }).forwardRef)) {
+      return {
+        refusal:
+          "A forward reference in the module graph resolves to another " +
+          "forward reference.",
+      };
+    }
+  }
+  return { entry: resolved };
+}
+
+function promisedModule(): string {
+  return (
+    "A module in the graph is imported as a promise, which cannot be " +
+    "checked before the application is built."
+  );
+}
+
+/** What NestJS takes for a dynamic module: anything with a `module`. */
+function readsAsDynamicModule(value: unknown): value is DynamicModule {
+  return isRecord(value) && isPresent((value as { module?: unknown }).module);
+}
+
+/**
+ * A class NestJS would register as a custom provider rather than as itself.
+ *
+ * NestJS decides by `provide` alone and never asks whether the value is a
+ * class, so a class with a static `provide` is built from its static
+ * `useClass`, `useFactory` and `inject`, and may name an application-wide
+ * token. No decorated class needs one.
+ */
+function declaresProvider(value: unknown): boolean {
+  if (typeof value !== "function") {
+    return false;
+  }
+  const provide = (value as { provide?: unknown }).provide;
+  return provide !== undefined && provide !== null;
 }
 
 function isDynamicModule(value: unknown): value is DynamicModule {
@@ -1097,8 +1157,9 @@ function classReaches(target: unknown): unknown[] {
   const enhancers: unknown[] = ENHANCER_METADATA.flatMap((key) =>
     listed(reflect(target, key)),
   );
+  // NestJS scans a prototype that is a function as it scans an object.
   const prototype: unknown = target.prototype;
-  if (typeof prototype === "object" && prototype !== null) {
+  if (isRecord(prototype)) {
     for (const { name, handler } of handlers(prototype)) {
       for (const key of ENHANCER_METADATA) {
         enhancers.push(...listed(reflect(handler, key)));
@@ -1128,8 +1189,10 @@ function classReaches(target: unknown): unknown[] {
   return [
     ...constructorReaches(target),
     ...enhancers.flatMap((enhancer) =>
-      enhancer === UNREADABLE
-        ? [enhancer]
+      // An enhancer with a static `provide` is built as the declaration it
+      // describes, which is not what its constructor says.
+      enhancer === UNREADABLE || declaresProvider(enhancer)
+        ? [UNREADABLE]
         : typeof enhancer === "function"
           ? [enhancer, ...constructorReaches(enhancer)]
           : [],

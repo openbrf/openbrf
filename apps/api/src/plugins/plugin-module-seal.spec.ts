@@ -12,6 +12,7 @@ import {
   Module,
   type NestModule,
   Post,
+  SetMetadata,
   type Type,
   UseGuards,
   UseInterceptors,
@@ -1886,6 +1887,215 @@ describe("a module global by any other value", () => {
     Reflect.defineMetadata(GLOBAL_MODULE_METADATA, "yes", PluginModule);
 
     expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+});
+
+/**
+ * A function read the way NestJS reads it, which is by its fields.
+ *
+ * NestJS asks a provider for `provide`, a module for `module`, `forwardRef` and
+ * `then`, and a class for the methods on its prototype, without first asking
+ * whether the value is a class or an object. The seal asks the same questions.
+ */
+describe("a class NestJS reads by its fields", () => {
+  it("is refused as a provider with a static application-wide token", () => {
+    @Injectable()
+    class Anything {}
+    class Declared {
+      static provide = APP_GUARD;
+      static useClass = Anything;
+    }
+    @Module({ providers: [Declared] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused as a provider with a static factory", () => {
+    class ModulesContainer {}
+    class Declared {
+      static provide = "plugin-local";
+      static useFactory = (held: unknown) => held;
+      static inject = [ModulesContainer];
+    }
+    @Module({ providers: [Declared] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused as an enhancer with a static factory", () => {
+    class ModulesContainer {}
+    class Declared {
+      static provide = "plugin-local";
+      static useFactory = (held: unknown) => held;
+      static inject = [ModulesContainer];
+    }
+    @Injectable()
+    @UseGuards(Declared)
+    class Helper {}
+    @Module({ providers: [Helper] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("has the enhancers on a prototype that is a function read", () => {
+    class PrismaService {}
+    class Guard {}
+    Reflect.defineMetadata("design:paramtypes", [PrismaService], Guard);
+    function handler() {}
+    Reflect.defineMetadata(GUARDS_METADATA, [Guard], handler);
+    function Provider() {}
+    Provider.prototype = Object.assign(function methods() {}, { handler });
+    @Module({ providers: [Provider as never] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("has the routes on a prototype that is a function sealed", () => {
+    function open() {}
+    Reflect.defineMetadata(PATH_METADATA, "open", open);
+    Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, open);
+    // A function rather than a class, whose prototype cannot be replaced.
+    function Callable() {}
+    Callable.prototype = Object.assign(function methods() {}, { open });
+    Controller("callable")(Callable);
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, controllers: [Callable as never] }).ok,
+    ).toBe(true);
+    expect(Reflect.getMetadata(IS_PUBLIC_ROUTE, open)).toBe(false);
+  });
+
+  it("is refused as an import with a static then", () => {
+    class Promised {
+      // oxlint-disable-next-line unicorn/no-thenable -- the shape under test
+      static then(resolve: (module: unknown) => void) {
+        resolve({ module: Promised });
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, imports: [Promised] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused as a forward reference that resolves to a promise", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        imports: [
+          forwardRef(() => ({
+            module: Harmless,
+            // oxlint-disable-next-line unicorn/no-thenable -- the shape under test
+            then: () => undefined,
+          })),
+        ],
+      }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is followed as an import with a static forwardRef", () => {
+    @Global()
+    @Module({})
+    class Everywhere {}
+    class Referring {
+      static forwardRef = () => Everywhere;
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, imports: [Referring] });
+
+    expect(result.ok ? "" : result.log).toContain("global");
+  });
+
+  it("is refused as a forward reference to another forward reference", () => {
+    @Module({})
+    class Harmless {}
+    class Referring {
+      static forwardRef = () => Harmless;
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, imports: [forwardRef(() => Referring)] }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is read as a dynamic module when it has a static module", () => {
+    @Module({})
+    class Harmless {}
+    class Described {
+      static module = Harmless;
+      static global = true;
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, imports: [Described] });
+
+    expect(result.ok ? "" : result.log).toContain("global");
+  });
+});
+
+/**
+ * NestJS routes every handler that has a path, with or without a request
+ * method, so the seal treats every such handler as a route.
+ */
+describe("a handler with a path and no request method", () => {
+  it("has its opt-out of authorization overridden", () => {
+    @Controller("quiet")
+    class Quiet {
+      @SetMetadata(PATH_METADATA, "x")
+      @Public()
+      handle(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Quiet] }).ok).toBe(true);
+    expect(
+      Reflect.getMetadata(IS_PUBLIC_ROUTE, handlerOf(Quiet, "handle")),
+    ).toBe(false);
+  });
+
+  it("is refused when its path steps outside the prefix", () => {
+    @Controller("quiet")
+    class Quiet {
+      @SetMetadata(PATH_METADATA, "../../api/address-book")
+      handle(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Quiet] })).toMatchObject({
       reason: "module-refused",
     });
   });
