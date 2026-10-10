@@ -476,24 +476,34 @@ describe("pluginPackageProblems", () => {
 
   /**
    * How many times longer the check takes on a bundle sixteen times the size:
-   * about 16 when it reads in linear time and about 256 when in quadratic. The
-   * two stay far apart on a loaded runner, where a pause can inflate the ratio
-   * severalfold. Each size counts its fastest of several runs, so one pause does
-   * not decide the answer.
+   * about 16 when it reads in linear time and about 256 when in quadratic.
+   *
+   * The smaller bundle is timed sixteen readings at a time, so both timings do
+   * the same work and last as long, and the two take turns. On a loaded runner
+   * a pause, a slower core or a garbage collection then falls on either timing
+   * alike; a short reading timed alone would slip between them where the long
+   * one cannot, and the ratio would grow severalfold. Each counts its fastest
+   * of five rounds, so one pause does not decide the answer.
    */
   function growth(hostile: (copies: number) => string, copies: number): number {
-    const fastest = (source: string, runs: number): number => {
-      let best = Number.POSITIVE_INFINITY;
-      for (let run = 0; run < runs; run += 1) {
-        const started = performance.now();
-        problemsWith(source);
-        best = Math.min(best, performance.now() - started);
-      }
-      return best;
+    const small = hostile(copies);
+    const large = hostile(copies * 16);
+    const timed = (read: () => void): number => {
+      const started = performance.now();
+      read();
+      return performance.now() - started;
     };
-    // Both sizes are cheap enough to run many times, the smaller one most.
-    const small = fastest(hostile(copies), 15);
-    return fastest(hostile(copies * 16), 7) / small;
+    let fastestSmall = Number.POSITIVE_INFINITY;
+    let fastestLarge = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 5; round += 1) {
+      const sixteenSmall = timed(() => {
+        for (let reading = 0; reading < 16; reading += 1) problemsWith(small);
+      });
+      const oneLarge = timed(() => problemsWith(large));
+      fastestSmall = Math.min(fastestSmall, sixteenSmall / 16);
+      fastestLarge = Math.min(fastestLarge, oneLarge);
+    }
+    return fastestLarge / fastestSmall;
   }
 
   /** Four times a linear reading's growth and a quarter of a quadratic one's. */
@@ -504,29 +514,29 @@ describe("pluginPackageProblems", () => {
   it("reads a bundle of adjacent comments in linear time", () => {
     const hostile = (copies: number): string =>
       `require${"/**/".repeat(copies)}x`;
-    expect(problemsWith(hostile(25_000))).toEqual([]);
-    expect(growth(hostile, 25_000)).toBeLessThan(LINEAR_GROWTH);
+    expect(problemsWith(hostile(6_250))).toEqual([]);
+    expect(growth(hostile, 6_250)).toBeLessThan(LINEAR_GROWTH);
   });
 
-  // Each count makes the smaller bundle take a few milliseconds, long enough
-  // for its timing to be steady, while the sixteen-fold bundle, read seven
-  // times, stays well inside the default test timeout on a loaded runner.
+  // Each count makes the sixteen-fold bundle take a few milliseconds on a fast
+  // machine, so the five rounds stay well inside the default test timeout on a
+  // loaded runner.
   it.each([
     [
       "nested calls",
-      8_000,
+      2_000,
       (copies: number) =>
         `${"require(".repeat(copies)}"x"${")".repeat(copies)}`,
     ],
-    ["line comments", 80_000, (copies: number) => "// c\n".repeat(copies)],
+    ["line comments", 20_000, (copies: number) => "// c\n".repeat(copies)],
     [
       "escaped names",
-      8_000,
+      2_000,
       (copies: number) => "requ\\u0069re;".repeat(copies),
     ],
     [
       "method parameter lists",
-      3_000,
+      750,
       (copies: number) => "({ require() /**/ {} });".repeat(copies),
     ],
   ])("reads a bundle of many %s in linear time", (_what, copies, hostile) => {
