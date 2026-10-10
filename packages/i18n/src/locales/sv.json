@@ -496,6 +496,7 @@
           "closed": "Avslutad",
           "period": "Period",
           "tribunalPermission": "Tillstånd från hyresnämnden",
+          "lettingEnded": "Upplåtelsen upphörde",
           "ordered": "Beställt",
           "meeting": "Stämma",
           "capacity": "Egenskap",
@@ -647,6 +648,7 @@
           "SUBLET_APPLICATION_CONSENTED": "Samtycke till andrahandsupplåtelse givet",
           "SUBLET_APPLICATION_REFUSED": "Samtycke till andrahandsupplåtelse vägrat",
           "SUBLET_TRIBUNAL_PERMISSION_RECORDED": "Hyresnämndens beslut antecknat",
+          "SUBLET_LETTING_END_RECORDED": "Upplåtelsens slut antecknat",
           "KEY_ORDER_PLACED": "Nyckelbeställning inlämnad",
           "KEY_ORDER_REVISED": "Nyckelbeställning ändrad",
           "KEY_ORDER_WITHDRAWN": "Nyckelbeställning återkallad",
@@ -3705,7 +3707,8 @@
       "boardSaid": "Styrelsen skrev: {{note}}",
       "tribunalAvailable": "Styrelsen har vägrat. Du får ändå upplåta lägenheten om hyresnämnden lämnar tillstånd (bostadsrättslagen 7 kap. 11 §). Berätta för styrelsen om den gör det, så att föreningens egen anteckning stämmer.",
       "tribunalPermitted": "Hyresnämnden lämnade tillstånd den {{on}}, till och med {{until}}. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
-      "tribunalPermittedOpenEnded": "Hyresnämnden lämnade tillstånd den {{on}}. Inget slutdatum är antecknat. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut."
+      "tribunalPermittedOpenEnded": "Hyresnämnden lämnade tillstånd den {{on}}. Inget slutdatum är antecknat. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
+      "lettingEnded": "Styrelsen har antecknat att upplåtelsen upphörde den {{date}}."
     },
     "queue": {
       "title": "Ansökningar om andrahandsupplåtelse",
@@ -3730,7 +3733,14 @@
       "tribunalOnField": "Tillstånd från och med",
       "tribunalUntilField": "Till och med",
       "tribunalHint": "Bara ett tillstånd antecknas. Om hyresnämnden avslog står styrelsens eget beslut kvar, vilket raden redan säger. Att anteckna ett tillstånd ändrar inget annat: föreningen samtyckte inte, och raden fortsätter säga det.",
-      "tribunalClear": "Ta bort anteckningen"
+      "tribunalClear": "Ta bort anteckningen",
+      "lettingRunning": "Inget tidigare slut antecknat: upplåtelsen löper till och med {{to}}.",
+      "lettingEnded": "Upplåtelsen upphörde den {{date}}.",
+      "lettingEndRecord": "Anteckna att upplåtelsen har upphört",
+      "lettingEndRecordNamed": "Anteckna att upplåtelsen från {{from}} till {{to}} har upphört",
+      "lettingEndField": "Upplåtelsens sista dag",
+      "lettingEndHint": "Anteckna det när upplåtelsen upphör före den period ni samtyckte till: andrahandshyresgästen har flyttat, eller medlemmen har flyttat tillbaka eller sålt. Samtycket sparas då i två år från den dagen i stället för från periodens slut, och en beviljad begäran om radering väntar inte längre på det.",
+      "lettingEndClear": "Ta bort anteckningen"
     },
     "errors": {
       "notAMember": "Att upplåta en lägenhet i andra hand är bostadsrättshavarens sak att ansöka om, och det här kontot innehar ingen bostadsrätt i föreningen.",
@@ -3738,6 +3748,8 @@
       "applicationNotFound": "Den ansökan finns inte kvar. Listan har lästs om.",
       "alreadyClosed": "Styrelsen har svarat på den här ansökan, så det finns inget att ändra.",
       "notRefused": "Ett beslut från hyresnämnden kan bara antecknas på en ansökan som styrelsen har vägrat.",
+      "notConsented": "Att en upplåtelse har upphört kan bara antecknas på en ansökan som styrelsen har samtyckt till.",
+      "lettingEndOutsidePeriod": "En upplåtelse kan bara upphöra en dag inom den period som samtycket gäller.",
       "invalidPeriod": "Perioden slutar innan den börjar.",
       "periodTooFarAhead": "Perioden får sluta högst fem år från i dag.",
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",

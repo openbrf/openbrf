@@ -68,6 +68,11 @@ export interface OwnSubletApplicationView {
   decisionNote: string | null;
   /** Null unless the board refused and somebody recorded a permission. */
   tribunalPermission: SubletTribunalPermissionView | null;
+  /**
+   * "YYYY-MM-DD": the last day of a consented letting that ended before the
+   * period did, as the board recorded it. Null while the period stands.
+   */
+  lettingEndedOn: string | null;
 }
 
 /**
@@ -156,6 +161,12 @@ export interface TribunalPermissionInput {
   permittedUntil: string | null;
 }
 
+/** The last day of a consented letting, as the board records it. */
+export interface LettingEndInput {
+  /** "YYYY-MM-DD", inside the period consented to, or null to clear it. */
+  lettingEndedOn: string | null;
+}
+
 /**
  * Subletting applications (ansokan om andrahandsupplatelse): a member's intake
  * and the queue the board works.
@@ -217,6 +228,15 @@ export interface TribunalPermissionInput {
  * refusal and changes nothing else. The status stays REFUSED, because the
  * association did not consent; the tribunal permitted, and those are two facts
  * about the same letting.
+ *
+ * ## A letting can end before its period does
+ *
+ * A consent covers the period applied for, and a letting often stops sooner:
+ * the subtenant moves out, the member moves back or sells the flat. The board
+ * hears of it and {@link recordLettingEnd} writes the day down. From then on the
+ * letting's last day is that day rather than the period's, for the retention
+ * clock and for a granted erasure, which keeps a running letting's consent
+ * (ADR 0016) and would otherwise keep it to the end of a period nobody used.
  */
 @Injectable()
 export class SubletService {
@@ -672,6 +692,106 @@ export class SubletService {
   }
 
   /**
+   * Records the day a consented letting ended, or takes that record back.
+   *
+   * Only a consented application, because only a consent has a letting behind it
+   * that the association keeps the record for; a refused one with a tribunal
+   * permission is the member's letting and not the association's to date. The
+   * day must fall inside the period consented to: a letting that went on past it
+   * needed a new consent, and one that never began ended on its first day as far
+   * as this record is concerned. The database checks both as well.
+   *
+   * A later day than today is allowed, for a letting the board has been told
+   * will end. Nothing else about the application changes: the period stays what
+   * the board consented to, and the status stays CONSENTED.
+   */
+  async recordLettingEnd(
+    applicationId: string,
+    actorPersonId: string,
+    input: LettingEndInput,
+  ): Promise<QueuedSubletApplicationView> {
+    const endedOn =
+      input.lettingEndedOn === null
+        ? null
+        : parseDayOrRefuse(input.lettingEndedOn);
+
+    const application = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.subletApplication.findUnique({
+        where: { id: applicationId },
+        select: {
+          id: true,
+          status: true,
+          appliedByPersonId: true,
+          periodFrom: true,
+          periodTo: true,
+        },
+      });
+      if (existing === null) {
+        throw new SubletError("No such application.", "application-not-found");
+      }
+      if (existing.status !== "CONSENTED") {
+        throw new SubletError(
+          "The board has not consented to this application, so there is no letting to record the end of.",
+          "not-consented",
+        );
+      }
+      if (
+        endedOn !== null &&
+        (compareLocalDays(endedOn, localDayOfColumn(existing.periodFrom)) < 0 ||
+          compareLocalDays(endedOn, localDayOfColumn(existing.periodTo)) > 0)
+      ) {
+        throw new SubletError(
+          "The letting cannot end outside the period consented to.",
+          "letting-end-outside-period",
+        );
+      }
+
+      // By the key alone: a consent is final, so the status read above cannot
+      // have changed, and the database refuses the row outside the rules too.
+      const updated = await tx.subletApplication.update({
+        where: { id: applicationId },
+        data: {
+          lettingEndedOn: endedOn === null ? null : dateColumnOf(endedOn),
+        },
+        select: APPLICATION_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "SUBLET_LETTING_END_RECORDED",
+          channel: "WEB",
+          actorPersonId,
+          // The subject stays the applicant: it is their letting, and their
+          // access report is where the date has to be visible.
+          targetPersonId: existing.appliedByPersonId,
+          targetKind: "subletApplication",
+          targetId: applicationId,
+          context:
+            endedOn === null
+              ? { cleared: true }
+              : { lettingEndedOn: formatLocalDay(endedOn) },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    this.logger.log(
+      endedOn === null
+        ? `Sublet application ${applicationId} carries no recorded end`
+        : `Sublet application ${applicationId} carries a recorded end`,
+    );
+
+    const applicants = await this.applicantsOf([application]);
+    return {
+      ...toOwnView(application),
+      closedByPersonId: application.closedByPersonId,
+      applicant: applicantOf(application.appliedByPersonId, applicants),
+    };
+  }
+
+  /**
    * Closes an application one way or the other, with the entry in the same
    * transaction.
    *
@@ -942,6 +1062,7 @@ const APPLICATION_COLUMNS = {
   decisionNote: true,
   tribunalPermittedOn: true,
   tribunalPermittedUntil: true,
+  lettingEndedOn: true,
 } as const;
 
 interface ApartmentRecord {
@@ -962,6 +1083,7 @@ interface ApplicationRecord {
   decisionNote: string | null;
   tribunalPermittedOn: Date | null;
   tribunalPermittedUntil: Date | null;
+  lettingEndedOn: Date | null;
 }
 
 function toApartmentView(apartment: ApartmentRecord): SubletApartmentView {
@@ -1000,6 +1122,10 @@ function toOwnView(application: ApplicationRecord): OwnSubletApplicationView {
                     localDayOfColumn(application.tribunalPermittedUntil),
                   ),
           },
+    lettingEndedOn:
+      application.lettingEndedOn === null
+        ? null
+        : formatLocalDay(localDayOfColumn(application.lettingEndedOn)),
   };
 }
 

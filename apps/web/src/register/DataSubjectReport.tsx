@@ -409,6 +409,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.SUBLET_APPLICATION_REFUSED",
   SUBLET_TRIBUNAL_PERMISSION_RECORDED:
     "register.person.report.action.SUBLET_TRIBUNAL_PERMISSION_RECORDED",
+  SUBLET_LETTING_END_RECORDED:
+    "register.person.report.action.SUBLET_LETTING_END_RECORDED",
   KEY_ORDER_PLACED: "register.person.report.action.KEY_ORDER_PLACED",
   KEY_ORDER_REVISED: "register.person.report.action.KEY_ORDER_REVISED",
   KEY_ORDER_WITHDRAWN: "register.person.report.action.KEY_ORDER_WITHDRAWN",
@@ -1586,6 +1588,7 @@ export function DataSubjectReport({
                   "register.person.report.field.status",
                   "register.person.report.field.closed",
                   "register.person.report.field.tribunalPermission",
+                  "register.person.report.field.lettingEnded",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1638,9 +1641,15 @@ export function DataSubjectReport({
                           ? application.tribunalPermittedOn
                           : `${application.tribunalPermittedOn} - ${application.tribunalPermittedUntil}`}
                     </td>
+                    {/* The day the board recorded a consented letting ended,
+                      where it ended before the period did. */}
+                    <td className={DATA_CELL}>
+                      {application.lettingEndedOn ?? nothing}
+                    </td>
                     {/*
                      * The row's own retention date, two years after the later of
-                     * the answer and the end of the period applied for - so a
+                     * the answer and the letting's last day - the period's, or
+                     * the earlier day it was recorded to have ended - so a
                      * consent is not erased while the letting it covers is still
                      * running. Absent while the application is open, because
                      * there is no closing date to count from.

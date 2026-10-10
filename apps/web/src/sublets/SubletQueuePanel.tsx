@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   decideSubletApplication,
   type QueuedSubletApplication,
+  recordSubletLettingEnd,
   recordSubletTribunalPermission,
   type SubletApplicant,
 } from "../api/sublets";
@@ -47,6 +48,11 @@ export interface SubletQueuePanelProps {
  * offered on a refused row only, it changes no status, and the row goes on
  * saying the association refused. That is the difference the panel has to make
  * visible: the association did not consent; the tribunal permitted.
+ *
+ * On a consented row the board can record the day the letting ended, where it
+ * stopped before the period did. That is a fact the board was told rather than
+ * a decision too: the consent and its period stand, and the day only moves when
+ * the record of the consent goes on the retention clock.
  */
 export function SubletQueuePanel({
   applications,
@@ -62,6 +68,11 @@ export function SubletQueuePanel({
     permittedOn: string;
     permittedUntil: string;
   } | null>(null);
+  /** Which consented row has its letting-end form open, and the day in it. */
+  const [ending, setEnding] = useState<{
+    id: string;
+    lettingEndedOn: string;
+  } | null>(null);
 
   const decide = useSaveAction(decideSubletApplication, () => {
     setActingOn(null);
@@ -72,13 +83,20 @@ export function SubletQueuePanel({
     setTribunal(null);
     onChanged();
   });
+  const end = useSaveAction(recordSubletLettingEnd, () => {
+    setActingOn(null);
+    setEnding(null);
+    onChanged();
+  });
 
   const failure =
     decide.state.kind === "failed"
       ? decide.state.failure
       : record.state.kind === "failed"
         ? record.state.failure
-        : null;
+        : end.state.kind === "failed"
+          ? end.state.failure
+          : null;
   const scanned = failure === null ? [] : scannedSubletParts(failure);
 
   const answer = (application: QueuedSubletApplication, consent: boolean) => {
@@ -86,6 +104,7 @@ export function SubletQueuePanel({
     // over this one's outcome: the notice above shows whichever failure is
     // newest, and a stale one would outlive the act that caused it.
     record.reset();
+    end.reset();
     setActingOn(application.id);
     // An empty box is no note rather than an empty one: the server's schema
     // takes a non-empty string or null, and a field nobody typed in is null.
@@ -223,6 +242,7 @@ export function SubletQueuePanel({
                   onOpen={() => {
                     decide.reset();
                     record.reset();
+                    end.reset();
                     setTribunal({
                       id: application.id,
                       permittedOn:
@@ -238,10 +258,45 @@ export function SubletQueuePanel({
                   }}
                   onSave={(permission) => {
                     decide.reset();
+                    end.reset();
                     setActingOn(application.id);
                     void record.submit({
                       applicationId: application.id,
                       permission,
+                    });
+                  }}
+                />
+              ) : null}
+
+              {application.status === "CONSENTED" ? (
+                <LettingEndRecord
+                  application={application}
+                  open={ending?.id === application.id}
+                  draft={ending}
+                  busy={
+                    actingOn === application.id && end.state.kind === "saving"
+                  }
+                  onOpen={() => {
+                    decide.reset();
+                    record.reset();
+                    end.reset();
+                    setEnding({
+                      id: application.id,
+                      lettingEndedOn: application.lettingEndedOn ?? "",
+                    });
+                  }}
+                  onChange={setEnding}
+                  onCancel={() => {
+                    end.reset();
+                    setEnding(null);
+                  }}
+                  onSave={(lettingEndedOn) => {
+                    decide.reset();
+                    record.reset();
+                    setActingOn(application.id);
+                    void end.submit({
+                      applicationId: application.id,
+                      lettingEndedOn,
                     });
                   }}
                 />
@@ -379,6 +434,108 @@ function TribunalRecord({
             }}
           >
             {t("sublets.queue.tribunalClear")}
+          </button>
+        )}
+        <button type="button" className={QUIET_BUTTON} onClick={onCancel}>
+          {t("sublets.mine.cancelEdit")}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * The day a consented letting ended, as the board writes it down.
+ *
+ * Offered on a consented application only, and the day is limited to the period
+ * consented to, which the server checks as well. Until it is recorded the
+ * consent is kept as long as the period runs, and a granted erasure request for
+ * the member who applied waits for it; from the recorded day it does neither.
+ */
+function LettingEndRecord({
+  application,
+  open,
+  draft,
+  busy,
+  onOpen,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  application: QueuedSubletApplication;
+  open: boolean;
+  draft: { id: string; lettingEndedOn: string } | null;
+  busy: boolean;
+  onOpen: () => void;
+  onChange: (draft: { id: string; lettingEndedOn: string } | null) => void;
+  onCancel: () => void;
+  onSave: (lettingEndedOn: string | null) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const recorded = application.lettingEndedOn;
+
+  if (!open || draft === null) {
+    return (
+      <div className="flex flex-col gap-2 border-t border-line pt-3">
+        <p className={HINT}>
+          {recorded === null
+            ? t("sublets.queue.lettingRunning", { to: application.periodTo })
+            : t("sublets.queue.lettingEnded", { date: recorded })}
+        </p>
+        <div>
+          <button
+            type="button"
+            className={QUIET_BUTTON}
+            aria-label={t("sublets.queue.lettingEndRecordNamed", {
+              from: application.periodFrom,
+              to: application.periodTo,
+            })}
+            onClick={onOpen}
+          >
+            {t("sublets.queue.lettingEndRecord")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-3 border-t border-line pt-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave(draft.lettingEndedOn);
+      }}
+    >
+      <label className={`${LABEL} max-w-48`}>
+        {t("sublets.queue.lettingEndField")}
+        <input
+          type="date"
+          className={FIELD_DATA}
+          value={draft.lettingEndedOn}
+          min={application.periodFrom}
+          max={application.periodTo}
+          required
+          onChange={(event) => {
+            onChange({ ...draft, lettingEndedOn: event.target.value });
+          }}
+        />
+      </label>
+      <p className={HINT}>{t("sublets.queue.lettingEndHint")}</p>
+      <div className="flex flex-wrap gap-3">
+        <button type="submit" className={SECONDARY_BUTTON} disabled={busy}>
+          {busy ? t("sublets.mine.saving") : t("sublets.mine.save")}
+        </button>
+        {recorded === null ? null : (
+          <button
+            type="button"
+            className={QUIET_BUTTON}
+            disabled={busy}
+            onClick={() => {
+              onSave(null);
+            }}
+          >
+            {t("sublets.queue.lettingEndClear")}
           </button>
         )}
         <button type="button" className={QUIET_BUTTON} onClick={onCancel}>

@@ -362,6 +362,7 @@ export type ReportAuditAction =
   | "SUBLET_APPLICATION_CONSENTED"
   | "SUBLET_APPLICATION_REFUSED"
   | "SUBLET_TRIBUNAL_PERMISSION_RECORDED"
+  | "SUBLET_LETTING_END_RECORDED"
   | "KEY_ORDER_PLACED"
   | "KEY_ORDER_REVISED"
   | "KEY_ORDER_WITHDRAWN"
@@ -778,6 +779,7 @@ export interface DataSubjectReport {
     decisionNote: string | null;
     tribunalPermittedOn: string | null;
     tribunalPermittedUntil: string | null;
+    lettingEndedOn: string | null;
     erasableFrom: string | null;
   }[];
   /**
