@@ -448,8 +448,17 @@ compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
 unset RUNTIME_DB_PASSWORD
 ```
 
-Otherwise revoke the privileges the release took away, as the superuser,
+Otherwise revoke the privileges the script takes away, as the superuser,
 naming your role and the role that owns the schemas (`my_schema_owner` below).
+They are the statutory tables' `UPDATE` and `DELETE`, every write on the
+migration history, the job schema's version and its queue of index builds,
+`TRIGGER`, `REFERENCES` and `TRUNCATE`, `CREATE` on both schemas, and the
+database's `CONNECT` for `PUBLIC`, which is every role on the server. The role
+keeps its own `CONNECT` grant, so the block gives it that first. Any other role
+that connects - a monitoring or a backup user - needs its own
+`GRANT CONNECT ON DATABASE openbrf TO <role>` afterwards, as the
+[shared database server](#an-instance-on-a-shared-database-server) notes below
+explain.
 The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
 because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
@@ -459,7 +468,17 @@ script does. Without it, the application's maintenance fails.
 ```sh
 compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
+GRANT CONNECT ON DATABASE openbrf TO my_runtime_role;
+REVOKE CONNECT ON DATABASE openbrf FROM PUBLIC;
+REVOKE UPDATE, DELETE ON public.member_register_entry FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.audit_log_entry FROM my_runtime_role;
+REVOKE DELETE ON public.transfer FROM my_runtime_role;
+REVOKE DELETE ON public.lien_note FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.termination FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.transfer_reversal FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.register_report_obligation FROM my_runtime_role;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
+REVOKE CREATE ON SCHEMA public FROM my_runtime_role, PUBLIC;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
@@ -474,6 +493,7 @@ SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
 FROM pg_attribute
 WHERE attrelid = 'pgboss.version'::regclass
   AND attnum > 0 AND NOT attisdropped AND attname <> 'version'
+HAVING count(*) > 0
 \gexec
 COMMIT;
 SQL
