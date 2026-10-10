@@ -1,3 +1,5 @@
+import { types } from "node:util";
+
 import type { DynamicModule } from "@nestjs/common";
 import {
   CONTROLLER_WATERMARK,
@@ -384,6 +386,16 @@ interface WalkState {
   outcome: { refusedFor?: "forbidden-injection" };
 }
 
+/**
+ * The lists of a module the seal reads to find what NestJS will build. `@Module`
+ * stores each under the name a dynamic module gives it (`MODULE_METADATA`).
+ */
+const MODULE_LISTS = [
+  "providers",
+  "controllers",
+  "imports",
+] as const satisfies readonly (keyof DynamicModule)[];
+
 /** Collects the module graph's controllers, or returns why it is refused. */
 function walk(entry: unknown, state: WalkState): string | null {
   if (entry === null || entry === undefined) {
@@ -441,6 +453,21 @@ function walk(entry: unknown, state: WalkState): string | null {
       `The module "${moduleClass.name}" reaches ` +
       `${reachedByModule}, which a plugin may not hold.`
     );
+  }
+
+  /*
+   * NestJS spreads each of these lists, so a set of providers is registered
+   * as surely as an array of them. The seal reads only what it can read whole,
+   * where anything else would be read as empty and check nothing.
+   */
+  for (const key of MODULE_LISTS) {
+    const lists: unknown[] = [reflect(moduleClass, key), dynamic?.[key]];
+    if (lists.some((list) => isPresent(list) && !isPlainArray(list))) {
+      return (
+        `The module "${moduleClass.name}" gives its ${key} as something ` +
+        "other than a plain array."
+      );
+    }
   }
 
   const providers = [
@@ -912,14 +939,14 @@ function constructorReaches(token: unknown): unknown[] {
    * only numbers would have read the design type the container never uses.
    */
   const parameters: unknown[] = [];
-  const designed = listed(reflect(token, "design:paramtypes"));
-  if (designed.includes(UNREADABLE)) {
+  const designed = positioned(reflect(token, "design:paramtypes"));
+  if (designed === UNREADABLE) {
     // Refused here rather than carried, where an entry below could write over
     // it while NestJS still resolves the rest of what it would have held.
     return [UNREADABLE];
   }
-  for (const index of arrayIndexes(designed)) {
-    parameters[index] = designed[index];
+  for (const [index, type] of designed) {
+    parameters[index] = type;
   }
   for (const entry of listed(reflect(token, SELF_DECLARED_DEPS_METADATA))) {
     if (entry === UNREADABLE) {
@@ -956,17 +983,20 @@ function constructorReaches(token: unknown): unknown[] {
 }
 
 /**
- * The positions an array holds a value at.
+ * The positions an array holds a value at, in ascending order.
  *
  * Read from its keys rather than counted up to its length, because a plugin
  * that writes index 4294967294 gives the array a length of four billion and a
- * loop over it would hold the boot for as long as it took.
+ * loop over it would hold the boot for as long as it took. Every key, not only
+ * the enumerable ones: NestJS walks to the length, and a position is visited
+ * whether or not it would be listed.
  */
 function arrayIndexes(array: readonly unknown[]): number[] {
-  return Object.keys(array)
-    .filter((key) => /^(?:0|[1-9]\d*)$/.test(key))
-    .map(Number)
-    .filter((index) => index < 2 ** 32 - 1);
+  return Object.getOwnPropertyNames(array).filter(isArrayIndex).map(Number);
+}
+
+function isArrayIndex(key: string): boolean {
+  return /^(?:0|[1-9]\d*)$/.test(key) && Number(key) < 2 ** 32 - 1;
 }
 
 /** Where a class names another class the container builds alongside it. */
@@ -1025,7 +1055,7 @@ function classReaches(target: unknown): unknown[] {
           typeof parameter === "object" && parameter !== null
             ? (parameter as { pipes?: unknown }).pipes
             : undefined;
-        enhancers.push(...(Array.isArray(pipes) ? pipes : [pipes]));
+        enhancers.push(...(Array.isArray(pipes) ? listed(pipes) : [pipes]));
       }
     }
   }
@@ -1049,10 +1079,49 @@ function classReaches(target: unknown): unknown[] {
  * `Set` of tokens works there - and the seal would have checked nothing.
  */
 function listed(value: unknown): unknown[] {
+  const entries = positioned(value);
+  return entries === UNREADABLE
+    ? [UNREADABLE]
+    : entries.map(([, entry]) => entry);
+}
+
+/**
+ * A metadata list's entries with the positions they sit at, or `UNREADABLE`.
+ *
+ * Only a plain array is read. NestJS walks these lists with its own calls -
+ * spread, `forEach`, `map`, `flat` - and an array that brings its own iterator
+ * or methods, reads through a getter or a proxy, or inherits from anything
+ * else could hand NestJS what the seal never saw. Decorators and compiled
+ * design types only ever write plain arrays.
+ */
+function positioned(
+  value: unknown,
+): Array<[number, unknown]> | typeof UNREADABLE {
   if (!isPresent(value)) {
     return [];
   }
-  return Array.isArray(value) ? (value as unknown[]) : [UNREADABLE];
+  if (!isPlainArray(value)) {
+    return UNREADABLE;
+  }
+  return arrayIndexes(value).map((index) => [index, value[index]]);
+}
+
+/** An array holding nothing but its length and values at its positions. */
+function isPlainArray(value: unknown): value is unknown[] {
+  if (
+    !Array.isArray(value) ||
+    types.isProxy(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype
+  ) {
+    return false;
+  }
+  return Reflect.ownKeys(value).every(
+    (key) =>
+      key === "length" ||
+      (typeof key === "string" &&
+        isArrayIndex(key) &&
+        "value" in (Object.getOwnPropertyDescriptor(value, key) ?? {})),
+  );
 }
 
 /** Truthy, which is the test NestJS's `|| []` applies. */

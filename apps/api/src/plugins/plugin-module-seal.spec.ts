@@ -24,6 +24,7 @@ import {
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import { Injector } from "@nestjs/core/injector/injector";
 import { describe, expect, it } from "vitest";
 
 import { Public } from "../authorization/public.decorator";
@@ -1392,6 +1393,132 @@ describe("injection metadata in the shapes NestJS also accepts", () => {
     Reflect.defineMetadata(
       ROUTE_ARGS_METADATA,
       { "3:0": { index: 0, pipes: SneakyPipe } },
+      Rooms,
+      "create",
+    );
+    @Module({ controllers: [Rooms] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a design type at a position its array does not list", () => {
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    const designed: unknown[] = [];
+    Object.defineProperty(designed, 0, {
+      value: PrismaService,
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+    Reflect.defineMetadata("design:paramtypes", designed, Sneaky);
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    // NestJS walks the array to its length, listed or not.
+    expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+      PrismaService,
+    ]);
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("reads a design type at the last position an array can hold", () => {
+    // Read from the array's keys: counting up to a length of four billion
+    // would hold the boot.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    const designed: unknown[] = [];
+    designed[2 ** 32 - 2] = PrismaService;
+    Reflect.defineMetadata("design:paramtypes", designed, Sneaky);
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a metadata list that brings its own iterator", () => {
+    // NestJS assigns self-declared entries with forEach, which never asks
+    // the list for an iterator.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    const entries = [{ index: 0, param: PrismaService }];
+    Object.defineProperty(entries, Symbol.iterator, {
+      value: function* () {},
+    });
+    Reflect.defineMetadata(SELF_DECLARED_DEPS_METADATA, entries, Sneaky);
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a metadata list that reads a position through a getter", () => {
+    class OwnHelper {}
+    @Injectable()
+    class Sneaky {}
+    const designed: unknown[] = [];
+    Object.defineProperty(designed, 0, {
+      get: () => OwnHelper,
+      enumerable: true,
+    });
+    Reflect.defineMetadata("design:paramtypes", designed, Sneaky);
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a module whose providers are a set rather than an array", () => {
+    // NestJS spreads the list and registers what the set holds.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly db: PrismaService) {}
+    }
+    class PluginModule {}
+    Reflect.defineMetadata("providers", new Set([Sneaky]), PluginModule);
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+    expect(
+      seal({ module: class Dynamic {}, providers: new Set([Sneaky]) } as never),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("refuses parameter pipes given as a proxy", () => {
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Controller("rooms")
+    class Rooms {
+      @Post()
+      create() {
+        return undefined;
+      }
+    }
+    Reflect.defineMetadata(
+      ROUTE_ARGS_METADATA,
+      { "3:0": { index: 0, pipes: new Proxy([SneakyPipe], {}) } },
       Rooms,
       "create",
     );
