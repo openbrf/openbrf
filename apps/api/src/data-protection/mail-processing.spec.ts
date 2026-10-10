@@ -2,6 +2,10 @@ import type { TFunction } from "i18next";
 import { describe, expect, it } from "vitest";
 
 import { erasureSourceFacts } from "../testing/erasure-source-facts";
+import {
+  registryCoverageProblems,
+  unexplainedNoProcessing,
+} from "../testing/mail-template-checks";
 import { MAIL_TEMPLATES, seedRows } from "./processing-activity-seed";
 import type { ProcessorFacts } from "./processors";
 
@@ -69,27 +73,19 @@ describe("the mail the instance sends", () => {
   });
 
   it("is every template declared anywhere in the source, and nothing else", () => {
-    for (const template of declared) {
-      expect(
-        template.id,
-        `${template.path} declares a mail template whose id is not a literal`,
-      ).not.toBeNull();
-    }
-    const byId = (a: string | null, b: string | null): number =>
-      String(a).localeCompare(String(b));
-    expect(MAIL_TEMPLATES.map((template) => template.id).sort(byId)).toEqual(
-      declared.map((template) => template.id).sort(byId),
-    );
+    expect(registryCoverageProblems(declared, MAIL_TEMPLATES)).toEqual([]);
+  });
+
+  it("sends no mail on no processing but those named as such", () => {
+    expect(
+      unexplainedNoProcessing(MAIL_TEMPLATES, NOT_A_RECORDED_PROCESSING),
+    ).toEqual([]);
   });
 
   it.each(MAIL_TEMPLATES.map((template) => [template.id, template] as const))(
     "sends %s under a row that names the mail server",
-    (id, template) => {
+    (_id, template) => {
       if (template.processing === null) {
-        expect(
-          NOT_A_RECORDED_PROCESSING[id],
-          `${id} declares no processing and is not one of the mails sent on none`,
-        ).toBeDefined();
         return;
       }
       const row = seedRows(t, FACTS).find(
