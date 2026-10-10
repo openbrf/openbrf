@@ -82,6 +82,43 @@ export const a = { id: "short", subject, body };`),
     expect(registryCoverageProblems(declared, [{ id: "extra" }])).toEqual([]);
   });
 
+  it("fails the registry check for two declarations sharing an id registered once", () => {
+    const declared = [
+      { path: "a.ts", id: "same" },
+      { path: "b.ts", id: "same" },
+    ];
+
+    expect(registryCoverageProblems(declared, [{ id: "same" }])).toEqual([
+      "b.ts declares same, which the registry holds 1 time(s) against 2 declaration(s)",
+    ]);
+  });
+
+  it("fails the registry check for one declaration registered twice", () => {
+    const declared = [{ path: "a.ts", id: "same" }];
+
+    expect(
+      registryCoverageProblems(declared, [{ id: "same" }, { id: "same" }]),
+    ).toEqual([
+      "same is registered 2 time(s) against 1 declaration(s) in the source",
+    ]);
+  });
+
+  it("passes the registry check when every id is declared as often as it is registered", () => {
+    const declared = [
+      { path: "a.ts", id: "same" },
+      { path: "b.ts", id: "same" },
+      { path: "c.ts", id: "other" },
+    ];
+
+    expect(
+      registryCoverageProblems(declared, [
+        { id: "other" },
+        { id: "same" },
+        { id: "same" },
+      ]),
+    ).toEqual([]);
+  });
+
   it("fails the registry check for a discovered template whose id is not a literal", () => {
     const declared = declaredIn(
       `const id = "x"; export const a = { id, subject: o.subject, body: o.body };`,

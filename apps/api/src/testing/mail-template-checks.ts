@@ -18,10 +18,19 @@ export interface RegisteredMailTemplate {
   processing: string | null;
 }
 
+function countIds(ids: readonly (string | null)[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const id of ids) {
+    if (id !== null) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /**
  * What is wrong with the registry as a list of the templates declared in the
  * source: an id that is not a literal, a template declared and not registered,
- * and one registered and not declared.
+ * one registered and not declared, and an id declared and registered a
+ * different number of times.
  */
 export function registryCoverageProblems(
   declared: readonly DeclaredMailTemplate[],
@@ -35,19 +44,31 @@ export function registryCoverageProblems(
       );
     }
   }
-  const declaredIds = new Set(declared.map((template) => template.id));
-  const registeredIds = new Set(registered.map((template) => template.id));
+  const declaredCounts = countIds(declared.map((template) => template.id));
+  const registeredCounts = countIds(registered.map((template) => template.id));
+  const unmatched = new Map(registeredCounts);
   for (const template of declared) {
-    if (template.id !== null && !registeredIds.has(template.id)) {
+    if (template.id === null) continue;
+    const left = unmatched.get(template.id) ?? 0;
+    if (left > 0) {
+      unmatched.set(template.id, left - 1);
+    } else if (registeredCounts.has(template.id)) {
+      problems.push(
+        `${template.path} declares ${template.id}, which the registry holds ${registeredCounts.get(template.id)} time(s) against ${declaredCounts.get(template.id)} declaration(s)`,
+      );
+    } else {
       problems.push(
         `${template.path} declares ${template.id}, which the registry does not reach`,
       );
     }
   }
-  for (const id of registeredIds) {
-    if (!declaredIds.has(id)) {
-      problems.push(`${id} is registered and declared nowhere in the source`);
-    }
+  for (const [id, left] of unmatched) {
+    if (left === 0) continue;
+    problems.push(
+      declaredCounts.has(id)
+        ? `${id} is registered ${registeredCounts.get(id)} time(s) against ${declaredCounts.get(id)} declaration(s) in the source`
+        : `${id} is registered and declared nowhere in the source`,
+    );
   }
   return problems;
 }
