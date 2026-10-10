@@ -623,8 +623,8 @@ describe("SMTP settings", () => {
     expect(current()?.smtpRequireTls).toBe(true);
   });
 
-  it.each(["localhost", "127.0.0.1", "::1"])(
-    "leaves a server on loopback (%s) to upgrade if it offers to",
+  it.each(["127.0.0.1", "::1", "[::1]"])(
+    "leaves a server at a loopback address (%s) to upgrade if it offers to",
     async (host) => {
       const { service, current } = build();
 
@@ -637,6 +637,16 @@ describe("SMTP settings", () => {
       expect(current()?.smtpRequireTls).toBe(false);
     },
   );
+
+  it("requires TLS of a server named localhost", async () => {
+    // The SMTP driver asks DNS what localhost is before it reads the hosts
+    // file, so the name is no promise that the server is on this machine.
+    const { service, current } = build();
+
+    await service.updateSmtp({ ...filled, host: "localhost", secure: false });
+
+    expect(current()?.smtpRequireTls).toBe(true);
+  });
 });
 
 describe("mail set where the instance runs", () => {

@@ -67,6 +67,20 @@ describe("parseThemeManifest", () => {
     expect(parse({ logo: "fonts\\body.woff2" }).ok).toBe(false);
   });
 
+  it("refuses a font family holding a control character", () => {
+    const parsed = parse({
+      fonts: [
+        {
+          family: "Inter\u0007",
+          license: "OFL-1.1",
+          files: [{ path: "fonts/inter.woff2" }],
+        },
+      ],
+    });
+
+    expect(parsed.ok).toBe(false);
+  });
+
   it("requires a licence on every bundled font", () => {
     const withoutLicence = parse({
       fonts: [{ family: "Inter", files: [{ path: "fonts/inter.woff2" }] }],

@@ -6,6 +6,7 @@ import { ENVIRONMENT_READER_SOURCE } from "../src/environment-reader";
 import {
   runAsSuperuser,
   runInAppContainer,
+  runMigrate,
   runSchemaOwner,
   stack,
 } from "../src/stack";
@@ -439,6 +440,45 @@ test("a queue already rewritten stops the owner's job schema install", async () 
       client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
     );
   }
+});
+
+test("a trigger another role put on the migration history stops the migrate service before the migrations", async () => {
+  test.setTimeout(300_000);
+
+  // prisma migrate deploy records each migration in _prisma_migrations as the
+  // owner, so a trigger there runs its function with the owner's privileges on
+  // every deploy that applies one. A role that held TRIGGER on the table could
+  // have put one there, and the hardening has since revoked the grant. The
+  // superuser plants it here and hands the function to openbrf_app.
+  const probeFunction = `public.runtime_role_trigger_probe_${suffix}`;
+  const probeTrigger = `runtime_role_trigger_probe_${suffix}`;
+  const planted = runAsSuperuser([
+    "--command",
+    `CREATE FUNCTION ${probeFunction}() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END'; ` +
+      `ALTER FUNCTION ${probeFunction}() OWNER TO openbrf_app; ` +
+      `CREATE TRIGGER ${probeTrigger} BEFORE INSERT ON public._prisma_migrations FOR EACH ROW EXECUTE FUNCTION ${probeFunction}()`,
+  ]);
+  expect(planted.status, planted.output).toBe(0);
+  try {
+    const refused = runMigrate();
+    expect(refused.status, "the deploy stops").toBe(1);
+    expect(refused.output).toContain(
+      `CREATE TRIGGER ${probeTrigger} BEFORE INSERT ON public._prisma_migrations`,
+    );
+    expect(refused.output).toContain("So the deploy stops here.");
+    expect(refused.output, "before the migrations").not.toContain(
+      "applying database migrations",
+    );
+  } finally {
+    runAsSuperuser([
+      "--command",
+      `DROP TRIGGER IF EXISTS ${probeTrigger} ON public._prisma_migrations; ` +
+        `DROP FUNCTION IF EXISTS ${probeFunction}()`,
+    ]);
+  }
+
+  const deployed = runMigrate();
+  expect(deployed.status, deployed.output).toBe(0);
 });
 
 test("a membership the superuser granted is refused by the hardening and revoked by the schema-owner service", async () => {

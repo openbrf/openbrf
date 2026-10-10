@@ -28,6 +28,7 @@ import {
 } from "./import-columns";
 import { ImportError } from "./import-errors";
 import { lockImportApply } from "./import-lock";
+import { readImportRevision } from "./import-revision";
 import {
   changedSincePreview,
   findUndecided,
@@ -313,6 +314,7 @@ export class ImportService implements OnModuleInit {
           previewedAt: null,
           ambiguousRows: Prisma.DbNull,
           previewDigest: null,
+          previewedRevision: null,
           // Planned with by the job. The apply records its own when it claims
           // the session.
           decisions:
@@ -420,6 +422,14 @@ export class ImportService implements OnModuleInit {
    * every other apply is refused: for as long as a hung attempt takes to time
    * out and be retried, and for a session whose job was lost, until the next
    * start re-queues it - or until an administrator abandons it (`abandon`).
+   *
+   * And an import that wrote to the register after this one was previewed makes
+   * the preview out of date. The counts it showed may no longer hold, and a row
+   * it matched to one person can match two now - which the job would find on
+   * its first chunk and stop on, leaving a FAILED session that has to be
+   * uploaded again. Refused instead, before anything is claimed: the session
+   * stays in MAPPING, and previewing it again shows the board what the apply
+   * would do now and asks again about every row that needs a decision.
    */
   async apply(
     sessionId: string,
@@ -466,7 +476,34 @@ export class ImportService implements OnModuleInit {
       await lockImportApply(tx);
       await refuseWhileAnotherRuns(tx, sessionId);
 
-      // On the token as well, so a preview recorded between the read above
+      // The preview read before the lock may have been replaced since, by
+      // another tab, and its revision is the one that tab recorded. That is
+      // the replaced preview's own refusal, not an outdated one: previewing
+      // again from here would overwrite the newer preview. So the token is
+      // asked first.
+      const recorded = await tx.importSession.findUnique({
+        where: { id: sessionId },
+        select: { previewToken: true },
+      });
+      if (recorded !== null && recorded.previewToken !== input.previewToken) {
+        throw previewReplaced();
+      }
+
+      // Under the lock and with nothing else running, so no chunk can move the
+      // count between this read and the claim. The count is the one the
+      // preview job read before it read the register.
+      //
+      // Only a chunk that wrote moves the count. An import that stopped before
+      // writing, or whose rows were all skipped or in error, left the register
+      // as this preview saw it, and a second preview would show the same.
+      if (session.previewedRevision !== (await readImportRevision(tx))) {
+        throw new ImportError(
+          "Another import changed the register after this one was previewed. Preview it again.",
+          "preview-outdated",
+        );
+      }
+
+      // On the token as well, so a preview asked for between the read above
       // and this claim cannot have its mapping run with these decisions.
       const claim = await tx.importSession.updateMany({
         where: {
@@ -834,6 +871,7 @@ export class ImportService implements OnModuleInit {
     defaultMovedInOn: string | null;
     previewStatus: ImportPreviewStatus | null;
     previewToken: string | null;
+    previewedRevision: number | null;
     ambiguousRows: Prisma.JsonValue;
     previewDigest: string | null;
   }> {
@@ -848,6 +886,7 @@ export class ImportService implements OnModuleInit {
         defaultMovedInOn: true,
         previewStatus: true,
         previewToken: true,
+        previewedRevision: true,
         ambiguousRows: true,
         previewDigest: true,
         status: true,

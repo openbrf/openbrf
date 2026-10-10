@@ -14,7 +14,7 @@
 #   1. the data volume exists and is writable
 #   2. the owner's connection works and is not a superuser
 #   3. a field encryption key exists (ADR 0004)
-#   4. the schema is migrated
+#   4. the triggers are checked and the schema is migrated
 #   5. the job queue schema is installed
 #   6. the runtime role is created and constrained
 #
@@ -115,7 +115,11 @@ if [ "${1:-}" = "migrate" ]; then
   # every encrypted field permanently unreadable.
   node /app/docker/with-owner-url.mjs node /app/docker/first-boot.mjs
 
-  # 4. schema migrations
+  # 4. schema migrations. A trigger fires for whoever writes its table, and
+  # the migrations write as the owner, so the triggers in public and pgboss,
+  # and the roles that could replace one, are checked before anything runs.
+  log "checking the triggers the migrations would fire"
+  node /app/docker/with-owner-url.mjs node scripts/check-triggers.mjs
   log "applying database migrations"
   node /app/docker/with-owner-url.mjs "${PRISMA}" migrate deploy
 

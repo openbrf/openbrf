@@ -71,6 +71,22 @@ jobs:
             echo "docker/semgrep/Dockerfile names no image." >&2
             exit 1
           fi
+          # Pulled through Google's mirror of Docker Hub, which does not limit
+          # anonymous pulls per address as Docker Hub does on runners whose
+          # addresses everyone else's CI shares. The pin itself stays on Docker
+          # Hub, where Dependabot reads the tags; the digest is the one Docker
+          # Hub serves under the tag, and the mirror serves the same one. A
+          # digest the mirror has not cached yet (a fresh Dependabot bump) falls
+          # back to Docker Hub rather than failing the scan.
+          DOCKER_HUB_IMAGE="$SEMGREP_IMAGE"
+          MIRROR_IMAGE="mirror.gcr.io/${DOCKER_HUB_IMAGE}"
+          if docker pull "$MIRROR_IMAGE"; then
+            SEMGREP_IMAGE="$MIRROR_IMAGE"
+          else
+            echo "::warning::mirror.gcr.io could not serve ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
+            docker pull "$DOCKER_HUB_IMAGE"
+            SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
+          fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
             --config=p/typescript \

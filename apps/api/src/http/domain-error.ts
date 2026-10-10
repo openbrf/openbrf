@@ -50,8 +50,8 @@ export abstract class DomainError extends Error {
    */
   headers?(): Record<string, string>;
 
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = new.target.name;
   }
 }

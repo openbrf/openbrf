@@ -37,6 +37,12 @@ export type ImportErrorReason =
   | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
+  /**
+   * The preview no longer matches the register: another import finished
+   * writing after it was taken, or, given the decisions, the plan differs
+   * from what the preview showed. Answered with 400; the session stays in MAPPING and is previewed
+   * again.
+   */
   | "preview-outdated"
   /**
    * The preview this request holds is no longer the session's: somebody

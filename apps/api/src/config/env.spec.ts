@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { EnvValidationError, loadEnv } from "./env";
+import {
+  EnvValidationError,
+  isLoopbackAddress,
+  isLoopbackHost,
+  loadEnv,
+} from "./env";
 
 /**
  * The address this instance says it is at.
@@ -420,6 +425,35 @@ describe("the mail driver's variables", () => {
         OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: "getpost.se",
       }),
     ).toEqual([]);
+  });
+});
+
+/**
+ * Where an SMTP server may be signed in to without TLS.
+ *
+ * Only an address no resolver is asked about. The SMTP driver asks DNS what a
+ * name is before it reads the hosts file, and Node's resolver sends a query for
+ * `localhost` to the network and uses the answer, so the name is no promise that
+ * the server is on this machine.
+ */
+describe("the loopback address an SMTP server may go without TLS at", () => {
+  it.each(["127.0.0.1", "::1", "[::1]"])("is %s", (host) => {
+    expect(isLoopbackAddress(host)).toBe(true);
+  });
+
+  it.each([
+    "localhost",
+    "localhost.",
+    "LOCALHOST",
+    "127.0.0.2",
+    "smtp.example.se",
+  ])("is not %s", (host) => {
+    expect(isLoopbackAddress(host)).toBe(false);
+  });
+
+  it("is narrower than the loopback host a URL may use plain http on", () => {
+    expect(isLoopbackHost("localhost")).toBe(true);
+    expect(isLoopbackAddress("localhost")).toBe(false);
   });
 });
 

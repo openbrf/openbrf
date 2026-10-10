@@ -3578,12 +3578,66 @@ describe("the purge", () => {
         await prisma.boardMailboxThread.findUnique({ where: { id: kept } }),
       ).not.toBeNull();
       await expect(
-        erasureRemainder(prisma, seatNewHolder.personId, now),
+        erasureRemainder(prisma, seatNewHolder.personId, now, encryption),
       ).resolves.toEqual([]);
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
         where: { id: { in: requests.map((request) => request.id) } },
       });
+    }
+  });
+
+  it("keeps a requested thread whose address a held person holds, and says it is kept", async () => {
+    /*
+     * The address changed hands: the thread is linked to the seat's new holder,
+     * whose erasure is granted, and the address on it is the one the register
+     * holds for the former holder, who is under a hold. The hold wins, as it
+     * does on the window. What it must not do is leave the thread selected
+     * ahead of the bound every night, refused every night, and counted as an
+     * erasure the job has not got through yet - which keeps the request open
+     * with the wrong reason for as long as the hold stands.
+     */
+    const now = new Date();
+    const threadId = await linkedThread(
+      seatNewHolder.personId,
+      seatAddress,
+      now,
+    );
+    const request = await grantErasure(
+      prisma,
+      seatNewHolder.personId,
+      boardMember.personId,
+      now,
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: seatFormerHolder.personId,
+        reason: `Tvist ${suffix}`,
+        placedByPersonId: administrator.personId,
+      },
+    });
+
+    try {
+      expect(await purge.eligible(now, 730)).not.toContain(threadId);
+      await purge.run(now);
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+
+      await expect(
+        erasureRemainder(prisma, seatNewHolder.personId, now, encryption),
+      ).resolves.toEqual([
+        {
+          domain: "board mailbox threads",
+          owed: 0,
+          kept: 1,
+          keptBecause: expect.stringContaining("hold") as unknown,
+        },
+      ]);
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.dataSubjectRequest.delete({ where: { id: request.id } });
+      await prisma.boardMailboxThread.deleteMany({ where: { id: threadId } });
     }
   });
 });

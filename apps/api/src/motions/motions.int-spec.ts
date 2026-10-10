@@ -1080,9 +1080,14 @@ describe("the purge", () => {
     // What the member's other motions in this suite leave standing, so the
     // count below is read as the one this motion adds.
     const motionsOf = async () =>
-      (await erasureRemainder(prisma, member.personId, NOW)).find(
-        (domain) => domain.domain === "motions",
-      );
+      (
+        await erasureRemainder(
+          prisma,
+          member.personId,
+          NOW,
+          app.get(FieldEncryptionService),
+        )
+      ).find((domain) => domain.domain === "motions");
     const keptBefore = (await motionsOf())?.kept ?? 0;
     const pending = `mo-scan-pending-${suffix}`;
     await seedMotion({

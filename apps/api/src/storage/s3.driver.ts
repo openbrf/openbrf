@@ -56,6 +56,10 @@ export class S3StorageDriver implements StorageDriver {
       // is not an AWS one.
       service: "s3",
       region: config.region,
+      // No retries of its own: the library does not drain the body of an
+      // answer it retries past, so each retry of a failing bucket would hold
+      // a socket open. A caller that wants another attempt makes one.
+      retries: 0,
     });
   }
 
@@ -64,8 +68,9 @@ export class S3StorageDriver implements StorageDriver {
       method: "PUT",
       // The signer hashes the body, so it has to be bytes rather than a
       // stream. Uploads are bounded by the configured limit and are already
-      // held in full for validation, so nothing is buffered twice.
-      body: new Uint8Array(body),
+      // held in full for validation, so this is a view of those bytes rather
+      // than a second copy of them.
+      body: new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
       headers: { "content-type": contentType },
     });
 
@@ -165,18 +170,30 @@ export class S3StorageDriver implements StorageDriver {
    */
   private urlFor(key: string): string {
     const endpoint = new URL(this.config.endpoint);
-    const path = key
-      .split("/")
+    const segments = key.split("/");
+    // A URL resolves `.` and `..` away, so a key holding one would address
+    // something other than itself - with path-style addressing, another
+    // bucket. Keys are generated, so this refuses what should never come.
+    if (segments.some((segment) => ["", ".", ".."].includes(segment))) {
+      throw new StorageError(
+        "A storage key has an empty, `.` or `..` segment.",
+        this.kind,
+      );
+    }
+    const path = segments
       .map((segment) => encodeURIComponent(segment))
       .join("/");
+    // An endpoint behind a proxy can carry a path of its own, which the
+    // bucket and the key go under rather than replace.
+    const base = endpoint.pathname.replace(/\/+$/, "");
 
     if (this.config.forcePathStyle) {
-      endpoint.pathname = `/${encodeURIComponent(this.config.bucket)}/${path}`;
+      endpoint.pathname = `${base}/${encodeURIComponent(this.config.bucket)}/${path}`;
       return endpoint.toString();
     }
 
     endpoint.hostname = `${this.config.bucket}.${endpoint.hostname}`;
-    endpoint.pathname = `/${path}`;
+    endpoint.pathname = `${base}/${path}`;
     return endpoint.toString();
   }
 }

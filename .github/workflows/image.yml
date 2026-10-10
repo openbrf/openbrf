@@ -231,7 +231,12 @@ jobs:
           # images rather than from Docker Hub, which limits anonymous pulls
           # per address on runners whose addresses everyone else's CI shares.
           # A release run that fails here cannot be repeated on its tag.
-          postgres="public.ecr.aws/docker/library/$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml)"
+          pinned=$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml || true)
+          if [ -z "$pinned" ]; then
+            echo "::error::docker-compose.prod.yml pins no postgres image by digest."
+            exit 1
+          fi
+          postgres="public.ecr.aws/docker/library/${pinned}"
           docker network create openbrf-smoke
           docker volume create openbrf-smoke-data
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \

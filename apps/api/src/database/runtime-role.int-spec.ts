@@ -193,6 +193,19 @@ describe("a production start", () => {
     },
   );
 
+  it.each(["public.member_register_entry", "pgboss.version"])(
+    "refuses a role holding TRIGGER on %s",
+    async (table) => {
+      // Enough to CREATE OR REPLACE the trigger that guards a table, without
+      // owning it.
+      await refusedWith(
+        `GRANT TRIGGER ON ${table} TO ${CONSTRAINED_ROLE}`,
+        `REVOKE TRIGGER ON ${table} FROM ${CONSTRAINED_ROLE}`,
+        /can create triggers on tables in the public or the pgboss schema/,
+      );
+    },
+  );
+
   it.each(["INSERT", "DELETE", "TRUNCATE", "UPDATE"])(
     "refuses a role holding %s on the job schema's version",
     async (privilege) => {

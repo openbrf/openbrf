@@ -2024,6 +2024,11 @@ enum AuditAction {
   /// their own access report is where it has to be visible. The entry carries
   /// the dates recorded and nothing else about the proceeding.
   SUBLET_TRIBUNAL_PERMISSION_RECORDED
+  /// Somebody on the board recorded the day a consented letting ended before
+  /// its period did, or took that record back. The subject stays the applicant,
+  /// whose access report is where the date has to be visible. The entry carries
+  /// the day and nothing else.
+  SUBLET_LETTING_END_RECORDED
   /// A resident ordered a key or a tag. Actor and subject are the same person.
   /// The entry carries the kind and the quantity, never the note.
   KEY_ORDER_PLACED
@@ -2072,6 +2077,9 @@ enum AuditAction {
   /// the entry carries how far through the file it got, never anything from the
   /// file. What the import already wrote stays in the register.
   IMPORT_ABANDONED
+
+  /// An administrator removed an installed or composed theme.
+  THEME_REMOVED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -2841,6 +2849,10 @@ model ImportSession {
   /// decision cannot change what a row writes without the board seeing it.
   previewDigest String?
 
+  /// `ImportRevision.revision` as the preview read it, before it read anything
+  /// else. The apply refuses to start when another import has written since.
+  previewedRevision Int?
+
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?
@@ -2891,6 +2903,30 @@ model ImportSession {
 
   @@index([status, expiresAt])
   @@map("import_session")
+}
+
+/// How many import chunks have written to the register. Exactly one row per
+/// instance; the id is pinned to 1 by a check constraint in the migration that
+/// adds it.
+///
+/// A preview reads this before it reads the register, and the apply refuses to
+/// start when it has moved since: another import has written, and the preview
+/// shows what the file would have done to a register that is no longer there.
+///
+/// A counter rather than the time each import finished. A timestamp is written
+/// after the chunk it follows has committed and by whichever process ran it, so
+/// a preview taken in the same millisecond, or on a host whose clock runs
+/// ahead, would count as taken after the write it did not see. And it lives on
+/// the session, which the daily purge deletes. The counter is advanced in the
+/// same transaction as the chunk's writes, and only by a chunk that wrote
+/// something. A preview that read it after the chunk committed reads the
+/// chunk's writes too, since it reads the register afterwards, and one that
+/// read it before is refused whether its plan saw them or not.
+model ImportRevision {
+  id       Int @id @default(1)
+  revision Int @default(0)
+
+  @@map("import_revision")
 }
 
 // ---------------------------------------------------------------------------
@@ -6934,6 +6970,20 @@ model SubletApplication {
   /// rather than what it ought to have said.
   tribunalPermittedOn    DateTime? @db.Date
   tribunalPermittedUntil DateTime? @db.Date
+
+  /// The last day of a consented letting that ended before its period did, as
+  /// the board recorded it. Null while the period stands.
+  ///
+  /// Recorded, because only the board hears that the subtenant has moved out or
+  /// the member has moved back. Where it is set it is the letting's last day for
+  /// everything that asks: the retention clock, and the granted erasure that
+  /// keeps a running letting's consent (ADR 0016) - which without it would keep
+  /// a consent to the end of a period nobody was using any more. The period
+  /// itself stays what the board consented to.
+  ///
+  /// Only a consented application may carry it, and only a day inside the
+  /// period, and the database says so as well as the service.
+  lettingEndedOn DateTime? @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

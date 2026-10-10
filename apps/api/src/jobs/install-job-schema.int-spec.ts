@@ -246,6 +246,8 @@ const PLANTED_TABLE = `public.install_probe_${suffix.replace(/[^a-z0-9]/gi, "")}
 /** A role holding the runtime role's writes on pgboss.queue. */
 const WRITER_ROLE = `openbrf_queue_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
 const WRITER_PASSWORD = randomBytes(16).toString("hex");
+/** A role handed TRIGGER on a table it does not own. */
+const TRIGGER_ROLE = `openbrf_trigger_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
 /** The trigger the install puts on pgboss.queue. */
 const QUEUE_GUARD = "refuse_own_job_table";
 /** PostgreSQL's check_violation, which that trigger raises. */
@@ -324,6 +326,7 @@ beforeAll(async () => {
   owner = new PrismaClient({
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });
+  await owner.$executeRawUnsafe(`CREATE ROLE ${TRIGGER_ROLE} NOLOGIN`);
   // The schema the cases below plant rows in, installed as a deploy would.
   const installed = install();
   expect(installed.status, installed.output).toBe(0);
@@ -341,6 +344,7 @@ afterAll(async () => {
   await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS ${PLANTED_TABLE}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${PROBE_ROLE}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${WRITER_ROLE}`);
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${TRIGGER_ROLE}`);
   await owner.$disconnect();
 });
 
@@ -358,6 +362,34 @@ describe("install-job-schema", () => {
       expect(await upgradeIndexes(client)).toEqual([
         { table: "job_common", valid: true, ready: true },
       ]);
+    });
+  }, 60_000);
+
+  it("stops a fresh install whose tables would give another role TRIGGER by default", async () => {
+    const databaseUrl = await scratchDatabase("job_default_trigger");
+    // A default privilege of the owner's, which every table pg-boss creates
+    // takes on. No table holds it before the install, so the defaults are
+    // read before pg-boss creates any.
+    await withClient(databaseUrl, (client) =>
+      client.query(
+        `alter default privileges grant trigger on tables to ${TRIGGER_ROLE}`,
+      ),
+    );
+
+    const run = await runInstaller(databaseUrl);
+
+    expect(run.code, run.output).toBe(1);
+    expect(run.output).toContain(
+      `${TRIGGER_ROLE} is given TRIGGER by default on the tables the schema ` +
+        "owner creates in every schema.",
+    );
+    expect(run.output).toContain("So the install stops here.");
+    expect(run.output).not.toContain('Job schema "pgboss" is installed');
+    await withClient(databaseUrl, async (client) => {
+      const { rows } = await client.query<{ queue: boolean }>(
+        "select to_regclass('pgboss.queue') is not null as queue",
+      );
+      expect(rows, "pg-boss created nothing").toEqual([{ queue: false }]);
     });
   }, 60_000);
 
@@ -469,6 +501,68 @@ describe("the job schema install", () => {
     },
     90_000,
   );
+
+  it.each([
+    { grantee: TRIGGER_ROLE, table: "pgboss.queue" },
+    { grantee: "PUBLIC", table: "public.member_register_entry" },
+  ])(
+    "stops while $grantee holds TRIGGER on $table",
+    async ({ grantee, table }) => {
+      // TRIGGER is all CREATE OR REPLACE TRIGGER asks for, so whoever holds it
+      // can replace the queue's guard, or the archive's, without owning the
+      // table. Nothing Open BRF runs grants it; a grant made by hand is what
+      // this stands for.
+      await owner.$executeRawUnsafe(`GRANT TRIGGER ON ${table} TO ${grantee}`);
+      try {
+        const refused = install();
+        expect(refused.status, refused.output).toBe(1);
+        expect(refused.output).toContain(
+          `${grantee} holds TRIGGER on ${table}.`,
+        );
+        expect(refused.output).toContain("So the install stops here.");
+      } finally {
+        await owner.$executeRawUnsafe(
+          `REVOKE TRIGGER ON ${table} FROM ${grantee}`,
+        );
+      }
+    },
+    90_000,
+  );
+
+  it("stops on the trigger on pgboss.queue replaced while no grant is left to show it, rather than putting it back", async () => {
+    // What a role that held TRIGGER could have done before the hardening, or
+    // an operator's REVOKE, took the grant away again: the trigger keeps its
+    // name and its function and fires on nothing it guards. The install would
+    // put it back as it goes on, so it has to look first.
+    const replaced = `CREATE TRIGGER ${QUEUE_GUARD} BEFORE DELETE ON pgboss.queue FOR EACH ROW EXECUTE FUNCTION pgboss.refuse_own_job_table()`;
+    await owner.$executeRawUnsafe(
+      replaced.replace("CREATE TRIGGER", "CREATE OR REPLACE TRIGGER"),
+    );
+    try {
+      const refused = install();
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        "pgboss.queue has a trigger that is not one the migrations or the " +
+          `job schema install create: ${replaced}`,
+      );
+      expect(refused.output).toContain("So the install stops here.");
+      const [row] = await owner.$queryRawUnsafe<{ definition: string }[]>(
+        `SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger
+         WHERE tgrelid = 'pgboss.queue'::regclass AND tgname = $1`,
+        QUEUE_GUARD,
+      );
+      expect(row?.definition, "left for a person to look at").toContain(
+        "BEFORE DELETE ON pgboss.queue",
+      );
+    } finally {
+      await owner.$executeRawUnsafe(
+        `DROP TRIGGER ${QUEUE_GUARD} ON pgboss.queue`,
+      );
+      const installed = install();
+      expect(installed.status, installed.output).toBe(0);
+    }
+    expect(await queueGuarded(), "the install put the trigger back").toBe(true);
+  }, 90_000);
 
   it("leaves a role that writes queues unable to make one partitioned or give it a job table of its own", async () => {
     // What harden-runtime-role.sql leaves the application on the queue table:

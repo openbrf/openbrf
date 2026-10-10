@@ -15,6 +15,8 @@ import { setTimeout } from "node:timers/promises";
 
 import { PgBoss } from "pg-boss";
 
+import { refuseUnsafeTriggers } from "./check-triggers.mjs";
+
 function loadNearestEnvFile(startDirectory = process.cwd()) {
   const { root } = parse(startDirectory);
   let directory = startDirectory;
@@ -182,9 +184,17 @@ async function refuseRowsTheOwnerWouldRun(db) {
   }
 }
 
-// Opened here so that the check runs on the pool pg-boss then starts on.
+// Opened here so that the checks run on the pool pg-boss then starts on.
+//
+// The triggers on the job schema's tables and the application's, and who can
+// replace them, are checked first (scripts/check-triggers.mjs). The deploy
+// checks them before the migrations as well; this covers an install run on its
+// own, and comes before guardQueueTable puts back the trigger on pgboss.queue,
+// which would hide one that had been replaced. They are checked again once
+// pg-boss has started, on the tables it has created by then.
 const db = boss.getDb();
 await db.open();
+await refuseUnsafeTriggers(db, "the install");
 await refuseRowsTheOwnerWouldRun(db);
 
 // A migration that adds an index to a job table that already exists does not
@@ -216,6 +226,7 @@ async function finishIndexBuilds() {
 
 await boss.start();
 try {
+  await refuseUnsafeTriggers(db, "the install");
   await guardQueueTable(db);
   await finishIndexBuilds();
   console.log('Job schema "pgboss" is installed and up to date.');

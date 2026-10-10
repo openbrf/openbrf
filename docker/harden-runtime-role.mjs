@@ -21,8 +21,8 @@
 // disagree about it.
 //
 // The role's connection limit is worked out here too, in
-// RUNTIME_DB_CONNECTION_LIMIT: the application's pool, the job queue's and a
-// few to spare, so that on a shared server one instance cannot take every
+// RUNTIME_DB_CONNECTION_LIMIT: the application's pool, the job queue's, the
+// package lock's sessions and a few to spare, so that on a shared server one instance cannot take every
 // connection the server has.
 //
 // Node built-ins and psql only, like the rest of docker/, so this stays
@@ -40,6 +40,13 @@ const MAX_POOL_SIZE = 50;
 
 /** JOB_POOL_SIZE in src/jobs/job-queue.service.ts. */
 const JOB_POOL_SIZE = 2;
+
+/**
+ * MAX_PACKAGE_OPERATIONS in src/packaging/package-lock.ts: an install or an
+ * uninstall of a plugin or theme holds its lock on a session of its own,
+ * outside both pools.
+ */
+const PACKAGE_LOCK_SESSIONS = 4;
 
 /**
  * Room for a session nobody pooled: an operator's psql as the runtime role, or
@@ -74,7 +81,9 @@ if (!Number.isInteger(poolSize) || poolSize < 1 || poolSize > MAX_POOL_SIZE) {
     `OPENBRF_DATABASE_POOL_SIZE has to be a whole number from 1 to ${MAX_POOL_SIZE}.`,
   );
 }
-const connectionLimit = String(poolSize + JOB_POOL_SIZE + SPARE_CONNECTIONS);
+const connectionLimit = String(
+  poolSize + JOB_POOL_SIZE + PACKAGE_LOCK_SESSIONS + SPARE_CONNECTIONS,
+);
 
 applyFile(HARDENING_SQL, {
   RUNTIME_DB_ROLE: role,

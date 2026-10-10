@@ -3,11 +3,12 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createHash } from "node:crypto";
 
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -446,6 +447,42 @@ describe("uploading the housing cooperative's logo", () => {
     expect(disposition).toMatch(/^[\x20-\x7e]*$/);
   });
 
+  /*
+   * Against the database rather than a fake, because the fake's transaction
+   * puts back every row it holds, so it cannot tell a row written inside the
+   * transaction from one written beside it on the root client.
+   */
+  it("writes neither the row nor the object when the audit entry fails", async () => {
+    const audit = app.get(AuditLogService);
+    const record = audit.record.bind(audit);
+    const fileName = `atomic-${suffix}.png`;
+    const objectsBefore = bucket.objects.size;
+    const failing = vi
+      .spyOn(audit, "record")
+      .mockImplementation((entry, ...rest) =>
+        entry.action === "MEDIA_UPLOADED"
+          ? Promise.reject(new Error("the audit entry could not be written"))
+          : record(entry, ...rest),
+      );
+    try {
+      await expect(
+        app.get(MediaService).upload({
+          bytes: pngBytes(10, 10),
+          fileName,
+          visibility: "PUBLIC",
+          showsIdentifiablePersons: false,
+          uploadedByPersonId: admin.personId,
+          channel: "WEB",
+        }),
+      ).rejects.toThrow("the audit entry could not be written");
+    } finally {
+      failing.mockRestore();
+    }
+
+    expect(await prisma.mediaFile.count({ where: { fileName } })).toBe(0);
+    expect(bucket.objects.size).toBe(objectsBefore);
+  });
+
   it("has no slot other than the two it defines", async () => {
     const cookie = await signIn(admin.email);
 
@@ -521,6 +558,14 @@ describe("serving a file with S3 behind it", () => {
     });
 
     expect(second.statusCode).toBe(304);
+  });
+
+  it("has a cached copy revalidated on every use rather than kept", async () => {
+    // Who may read a file can change at its id, and a copy kept for a year
+    // would go on serving a document the board has since taken off the street.
+    const response = await inject({ method: "GET", url });
+
+    expect(response.headers["cache-control"]).toBe("public, no-cache");
   });
 
   it("answers a HEAD without transferring the file", async () => {

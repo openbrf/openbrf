@@ -496,6 +496,7 @@
           "closed": "Avslutad",
           "period": "Period",
           "tribunalPermission": "Tillstånd från hyresnämnden",
+          "lettingEnded": "Upplåtelsens sista dag, som antecknad",
           "ordered": "Beställt",
           "meeting": "Stämma",
           "capacity": "Egenskap",
@@ -647,6 +648,7 @@
           "SUBLET_APPLICATION_CONSENTED": "Samtycke till andrahandsupplåtelse givet",
           "SUBLET_APPLICATION_REFUSED": "Samtycke till andrahandsupplåtelse vägrat",
           "SUBLET_TRIBUNAL_PERMISSION_RECORDED": "Hyresnämndens beslut antecknat",
+          "SUBLET_LETTING_END_RECORDED": "Upplåtelsens slut antecknat",
           "KEY_ORDER_PLACED": "Nyckelbeställning inlämnad",
           "KEY_ORDER_REVISED": "Nyckelbeställning ändrad",
           "KEY_ORDER_WITHDRAWN": "Nyckelbeställning återkallad",
@@ -730,7 +732,8 @@
           "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
           "DOCUMENT_UPDATED": "Ett dokument i arkivet döptes om, flyttades eller fick en annan målgrupp",
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
-          "IMPORT_ABANDONED": "En import av medlemslista avbröts"
+          "IMPORT_ABANDONED": "En import av medlemslista avbröts",
+          "THEME_REMOVED": "Tema togs bort"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -1154,7 +1157,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Krypterad anslutning (TLS)",
-      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587). När inställningarna har sparats skickas ingenting till en server som inte erbjuder STARTTLS, om den inte körs på den här maskinen.",
+      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587). Ingenting skickas till en server som inte erbjuder STARTTLS, om den inte körs på den här maskinen och anges som 127.0.0.1 eller ::1.",
       "user": "Användarnamn",
       "password": "Lösenord",
       "passwordKept": "Ett lösenord är sparat. Lämna fältet tomt för att behålla det, eller töm det för att ta bort det.",
@@ -1594,7 +1597,8 @@
       "remove": "Ta bort",
       "removeConfirm": "Ja, ta bort",
       "removeCancel": "Behåll",
-      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod."
+      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
+      "removeBusy": "Tillägget togs inte bort, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen."
     },
     "catalog": {
       "title": "Katalog",
@@ -1650,7 +1654,8 @@
         "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
         "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t.",
         "recipientRecorded": "Tillägget installerades inte. Sedan den här sidan öppnades har det registrerats på sidan Dataskydd vart tillägget skickar personuppgifter, och en installation ändrar inte det. Avbryt och välj tillägget igen för att installera det med det svar som står där; ändra svaret på sidan Dataskydd.",
-        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat."
+        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
+        "busy": "Tillägget installerades inte, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen."
       }
     },
     "permissions": {
@@ -1781,7 +1786,8 @@
       "update": "Uppdatera till {{version}}",
       "alreadyInstalled": "Installerat",
       "deprecated": "Underhålls inte längre",
-      "contract": "Tokenkontrakt {{range}}"
+      "contract": "Tokenkontrakt {{range}}",
+      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id."
     },
     "preview": {
       "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
@@ -1846,6 +1852,7 @@
       "lintFailed": "Temat avvisades:",
       "notInCatalog": "Katalogen listar inte längre det temat.",
       "entryDeprecated": "Katalogen anger att det temat inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
+      "packageBusy": "En annan ändring av det temat, eller av andra teman och tillägg, pågick, så ingenting ändrades. Vänta en stund och försök igen.",
       "themeNotInstalled": "Det temat är inte installerat.",
       "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
       "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
@@ -1853,7 +1860,8 @@
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
-      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället."
+      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
+      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
     },
     "composer": {
       "title": "Sätt ihop ett tema",
@@ -2398,7 +2406,7 @@
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
       "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
-      "replanned": "Dina val ändrar vad andra rader i filen matchar, så förhandsgranskningen har gjorts om med dem. Kontrollera den och välj för de rader som nu behöver det.",
+      "replanned": "Dina val, eller en annan import som blivit klar sedan dess, har ändrat vad filens rader matchar, så förhandsgranskningen har gjorts om. Kontrollera den och välj för de rader som nu behöver det.",
       "apply": "Genomför importen",
       "applying": "Importerar",
       "back": "Ändra kolumnkopplingen",
@@ -3714,7 +3722,8 @@
       "boardSaid": "Styrelsen skrev: {{note}}",
       "tribunalAvailable": "Styrelsen har vägrat. Du får ändå upplåta lägenheten om hyresnämnden lämnar tillstånd (bostadsrättslagen 7 kap. 11 §). Berätta för styrelsen om den gör det, så att föreningens egen anteckning stämmer.",
       "tribunalPermitted": "Hyresnämnden lämnade tillstånd den {{on}}, till och med {{until}}. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
-      "tribunalPermittedOpenEnded": "Hyresnämnden lämnade tillstånd den {{on}}. Inget slutdatum är antecknat. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut."
+      "tribunalPermittedOpenEnded": "Hyresnämnden lämnade tillstånd den {{on}}. Inget slutdatum är antecknat. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
+      "lettingEnded": "Styrelsen har antecknat {{date}} som upplåtelsens sista dag."
     },
     "queue": {
       "title": "Ansökningar om andrahandsupplåtelse",
@@ -3739,7 +3748,14 @@
       "tribunalOnField": "Tillstånd från och med",
       "tribunalUntilField": "Till och med",
       "tribunalHint": "Bara ett tillstånd antecknas. Om hyresnämnden avslog står styrelsens eget beslut kvar, vilket raden redan säger. Att anteckna ett tillstånd ändrar inget annat: föreningen samtyckte inte, och raden fortsätter säga det.",
-      "tribunalClear": "Ta bort anteckningen"
+      "tribunalClear": "Ta bort anteckningen",
+      "lettingRunning": "Inget tidigare slut antecknat: upplåtelsen löper till och med {{to}}.",
+      "lettingEnded": "Styrelsen har antecknat {{date}} som upplåtelsens sista dag.",
+      "lettingEndRecord": "Anteckna upplåtelsens sista dag",
+      "lettingEndRecordNamed": "Anteckna sista dagen för upplåtelsen från {{from}} till {{to}}",
+      "lettingEndField": "Upplåtelsens sista dag",
+      "lettingEndHint": "Anteckna det när upplåtelsen upphör före den period ni samtyckte till: andrahandshyresgästen har flyttat, eller medlemmen har flyttat tillbaka eller sålt. Upplåtelsen räknas då som pågående till och med den dagen, och en beviljad begäran om radering väntar på samtycket bara till dess. Samtycket sparas i två år från det senare av styrelsens svar och dagen efter den sista dagen, i stället för från dagen efter periodens slut.",
+      "lettingEndClear": "Ta bort anteckningen"
     },
     "errors": {
       "notAMember": "Att upplåta en lägenhet i andra hand är bostadsrättshavarens sak att ansöka om, och det här kontot innehar ingen bostadsrätt i föreningen.",
@@ -3747,6 +3763,8 @@
       "applicationNotFound": "Den ansökan finns inte kvar. Listan har lästs om.",
       "alreadyClosed": "Styrelsen har svarat på den här ansökan, så det finns inget att ändra.",
       "notRefused": "Ett beslut från hyresnämnden kan bara antecknas på en ansökan som styrelsen har vägrat.",
+      "notConsented": "Att en upplåtelse har upphört kan bara antecknas på en ansökan som styrelsen har samtyckt till.",
+      "lettingEndOutsidePeriod": "En upplåtelse kan bara upphöra en dag inom den period som samtycket gäller.",
       "invalidPeriod": "Perioden slutar innan den börjar.",
       "periodTooFarAhead": "Perioden får sluta högst fem år från i dag.",
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",

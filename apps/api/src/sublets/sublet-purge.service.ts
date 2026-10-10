@@ -68,7 +68,8 @@ export interface SubletPurgeRunSummary {
  * their flat, to whom is deliberately not recorded, for how long and why, in
  * their own words - and the purpose it is held for ends a while after the
  * letting the consent was about is over. So it is erased on a date derived from
- * `closedAt` and `periodTo` together, and not on the residency purge's clock;
+ * `closedAt` and the letting's last day together (`periodTo`, or an earlier
+ * `lettingEndedOn` the board recorded), and not on the residency purge's clock;
  * the arithmetic and the reasoning are in `sublet-retention.ts`.
  *
  * ## What it erases
@@ -383,17 +384,24 @@ export class SubletPurgeService implements OnModuleInit {
  * `closedAt: { not: null, ... }` states the rule as the rule it is - an open
  * application is out of scope however old it is - rather than leaning on a null
  * never comparing less than or equal to anything.
+ *
+ * The letting's last day is the period's, or the earlier day the board recorded
+ * it ended on. That day is never after the period's (the database checks it),
+ * so the last day is past the cutoff exactly when either column is.
  */
 function erasable(
   now: Date,
   retentionDays: number,
 ): {
   closedAt: { not: null; lte: Date };
-  periodTo: { lte: Date };
+  OR: [{ periodTo: { lte: Date } }, { lettingEndedOn: { lte: Date } }];
 } {
   const cutoffs = subletPurgeCutoffs(now, retentionDays);
   return {
     closedAt: { not: null, lte: cutoffs.closedAtOrBefore },
-    periodTo: { lte: cutoffs.periodEndedOnOrBefore },
+    OR: [
+      { periodTo: { lte: cutoffs.periodEndedOnOrBefore } },
+      { lettingEndedOn: { lte: cutoffs.periodEndedOnOrBefore } },
+    ],
   };
 }

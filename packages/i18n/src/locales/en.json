@@ -496,6 +496,7 @@
           "closed": "Closed",
           "period": "Period",
           "tribunalPermission": "Rent tribunal permission",
+          "lettingEnded": "Last day of the letting, as recorded",
           "ordered": "Ordered",
           "meeting": "Meeting",
           "capacity": "Capacity",
@@ -647,6 +648,7 @@
           "SUBLET_APPLICATION_CONSENTED": "Consent to subletting given",
           "SUBLET_APPLICATION_REFUSED": "Consent to subletting refused",
           "SUBLET_TRIBUNAL_PERMISSION_RECORDED": "Rent tribunal decision recorded",
+          "SUBLET_LETTING_END_RECORDED": "End of letting recorded",
           "KEY_ORDER_PLACED": "Key order placed",
           "KEY_ORDER_REVISED": "Key order changed",
           "KEY_ORDER_WITHDRAWN": "Key order withdrawn",
@@ -730,7 +732,8 @@
           "CHAT_MESSAGE_STRUCK": "Chat message struck through",
           "DOCUMENT_UPDATED": "A document in the archive was renamed, re-filed or given to another audience",
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
-          "IMPORT_ABANDONED": "A member list import was abandoned"
+          "IMPORT_ABANDONED": "A member list import was abandoned",
+          "THEME_REMOVED": "Theme removed"
         },
         "channel": {
           "WEB": "The web interface",
@@ -1154,7 +1157,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Encrypted connection (TLS)",
-      "secureHint": "Ticked, the connection is encrypted from the start (implicit TLS, usually port 465). Unticked, it is upgraded with STARTTLS (usually port 587). Once these settings are saved, nothing is sent to a server that does not offer STARTTLS, unless it runs on this machine.",
+      "secureHint": "Ticked, the connection is encrypted from the start (implicit TLS, usually port 465). Unticked, it is upgraded with STARTTLS (usually port 587). Nothing is sent to a server that does not offer STARTTLS, unless it runs on this machine and is entered as 127.0.0.1 or ::1.",
       "user": "User name",
       "password": "Password",
       "passwordKept": "A password is stored. Leave this empty to keep it, or clear it to remove it.",
@@ -1594,7 +1597,8 @@
       "remove": "Remove",
       "removeConfirm": "Yes, remove it",
       "removeCancel": "Keep it",
-      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code."
+      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code.",
+      "removeBusy": "The plugin was not removed, because another change to it, or to other plugins and themes, was still under way. Wait a moment and try again."
     },
     "catalog": {
       "title": "Catalog",
@@ -1650,7 +1654,8 @@
         "resourceConflict": "The plugin was not installed. Another installed plugin already serves the address that connected apps sign in to, and only one at a time can. Remove that plugin first, or every connection the members have already granted stops working.",
         "reservedId": "The plugin was not installed. The plugin id mcp-connector is reserved: the instance points connected apps at that address to sign in, so only a plugin that serves it itself may take the id.",
         "recipientRecorded": "The plugin was not installed. The data protection screen has recorded where this plugin sends personal data since this screen was opened, and installing does not change that record. Cancel and choose the plugin again to install it with the answer the record holds; change the answer on the data protection screen.",
-        "deprecated": "The plugin was not installed. The catalog marks it as no longer maintained, so it can only be reinstalled or updated where it is already installed."
+        "deprecated": "The plugin was not installed. The catalog marks it as no longer maintained, so it can only be reinstalled or updated where it is already installed.",
+        "busy": "The plugin was not installed, because another change to it, or to other plugins and themes, was still under way. Wait a moment and try again."
       }
     },
     "permissions": {
@@ -1781,7 +1786,8 @@
       "update": "Update to {{version}}",
       "alreadyInstalled": "Installed",
       "deprecated": "No longer maintained",
-      "contract": "Token contract {{range}}"
+      "contract": "Token contract {{range}}",
+      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id."
     },
     "preview": {
       "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
@@ -1846,6 +1852,7 @@
       "lintFailed": "The theme was refused:",
       "notInCatalog": "The catalog no longer lists that theme.",
       "entryDeprecated": "The catalog marks that theme as no longer maintained, so it can only be reinstalled or updated where it is already installed.",
+      "packageBusy": "Another change to that theme, or to other themes and plugins, was still under way, so nothing was changed. Wait a moment and try again.",
       "themeNotInstalled": "That theme is not installed.",
       "builtInTheme": "The default theme is built into the application and cannot be removed.",
       "themeInUse": "That theme is the active one. Switch to another theme first.",
@@ -1853,7 +1860,8 @@
       "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
-      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead."
+      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead.",
+      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it."
     },
     "composer": {
       "title": "Compose a theme",
@@ -2398,7 +2406,7 @@
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
       "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
-      "replanned": "Your choices change what other rows of the file match, so the preview has been taken again with them. Check it, and choose for any row that now needs it.",
+      "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",
       "apply": "Apply the import",
       "applying": "Importing",
       "back": "Change the mapping",
@@ -3714,7 +3722,8 @@
       "boardSaid": "The board wrote: {{note}}",
       "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
       "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
-      "tribunalPermittedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date was recorded. The association did not consent; this is recorded beside its refusal."
+      "tribunalPermittedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date was recorded. The association did not consent; this is recorded beside its refusal.",
+      "lettingEnded": "The board recorded {{date}} as the last day of the letting."
     },
     "queue": {
       "title": "Subletting applications",
@@ -3739,7 +3748,14 @@
       "tribunalOnField": "Permitted on",
       "tribunalUntilField": "Until",
       "tribunalHint": "Only a permission is recorded. A refusal by the tribunal leaves the board's own refusal standing, which this row already says. Recording a permission changes nothing else: the association did not consent, and the row goes on saying so.",
-      "tribunalClear": "Remove the record"
+      "tribunalClear": "Remove the record",
+      "lettingRunning": "No early end recorded: the letting runs until {{to}}.",
+      "lettingEnded": "The board recorded {{date}} as the last day of the letting.",
+      "lettingEndRecord": "Record the last day of the letting",
+      "lettingEndRecordNamed": "Record the last day of the letting from {{from}} to {{to}}",
+      "lettingEndField": "Last day of the letting",
+      "lettingEndHint": "Record it when the letting stops before the period you consented to: the subtenant moved out, or the member moved back or sold. The letting counts as running through that day, and a granted erasure request waits for the consent only until then. The consent is kept for two years from the later of the board's answer and the day after that last day, rather than from the day after the end of the period.",
+      "lettingEndClear": "Remove the record"
     },
     "errors": {
       "notAMember": "Subletting an apartment is the tenant-owner's to ask about, and this account holds no tenant-ownership in the association.",
@@ -3747,6 +3763,8 @@
       "applicationNotFound": "That application is gone. The list has been read again.",
       "alreadyClosed": "The board has answered this application, so there is nothing to change.",
       "notRefused": "A rent tribunal decision can be recorded only against an application the board has refused.",
+      "notConsented": "The end of a letting can be recorded only against an application the board has consented to.",
+      "lettingEndOutsidePeriod": "A letting can end only on a day inside the period consented to.",
       "invalidPeriod": "The period ends before it begins.",
       "periodTooFarAhead": "The period may end at most five years from today.",
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",

@@ -18,6 +18,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { PackageLockLostError } from "../packaging/package-lock";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
 import { MailService } from "../mail/mail.service";
@@ -1949,6 +1950,35 @@ describe("processors", () => {
       },
     ]);
     // Nothing was recorded, so nothing is logged as recorded.
+    expect(await recordedForHosting()).toBe(auditBefore);
+
+    /*
+     * The install also hands over its package lock, and one lost while the
+     * reads ahead of the write ran stops the write: an uninstall of the plugin
+     * may already be under way. Without the check this would replace the row.
+     */
+    const lock = new AbortController();
+    lock.abort(new PackageLockLostError("plugin", "occupancy"));
+    await expect(
+      app.get(ProcessorAgreementService).record(
+        "hosting",
+        {
+          classification: "PROCESSOR",
+          status: "PENDING",
+          counterparty: "Nagon annan AB",
+          actorPersonId: null,
+          channel: "WEB",
+        },
+        await app.get(ProcessorFactsService).read(),
+        { lockLost: lock.signal },
+      ),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(
+      await prisma.processorAgreement.findMany({
+        where: { processorKey: "hosting", endedAt: null },
+        select: { id: true },
+      }),
+    ).toEqual([{ id: agreementId }]);
     expect(await recordedForHosting()).toBe(auditBefore);
   });
 

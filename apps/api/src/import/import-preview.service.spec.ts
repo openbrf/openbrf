@@ -164,6 +164,7 @@ function harness(
       return Promise.resolve({ count: 1 });
     },
   );
+  const readRevision = vi.fn(() => Promise.resolve({ revision: 7 }));
   const prisma = {
     importSession: {
       findUnique: vi.fn(({ where }: { where: { id: string } }) =>
@@ -179,6 +180,7 @@ function harness(
       ),
       updateMany,
     },
+    importRevision: { findUnique: readRevision },
   } as unknown as PrismaService;
 
   const plan = vi.fn(
@@ -230,7 +232,7 @@ function harness(
         : [],
     );
 
-  return { service, plan, decryptRows, send, reported };
+  return { service, plan, decryptRows, readRevision, send, reported };
 }
 
 describe("planning a preview", () => {
@@ -252,6 +254,21 @@ describe("planning a preview", () => {
       PREVIEW_PROGRESS_ROWS,
       2 * PREVIEW_PROGRESS_ROWS,
     ]);
+  });
+
+  it("records the register's import revision as it was before the rows were read", async () => {
+    // An import that writes while this plan is being worked out may or may not
+    // be in what the plan read, so the apply has to compare a count read
+    // before it, not after.
+    const stored = session();
+    const { service, readRevision, decryptRows } = harness(stored);
+
+    await service.runPreview("session-1", "preview-1");
+
+    expect(stored).toMatchObject({ previewedRevision: 7 });
+    expect(readRevision.mock.invocationCallOrder[0]).toBeLessThan(
+      decryptRows.mock.invocationCallOrder[0] ?? 0,
+    );
   });
 
   it("stores the preview encrypted, with no identity number in it", async () => {

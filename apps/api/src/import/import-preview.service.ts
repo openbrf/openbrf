@@ -19,6 +19,7 @@ import { ImportError, type ImportErrorReason } from "./import-errors";
 import { readDecisions } from "./import-apply.service";
 import type { ImportOutcome, ImportPlan, PlannedRow } from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
+import { readImportRevision } from "./import-revision";
 
 /**
  * Planning the preview, as a background job.
@@ -338,6 +339,11 @@ export class ImportPreviewService implements OnModuleInit {
     }
 
     try {
+      // Read before the register is, not after the plan is made. An import
+      // that writes while this plan is being worked out may or may not be in
+      // what the plan read, and the apply can only refuse it if it moved this
+      // count too.
+      const previewedRevision = await readImportRevision(this.prisma);
       const plan = await this.planner.plan({
         rows: await this.planner.decryptRows(session.rowsCipher),
         columnCount: session.columns.length,
@@ -357,7 +363,13 @@ export class ImportPreviewService implements OnModuleInit {
           }
         },
       });
-      await this.record(sessionId, previewId, plan, session.sourceRows);
+      await this.record(
+        sessionId,
+        previewId,
+        plan,
+        session.sourceRows,
+        previewedRevision,
+      );
     } catch (error) {
       if (error instanceof PreviewReleased) {
         this.logger.log(
@@ -451,6 +463,7 @@ export class ImportPreviewService implements OnModuleInit {
     previewId: string,
     plan: ImportPlan,
     sourceRows: readonly number[],
+    previewedRevision: number,
   ): Promise<void> {
     // The rows the board will have to decide, read back by the apply: a row
     // needing a decision cannot be slipped past by applying a mapping nobody
@@ -482,6 +495,7 @@ export class ImportPreviewService implements OnModuleInit {
         previewRowsDone: plan.rows.length,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
         previewDigest: planDigest(plan),
+        previewedRevision,
         previewedAt: new Date(),
       },
     });

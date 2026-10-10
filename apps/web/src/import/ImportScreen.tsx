@@ -451,8 +451,9 @@ export function ImportScreen(): ReactElement {
         reason === "decision-not-a-candidate"
       ) {
         // The decisions made further rows need one, settled a row that needed
-        // one, or chose somebody a row no longer matches. Nothing was written;
-        // what the board needs is the preview those decisions produce.
+        // one, or chose somebody a row no longer matches - or another import
+        // has written to the register since. Nothing was written; what the
+        // board needs is the preview those decisions produce now.
         await runPreview(decisions, true);
         return;
       }
