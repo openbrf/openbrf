@@ -201,6 +201,13 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   /** How many times a room has been chosen, so a late list can tell it was. */
   const selections = useRef(0);
 
+  /**
+   * How many reads of the list have been started, so an older one that answers
+   * after a newer one cannot put back the failure the newer one cleared, or the
+   * rooms it replaced.
+   */
+  const listReads = useRef(0);
+
   /** A poll already in flight, so two do not ask from the same cursor at once. */
   const polling = useRef(false);
 
@@ -240,7 +247,12 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    */
   const loadRooms = useCallback(async (open: string | null): Promise<void> => {
     const selection = selections.current;
+    listReads.current += 1;
+    const read = listReads.current;
     const result = await fetchChats();
+    if (listReads.current !== read) {
+      return;
+    }
     if (!result.ok) {
       /*
        * A refusal by the guard is not a failure to answer, and saying "try

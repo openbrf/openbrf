@@ -173,7 +173,11 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
      * that page again. It is not `loadFailed`: the rows on the screen are good.
      */
     laterPageFailed: boolean;
+    /** How many pages of the queue this read holds, for the caller to keep. */
+    pagesHeld: number;
   }> => {
+    // Fixed for this read: another read finishing meanwhile must not move it.
+    const target = queuePages.current;
     const [intake, firstPage, meetings] = await Promise.all([
       canSubmit ? fetchMotionIntake() : null,
       canHandle ? fetchMotionQueue() : null,
@@ -184,7 +188,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
     let pagesHeld = 1;
     for (
       ;
-      pagesHeld < queuePages.current &&
+      pagesHeld < target &&
       queue?.ok === true &&
       queue.value.nextCursor !== null;
       pagesHeld += 1
@@ -208,11 +212,6 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
           motions: mergeQueuePage(queue.value.motions, next.value.motions),
         },
       };
-    }
-    if (laterPageFailed) {
-      // The board has read as far as the pages in hand, so a retry appends the
-      // next one rather than skipping past it.
-      queuePages.current = pagesHeld;
     }
 
     const apply = (held: Loaded): Loaded => ({
@@ -242,7 +241,7 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
       meetingsFailed: meetings?.ok === false,
       loadFailed: intake?.ok === false || queue?.ok === false,
     });
-    return { apply, laterPageFailed };
+    return { apply, laterPageFailed, pagesHeld };
   }, [canSubmit, canHandle, canReadMeetings]);
 
   /**
@@ -253,8 +252,15 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
    */
   const reload = useCallback((): void => {
     const version = ++currentRead.current;
-    void read().then(({ apply, laterPageFailed }) => {
+    void read().then(({ apply, laterPageFailed, pagesHeld }) => {
       if (version === currentRead.current) {
+        if (laterPageFailed) {
+          // The board has read as far as the pages in hand, so a retry appends
+          // the next one rather than skipping past it. Only once this read is
+          // known to be the newest: a superseded one that stopped short must
+          // not shorten what the next re-read asks for.
+          queuePages.current = pagesHeld;
+        }
         setLoaded(apply);
         // The queue has been read again from the top, so a failure to read a
         // page below the old one is no longer about anything on the screen.

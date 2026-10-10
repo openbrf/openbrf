@@ -726,6 +726,43 @@ describe("a group", () => {
     ).toBe("");
   });
 
+  it("does not let an older retry that fails put the notice back over a newer one that answered", async () => {
+    inTheGarden();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+    await madeWithListFailing();
+
+    let fail!: () => void;
+    const failing = new Promise<void>((resolve) => {
+      fail = resolve;
+    });
+    fetchChats.mockImplementationOnce(async () => {
+      await failing;
+      return { ok: false, failure: { status: 500, reason: "unexpected" } };
+    });
+    fetchChats.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        mayCreateGroup: true,
+      },
+    });
+    const retry = screen.getByRole("button", { name: "Försök igen" });
+    await userEvent.click(retry);
+    await userEvent.click(retry);
+    await screen.findByRole("button", { name: "Uppgång C" });
+
+    await act(async () => {
+      fail();
+      await failing;
+    });
+
+    expect(
+      screen.queryByText("Listan över rummen kunde inte läsas om just nu."),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Uppgång C" })).not.toBeNull();
+  });
+
   it("leaves the reader in the room they chose while the retry was in flight", async () => {
     fetchChats.mockResolvedValue({
       ok: true,

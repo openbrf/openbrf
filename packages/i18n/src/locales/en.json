@@ -2002,7 +2002,7 @@
         "releaseSubmit": "Record the release",
         "releaseSubmitLabel": "Record the release of the lien from {{lien}}",
         "releasing": "Releasing",
-        "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may look open until it has been.",
+        "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may still appear open until the register has been read again.",
         "readAgain": "Read the register again",
         "failed": "The lien could not be recorded. Check the creditor, the date and the amount."
       },

@@ -1016,6 +1016,90 @@ describe("a queue longer than one page", () => {
   });
 });
 
+describe("two re-reads that overlap", () => {
+  it("does not let the older one, failing on a later page, shorten the next re-read", async () => {
+    /*
+     * How deep a re-read goes is what the board has read down to. An older read
+     * that stops short on a page must not move it once a newer read has gone
+     * through to the end, or the next re-read would cut the queue back and take
+     * the rows the board is working on out of view.
+     */
+    const submitter = {
+      kind: "member",
+      personId: "person-maja",
+      name: "Maja Medlem",
+    };
+    const first = { ...OWN_MOTION, submitter, closedByPersonId: null };
+    const second = { ...first, id: "motion-2", title: "Cykelrum i källaren" };
+    const third = { ...first, id: "motion-3", title: "Ny grind" };
+    const cursorOne = "SUBMITTED|2027-01-20T09:00:00.000Z|motion-1";
+    const cursorTwo = "SUBMITTED|2027-01-21T09:00:00.000Z|motion-2";
+    const page = (motions: readonly unknown[], nextCursor: string | null) => ({
+      ok: true,
+      value: { deadline: DEADLINE, motions, nextCursor },
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let secondPageReads = 0;
+    fetchMotionQueue.mockImplementation(async (input?: { after?: string }) => {
+      if (input?.after === cursorOne) {
+        secondPageReads += 1;
+        // The read started by the first act fails, but only once the second has
+        // gone through.
+        if (secondPageReads === 2) {
+          await held;
+          return { ok: false, failure: { status: 503, reason: "unexpected" } };
+        }
+        return page([second], cursorTwo);
+      }
+      if (input?.after === cursorTwo) {
+        return page([third], null);
+      }
+      return page([first], cursorOne);
+    });
+
+    render(<MotionsScreen viewer={viewer(["motions:handle"])} />);
+    await userEvent.click(await screen.findByText("Visa fler motioner"));
+    await userEvent.click(await screen.findByText("Visa fler motioner"));
+    await screen.findByText("Ny grind");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Anteckna motionen Ny grind som mottagen",
+      }),
+    );
+    await waitFor(() => {
+      expect(secondPageReads).toBe(2);
+    });
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Anteckna motionen Cykelrum i källaren som mottagen",
+      }),
+    );
+    await waitFor(() => {
+      expect(secondPageReads).toBe(3);
+    });
+    await screen.findByText("Ny grind");
+
+    await act(async () => {
+      release();
+      await held;
+    });
+
+    fetchMotionQueue.mockClear();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Anteckna motionen Ny grind som mottagen",
+      }),
+    );
+    await waitFor(() => {
+      expect(fetchMotionQueue).toHaveBeenCalledWith({ after: cursorTwo });
+    });
+  });
+});
+
 describe("a re-read that fails", () => {
   /*
    * Every act ends in a re-read, and that read can fail. What the screen

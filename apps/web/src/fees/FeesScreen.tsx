@@ -572,10 +572,14 @@ export function FeesScreen(): ReactElement {
       {/*
         One document to a printed page: while the notices are open they are
         what prints, and closing them gives the page back to the register.
+
+        Nothing while the date is empty: nothing is read for it, so nothing
+        would ever turn the loading status off.
       */}
       {register === null ||
       failed ||
-      dateRefusal !== null ? null : registerOn !== on ? (
+      dateRefusal !== null ||
+      on === "" ? null : registerOn !== on ? (
         <p role="status" className="text-body text-ink-muted">
           {t("fees.loading")}
         </p>

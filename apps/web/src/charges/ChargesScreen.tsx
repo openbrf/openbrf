@@ -122,6 +122,13 @@ export function ChargesScreen(): ReactElement {
    * Nothing below this line calls `t` outside the render.
    */
   const [refusal, setRefusal] = useState<TranslationKey | null>(null);
+  /*
+   * The period's own refusal, kept apart from the one an action produced: a
+   * read that answers later must clear only what a read said, or a removal
+   * that failed while it was in flight would lose its notice and the board
+   * would take the charge for removed.
+   */
+  const [listRefusal, setListRefusal] = useState<TranslationKey | null>(null);
   const [file, setFile] = useState<{ fileName: string; csv: string } | null>(
     null,
   );
@@ -196,7 +203,7 @@ export function ChargesScreen(): ReactElement {
         setListFailed(false);
         setForbidden(false);
         // A period the server refused is no longer the one on the controls.
-        setRefusal(null);
+        setListRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
@@ -221,7 +228,7 @@ export function ChargesScreen(): ReactElement {
        */
       if (result.failure.status === 422 || result.failure.status === 400) {
         setListFailed(false);
-        setRefusal(chargeFailureKey(result.failure));
+        setListRefusal(chargeFailureKey(result.failure));
         return;
       }
       setListFailed(true);
@@ -244,6 +251,8 @@ export function ChargesScreen(): ReactElement {
   const shown =
     list !== null && list.from === from && list.to === to ? list : null;
   const shownFile = shown === null ? null : file;
+
+  const notice = refusal ?? listRefusal;
 
   const retry = useCallback(() => {
     setPartiesFailed(false);
@@ -392,6 +401,7 @@ export function ChargesScreen(): ReactElement {
                 onChange={(event) => {
                   setFrom(event.target.value);
                   setFile(null);
+                  setRefusal(null);
                 }}
                 className={FIELD_DATA}
               />
@@ -404,6 +414,7 @@ export function ChargesScreen(): ReactElement {
                 onChange={(event) => {
                   setTo(event.target.value);
                   setFile(null);
+                  setRefusal(null);
                 }}
                 className={FIELD_DATA}
               />
@@ -449,9 +460,9 @@ export function ChargesScreen(): ReactElement {
         </p>
       )}
 
-      {refusal === null ? null : (
+      {notice === null ? null : (
         <Notice tone="danger" live>
-          {t(refusal)}
+          {t(notice)}
         </Notice>
       )}
 

@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -708,6 +709,58 @@ describe("removing a charge", () => {
     await waitFor(() => {
       expect(fetchDebitingList.mock.calls.length).toBeGreaterThan(1);
     });
+  });
+
+  it("keeps a refused removal on screen when a read that was already running answers", async () => {
+    // A read of the period can be in flight while a removal is refused. Its
+    // answer clears what a read said, not what the removal said: otherwise the
+    // board reads a list that still holds the charge with no word that the
+    // removal failed.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    removeCharge.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "internal" },
+    });
+    render(<ChargesScreen />);
+    await screen.findByText("Astrid Vallin");
+
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    fetchDebitingList.mockImplementationOnce(async () => {
+      await answered;
+      return { ok: true, value: LIST };
+    });
+    correctCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
+    const row = screen.getByText("Nyckel till cykelrummet").closest("tr");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: "Rätta" }),
+    );
+    await userEvent.click(
+      within(correctionForm()).getByRole("button", { name: "Spara rättelsen" }),
+    );
+    await screen.findByText("Debiteringen är rättad.");
+
+    await userEvent.click(
+      within(
+        screen
+          .getByText("Nyckel till cykelrummet")
+          .closest("tr") as HTMLElement,
+      ).getByRole("button", { name: "Ta bort" }),
+    );
+    expect(
+      await screen.findByText("Debiteringen kunde inte sparas just nu."),
+    ).toBeTruthy();
+
+    await act(async () => {
+      answer();
+      await answered;
+    });
+
+    expect(
+      screen.getByText("Debiteringen kunde inte sparas just nu."),
+    ).toBeTruthy();
   });
 
   it("does not read the address book again", async () => {

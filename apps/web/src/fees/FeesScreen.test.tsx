@@ -857,6 +857,8 @@ describe("reads that fail", () => {
     expect(
       screen.queryByText("Avgifterna kunde inte läsas just nu."),
     ).toBeNull();
+    // Nothing is read for it, so a loading status would never turn off.
+    expect(screen.queryByText("Läser in avgifterna")).toBeNull();
   });
 
   it.each([
