@@ -252,7 +252,8 @@ jobs:
             docker-compose.prod.yml package.json pnpm-lock.yaml \
             pnpm-workspace.yaml e2e/src e2e/screenshots e2e/package.json \
             e2e/playwright.screenshots.config.ts e2e/screenshots.env \
-            e2e/docker-compose.e2e.yml)
+            e2e/docker-compose.e2e.yml e2e/docker-compose.screenshots.yml \
+            fixtures/themes scripts/build-fixture-catalog.mjs)
           if [ -n "$touched" ]; then
             echo "walk=true" >> "$GITHUB_OUTPUT"
           else

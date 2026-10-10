@@ -494,6 +494,17 @@ the suite's `openbrf:e2e`, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
+It also reads a different catalog. The curated catalog lists no theme yet, so a
+stack reading it could never show the theme screen's catalog half. Before the
+screenshot stack starts, `src/stack.ts` packs the themes in `fixtures/themes`
+into a catalog with the script the API's theme suites install from
+(`scripts/build-fixture-catalog.mjs`), in a directory of the stack's own under
+the system's temporary directory. `docker-compose.screenshots.yml` mounts it
+read-only into the application, and `screenshots.env` points
+`OPENBRF_CATALOG_URL` at it, which takes `OPENBRF_UNCURATED_PLUGINS_ENABLED`
+as any index outside the curated one does. The walk lists from it and installs
+nothing.
+
 Everybody a walk signs in as has a client address of their own, for the reason
 `src/fixtures.ts` gives, and signs in once: the session travels to each browser
 they come back in. That is what keeps each of them inside the tight budget on
@@ -630,9 +641,12 @@ changes the screen, not later:
 - **The plugin catalog, the consent screen and a plugin's settings form.** The
   catalog as it lists what can be installed, the permissions and personal-data
   declaration a board consents to, and the form an installed plugin contributes.
-- **The theme admin screen, its preview and its lint refusal.** Including the
+- **The theme admin screen's preview and its lint refusal.** Including the
   refusal, which is a screen in its own right: what a board sees when a theme is
-  rejected at install time.
+  rejected at install time. The fixture catalog already offers the theme that
+  is refused, `illegible-theme`. The screen itself is photographed once, as
+  `themes-catalog-composed-here`: a theme composed under the id of a catalog
+  entry, and the entry saying it will not be installed over it.
 - **The association's website with a form on it.** The contact form and the
   issue report form as a visitor meets them, for the same reason: the walk
   photographs the seeded front page, which carries neither.
