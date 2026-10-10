@@ -1014,6 +1014,32 @@ describe("what a plugin's controller may be constructed with", () => {
     expect(sealed(Rooms)).toMatchObject({ reason: "forbidden-injection" });
   });
 
+  it("looks at the token a parameter is injected as, not the type it is declared with", () => {
+    // NestJS hands this controller "plugin-local"; PrismaService is only the
+    // annotation, so the plugin is not asking for the database.
+    class PrismaService {}
+    @Controller("rooms")
+    class Rooms {
+      constructor(
+        @Inject("plugin-local") private readonly local: PrismaService,
+      ) {}
+    }
+
+    expect(sealed(Rooms).ok).toBe(true);
+  });
+
+  it("still refuses a parameter whose explicit token is forbidden", () => {
+    class PrismaService {}
+    @Controller("rooms")
+    class Rooms {
+      constructor(
+        @Inject(PrismaService) private readonly db: { local: string },
+      ) {}
+    }
+
+    expect(sealed(Rooms)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
   it("accepts one built from the plugin's own services and enhancers", () => {
     class OwnHelper {}
     class OwnPipe {

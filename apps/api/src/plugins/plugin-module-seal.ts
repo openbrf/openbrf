@@ -878,11 +878,30 @@ function constructorReaches(token: unknown): unknown[] {
   if (typeof token !== "function") {
     return [];
   }
+  /*
+   * One token per parameter, as the container picks it: the `@Inject()` token
+   * where the parameter has one, the design type otherwise. A parameter typed
+   * `PrismaService` but injected as `"plugin-local"` is handed the latter, so
+   * counting both would refuse a class that never asks for the database.
+   */
+  const designed = asArray<unknown>(reflect(token, "design:paramtypes"));
+  const explicit = new Map<number, unknown>();
+  for (const entry of asArray<{ index?: unknown; param?: unknown }>(
+    reflect(token, SELF_DECLARED_DEPS_METADATA),
+  )) {
+    if (typeof entry.index === "number") {
+      explicit.set(entry.index, entry.param);
+    }
+  }
+  const length = Math.max(
+    designed.length,
+    ...[...explicit.keys()].map((i) => i + 1),
+  );
+  const parameters = Array.from({ length }, (_unused, index) =>
+    explicit.has(index) ? explicit.get(index) : designed[index],
+  );
   return [
-    ...asArray<unknown>(reflect(token, "design:paramtypes")),
-    ...asArray<{ param?: unknown }>(
-      reflect(token, SELF_DECLARED_DEPS_METADATA),
-    ).map((entry) => entry.param),
+    ...parameters,
     ...asArray<{ type?: unknown }>(reflect(token, PROPERTY_DEPS_METADATA)).map(
       (entry) => entry.type,
     ),
