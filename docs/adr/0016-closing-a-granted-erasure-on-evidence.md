@@ -200,10 +200,10 @@ serves this keep as well.
 The board can record that a letting ended. `PUT
 api/sublet-queue/:id/letting-end` writes `lettingEndedOn`. Only a consented
 application can carry it, the day must fall inside the period, and the board
-can clear it again. The day is audited as `SUBLET_LETTING_END_RECORDED`. From
-that day on, the recorded day is the letting's last day wherever the period's
-was read. A granted request then erases the consent and can close the first
-night after it, and the retention window counts from it. The period itself
+can clear it again. The day is audited as `SUBLET_LETTING_END_RECORDED`. The
+recorded day is the letting's last day wherever the period's was read, and the
+day is inclusive. A granted request keeps the consent through that day, then
+erases it and can close the first night after it, and the retention window counts from it. The period itself
 stays what the board consented to.
 
 We did not derive the end from the register, for example by capping the keep
