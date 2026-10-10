@@ -35,7 +35,7 @@
     "i18next": "^26.4.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-i18next": "^17.0.15"
+    "react-i18next": "^17.0.16"
   },
   "devDependencies": {
     "@module-federation/vite": "^1.23.2",
@@ -51,7 +51,7 @@
     "oxlint-tsgolint": "^7.0.2003",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.2",
+    "vite": "^8.3.3",
     "vitest": "^5.0.3"
   }
 }

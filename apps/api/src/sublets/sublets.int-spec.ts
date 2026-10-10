@@ -1455,7 +1455,14 @@ describe("the purge", () => {
       ).not.toBeNull();
       // Nothing owed, and the open ones - this one among them - kept, so the
       // request stays open rather than being called carried out.
-      expect(await erasureRemainder(prisma, member.personId, NOW)).toEqual([
+      expect(
+        await erasureRemainder(
+          prisma,
+          member.personId,
+          NOW,
+          app.get(FieldEncryptionService),
+        ),
+      ).toEqual([
         expect.objectContaining({
           domain: "subletting applications",
           owed: 0,
@@ -1519,7 +1526,12 @@ describe("the purge", () => {
       // Other cases leave applications of this member standing, so what is
       // asserted is that there is nothing owed and that the running letting is
       // among those kept.
-      const [remainder] = await erasureRemainder(prisma, member.personId, NOW);
+      const [remainder] = await erasureRemainder(
+        prisma,
+        member.personId,
+        NOW,
+        app.get(FieldEncryptionService),
+      );
       expect(remainder).toMatchObject({
         domain: "subletting applications",
         owed: 0,

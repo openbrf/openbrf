@@ -19,6 +19,7 @@ export interface MagicLinkMailProps {
  */
 export const magicLinkMail: MailTemplate<MagicLinkMailProps> = {
   id: "magic-link",
+  processing: "addressBookAndAccounts",
 
   subject: (_props, { t, brand }) =>
     t("email.magicLink.subject", { association: brand.associationName }),

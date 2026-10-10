@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";
 import type { CatalogPluginEntry } from "../packaging/catalog-entry";
+import { PackageLockLostError } from "../packaging/package-lock";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginInstallerService } from "./plugin-installer.service";
 import {
@@ -66,6 +67,10 @@ interface Options {
   recipients?: ReadonlyMap<string, string>;
   /** OPENBRF_PLUGINS_ENABLED; on unless the instance is the subject. */
   pluginsEnabled?: boolean;
+  /** What the package lock hands the work; a lock still held unless given. */
+  lockLost?: AbortSignal;
+  /** Runs while the configuration the recipients are read from is pending. */
+  whileReadingFacts?: () => void;
 }
 
 function build(options: Options = {}) {
@@ -99,6 +104,7 @@ function build(options: Options = {}) {
   const writeSettings = vi.fn(async () => undefined);
   const unload = vi.fn();
   const record = vi.fn(async () => undefined);
+  const remove = vi.fn(async () => true);
   /*
    * The transaction client, as its own object. Arming and the entry that
    * records it have to commit together, and an assertion that the entry was
@@ -122,7 +128,7 @@ function build(options: Options = {}) {
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
-      remove: async () => true,
+      remove,
     } as never,
     {
       report: () => [],
@@ -148,11 +154,25 @@ function build(options: Options = {}) {
       forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
     { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
-    { read: async () => FACTS } as never,
+    {
+      read: async () => {
+        options.whileReadingFacts?.();
+        return FACTS;
+      },
+    } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
     prisma as never,
     { translatorFor: () => (key: string) => key } as never,
+    // The lock has no meaning without a database; package-lock.int-spec.ts
+    // tests it against one.
+    {
+      run: async (
+        _kind: string,
+        _id: string,
+        work: (lockLost: AbortSignal) => unknown,
+      ) => work(options.lockLost ?? new AbortController().signal),
+    } as never,
   );
   return {
     service,
@@ -164,6 +184,7 @@ function build(options: Options = {}) {
     writeSettings,
     unload,
     record,
+    remove,
     prisma,
     txClient,
     restart,
@@ -758,6 +779,7 @@ describe("what the consent step records about the recipient", () => {
 
     expect(recordProcessor.mock.calls[0]?.[3]).toEqual({
       onlyIfUnrecorded: true,
+      lockLost: expect.any(AbortSignal),
     });
   });
 });
@@ -1295,5 +1317,70 @@ describe("the gates on the OAuth protected resource", () => {
 
     await done;
     expect(consent).toHaveBeenCalledOnce();
+  });
+});
+
+describe("an operation whose package lock was lost", () => {
+  /*
+   * The session holding the lock ended, so another operation on the id may
+   * already be running. Nothing may be written after that, however far the
+   * gates got.
+   */
+  const lost = (): AbortSignal => {
+    const controller = new AbortController();
+    controller.abort(new PackageLockLostError("plugin", "occupancy"));
+    return controller.signal;
+  };
+
+  it("installs nothing", async () => {
+    const built = build({ lockLost: lost() });
+
+    await expect(
+      built.service.install({ id: "occupancy" }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.consent).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The recipient is classified after a read of the instance's configuration,
+   * and the lock can be lost while that read is pending. The check comes after
+   * it, so the classification is not written either.
+   */
+  it("records no recipient when the lock is lost while the facts are read", async () => {
+    const lock = new AbortController();
+    const built = build({
+      lockLost: lock.signal,
+      whileReadingFacts: () => {
+        lock.abort(new PackageLockLostError("plugin", "occupancy"));
+      },
+    });
+
+    await expect(
+      built.service.install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: { sendsPersonalDataOutside: false },
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.consent).toHaveBeenCalledOnce();
+    expect(built.recordProcessor).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
+  });
+
+  it("removes nothing", async () => {
+    const built = build({ lockLost: lost() });
+
+    await expect(
+      built.service.uninstall("occupancy", null, "WEB"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.remove).not.toHaveBeenCalled();
+    expect(built.record).not.toHaveBeenCalled();
   });
 });

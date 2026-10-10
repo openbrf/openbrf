@@ -157,7 +157,13 @@ changes nothing but the owner's password, which it sets from
    stops the deploy with its error, which also stays in `pgboss.bam`, and the
    next deploy retries it. A trigger on `pgboss.queue`, owned by the schema
    owner, makes the table refuse such a queue from then on, so the application
-   cannot write one between the check and the migration.
+   cannot write one between the check and the migration. The step also stops
+   while a role other than a table's owner, or every role through `PUBLIC`,
+   holds `TRIGGER` on a table in `public` or `pgboss`: that privilege is enough
+   to replace a trigger on a table without owning it, the guards on the
+   statutory archive and on `pgboss.queue` among them. It looks again once
+   pg-boss has created its tables, which take their grants from the owner's
+   default privileges.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
@@ -416,9 +422,10 @@ If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
 `RUNTIME_DB_PASSWORD` empty), the `migrate` service does not touch it, and a
 role that was granted every write in `public` by an earlier release can still
 write the migration history, or create objects in the job schema. The
-application refuses to start as such a role, and as one that owns anything in
-the application's schemas or is a member of another role, so constrain it
-before the upgrade's `up -d`.
+application refuses to start as such a role, as one that holds `TRIGGER` on a
+table in `public` or `pgboss`, and as one that owns anything in the
+application's schemas or is a member of another role, so constrain it before
+the upgrade's `up -d`.
 
 If you have a checkout, apply
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
@@ -442,7 +449,9 @@ unset RUNTIME_DB_PASSWORD
 ```
 
 Otherwise revoke the privileges the release took away, as the superuser,
-naming your role. pg-boss's maintenance stamps the times it ran on the
+naming your role and the role that owns the schemas (`my_schema_owner` below).
+The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
+because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
 column of that table except `version`, read from the catalog as the hardening
 script does. Without it, the application's maintenance fails.
@@ -454,6 +463,12 @@ REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
+REVOKE TRIGGER, REFERENCES, TRUNCATE ON ALL TABLES IN SCHEMA public, pgboss
+  FROM my_runtime_role, PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner IN SCHEMA public, pgboss
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
 SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
   string_agg(quote_ident(attname), ', ' ORDER BY attnum))
 FROM pg_attribute
@@ -649,13 +664,15 @@ DROP ROLE openbrf_app;
 ```
 
 **Connections.** The application's pool holds up to
-`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
-more, so an instance can take twelve at the defaults. Each deploy limits the
-runtime role to that plus three, so an instance - or code running inside it -
-cannot take more than its share. PostgreSQL allows 100 connections unless
-`max_connections` says otherwise, three of them reserved for superusers, which
-leaves room for six instances at their limits and a few connections over for
-the migrations each deploy runs and for anybody else who connects. The limits,
+`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, the job queue two
+more, and installing or uninstalling a plugin or theme holds a lock on a
+connection of its own, at most four at a time, so an instance can take sixteen
+at the defaults. Each deploy limits the runtime role to that plus three, so an
+instance - or code running inside it - cannot take more than its share.
+PostgreSQL allows 100 connections unless `max_connections` says otherwise,
+three of them reserved for superusers, which leaves room for five instances at
+their limits and two connections over for the migrations each deploy runs and
+for anybody else who connects. The limits,
 and room for those, have to fit within `max_connections` less the reserved
 connections; a smaller pool, or a larger `max_connections`, makes room for more
 instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
@@ -704,7 +721,8 @@ few failed sign-ins hold back everybody else's for a while.
 The limits on a member exporting their own data - three a minute and one at a
 time each, and twelve a minute for the whole instance - and the three reports
 the instance gathers at once, shared between those exports and the board's data
-subject access reports, are counted in the memory of the application process, so
+subject access reports, and the four plugin and theme installs and uninstalls it
+runs or queues at once, are counted in the memory of the application process, so
 running more than one application container for an instance multiplies every
 one of them by the number of containers.
 

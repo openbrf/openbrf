@@ -14,6 +14,7 @@ export interface MoveInMailProps {
 /** Welcome mail triggered by the move-in flow. */
 export const moveInMail: MailTemplate<MoveInMailProps> = {
   id: "move-in",
+  processing: "addressBookAndAccounts",
 
   subject: (_props, { t, brand }) =>
     t("email.moveIn.subject", { association: brand.associationName }),

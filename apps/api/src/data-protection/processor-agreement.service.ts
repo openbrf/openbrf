@@ -171,6 +171,11 @@ export class ProcessorAgreementService {
    * the board recorded as in place on the data protection screen is not turned
    * back into one being made by the next update of the plugin. What is returned
    * is then the row that was kept.
+   *
+   * `lockLost` is the plugin install's too: the package lock it runs under. The
+   * reads here come before the write, and a lock lost during them means an
+   * uninstall of the plugin may already be running, so it is checked once they
+   * are done, inside the transaction and before the first write.
    */
   async record(
     processorKey: string,
@@ -179,7 +184,7 @@ export class ProcessorAgreementService {
       channel: AuditChannel;
     },
     facts: ProcessorFacts,
-    options: { onlyIfUnrecorded?: boolean } = {},
+    options: { onlyIfUnrecorded?: boolean; lockLost?: AbortSignal } = {},
   ): Promise<ProcessorView> {
     const input = foldedText(given, AGREEMENT_TEXT);
     const parsed = parseProcessorKey(processorKey);
@@ -209,6 +214,7 @@ export class ProcessorAgreementService {
       input,
       facts,
       options.onlyIfUnrecorded ?? false,
+      options.lockLost,
     );
   }
 
@@ -474,6 +480,7 @@ export class ProcessorAgreementService {
     },
     facts: ProcessorFacts,
     onlyIfUnrecorded: boolean,
+    lockLost?: AbortSignal,
   ): Promise<ProcessorView> {
     let replaced = false;
 
@@ -490,6 +497,7 @@ export class ProcessorAgreementService {
         }
       }
 
+      lockLost?.throwIfAborted();
       const closed = await tx.processorAgreement.updateMany({
         where: { processorKey, endedAt: null },
         data: { endedAt: new Date(), endReason: "replaced" },
