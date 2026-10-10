@@ -471,6 +471,20 @@ describe("the plugin administration endpoints", () => {
     });
     expect(written.statusCode).toBe(200);
     expect(written.json()).toMatchObject({ values: { rowLimit: 10 } });
+
+    // Who changed what a plugin is configured with, naming the fields and not
+    // the values: a setting can hold a key, and the log outlives the plugin.
+    const entry = await application()
+      .get(PrismaService)
+      .auditLogEntry.findFirstOrThrow({
+        where: { action: "PLUGIN_SETTINGS_CHANGED", targetId: PLUGIN_ID },
+        orderBy: { createdAt: "desc" },
+      });
+    expect(entry.actorPersonId).toBe(admin.personId);
+    expect(entry.context).toEqual({
+      fields: ["grouping", "heading", "rowLimit", "showMembers"],
+    });
+    expect(JSON.stringify(entry.context)).not.toContain("Belaggning");
   });
 
   it("refuses a settings value the declaration does not allow", async () => {
@@ -1023,13 +1037,19 @@ describe("an install that answers for a plugin the record already classifies", (
  */
 describe("switching a plugin off", () => {
   it("stops its routes, its view and its host access at once", async () => {
-    const switched = await inject({
+    const switchedOff = await inject({
       method: "PUT",
       url: `/api/plugins/${PLUGIN_ID}/enabled`,
       headers: { cookie: adminCookie },
       payload: { enabled: false },
     });
-    expect(switched.statusCode).toBe(200);
+    expect(switchedOff.statusCode).toBe(200);
+    const entry = await application()
+      .get(PrismaService)
+      .auditLogEntry.findFirstOrThrow({
+        where: { action: "PLUGIN_DISABLED", targetId: PLUGIN_ID },
+      });
+    expect(entry.actorPersonId).toBe(admin.personId);
 
     const route = await inject({
       method: "GET",

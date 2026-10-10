@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { formatDateColumn, normalizeFreeText } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -17,6 +18,8 @@ import {
 import { lockDataSubjectRequests } from "./data-subject-request-lock";
 import { DataSubjectRequestError } from "./data-subject-request.error";
 import {
+  canExtend,
+  dueOn,
   toDataSubjectRequestView,
   type DataSubjectRequestView,
 } from "./data-subject-request";
@@ -34,6 +37,8 @@ const REQUEST_SELECT = {
   decisionGround: true,
   decidedAt: true,
   decidedByPersonId: true,
+  extendedAt: true,
+  extensionReason: true,
   executedAt: true,
   closedAt: true,
   closeReason: true,
@@ -387,6 +392,102 @@ export class DataSubjectRequestService {
       );
 
       return toDataSubjectRequestView(decided, now);
+    });
+  }
+
+  /**
+   * Extends the month a request is answered in by two (GDPR art. 12(3)).
+   *
+   * The article lets the controller extend where the request is complex or
+   * there are many, on telling the person within the first month and saying why.
+   * So it is recorded only on a request that is still undecided and inside that
+   * first month, only once, and only with the reason the person was told. After
+   * the first due day the request is already late, and a record made then would
+   * back-date a notice the person was not given in time.
+   *
+   * Under the person's request lock, the one `decide` takes first, so an
+   * extension and a decision arriving together are ordered.
+   */
+  async extend(
+    requestId: string,
+    input: { reason: string; actorPersonId: string; now?: Date },
+  ): Promise<DataSubjectRequestView> {
+    const now = input.now ?? new Date();
+    const reason = normalizeFreeText(input.reason).trim();
+    if (reason === "") {
+      throw new DataSubjectRequestError(
+        "An extension states the reason the person was told.",
+        "extension-reason-required",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const owner = await tx.dataSubjectRequest.findUnique({
+        where: { id: requestId },
+        select: { personId: true },
+      });
+      if (owner === null) {
+        throw new DataSubjectRequestError(
+          "There is no such request.",
+          "request-not-found",
+        );
+      }
+      await lockDataSubjectRequests(tx, owner.personId);
+
+      const row = await tx.dataSubjectRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        select: REQUEST_SELECT,
+      });
+      if (row.closedAt !== null) {
+        throw new DataSubjectRequestError(
+          "This request is already closed.",
+          "already-closed",
+        );
+      }
+      if (row.decision !== null) {
+        throw new DataSubjectRequestError(
+          "This request has already been decided.",
+          "already-decided",
+        );
+      }
+      if (row.extendedAt !== null) {
+        throw new DataSubjectRequestError(
+          "This request has already been extended.",
+          "already-extended",
+        );
+      }
+      if (!canExtend(row, now)) {
+        throw new DataSubjectRequestError(
+          "The first month has run out: the extension has to be told to the person within it.",
+          "extension-too-late",
+        );
+      }
+
+      const extended = await tx.dataSubjectRequest.update({
+        where: { id: requestId },
+        data: { extendedAt: now, extensionReason: reason },
+        select: REQUEST_SELECT,
+      });
+
+      await this.audit.record(
+        {
+          action: "DATA_SUBJECT_REQUEST_EXTENDED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: row.personId,
+          targetKind: "dataSubjectRequest",
+          targetId: requestId,
+          // The kind and the new due day. The reason the person was told stays
+          // on the row, where it can be corrected with it.
+          context: {
+            kind: row.kind,
+            dueOn: formatDateColumn(dueOn(row.requestedOn, true)),
+          },
+        },
+        tx,
+      );
+
+      return toDataSubjectRequestView(extended, now);
     });
   }
 

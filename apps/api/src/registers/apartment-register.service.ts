@@ -15,6 +15,7 @@ import type {
 } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
+import { APARTMENT_REGISTER_ORDER } from "./apartment-order";
 import { residencyHeldOn } from "./held-on";
 import { RegisterReportMailerService } from "./register-report-mailer.service";
 import { reportDueOn } from "./report-deadline";
@@ -1571,7 +1572,7 @@ export class ApartmentRegisterService {
 
     const apartments = await tx.apartment.findMany({
       where: { id: { in: [...apartmentIds] } },
-      orderBy: [{ address: { sortOrder: "asc" } }, { number: "asc" }],
+      orderBy: [...APARTMENT_REGISTER_ORDER],
       select: {
         id: true,
         number: true,

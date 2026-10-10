@@ -35,7 +35,6 @@ const CONFIGURED: StoredSmtpSettings = {
   user: "styrelsen",
   fromAddress: "styrelsen@exempel.se",
   passwordSet: true,
-  tlsOptional: false,
   configured: true,
 };
 
@@ -47,7 +46,6 @@ const EMPTY: StoredSmtpSettings = {
   user: null,
   fromAddress: null,
   passwordSet: false,
-  tlsOptional: false,
   configured: false,
 };
 
@@ -202,50 +200,6 @@ describe("a server that sets up no encrypted connection", () => {
     expect(
       screen.queryByText(/kontrollera server, port och lösenord/i),
     ).toBeNull();
-  });
-});
-
-describe("settings saved before TLS was required", () => {
-  const LEGACY: StoredSmtpSettings = {
-    ...CONFIGURED,
-    secure: false,
-    tlsOptional: true,
-  };
-
-  it("say the password can go out unencrypted until they are saved again", () => {
-    render(<SmtpPanel value={LEGACY} />);
-
-    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
-  });
-
-  it("keep saying so after a test message went through", async () => {
-    const session = userEvent.setup();
-    render(<SmtpPanel value={LEGACY} />);
-
-    await session.click(
-      screen.getByRole("button", { name: /testmeddelande/i }),
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/holger@exempel\.se/)).toBeTruthy();
-    });
-    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
-  });
-
-  it("stop saying so once a save has required TLS", async () => {
-    saveSmtp.mockResolvedValue({
-      ok: true,
-      value: { ...LEGACY, tlsOptional: false },
-    });
-    const session = userEvent.setup();
-    render(<SmtpPanel value={LEGACY} />);
-
-    await save(session);
-
-    await waitFor(() => {
-      expect(screen.getByText("Sparat")).toBeTruthy();
-    });
-    expect(screen.queryByText(/lösenordet skickas okrypterat/i)).toBeNull();
   });
 });
 
@@ -522,6 +476,40 @@ describe("while the email settings are being saved", () => {
         expect(secret.matches(":disabled")).toBe(false);
         expect(refocus).toHaveBeenCalledTimes(1);
         expect(document.activeElement).toBe(secret);
+      });
+    },
+  );
+});
+
+describe("a save the stored password does not follow", () => {
+  // The stored password is not sent to a new host on the strength of an empty
+  // field, and the refusal has to say what to do about it. A save that changed
+  // nothing about the server and met another save's password is not told that
+  // the server changed.
+  it.each([
+    [
+      "the server, port or encryption it changed",
+      400,
+      "secret-required-for-new-endpoint",
+      /^servern, porten eller krypteringen har ändrats\. ange lösenordet igen/i,
+    ],
+    [
+      "a change saved elsewhere meanwhile",
+      409,
+      "secret-endpoint-changed-during-save",
+      /^servern eller det sparade lösenordet ändrades någon annanstans.*ange lösenordet igen/i,
+    ],
+  ])(
+    "names %s and asks for the password again",
+    async (_, status, reason, message) => {
+      saveSmtp.mockResolvedValue({ ok: false, failure: { status, reason } });
+      const session = userEvent.setup();
+      render(<SmtpPanel value={CONFIGURED} />);
+
+      await save(session);
+
+      await waitFor(() => {
+        expect(screen.getByText(message)).toBeTruthy();
       });
     },
   );

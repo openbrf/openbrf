@@ -119,12 +119,12 @@ function build(options: Options = {}) {
     {
       consent,
       setActionArmed,
+      setEnabled,
+      writeSettings,
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
       remove,
-      setEnabled,
-      writeSettings,
     } as never,
     {
       report: () => [],
@@ -918,6 +918,58 @@ describe("arming an action, which is what exposes it", () => {
   });
 });
 
+describe("switching a plugin on or off", () => {
+  it("writes the change and the entry naming who made it in one transaction", async () => {
+    const built = build();
+
+    await built.service.setEnabled("occupancy", false, "admin-1");
+
+    expect(built.setEnabled).toHaveBeenCalledWith(
+      "occupancy",
+      false,
+      built.txClient,
+    );
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_DISABLED",
+        actorPersonId: "admin-1",
+        targetKind: "plugin",
+        targetId: "occupancy",
+      }),
+      built.txClient,
+    );
+    expect(built.unload).toHaveBeenCalledWith("occupancy");
+  });
+
+  it("names the switching on for what it is", async () => {
+    const built = build();
+    // Enabling replaces the process, which a unit test must not do.
+    vi.spyOn(built.restart, "restartWhenCommitted").mockResolvedValue();
+
+    await built.service.setEnabled("occupancy", true, "admin-1");
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_ENABLED",
+        actorPersonId: "admin-1",
+      }),
+      built.txClient,
+    );
+  });
+
+  it("writes no entry for a plugin that is not there", async () => {
+    const built = build();
+    built.setEnabled.mockResolvedValue(null as never);
+
+    await expect(
+      built.service.setEnabled("occupancy", false, "admin-1"),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+
+    expect(built.record).not.toHaveBeenCalled();
+    expect(built.unload).not.toHaveBeenCalled();
+  });
+});
+
 describe("the catalog entries the consent screen reads", () => {
   it("carries the connected-app sign-in route an entry declares", async () => {
     const { service } = build({
@@ -1059,26 +1111,6 @@ describe("what an operation writes, and with what", () => {
     expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
   });
 
-  it("records who switched a plugin off, with the change", async () => {
-    const built = build();
-
-    await built.service.setEnabled(ENTRY.id, false, "person-1");
-
-    expect(built.setEnabled).toHaveBeenCalledWith(
-      ENTRY.id,
-      false,
-      built.txClient,
-    );
-    expect(built.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "PLUGIN_DISABLED",
-        actorPersonId: "person-1",
-        targetId: ENTRY.id,
-      }),
-      built.txClient,
-    );
-  });
-
   it("records which settings changed, never their values", async () => {
     const built = build({
       installed: [
@@ -1115,7 +1147,7 @@ describe("what an operation writes, and with what", () => {
       expect.objectContaining({
         action: "PLUGIN_SETTINGS_CHANGED",
         actorPersonId: "person-1",
-        context: { keys: ["heading"] },
+        context: { fields: ["heading"] },
       }),
       built.txClient,
     );

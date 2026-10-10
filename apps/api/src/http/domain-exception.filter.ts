@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 
 import { AddressBookError } from "../address-book/address-book.service";
 import { PersonError } from "../address-book/person.service";
+import { failureFrames, failureName } from "../logging/failure";
 import { InvitationError } from "../invitations/invitation.service";
 import { MailNotConfiguredError } from "../mail/mail.service";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
@@ -24,9 +25,9 @@ import { DomainError } from "./domain-error";
  * token or a sign-up request the board already decided is not a server fault,
  * and logging it as one buries the real failures.
  *
- * Only the types listed in @Catch reach this filter; anything else keeps
- * Nest's own handling, so an HttpException thrown elsewhere still carries its
- * own status.
+ * Only the types listed in @Catch reach this filter; anything else goes to
+ * UnhandledExceptionFilter, so an HttpException thrown elsewhere still carries
+ * its own status.
  */
 @Catch(
   ZodError,
@@ -101,7 +102,12 @@ export class DomainExceptionFilter implements ExceptionFilter {
     const status = statusFor(exception);
 
     if (status >= 500) {
-      this.logger.error(exception.message, exception.stack);
+      // The class, the reason and the frames. The message is composed where
+      // the error was thrown and may carry what was being handled (ADR 0007).
+      this.logger.error(
+        `${failureName(exception)}: ${exception.reason}`,
+        failureFrames(exception),
+      );
     }
 
     // Before the status and the body, because a header set after the reply has
@@ -209,8 +215,10 @@ function personStatus(reason: PersonError["reason"]): number {
     case "person-not-found":
       return HttpStatus.NOT_FOUND;
     case "invalid-email":
+    case "invalid-phone":
     case "invalid-personal-identity-number":
     case "personal-identity-number":
+    case "personal-identity-number-needs-century":
       return HttpStatus.BAD_REQUEST;
     case "field-not-masked":
       // The request was understood and refused on its merits: there is nothing

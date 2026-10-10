@@ -17,6 +17,7 @@ import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
+import { actingPersonId } from "../registers/acting-person";
 import {
   type IssueTypeView,
   IssueTypeService,
@@ -183,9 +184,10 @@ export class IssueQueueController {
   async setStatus(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<QueuedIssueView> {
     const input = statusSchema.parse(body);
-    return this.issues.setStatus(id, input.status);
+    return this.issues.setStatus(id, input.status, actingPersonId(request));
   }
 }
 

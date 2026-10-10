@@ -13,13 +13,15 @@
  * in, then the notice's four-digit position in the run it belongs to, then a
  * check digit.
  *
- *     2 6 0 1   0 0 0 7   4
+ *     2 6 0 1   0 0 0 7   8
  *     YYMM      NNNN      check
  *
  * The period first because it is the half a person recognises - "that is the
  * January bill" - and because it is what makes the number unique across runs
  * without any state: a period may be issued once and two runs may not overlap,
- * so no two runs open in the same month. The position is assigned by the run
+ * so no two runs open in the same month. The year has two digits, so the issue
+ * also refuses a period a century from a run still held, and one older than
+ * the purge keeps runs for. The position is assigned by the run
  * over the apartments it bills in a stable order, which makes it unique inside
  * the run. Four digits bounds a run at 9,999 notices; a run larger than that is
  * refused rather than wrapped, because a wrapped position would produce a

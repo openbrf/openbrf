@@ -53,37 +53,81 @@ const ALLOWED = new Map([
 ]);
 
 /**
- * This file states the patterns, so it necessarily contains them. Skipped by
- * path rather than by an entry in ALLOWED, which is a list of files permitted
- * to disable a guard - this one never touches a database.
+ * This file states the patterns and its test states what they must catch, so
+ * both necessarily contain them. Skipped by path rather than by an entry in
+ * ALLOWED, which is a list of files permitted to disable a guard - neither
+ * ever touches a database.
  */
-const SELF = "scripts/check-statutory-guards.mjs";
+const SELF = new Set([
+  "scripts/check-statutory-guards.mjs",
+  "scripts/check-statutory-guards.test.mjs",
+]);
 
 /**
  * What a bypass looks like, matched against source with its comments removed.
  *
- * DISABLE TRIGGER is the direct one. session_replication_role is the indirect
- * one: set to replica, a session runs with user triggers off, which is how a
- * restore normally loads data and would take every guard down at once. Dropping
- * a guard by name is the third.
+ * DISABLE TRIGGER is the direct one, and ENABLE REPLICA TRIGGER the same thing
+ * spelled differently: a replica trigger fires only in a session that has set
+ * session_replication_role, so in every ordinary session it is off.
+ * session_replication_role itself is the indirect one: set to replica, a
+ * session runs with user triggers off, which is how a restore normally loads
+ * data and would take every guard down at once. Dropping a guard by name, or
+ * replacing it in place, is the next.
  *
- * All three tolerate a line break inside the statement, because SQL is written
- * across lines as readily as on one and a per-line matcher would miss
- * `DROP TRIGGER\n  member_register_entry_append_only\n  ON ...`. The drop
- * pattern is bounded by the statement terminator and by a length, so it cannot
- * join a trigger dropped in one statement to a guard named in a later one - a
- * trigger a suite created itself has a name of its own and is not matched.
+ * Then the functions the guards call. Every append-only trigger runs
+ * openbrf_forbid_mutation and every truncate trigger openbrf_forbid_truncate,
+ * so replacing either body with one that returns turns seven guards off in a
+ * statement that names no trigger at all, and dropping one with CASCADE takes
+ * its triggers with it. A shared function may be replaced only in the
+ * migrations that defined it, and no openbrf_forbid_ or openbrf_check_
+ * function may be dropped. ALTER TRIGGER is refused outright: nothing here
+ * needs it, and renaming a guard is how it would slip past a check that looks
+ * for the name.
+ *
+ * All of them tolerate a line break inside the statement, because SQL is
+ * written across lines as readily as on one and a per-line matcher would miss
+ * `DROP TRIGGER\n  member_register_entry_append_only\n  ON ...`. The patterns
+ * that reach for a name are bounded by the statement terminator and by a
+ * length, so they cannot join a trigger dropped in one statement to a guard
+ * named in a later one - a trigger a suite created itself has a name of its own
+ * and is not matched.
  */
 const PATTERNS = [
   { name: "DISABLE TRIGGER", expression: /\bdisable\s+trigger\b/gi },
+  {
+    name: "ENABLE REPLICA TRIGGER",
+    expression: /\benable\s+replica\s+trigger\b/gi,
+  },
   {
     name: "session_replication_role",
     expression: /\bsession_replication_role\b/gi,
   },
   {
-    name: "DROP TRIGGER on a guard",
-    expression: /\bdrop\s+trigger\b[^;]{0,200}?(_append_only|_no_truncate)/gi,
+    name: "DROP or CREATE OR REPLACE TRIGGER on a guard",
+    expression:
+      /\b(?:drop|create\s+or\s+replace)\s+trigger\b[^;]{0,200}?(_append_only|_no_truncate)/gi,
   },
+  {
+    name: "CREATE OR REPLACE FUNCTION on a shared guard function",
+    expression:
+      /\bcreate\s+or\s+replace\s+function\s+(?:"?public"?\s*\.\s*)?"?openbrf_forbid_/gi,
+    /*
+     * Where the two functions were defined, and where they were given the
+     * error surface they raise today. Migrations are never edited once applied,
+     * so these stay true; a new body for either is a new migration and a line
+     * here, argued for in review like an entry in ALLOWED.
+     */
+    definedIn: new Set([
+      "apps/api/prisma/migrations/20260827122611_statutory_append_only_guards/migration.sql",
+      "apps/api/prisma/migrations/20260827123622_forbid_truncate_on_statutory_tables/migration.sql",
+      "apps/api/prisma/migrations/20260827123837_statutory_guard_error_surface/migration.sql",
+    ]),
+  },
+  {
+    name: "DROP FUNCTION on a guard function",
+    expression: /\bdrop\s+function\b[^;]{0,200}?\bopenbrf_(?:forbid|check)_/gi,
+  },
+  { name: "ALTER TRIGGER", expression: /\balter\s+trigger\b/gi },
 ];
 
 const SCANNED_EXTENSIONS = [
@@ -249,11 +293,14 @@ function withoutComments(source, path) {
 }
 
 /** Every bypass in one file's source, with the line each is on. */
-function findBypasses(source, path) {
+export function findBypasses(source, path) {
   const scanned = withoutComments(source, path);
   const findings = [];
 
   for (const pattern of PATTERNS) {
+    if (pattern.definedIn?.has(path)) {
+      continue;
+    }
     pattern.expression.lastIndex = 0;
     let match = pattern.expression.exec(scanned);
     while (match !== null) {
@@ -269,200 +316,90 @@ function findBypasses(source, path) {
   return findings.sort((left, right) => left.line - right.line);
 }
 
-/**
- * What the scanner has to catch, and what it has to leave alone.
- *
- * Checked on every run, here rather than in a test file: `scripts/` is not a
- * workspace package and no test runner reaches it, and a detector nothing
- * exercises is one that can quietly stop detecting. Every entry in the first
- * list is a shape that got past an earlier version of this check.
- */
-const MUST_MATCH = [
-  {
-    name: "a disabled trigger in a SQL string",
-    path: "fixture.ts",
-    source:
-      'await tx.$executeRawUnsafe(`ALTER TABLE "x" DISABLE TRIGGER "y"`);',
-  },
-  {
-    name: "executable code after a block comment on the same line",
-    path: "fixture.ts",
-    source:
-      '/* cleanup */ await tx.$executeRawUnsafe(\'ALTER TABLE "x" DISABLE TRIGGER "y"\');',
-  },
-  {
-    name: "a guard dropped across several lines",
-    path: "fixture.sql",
-    source:
-      'DROP TRIGGER\n  member_register_entry_append_only\n  ON "member_register_entry";',
-  },
-  {
-    name: "user triggers turned off for the whole session",
-    path: "fixture.sql",
-    source: "SET session_replication_role = replica;",
-  },
-  {
-    /*
-     * A doubled delimiter is SQL's escape for one, so the string does not end
-     * there and the statement after it is code. Both halves of the pair are
-     * consumed as content now; before that it came out right by parity alone.
-     */
-    name: "a statement after a SQL string with a doubled quote in it",
-    path: "fixture.sql",
-    source:
-      "SELECT 'it''s'; ALTER TABLE \"member_register_entry\" DISABLE TRIGGER \"member_register_entry_append_only\";",
-  },
-  {
-    /*
-     * The nesting is what breaks a flat scan. It ends the outer literal at the
-     * inner backtick, reads the `//` that follows as the start of a comment,
-     * and blanks the rest of the line - the statement among it.
-     */
-    name: "a template literal nesting another, before a bypass on the same line",
-    path: "fixture.ts",
-    source:
-      'const sql = `${prefix}${`//`} ALTER TABLE "x" DISABLE TRIGGER "y"`;',
-  },
-];
+if (import.meta.main) {
+  /*
+   * Tracked files and untracked ones that are not ignored, so a file added in
+   * the working tree is scanned before it is ever committed. Ignored paths -
+   * the generated client, build output, node_modules - are left out by
+   * --exclude-standard.
+   */
+  const tracked = execFileSync(
+    "git",
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+    },
+  )
+    .split("\0")
+    .filter((path) => path !== "")
+    .filter((path) =>
+      SCANNED_EXTENSIONS.some((extension) => path.endsWith(extension)),
+    );
 
-const MUST_NOT_MATCH = [
-  {
-    name: "prose about a bypass in a line comment",
-    path: "fixture.ts",
-    source: "// the owner can ALTER TABLE ... DISABLE TRIGGER and walk past it",
-  },
-  {
-    name: "prose about a bypass in a SQL comment",
-    path: "fixture.sql",
-    source:
-      "-- separate from the owner so that DISABLE TRIGGER is out of reach",
-  },
-  {
-    name: "a trigger the suite created itself, dropped by its own name",
-    path: "fixture.ts",
-    source:
-      'await tx.$executeRawUnsafe(`DROP TRIGGER ${REFUSE_INSERTS} ON "register_report_obligation"`);',
-  },
-  {
-    /*
-     * E'...' honours a backslash escape and '...' does not. Reading the escaped
-     * quote as the end of the string leaves the scanner one delimiter out, and
-     * the comment below is then read as code and reported.
-     */
-    name: "an escape string with an escaped delimiter, before prose about a bypass",
-    path: "fixture.sql",
-    source: 'SELECT E\'it\\\'s\';\n-- ALTER TABLE "x" DISABLE TRIGGER "y";',
-  },
-  {
-    name: "one statement dropping its own trigger and a later one naming a guard",
-    path: "fixture.sql",
-    source:
-      'DROP TRIGGER refuse_inserts ON "x";\nCREATE TRIGGER member_register_entry_append_only BEFORE UPDATE ON "y" FOR EACH ROW EXECUTE FUNCTION openbrf_forbid_mutation();',
-  },
-];
+  const findings = [];
+  const exercised = new Set();
 
-function selfTest() {
-  const broken = [
-    ...MUST_MATCH.filter(
-      (fixture) => findBypasses(fixture.source, fixture.path).length === 0,
-    ).map((fixture) => `missed: ${fixture.name}`),
-    ...MUST_NOT_MATCH.filter(
-      (fixture) => findBypasses(fixture.source, fixture.path).length > 0,
-    ).map((fixture) => `false positive: ${fixture.name}`),
-  ];
+  for (const path of tracked) {
+    if (SELF.has(path)) {
+      continue;
+    }
 
-  if (broken.length > 0) {
+    let contents;
+    try {
+      contents = readFileSync(join(repoRoot, path), "utf8");
+    } catch {
+      // A tracked path that is not readable is a checkout problem, not a
+      // finding.
+      continue;
+    }
+
+    const found = findBypasses(contents, path);
+    if (found.length === 0) {
+      continue;
+    }
+    if (ALLOWED.has(path)) {
+      exercised.add(path);
+      continue;
+    }
+    findings.push(...found);
+  }
+
+  if (findings.length > 0) {
     console.error(
-      "This check no longer does what it says. Its own fixtures fail:\n" +
-        broken.map((line) => `  ${line}`).join("\n"),
+      "A statutory archive guard is switched off outside the files allowed to:",
+    );
+    for (const finding of findings) {
+      console.error(`  ${finding.path}:${finding.line}  ${finding.pattern}`);
+    }
+    console.error(
+      "\nThe member register, the audit log, the termination register and the\n" +
+        "obligation ledger are append-only by law. If this is a test that cannot\n" +
+        "clean up any other way, add the file to ALLOWED in\n" +
+        "scripts/check-statutory-guards.mjs and say why. If it is anything else,\n" +
+        "it is a defect.",
     );
     process.exit(1);
   }
-}
 
-selfTest();
+  const stale = [...ALLOWED.keys()].filter((path) => !exercised.has(path));
+  if (stale.length > 0) {
+    console.error(
+      "The allowlist carries exemptions nothing is using:\n" +
+        stale
+          .map(
+            (path) =>
+              `  ${path} - ${tracked.includes(path) ? "no longer disables a guard" : "is gone"}`,
+          )
+          .join("\n") +
+        "\n\nRemove them. An exemption nothing is using is one the next edit to\n" +
+        "that file inherits without anybody deciding to give it.",
+    );
+    process.exit(1);
+  }
 
-/*
- * Tracked files and untracked ones that are not ignored, so a file added in the
- * working tree is scanned before it is ever committed. Ignored paths - the
- * generated client, build output, node_modules - are left out by
- * --exclude-standard.
- */
-const tracked = execFileSync(
-  "git",
-  ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-  {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-  },
-)
-  .split("\0")
-  .filter((path) => path !== "")
-  .filter((path) =>
-    SCANNED_EXTENSIONS.some((extension) => path.endsWith(extension)),
+  console.log(
+    `No statutory guard is disabled outside the ${String(ALLOWED.size)} files allowed to.`,
   );
-
-const findings = [];
-const exercised = new Set();
-
-for (const path of tracked) {
-  if (path === SELF) {
-    continue;
-  }
-
-  let contents;
-  try {
-    contents = readFileSync(join(repoRoot, path), "utf8");
-  } catch {
-    // A tracked path that is not readable is a checkout problem, not a finding.
-    continue;
-  }
-
-  const found = findBypasses(contents, path);
-  if (found.length === 0) {
-    continue;
-  }
-  if (ALLOWED.has(path)) {
-    exercised.add(path);
-    continue;
-  }
-  findings.push(...found);
 }
-
-if (findings.length > 0) {
-  console.error(
-    "A statutory archive guard is switched off outside the files allowed to:",
-  );
-  for (const finding of findings) {
-    console.error(`  ${finding.path}:${finding.line}  ${finding.pattern}`);
-  }
-  console.error(
-    "\nThe member register, the audit log, the termination register and the\n" +
-      "obligation ledger are append-only by law. If this is a test that cannot\n" +
-      "clean up any other way, add the file to ALLOWED in\n" +
-      "scripts/check-statutory-guards.mjs and say why. If it is anything else,\n" +
-      "it is a defect.",
-  );
-  process.exit(1);
-}
-
-const stale = [...ALLOWED.keys()].filter((path) => !exercised.has(path));
-if (stale.length > 0) {
-  console.error(
-    "The allowlist carries exemptions nothing is using:\n" +
-      stale
-        .map(
-          (path) =>
-            `  ${path} - ${tracked.includes(path) ? "no longer disables a guard" : "is gone"}`,
-        )
-        .join("\n") +
-      "\n\nRemove them. An exemption nothing is using is one the next edit to\n" +
-      "that file inherits without anybody deciding to give it.",
-  );
-  process.exit(1);
-}
-
-console.log(
-  `No statutory guard is disabled outside the ${String(ALLOWED.size)} files allowed to.`,
-);

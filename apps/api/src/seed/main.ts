@@ -4,25 +4,19 @@ import { loadEnv } from "../config/env";
 import { loadNearestEnvFile } from "../config/load-env-file";
 import { PrismaClient } from "../generated/prisma/client";
 import { DEMO_ASSOCIATION } from "./demo-data";
-import { seedDemoData } from "./seed";
+import { demoSeedRefusal, seedDemoData } from "./seed";
 
 /**
- * CLI entry point: pnpm --filter @openbrf/api db:seed
+ * CLI entry point: pnpm --filter @openbrf/api db:seed --demo-data
  *
- * Refuses to run in production. The demo data is a design and test fixture,
- * and writing it into a real association's register would create statutory
- * member register entries that cannot be deleted afterwards.
+ * Refuses unless asked for, outside production, against a database holding
+ * nothing but its own demo rows (demoSeedRefusal). The demo data is a design
+ * and test fixture, and writing it into a real association's register would
+ * create statutory member register entries that cannot be deleted afterwards.
  */
 async function main(): Promise<void> {
   loadNearestEnvFile();
   const env = loadEnv();
-
-  if (env.NODE_ENV === "production") {
-    throw new Error(
-      "Refusing to seed demo data in production: the member register entries " +
-        "it creates are append-only and could not be removed.",
-    );
-  }
 
   // The owner's connection, not the application's: seeding writes rows the
   // application role is deliberately unable to write.
@@ -40,6 +34,13 @@ async function main(): Promise<void> {
   });
 
   try {
+    const refusal = await demoSeedRefusal(prisma, {
+      nodeEnv: env.NODE_ENV,
+      argv: process.argv.slice(2),
+    });
+    if (refusal !== null) {
+      throw new Error(refusal);
+    }
     const result = await seedDemoData(prisma, env);
     console.log(
       `Seeded ${DEMO_ASSOCIATION.name}: ${String(result.addresses)} addresses, ` +

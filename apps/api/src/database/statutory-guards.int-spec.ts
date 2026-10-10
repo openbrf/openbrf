@@ -1506,7 +1506,10 @@ describe("association", () => {
  * (\getenv, \gexec, \if). psql is taken from the PostgreSQL image
  * docker-compose.prod.yml pins rather than from the machine running the suite,
  * which need not have it; the container shares the host's network, so it
- * reaches the server at the address DATABASE_URL gives.
+ * reaches the server at the address DATABASE_URL gives. The digest is pulled
+ * from Amazon's copy of the Docker official images, as CI's own database is,
+ * because Docker Hub limits anonymous pulls per address and CI runners share
+ * theirs; in CI the image is then already there.
  *
  * Each database holds only what the script has to find: the statutory tables
  * its REVOKE lines name, the migration history, and the job queue's schema
@@ -1556,7 +1559,10 @@ describe("two instances sharing one database server", () => {
     return url.toString();
   }
 
-  /** The PostgreSQL image docker-compose.prod.yml pins, psql's source. */
+  /**
+   * The PostgreSQL image docker-compose.prod.yml pins, psql's source, by its
+   * digest on public.ecr.aws.
+   */
   function postgresImage(): string {
     const compose = readFileSync(
       join(process.cwd(), "..", "..", "docker-compose.prod.yml"),
@@ -1571,7 +1577,7 @@ describe("two instances sharing one database server", () => {
           "which is where this suite takes psql from.",
       );
     }
-    return pinned;
+    return `public.ecr.aws/docker/library/${pinned}`;
   }
 
   /**
@@ -1697,6 +1703,9 @@ describe("two instances sharing one database server", () => {
         await owner.query("CREATE SCHEMA pgboss");
         await owner.query(
           "CREATE TABLE pgboss.version (version integer, cron_on timestamptz)",
+        );
+        await owner.query(
+          "CREATE TABLE pgboss.bam (status text, command text)",
         );
         await owner.query(
           "CREATE TABLE public._prisma_migrations (id text, migration_name text)",
@@ -1903,6 +1912,37 @@ describe("two instances sharing one database server", () => {
         stamp: true,
         history: false,
       });
+    } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("leaves the runtime role nothing but a read of pg-boss's index builds", async () => {
+    // The owner's pg-boss install runs each row of pgboss.bam as written, so a
+    // row the runtime role could add or rewrite would run as the owner. The
+    // schema-wide grant reaches the table first; the script takes it back.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT UPDATE (command) ON pgboss.bam TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{ writes: boolean; reads: boolean }>(
+        `SELECT
+           has_table_privilege($1, 'pgboss.bam', 'INSERT, UPDATE, DELETE, TRUNCATE')
+             OR has_any_column_privilege($1, 'pgboss.bam', 'INSERT, UPDATE') AS writes,
+           has_table_privilege($1, 'pgboss.bam', 'SELECT') AS reads`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({ writes: false, reads: true });
     } finally {
       await owner.end();
     }

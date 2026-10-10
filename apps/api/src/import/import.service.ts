@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { scanForPersonalIdentityNumberCandidates } from "@openbrf/shared";
 
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -126,6 +127,13 @@ export interface ImportPreviewRow extends Omit<
     postalCity: string | null;
   };
   problems: { field: ImportField | null; reason: string }[];
+  /**
+   * The row in the uploaded sheet, as the board sees it in the margin: the
+   * header is row 1, and blank rows the import left out are counted.
+   * `rowNumber` is the row's place among the data rows, which is what a
+   * decision is keyed on.
+   */
+  sourceRow: number;
 }
 
 export interface ImportPreview {
@@ -218,7 +226,7 @@ export class ImportService implements OnModuleInit {
     }
 
     const format = detectFormat(bytes, input.fileName);
-    const rows = await this.parse(bytes, format);
+    const { rows, sourceRows } = await this.parse(bytes, format);
 
     const header = rows[0];
     if (header === undefined || rows.length < 2) {
@@ -245,6 +253,7 @@ export class ImportService implements OnModuleInit {
         columns: header,
         rowsCipher: encrypted.cipher,
         rowCount: data.length,
+        sourceRows: sourceRows.slice(1),
         createdById: input.actorPersonId,
         expiresAt,
       },
@@ -255,14 +264,15 @@ export class ImportService implements OnModuleInit {
       `Import session ${session.id}: ${String(data.length)} rows from ${format}`,
     );
 
+    const suggestedMapping = suggestMapping(header);
     return {
       sessionId: session.id,
       fileName: input.fileName,
       format,
       columns: header,
       rowCount: data.length,
-      sample: data.slice(0, SAMPLE_ROWS),
-      suggestedMapping: suggestMapping(header),
+      sample: maskedSample(data.slice(0, SAMPLE_ROWS), suggestedMapping),
+      suggestedMapping,
       expiresAt: expiresAt.toISOString(),
     };
   }
@@ -324,7 +334,7 @@ export class ImportService implements OnModuleInit {
     return {
       sessionId,
       summary: plan.summary,
-      rows: plan.rows.map(toPreviewRow),
+      rows: plan.rows.map((row) => toPreviewRow(row, session.sourceRows)),
     };
   }
 
@@ -594,10 +604,10 @@ export class ImportService implements OnModuleInit {
   private async parse(
     bytes: Buffer,
     format: "CSV" | "XLSX",
-  ): Promise<string[][]> {
+  ): Promise<{ rows: string[][]; sourceRows: number[] }> {
     try {
       if (format === "CSV") {
-        return parseCsv(decodeCsv(bytes)).rows;
+        return parseCsv(decodeCsv(bytes));
       }
       return await parseWorkbook(bytes);
     } catch (error) {
@@ -617,12 +627,14 @@ export class ImportService implements OnModuleInit {
   private async loadForPreview(sessionId: string): Promise<{
     columns: string[];
     rowsCipher: string;
+    sourceRows: number[];
   }> {
     const session = await this.prisma.importSession.findUnique({
       where: { id: sessionId },
       select: {
         columns: true,
         rowsCipher: true,
+        sourceRows: true,
         status: true,
         expiresAt: true,
       },
@@ -898,6 +910,40 @@ const TEMPLATE_EXAMPLE: Record<(typeof TEMPLATE_COLUMNS)[number], string> = {
  * zip archive, and reading it as text would produce one column of mojibake
  * rather than an error the board can act on.
  */
+/**
+ * The sample rows the mapping screen shows, with every personal identity
+ * number's digits hidden.
+ *
+ * The rule the preview keeps - a number is reported as present or absent and
+ * never sent - holds here too: the mapping screen is not a screen that shows
+ * identity numbers, and the sample is the first rows of the file exactly as
+ * uploaded. A column the titles say holds the numbers is hidden whole, so a
+ * mistyped number that fails its check digit is hidden as well; a number
+ * anywhere else is hidden by its shape, valid or not, for the same reason.
+ * The shape stays, so the board can still see which column holds them.
+ */
+function maskedSample(
+  rows: readonly string[][],
+  mapping: ImportMapping,
+): string[][] {
+  const hide = (text: string): string => text.replace(/\d/g, "•");
+  return rows.map((row) =>
+    row.map((cell, column) => {
+      if (mapping[column] === "personalIdentityNumber") {
+        return hide(cell);
+      }
+      let masked = cell;
+      for (const found of scanForPersonalIdentityNumberCandidates(cell)) {
+        masked =
+          masked.slice(0, found.index) +
+          hide(found.value) +
+          masked.slice(found.index + found.value.length);
+      }
+      return masked;
+    }),
+  );
+}
+
 function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
   // Every xlsx is a zip archive, and every zip starts "PK".
   if (
@@ -912,7 +958,10 @@ function detectFormat(bytes: Buffer, fileName: string): "CSV" | "XLSX" {
   return fileName.toLowerCase().endsWith(".xlsx") ? "XLSX" : "CSV";
 }
 
-function toPreviewRow(row: PlannedRow): ImportPreviewRow {
+function toPreviewRow(
+  row: PlannedRow,
+  sourceRows: readonly number[],
+): ImportPreviewRow {
   const {
     person,
     foundUnder: _foundUnder,
@@ -921,6 +970,9 @@ function toPreviewRow(row: PlannedRow): ImportPreviewRow {
   } = row;
   return {
     ...rest,
+    // The header is the sheet's first row, so without blank rows recorded a
+    // data row's sheet row is one past its number.
+    sourceRow: sourceRows[row.rowNumber - 1] ?? row.rowNumber + 1,
     person: {
       firstName: person.firstName,
       lastName: person.lastName,

@@ -16,6 +16,7 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { actingPersonId } from "../registers/acting-person";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { isTooLarge, readSingleFile } from "../http/multipart";
+import { hasControlCharacter } from "../mail/header-text";
 import { MediaError } from "../media/media.service";
 import {
   MAX_MEMBERS_PER_PROXY_HOLDER,
@@ -53,12 +54,32 @@ const brandingSchema = z.object({
   primaryColor: z.string().min(1).max(64).nullable(),
 });
 
+/**
+ * A mail server's host name or address.
+ *
+ * Refused with a line break or any other control character in it: no host name
+ * or address has one, and the host is written into the log when the settings
+ * are saved, where a line break would let whoever saves them write a line of
+ * their own.
+ */
+const mailServerHostSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(
+    (value) => !hasControlCharacter(value),
+    "must be one line, with no line break or other control character",
+  );
+
 const smtpSchema = z.object({
-  host: z.string().min(1).max(255).nullable(),
+  host: mailServerHostSchema.nullable(),
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
   user: z.string().max(255).nullable(),
-  /** Omit to keep the stored password; null or "" to clear it. */
+  /**
+   * Omit to keep the stored password, which a changed host or port refuses;
+   * null or "" to clear it.
+   */
   password: z.string().max(200).nullish(),
   fromAddress: z.email().max(320).nullable(),
 });
@@ -85,7 +106,7 @@ const smtpSchema = z.object({
  */
 const boardMailboxSchema = z.object({
   address: z.email().max(320).nullable(),
-  host: z.string().min(1).max(255).nullable(),
+  host: mailServerHostSchema.nullable(),
   port: z.coerce.number().int().min(1).max(65535).nullable(),
   secure: z.boolean(),
   /**
@@ -95,7 +116,10 @@ const boardMailboxSchema = z.object({
    * the board a collection that can only fail.
    */
   user: z.string().min(1).max(255).nullable(),
-  /** Omit to keep the stored password; null or "" to clear it. */
+  /**
+   * Omit to keep the stored password, which a changed host or port refuses;
+   * null or "" to clear it.
+   */
   password: z.string().max(200).nullish(),
 });
 
@@ -112,7 +136,10 @@ const smsSchema = z.object({
     .max(2048)
     .nullable(),
   senderName: z.string().trim().max(64).nullable(),
-  /** Omit to keep the stored credential; null or "" to clear it. */
+  /**
+   * Omit to keep the stored credential, which a changed driver or gateway
+   * address refuses; null or "" to clear it.
+   */
   token: z.string().max(500).nullish(),
 });
 

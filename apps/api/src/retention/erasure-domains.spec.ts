@@ -118,7 +118,29 @@ interface Rows {
   keyOrders?: { person: string; closedAt: Date | null }[];
   motions?: { person: string; closedAt: Date | null }[];
   newsComments?: { person: string; createdAt: Date }[];
-  subletApplications?: { person: string; closedAt: Date | null }[];
+  subletApplications?: {
+    person: string;
+    closedAt: Date | null;
+    status?: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
+    periodTo?: Date;
+  }[];
+}
+
+/** The letting-still-running filter a sublet count is handed. */
+interface RunningLetting {
+  status: string;
+  periodTo: { gte: Date };
+}
+
+function isRunning(
+  row: { status?: string; periodTo?: Date },
+  letting: RunningLetting,
+): boolean {
+  return (
+    row.status === letting.status &&
+    row.periodTo !== undefined &&
+    row.periodTo.getTime() >= letting.periodTo.gte.getTime()
+  );
 }
 
 /** A count over rows closed or open, as a `closedAt` filter asks for them. */
@@ -198,13 +220,26 @@ function build(rows: Rows): ErasureDbClient {
       count: async ({
         where,
       }: {
-        where: { appliedByPersonId: unknown; closedAt: unknown };
+        where: {
+          appliedByPersonId: unknown;
+          closedAt?: unknown;
+          NOT?: RunningLetting;
+          OR?: [unknown, RunningLetting];
+        };
       }) =>
-        countByClosing(
-          rows.subletApplications,
-          where.appliedByPersonId,
-          where.closedAt,
-        ),
+        (rows.subletApplications ?? []).filter((row) => {
+          if (!namesPerson(where.appliedByPersonId, row.person)) {
+            return false;
+          }
+          if (where.OR !== undefined) {
+            // The kept half: open, or a consented letting still running.
+            return row.closedAt === null || isRunning(row, where.OR[1]);
+          }
+          return (
+            row.closedAt !== null &&
+            (where.NOT === undefined || !isRunning(row, where.NOT))
+          );
+        }).length,
     },
     booking: {
       count: async ({ where }: { where: { bookedByPersonId: unknown } }) =>
@@ -357,7 +392,46 @@ describe("what a granted erasure request still owes one person", () => {
         domain: "subletting applications",
         owed: 0,
         kept: 1,
-        keptBecause: "an open subletting application is still with the board",
+        keptBecause:
+          "a subletting application is still with the board or its letting still runs",
+      },
+    ]);
+  });
+
+  it("counts a consented letting that is still running as kept, and one that has ended as owed", async () => {
+    // The consent is the board's proof that the letting was lawful, and while
+    // the letting runs it stays; the period's last day is inside it.
+    const client = build({
+      subletApplications: [
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "CONSENTED",
+          periodTo: new Date("2027-06-01"),
+        },
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "CONSENTED",
+          periodTo: new Date("2027-05-31"),
+        },
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "REFUSED",
+          periodTo: new Date("2027-12-31"),
+        },
+      ],
+    });
+
+    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+      {
+        domain: "subletting applications",
+        // The ended consent and the refusal, whose period is no concern.
+        owed: 2,
+        kept: 1,
+        keptBecause:
+          "a subletting application is still with the board or its letting still runs",
       },
     ]);
   });

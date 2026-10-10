@@ -14,6 +14,7 @@ import type {
   ProcessorKind,
 } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { foldedText } from "./folded-text";
 import { lockProcessorAgreement } from "./processor-agreement-lock";
 import {
   externalProcessorKey,
@@ -180,7 +181,7 @@ export class ProcessorAgreementService {
    */
   async record(
     processorKey: string,
-    input: ProcessorAgreementInput & {
+    given: ProcessorAgreementInput & {
       actorPersonId: string | null;
       channel: AuditChannel;
     },
@@ -188,6 +189,7 @@ export class ProcessorAgreementService {
     options: { onlyIfUnrecorded?: boolean } = {},
     client?: Prisma.TransactionClient,
   ): Promise<ProcessorView> {
+    const input = foldedText(given, AGREEMENT_TEXT);
     const parsed = parseProcessorKey(processorKey);
     if (parsed === null) {
       throw new ProcessorAgreementError(
@@ -221,9 +223,10 @@ export class ProcessorAgreementService {
 
   /** Records a recipient the board knows about and the instance cannot see. */
   async recordExternal(
-    input: ProcessorAgreementInput & { actorPersonId: string | null },
+    given: ProcessorAgreementInput & { actorPersonId: string | null },
     facts: ProcessorFacts,
   ): Promise<ProcessorView> {
+    const input = foldedText(given, AGREEMENT_TEXT);
     assertConsistent(input);
 
     /*
@@ -587,6 +590,11 @@ export class ProcessorAgreementService {
     return view;
   }
 }
+
+const AGREEMENT_TEXT = {
+  oneLine: ["counterparty", "reference"],
+  freeText: ["note", "subProcessorNote"],
+} as const;
 
 /**
  * Refuses a record that would say two things at once.

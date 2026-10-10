@@ -312,6 +312,7 @@ export class DataSubjectReportService {
         phoneCipher: true,
         personalIdentityNumberCipher: true,
         protectedPersonalData: true,
+        processingRestrictedAt: true,
         preferredLocale: true,
         createdAt: true,
         residencies: {
@@ -1312,6 +1313,8 @@ export class DataSubjectReportService {
         decision: true,
         decisionGround: true,
         decidedAt: true,
+        extendedAt: true,
+        extensionReason: true,
         executedAt: true,
         closedAt: true,
         closeReason: true,
@@ -1983,7 +1986,11 @@ export class DataSubjectReportService {
           requestId: request.id,
           kind: request.kind,
           requestedOn: formatDateColumn(request.requestedOn),
-          dueOn: formatDateColumn(dueOn(request.requestedOn)),
+          dueOn: formatDateColumn(
+            dueOn(request.requestedOn, request.extendedAt !== null),
+          ),
+          extendedOn: formatDayOfInstant(request.extendedAt),
+          extensionReason: request.extensionReason,
           ground: request.ground,
           erasureGround: request.erasureGround,
           erasureException: request.erasureException,
@@ -2022,6 +2029,7 @@ export class DataSubjectReportService {
           computePurgeDate(lastMovedOutOn, retentionDays),
         ),
         onLegalHold: person.legalHolds.some((hold) => hold.releasedAt === null),
+        processingRestricted: person.processingRestrictedAt !== null,
       },
     };
   }

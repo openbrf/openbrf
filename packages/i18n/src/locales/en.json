@@ -297,6 +297,11 @@
         "noBoardPositions": "No position of trust in the register",
         "historyNote": "An ended term stays on file. Nothing here is deleted. An end date that has not arrived can still be corrected; once it has passed, the term stands as recorded.",
         "electedOnRequired": "Write the date of the election.",
+        "recoveryExplained": "No board is on the register: every term has ended and none is recorded ahead. Recording a seat now is a board recovery, which only this form can do without a seat. Record a member of the board the meeting elected, never yourself. Once they sign in, they record the rest of the board.",
+        "recoveryReasonLabel": "Why the board is recorded this way",
+        "recoveryReasonHint": "Kept in the audit log for good, with the seat. Say why, not who.",
+        "recoveryReasonRequired": "Write why the board is recorded this way.",
+        "recover": "Record the board",
         "endedOnRequired": "Write the date the term ends.",
         "systemHeading": "System roles",
         "systemExplained": "The administrator grant carries every permission there is, including settings, plugins and themes. The property manager grant carries the issue queue and nothing else, and never the address book.",
@@ -311,7 +316,9 @@
           "positionAlreadyHeld": "This person already holds that position. End the term before recording a new election to it.",
           "termOverlaps": "An earlier term in that position runs past this election date. Check the date.",
           "electedTooFarAhead": "An election cannot be dated that far into the future. Check the year.",
-          "boardSeatRequired": "The board records its own seats. Without a seat you can record only the first board, and never your own seat.",
+          "recoveryDatedAhead": "A recovered seat cannot be dated after today. Write the day the general meeting elected the board.",
+          "boardSeatRequired": "The board records its own seats. Without a seat you can record a seat only while no board is on the register, and never your own.",
+          "boardNotVacant": "A board is on the register now, so the board records its seats. Reload the page.",
           "termAlreadyEnded": "That term has already ended. Its dates are the record of a period that has run and they stand.",
           "endedBeforeElected": "A term cannot end before the election that began it.",
           "endedTooFarAhead": "A term cannot run that far into the future. Check the year.",
@@ -351,6 +358,7 @@
         "print": "Print",
         "printHint": "Prints as a document. Navigation and buttons stay off the paper.",
         "back": "Back to the person",
+        "extendedLabel": "Extended on",
         "stamp": "Produced {{date}}",
         "organizationNumber": "Organisation number",
         "standing": "Still standing",
@@ -431,6 +439,7 @@
           "terminationReference": "Reference",
           "triggeredOn": "Window opened",
           "dueOn": "To be answered by",
+          "extension": "Extension",
           "reportDueOn": "To be filed by",
           "scope": "Scope",
           "granted": "Given",
@@ -478,6 +487,7 @@
           "twoFactor": "Authenticator app",
           "retentionDays": "Days after move-out",
           "onLegalHold": "Legal hold",
+          "processingRestricted": "Restriction of processing",
           "creditor": "Lienholder",
           "amount": "Amount",
           "noted": "Noted",
@@ -616,6 +626,7 @@
           "SERVICE_DATA_PURGED": "Service data purged",
           "BOARD_POSITION_ELECTED": "Election to a position of trust recorded",
           "BOARD_POSITION_ENDED": "Term in a position of trust ended",
+          "BOARD_RECOVERY_RECORDED": "Position of trust recorded in a board recovery",
           "BOOKING_RESOURCE_CREATED": "Bookable resource added",
           "BOOKING_RESOURCE_UPDATED": "Bookable resource changed",
           "BOOKING_RESOURCE_DEACTIVATED": "Bookable resource withdrawn from booking",
@@ -668,6 +679,7 @@
           "DATA_SUBJECT_REQUEST_RECORDED": "Request about own data recorded",
           "DATA_SUBJECT_REQUEST_DECIDED": "Request decided",
           "DATA_SUBJECT_REQUEST_CLOSED": "Request closed",
+          "DATA_SUBJECT_REQUEST_EXTENDED": "Request extended by two months",
           "DATA_PORTABILITY_EXPORTED": "Own data downloaded",
           "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED": "Data protection contacts recorded",
           "PRIVACY_NOTICE_HEADINGS_ADDED": "Headings added to the privacy notice",
@@ -702,9 +714,16 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "A mailing request was dismissed",
           "PLUGIN_ACTION_ARMED": "A plugin's action was armed",
           "PLUGIN_ACTION_DISARMED": "A plugin's action was disarmed",
+          "ISSUE_STATUS_CHANGED": "An issue was moved to another status",
+          "MOVE_IN_RECORDED": "A move-in was recorded",
+          "MOVE_OUT_RECORDED": "A move-out was recorded",
+          "PLUGIN_ENABLED": "A plugin was switched on",
+          "PLUGIN_DISABLED": "A plugin was switched off",
+          "PLUGIN_SETTINGS_CHANGED": "A plugin's settings were changed",
           "CONNECTED_APP_CONNECTED": "A connected app was allowed to act for the person",
           "CONNECTED_APP_DISCONNECTED": "A connected app was disconnected",
           "OAUTH_CLIENT_REGISTERED": "An app registered itself with the association",
+          "OAUTH_CLIENT_REVOKED": "A connected app was blocked for the whole association",
           "CHAT_GROUP_CREATED": "Group chat created",
           "CHAT_GROUP_MEMBER_ADDED": "Put into a group chat",
           "CHAT_GROUP_MEMBER_REMOVED": "Left a group chat",
@@ -712,9 +731,6 @@
           "DOCUMENT_UPDATED": "A document in the archive was renamed, re-filed or given to another audience",
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
-          "PLUGIN_ENABLED": "Plugin switched on",
-          "PLUGIN_DISABLED": "Plugin switched off",
-          "PLUGIN_SETTINGS_CHANGED": "Plugin settings changed",
           "THEME_REMOVED": "Theme removed"
         },
         "channel": {
@@ -799,6 +815,13 @@
         "record": "Record a request",
         "decide": "Decide",
         "close": "Close",
+        "extend": "Extend by two months",
+        "extendReasonLabel": "Why the month is extended",
+        "extendReasonRequired": "Write the reason the person was told. It stays on the request.",
+        "extendConfirm": "Extend the request",
+        "extendCancel": "Cancel",
+        "extendWarning": "Art. 12(3) lets the association extend the month by two further months where the request is complex or there are many. Tell the person within the first month and say why. The extension cannot be recorded after the first month, and only once.",
+        "extendedLabel": "Extended on",
         "closeReasonLabel": "Why the request is closed",
         "closeReasonRequired": "Write why the request is closed. The reason stays on the request.",
         "closeConfirm": "Close the request",
@@ -847,6 +870,9 @@
           "alreadyOpen": "This person already has a request of that kind open.",
           "alreadyDecided": "This request has already been decided.",
           "alreadyClosed": "This request is already closed.",
+          "alreadyExtended": "This request has already been extended.",
+          "extensionTooLate": "The first month has run out. The extension has to be told to the person within it.",
+          "extensionReasonRequired": "An extension states the reason the person was told.",
           "currentlyResident": "This person still lives here. The data is needed while the residency runs.",
           "onLegalHold": "A legal hold stands against this person (art. 17(3)(e)).",
           "boardPositionCurrent": "This person still holds a position of trust.",
@@ -881,7 +907,9 @@
       "submit": "Add to the register",
       "cancel": "Cancel",
       "working": "Adding",
-      "failed": "The person could not be added."
+      "failed": "The person could not be added.",
+      "invalidEmail": "That email address could not be read.",
+      "invalidPhone": "That phone number could not be read."
     },
     "apartment": {
       "heading": "Apartment {{number}}",
@@ -1138,7 +1166,6 @@
       "testSent": "A test message is on its way to {{email}}.",
       "notConfigured": "Email is not set up, so invitations and sign-in links cannot be sent. Nobody can be invited until this is done.",
       "configured": "Email is set up.",
-      "tlsOptional": "These settings were saved before an encrypted connection was required, so the password is sent unencrypted if the server does not offer STARTTLS. Save them again to require encryption, then send a test message.",
       "environment": "Mail is sent by whoever runs this instance, through {{host}} from {{fromAddress}}.",
       "environmentHint": "It is set where the instance runs and cannot be changed here.",
       "errors": {
@@ -1148,6 +1175,8 @@
         "tlsUnavailable": "The server set up no encrypted connection, so nothing was sent to it, not even the password. Check that the server offers STARTTLS on this port, or tick the encrypted connection and use port 465.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
         "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
+        "secretRequiredForNewEndpoint": "The server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again.",
         "environmentTlsUnavailable": "The message could not be sent because the mail server set up no encrypted connection. Mail is run by whoever runs this instance, so contact them."
       },
       "test": {
@@ -1169,7 +1198,11 @@
       "passwordClear": "Remove the stored password",
       "secure": "Encrypted connection (implicit TLS, usually port 995)",
       "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
-      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is."
+      "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is.",
+      "errors": {
+        "secretRequiredForNewEndpoint": "The mailbox server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The mailbox server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again."
+      }
     },
     "sms": {
       "title": "Text messages",
@@ -1193,7 +1226,9 @@
       "errors": {
         "notConfigured": "Save a provider and a gateway address before sending a test.",
         "noPhone": "Your own record has no phone number to send the test to.",
-        "unknown": "The message could not be sent. Check the gateway address and the credential."
+        "unknown": "The message could not be sent. Check the gateway address and the credential.",
+        "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving.",
+        "secretEndpointChangedDuringSave": "The provider, the gateway address or the stored credential was changed elsewhere while this was saved. Enter the credential again, or remove the stored one, and save again."
       }
     },
     "retention": {
@@ -2287,6 +2322,8 @@
       "priceNotAnAmount": "State the price in kronor, with at most two decimal places, for example 2150000.50.",
       "sellerIsAcquirer": "The previous holder and the new holder are the same person. Choose the right previous holder.",
       "sellerNotTenantOwner": "The previous holder was not a tenant-owner of this apartment on the agreement date. Check the previous holder and the date.",
+      "transferWithoutTenantOwnership": "A transfer or a grant can only be recorded for a tenant-owner. Record the move as a member, or leave the transfer or grant out.",
+      "alreadyGranted": "This apartment has already been granted. A later change of hands is a transfer.",
       "unknown": "That could not be saved just now. Please try again."
     }
   },
@@ -2399,6 +2436,7 @@
       "date-not-iso": "Dates have to be written as YYYY-MM-DD.",
       "moved-out-before-moved-in": "The move-out is earlier than the move-in.",
       "invalid-personal-identity-number": "That personal identity number fails its own checksum.",
+      "personal-identity-number-needs-century": "Write this personal identity number with its century (YYYYMMDD-NNNN), so that it always names the same person.",
       "invalid-email": "That is not an email address the register can store.",
       "garbled-characters": "A character was already lost in the file (shown as �). Correct it in the file and upload it again.",
       "unknown": "The row could not be read."
@@ -2460,7 +2498,7 @@
       "anotherImportRunning": "Another import is running. Apply this one when it has finished. Your preview is kept.",
       "ambiguousRowsUndecided": "Some rows match more than one person, or one person whose details differ from the file's, and have no choice yet.",
       "decisionNotACandidate": "A choice named somebody that row did not match. Reload the preview.",
-      "registerChangedDuringApply": "The register changed while the import ran, and a row of the file now matches other people than it did: somebody was added, moved in, moved out or given new details. The import stopped there rather than enter a person twice, or carry out a choice you made between other people than the register now holds. What it wrote before that is in the register; import the rest as a new file, and its preview shows who each row matches now.",
+      "registerChangedDuringApply": "The register changed while the import ran: either a row of the file now matches somebody who was added, moved in or given new details, or a choice you made for a row no longer fits the register. The import stopped rather than write a row to the wrong person. What it wrote before that is in the register; import the rest as a new file, and its preview shows what each row matches now.",
       "applyInterrupted": "The import stopped before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "applyAbandoned": "An administrator abandoned the import before it reached the end of the file. What it wrote is in the register; import the rest as a new file.",
       "sessionNotRunning": "That import is no longer running.",
@@ -3704,6 +3742,7 @@
       "alreadyClosed": "The board has answered this application, so there is nothing to change.",
       "notRefused": "A rent tribunal decision can be recorded only against an application the board has refused.",
       "invalidPeriod": "The period ends before it begins.",
+      "periodTooFarAhead": "The period may end at most five years from today.",
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
@@ -4297,6 +4336,7 @@
       "personalIdentityNumberCount_other": "{{count}} numbers were found in the text.",
       "dateNotACalendarDate": "That is not a date.",
       "dateInTheFuture": "A charge cannot be dated ahead of today.",
+      "dateBeyondRetention": "A charge cannot be dated before the seven years the association keeps charges for.",
       "amountNotASum": "State the amount in kronor, with at most two decimal places.",
       "amountNotPositive": "A charge is a positive amount. A credit is made in the accounting system.",
       "reasonRequired": "State what the charge is for.",
@@ -4455,6 +4495,7 @@
       "feeAlreadyRecordedLater": "A later fee of the same kind is already recorded for that apartment. Remove it first.",
       "feeAlreadyInForce": "A fee of this kind already applies to that apartment on that day. Start the new fee the day after it ends, or remove it first.",
       "feeNotified": "That fee has already been billed and cannot be removed. It is the basis for money you asked for.",
+      "periodAlreadyNotified": "A notification run has already billed this apartment from that day. Record the new fee from the first month no run has billed.",
       "periodNotWholeMonths": "The period opens on the first of a month and closes on the last of one.",
       "periodTooLong": "The period is too long. A financial year is at most eighteen months.",
       "periodAlreadyIssued": "That period has already been issued.",
@@ -4462,6 +4503,9 @@
       "dueBeforePeriod": "The due date cannot fall before the period it bills.",
       "nothingToBill": "No apartment has a fee in force for that period.",
       "tooManyNotices": "More notices than the payment reference format can number.",
+      "amountTooLarge": "The amount on the fee notice exceeds the highest amount allowed. Check the fees for a mistyped figure.",
+      "periodPastRetention": "That period is older than the association keeps fee notices for.",
+      "paymentReferenceReused": "A run from the same month a hundred years apart already uses these payment references. Check the year.",
       "invalidBody": "Something in the form could not be read.",
       "unknown": "That did not work just now. Try again."
     }
@@ -5032,7 +5076,8 @@
     "errors": {
       "notFound": "That connection is gone. Read the list again.",
       "forbidden": "Your account may not cut somebody else's connection.",
-      "failed": "The connection could not be cut just now. Try again."
+      "failed": "The connection could not be cut just now. Try again.",
+      "clientNotFound": "That connected app is not known to this instance, so there is nothing to turn away. Read the list again."
     },
     "mine": {
       "title": "Connected apps",

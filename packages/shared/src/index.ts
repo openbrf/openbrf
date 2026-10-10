@@ -25,6 +25,14 @@ export type {
   DataSubjectCategory,
   PersonalDataCategory,
 } from "./data-protection.ts";
+export type {
+  AccountingReason,
+  ConnectedAppRevocationReason,
+  FeeReason,
+  MeetingReason,
+  MemberChargeReason,
+  MoveErrorReason,
+} from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
@@ -34,7 +42,10 @@ export {
   normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 export type {
   PersonalIdentityNumberMatch,

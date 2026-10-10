@@ -22,17 +22,21 @@ import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
  * person's flag is the API's own test against a real database.
  */
 
-const { closeDataSubjectRequest, decideDataSubjectRequest } = vi.hoisted(
-  () => ({
-    closeDataSubjectRequest: vi.fn(),
-    decideDataSubjectRequest: vi.fn(),
-  }),
-);
+const {
+  closeDataSubjectRequest,
+  decideDataSubjectRequest,
+  extendDataSubjectRequest,
+} = vi.hoisted(() => ({
+  closeDataSubjectRequest: vi.fn(),
+  decideDataSubjectRequest: vi.fn(),
+  extendDataSubjectRequest: vi.fn(),
+}));
 
 vi.mock("../api/data-protection", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/data-protection")>()),
   closeDataSubjectRequest,
   decideDataSubjectRequest,
+  extendDataSubjectRequest,
 }));
 
 function aRequest(
@@ -44,6 +48,8 @@ function aRequest(
     kind: "RESTRICTION",
     requestedOn: "2026-09-01",
     dueOn: "2026-10-01",
+    extendedOn: null,
+    extensionReason: null,
     ground: "Jag bestrider att uppgifterna stämmer.",
     erasureGround: null,
     issueId: null,
@@ -86,6 +92,7 @@ function renderSection(
 beforeEach(() => {
   closeDataSubjectRequest.mockReset();
   decideDataSubjectRequest.mockReset();
+  extendDataSubjectRequest.mockReset();
 });
 
 describe("a request's actions", () => {
@@ -126,6 +133,105 @@ describe("a request's actions", () => {
 
     expect(row.queryByRole("button", { name: "Fatta beslut" })).toBeNull();
     expect(row.queryByRole("button", { name: "Avsluta" })).toBeNull();
+  });
+});
+
+describe("extending the month", () => {
+  it("is offered on an undecided request inside its first month", () => {
+    const row = renderSection(aRequest());
+
+    expect(
+      row.getByRole("button", { name: "Förläng med två månader" }),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    ["one that is past its month", aRequest({ state: "overdue" })],
+    [
+      "one that is already extended",
+      aRequest({
+        extendedOn: "2026-09-20",
+        extensionReason: "Flera system.",
+        dueOn: "2026-12-01",
+      }),
+    ],
+    ["one that is decided", GRANTED_RESTRICTION],
+  ])("is not offered on %s", (_name, request) => {
+    const row = renderSection(request);
+
+    expect(
+      row.queryByRole("button", { name: "Förläng med två månader" }),
+    ).toBeNull();
+  });
+
+  it("says what was told and when, on an extended request", () => {
+    const row = renderSection(
+      aRequest({
+        extendedOn: "2026-09-20",
+        extensionReason: "Begäran gäller flera system.",
+        dueOn: "2026-12-01",
+      }),
+    );
+
+    // The date is a register value and the reason is the board's own writing.
+    const date = row.getByText("2026-09-20");
+    expect(date.className).toContain("font-data");
+    expect(date.parentElement?.textContent).toBe(
+      "Förlängd 2026-09-20: Begäran gäller flera system.",
+    );
+    expect(date.parentElement?.className ?? "").not.toContain("font-data");
+    expect(row.getByText("2026-12-01")).not.toBeNull();
+  });
+
+  it("asks for the reason, sends nothing without one, and sends it trimmed", async () => {
+    extendDataSubjectRequest.mockResolvedValue({
+      ok: true,
+      value: aRequest({ extendedOn: "2026-09-20", dueOn: "2026-12-01" }),
+    });
+    const onChanged = vi.fn();
+    const row = renderSection(aRequest(), onChanged);
+
+    await userEvent.click(
+      row.getByRole("button", { name: "Förläng med två månader" }),
+    );
+    expect(extendDataSubjectRequest).not.toHaveBeenCalled();
+
+    await userEvent.click(row.getByRole("button", { name: "Förläng begäran" }));
+    expect(extendDataSubjectRequest).not.toHaveBeenCalled();
+    expect(row.getByRole("alert").textContent).toContain(
+      "Skriv skälet som personen fick höra",
+    );
+
+    await userEvent.type(
+      row.getByLabelText("Varför månaden förlängs"),
+      "  Begäran gäller flera system.  ",
+    );
+    await userEvent.click(row.getByRole("button", { name: "Förläng begäran" }));
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+    expect(extendDataSubjectRequest).toHaveBeenCalledWith("request-1", {
+      reason: "Begäran gäller flera system.",
+    });
+  });
+
+  it("says why when the API refuses, as the first month having run out", async () => {
+    extendDataSubjectRequest.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "extension-too-late" },
+    });
+    const row = renderSection(aRequest());
+
+    await userEvent.click(
+      row.getByRole("button", { name: "Förläng med två månader" }),
+    );
+    await userEvent.type(row.getByLabelText("Varför månaden förlängs"), "Skäl");
+    await userEvent.click(row.getByRole("button", { name: "Förläng begäran" }));
+
+    await waitFor(() => {
+      expect(row.getByText(/Den första månaden har gått ut/)).not.toBeNull();
+    });
   });
 });
 

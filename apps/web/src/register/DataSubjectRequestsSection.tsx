@@ -5,6 +5,7 @@ import type { ApiFailure } from "../api/client";
 import {
   closeDataSubjectRequest,
   decideDataSubjectRequest,
+  extendDataSubjectRequest,
   recordDataSubjectRequest,
   type DataSubjectRequestKind,
   type DataSubjectRequestView,
@@ -16,6 +17,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { ExtensionNote } from "./ExtensionNote";
 
 export interface DataSubjectRequestsSectionProps {
   personId: string;
@@ -52,6 +54,10 @@ const REASON: Record<string, TranslationKey> = {
   "already-open": "register.person.requests.reasons.alreadyOpen",
   "already-decided": "register.person.requests.reasons.alreadyDecided",
   "already-closed": "register.person.requests.reasons.alreadyClosed",
+  "already-extended": "register.person.requests.reasons.alreadyExtended",
+  "extension-too-late": "register.person.requests.reasons.extensionTooLate",
+  "extension-reason-required":
+    "register.person.requests.reasons.extensionReasonRequired",
   "currently-resident": "register.person.requests.reasons.currentlyResident",
   "on-legal-hold": "register.person.requests.reasons.onLegalHold",
   "board-position-current":
@@ -150,7 +156,9 @@ function RequestRow({
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const [acting, setActing] = useState<"deciding" | "closing" | null>(null);
+  const [acting, setActing] = useState<
+    "deciding" | "closing" | "extending" | null
+  >(null);
   /*
    * Held here rather than in the close form, because it is the row's toggles
    * that would take the form away. A closure in flight keeps its form up, so
@@ -168,6 +176,13 @@ function RequestRow({
    */
   const open = request.closedAt === null;
   const decidable = open && request.decision === null;
+  /*
+   * Inside the first month, undecided and not yet extended. `open` is the
+   * state of an undecided request that is not past its due day, and a request
+   * that is not extended has only the first month, so it is the same test the
+   * API makes: art. 12(3) wants the extension told within that month.
+   */
+  const extendable = request.state === "open" && request.extendedOn === null;
 
   return (
     <li className="flex flex-col gap-1 border-t border-line pt-3 first:border-t-0 first:pt-0">
@@ -189,6 +204,16 @@ function RequestRow({
       </div>
 
       <p className="text-small text-ink-muted">{request.ground}</p>
+
+      {request.extendedOn === null ? null : (
+        <p className="text-small text-ink-muted">
+          <ExtensionNote
+            label={t("register.person.requests.extendedLabel")}
+            date={request.extendedOn}
+            reason={request.extensionReason ?? ""}
+          />
+        </p>
+      )}
 
       {request.erasureGround === null ? null : (
         <p className="text-small text-ink-muted">
@@ -231,6 +256,18 @@ function RequestRow({
                 {t("register.person.requests.decide")}
               </button>
             ) : null}
+            {extendable ? (
+              <button
+                type="button"
+                className={`${CAUTION_BUTTON} disabled:opacity-60`}
+                disabled={closing}
+                onClick={() => {
+                  setActing(acting === "extending" ? null : "extending");
+                }}
+              >
+                {t("register.person.requests.extend")}
+              </button>
+            ) : null}
             <button
               type="button"
               className={`${CAUTION_BUTTON} disabled:opacity-60`}
@@ -242,6 +279,18 @@ function RequestRow({
               {t("register.person.requests.close")}
             </button>
           </div>
+          {acting === "extending" && extendable ? (
+            <ExtendForm
+              request={request}
+              onExtended={() => {
+                setActing(null);
+                onChanged();
+              }}
+              onCancel={() => {
+                setActing(null);
+              }}
+            />
+          ) : null}
           {acting === "deciding" && decidable ? (
             <DecideForm
               request={request}
@@ -268,6 +317,117 @@ function RequestRow({
         </>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Extending the month by two (art. 12(3)), with the reason the person was
+ * told written down.
+ *
+ * The reason is what the person was told, and the record has to show what they
+ * were told, so it is required and stays on the request. The extension can be
+ * recorded once and only inside the first month; the API holds both, and the
+ * warning says so before the confirming press.
+ */
+function ExtendForm({
+  request,
+  onExtended,
+  onCancel,
+}: {
+  request: DataSubjectRequestView;
+  onExtended: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState("");
+  const [reasonMissing, setReasonMissing] = useState(false);
+  const reasonErrorId = `extendReasonError-${request.requestId}`;
+  // Beside the save state, for the reason the close form gives: two presses in
+  // one render both see "idle".
+  const inFlight = useRef(false);
+
+  const save = useSaveAction(extendDataSubjectRequest, onExtended);
+  const saving = save.state.kind === "saving";
+
+  return (
+    <form
+      className="flex flex-col gap-3 border-l border-line pl-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (inFlight.current) {
+          return;
+        }
+        const written = reason.trim();
+        if (written === "") {
+          setReasonMissing(true);
+          return;
+        }
+        inFlight.current = true;
+        void save.submit(request.requestId, { reason: written }).finally(() => {
+          inFlight.current = false;
+        });
+      }}
+    >
+      <Notice tone="warn" live>
+        {t("register.person.requests.extendWarning")}
+      </Notice>
+
+      <label className="flex flex-col gap-1">
+        <span className={LABEL}>
+          {t("register.person.requests.extendReasonLabel")}
+        </span>
+        <textarea
+          className={FIELD}
+          rows={2}
+          maxLength={500}
+          value={reason}
+          aria-invalid={reasonMissing}
+          aria-describedby={reasonMissing ? reasonErrorId : undefined}
+          onChange={(event) => {
+            setReason(event.target.value);
+            setReasonMissing(false);
+          }}
+        />
+      </label>
+
+      {reasonMissing ? (
+        <p id={reasonErrorId} role="alert" className="text-small text-warn">
+          {t("register.person.requests.extendReasonRequired")}
+        </p>
+      ) : null}
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          className={`${CAUTION_BUTTON} disabled:opacity-60`}
+          disabled={saving}
+        >
+          {saving
+            ? t("register.person.requests.saving")
+            : t("register.person.requests.extendConfirm")}
+        </button>
+        <button
+          type="button"
+          className={QUIET_BUTTON}
+          disabled={saving}
+          onClick={onCancel}
+        >
+          {t("register.person.requests.extendCancel")}
+        </button>
+      </div>
+
+      {save.state.kind === "failed" ? (
+        <Notice tone="danger" live>
+          {t(
+            failureMessageKey(
+              save.state.failure,
+              REASON,
+              "register.person.requests.reasons.unknown",
+            ),
+          )}
+        </Notice>
+      ) : null}
+    </form>
   );
 }
 

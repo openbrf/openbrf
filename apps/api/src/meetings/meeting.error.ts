@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { MeetingReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -32,30 +33,7 @@ export class MeetingError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      | "meeting-not-found"
-      | "meeting-already-held"
-      | "meeting-not-held"
-      | "meeting-day-in-the-future"
-      | "agenda-item-not-found"
-      | "date-not-a-calendar-date"
-      | "not-a-member-on-the-meeting-day"
-      | "proxy-holder-not-a-member"
-      | "proxy-holder-not-permitted-by-bylaws"
-      | "proxy-holder-limit-reached"
-      | "proxy-authority-not-yet-issued"
-      | "proxy-authority-expired"
-      | "proxy-authorisation-not-found"
-      | "attendance-not-found"
-      | "attendance-principal-not-applicable"
-      | "assistant-principal-not-present"
-      | "assistant-already-present"
-      | "assistant-is-their-own-principal"
-      | "proxy-holder-is-the-member"
-      | "proxy-holder-holds-no-authority"
-      | "notice-already-issued"
-      | "meeting-has-no-agenda"
-      | "notice-time-not-on-the-meeting-day",
+    readonly reason: MeetingReason,
   ) {
     super(message);
     this.status = statusFor(reason);

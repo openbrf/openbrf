@@ -7,6 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { LegalBasis } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { foldedText } from "./folded-text";
 import { pluginProcessorKey } from "./processor-key";
 import type { ProcessorFacts } from "./processors";
 import { lockProcessingActivity } from "./processing-activity-lock";
@@ -345,8 +346,9 @@ export class ProcessingActivityService {
 
   /** A processing the board recorded itself. */
   async record(
-    input: ActivityInput & { actorPersonId: string },
+    given: ActivityInput & { actorPersonId: string },
   ): Promise<ProcessingActivityView> {
+    const input = foldedText(given, ACTIVITY_TEXT);
     assertNoIdentityNumber(input);
 
     return this.prisma.$transaction(async (tx) => {
@@ -390,7 +392,7 @@ export class ProcessingActivityService {
   /** Edits a row, seeded or the board's own. */
   async update(
     activityId: string,
-    input: Partial<ActivityInput> & {
+    given: Partial<ActivityInput> & {
       actorPersonId: string;
       /**
        * The record's revision as the caller last read it.
@@ -402,6 +404,7 @@ export class ProcessingActivityService {
       expectedRevision?: number;
     },
   ): Promise<ProcessingActivityView> {
+    const input = foldedText(given, ACTIVITY_TEXT);
     return this.prisma.$transaction(async (tx) => {
       /*
        * Before the read, so the comparison below and the write after it see the
@@ -638,6 +641,18 @@ export interface ActivityInput {
   retention: string;
   securityMeasures?: string | null;
 }
+
+const ACTIVITY_TEXT = {
+  oneLine: ["name"],
+  freeText: [
+    "purpose",
+    "legalBasisNote",
+    "recipients",
+    "thirdCountrySafeguards",
+    "retention",
+    "securityMeasures",
+  ],
+} as const;
 
 function assertNoIdentityNumber(input: Partial<ActivityInput>): void {
   for (const value of [

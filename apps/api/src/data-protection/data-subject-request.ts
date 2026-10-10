@@ -40,6 +40,9 @@ export interface DataSubjectRequestRow {
   decisionGround: string | null;
   decidedAt: Date | null;
   decidedByPersonId: string | null;
+  /** When the association extended the month by two (art. 12(3)), or null. */
+  extendedAt: Date | null;
+  extensionReason: string | null;
   executedAt: Date | null;
   closedAt: Date | null;
   closeReason: string | null;
@@ -52,8 +55,15 @@ export interface DataSubjectRequestView {
   personId: string;
   kind: DataSubjectRequestKind;
   requestedOn: string | null;
-  /** The art. 12(3) month, derived rather than stored. */
+  /**
+   * The art. 12(3) month, derived rather than stored: three months from the
+   * request where the association has extended, one where it has not.
+   */
   dueOn: string | null;
+  /** The day the extension was recorded, or null where there is none. */
+  extendedOn: string | null;
+  /** What the person was told the extension was for. */
+  extensionReason: string | null;
   ground: string;
   erasureGround: ErasureGround | null;
   issueId: string | null;
@@ -91,25 +101,40 @@ export type DataSubjectRequestState =
  * UTC fields throughout, matching the @db.Date column, so the answer does not
  * move by a day for a request recorded late in a Swedish evening.
  */
-export function dueOn(requestedOn: Date): Date {
-  const year = requestedOn.getUTCFullYear();
-  const month = requestedOn.getUTCMonth();
-  const day = requestedOn.getUTCDate();
+export function dueOn(requestedOn: Date, extended = false): Date {
+  const first = addMonths(requestedOn, 1);
+  /*
+   * Art. 12(3) adds two further months to the first, so they are counted from
+   * the end of the first month and not from the request. A request of 31
+   * January is due on 28 February, and extended on 28 April: the earlier of the
+   * two readings, which keeps the answer inside the months the article gives.
+   */
+  return extended ? addMonths(first, 2) : first;
+}
+
+/**
+ * The same day of a later month, or the last day of it where that month is too
+ * short, on UTC fields.
+ */
+function addMonths(from: Date, months: number): Date {
+  const year = from.getUTCFullYear();
+  const month = from.getUTCMonth();
+  const day = from.getUTCDate();
 
   // Day 0 of the month after the target is the last day of the target month.
   const lastDayOfTargetMonth = new Date(
-    Date.UTC(year, month + 2, 0),
+    Date.UTC(year, month + months + 1, 0),
   ).getUTCDate();
 
   return new Date(
     Date.UTC(
       year,
-      month + 1,
+      month + months,
       Math.min(day, lastDayOfTargetMonth),
-      requestedOn.getUTCHours(),
-      requestedOn.getUTCMinutes(),
-      requestedOn.getUTCSeconds(),
-      requestedOn.getUTCMilliseconds(),
+      from.getUTCHours(),
+      from.getUTCMinutes(),
+      from.getUTCSeconds(),
+      from.getUTCMilliseconds(),
     ),
   );
 }
@@ -138,7 +163,7 @@ export function dueOn(requestedOn: Date): Date {
 export function requestState(
   row: Pick<
     DataSubjectRequestRow,
-    "requestedOn" | "decision" | "executedAt" | "closedAt"
+    "requestedOn" | "decision" | "executedAt" | "closedAt" | "extendedAt"
   >,
   now: Date,
 ): DataSubjectRequestState {
@@ -154,7 +179,7 @@ export function requestState(
   if (row.decision === "GRANTED") {
     return "granted";
   }
-  return isPastDue(row.requestedOn, now) ? "overdue" : "open";
+  return isPastDue(row, now) ? "overdue" : "open";
 }
 
 /**
@@ -162,9 +187,38 @@ export function requestState(
  * (ADR 0013) is after the due day, not merely past its first instant. A
  * request due on 1 October is still open all of that day.
  */
-export function isPastDue(requestedOn: Date, now: Date): boolean {
+export function isPastDue(
+  request: Pick<DataSubjectRequestRow, "requestedOn" | "extendedAt">,
+  now: Date,
+): boolean {
   return (
-    compareLocalDays(localDayOf(now), localDayOfColumn(dueOn(requestedOn))) > 0
+    compareLocalDays(
+      localDayOf(now),
+      localDayOfColumn(dueOn(request.requestedOn, request.extendedAt !== null)),
+    ) > 0
+  );
+}
+
+/**
+ * Whether the board can still extend the request: undecided, not yet extended,
+ * and the first month not yet out. The extension has to be told to the person
+ * within it, so the first due day is the last one on which it can be recorded.
+ */
+export function canExtend(
+  row: Pick<
+    DataSubjectRequestRow,
+    "requestedOn" | "decision" | "closedAt" | "extendedAt"
+  >,
+  now: Date,
+): boolean {
+  return (
+    row.decision === null &&
+    row.closedAt === null &&
+    row.extendedAt === null &&
+    compareLocalDays(
+      localDayOf(now),
+      localDayOfColumn(dueOn(row.requestedOn)),
+    ) <= 0
   );
 }
 
@@ -177,7 +231,9 @@ export function toDataSubjectRequestView(
     personId: row.personId,
     kind: row.kind,
     requestedOn: formatDateColumn(row.requestedOn),
-    dueOn: formatDateColumn(dueOn(row.requestedOn)),
+    dueOn: formatDateColumn(dueOn(row.requestedOn, row.extendedAt !== null)),
+    extendedOn: formatDayOfInstant(row.extendedAt),
+    extensionReason: row.extensionReason,
     ground: row.ground,
     erasureGround: row.erasureGround,
     issueId: row.issueId,

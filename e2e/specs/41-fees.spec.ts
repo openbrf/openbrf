@@ -383,10 +383,16 @@ test("the board records the participation shares on the register", async ({
     .fill("125000.00");
   await page.getByRole("button", { name: "Spara siffrorna" }).click();
 
-  // Read back off the register document, which is what the board sees.
-  await expect(
-    page.locator("[data-print='document']").getByText("0.025"),
-  ).toBeVisible();
+  // Read back off the register document, which is what the board sees, and
+  // off this apartment's entry in it rather than anywhere on the page.
+  const entry = page.locator("[data-print='document'] article").filter({
+    has: page.getByRole("heading", {
+      level: 3,
+      name: `${people.apartment.addressLabel} ${people.apartment.number}`,
+      exact: true,
+    }),
+  });
+  await expect(entry).toContainText("0.025");
 });
 
 test("the board records a fee, including one dated forward", async ({
@@ -463,6 +469,12 @@ test("the andelstal aid suggests a figure and stores nothing", async ({
   // And the rate itself is untouched: the aid is arithmetic on the screen.
   await expect(row).toContainText(/3\s*450,50 kr/);
   await expect(page.getByText(/lagras aldrig/)).toBeVisible();
+
+  // Stored nothing, as the server reads it: the screen opened afresh, with the
+  // aid closed, carries the rate the board recorded and not the suggestion.
+  await openFees(page);
+  await expect(row).toContainText(/3\s*450,50 kr/);
+  await expect(row).not.toContainText(/2\s*500,00 kr/);
 });
 
 test("the board issues the period's notices and takes them away", async ({

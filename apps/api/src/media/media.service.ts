@@ -313,14 +313,12 @@ export class MediaService {
 
     await this.storage.put(storageKey, sealed.body, SEALED_FILE_CONTENT_TYPE);
 
-    /*
-     * The row and the entry recording who uploaded it commit together, as a
-     * removal's do: an entry that failed after the row had committed would
-     * leave a stored file nobody is recorded as having uploaded, and the
-     * caller's retry a second copy of it.
-     */
     let file;
     try {
+      // The row and the entry that says it was accepted commit together. Apart,
+      // an entry that could not be written left a row the caller never heard
+      // of, and the bytes under it: the callers' rollbacks only cover what they
+      // wrote themselves.
       file = await this.prisma.$transaction(async (tx) => {
         const created = await tx.mediaFile.create({
           data: {
@@ -345,6 +343,7 @@ export class MediaService {
             uploadedByPersonId: input.uploadedByPersonId ?? null,
           },
         });
+
         await this.audit.record(
           {
             action: "MEDIA_UPLOADED",
@@ -354,8 +353,8 @@ export class MediaService {
             targetId: created.id,
             // The name is the uploader's own text and the type is the
             // identified one, so the log says what was accepted rather than
-            // what was claimed. The name is left out where the caller asked
-            // for that, which the apartment binder does and nothing else does.
+            // what was claimed. The name is left out where the caller asked for
+            // that, which the apartment binder does and nothing else does.
             context: {
               ...((input.recordFileName ?? true)
                 ? { fileName: created.fileName }

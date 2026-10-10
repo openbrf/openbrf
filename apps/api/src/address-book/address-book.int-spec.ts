@@ -5,7 +5,15 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -155,6 +163,17 @@ const actors = {
 const MOVED_OUT_ON = new Date("2020-01-01T00:00:00.000Z");
 
 const personIds = Object.values(actors).map((actor) => actor.personId);
+
+/**
+ * How the resident directory names each person. Its rows carry no id, so a
+ * neighbour's view is read by the name on the row.
+ */
+const named = {
+  resident: `Rita ${surname}`,
+  protectedPerson: `Petra ${surname}`,
+  movedOut: `Ulla ${surname}`,
+  external: `Xenia ${surname}`,
+} as const;
 
 let ipCounter = 0;
 function inject(options: {
@@ -575,6 +594,162 @@ describe("the board's view", () => {
     expect(row.purgeOn).toBe(expected?.toISOString().slice(0, 10));
   });
 
+  describe("the purge date of a person who has lived in more than one apartment", () => {
+    const mover = `ab-mover-${suffix}`;
+    const FIRST_MOVE_OUT = new Date("2018-01-01T00:00:00.000Z");
+    const SECOND_MOVE_OUT = new Date("2021-06-01T00:00:00.000Z");
+
+    afterEach(async () => {
+      await prisma.boardPosition.deleteMany({ where: { personId: mover } });
+      await prisma.residency.deleteMany({ where: { personId: mover } });
+      await prisma.person.deleteMany({ where: { id: mover } });
+    });
+
+    /** A date column that many days from today, as the database reads it. */
+    function daysFromToday(days: number): Date {
+      const today = new Date();
+      return new Date(
+        Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate(),
+        ) +
+          days * 24 * 60 * 60 * 1000,
+      );
+    }
+
+    async function moverDetail(): Promise<{
+      residencies: { purgeOn: string | null }[];
+    }> {
+      const cookie = await signIn(actors.board.email);
+      const response = await inject({
+        method: "GET",
+        url: `/api/address-book/persons/${mover}`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json();
+    }
+
+    async function moverRows() {
+      const cookie = await signIn(actors.board.email);
+      const { rows } = await boardRows(cookie, "&filter=all");
+      return rows.filter((row) => row.personId === mover);
+    }
+
+    it("shows the date after the last residency on each of the person's rows", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.createMany({
+        data: [
+          {
+            personId: mover,
+            apartmentId: apartments.third,
+            role: "RESIDENT",
+            movedInOn: new Date("2010-01-01T00:00:00.000Z"),
+            movedOutOn: FIRST_MOVE_OUT,
+          },
+          {
+            personId: mover,
+            apartmentId: apartments.first,
+            role: "RESIDENT",
+            movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+            movedOutOn: SECOND_MOVE_OUT,
+          },
+        ],
+      });
+
+      const rows = await moverRows();
+
+      // The first row's own date is long past, and the purge does not act on it.
+      const expected = computePurgeDate(SECOND_MOVE_OUT, retentionDays)
+        ?.toISOString()
+        .slice(0, 10);
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.purgeOn)).toEqual([expected, expected]);
+    });
+
+    it("shows no date while the person still lives in another apartment", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.createMany({
+        data: [
+          {
+            personId: mover,
+            apartmentId: apartments.third,
+            role: "RESIDENT",
+            movedInOn: new Date("2010-01-01T00:00:00.000Z"),
+            movedOutOn: FIRST_MOVE_OUT,
+          },
+          {
+            personId: mover,
+            apartmentId: apartments.first,
+            role: "RESIDENT",
+            movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+          },
+        ],
+      });
+
+      const rows = await moverRows();
+
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.purgeOn)).toEqual([null, null]);
+    });
+
+    it("shows no date while a board term recorded from a day to come is still ahead", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.create({
+        data: {
+          personId: mover,
+          apartmentId: apartments.first,
+          role: "RESIDENT",
+          movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+          movedOutOn: SECOND_MOVE_OUT,
+        },
+      });
+      // Elected at a meeting that has been held and not yet begun: the seat is
+      // held by nobody today, and the purge still leaves the person alone.
+      await prisma.boardPosition.create({
+        data: {
+          personId: mover,
+          position: "BOARD_MEMBER",
+          electedOn: daysFromToday(30),
+          endedOn: daysFromToday(400),
+        },
+      });
+
+      const rows = await moverRows();
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.purgeOn).toBeNull();
+      // The sign is for the seat held today, and none is.
+      expect(rows[0]?.signs).not.toContain("BOARD_MEMBER");
+      expect((await moverDetail()).residencies.map((r) => r.purgeOn)).toEqual([
+        null,
+      ]);
+    });
+
+    it("shows no date while the move-out is scheduled for a day to come", async () => {
+      await createPerson({ personId: mover, firstName: "Mover" });
+      await prisma.residency.create({
+        data: {
+          personId: mover,
+          apartmentId: apartments.first,
+          role: "RESIDENT",
+          movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+          movedOutOn: daysFromToday(10),
+        },
+      });
+
+      const rows = await moverRows();
+
+      // Still resident until the day arrives, and the purge refuses until then.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.purgeOn).toBeNull();
+      expect((await moverDetail()).residencies.map((r) => r.purgeOn)).toEqual([
+        null,
+      ]);
+    });
+  });
+
   it("orders rows by apartment number, the way the name board reads", async () => {
     const cookie = await signIn(actors.board.email);
     const { rows } = await boardRows(cookie);
@@ -734,6 +909,31 @@ describe("the resident-facing directory", () => {
     expect(response.body).not.toContain("purgeOn");
   });
 
+  it("names no person's id, in a row or in its key", async () => {
+    // The directory says who lives where. An id is a handle on a person - the
+    // address book, the chat and every route that takes one - and a neighbour
+    // has no use for it.
+    const cookie = await signIn(actors.resident.email);
+    const response = await inject({
+      method: "GET",
+      url: "/api/resident-directory?filter=all&pageSize=100",
+      headers: { cookie },
+    });
+    expect(response.statusCode).toBe(200);
+
+    expect(response.body).not.toContain("personId");
+    for (const actor of Object.values(actors)) {
+      expect(response.body).not.toContain(actor.personId);
+    }
+    const { rows } = JSON.parse(response.body) as {
+      rows: { key: string; name: string }[];
+    };
+    // The external board member has no residency, and is keyed without an id.
+    expect(rows.find((row) => row.name === named.external)?.key).toMatch(
+      /^person:[\w-]{22}$/,
+    );
+  });
+
   it("excludes a person with protected personal data entirely", async () => {
     const cookie = await signIn(actors.resident.email);
     const response = await inject({
@@ -742,13 +942,11 @@ describe("the resident-facing directory", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(response.body) as {
-      rows: { personId: string }[];
+      rows: { name: string }[];
     };
 
-    expect(rows.map((row) => row.personId)).not.toContain(
-      actors.protectedPerson.personId,
-    );
-    expect(rows.map((row) => row.personId)).toContain(actors.resident.personId);
+    expect(rows.map((row) => row.name)).not.toContain(named.protectedPerson);
+    expect(rows.map((row) => row.name)).toContain(named.resident);
   });
 
   it("excludes somebody who asked for a restriction, and shows them themselves", async () => {
@@ -781,14 +979,14 @@ describe("the resident-facing directory", () => {
       });
 
       const seenByNeighbour = (
-        JSON.parse(asNeighbour.body) as { rows: { personId: string }[] }
-      ).rows.map((row) => row.personId);
+        JSON.parse(asNeighbour.body) as { rows: { name: string }[] }
+      ).rows.map((row) => row.name);
       const seenByThemselves = (
-        JSON.parse(asThemselves.body) as { rows: { personId: string }[] }
-      ).rows.map((row) => row.personId);
+        JSON.parse(asThemselves.body) as { rows: { name: string }[] }
+      ).rows.map((row) => row.name);
 
-      expect(seenByNeighbour).not.toContain(actors.resident.personId);
-      expect(seenByThemselves).toContain(actors.resident.personId);
+      expect(seenByNeighbour).not.toContain(named.resident);
+      expect(seenByThemselves).toContain(named.resident);
     } finally {
       await prisma.person.update({
         where: { id: actors.resident.personId },
@@ -900,7 +1098,7 @@ describe("the resident-facing directory", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(response.body) as {
-      rows: { personId: string }[];
+      rows: { name: string }[];
     };
 
     expect(rows).toEqual([]);
@@ -953,12 +1151,10 @@ describe("the resident-facing directory", () => {
       headers: { cookie },
     });
     const { rows } = JSON.parse(response.body) as {
-      rows: { personId: string }[];
+      rows: { name: string }[];
     };
 
-    expect(rows.map((row) => row.personId)).toContain(
-      actors.protectedPerson.personId,
-    );
+    expect(rows.map((row) => row.name)).toContain(named.protectedPerson);
   });
 
   it("lists who lives here today and the board, and nobody else", async () => {
@@ -987,15 +1183,15 @@ describe("the resident-facing directory", () => {
         });
         expect(response.statusCode).toBe(200);
         return (
-          JSON.parse(response.body) as { rows: { personId: string }[] }
-        ).rows.map((row) => row.personId);
+          JSON.parse(response.body) as { rows: { name: string }[] }
+        ).rows.map((row) => row.name);
       };
 
       const all = await listed("all");
-      expect(all).toContain(actors.resident.personId);
+      expect(all).toContain(named.resident);
       // A board member who lives nowhere here is somebody to find.
-      expect(all).toContain(actors.external.personId);
-      expect(all).not.toContain(actors.movedOut.personId);
+      expect(all).toContain(named.external);
+      expect(all).not.toContain(named.movedOut);
 
       expect(await listed("movedOut")).toEqual([]);
     } finally {
@@ -1028,12 +1224,12 @@ describe("the resident-facing directory", () => {
         });
         expect(response.statusCode).toBe(200);
         return (
-          JSON.parse(response.body) as { rows: { personId: string }[] }
-        ).rows.map((row) => row.personId);
+          JSON.parse(response.body) as { rows: { name: string }[] }
+        ).rows.map((row) => row.name);
       };
 
-      expect(await listed("all")).toContain(actors.movedOut.personId);
-      expect(await listed("board")).toContain(actors.movedOut.personId);
+      expect(await listed("all")).toContain(named.movedOut);
+      expect(await listed("board")).toContain(named.movedOut);
 
       const future = await prisma.residency.create({
         data: {
@@ -1045,8 +1241,8 @@ describe("the resident-facing directory", () => {
         select: { id: true },
       });
       try {
-        expect(await listed("all")).toContain(actors.movedOut.personId);
-        expect(await listed("board")).toContain(actors.movedOut.personId);
+        expect(await listed("all")).toContain(named.movedOut);
+        expect(await listed("board")).toContain(named.movedOut);
       } finally {
         await prisma.residency.delete({ where: { id: future.id } });
       }
@@ -1084,12 +1280,12 @@ describe("the resident-facing directory", () => {
           headers: { cookie },
         });
         expect(response.statusCode).toBe(200);
-        const ids = (
-          JSON.parse(response.body) as { rows: { personId: string }[] }
-        ).rows.map((row) => row.personId);
+        const names = (
+          JSON.parse(response.body) as { rows: { name: string }[] }
+        ).rows.map((row) => row.name);
 
-        expect(ids).not.toContain(bystander);
-        expect(ids).not.toContain(former);
+        expect(names).not.toContain(`Bo ${surname}`);
+        expect(names).not.toContain(`Fia ${surname}`);
       }
 
       // The board sees the person with no residency, which is what separates
@@ -1546,6 +1742,30 @@ describe("adding a person", () => {
     expect(personIdsIn(rows)).toEqual([personId]);
   });
 
+  it("refuses a phone number that normalizes to nothing, and stores no person", async () => {
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/address-book/persons",
+      payload: {
+        firstName: "Ringa",
+        lastName: surname,
+        phone: "ring mig",
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const failure = JSON.parse(response.body) as { reason: string };
+    expect(failure.reason).toBe("invalid-phone");
+    // Not stored as a number nothing can match: no row, however it looks.
+    expect(
+      await prisma.person.count({
+        where: { lastName: surname, firstName: "Ringa" },
+      }),
+    ).toBe(0);
+  });
+
   it("refuses a personal identity number that fails its own checksum", async () => {
     const cookie = await signIn(actors.board.email);
     const response = await inject({
@@ -1562,6 +1782,40 @@ describe("adding a person", () => {
     expect(response.statusCode).toBe(400);
     const failure = JSON.parse(response.body) as { reason: string };
     expect(failure.reason).toBe("invalid-personal-identity-number");
+  });
+
+  it("asks for the century of a number that reads as somebody else within a year", async () => {
+    // Born 30 days ago and written in ten digits: a year ago the same digits
+    // were somebody turning 100, so the century is asked for, not guessed.
+    const born = new Date();
+    born.setDate(born.getDate() - 30);
+    const birthDate = [
+      born.getFullYear() % 100,
+      born.getMonth() + 1,
+      born.getDate(),
+    ]
+      .map((part) => String(part).padStart(2, "0"))
+      .join("");
+    const written = Array.from(
+      { length: 10 },
+      (_, checkDigit) => `${birthDate}-123${String(checkDigit)}`,
+    ).find((candidate) => isValidPersonalIdentityNumber(candidate));
+
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/address-book/persons",
+      payload: {
+        firstName: "Ny",
+        lastName: surname,
+        personalIdentityNumber: written,
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const failure = JSON.parse(response.body) as { reason: string };
+    expect(failure.reason).toBe("personal-identity-number-needs-century");
   });
 
   it("is refused for a resident", async () => {

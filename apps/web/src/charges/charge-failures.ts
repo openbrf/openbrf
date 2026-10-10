@@ -1,3 +1,5 @@
+import type { MemberChargeReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -14,38 +16,10 @@ import { failureMessageKey } from "../ui/save-state";
  */
 
 /**
- * The reasons the charges module refuses with.
- *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it, so a reason the server gains and this
- * client has no sentence for is a compile error here rather than "something went
- * wrong" on a board member's screen.
- */
-export type ChargeReason =
-  | "not-found"
-  | "person-not-found"
-  | "apartment-not-found"
-  | "party-required"
-  | "party-ambiguous"
-  | "personal-identity-number"
-  | "date-not-a-calendar-date"
-  | "date-in-the-future"
-  | "amount-not-a-sum"
-  | "amount-not-positive"
-  | "reason-required"
-  | "vat-rate-required"
-  | "vat-rate-not-applicable"
-  | "vat-rate-out-of-range"
-  | "handed-over-before-charge"
-  | "handed-over-in-the-future"
-  | "range-invalid";
-
-/**
  * Every reason, and the sentence it becomes.
  *
- * Total over {@link ChargeReason} and checked as such, so the map cannot fall
- * behind the API by one code. `invalid-body` is the endpoint's own schema
+ * Total over {@link MemberChargeReason} and checked as such, so the map cannot
+ * fall behind the API by one code. `invalid-body` is the endpoint's own schema
  * refusal and is the one key here that is not a domain reason - for this form it
  * means a value the screen should not have been able to send.
  *
@@ -55,7 +29,7 @@ export type ChargeReason =
  * leave the board member guessing which half of the form to change.
  */
 const CHARGE_FAILURES: Readonly<
-  Record<ChargeReason | "invalid-body", TranslationKey>
+  Record<MemberChargeReason | "invalid-body", TranslationKey>
 > = {
   "not-found": "charges.errors.notFound",
   "person-not-found": "charges.errors.personNotFound",
@@ -70,6 +44,7 @@ const CHARGE_FAILURES: Readonly<
 
   "date-not-a-calendar-date": "charges.errors.dateNotACalendarDate",
   "date-in-the-future": "charges.errors.dateInTheFuture",
+  "date-beyond-retention": "charges.errors.dateBeyondRetention",
   "amount-not-a-sum": "charges.errors.amountNotASum",
   "amount-not-positive": "charges.errors.amountNotPositive",
   "reason-required": "charges.errors.reasonRequired",

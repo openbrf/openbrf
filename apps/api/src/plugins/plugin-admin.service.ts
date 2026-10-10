@@ -805,9 +805,12 @@ export class PluginAdminService {
     enabled: boolean,
     actorPersonId: string,
   ): Promise<{ restarting: boolean }> {
-    // Switching a plugin back on restores its access to the register and the
-    // mail server, so the change and the entry naming who made it commit
-    // together.
+    /*
+     * The switch and the entry that records it, in one transaction: a plugin
+     * runs with what its install consented to, so who switched it on or off is
+     * the question an incident asks, and a change that committed with its entry
+     * lost would leave nobody named for it.
+     */
     await this.prisma.$transaction(async (tx) => {
       const record = await this.registry.setEnabled(id, enabled, tx);
       if (record === null) {
@@ -888,9 +891,9 @@ export class PluginAdminService {
           actorPersonId,
           targetKind: "plugin",
           targetId: id,
-          // Which settings, never their values: a plugin's settings can hold
-          // anything its author asked for.
-          context: { keys: Object.keys(parsed).sort() },
+          // The fields, never the values: a setting can hold a key, and the log
+          // outlives the plugin.
+          context: { fields: Object.keys(parsed).sort() },
         },
         tx,
       );
