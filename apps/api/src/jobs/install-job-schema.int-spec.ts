@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -242,8 +243,28 @@ const BUILD = `install_probe_${suffix}`;
 const PROBE_ROLE = `openbrf_bam_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
 /** What a planted index build would leave behind, had it run. */
 const PLANTED_TABLE = `public.install_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
+/** A role holding the runtime role's writes on pgboss.queue. */
+const WRITER_ROLE = `openbrf_queue_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
+const WRITER_PASSWORD = randomBytes(16).toString("hex");
+/** The trigger the install puts on pgboss.queue. */
+const QUEUE_GUARD = "refuse_own_job_table";
+/** PostgreSQL's check_violation, which that trigger raises. */
+const CHECK_VIOLATION = "23514";
 
 let owner: PrismaClient;
+
+/** Whether the install's trigger is on pgboss.queue, and switched on. */
+async function queueGuarded(): Promise<boolean> {
+  const [row] = await owner.$queryRawUnsafe<{ present: boolean }[]>(
+    `SELECT EXISTS (
+       SELECT FROM pg_trigger
+       WHERE tgrelid = 'pgboss.queue'::regclass
+         AND tgname = $1 AND tgenabled = 'O'
+     ) AS present`,
+    QUEUE_GUARD,
+  );
+  return row?.present === true;
+}
 
 /** Runs the install the way the migrate service does, and says how it went. */
 function install(): { status: number | null; output: string } {
@@ -319,6 +340,7 @@ afterAll(async () => {
   );
   await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS ${PLANTED_TABLE}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${PROBE_ROLE}`);
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${WRITER_ROLE}`);
   await owner.$disconnect();
 });
 
@@ -418,12 +440,17 @@ describe("the job schema install", () => {
     "stops on $what",
     async ({ change }) => {
       // An ordinary queue first, as a feature module declares one at runtime,
-      // then rewritten the way the runtime role could rewrite it.
+      // then rewritten as it could have been before the install's trigger
+      // was there: the trigger refuses the owner too, so it is dropped first,
+      // and the install puts it back before it looks.
       await owner.$executeRawUnsafe(
         `SELECT pgboss.create_queue($1, '{"policy": "standard"}'::jsonb)`,
         QUEUE,
       );
       try {
+        await owner.$executeRawUnsafe(
+          `DROP TRIGGER ${QUEUE_GUARD} ON pgboss.queue`,
+        );
         await owner.$executeRawUnsafe(
           `UPDATE pgboss.queue SET ${change} WHERE name = $1`,
           QUEUE,
@@ -432,6 +459,7 @@ describe("the job schema install", () => {
         const refused = install();
         expect(refused.status, refused.output).toBe(1);
         expect(refused.output).toContain("pgboss.queue holds 1 queue(s)");
+        expect(await queueGuarded(), "the trigger is back").toBe(true);
       } finally {
         await owner.$executeRawUnsafe(
           "DELETE FROM pgboss.queue WHERE name = $1",
@@ -441,6 +469,81 @@ describe("the job schema install", () => {
     },
     90_000,
   );
+
+  it("leaves a role that writes queues unable to make one partitioned or give it a job table of its own", async () => {
+    // What harden-runtime-role.sql leaves the application on the queue table:
+    // it declares its queues at runtime, so it keeps every write.
+    await owner.$executeRawUnsafe(
+      `CREATE ROLE ${WRITER_ROLE} LOGIN PASSWORD '${WRITER_PASSWORD}'`,
+    );
+    await owner.$executeRawUnsafe(
+      `GRANT USAGE ON SCHEMA pgboss TO ${WRITER_ROLE}`,
+    );
+    await owner.$executeRawUnsafe(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON pgboss.queue TO ${WRITER_ROLE}`,
+    );
+    await owner.$executeRawUnsafe(
+      `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO ${WRITER_ROLE}`,
+    );
+    const url = new URL(env.DATABASE_URL);
+    url.username = WRITER_ROLE;
+    url.password = WRITER_PASSWORD;
+    try {
+      await withClient(url.href, async (client) => {
+        const sqlState = (statement: string, values: unknown[]) =>
+          client.query(statement, values).then(
+            () => undefined,
+            (error: unknown) => (error as { code?: string }).code,
+          );
+
+        await client.query(
+          `SELECT pgboss.create_queue($1, '{"policy": "standard"}'::jsonb)`,
+          [QUEUE],
+        );
+        expect(
+          await sqlState(
+            "UPDATE pgboss.queue SET partition = true WHERE name = $1",
+            [QUEUE],
+          ),
+          "made partitioned",
+        ).toBe(CHECK_VIOLATION);
+        expect(
+          await sqlState(
+            "UPDATE pgboss.queue SET table_name = $2 WHERE name = $1",
+            [QUEUE, `job_${suffix}`],
+          ),
+          "given a job table of its own",
+        ).toBe(CHECK_VIOLATION);
+        expect(
+          await sqlState(
+            `INSERT INTO pgboss.queue (name, policy, retry_limit, retry_delay,
+               retry_backoff, expire_seconds, retention_seconds,
+               deletion_seconds, partition, table_name)
+             VALUES ($1, 'standard', 0, 0, false, 900, 900, 900, true, $2)`,
+            [`${QUEUE}-inserted`, `job_${suffix}`],
+          ),
+          "inserted partitioned",
+        ).toBe(CHECK_VIOLATION);
+
+        const { rows } = await client.query<{
+          partition: boolean;
+          table_name: string;
+        }>("SELECT partition, table_name FROM pgboss.queue WHERE name = $1", [
+          QUEUE,
+        ]);
+        expect(rows, "the queue is unchanged").toEqual([
+          { partition: false, table_name: "job_common" },
+        ]);
+      });
+    } finally {
+      await owner.$executeRawUnsafe(
+        "DELETE FROM pgboss.queue WHERE name = $1",
+        QUEUE,
+      );
+      await owner.$executeRawUnsafe(`DROP OWNED BY ${WRITER_ROLE}`);
+      await owner.$executeRawUnsafe(`DROP ROLE ${WRITER_ROLE}`);
+    }
+  }, 90_000);
 
   it("removes an index build that had not run while another role could write the queue of them", async () => {
     // What every instance looked like before the hardening revoked the

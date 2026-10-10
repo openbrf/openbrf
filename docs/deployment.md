@@ -155,10 +155,9 @@ changes nothing but the owner's password, which it sets from
    step waits until every build has finished: the application never runs
    pg-boss migrations, so nothing would finish one later. A build that fails
    stops the deploy with its error, which also stays in `pgboss.bam`, and the
-   next deploy retries it. The check and the migration are two steps, not one
-   transaction, so a running application that could be made to rewrite
-   `pgboss.queue` between them is not covered: stop it before the deploy if you
-   cannot rely on it.
+   next deploy retries it. A trigger on `pgboss.queue`, owned by the schema
+   owner, makes the table refuse such a queue from then on, so the application
+   cannot write one between the check and the migration.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
