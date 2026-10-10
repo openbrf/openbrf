@@ -4,6 +4,7 @@ import { formatDateColumn } from "@openbrf/shared";
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
@@ -294,6 +295,7 @@ export class PurgeService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly jobs: JobQueueService,
+    private readonly encryption: FieldEncryptionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -456,7 +458,12 @@ export class PurgeService implements OnModuleInit {
   ): Promise<OpenErasureRequest[]> {
     const open: OpenErasureRequest[] = [];
     for (const personId of await grantedErasurePersonIds(this.prisma)) {
-      const remainder = await erasureRemainder(this.prisma, personId, now);
+      const remainder = await erasureRemainder(
+        this.prisma,
+        personId,
+        now,
+        this.encryption,
+      );
       const described = remainder.map(describeRemainder).join("; ");
 
       if (failedPersonIds.has(personId)) {
@@ -826,7 +833,9 @@ export class PurgeService implements OnModuleInit {
        * record saying the request was carried out.
        */
       const remainder =
-        request === null ? [] : await erasureRemainder(tx, personId, now);
+        request === null
+          ? []
+          : await erasureRemainder(tx, personId, now, this.encryption);
       const closing = request !== null && remainder.length === 0;
 
       const cleared: string[] = [];

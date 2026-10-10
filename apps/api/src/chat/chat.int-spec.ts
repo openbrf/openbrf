@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { erasureRemainder } from "../retention/erasure-domains";
 import { grantErasure } from "../testing/erasure-requests";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
@@ -892,7 +893,12 @@ describe("the purge", () => {
       ).toBe(0);
       // And the closing purge, counting the same rows, finds nothing owed.
       await expect(
-        erasureRemainder(prisma, resident.personId, now),
+        erasureRemainder(
+          prisma,
+          resident.personId,
+          now,
+          app.get(FieldEncryptionService),
+        ),
       ).resolves.toEqual([]);
       // The reported message is somebody else's, and stays.
       expect(

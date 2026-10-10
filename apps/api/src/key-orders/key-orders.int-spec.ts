@@ -1129,7 +1129,14 @@ describe("the purge", () => {
       ).not.toBeNull();
       // Nothing owed, and the open ones - this one among them - kept, so the
       // request stays open rather than being called carried out.
-      expect(await erasureRemainder(prisma, lodger.personId, NOW)).toEqual([
+      expect(
+        await erasureRemainder(
+          prisma,
+          lodger.personId,
+          NOW,
+          app.get(FieldEncryptionService),
+        ),
+      ).toEqual([
         expect.objectContaining({
           domain: "key orders",
           owed: 0,

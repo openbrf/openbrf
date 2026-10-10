@@ -50,6 +50,7 @@ export interface RegisterReportObligationMailProps {
 export const registerReportObligationMail: MailTemplate<RegisterReportObligationMailProps> =
   {
     id: "register-report-obligation",
+    processing: "cooperativeHousingRegisterReporting",
 
     subject: (props, { t }) =>
       t("email.registerReportObligation.subject", {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { erasureSourceFacts } from "../testing/erasure-source-facts";
 import {
   describeRemainder,
@@ -103,12 +104,31 @@ describe("the domains a granted erasure request has to be verified against", () 
 });
 
 const NOW = new Date("2027-06-01T03:53:00.000Z");
+
+/**
+ * Field encryption that stores an address as itself and indexes it under the
+ * field it is asked for, so a withheld person's address and a thread's match
+ * only when the purge has re-indexed the one under the other's field.
+ */
+const encryption = {
+  decrypt: async (_field: string, cipher: string) => cipher,
+  computeIndex: async (field: string, address: string) =>
+    `${field}:${address.toLowerCase()}`,
+} as unknown as FieldEncryptionService;
+
+/** A thread's blind index for an address. */
+function threadIndex(address: string): string {
+  return `boardMailboxThread.correspondentEmail:${address.toLowerCase()}`;
+}
 const PERSON = "person-1";
 const OTHER = "person-2";
 
 /** A row, as each table holds one for the purposes of a count. */
 interface Rows {
-  boardMailboxThreads?: { person: string | null }[];
+  /** Each with the address it carries, as the thread's own index would hold it. */
+  boardMailboxThreads?: { person: string | null; address?: string | null }[];
+  /** People under a hold or a restriction, with the address the register holds. */
+  withheld?: { id: string; address: string | null }[];
   bookings?: { person: string }[];
   chatMessages?: { person: string; createdAt: Date }[];
   chatGroupMembers?: { person: string }[];
@@ -192,9 +212,45 @@ function atMost(filter: unknown, at: Date): boolean {
  */
 function build(rows: Rows): ErasureDbClient {
   return {
+    person: {
+      // Asked for the withheld people and then for their addresses; the
+      // fake holds nobody else, so both answers are the same rows.
+      findMany: async () =>
+        (rows.withheld ?? []).map((person) => ({
+          id: person.id,
+          emailCipher: person.address,
+        })),
+    },
     boardMailboxThread: {
-      count: async ({ where }: { where: { correspondentPersonId: unknown } }) =>
-        countNaming(rows.boardMailboxThreads, where.correspondentPersonId),
+      count: async ({
+        where,
+      }: {
+        where: {
+          correspondentPersonId: unknown;
+          correspondentEmailIndex?: { in: string[] };
+          OR?: [{ correspondentEmailIndex: { notIn: string[] } }, unknown];
+        };
+      }) =>
+        (rows.boardMailboxThreads ?? []).filter((row) => {
+          if (
+            row.person === null ||
+            !namesPerson(where.correspondentPersonId, row.person)
+          ) {
+            return false;
+          }
+          const index =
+            row.address === undefined || row.address === null
+              ? null
+              : threadIndex(row.address);
+          if (where.correspondentEmailIndex !== undefined) {
+            // The kept half: an address a withheld person holds.
+            return (
+              index !== null && where.correspondentEmailIndex.in.includes(index)
+            );
+          }
+          const withheld = where.OR?.[0].correspondentEmailIndex.notIn ?? [];
+          return index === null || !withheld.includes(index);
+        }).length,
     },
     chatGroupMember: {
       count: async ({ where }: { where: { personId: unknown } }) =>
@@ -310,7 +366,9 @@ describe("what a granted erasure request still owes one person", () => {
       motions: [{ person: OTHER, closedAt: new Date("2027-01-01") }],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([]);
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([]);
   });
 
   it("names each domain that still holds rows, and how many", async () => {
@@ -319,7 +377,9 @@ describe("what a granted erasure request still owes one person", () => {
       newsComments: [{ person: PERSON, createdAt: new Date("2027-05-01") }],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
       { domain: "bookings", owed: 2, kept: 0 },
       { domain: "news comments", owed: 1, kept: 0 },
     ]);
@@ -339,7 +399,7 @@ describe("what a granted erasure request still owes one person", () => {
       ],
     });
 
-    const remainder = await erasureRemainder(client, PERSON, NOW);
+    const remainder = await erasureRemainder(client, PERSON, NOW, encryption);
 
     expect(remainder).toEqual([
       {
@@ -367,7 +427,9 @@ describe("what a granted erasure request still owes one person", () => {
       ],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([]);
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([]);
   });
 
   it("counts an open key order and an open subletting application as kept", async () => {
@@ -381,7 +443,9 @@ describe("what a granted erasure request still owes one person", () => {
       subletApplications: [{ person: PERSON, closedAt: null }],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
       {
         domain: "key orders",
         owed: 1,
@@ -424,7 +488,9 @@ describe("what a granted erasure request still owes one person", () => {
       ],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
       {
         domain: "subletting applications",
         // The ended consent and the refusal, whose period is no concern.
@@ -446,9 +512,9 @@ describe("what a granted erasure request still owes one person", () => {
       chatMessageReports: [{ person: PERSON }],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
-      { domain: "chat", owed: 3, kept: 0 },
-    ]);
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([{ domain: "chat", owed: 3, kept: 0 }]);
   });
 
   it("counts the mailbox threads linked to the person, and no other", async () => {
@@ -458,8 +524,42 @@ describe("what a granted erasure request still owes one person", () => {
       boardMailboxThreads: [{ person: PERSON }, { person: null }],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
-      { domain: "board mailbox threads", owed: 1, kept: 0 },
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([{ domain: "board mailbox threads", owed: 1, kept: 0 }]);
+  });
+
+  it("counts a linked thread whose address a withheld person holds as kept", async () => {
+    /*
+     * The address changed hands, or a household shares it: the thread is
+     * linked to the person asking, and the register now holds its address for
+     * somebody under a hold. The mailbox purge keeps every thread with that
+     * address, so counting it as owed would leave the request open for as long
+     * as the hold stands, saying a job has not got through.
+     */
+    const client = build({
+      boardMailboxThreads: [
+        { person: PERSON, address: "Styrelsen@Exempel.se" },
+        { person: PERSON, address: "eget@exempel.se" },
+        { person: PERSON, address: null },
+      ],
+      withheld: [
+        { id: OTHER, address: "styrelsen@exempel.se" },
+        // Stripped already: nothing left to match a thread against.
+        { id: "person-3", address: null },
+      ],
+    });
+
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
+      {
+        domain: "board mailbox threads",
+        owed: 2,
+        kept: 1,
+        keptBecause:
+          "a thread's address is held by somebody under a legal hold or a restriction",
+      },
     ]);
   });
 
