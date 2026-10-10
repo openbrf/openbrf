@@ -32,6 +32,7 @@ export type {
   BookingReason,
   BookingTextField,
   ChatReason,
+  ConnectedAppRevocationReason,
   EventReason,
   EventTextField,
   FeeReason,
@@ -57,7 +58,10 @@ export {
   normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 export type {
   PersonalIdentityNumberMatch,

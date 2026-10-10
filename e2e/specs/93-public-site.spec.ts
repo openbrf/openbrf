@@ -213,17 +213,21 @@ test("the application answers under its own prefix", async ({
  * sweep that moved the others - which is exactly the case no amount of care
  * during one rebase can catch.
  *
- * The two exceptions are deliberate and named: the first-boot spec asserts the
- * unclaimed root redirects to the wizard, and this spec reads the public front
- * page, which really is at the root.
+ * The exceptions are deliberate and named below: the first-boot spec asserts
+ * the unclaimed root redirects to the wizard, and the others read the
+ * association's own website, which really is at the root.
  */
 test("no spec addresses the client at the instance root", async () => {
   const specs = join(repositoryRoot, "e2e", "specs");
-  // Every shape the call can take: "/", '/', and `/...`. Prettier settles on
-  // double quotes, so today only the first can occur - but the guard exists
-  // for the spec somebody writes next, and a template literal is exactly what
-  // a spec interpolating a path would reach for.
-  const rootNavigation = /page\.goto\(\s*["'`]\//g;
+  // Every shape the call can take: "/", '/', and `/...`, and the origin spelt
+  // out in front of the path, `${stack.baseUrl}/...`. On any page, not only
+  // the one called `page`: a second browser, a visitor's context or a popup is
+  // where a spec reading the website as somebody else navigates. Prettier
+  // settles on double quotes, so today a plain literal can only take the first
+  // shape - but the guard exists for the spec somebody writes next, and a
+  // template literal is exactly what a spec interpolating a path would reach
+  // for.
+  const rootNavigation = /\b\w+\.goto\(\s*(?:["'`]\/|`\$\{[^}]*\}\/)/g;
   const allowed = new Set([
     "01-first-boot.spec.ts",
     // The page editor's spec reads the pages it publishes on the website
@@ -244,6 +248,10 @@ test("no spec addresses the client at the instance root", async () => {
     // The data blocks are read on the association's own website, which
     // really is at the root: a visitor opens the page by name.
     "27-site-data-blocks.spec.ts",
+    // The privacy notice is read at /integritetspolicy on the website by a
+    // visitor with no session, because art. 13 is owed to the person and not
+    // to the board's screen.
+    "33-data-protection.spec.ts",
     // The association's calendar is at /kalender on the website itself, and
     // what that spec is about is what a visitor with no account is and is not
     // shown there.

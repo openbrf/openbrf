@@ -31,7 +31,9 @@ export type MoveReason =
   | "grant-has-no-seller"
   | "date-not-a-calendar-date"
   | "seller-is-acquirer"
-  | "seller-not-tenant-owner";
+  | "seller-not-tenant-owner"
+  | "transfer-without-tenant-ownership"
+  | "already-granted";
 
 /** What the accounting basis export refuses with. */
 export type AccountingReason =
@@ -52,13 +54,17 @@ export type FeeReason =
   | "fee-already-recorded-later"
   | "fee-already-in-force"
   | "fee-notified"
+  | "period-already-notified"
   | "period-not-whole-months"
   | "period-too-long"
   | "period-already-issued"
   | "period-overlaps-a-run"
   | "due-before-period"
   | "nothing-to-bill"
-  | "too-many-notices";
+  | "too-many-notices"
+  | "amount-too-large"
+  | "period-past-retention"
+  | "payment-reference-reused";
 
 /** What the charges module refuses with. */
 export type MemberChargeReason =
@@ -70,6 +76,7 @@ export type MemberChargeReason =
   | "personal-identity-number"
   | "date-not-a-calendar-date"
   | "date-in-the-future"
+  | "date-beyond-retention"
   | "amount-not-a-sum"
   | "amount-not-positive"
   | "reason-required"
@@ -114,6 +121,7 @@ export type SubletReason =
   | "already-closed"
   | "not-refused"
   | "invalid-period"
+  | "period-too-far-ahead"
   | "personal-identity-number";
 
 /**
@@ -269,3 +277,6 @@ export type BookingReason =
 
 /** Which field of a bookable resource a refused value sits in. */
 export type BookingTextField = "name" | "description";
+
+/** What turning a connected app away for the whole instance refuses with. */
+export type ConnectedAppRevocationReason = "client-not-found";

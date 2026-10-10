@@ -161,6 +161,8 @@ let boardCookie = "";
 let memberCookie = "";
 let managerCookie = "";
 let associationCreatedHere = false;
+/** The run this suite issued, and the only one its cleanup removes. */
+let runId = "";
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -279,6 +281,26 @@ beforeAll(async () => {
     });
     expect(fee.statusCode).toBe(201);
   }
+  /*
+   * A new rate on the second apartment from the middle of February. A month is
+   * billed at the rate in force on its first day, so February is still billed
+   * at 2000.00 and only March at 2600.00. Without a rate that begins mid-month
+   * the rule is never put to the test: every reading of "in force" agrees on a
+   * rate that starts on the first.
+   */
+  const raised = await inject({
+    method: "POST",
+    url: "/api/fees",
+    payload: {
+      apartmentId: secondApartmentId,
+      kind: "ANNUAL_FEE",
+      appliesFrom: "2025-02-15",
+      monthlyAmount: "2600.00",
+      vatTreatment: "EXEMPT",
+    },
+    headers: { cookie: boardCookie },
+  });
+  expect(raised.statusCode).toBe(201);
 
   const run = await inject({
     method: "POST",
@@ -287,6 +309,7 @@ beforeAll(async () => {
     headers: { cookie: boardCookie },
   });
   expect(run.statusCode).toBe(201);
+  runId = run.json<{ notificationId: string }>().notificationId;
 
   for (const charge of [
     {
@@ -332,8 +355,9 @@ afterAll(async () => {
     await prisma.feeNotice.deleteMany({
       where: { apartmentId: { in: apartmentIds } },
     });
+    // This suite's own run only: every other suite's empty runs are theirs.
     await prisma.feeNotification.deleteMany({
-      where: { notices: { none: {} } },
+      where: { id: runId },
     });
     await prisma.fee.deleteMany({
       where: { apartmentId: { in: apartmentIds } },
@@ -380,15 +404,16 @@ describe("the file", () => {
     expect(charges).toHaveLength(3);
 
     // Three months at the rate in force on each month's first day, which is the
-    // multiplication the whole fee model is stated per month for.
+    // multiplication the whole fee model is stated per month for: the second
+    // apartment pays 2000.00 for January and February and 2600.00 for March.
     expect(
       fees
         .map((row) => row.amount)
         .sort((first, second) => first.localeCompare(second)),
-    ).toEqual(["10351.50", "6000.00"]);
-    expect(taken.basis.feeTotal).toBe("16351.50");
+    ).toEqual(["10351.50", "6600.00"]);
+    expect(taken.basis.feeTotal).toBe("16951.50");
     expect(taken.basis.chargeTotal).toBe("1475.00");
-    expect(taken.basis.total).toBe("17826.50");
+    expect(taken.basis.total).toBe("18426.50");
 
     expect(taken.fileName).toBe("bokforingsunderlag-2025-01-01-2025-12-31.csv");
     expect(taken.csv.startsWith("﻿")).toBe(true);
@@ -432,7 +457,7 @@ describe("which export a run lands in", () => {
     const fees = ownRows(taken).filter((row) => row.kind === "FEE_NOTICE");
 
     expect(fees).toHaveLength(2);
-    expect(taken.basis.feeTotal).toBe("16351.50");
+    expect(taken.basis.feeTotal).toBe("16951.50");
   });
 
   it("leaves out a run that opened before the export period", async () => {

@@ -23,7 +23,10 @@ export type RoleChangeReason =
   | "position-already-held"
   | "term-overlaps"
   | "elected-too-far-ahead"
+  | "recovery-dated-ahead"
   | "board-seat-required"
+  | "board-not-vacant"
+  | "reason-required"
   | "term-already-ended"
   | "ended-before-elected"
   | "ended-too-far-ahead"
@@ -46,11 +49,16 @@ const ROLE_CHANGE_STATUS: Record<RoleChangeReason, number> = {
   "position-already-held": HttpStatus.CONFLICT,
   "term-overlaps": HttpStatus.CONFLICT,
   "elected-too-far-ahead": HttpStatus.CONFLICT,
+  "recovery-dated-ahead": HttpStatus.CONFLICT,
   "term-already-ended": HttpStatus.CONFLICT,
   "ended-before-elected": HttpStatus.CONFLICT,
   "ended-too-far-ahead": HttpStatus.CONFLICT,
   "last-administrator": HttpStatus.CONFLICT,
   "date-not-a-calendar-date": HttpStatus.BAD_REQUEST,
+  "reason-required": HttpStatus.BAD_REQUEST,
+  // A conflict and not forbidden: a board recovery is refused for the state
+  // the register is in, and the same request is refused whoever makes it.
+  "board-not-vacant": HttpStatus.CONFLICT,
   // Forbidden rather than a conflict: the request is refused for who makes
   // it, and the same request from a board member would be recorded.
   "board-seat-required": HttpStatus.FORBIDDEN,

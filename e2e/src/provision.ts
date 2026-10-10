@@ -360,9 +360,21 @@ export async function ensureAccountFor(
     if (attempt.ok()) {
       return;
     }
+    // Only a refusal of the credentials means there is no account yet. A
+    // throttled or failing sign-in says nothing about the account, and
+    // inviting on it would send a second invitation to somebody who has one.
+    if (attempt.status() !== 401) {
+      throw new Error(
+        `signing in as ${person.email} answered ${String(attempt.status())}: ${await attempt.text()}`,
+      );
+    }
 
     await api.sendInvitation(board, stack.baseUrl, person.personId);
-    const { text } = await waitForMessage(person.email);
+    // The invitation itself, in either language the instance writes it in,
+    // rather than whatever reached this address first.
+    const { text } = await waitForMessage(person.email, {
+      subjectMatch: /Ett konto väntar på dig|You have an account waiting/,
+    });
     await api.acceptInvitation(visitor, stack.baseUrl, {
       token: activationTokenFrom(text),
       password: person.password,

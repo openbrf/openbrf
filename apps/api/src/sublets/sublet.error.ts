@@ -130,6 +130,11 @@ function statusFor(reason: SubletReason): number {
       // its first is not a period, and the applicant is told which end to move.
       return HttpStatus.UNPROCESSABLE_ENTITY;
 
+    case "period-too-far-ahead":
+      // Understood and refused on its merits: a period ending more than a few
+      // years out is a mistyped year, and the applicant is told to move its end.
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
     case "personal-identity-number":
       // Understood and refused on its merits: this text may not be stored as it
       // stands, and whoever wrote it is told which field to change.

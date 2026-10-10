@@ -50,6 +50,7 @@ const FEE_FAILURES: Readonly<
   "fee-already-recorded-later": "fees.errors.feeAlreadyRecordedLater",
   "fee-already-in-force": "fees.errors.feeAlreadyInForce",
   "fee-notified": "fees.errors.feeNotified",
+  "period-already-notified": "fees.errors.periodAlreadyNotified",
 
   "period-not-whole-months": "fees.errors.periodNotWholeMonths",
   "period-too-long": "fees.errors.periodTooLong",
@@ -59,6 +60,9 @@ const FEE_FAILURES: Readonly<
 
   "nothing-to-bill": "fees.errors.nothingToBill",
   "too-many-notices": "fees.errors.tooManyNotices",
+  "amount-too-large": "fees.errors.amountTooLarge",
+  "period-past-retention": "fees.errors.periodPastRetention",
+  "payment-reference-reused": "fees.errors.paymentReferenceReused",
 
   "invalid-body": "fees.errors.invalidBody",
 };

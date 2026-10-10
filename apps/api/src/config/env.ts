@@ -14,11 +14,19 @@ import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
 
 /**
  * Environment values are always strings, so booleans need an explicit
- * transform rather than z.boolean(). Anything other than "true" is false.
+ * transform rather than z.boolean().
+ *
+ * "true" or "false" in any case, and nothing else. Reading every other value as
+ * false turned `OPENBRF_ACTIONS_READ_ONLY=1` or `=yes` into an instance that
+ * still wrote, with no word at boot; naming the value instead costs an operator
+ * one edit. An empty value is an unset one (loadEnv drops it) and takes the
+ * default.
  */
 function envBoolean(defaultValue: boolean) {
   return z
     .string()
+    .toLowerCase()
+    .pipe(z.enum(["true", "false"], { error: 'must be "true" or "false"' }))
     .optional()
     .transform((value) =>
       value === undefined ? defaultValue : value === "true",
@@ -33,9 +41,9 @@ function envBoolean(defaultValue: boolean) {
  * beside another driver has to be told apart from one nobody set, so that it
  * can be named at boot. The reader supplies the default.
  *
- * Stricter than envBoolean, because the flags this serves decide whether a
- * connection is encrypted: "TRUE" or "1" read as false would leave it in the
- * clear without a word, so any other value is named at boot instead.
+ * Exact where envBoolean ignores case, because the flags this serves decide
+ * whether a connection is encrypted and were introduced that strict: any other
+ * value, "TRUE" included, is named at boot.
  */
 function optionalEnvBoolean() {
   return z

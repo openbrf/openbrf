@@ -3,7 +3,10 @@ import { formatDateColumn, localDayOf } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
-import { isValidPersonalIdentityNumber } from "../crypto/personal-data";
+import {
+  isValidPersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
+} from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type {
   BoardPositionType,
@@ -25,6 +28,7 @@ import {
   type MaskableField,
 } from "./address-book-view";
 import { lockPersonEmail } from "./person-email-lock";
+import { lockPersonIdentityNumber } from "./person-identity-number-lock";
 import {
   consentStateFor,
   type PublicationConsentView,
@@ -36,6 +40,7 @@ export class PersonError extends Error {
     readonly reason:
       | "person-not-found"
       | "invalid-personal-identity-number"
+      | "personal-identity-number-needs-century"
       | "invalid-email"
       | "field-not-masked"
       | "personal-identity-number",
@@ -603,6 +608,15 @@ export class PersonService {
           "invalid-personal-identity-number",
         );
       }
+      if (personalIdentityNumberNeedsCentury(input.personalIdentityNumber)) {
+        // Ten digits read as another person less than a year before or after
+        // today: which one was meant is not something to guess about a
+        // register entry.
+        throw new PersonError(
+          "Write that personal identity number with its century.",
+          "personal-identity-number-needs-century",
+        );
+      }
       identityNumber = await this.encryption.encrypt(
         "person.personalIdentityNumber",
         input.personalIdentityNumber,
@@ -616,6 +630,12 @@ export class PersonService {
       // person or finishes before it exists.
       if (email !== null && email.index !== null) {
         await lockPersonEmail(tx, email.index);
+      }
+      // And so an import chunk entering a row with the same number as a new
+      // person either sees this one or finishes before it exists. After the
+      // email key, the order person-identity-number-lock.ts gives.
+      if (identityNumber !== null && identityNumber.index !== null) {
+        await lockPersonIdentityNumber(tx, identityNumber.index);
       }
 
       const created = await tx.person.create({

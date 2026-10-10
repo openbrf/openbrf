@@ -501,6 +501,59 @@ describe("the sign-in secret in production", () => {
 });
 
 /**
+ * The instance-wide switches.
+ *
+ * Each is "true" or "false", in any case. A value that is neither stops the
+ * boot with the variable named: reading `OPENBRF_ACTIONS_READ_ONLY=1` as false
+ * would leave an operator watching a connected app on an instance that still
+ * writes.
+ */
+describe("the boolean switches", () => {
+  const SWITCHES = [
+    "OPENBRF_ACTIONS_READ_ONLY",
+    "OPENBRF_PLUGINS_ENABLED",
+    "OPENBRF_UNCURATED_PLUGINS_ENABLED",
+    "OPENBRF_PLUGINS_REINSTALL_ON_BOOT",
+    "OPENBRF_S3_FORCE_PATH_STYLE",
+  ] as const;
+
+  it.each(SWITCHES)("reads %s as true or false in any case", (name) => {
+    for (const [value, expected] of [
+      ["true", true],
+      ["TRUE", true],
+      ["True", true],
+      ["false", false],
+      ["FALSE", false],
+    ] as const) {
+      expect(loadEnv({ ...REQUIRED, [name]: value })[name]).toBe(expected);
+    }
+  });
+
+  it.each(SWITCHES)("refuses any other value of %s at boot", (name) => {
+    for (const value of ["1", "0", "yes", "on", "ture"]) {
+      expect(() => loadEnv({ ...REQUIRED, [name]: value })).toThrow(
+        `${name}: must be "true" or "false"`,
+      );
+    }
+  });
+
+  it("takes the default when a switch is unset or empty", () => {
+    for (const source of [
+      REQUIRED,
+      {
+        ...REQUIRED,
+        OPENBRF_ACTIONS_READ_ONLY: "",
+        OPENBRF_PLUGINS_ENABLED: "",
+      },
+    ]) {
+      const env = loadEnv(source);
+      expect(env.OPENBRF_ACTIONS_READ_ONLY).toBe(false);
+      expect(env.OPENBRF_PLUGINS_ENABLED).toBe(true);
+    }
+  });
+});
+
+/**
  * The proxies whose forwarded header is believed.
  *
  * A wrong entry is a boot error rather than an entry that silently matches
