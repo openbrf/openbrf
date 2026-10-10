@@ -448,8 +448,11 @@ compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
 unset RUNTIME_DB_PASSWORD
 ```
 
-Otherwise revoke the privileges the release took away, as the superuser,
+Otherwise revoke the privileges the script takes away, as the superuser,
 naming your role and the role that owns the schemas (`my_schema_owner` below).
+They are the statutory tables' `UPDATE` and `DELETE`, every write on the
+migration history, the job schema's version and its queue of index builds,
+`TRIGGER`, `REFERENCES` and `TRUNCATE`, and `CREATE` on both schemas.
 The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
 because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
@@ -459,7 +462,15 @@ script does. Without it, the application's maintenance fails.
 ```sh
 compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
+REVOKE UPDATE, DELETE ON public.member_register_entry FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.audit_log_entry FROM my_runtime_role;
+REVOKE DELETE ON public.transfer FROM my_runtime_role;
+REVOKE DELETE ON public.lien_note FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.termination FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.transfer_reversal FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.register_report_obligation FROM my_runtime_role;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
+REVOKE CREATE ON SCHEMA public FROM my_runtime_role, PUBLIC;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
