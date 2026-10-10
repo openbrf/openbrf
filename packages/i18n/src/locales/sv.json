@@ -2404,7 +2404,7 @@
       "decisionCreate": "En ny person",
       "decisionSkip": "Importeras inte",
       "undecided": "Vissa rader matchar fler än en person, eller en person vars uppgifter skiljer sig från filens. Välj vilken var och en är innan du importerar.",
-      "replanned": "Dina val ändrar vad andra rader i filen matchar, så förhandsgranskningen har gjorts om med dem. Kontrollera den och välj för de rader som nu behöver det.",
+      "replanned": "Dina val, eller en annan import som blivit klar sedan dess, har ändrat vad filens rader matchar, så förhandsgranskningen har gjorts om. Kontrollera den och välj för de rader som nu behöver det.",
       "apply": "Genomför importen",
       "applying": "Importerar",
       "back": "Ändra kolumnkopplingen",

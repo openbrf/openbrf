@@ -2807,6 +2807,16 @@ model ImportSession {
   /// decision cannot change what a row writes without the board seeing it.
   previewDigest String?
 
+  /// `ImportRevision.revision` as the preview read it, before it read anything
+  /// else. The apply refuses to start when another import has written since.
+  previewedRevision Int?
+
+  /// How many times the session has been previewed. Each preview advances it,
+  /// so it names one preview: the apply claims the session only while it still
+  /// holds the count the apply was checked against. `previewedAt` cannot do
+  /// that, since two previews can be recorded in the same millisecond.
+  previewCount Int @default(0)
+
   /// The board's answer for each ambiguous row: which person it is, that it is
   /// a new one, or that it is not imported.
   decisions Json?
@@ -2857,6 +2867,30 @@ model ImportSession {
 
   @@index([status, expiresAt])
   @@map("import_session")
+}
+
+/// How many import chunks have written to the register. Exactly one row per
+/// instance; the id is pinned to 1 by a check constraint in the migration that
+/// adds it.
+///
+/// A preview reads this before it reads the register, and the apply refuses to
+/// start when it has moved since: another import has written, and the preview
+/// shows what the file would have done to a register that is no longer there.
+///
+/// A counter rather than the time each import finished. A timestamp is written
+/// after the chunk it follows has committed and by whichever process ran it, so
+/// a preview taken in the same millisecond, or on a host whose clock runs
+/// ahead, would count as taken after the write it did not see. And it lives on
+/// the session, which the daily purge deletes. The counter is advanced in the
+/// same transaction as the chunk's writes, and only by a chunk that wrote
+/// something. A preview that read it after the chunk committed reads the
+/// chunk's writes too, since it reads the register afterwards, and one that
+/// read it before is refused whether its plan saw them or not.
+model ImportRevision {
+  id       Int @id @default(1)
+  revision Int @default(0)
+
+  @@map("import_revision")
 }
 
 // ---------------------------------------------------------------------------

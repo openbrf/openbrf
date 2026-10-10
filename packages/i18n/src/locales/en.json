@@ -2404,7 +2404,7 @@
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
       "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
-      "replanned": "Your choices change what other rows of the file match, so the preview has been taken again with them. Check it, and choose for any row that now needs it.",
+      "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",
       "apply": "Apply the import",
       "applying": "Importing",
       "back": "Change the mapping",
