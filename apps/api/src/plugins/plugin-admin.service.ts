@@ -714,8 +714,12 @@ export class PluginAdminService {
           targetId: entry.id,
           context: {
             version: entry.version,
-            permissions: entry.permissions,
-            personalData: entry.personalData,
+            permissions: echoed
+              ? (request.permissions ?? [])
+              : entry.permissions,
+            personalData: echoed
+              ? (request.personalData ?? [])
+              : entry.personalData,
           },
         },
         tx,
