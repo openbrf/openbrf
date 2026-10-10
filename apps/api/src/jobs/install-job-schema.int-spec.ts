@@ -246,6 +246,8 @@ const PLANTED_TABLE = `public.install_probe_${suffix.replace(/[^a-z0-9]/gi, "")}
 /** A role holding the runtime role's writes on pgboss.queue. */
 const WRITER_ROLE = `openbrf_queue_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
 const WRITER_PASSWORD = randomBytes(16).toString("hex");
+/** A role handed TRIGGER on a table it does not own. */
+const TRIGGER_ROLE = `openbrf_trigger_probe_${suffix.replace(/[^a-z0-9]/gi, "")}`;
 /** The trigger the install puts on pgboss.queue. */
 const QUEUE_GUARD = "refuse_own_job_table";
 /** PostgreSQL's check_violation, which that trigger raises. */
@@ -324,6 +326,7 @@ beforeAll(async () => {
   owner = new PrismaClient({
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });
+  await owner.$executeRawUnsafe(`CREATE ROLE ${TRIGGER_ROLE} NOLOGIN`);
   // The schema the cases below plant rows in, installed as a deploy would.
   const installed = install();
   expect(installed.status, installed.output).toBe(0);
@@ -341,6 +344,7 @@ afterAll(async () => {
   await owner.$executeRawUnsafe(`DROP TABLE IF EXISTS ${PLANTED_TABLE}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${PROBE_ROLE}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${WRITER_ROLE}`);
+  await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${TRIGGER_ROLE}`);
   await owner.$disconnect();
 });
 
@@ -464,6 +468,33 @@ describe("the job schema install", () => {
         await owner.$executeRawUnsafe(
           "DELETE FROM pgboss.queue WHERE name = $1",
           QUEUE,
+        );
+      }
+    },
+    90_000,
+  );
+
+  it.each([
+    { grantee: TRIGGER_ROLE, table: "pgboss.queue" },
+    { grantee: "PUBLIC", table: "public.member_register_entry" },
+  ])(
+    "stops while $grantee holds TRIGGER on $table",
+    async ({ grantee, table }) => {
+      // TRIGGER is all CREATE OR REPLACE TRIGGER asks for, so whoever holds it
+      // can replace the queue's guard, or the archive's, without owning the
+      // table. Nothing Open BRF runs grants it; a grant made by hand is what
+      // this stands for.
+      await owner.$executeRawUnsafe(`GRANT TRIGGER ON ${table} TO ${grantee}`);
+      try {
+        const refused = install();
+        expect(refused.status, refused.output).toBe(1);
+        expect(refused.output).toContain(
+          `${grantee} holds TRIGGER on ${table}.`,
+        );
+        expect(refused.output).toContain("So the install stops here.");
+      } finally {
+        await owner.$executeRawUnsafe(
+          `REVOKE TRIGGER ON ${table} FROM ${grantee}`,
         );
       }
     },

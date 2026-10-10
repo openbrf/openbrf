@@ -21,8 +21,9 @@ import { PrismaClient } from "../generated/prisma/client";
  * schemas - a table, a function or a type - or membership of the owning role,
  * which confers the same; membership of any role at all, whose privileges no
  * revoke on the runtime role reaches; CREATE in the application's schemas,
- * which is the way to ownership; and every privilege that script revokes on
- * the statutory archive, the migration history and the job schema's version.
+ * which is the way to ownership; TRIGGER on any of their tables, which is
+ * enough to replace a guard; and every privilege that script revokes on the
+ * statutory archive, the migration history and the job schema's version.
  */
 
 /** What a Prisma client, or a transaction on one, offers for a raw read. */
@@ -40,6 +41,7 @@ type RoleFacts = {
   ownsRoutineOrType: boolean;
   memberOf: string[];
   createsInSchema: boolean;
+  createsTriggers: boolean;
   rewritableArchive: string[];
   writesMigrationHistory: boolean;
   writesJobSchemaVersion: boolean;
@@ -153,6 +155,16 @@ SELECT
     WHERE n.nspname IN ('public', 'pgboss')
       AND has_schema_privilege(n.oid, 'CREATE')
   ) AS "createsInSchema",
+  -- CREATE OR REPLACE TRIGGER asks for TRIGGER on the table and not for its
+  -- ownership, so a role holding it can swap a guard for a trigger that does
+  -- nothing: on the statutory archive, or on pgboss.queue.
+  EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname IN ('public', 'pgboss')
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+      AND has_table_privilege(c.oid, 'TRIGGER')
+  ) AS "createsTriggers",
   ${REWRITABLE_ARCHIVE} AS "rewritableArchive",
   -- INSERT and UPDATE asked of the columns too, for the same reason.
   coalesce(has_table_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE, DELETE, TRUNCATE'), false)
@@ -214,6 +226,11 @@ export async function runtimeRoleProblems(
   if (facts.createsInSchema) {
     problems.push(
       `${facts.role} can create objects in the public or the pgboss schema`,
+    );
+  }
+  if (facts.createsTriggers) {
+    problems.push(
+      `${facts.role} can create triggers on tables in the public or the pgboss schema, and so replace the guards on them`,
     );
   }
   if (facts.rewritableArchive.length > 0) {
