@@ -478,7 +478,7 @@ describe("pluginPackageProblems", () => {
    * How many times longer the check takes on a bundle sixteen times the size:
    * about 16 when it reads in linear time and about 256 when in quadratic. The
    * two stay far apart on a loaded runner, where a pause can inflate the ratio
-   * severalfold. Each size counts its fastest of a few runs, so one pause does
+   * severalfold. Each size counts its fastest of several runs, so one pause does
    * not decide the answer.
    */
   function growth(hostile: (copies: number) => string, copies: number): number {
@@ -491,9 +491,9 @@ describe("pluginPackageProblems", () => {
       }
       return best;
     };
-    // The smaller bundle is cheap, so it gets more runs.
-    const small = fastest(hostile(copies), 7);
-    return fastest(hostile(copies * 16), 3) / small;
+    // Both sizes are cheap enough to run many times, the smaller one most.
+    const small = fastest(hostile(copies), 15);
+    return fastest(hostile(copies * 16), 7) / small;
   }
 
   /** Four times a linear reading's growth and a quarter of a quadratic one's. */
@@ -509,23 +509,24 @@ describe("pluginPackageProblems", () => {
   });
 
   // Each count makes the smaller bundle take a few milliseconds, long enough
-  // for its timing to be steady.
+  // for its timing to be steady, while the sixteen-fold bundle, read seven
+  // times, stays well inside the default test timeout on a loaded runner.
   it.each([
     [
       "nested calls",
-      25_000,
+      8_000,
       (copies: number) =>
         `${"require(".repeat(copies)}"x"${")".repeat(copies)}`,
     ],
-    ["line comments", 200_000, (copies: number) => "// c\n".repeat(copies)],
+    ["line comments", 80_000, (copies: number) => "// c\n".repeat(copies)],
     [
       "escaped names",
-      25_000,
+      8_000,
       (copies: number) => "requ\\u0069re;".repeat(copies),
     ],
     [
       "method parameter lists",
-      25_000,
+      3_000,
       (copies: number) => "({ require() /**/ {} });".repeat(copies),
     ],
   ])("reads a bundle of many %s in linear time", (_what, copies, hostile) => {
