@@ -224,9 +224,13 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     name: string,
     data: Data,
     runAt: Date,
+    options?: JobSendOptions,
   ): Promise<void> {
     await this.ensureQueue(name);
-    await this.boss.sendAfter(name, data, null, runAt);
+    if (options?.deadLetter !== undefined) {
+      await this.ensureQueue(options.deadLetter);
+    }
+    await this.boss.sendAfter(name, data, options ?? null, runAt);
   }
 
   /**

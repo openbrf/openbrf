@@ -143,7 +143,7 @@ const APPLY_JOB_OPTIONS = {
 /**
  * The chunk carries personal identity numbers while the register still holds
  * some under an older index. Not an `ImportError`: nothing about the file or
- * the board's decisions is wrong, and the queue's retry finds the reindex done.
+ * the board's decisions is wrong, and a later attempt finds the reindex done.
  */
 class ReindexPendingError extends Error {
   constructor() {
@@ -152,9 +152,27 @@ class ReindexPendingError extends Error {
   }
 }
 
+/** How long after finding the reindex unfinished the apply looks again. */
+const REINDEX_RECHECK_MS = 30_000;
+
+/**
+ * How long an apply waits for the reindex in all.
+ *
+ * A healthy reindex of the largest register is minutes of Argon2id. One still
+ * unfinished after this has stopped on something an operator has to look at,
+ * and its own log says what; the apply ends as interrupted rather than wait
+ * on it for ever.
+ */
+const REINDEX_WAIT_MS = 60 * 60_000;
+
 /** Payload of the apply job. */
 interface ImportApplyJob {
   sessionId: string;
+  /**
+   * When the apply first found the reindex unfinished, as an ISO timestamp.
+   * Carried from one deferred job to the next, so the wait is bounded in all.
+   */
+  awaitingReindexSince?: string;
   [key: string]: unknown;
 }
 
@@ -183,7 +201,10 @@ export class ImportApplyService implements OnModuleInit {
   /** Registers the workers. Public so an integration test can drive the job. */
   async startApplyWorker(): Promise<void> {
     await this.jobs.work<ImportApplyJob>(IMPORT_APPLY_QUEUE, async (data) => {
-      await this.runApply(data.sessionId);
+      await this.runApply(
+        data.sessionId,
+        readTimestamp(data.awaitingReindexSince),
+      );
     });
     await this.jobs.work<ImportApplyJob>(
       IMPORT_APPLY_DEAD_LETTER_QUEUE,
@@ -263,6 +284,13 @@ export class ImportApplyService implements OnModuleInit {
   /**
    * Walks the session's remaining chunks. Public so a test can drive it.
    *
+   * A chunk that has to wait for the reindex of personal identity numbers is
+   * neither kind of failure below: the apply is queued again for a little
+   * later, as a job of its own, and this one finishes. Left to the queue's
+   * retries, the wait would spend the attempts meant for a database that went
+   * away, and a reindex that outlasts them would end a sound import as
+   * interrupted. `awaitingReindexSince` is when the wait began, and bounds it.
+   *
    * Two kinds of failure end an apply, and they are answered differently:
    *
    * - **A refusal** carries an `ImportError`, whose vocabulary describes the
@@ -275,15 +303,23 @@ export class ImportApplyService implements OnModuleInit {
    *   chunk.
    *
    * Only the second kind can reach the dead letter, so the session a board
-   * reads as interrupted is one that really did run out of attempts.
+   * reads as interrupted is one that really did run out of attempts, or out
+   * of the time it waits for the reindex.
    */
-  async runApply(sessionId: string): Promise<void> {
+  async runApply(
+    sessionId: string,
+    awaitingReindexSince: Date | null = null,
+  ): Promise<void> {
     try {
       while (await this.applyNextChunk(sessionId)) {
         // Each chunk commits on its own; the loop simply carries on from the
         // cursor the last one left.
       }
     } catch (error) {
+      if (error instanceof ReindexPendingError) {
+        await this.awaitReindex(sessionId, awaitingReindexSince ?? new Date());
+        return;
+      }
       if (error instanceof ImportError) {
         // Recorded rather than retried, and recorded as what it was: the reason
         // is the same vocabulary a request answers with, so the screen names
@@ -589,6 +625,33 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Queues the apply again for once the reindex may have finished, or stops
+   * it when the reindex has had all the time it gets.
+   *
+   * The job queued keeps the apply's retries and dead letter, and has all of
+   * its attempts again: none of them was spent on the wait.
+   */
+  private async awaitReindex(sessionId: string, since: Date): Promise<void> {
+    if (Date.now() - since.getTime() >= REINDEX_WAIT_MS) {
+      if (await stopImport(this.prisma, sessionId, "apply-interrupted")) {
+        this.logger.error(
+          `Import session ${sessionId}: personal identity numbers were still awaiting the reindex after ${String(REINDEX_WAIT_MS / 60_000)} minutes; see the reindex's own log`,
+        );
+      }
+      return;
+    }
+    this.logger.log(
+      `Import session ${sessionId}: waiting for the reindex of personal identity numbers`,
+    );
+    await this.jobs.sendAt<ImportApplyJob>(
+      IMPORT_APPLY_QUEUE,
+      { sessionId, awaitingReindexSince: since.toISOString() },
+      new Date(Date.now() + REINDEX_RECHECK_MS),
+      APPLY_JOB_OPTIONS,
+    );
   }
 
   /**
@@ -1005,6 +1068,15 @@ function readRowPersons(value: unknown): Map<number, string> {
     }
   }
   return persons;
+}
+
+/** A timestamp from a job's payload, or null where there is none to read. */
+function readTimestamp(value: unknown): Date | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function readDecision(raw: unknown): ImportDecision | null {

@@ -14,6 +14,13 @@ held two persons for one human being.
 
 An import chunk that writes personal identity numbers now checks whether any
 number is still waiting for the reindex. While one is, the chunk rolls back and
-the job tries it again a few seconds later, as it does after a lost database
-connection. The reindex also takes the identity number lock for the index a
-number leaves and the one it gets, as every other writer of a number does.
+the apply is queued again for half a minute later. The wait does not spend the
+retries meant for a lost database connection, so a long reindex no longer ends
+the import as interrupted. An import that has waited an hour stops as
+interrupted, and the log says it was waiting for the reindex.
+
+The reindex also takes the identity number lock for the index a number leaves
+and the one it gets, as every other writer of a number does. It waits up to
+three minutes for that lock, longer than an import chunk holds it, and a run
+that does not finish is queued again a minute later rather than left until the
+next restart.

@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -24,7 +25,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { JobQueueService } from "../jobs/job-queue.service";
+import { JobQueueService } from "../jobs/job-queue.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
@@ -3214,17 +3215,18 @@ describe("a person entered while a chunk is applied", () => {
     ).run();
     await midRow;
 
+    const deferred = vi.spyOn(app.get(JobQueueService), "sendAt");
     try {
-      // Handed back to the queue, not stopped: the retry finds the reindex
-      // done.
-      await expect(applies.runApply(sessionId)).rejects.toMatchObject({
-        name: "ReindexPendingError",
-      });
+      // Queued again for later, not stopped: that run finds the reindex done.
+      await applies.runApply(sessionId);
+      expect(deferred).toHaveBeenCalledOnce();
+      expect((await readRun(cookie, sessionId)).status).toBe("APPLYING");
       expect(
         await prisma.person.count({ where: { firstName: "Omindex" } }),
       ).toBe(1);
     } finally {
       release();
+      deferred.mockRestore();
     }
     expect(await reindex).toBe(1);
 
@@ -3286,10 +3288,128 @@ describe("a person entered while a chunk is applied", () => {
       async () =>
         settled || (await advisoryLockCount(prisma, lockKey, false)) > 0n,
     );
+    // Held past the five seconds a transaction is given by default, which a
+    // chunk's own transaction can far outlast: the reindex waits, and then
+    // finishes in the same run.
+    await new Promise((resolve) => setTimeout(resolve, 6_000));
     expect(settled).toBe(false);
     release();
     await chunk;
     expect(await reindex).toBe(1);
+  }, 60_000);
+
+  it("waits for a reindex that outlasts the apply's retries", async () => {
+    // Each look that finds the reindex unfinished queues the apply again for
+    // later, as a job with all its retries, so a reindex that takes longer
+    // than they would last does not end the import as interrupted.
+    const cookie = await signIn(actors.board.email);
+    const personId = `imp-reindex-long-${suffix}`;
+    const [number = ""] = identityNumbers(1, "730913");
+    await createAwaitingReindex(personId, "Långindex", number);
+    const sessionId = await queued(cookie, "langindex.csv", [
+      [...HEADERS, "Personnummer"],
+      [
+        addressLabel,
+        "2115",
+        "Långindex",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2024-02-01",
+        number,
+      ],
+    ]);
+
+    const deferred = vi.spyOn(app.get(JobQueueService), "sendAt");
+    try {
+      let since: Date | null = null;
+      // More looks than the apply has retries.
+      for (let look = 0; look < 8; look++) {
+        await applies.runApply(sessionId, since);
+        expect((await readRun(cookie, sessionId)).status).toBe("APPLYING");
+        const [queue, data, runAt, options] = deferred.mock.lastCall ?? [];
+        expect(queue).toBe("import-apply");
+        expect(options).toMatchObject({
+          retryLimit: 5,
+          deadLetter: "import-apply-abandoned",
+        });
+        expect(runAt?.getTime()).toBeGreaterThan(Date.now());
+        const payload = data as {
+          sessionId: string;
+          awaitingReindexSince: string;
+        };
+        expect(payload.sessionId).toBe(sessionId);
+        since ??= new Date(payload.awaitingReindexSince);
+        // The wait began at the first look, whichever look this is.
+        expect(payload.awaitingReindexSince).toBe(since.toISOString());
+      }
+      expect(deferred).toHaveBeenCalledTimes(8);
+    } finally {
+      deferred.mockRestore();
+    }
+
+    await app.get(PersonReindexService).run();
+    await applies.runApply(sessionId);
+    expect((await readRun(cookie, sessionId)).status).toBe("APPLIED");
+    const persons = await prisma.person.findMany({
+      where: {
+        personalIdentityNumberIndex: await encryption.computeIndex(
+          "person.personalIdentityNumber",
+          number,
+        ),
+      },
+      select: { id: true },
+    });
+    expect(persons).toEqual([{ id: personId }]);
+  }, 60_000);
+
+  it("stops when the reindex has not finished within the hour", async () => {
+    // A reindex that has stopped on something is the operator's to look into,
+    // and its own log says what. The import does not wait on it for ever.
+    const cookie = await signIn(actors.board.email);
+    const personId = `imp-reindex-stuck-${suffix}`;
+    const [number = ""] = identityNumbers(1, "730914");
+    await createAwaitingReindex(personId, "Fastindex", number);
+    const sessionId = await queued(cookie, "fastindex.csv", [
+      [...HEADERS, "Personnummer"],
+      [
+        addressLabel,
+        "2115",
+        "Fastindex",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2024-02-01",
+        number,
+      ],
+    ]);
+
+    const deferred = vi.spyOn(app.get(JobQueueService), "sendAt");
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    try {
+      await applies.runApply(sessionId, new Date(Date.now() - 61 * 60_000));
+      expect(deferred).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("still awaiting the reindex"),
+      );
+    } finally {
+      deferred.mockRestore();
+      logged.mockRestore();
+      await app.get(PersonReindexService).run();
+    }
+
+    const run = await readRun(cookie, sessionId);
+    expect(run).toMatchObject({
+      status: "FAILED",
+      failureReason: "apply-interrupted",
+    });
+    expect(
+      await prisma.person.count({ where: { firstName: "Fastindex" } }),
+    ).toBe(1);
   }, 60_000);
 
   it("stops when somebody of the row's name moves into its apartment", async () => {

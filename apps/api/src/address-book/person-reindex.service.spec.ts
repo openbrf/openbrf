@@ -155,3 +155,56 @@ describe("the century a version-1 number is given", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe("a run that does not finish", () => {
+  it("queues the next one for a minute later", async () => {
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const sendAt = vi.fn(() => Promise.resolve());
+    const prisma = {
+      person: {
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "person",
+              phoneCipher: null,
+              personalIdentityNumberCipher: null,
+              personalIdentityNumberIndex: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          ]),
+      },
+      // The lock wait run out, as a chunk holding the number for longer
+      // would make it.
+      $transaction: () =>
+        Promise.reject(
+          Object.assign(new Error("canceling statement due to lock timeout"), {
+            code: "55P03",
+          }),
+        ),
+    };
+    const before = Date.now();
+
+    await new PersonReindexService(
+      { NODE_ENV: "test" } as Env,
+      prisma as unknown as PrismaService,
+      encryption as unknown as FieldEncryptionService,
+      { sendAt } as unknown as JobQueueService,
+    ).runJob();
+
+    expect(sendAt).toHaveBeenCalledOnce();
+    const [queue, , runAt] = sendAt.mock.lastCall as unknown as [
+      string,
+      object,
+      Date,
+    ];
+    expect(queue).toBe("person-blind-index-reindex");
+    expect(runAt.getTime()).toBeGreaterThanOrEqual(before + 60_000);
+    // Named by its class and code, and by nothing it was holding.
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("Error (55P03)"),
+    );
+  });
+});

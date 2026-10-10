@@ -14,6 +14,7 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { failureName } from "../logging/failure";
 import { lockPersonIdentityNumbersInOrder } from "./person-identity-number-lock";
 
 export const PERSON_REINDEX_QUEUE = "person-blind-index-reindex";
@@ -34,6 +35,18 @@ interface StoredPerson {
  * number.
  */
 const BATCH = 100;
+
+/**
+ * How long a row's write waits for the identity number locks.
+ *
+ * Longer than anybody else holds one: an import chunk holds its keys for its
+ * whole transaction, which may run two minutes. A wait that still runs out
+ * ends the run, and the job queues another (runJob).
+ */
+const ROW_LOCK_WAIT_MS = 180_000;
+
+/** How long after a run that did not finish the next one starts. */
+const RETRY_AFTER_MS = 60_000;
 
 /**
  * Brings every person's blind indexes up to the current normalisation rules.
@@ -88,9 +101,35 @@ export class PersonReindexService implements OnModuleInit {
       return;
     }
     await this.jobs.work(PERSON_REINDEX_QUEUE, async () => {
-      await this.run();
+      await this.runJob();
     });
     await this.jobs.send(PERSON_REINDEX_QUEUE, {});
+  }
+
+  /**
+   * The job: a run, and another queued for later when this one does not
+   * finish. Public so a test can drive it.
+   *
+   * Not left to the queue's retries, which are few and soon spent, and
+   * nothing else would queue the run again before the next boot. Until it
+   * finishes, every import that writes personal identity numbers waits for it.
+   * Rows written before the failure stay written, so the next run carries on
+   * from the rest.
+   */
+  async runJob(): Promise<void> {
+    try {
+      await this.run();
+    } catch (error) {
+      // Named by its class only: the run holds personal identity numbers.
+      this.logger.error(
+        `Reindex stopped with ${failureName(error)}; trying again in ${String(RETRY_AFTER_MS / 1000)} seconds`,
+      );
+      await this.jobs.sendAt(
+        PERSON_REINDEX_QUEUE,
+        {},
+        new Date(Date.now() + RETRY_AFTER_MS),
+      );
+    }
   }
 
   /** Reindexes every person below the current version. Answers how many. */
@@ -120,33 +159,42 @@ export class PersonReindexService implements OnModuleInit {
           "person.phone",
           person.phoneCipher,
         );
-        const { count } = await this.prisma.$transaction(async (tx) => {
-          // The number's key under the index it leaves and under the one it
-          // gets, as every writer of an identity number takes it. Both, in
-          // the order every caller sorts them in: an import chunk holding the
-          // new index's key may also hold the old one's for a number of its
-          // own.
-          await lockPersonIdentityNumbersInOrder(
-            tx,
-            [
-              person.personalIdentityNumberIndex,
-              identityNumber?.index ?? null,
-            ].filter((index) => index !== null),
-          );
-          return tx.person.updateMany({
-            where: {
-              id: person.id,
-              phoneCipher: person.phoneCipher,
-              personalIdentityNumberCipher: person.personalIdentityNumberCipher,
-            },
-            data: {
-              phoneIndex,
-              personalIdentityNumberCipher: identityNumber?.cipher ?? null,
-              personalIdentityNumberIndex: identityNumber?.index ?? null,
-              blindIndexVersion: NORMALIZATION_VERSION,
-            },
-          });
-        });
+        const { count } = await this.prisma.$transaction(
+          async (tx) => {
+            // The wait is bounded by the server, so a lock held past it ends
+            // the wait itself and not only the client's patience with it.
+            await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${String(ROW_LOCK_WAIT_MS)}ms`}, true)`;
+            // The number's key under the index it leaves and under the one it
+            // gets, as every writer of an identity number takes it. Both, in
+            // the order every caller sorts them in: an import chunk holding
+            // the new index's key may also hold the old one's for a number of
+            // its own.
+            await lockPersonIdentityNumbersInOrder(
+              tx,
+              [
+                person.personalIdentityNumberIndex,
+                identityNumber?.index ?? null,
+              ].filter((index) => index !== null),
+            );
+            return tx.person.updateMany({
+              where: {
+                id: person.id,
+                phoneCipher: person.phoneCipher,
+                personalIdentityNumberCipher:
+                  person.personalIdentityNumberCipher,
+              },
+              data: {
+                phoneIndex,
+                personalIdentityNumberCipher: identityNumber?.cipher ?? null,
+                personalIdentityNumberIndex: identityNumber?.index ?? null,
+                blindIndexVersion: NORMALIZATION_VERSION,
+              },
+            });
+          },
+          // Past the lock wait, so the server's answer arrives before the
+          // client gives up on the transaction.
+          { timeout: ROW_LOCK_WAIT_MS + 10_000, maxWait: 20_000 },
+        );
         reindexed += count;
       }
     }
