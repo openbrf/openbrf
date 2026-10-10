@@ -1,5 +1,5 @@
 ---
-"@openbrf/api": patch
+"@openbrf/api": minor
 ---
 
 Take TRIGGER, REFERENCES and TRUNCATE away from the application's database
@@ -18,11 +18,52 @@ do nothing.
   privileges for tables created later. It then checks that none is left, and
   stops if a grant another role made has survived the owner's revoke.
 - The job schema install stops while any role other than a table's owner, or
-  `PUBLIC`, holds TRIGGER on a table in either schema. It does not revoke the
-  grant itself, because a role that held it may already have replaced a
-  trigger, and a person has to check that.
+  `PUBLIC`, holds TRIGGER on a table in either schema. It looks before pg-boss
+  migrates and again after, so a table pg-boss has just created, which takes
+  its grants from the owner's default privileges, is checked too. It does not
+  revoke the grant itself, because a role that held it may already have
+  replaced a trigger, and a person has to check that.
 - A production start refuses an application role that holds TRIGGER on any of
   those tables.
 
-Nothing Open BRF grants holds these privileges, so a deployment that runs only
-the bundled steps sees no change.
+**Upgrade note:** nothing Open BRF grants holds these privileges, so a
+deployment that runs only the bundled steps needs nothing. One where TRIGGER
+was granted by hand or by another tool stops at the job schema install, or at
+the application's start, until the grant is gone. Before upgrading, as the
+schema owner:
+
+1. List who holds TRIGGER on a table they do not own:
+
+   ```sql
+   SELECT n.nspname, c.relname,
+          CASE WHEN g.grantee = 0 THEN 'PUBLIC'
+               ELSE pg_get_userbyid(g.grantee) END AS grantee
+   FROM pg_class c
+   JOIN pg_namespace n ON n.oid = c.relnamespace
+   CROSS JOIN LATERAL aclexplode(c.relacl) AS g
+   WHERE n.nspname IN ('public', 'pgboss')
+     AND g.grantee <> c.relowner
+     AND g.privilege_type = 'TRIGGER';
+   ```
+
+   and the default privileges that would grant it to tables created later,
+   with `\ddp` in psql.
+
+2. If any row comes back, check that the triggers on those tables are still
+   the ones the migrations and the job schema install created, since whoever
+   held TRIGGER could have replaced one:
+
+   ```sql
+   SELECT tgrelid::regclass, tgname, pg_get_triggerdef(oid)
+   FROM pg_trigger
+   WHERE NOT tgisinternal;
+   ```
+
+3. Then, as the role that granted it, revoke it from each role listed, and
+   from each default privilege that grants it, adding `FOR ROLE` and
+   `IN SCHEMA` as `\ddp` shows them:
+
+   ```sql
+   REVOKE TRIGGER ON ALL TABLES IN SCHEMA public, pgboss FROM some_role;
+   ALTER DEFAULT PRIVILEGES REVOKE TRIGGER ON TABLES FROM some_role;
+   ```

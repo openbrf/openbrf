@@ -161,7 +161,9 @@ changes nothing but the owner's password, which it sets from
    while a role other than a table's owner, or every role through `PUBLIC`,
    holds `TRIGGER` on a table in `public` or `pgboss`: that privilege is enough
    to replace a trigger on a table without owning it, the guards on the
-   statutory archive and on `pgboss.queue` among them.
+   statutory archive and on `pgboss.queue` among them. It looks again once
+   pg-boss has created its tables, which take their grants from the owner's
+   default privileges.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 

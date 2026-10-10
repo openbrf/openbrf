@@ -365,6 +365,27 @@ describe("install-job-schema", () => {
     });
   }, 60_000);
 
+  it("stops a fresh install whose tables give another role TRIGGER by default", async () => {
+    const databaseUrl = await scratchDatabase("job_default_trigger");
+    // A default privilege of the owner's, which every table pg-boss creates
+    // takes on. No table holds it before the install, so only a look after
+    // pg-boss has created them finds it.
+    await withClient(databaseUrl, (client) =>
+      client.query(
+        `alter default privileges grant trigger on tables to ${TRIGGER_ROLE}`,
+      ),
+    );
+
+    const run = await runInstaller(databaseUrl);
+
+    expect(run.code, run.output).toBe(1);
+    expect(run.output).toMatch(
+      new RegExp(`${TRIGGER_ROLE} holds TRIGGER on [^\\n]*pgboss\\.queue`),
+    );
+    expect(run.output).toContain("So the install stops here.");
+    expect(run.output).not.toContain('Job schema "pgboss" is installed');
+  }, 60_000);
+
   it("finishes every index build an upgrade queues before it exits", async () => {
     const databaseUrl = await scratchDatabase("job_upgrade");
     const tables = await schemaBeforeUpgrade(databaseUrl, [

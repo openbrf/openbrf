@@ -194,7 +194,9 @@ async function refuseRowsTheOwnerWouldRun(db) {
  * grant found here was made by hand or by another tool. The install refuses
  * rather than revoking it, because whoever held it may have replaced a trigger
  * already, and only a person can tell. Run first, before guardQueueTable
- * relies on the trigger it creates.
+ * relies on the trigger it creates, and again once pg-boss has started: a
+ * table it creates then, every table on a fresh install, takes its grants from
+ * the owner's default privileges, which the first run cannot see.
  */
 async function refuseForeignTriggerGrants(db) {
   const { rows } = await db.executeSql(
@@ -223,7 +225,10 @@ async function refuseForeignTriggerGrants(db) {
       "them. So the install stops here. Check that the triggers on those " +
       "tables are still the ones the migrations and this install created, " +
       "then, as the role that granted it, REVOKE TRIGGER ON ALL TABLES IN " +
-      "SCHEMA public, pgboss FROM each role named above, and deploy again.",
+      "SCHEMA public, pgboss FROM each role named above, and deploy again. " +
+      "A grant that came from default privileges (\\ddp in psql) has to be " +
+      "revoked there too, with ALTER DEFAULT PRIVILEGES, or the next table " +
+      "created in those schemas gets it again.",
   );
   process.exit(1);
 }
@@ -263,6 +268,7 @@ async function finishIndexBuilds() {
 
 await boss.start();
 try {
+  await refuseForeignTriggerGrants(db);
   await guardQueueTable(db);
   await finishIndexBuilds();
   console.log('Job schema "pgboss" is installed and up to date.');
