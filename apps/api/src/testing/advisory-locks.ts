@@ -48,16 +48,38 @@ export async function advisoryLockCount(
  * stays up. Chosen by the granted lock rather than by application name, so it
  * ends that holder and no other session that happens to share the name.
  */
-export async function terminateAdvisoryLockHolder(
+export function terminateAdvisoryLockHolder(
   prisma: PrismaService,
   key: string,
+): Promise<number> {
+  return terminateAdvisoryLockSessions(prisma, key, true);
+}
+
+/**
+ * Ends the sessions waiting for an advisory lock key, in this database only,
+ * and says how many it ended.
+ *
+ * The other half of {@link terminateAdvisoryLockHolder}: for tests of what a
+ * waiter does when its session is lost before it has the lock.
+ */
+export function terminateAdvisoryLockWaiters(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return terminateAdvisoryLockSessions(prisma, key, false);
+}
+
+async function terminateAdvisoryLockSessions(
+  prisma: PrismaService,
+  key: string,
+  granted: boolean,
 ): Promise<number> {
   const rows = await prisma.$queryRaw<{ terminated: boolean }[]>`
     SELECT pg_terminate_backend(pid) AS terminated
     FROM pg_locks
     WHERE locktype = 'advisory'
       AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-      AND granted
+      AND granted = ${granted}
       AND objsubid = 1
       AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
       AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;

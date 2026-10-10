@@ -1,5 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import { Client } from "pg";
+import { Client, DatabaseError } from "pg";
 
 import { applicationDatabaseUrl, type Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
@@ -156,10 +156,13 @@ export class PackageBusyError extends DomainError {
 }
 
 /**
- * The lock's session ended while the work under it was still running.
+ * The lock's session ended while the work under it was still running, or
+ * while it was still waiting for the lock.
  *
  * Raised by the work itself, at the first write it would have made after the
  * loss, so what it wrote before is complete and nothing after it was written.
+ * Raised by the lock when the session ends while it waits, before the work
+ * has begun.
  * A server error rather than a refusal: the session ended because the database
  * or the network failed it, and that is worth a line in the log.
  */
@@ -181,6 +184,22 @@ export const PACKAGE_LOCK_APPLICATION_NAME = "openbrf-package-lock";
 
 /** Postgres's SQLSTATE for a lock wait cut short by `lock_timeout`. */
 const LOCK_NOT_AVAILABLE = "55P03";
+
+/**
+ * Whether a query failed because the server ended its session.
+ *
+ * Class 08 is a connection exception, and 57P01 to 57P05 are the server
+ * ending the session itself: `pg_terminate_backend`, a shutdown or crash, the
+ * database dropped, an idle timeout. Not 57014, a cancelled query, after
+ * which the session goes on. Any other failure is an error in the query or
+ * the database's setup and is left to answer as one.
+ */
+function endedTheSession(cause: unknown): boolean {
+  if (!(cause instanceof DatabaseError) || cause.code === undefined) {
+    return false;
+  }
+  return cause.code.startsWith("08") || /^57P0[1-5]$/u.test(cause.code);
+}
 
 /**
  * Runs install and uninstall work while holding the lock for its package.
@@ -319,10 +338,10 @@ export class PackageLock {
       if (remaining < 1) {
         throw this.waitedTooLong(kind, id);
       }
-      await client.query("SELECT set_config('lock_timeout', $1, false)", [
-        String(remaining),
-      ]);
       try {
+        await client.query("SELECT set_config('lock_timeout', $1, false)", [
+          String(remaining),
+        ]);
         await client.query("SELECT pg_advisory_lock(hashtext($1))", [
           `package-install:${kind}:${id}`,
         ]);
@@ -331,8 +350,11 @@ export class PackageLock {
           throw this.waitedTooLong(kind, id, cause);
         }
         // The session ended while it waited, which is the same failure as
-        // ending while it held.
-        if (lost.signal.aborted) {
+        // ending while it held. A terminated backend says so in an error
+        // that rejects the query before the socket closes, so the signal is
+        // not aborted yet and the error's code is what tells.
+        if (lost.signal.aborted || endedTheSession(cause)) {
+          onLost(cause);
           throw lost.signal.reason;
         }
         throw cause;

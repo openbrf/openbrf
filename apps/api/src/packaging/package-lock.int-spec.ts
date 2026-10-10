@@ -19,6 +19,7 @@ import { PrismaClient } from "../generated/prisma/client";
 import {
   advisoryLockCount,
   terminateAdvisoryLockHolder,
+  terminateAdvisoryLockWaiters,
   waitFor,
 } from "../testing/advisory-locks";
 import { domainResponse } from "../testing/domain-response";
@@ -384,6 +385,47 @@ describe("PackageLock", () => {
     await second;
     expect(secondEntered).toBe(true);
     expect(written).toEqual([]);
+  });
+
+  /*
+   * The same loss a step earlier: the session ends while it waits for another
+   * process's lock. The server's error rejects the wait before the socket
+   * closes, so it has to be told apart by its code rather than by the signal.
+   */
+  it("answers a session lost while waiting as a lost lock, and never runs the work", async () => {
+    const other = hold("plugin", "lost-waiting-id", lockWith());
+    await waitFor(
+      async () => (await locks("plugin", "lost-waiting-id", true)) === 1n,
+    );
+
+    let entered = false;
+    const waiting = lock("plugin", "lost-waiting-id", async () => {
+      entered = true;
+    }).catch((caught: unknown) => caught);
+    await waitFor(
+      async () => (await locks("plugin", "lost-waiting-id", false)) === 1n,
+    );
+
+    expect(
+      await terminateAdvisoryLockWaiters(
+        prisma as unknown as PrismaService,
+        `package-install:plugin:${idOf("lost-waiting-id")}`,
+      ),
+    ).toBe(1);
+    const error = await waiting;
+
+    expect(entered).toBe(false);
+    expect(error).toBeInstanceOf(PackageLockLostError);
+    const { status, body } = domainResponse(error as PackageLockLostError);
+    expect(status).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(body["reason"]).toBe("package-lock-lost");
+    // The other process's lock is untouched.
+    expect(await locks("plugin", "lost-waiting-id", true)).toBe(1n);
+
+    other.release();
+    await other.held;
+    // Nothing of the lost wait is left for the next one to queue behind.
+    await lock("plugin", "lost-waiting-id", async () => undefined);
   });
 
   /*
