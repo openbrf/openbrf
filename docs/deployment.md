@@ -319,11 +319,11 @@ the database rather than by application code alone. A table's owner can run
 application must not be the owner. And migrations need to own the tables and
 nothing more, so the role that runs them must not be a superuser.
 
-| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                 | Password              | Given to                  |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
-| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                  | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
-| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                    | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
-| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                             | Password              | Given to                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- | ------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                                              | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                                                | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, not even a temporary table, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
 
 Neither the owner's credentials nor the superuser's reach the application's
 container. No password is passed as a process argument - `/proc/<pid>/cmdline`
@@ -465,6 +465,7 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
 REVOKE TRIGGER, REFERENCES, TRUNCATE ON ALL TABLES IN SCHEMA public, pgboss
   FROM my_runtime_role, PUBLIC;
+REVOKE TEMPORARY ON DATABASE openbrf FROM my_runtime_role, PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner IN SCHEMA public, pgboss
   REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner
@@ -632,6 +633,13 @@ role holds a grant of its own, and the owner owns the database. Any other role
 that connects - a monitoring or a backup user - needs
 `GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner.
 
+The same deploy revokes `TEMPORARY` on the database from the runtime role and
+from every role, which a new database also grants to all. A temporary table
+takes precedence over a table of the same name for the session that made it,
+and nothing the application runs needs one. The owner keeps it. Another role
+that needs one is granted it by the owner:
+`GRANT TEMPORARY ON DATABASE <database> TO <role>`.
+
 That holds for the databases of instances that have started. A database no
 instance has hardened yet, the server's own `postgres`, or another
 application's database stays as its owner left it, open to every role on the
@@ -642,8 +650,9 @@ databases of other applications yourself.
 
 An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
 and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
-it. Its owner runs `REVOKE CONNECT ON DATABASE <database> FROM PUBLIC` once, and
-grants `CONNECT` to the runtime role and to any other role that connects.
+it. Its owner runs `REVOKE CONNECT, TEMPORARY ON DATABASE <database> FROM PUBLIC`
+once, revokes `TEMPORARY` from the runtime role too, and grants `CONNECT` to the
+runtime role and to any other role that connects.
 
 The names of every role and every database on the server remain visible to all
 of them whatever the grants, so neither should carry anything an association

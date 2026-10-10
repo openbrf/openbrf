@@ -257,6 +257,16 @@ test("the application's role creates nothing, in either schema", async () => {
   ).toBe(PERMISSION_DENIED);
 });
 
+test("nor a temporary table, which would hide a real one of the same name", async () => {
+  // A session's temporary schema comes first on its search_path, so a
+  // temporary "transfer" would be what an unqualified "transfer" means for the
+  // rest of that session.
+  expect(
+    await sqlStateOf(`CREATE TEMPORARY TABLE ${SCRATCH_TABLE} (id int)`),
+    "openbrf_app may not create temporary tables",
+  ).toBe(PERMISSION_DENIED);
+});
+
 test("nor write the record of which migrations have run", async () => {
   // The owner applies whatever the migration history says is missing, and the
   // job schema install whatever pgboss.version says is behind. A row the
