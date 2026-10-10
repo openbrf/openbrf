@@ -297,6 +297,29 @@ WHERE d.datname = current_database()
     )
   )
 \gexec
+
+-- A new database also grants TEMPORARY to PUBLIC, and nothing the application
+-- runs creates a temporary table. What one would give it is a table that hides
+-- a real one: a session's temporary schema comes first on its search_path, so
+-- a temporary "transfer" is what an unqualified "transfer" means in that
+-- session, to any function that does not pin its own path. The guard
+-- functions pin theirs (migration 20261010100000), and this takes the means
+-- away as well. Revoked from PUBLIC because the runtime role is part of it,
+-- and a role-specific revoke would leave PUBLIC's grant standing; the owner
+-- keeps it by owning the database.
+SELECT format('REVOKE TEMPORARY ON DATABASE %I FROM %I, PUBLIC',
+  current_database(), :'app_role')
+\gexec
+
+-- Checked afterwards for the same reason as CONNECT: a grant another role made
+-- survives the owner's REVOKE with no more than a warning. Asked of the role
+-- itself, so a grant to PUBLIC counts too.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('Role %I can still create temporary tables in database %I, through a grant made by a role other than the owner. Revoke TEMPORARY from it and from PUBLIC as the role that granted it, then start again.',
+    :'app_role', current_database()))
+WHERE has_database_privilege(:'app_role', current_database(), 'TEMPORARY')
+\gexec
+
 GRANT USAGE ON SCHEMA public TO :"app_role";
 
 -- Ordinary service-tier access.

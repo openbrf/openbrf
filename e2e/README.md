@@ -151,10 +151,10 @@ Some specs are not numbered against a criterion.
 migrate service created and constrained with
 `apps/api/prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
 the queue works (a queue is created, a job is sent and a worker receives it)
-while the role creates nothing in either schema, the statutory archive still
-refuses an `UPDATE`, and neither the migration history nor the job schema's
-version can be written. It reads the database on the port
-`docker-compose.e2e.yml` publishes, so it needs no browser.
+while the role creates nothing in either schema, not even a temporary table,
+the statutory archive still refuses an `UPDATE`, and neither the migration
+history nor the job schema's version can be written. It reads the database on
+the port `docker-compose.e2e.yml` publishes, so it needs no browser.
 
 Its last tests look at the application's container. One reads the environment
 of every process in it - the init process, the server and the probe itself -
