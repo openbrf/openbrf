@@ -658,12 +658,16 @@ export class PluginAdminService {
      * is already committed.
      */
     if (agreement !== undefined) {
+      // The facts are read before the check rather than as an argument after
+      // it: a lock lost while they are read would otherwise reach the write.
+      // The record reads again before it writes, so it checks as well.
+      const facts = await this.facts.read();
       lockLost.throwIfAborted();
       await this.processors.record(
         pluginProcessorKey(entry.id),
         { ...agreement, actorPersonId, channel },
-        await this.facts.read(),
-        { onlyIfUnrecorded: true },
+        facts,
+        { onlyIfUnrecorded: true, lockLost },
       );
     }
 

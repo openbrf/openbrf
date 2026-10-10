@@ -607,7 +607,7 @@ export class ThemeService {
         cause instanceof Error ? cause.stack : undefined,
       );
     }
-    await this.recomputeResolvedTokens();
+    await this.recomputeResolvedTokens(lockLost);
 
     this.logger.log(`Uninstalled theme ${themeId}`);
     return this.list();
@@ -620,8 +620,14 @@ export class ThemeService {
    * ancestors, so replacing one theme changes what its descendants render, and
    * leaving the stored sets stale would make the interface show values the
    * install lint never measured.
+   *
+   * Run under the package lock of the theme that was installed or removed,
+   * and checked against it before every write. The values written are
+   * computed from the rows read at the start, so once the lock is lost
+   * another install of that id may have written newer ones, and a write from
+   * the older read would pair its declared tokens with stale resolved ones.
    */
-  async recomputeResolvedTokens(): Promise<void> {
+  async recomputeResolvedTokens(lockLost: AbortSignal): Promise<void> {
     const rows = await this.installedRows();
     const lookup = ThemeService.lookupOver(rows);
 
@@ -634,6 +640,7 @@ export class ThemeService {
         continue;
       }
       const resolved = resolveChainTokens(chain.chain);
+      lockLost.throwIfAborted();
       await this.prisma.installedTheme.update({
         where: { id: row.id },
         data: {

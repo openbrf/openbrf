@@ -52,9 +52,10 @@ function stateLabel(plugin: PluginSummary): TranslationKey {
 /**
  * The refusals a removal answers with that have a sentence of their own.
  *
- * One so far: another change to the same plugin was still running. The general
- * sentence says to try again as well, but not why, and a board told nothing
- * about the cause would read a second refusal as a fault.
+ * One so far: another change to the same plugin was still running, or the
+ * instance was already running as many plugin and theme changes as it admits.
+ * The general sentence says to try again as well, but not why, and a board
+ * told nothing about the cause would read a second refusal as a fault.
  */
 const REMOVE_ERRORS: Readonly<Record<string, TranslationKey>> = {
   "package-busy": "plugins.installed.removeBusy",

@@ -363,7 +363,9 @@ export class ThemeInstallService {
    * Run under the package lock, and checked against it before the files are
    * staged and again just before they are swapped in. A lock lost on the way
    * rolls the row back and leaves the files where they were, so an uninstall
-   * or another install that took the id in the meantime is not undone.
+   * or another install that took the id in the meantime is not undone. Lost
+   * after the swap, it stops the recomputation of the resolved tokens before
+   * its next write, for the reason that method gives.
    */
   private async admit(
     manifest: ThemeManifest,
@@ -484,7 +486,7 @@ export class ThemeInstallService {
     }
 
     // A reinstall changes what this theme's descendants render.
-    await this.themes.recomputeResolvedTokens();
+    await this.themes.recomputeResolvedTokens(lockLost);
 
     this.logger.log(
       `Installed theme ${manifest.name}@${manifest.version} from ${provenance.sourceUrl}`,

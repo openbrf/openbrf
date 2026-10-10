@@ -71,8 +71,9 @@ const RESTART_POLL_ATTEMPTS = 30;
  * wrong for the first two, where reading the catalog again changes nothing. One
  * names the plugin that has to be removed first, the other says the id is not
  * this plugin's to take; a third says the curator has withdrawn the entry; a
- * fourth says another change to the same plugin was still running, and the
- * same request is worth sending again in a moment. The board's next act is
+ * fourth says another change to the same plugin, or to other plugins and
+ * themes, was still running, and the same request is worth sending again in a
+ * moment. The board's next act is
  * different in each case, so the sentence has to be.
  *
  * The answer about where the plugin sends personal data is refused in the

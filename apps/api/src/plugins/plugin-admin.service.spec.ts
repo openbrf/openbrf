@@ -69,6 +69,8 @@ interface Options {
   pluginsEnabled?: boolean;
   /** What the package lock hands the work; a lock still held unless given. */
   lockLost?: AbortSignal;
+  /** Runs while the configuration the recipients are read from is pending. */
+  whileReadingFacts?: () => void;
 }
 
 function build(options: Options = {}) {
@@ -146,7 +148,12 @@ function build(options: Options = {}) {
       forPlugins: async () => new Map(options.recipients ?? []),
     } as never,
     { seedPlugin, endPlugin: vi.fn(async () => undefined) } as never,
-    { read: async () => FACTS } as never,
+    {
+      read: async () => {
+        options.whileReadingFacts?.();
+        return FACTS;
+      },
+    } as never,
     // The association's language for the note the instance writes on a plugin
     // that hands nothing to anybody.
     prisma as never,
@@ -763,6 +770,7 @@ describe("what the consent step records about the recipient", () => {
 
     expect(recordProcessor.mock.calls[0]?.[3]).toEqual({
       onlyIfUnrecorded: true,
+      lockLost: expect.any(AbortSignal),
     });
   });
 });
@@ -1272,6 +1280,37 @@ describe("an operation whose package lock was lost", () => {
     expect(built.consent).not.toHaveBeenCalled();
     expect(built.seedPlugin).not.toHaveBeenCalled();
     expect(built.record).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The recipient is classified after a read of the instance's configuration,
+   * and the lock can be lost while that read is pending. The check comes after
+   * it, so the classification is not written either.
+   */
+  it("records no recipient when the lock is lost while the facts are read", async () => {
+    const lock = new AbortController();
+    const built = build({
+      lockLost: lock.signal,
+      whileReadingFacts: () => {
+        lock.abort(new PackageLockLostError("plugin", "occupancy"));
+      },
+    });
+
+    await expect(
+      built.service.install(
+        {
+          id: "occupancy",
+          permissions: ["mail:send", "addressBook:read"],
+          personalData: ["apartment", "name"],
+          processorAgreement: { sendsPersonalDataOutside: false },
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(built.consent).toHaveBeenCalledOnce();
+    expect(built.recordProcessor).not.toHaveBeenCalled();
+    expect(built.seedPlugin).not.toHaveBeenCalled();
   });
 
   it("removes nothing", async () => {

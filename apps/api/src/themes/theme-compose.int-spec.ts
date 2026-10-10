@@ -10,9 +10,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
-import { PrismaClient } from "../generated/prisma/client";
+import { type InstalledTheme, PrismaClient } from "../generated/prisma/client";
 import { CatalogClient } from "../packaging/catalog.client";
-import { PackageLock } from "../packaging/package-lock";
+import {
+  PackageLock,
+  PackageLockLostError,
+  type PackageKind,
+} from "../packaging/package-lock";
+import {
+  terminateAdvisoryLockHolder,
+  waitFor,
+} from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   ThemeInstallError,
@@ -46,8 +54,13 @@ const COMPOSED = "composed-theme";
 const CHILD = "composed-child-theme";
 const ILLEGIBLE = "illegible-composed-theme";
 const FROM_CATALOG = "catalog-installed-theme";
-const OWN_THEMES = [COMPOSED, CHILD, ILLEGIBLE, FROM_CATALOG];
+const RACED = "lock-lost-composed-theme";
+const OWN_THEMES = [COMPOSED, CHILD, ILLEGIBLE, FROM_CATALOG, RACED];
 
+let env: Env;
+let service: PrismaService;
+let audit: AuditLogService;
+let store: ThemeStore;
 let prisma: PrismaClient;
 let themes: ThemeService;
 let installer: ThemeInstallService;
@@ -69,7 +82,7 @@ let auditBoundary = new Date(0);
 beforeAll(async () => {
   dataDirectory = await mkdtemp(join(tmpdir(), "openbrf-theme-composer-"));
 
-  const env = {
+  env = {
     ...baseEnv,
     OPENBRF_DATA_DIR: dataDirectory,
     // An index outside the curated catalog, on an instance that has not opted
@@ -82,9 +95,9 @@ beforeAll(async () => {
   prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: env.DATABASE_URL }),
   });
-  const service = prisma as unknown as PrismaService;
-  const audit = new AuditLogService(service);
-  const store = new ThemeStore(env);
+  service = prisma as unknown as PrismaService;
+  audit = new AuditLogService(service);
+  store = new ThemeStore(env);
 
   const packageLock = new PackageLock(env);
 
@@ -558,5 +571,143 @@ describe("a composed theme is an ordinary installed theme", () => {
     await expect(
       stat(join(dataDirectory, "themes", COMPOSED)),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * A theme service whose recomputation of the resolved tokens can be held
+ * between the read it computes from and the writes it makes.
+ *
+ * Held on the content of the read rather than on a count of calls: the lint
+ * reads the installed themes too, before anything is written, and only the
+ * recomputation's read already has the theme being composed in it.
+ */
+class PausingThemeService extends ThemeService {
+  private pause:
+    | {
+        when: (rows: readonly InstalledTheme[]) => boolean;
+        reached: () => void;
+        released: Promise<void>;
+      }
+    | undefined;
+
+  holdReadWhen(when: (rows: readonly InstalledTheme[]) => boolean): {
+    reached: Promise<void>;
+    release: () => void;
+  } {
+    let reached: () => void = () => undefined;
+    let release: () => void = () => undefined;
+    const reachedPromise = new Promise<void>((resolve) => (reached = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    this.pause = { when, reached, released };
+    return { reached: reachedPromise, release };
+  }
+
+  override async installedRows(): Promise<InstalledTheme[]> {
+    const rows = await super.installedRows();
+    const pause = this.pause;
+    if (pause?.when(rows) === true) {
+      this.pause = undefined;
+      pause.reached();
+      await pause.released;
+    }
+    return rows;
+  }
+}
+
+/** A package lock that keeps the signal it hands the work, to be waited on. */
+class WatchedPackageLock extends PackageLock {
+  lockLost: AbortSignal | undefined;
+
+  override run<T>(
+    kind: PackageKind,
+    id: string,
+    work: (lockLost: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    return super.run(kind, id, (lockLost) => {
+      this.lockLost = lockLost;
+      return work(lockLost);
+    });
+  }
+}
+
+/**
+ * Two processes composing one theme, the first losing its lock's session
+ * while it recomputes the resolved tokens.
+ *
+ * The first compose has committed its row and read every installed theme to
+ * recompute from. Its session is then ended - the backend terminated, the
+ * database still up - and Postgres hands the lock to the second process, whose
+ * compose writes a new colour and resolves it. Were the first to go on, it
+ * would write the resolved colour it computed from its own older read, and the
+ * row would declare one colour and render another.
+ */
+describe("a compose whose lock is lost while it recomputes", () => {
+  it("stops before it writes over the next compose of the same id", async () => {
+    const compose = (
+      installer: ThemeInstallService,
+      accent: string,
+    ): Promise<unknown> =>
+      installer.compose(
+        {
+          id: RACED,
+          displayName: "Omstridda farger",
+          extends: "porttavlan",
+          modes: { light: { "accent-trust": accent }, dark: {} },
+        },
+        null,
+      );
+    const installerOver = (
+      lock: PackageLock,
+      over: ThemeService,
+    ): ThemeInstallService =>
+      new ThemeInstallService(
+        service,
+        audit,
+        new CatalogThemeSource(new CatalogClient(env)),
+        store,
+        over,
+        lock,
+      );
+
+    const firstLock = new WatchedPackageLock(env);
+    const firstThemes = new PausingThemeService(
+      service,
+      audit,
+      store,
+      firstLock,
+    );
+    // The other process has a lock of its own, so the two meet only in the
+    // database, as two replicas would.
+    const secondLock = new PackageLock(env);
+    const secondThemes = new ThemeService(service, audit, store, secondLock);
+
+    const held = firstThemes.holdReadWhen((rows) =>
+      rows.some((row) => row.id === RACED),
+    );
+    const first = compose(installerOver(firstLock, firstThemes), "#2F5D50");
+    try {
+      await held.reached;
+      expect(
+        await terminateAdvisoryLockHolder(
+          service,
+          `package-install:theme:${RACED}`,
+        ),
+      ).toBe(1);
+      await waitFor(async () => firstLock.lockLost?.aborted === true);
+
+      await compose(installerOver(secondLock, secondThemes), "#7D5F23");
+    } finally {
+      held.release();
+    }
+    await expect(first).rejects.toBeInstanceOf(PackageLockLostError);
+
+    const row = await prisma.installedTheme.findUniqueOrThrow({
+      where: { id: RACED },
+    });
+    expect(row.declaredLightTokens).toEqual({ "accent-trust": "#7D5F23" });
+    expect(row.lightTokens).toMatchObject({ "accent-trust": "#7D5F23" });
+
+    await themes.uninstall(RACED);
   });
 });

@@ -527,13 +527,18 @@ describe("an install the API refuses", () => {
     });
   });
 
-  it("says another change to the plugin was still running, and to try again", async () => {
-    // Reading the catalog again would change nothing: the same request is
-    // what to send, in a moment.
+  it("says other package changes were still running, and to try again", async () => {
+    // Busy with this plugin, or with as many other plugin and theme changes as
+    // the instance admits: reading the catalog again would change nothing
+    // either way, and the same request is what to send, in a moment.
     await refuse("package-busy");
 
     await waitFor(() => {
-      expect(screen.getByText(/en annan ändring av det pågick/)).toBeTruthy();
+      expect(
+        screen.getByText(
+          /en annan ändring av det, eller av andra tillägg och teman, pågick/,
+        ),
+      ).toBeTruthy();
     });
   });
 

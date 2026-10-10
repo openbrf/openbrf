@@ -325,10 +325,12 @@ describe("removing a plugin", () => {
     expect(uninstallPlugin).not.toHaveBeenCalled();
   });
 
-  it("says why when another change to the plugin was still running", async () => {
+  it("says why when other package changes were still running", async () => {
     // The API refuses a removal while an install or another removal of the
-    // same id holds its lock. The sentence says so, and that the same press
-    // is worth making again, rather than the general one about a failure.
+    // same id holds its lock, and while the instance is already running as
+    // many plugin and theme changes as it admits. The sentence names both, and
+    // says the same press is worth making again, rather than the general one
+    // about a failure.
     uninstallPlugin.mockResolvedValueOnce({
       ok: false,
       failure: { status: 429, reason: "package-busy" },
@@ -341,7 +343,7 @@ describe("removing a plugin", () => {
 
     expect(
       await screen.findByText(
-        "Tillägget togs inte bort, eftersom en annan ändring av det pågick. Vänta en stund och försök igen.",
+        "Tillägget togs inte bort, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen.",
       ),
     ).toBeTruthy();
     expect(
