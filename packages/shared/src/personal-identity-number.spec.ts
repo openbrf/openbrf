@@ -368,6 +368,10 @@ describe("scanForPersonalIdentityNumbers", () => {
     ["a Unicode hyphen", "811228\u20109874"],
     ["a non-breaking hyphen", "811228\u20119874"],
     ["a figure dash", "811228\u20129874"],
+    ["a horizontal bar", "811228\u20159874"],
+    ["a two-em dash", "811228\u2E3A9874"],
+    ["a double oblique hyphen", "811228\u2E179874"],
+    ["an Armenian hyphen", "811228\u058A9874"],
   ])(
     "finds a number written with %s between the date and the last four",
     (_name, written) => {
@@ -409,6 +413,17 @@ describe("scanForPersonalIdentityNumbers", () => {
     expect(elapsed).toBeLessThan(1_000);
   });
 
+  it("gives up on a date, a horizontal bar and a long run of spaces in linear time", () => {
+    const text = `19811228\u2015${" ".repeat(200_000)}`;
+
+    const started = performance.now();
+    const found = scanForPersonalIdentityNumbers(text, REFERENCE);
+    const elapsed = performance.now() - started;
+
+    expect(found).toEqual([]);
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
   it("still parses a stored number only with a hyphen or a plus", () => {
     expect(
       parsePersonalIdentityNumber("811228\u20139874", REFERENCE),
@@ -431,6 +446,19 @@ describe("scanForPersonalIdentityNumberCandidates", () => {
     expect(
       scanForPersonalIdentityNumberCandidates("Skrev 19811218-9875 fel"),
     ).toEqual([{ value: "19811218-9875", index: 6 }]);
+  });
+
+  it("finds a number-shaped run written with any dash", () => {
+    expect(
+      scanForPersonalIdentityNumberCandidates("Skrev 811218\u20159875 fel"),
+    ).toEqual([{ value: "811218\u20159875", index: 6 }]);
+  });
+
+  it("takes a separator for a separator and a letter for a letter", () => {
+    expect(
+      scanForPersonalIdentityNumberCandidates("Skrev 811218\u00A09875 fel"),
+    ).toEqual([{ value: "811218\u00A09875", index: 6 }]);
+    expect(scanForPersonalIdentityNumberCandidates("811218p9875")).toEqual([]);
   });
 });
 
