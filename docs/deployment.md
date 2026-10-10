@@ -147,7 +147,20 @@ changes nothing but the owner's password, which it sets from
 3. The field encryption key is provisioned if, and only if, this is a genuine
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
-4. Database migrations are applied, as the schema owner.
+4. Database migrations are applied, as the schema owner. A trigger fires for
+   whoever writes its table, and the migrations write as the owner, so the
+   triggers on the tables in `public` and `pgboss` are checked first
+   ([check-triggers.mjs](../apps/api/scripts/check-triggers.mjs)). The step
+   stops on a trigger that is not, word for word, one the migrations or the job
+   schema install create, or that calls a function the table's owner does not
+   own. It also stops while a role other than a table's owner, or every role
+   through `PUBLIC`, holds `TRIGGER` on such a table, or is given it by the
+   owner's default privileges: that privilege is enough to replace a trigger
+   without owning the table, the guards on the statutory archive and on
+   `pgboss.queue` among them. The triggers are checked as well as the grants
+   because the hardening in step 6, or the `REVOKE` below for a role you
+   manage yourself, takes the grant away and leaves a trigger it was used to
+   replace where it is.
 5. The job queue schema is installed or migrated, as the owner. It stops on a
    queue that is partitioned or names a job table of its own, which Open BRF
    never declares, because pg-boss builds SQL from those names as the owner.
@@ -157,13 +170,9 @@ changes nothing but the owner's password, which it sets from
    stops the deploy with its error, which also stays in `pgboss.bam`, and the
    next deploy retries it. A trigger on `pgboss.queue`, owned by the schema
    owner, makes the table refuse such a queue from then on, so the application
-   cannot write one between the check and the migration. The step also stops
-   while a role other than a table's owner, or every role through `PUBLIC`,
-   holds `TRIGGER` on a table in `public` or `pgboss`: that privilege is enough
-   to replace a trigger on a table without owning it, the guards on the
-   statutory archive and on `pgboss.queue` among them. It looks again once
-   pg-boss has created its tables, which take their grants from the owner's
-   default privileges.
+   cannot write one between the check and the migration. The step checks the
+   triggers and the `TRIGGER` grants again as step 4 does, before it puts that
+   trigger back, and once more after pg-boss has created its tables.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 

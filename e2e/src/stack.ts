@@ -362,6 +362,32 @@ export function runSchemaOwner(
   status: number;
   output: string;
 } {
+  return runOneShot("schema-owner", environment, timeoutMs);
+}
+
+/**
+ * Runs the migrate service once more, as `up` runs it before every deploy: the
+ * deploy steps in docker/entrypoint.sh, as the schema owner, in a container of
+ * their own. `environment` overrides what the env file gives the service.
+ */
+export function runMigrate(
+  environment: Readonly<Record<string, string>> = {},
+  timeoutMs = 180_000,
+): {
+  status: number;
+  output: string;
+} {
+  return runOneShot("migrate", environment, timeoutMs);
+}
+
+function runOneShot(
+  service: "schema-owner" | "migrate",
+  environment: Readonly<Record<string, string>>,
+  timeoutMs: number,
+): {
+  status: number;
+  output: string;
+} {
   const overrides = Object.entries(environment).flatMap(([name, value]) => [
     "--env",
     `${name}=${value}`,
@@ -376,7 +402,7 @@ export function runSchemaOwner(
         "--no-deps",
         "-T",
         ...overrides,
-        "schema-owner",
+        service,
       ],
       {
         cwd: repositoryRoot,
