@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pullWithRetry } from "./image-pull";
 
 /**
  * The compose stack the suite runs against.
@@ -208,31 +210,42 @@ export function startStack(): void {
 }
 
 /**
- * Pulls the stack's registry images, retrying a throttled pull.
- *
- * The registries CI pulls from need no credentials, and answer a burst from a
- * shared runner address with `toomanyrequests: Rate exceeded` (ECR Public does,
- * for one). That clears within seconds, so a pull is retried with a growing
- * pause instead of failing the run. Images built from the repository are left
- * to `up --build`.
+ * Pulls the stack's registry images, retrying a throttled or transient failure
+ * (see image-pull.ts) and nothing else. Images built from the repository are
+ * left to `up --build`.
  */
 function pullImages(): void {
-  const attempts = 4;
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      compose(["pull", "--ignore-buildable"], 10 * 60_000);
-      return;
-    } catch (error) {
-      if (attempt >= attempts) {
-        throw error;
-      }
-      Atomics.wait(
-        new Int32Array(new SharedArrayBuffer(4)),
-        0,
-        0,
-        attempt * 15_000,
-      );
-    }
+  pullWithRetry(pullOnce);
+}
+
+/**
+ * One `compose pull`, failing with what compose wrote to its error stream.
+ *
+ * That stream is where compose reports progress and a registry's answer, and
+ * it is read to tell a throttled pull from a missing image, so it is captured
+ * rather than inherited and then passed on whole, success or not.
+ */
+function pullOnce(): void {
+  const result = spawnSync(
+    "docker",
+    [...COMPOSE_ARGS, "pull", "--ignore-buildable"],
+    {
+      cwd: repositoryRoot,
+      env: COMPOSE_ENV,
+      encoding: "utf8",
+      stdio: ["ignore", "inherit", "pipe"],
+      timeout: 10 * 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  process.stderr.write(result.stderr ?? "");
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `docker compose pull exited with ${result.status ?? result.signal}:\n${result.stderr}`,
+    );
   }
 }
 
