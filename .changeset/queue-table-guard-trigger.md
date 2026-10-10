@@ -3,7 +3,7 @@
 ---
 
 Make the job queue's table refuse a partitioned queue, or one with a job table
-of its own, for every role but the schema owner.
+of its own, for every role.
 
 The job schema installer already stops when `pgboss.queue` holds such a row,
 because pg-boss builds SQL from its table name when it migrates the schema as
@@ -13,4 +13,4 @@ add one in the gap while a migration was pending. The installer now also puts a
 trigger on the table, owned by the schema owner, that rejects an insert or an
 update that sets `partition` or a `table_name` other than `job_common`. The
 application's ordinary queues are unaffected, and the application's role can
-neither disable nor drop the trigger.
+neither disable nor drop the trigger; only the schema owner can remove it.
