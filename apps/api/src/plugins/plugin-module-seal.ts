@@ -1012,7 +1012,7 @@ function constructorReaches(token: unknown): unknown[] {
     if (entry === UNREADABLE) {
       return [UNREADABLE];
     }
-    if (typeof entry !== "object" || entry === null) {
+    if (!isRecord(entry)) {
       // NestJS destructures the entry, which fails the boot for these.
       continue;
     }
@@ -1035,7 +1035,7 @@ function constructorReaches(token: unknown): unknown[] {
     ...listed(reflect(token, PROPERTY_DEPS_METADATA)).map((entry) =>
       entry === UNREADABLE
         ? entry
-        : typeof entry === "object" && entry !== null
+        : isRecord(entry)
           ? (entry as { type?: unknown }).type
           : undefined,
     ),
@@ -1118,10 +1118,9 @@ function classReaches(target: unknown): unknown[] {
       for (const parameter of Object.values(
         parameters as object,
       ) as unknown[]) {
-        const pipes =
-          typeof parameter === "object" && parameter !== null
-            ? (parameter as { pipes?: unknown }).pipes
-            : undefined;
+        const pipes = isRecord(parameter)
+          ? (parameter as { pipes?: unknown }).pipes
+          : undefined;
         enhancers.push(...(Array.isArray(pipes) ? listed(pipes) : [pipes]));
       }
     }
@@ -1192,6 +1191,18 @@ function isPlainArray(value: unknown): value is unknown[] {
 }
 
 /** Truthy, which is the test NestJS's `|| []` applies. */
+/**
+ * A value NestJS reads fields from when it holds a dependency record.
+ *
+ * NestJS destructures the record, and a function carries its own fields as
+ * well as an object does, so one is read here rather than passed over.
+ */
+function isRecord(value: unknown): value is object {
+  return (
+    (typeof value === "object" && value !== null) || typeof value === "function"
+  );
+}
+
 function isPresent(value: unknown): boolean {
   return Boolean(value);
 }

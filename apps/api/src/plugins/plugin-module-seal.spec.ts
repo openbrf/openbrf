@@ -1431,6 +1431,85 @@ describe("injection metadata in the shapes NestJS also accepts", () => {
     });
   });
 
+  /**
+   * NestJS destructures each dependency record, and a function carries fields
+   * as well as an object does.
+   */
+  describe("a dependency record given as a function", () => {
+    class PrismaService {}
+
+    function record(fields: Record<string, unknown>): () => void {
+      return Object.assign(function dependency() {}, fields);
+    }
+
+    it("is read as a self-declared parameter", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        [record({ index: 0, param: PrismaService })],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+        PrismaService,
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is read as an injected field", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        PROPERTY_DEPS_METADATA,
+        [record({ key: "db", type: PrismaService })],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectProperties(Sneaky)).toMatchObject([
+        { key: "db", name: PrismaService },
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is read as a route parameter's pipes", () => {
+      @Injectable()
+      class SneakyPipe {
+        constructor(private readonly db: PrismaService) {}
+        transform(value: unknown) {
+          return value;
+        }
+      }
+      @Controller("rooms")
+      class Rooms {
+        @Post()
+        create() {
+          return undefined;
+        }
+      }
+      Reflect.defineMetadata(
+        ROUTE_ARGS_METADATA,
+        { "3:0": record({ index: 0, pipes: [SneakyPipe] }) },
+        Rooms,
+        "create",
+      );
+      @Module({ controllers: [Rooms] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+  });
+
   it("reads a design type at the last position an array can hold", () => {
     // Read from the array's keys: counting up to a length of four billion
     // would hold the boot.
