@@ -12,7 +12,9 @@ import {
   withPersonalIdentityNumberCentury,
 } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
+import { lockPersonIdentityNumbersInOrder } from "./person-identity-number-lock";
 
 export const PERSON_REINDEX_QUEUE = "person-blind-index-reindex";
 
@@ -64,6 +66,10 @@ const BATCH = 100;
  * Each row is written only while both ciphertexts are still the ones its
  * indexes were computed from. A person edited mid-run was indexed by that edit,
  * and is picked up again by the next round if the edit left the version below.
+ *
+ * Until a row is rewritten, a lookup by its personal identity number misses
+ * the person, and the import would enter them a second time: the import's
+ * chunk waits for the run instead (identityNumbersAwaitReindex).
  */
 @Injectable()
 export class PersonReindexService implements OnModuleInit {
@@ -107,19 +113,39 @@ export class PersonReindexService implements OnModuleInit {
         break;
       }
       for (const person of people) {
+        // Hashed before the transaction opens, so the locks below are held
+        // for the write and not for the Argon2id.
         const identityNumber = await this.identityNumber(person);
-        const { count } = await this.prisma.person.updateMany({
-          where: {
-            id: person.id,
-            phoneCipher: person.phoneCipher,
-            personalIdentityNumberCipher: person.personalIdentityNumberCipher,
-          },
-          data: {
-            phoneIndex: await this.indexOf("person.phone", person.phoneCipher),
-            personalIdentityNumberCipher: identityNumber?.cipher ?? null,
-            personalIdentityNumberIndex: identityNumber?.index ?? null,
-            blindIndexVersion: NORMALIZATION_VERSION,
-          },
+        const phoneIndex = await this.indexOf(
+          "person.phone",
+          person.phoneCipher,
+        );
+        const { count } = await this.prisma.$transaction(async (tx) => {
+          // The number's key under the index it leaves and under the one it
+          // gets, as every writer of an identity number takes it. Both, in
+          // the order every caller sorts them in: an import chunk holding the
+          // new index's key may also hold the old one's for a number of its
+          // own.
+          await lockPersonIdentityNumbersInOrder(
+            tx,
+            [
+              person.personalIdentityNumberIndex,
+              identityNumber?.index ?? null,
+            ].filter((index) => index !== null),
+          );
+          return tx.person.updateMany({
+            where: {
+              id: person.id,
+              phoneCipher: person.phoneCipher,
+              personalIdentityNumberCipher: person.personalIdentityNumberCipher,
+            },
+            data: {
+              phoneIndex,
+              personalIdentityNumberCipher: identityNumber?.cipher ?? null,
+              personalIdentityNumberIndex: identityNumber?.index ?? null,
+              blindIndexVersion: NORMALIZATION_VERSION,
+            },
+          });
         });
         reindexed += count;
       }
@@ -231,6 +257,35 @@ export class PersonReindexService implements OnModuleInit {
           await this.encryption.decrypt(id, cipher),
         );
   }
+}
+
+/**
+ * Whether a person's personal identity number still carries an index computed
+ * under older rules than today's.
+ *
+ * A lookup computes the index under today's rules, so it cannot find that
+ * person by their number until the reindex has rewritten it, and a writer that
+ * decides from the persons who hold a number - the import entering a row as a
+ * new person when nobody does - would decide wrong. Taking the identity number
+ * lock does not help it: the key it takes is the new index's, and the person
+ * still sits under the old one, which the writer cannot compute. It asks this
+ * instead, and does not decide while the answer is yes.
+ *
+ * The answer can only go from yes to no. A person written today gets the
+ * current version from the column default, and only the reindex changes it, so
+ * a no read once holds for every read after it.
+ */
+export async function identityNumbersAwaitReindex(
+  client: Prisma.TransactionClient,
+): Promise<boolean> {
+  const stale = await client.person.findFirst({
+    where: {
+      blindIndexVersion: { lt: NORMALIZATION_VERSION },
+      personalIdentityNumberCipher: { not: null },
+    },
+    select: { id: true },
+  });
+  return stale !== null;
 }
 
 /**

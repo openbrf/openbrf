@@ -28,6 +28,13 @@ import type { Prisma } from "../generated/prisma/client";
  * number, as an erasure does, takes nothing: a row losing its number cannot
  * make a match miss it.
  *
+ * The reindex at boot moves a number from one index to another, and takes the
+ * key of both. That keeps its write in line with everybody else's, but cannot
+ * keep a match from missing the person before the write: the match takes the
+ * new index's key and the person is still under the old one. The import asks
+ * whether any number is still waiting for the reindex as well
+ * (identityNumbersAwaitReindex).
+ *
  * Taken after the apartment's residency lock and the person email lock, and
  * before the legal hold and the transition keys. The import takes the
  * apartment's key first, as `lockApartmentResidencies` requires, then the

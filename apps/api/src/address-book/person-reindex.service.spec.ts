@@ -57,15 +57,18 @@ async function reindex(input: {
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
   };
-  const prisma = {
-    person: {
-      findMany: () =>
-        Promise.resolve(row.blindIndexVersion < 2 ? [{ ...row }] : []),
-      updateMany: ({ data }: { data: Partial<Row> }) => {
-        Object.assign(row, data);
-        return Promise.resolve({ count: 1 });
-      },
+  const person = {
+    findMany: () =>
+      Promise.resolve(row.blindIndexVersion < 2 ? [{ ...row }] : []),
+    updateMany: ({ data }: { data: Partial<Row> }) => {
+      Object.assign(row, data);
+      return Promise.resolve({ count: 1 });
     },
+  };
+  const tx = { person, $executeRaw: () => Promise.resolve(0) };
+  const prisma = {
+    person,
+    $transaction: <T>(work: (client: typeof tx) => Promise<T>) => work(tx),
   };
   await new PersonReindexService(
     { NODE_ENV: "test" } as Env,

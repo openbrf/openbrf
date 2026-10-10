@@ -15,12 +15,16 @@ import {
   vi,
 } from "vitest";
 
+import { PersonReindexService } from "../address-book/person-reindex.service";
 import { PersonService } from "../address-book/person.service";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import type { JobQueueService } from "../jobs/job-queue.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
@@ -3135,6 +3139,157 @@ describe("a person entered while a chunk is applied", () => {
     release();
     await chunk;
     await added;
+  }, 60_000);
+
+  /**
+   * A person whose identity number the reindex at boot has yet to rewrite: the
+   * number as stored, under an index older rules computed, which a lookup made
+   * today does not find.
+   */
+  async function createAwaitingReindex(
+    personId: string,
+    firstName: string,
+    identityNumber: string,
+  ): Promise<void> {
+    await createPerson({ personId, firstName, identityNumber });
+    await prisma.person.update({
+      where: { id: personId },
+      data: {
+        personalIdentityNumberIndex: `version-1-${personId}`,
+        blindIndexVersion: 1,
+      },
+    });
+  }
+
+  it("waits for the reindex rather than enter a person a second time", async () => {
+    // The reindex has read the person and computed the index their number
+    // gets, and has yet to write it, when a chunk with the same number runs.
+    // The chunk finds nobody under that index, and a chunk that went ahead
+    // would enter the person a second time, which the reindex's write then
+    // gives the same number.
+    const cookie = await signIn(actors.board.email);
+    const personId = `imp-reindexed-${suffix}`;
+    const [number = ""] = identityNumbers(1, "730911");
+    await createAwaitingReindex(personId, "Omindex", number);
+    const sessionId = await queued(cookie, "omindex.csv", [
+      [...HEADERS, "Personnummer"],
+      [
+        addressLabel,
+        "2115",
+        "Omindex",
+        surname,
+        "Boende",
+        "",
+        "",
+        "2024-02-01",
+        number,
+      ],
+    ]);
+
+    // An encryption of its own, so the reindex can be held between its hash
+    // and its write without holding the chunk's.
+    const reindexEncryption = new FieldEncryptionService(app.get<Env>(ENV));
+    const encrypt = reindexEncryption.encrypt.bind(reindexEncryption);
+    let computed!: () => void;
+    const midRow = new Promise<void>((resolve) => {
+      computed = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(reindexEncryption, "encrypt").mockImplementation(
+      async (id, value) => {
+        const encrypted = await encrypt(id, value);
+        computed();
+        await held;
+        return encrypted;
+      },
+    );
+    const reindex = new PersonReindexService(
+      app.get<Env>(ENV),
+      prisma,
+      reindexEncryption,
+      {} as JobQueueService,
+    ).run();
+    await midRow;
+
+    try {
+      // Handed back to the queue, not stopped: the retry finds the reindex
+      // done.
+      await expect(applies.runApply(sessionId)).rejects.toMatchObject({
+        name: "ReindexPendingError",
+      });
+      expect(
+        await prisma.person.count({ where: { firstName: "Omindex" } }),
+      ).toBe(1);
+    } finally {
+      release();
+    }
+    expect(await reindex).toBe(1);
+
+    await applies.runApply(sessionId);
+    expect((await readRun(cookie, sessionId)).status).toBe("APPLIED");
+    const persons = await prisma.person.findMany({
+      where: {
+        personalIdentityNumberIndex: await encryption.computeIndex(
+          "person.personalIdentityNumber",
+          number,
+        ),
+      },
+      select: { id: true },
+    });
+    expect(persons).toEqual([{ id: personId }]);
+  }, 60_000);
+
+  it("makes the reindex wait for a chunk holding the number it rewrites", async () => {
+    // The reindex moves a number to the index today's rules compute, and takes
+    // that index's key first, as every writer of an identity number does.
+    const [number = ""] = identityNumbers(1, "730912");
+    await createAwaitingReindex(
+      `imp-reindex-wait-${suffix}`,
+      "Omvänta",
+      number,
+    );
+    const lockKey = `person-identity-number:${
+      (await encryption.computeIndex(
+        "person.personalIdentityNumber",
+        number,
+      )) ?? ""
+    }`;
+
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chunk = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+        locked();
+        await held;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await lockTaken;
+
+    let settled = false;
+    const reindex = app
+      .get(PersonReindexService)
+      .run()
+      .finally(() => (settled = true));
+
+    await waitFor(
+      async () =>
+        settled || (await advisoryLockCount(prisma, lockKey, false)) > 0n,
+    );
+    expect(settled).toBe(false);
+    release();
+    await chunk;
+    expect(await reindex).toBe(1);
   }, 60_000);
 
   it("stops when somebody of the row's name moves into its apartment", async () => {

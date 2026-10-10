@@ -3,6 +3,7 @@ import { localDayOf } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
+import { identityNumbersAwaitReindex } from "../address-book/person-reindex.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -138,6 +139,18 @@ const APPLY_JOB_OPTIONS = {
   expireInSeconds: APPLY_EXPIRE_SECONDS,
   deadLetter: IMPORT_APPLY_DEAD_LETTER_QUEUE,
 } satisfies JobSendOptions;
+
+/**
+ * The chunk carries personal identity numbers while the register still holds
+ * some under an older index. Not an `ImportError`: nothing about the file or
+ * the board's decisions is wrong, and the queue's retry finds the reindex done.
+ */
+class ReindexPendingError extends Error {
+  constructor() {
+    super("Personal identity numbers are being reindexed.");
+    this.name = "ReindexPendingError";
+  }
+}
 
 /** Payload of the apply job. */
 interface ImportApplyJob {
@@ -463,10 +476,23 @@ export class ImportApplyService implements OnModuleInit {
         // with one of them is either seen by the check below or committed after
         // this chunk. After the email keys and before the transition locks, the
         // order person-identity-number-lock.ts gives.
-        await lockPersonIdentityNumbersInOrder(
-          tx,
-          writtenIdentityNumberIndexes(encrypted),
-        );
+        const identityNumberIndexes = writtenIdentityNumberIndexes(encrypted);
+        await lockPersonIdentityNumbersInOrder(tx, identityNumberIndexes);
+
+        // A person whose number still carries the index older rules computed
+        // is under none of the keys above, and the check below cannot find
+        // them by the row's number: it would enter them a second time. That
+        // lasts the seconds after an upgrade until the reindex at boot has
+        // rewritten them, so the chunk is handed back to the queue to be tried
+        // again rather than stopped. Read after the locks, so a number the
+        // reindex is rewriting right now is either seen rewritten by the check
+        // or still seen here.
+        if (
+          identityNumberIndexes.length > 0 &&
+          (await identityNumbersAwaitReindex(tx))
+        ) {
+          throw new ReindexPendingError();
+        }
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
