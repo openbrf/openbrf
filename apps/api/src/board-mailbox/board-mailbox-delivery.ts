@@ -26,16 +26,6 @@ export const REPLY_DELIVERY_FAILURES = {
   /** The mail server refused the message. */
   refused: "send-failed",
 
-  /**
-   * The thread the reply belonged to is gone.
-   *
-   * Reachable because the sending is a background job and the purge is another:
-   * a thread whose retention ran out between the board pressing send and the
-   * worker reaching it has taken the reply with it, and the job says so rather
-   * than failing.
-   */
-  threadGone: "thread-gone",
-
   /** The sending was given up on before it reached this reply. */
   interrupted: "reply-sending-interrupted",
 } as const;
@@ -58,9 +48,12 @@ export type ReplyDeliveryFailure =
  * records every message it erases with a thread, because that letter is still
  * in the mailbox and would otherwise be collected again.
  *
- * Only reasons that cannot change. A message this instance would store if it ran
- * again - one too large to fetch, one a retrieval failed on - is not written
- * here at all, because a row saying so would make a temporary refusal permanent.
+ * Only reasons that cannot change, or a failure that has gone on long enough to
+ * be told to the board. A message this instance would store if it ran again -
+ * one too large to fetch, one a retrieval or a write failed on a few times - is
+ * not written here, because a row saying so would make a temporary refusal
+ * permanent; one that has failed on every try for an hour is written with the
+ * time it is tried again.
  */
 export const COLLECTION_REFUSALS = {
   /**

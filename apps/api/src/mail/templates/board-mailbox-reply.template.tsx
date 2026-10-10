@@ -5,8 +5,6 @@ import type { MailTemplate } from "../mail-template";
 import { MAIL_COLORS, MailLayout } from "./layout";
 
 export interface BoardMailboxReplyMailProps {
-  /** What the correspondent called themselves, when the envelope said. */
-  recipientName: string | null;
   /** The subject of the thread being answered, as it was received. */
   subject: string;
   /** What the board wrote. */
@@ -21,10 +19,10 @@ export interface BoardMailboxReplyMailProps {
  * The one message this instance sends to a recipient it holds no record of, and
  * the template is shaped by that. It carries no link into the application,
  * because the person reading it has no account and an invitation they did not
- * ask for is not an answer to their question. It greets them by whatever name
- * their own envelope carried, or not at all, because that is the only name the
- * association has - and it is a string the sender chose rather than an identity,
- * which is why nothing here treats it as one.
+ * ask for is not an answer to their question. It greets nobody by name: the
+ * only name the association has is the one on the sender's own envelope, which
+ * is a string they chose rather than an identity - and printed in a letter sent
+ * under the association's name, that string reads as the association's words.
  *
  * The subject keeps the thread's own, prefixed the way a mail client prefixes a
  * reply, so the answer arrives in the conversation the question was asked in.
@@ -55,7 +53,6 @@ export const boardMailboxReplyMail: MailTemplate<BoardMailboxReplyMailProps> = {
         heading={t("email.boardMailboxReply.heading", {
           association: brand.associationName,
         })}
-        recipientName={props.recipientName ?? undefined}
       >
         {/*
          * The board's answer as it was written, with its own line breaks kept: a

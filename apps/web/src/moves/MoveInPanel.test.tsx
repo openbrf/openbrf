@@ -1,6 +1,6 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { MoveInPanel } from "./MoveInPanel";
@@ -76,9 +76,12 @@ beforeEach(() => {
     ok: true,
     value: [{ id: "apartment-1", number: "1201", floor: 1 }],
   });
+  // The register's own shape: the detail itself, thrown on failure rather
+  // than wrapped in a result.
   fetchApartment.mockReset().mockResolvedValue({
-    ok: true,
-    value: { holders: [{ personId: "person-karin", name: "Karin Ohman" }] },
+    residents: [
+      { personId: "person-karin", name: "Karin Ohman", role: "MEMBER" },
+    ],
   });
   fetchBoardRegister.mockReset();
   moveIn.mockReset().mockResolvedValue({
@@ -350,3 +353,279 @@ it.each([
     expect(await screen.findByText(message)).toBeTruthy();
   },
 );
+
+/** Two apartments at one address, each with a holder of its own. */
+function twoApartments(): void {
+  fetchApartments.mockResolvedValue({
+    ok: true,
+    value: [
+      { id: "apartment-1", number: "1101", floor: 1 },
+      { id: "apartment-2", number: "1102", floor: 1 },
+    ],
+  });
+  fetchApartment.mockImplementation((apartmentId: string) =>
+    Promise.resolve({
+      residents: [
+        apartmentId === "apartment-1"
+          ? { personId: "person-karin", name: "Karin Ohman", role: "MEMBER" }
+          : { personId: "person-lars", name: "Lars Berg", role: "MEMBER" },
+      ],
+    }),
+  );
+}
+
+async function fillTheRest(
+  session: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await session.type(screen.getByLabelText(/Inflyttningsdatum/), "2026-04-07");
+  await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-04-07");
+  await session.type(screen.getByLabelText(/Avtalshänvisning/), "OVL-2026-1");
+}
+
+function sentSeller(): unknown {
+  const call = moveIn.mock.calls.at(-1)?.[0] as
+    { transfer?: { fromPersonId: unknown } } | undefined;
+  return call?.transfer?.fromPersonId;
+}
+
+describe("the seller of a transfer", () => {
+  /*
+   * A transfer row cannot be deleted once written, and the server checks the
+   * seller against the register only as well as the register allows. A seller
+   * chosen for one apartment must never be sent for another.
+   */
+  it("is not carried over to another apartment", async () => {
+    twoApartments();
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
+    await session.selectOptions(
+      screen.getByLabelText(/Tidigare innehavare/),
+      "person-karin",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-2",
+    );
+    await screen.findByRole("option", { name: "Lars Berg" });
+    await fillTheRest(session);
+    await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+    await waitFor(() => {
+      expect(moveIn).toHaveBeenCalled();
+    });
+    expect(sentSeller()).toBeNull();
+  });
+
+  it("is not carried over to another address", async () => {
+    fetchAddresses.mockResolvedValue({
+      ok: true,
+      value: [
+        { id: "address-1", street: "Storgatan", number: "12" },
+        { id: "address-2", street: "Storgatan", number: "14" },
+      ],
+    });
+    fetchApartments.mockImplementation((addressId: string) =>
+      Promise.resolve({
+        ok: true,
+        value:
+          addressId === "address-1"
+            ? [{ id: "apartment-1", number: "1101", floor: 1 }]
+            : [{ id: "apartment-3", number: "1401", floor: 1 }],
+      }),
+    );
+    // Karin holds an apartment at each address, which is what would let a
+    // stale choice look valid if only the holder list were checked.
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
+    await session.selectOptions(
+      screen.getByLabelText(/Tidigare innehavare/),
+      "person-karin",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/Adresser|Addresses/),
+      "address-2",
+    );
+    await session.selectOptions(
+      await screen.findByLabelText(/Lägenhet/),
+      await screen.findByRole("option", { name: "1401" }),
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
+    await fillTheRest(session);
+    await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+    await waitFor(() => {
+      expect(moveIn).toHaveBeenCalled();
+    });
+    expect(sentSeller()).toBeNull();
+  });
+
+  it("is asked for again after switching to a grant and back", async () => {
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
+    await session.selectOptions(
+      screen.getByLabelText(/Tidigare innehavare/),
+      "person-karin",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/Vad registreras/),
+      "GRANT",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/Vad registreras/),
+      "TRANSFER",
+    );
+    await fillTheRest(session);
+    await session.click(screen.getByRole("button", { name: /Flytta in/ }));
+
+    await waitFor(() => {
+      expect(moveIn).toHaveBeenCalled();
+    });
+    expect(sentSeller()).toBeNull();
+  });
+
+  it("cannot be skipped while the holders are still being read", async () => {
+    // Submitted then, the transfer would be recorded with no seller because
+    // the list had not arrived, which says the register never knew who sold.
+    fetchApartment.mockReturnValue(new Promise(() => undefined));
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+
+    expect(
+      screen.getByText("Läser lägenhetens nuvarande innehavare..."),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /^Flytta in$/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("says when the holders could not be read, and reads them again", async () => {
+    fetchApartment.mockRejectedValueOnce(new Error("offline"));
+    const session = userEvent.setup();
+    await openTransferFields(session);
+
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+
+    expect(
+      await screen.findByText(/nuvarande innehavare gick inte att läsa/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /^Flytta in$/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(
+      await screen.findByRole("option", { name: "Karin Ohman" }),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /^Flytta in$/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+});
+
+describe("the addresses and apartments offered", () => {
+  it("says when the addresses could not be read, and reads them again", async () => {
+    fetchAddresses.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    const session = userEvent.setup();
+    render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+    expect(
+      await screen.findByText(
+        "Föreningens adresser gick inte att läsa just nu.",
+      ),
+    ).toBeTruthy();
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByRole("option", { name: "1201" })).toBeTruthy();
+    expect(screen.queryByText(/adresser gick inte att läsa/)).toBeNull();
+  });
+
+  it("says when an address's apartments could not be read", async () => {
+    fetchApartments.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    const session = userEvent.setup();
+    render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på adressen gick inte att läsa just nu.",
+      ),
+    ).toBeTruthy();
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByRole("option", { name: "1201" })).toBeTruthy();
+  });
+
+  it("never lets the answer for the address left replace the one chosen", async () => {
+    fetchAddresses.mockResolvedValue({
+      ok: true,
+      value: [
+        { id: "address-1", street: "Storgatan", number: "12" },
+        { id: "address-2", street: "Storgatan", number: "14" },
+      ],
+    });
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchApartments.mockImplementation((addressId: string) =>
+      addressId === "address-1"
+        ? new Promise((resolve) => {
+            answerFirst = resolve;
+          })
+        : Promise.resolve({
+            ok: true,
+            value: [{ id: "apartment-3", number: "1401", floor: 1 }],
+          }),
+    );
+    const session = userEvent.setup();
+    render(<MoveInPanel onClose={noop} onMoved={noop} />);
+
+    await session.selectOptions(
+      await screen.findByLabelText(/Adresser|Addresses/),
+      "address-2",
+    );
+    expect(await screen.findByRole("option", { name: "1401" })).toBeTruthy();
+
+    await act(async () => {
+      answerFirst({
+        ok: true,
+        value: [{ id: "apartment-1", number: "1201", floor: 1 }],
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("option", { name: "1401" })).toBeTruthy();
+  });
+});

@@ -46,7 +46,6 @@ const THREAD_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const DELIVERY_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mail-not-configured": "boardMailbox.delivery.mailNotConfigured",
   "send-failed": "boardMailbox.delivery.refused",
-  "thread-gone": "boardMailbox.delivery.threadGone",
   "reply-sending-interrupted": "boardMailbox.delivery.interrupted",
 };
 

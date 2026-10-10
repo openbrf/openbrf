@@ -59,6 +59,12 @@ export interface MoveOutResult {
   /** Derived from the retention policy; service data is erased on this date. */
   purgeOn: string;
   memberRegisterExitRecorded: boolean;
+  /**
+   * The day the membership begins again, when the person still holds an
+   * apartment bought for later: the register shows the gap, and the board is
+   * told it is not the end. Null otherwise.
+   */
+  memberRegisterEntryOn: string | null;
   transferId: string | null;
   boardReminderOn: string;
 }

@@ -104,6 +104,9 @@ const smtpSchema = z.object({
  * reply carries in Reply-To, and an address that is not one would send every
  * answer the board writes into a header no mail server can act on.
  */
+/** One line, because each of these is sent as a line of the POP3 conversation. */
+const pop3Line = (value: string): boolean => !hasControlCharacter(value);
+
 const boardMailboxSchema = z.object({
   address: z.email().max(320).nullable(),
   host: mailServerHostSchema.nullable(),
@@ -115,12 +118,12 @@ const boardMailboxSchema = z.object({
    * nobody signs in to is not a mailbox, and one recorded as configured offers
    * the board a collection that can only fail.
    */
-  user: z.string().min(1).max(255).nullable(),
+  user: z.string().min(1).max(255).refine(pop3Line).nullable(),
   /**
    * Omit to keep the stored password, which a changed host or port refuses;
    * null or "" to clear it.
    */
-  password: z.string().max(200).nullish(),
+  password: z.string().max(200).refine(pop3Line).nullish(),
 });
 
 const smsSchema = z.object({

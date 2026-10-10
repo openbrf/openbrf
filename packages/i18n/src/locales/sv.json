@@ -2242,7 +2242,12 @@
       "done": "{{name}} är registrerad på lägenhet {{apartment}}.",
       "registerEntry": "En post skrevs i medlemsförteckningen.",
       "welcomeSent": "Ett välkomstmejl skickades, på mottagarens eget språk.",
-      "welcomeSkipped": "Inget välkomstmejl skickades: personen har ingen e-postadress registrerad."
+      "welcomeSkipped": "Inget välkomstmejl skickades: personen har ingen e-postadress registrerad.",
+      "personSearching": "Söker i registret...",
+      "addressesFailed": "Föreningens adresser gick inte att läsa just nu.",
+      "apartmentsFailed": "Lägenheterna på adressen gick inte att läsa just nu.",
+      "holdersReading": "Läser lägenhetens nuvarande innehavare...",
+      "holdersFailed": "Lägenhetens nuvarande innehavare gick inte att läsa, så den tidigare innehavaren kan inte väljas. Försök igen innan överlåtelsen registreras."
     },
     "out": {
       "heading": "Flytta ut",
@@ -2258,7 +2263,8 @@
       "registerExit": "Medlemskapet avslutades i medlemsförteckningen.",
       "registerKept": "Själva posten i medlemsförteckningen bevaras som lagen kräver. Ingen gallringsinställning når den.",
       "binder": "Lägenhetspärmen följer lägenheten: den som flyttar in läser den från sin inflyttningsdag, och övriga boende i lägenheten läser den tills de själva flyttas ut.",
-      "boardReminder": "Styrelsen påminns {{date}} om att slutföra överlämningen."
+      "boardReminder": "Styrelsen påminns {{date}} om att slutföra överlämningen.",
+      "registerReentry": "Medlemskapet börjar igen {{date}}, när personen tillträder sin nästa bostadsrätt. Båda posterna skrevs i medlemsförteckningen."
     },
     "transfer": {
       "record": "Registrera överlåtelse",
@@ -2834,7 +2840,6 @@
       "sent": "Svaret togs emot av e-postservern.",
       "mailNotConfigured": "Svaret gick inte i väg: den här instansen har ingen e-postserver inställd.",
       "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
-      "threadGone": "Svaret gick inte i väg: tråden hann gallras.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
       "unknown": "Svaret gick inte i väg."
     },

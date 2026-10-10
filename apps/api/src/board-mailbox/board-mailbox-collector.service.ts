@@ -21,6 +21,7 @@ import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
+  legacyMailboxFingerprint,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
 import { isDataRefusal } from "./database-refusal";
@@ -31,7 +32,13 @@ import {
   readBody,
   readMessage,
 } from "./mime";
-import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
+import {
+  openPop3Session,
+  type Pop3Credentials,
+  Pop3Error,
+  type Pop3Listing,
+} from "./pop3";
+import { lockThread } from "./thread-lock";
 
 /**
  * Collecting the board's mailbox.
@@ -304,6 +311,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
 
     const prefix = mailboxFingerprint(settings.credentials);
+    await this.adoptLegacyPrefix(settings.credentials, prefix);
     const session = await openPop3Session(settings.credentials).catch(
       (error: unknown) => {
         // The class of the failure, never the mailbox's own words: a POP3 error
@@ -380,6 +388,12 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           alreadyHeld += 1;
         } else {
           skipped += 1;
+        }
+        // A failure that ended the session ends the run. Every letter behind
+        // it would fail for the session's sake rather than its own, and be
+        // counted towards being set aside for it.
+        if (!session.open) {
+          break;
         }
       }
 
@@ -585,6 +599,35 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           .map((row) => row.sourceUid),
       ),
     };
+  }
+
+  /**
+   * Moves what was collected under the fingerprint as it was first taken - of
+   * the host and user exactly as typed - to the one taken now.
+   *
+   * An instance whose settings carried a capital letter or a space would
+   * otherwise find no letter held on its first run after the change, and store
+   * every letter still in the mailbox a second time; the purged and set-aside
+   * ledgers would stop matching with it. Nothing to do, and one comparison,
+   * where the two agree, which is every mailbox typed in lowercase.
+   */
+  private async adoptLegacyPrefix(
+    credentials: Pop3Credentials,
+    prefix: string,
+  ): Promise<void> {
+    const legacy = `${legacyMailboxFingerprint(credentials)}:`;
+    if (legacy === `${prefix}:`) {
+      return;
+    }
+    // substr from the separator on, so what follows the prefix is kept as is.
+    await this.prisma.$transaction([
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_ignored_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_collection_failure SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+    ]);
   }
 
   /**
@@ -838,10 +881,22 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       raw = await retrieve(listing.number, MAX_MESSAGE_BYTES);
     } catch (error) {
       // One message that cannot be fetched must not stop the ones behind it.
-      // It stays in the mailbox and the next run tries again.
+      // It stays in the mailbox and the next run tries again - up to the bound
+      // a letter that cannot be stored has, and for the same reason: one the
+      // mailbox refuses on every run would otherwise take one of the run's
+      // retrievals for as long as it sits there. Undated, because what carries
+      // the date is what could not be fetched.
       this.logger.error(
         `Board mailbox: a message could not be retrieved: ${failureName(error)}`,
       );
+      if (retrying || (await this.countFailure(uid, now))) {
+        await this.setAside(
+          uid,
+          COLLECTION_REFUSALS.unstorable,
+          null,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
+        );
+      }
       return "skipped";
     }
 
@@ -1093,9 +1148,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * The thread this message belongs on, creating one when it opens a
    * conversation.
    *
-   * A message joins an existing thread only when BOTH its In-Reply-To names a
-   * message already on that thread AND it comes from the address the thread is
-   * with. The second condition is the one that matters: a Message-ID travels in
+   * A message joins an existing thread only when BOTH its In-Reply-To names
+   * one of the board's own answers on that thread AND it comes from the address
+   * the thread is with (GLOSSARY, tråd). The second condition is the one that matters: a Message-ID travels in
    * every copy of a letter and in every reply to it, so anybody who has ever
    * been on one of these conversations - or who guesses one - could otherwise
    * post into a thread the board is having with somebody else, and the board
@@ -1121,6 +1176,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       const answered = await tx.boardMailboxMessage.findFirst({
         where: {
           messageId: input.inReplyTo,
+          // One of the board's own answers. Every other identifier on a thread
+          // was written by somebody outside the association, and a letter's
+          // own Message-ID travels to everyone it was sent to.
+          direction: "OUTBOUND",
           thread: { correspondentEmailIndex: input.emailIndex },
         },
         select: { threadId: true },
@@ -1128,6 +1187,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       });
 
       if (answered !== null) {
+        // Locked before it is read, as every act on a thread's state is: the
+        // status written below is decided from the one read here.
+        await lockThread(tx, answered.threadId);
         const thread = await tx.boardMailboxThread.findUnique({
           where: { id: answered.threadId },
           select: {

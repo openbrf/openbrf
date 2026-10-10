@@ -37,10 +37,15 @@
  * matter here (ISO-8859-1 and Windows-1252).
  */
 
+import { isUtf8 } from "node:buffer";
+
 import {
+  BIDI_CONTROLS,
   CONTROL_CHARACTERS,
   hasControlCharacter,
+  hasInvisibleCharacter,
   oneLine,
+  withoutInvisibleCharacters,
 } from "../mail/header-text";
 import { prefix } from "../text/prefix";
 
@@ -225,7 +230,11 @@ export function readMessage(raw: Buffer): ParsedMessage {
   const unread = unreadContent(part, body?.parts ?? []);
 
   return {
-    subject: oneLine(decodeEncodedWords(part.headers.get("subject") ?? "")),
+    subject: oneLine(
+      withoutInvisibleCharacters(
+        decodeEncodedWords(part.headers.get("subject") ?? ""),
+      ),
+    ),
     fromAddress: addressFrom(part.headers.get("from") ?? ""),
     fromName: displayNameFrom(part.headers.get("from") ?? ""),
     messageId: identifierFrom(part.headers.get("message-id") ?? ""),
@@ -359,11 +368,12 @@ function findHeaderEnd(raw: Buffer): { headerEnd: number; bodyStart: number } {
 const MAX_HEADER_VALUE = 8 * 1024;
 
 function parseHeaders(raw: Buffer): ReadonlyMap<string, string> {
-  // latin1 rather than utf8, because a header is bytes until an encoded word
-  // says otherwise: decoding as UTF-8 here would replace the raw octets of a
-  // header some client sent unencoded, and RFC 2047 decoding could not recover
-  // them. Anything genuinely UTF-8 arrives inside an encoded word.
-  const lines = raw.toString("latin1").split(/\r?\n/);
+  // UTF-8 when the whole block is valid UTF-8, which is what a client using
+  // SMTPUTF8 sends raw (RFC 6532), and latin1 otherwise. Never a lossy UTF-8
+  // decode: that would replace the raw octets of a header some older client
+  // sent unencoded, and nothing could recover them. Pure ASCII reads the same
+  // either way, and anything else arrives inside an encoded word.
+  const lines = raw.toString(isUtf8(raw) ? "utf8" : "latin1").split(/\r?\n/);
   const headers = new Map<string, string>();
 
   let name: string | null = null;
@@ -424,10 +434,17 @@ function parseContentType(raw: string): ContentType {
  *
  * Handles the quoted form and RFC 2231's extended one (`filename*=utf-8''...`),
  * which is how every current client sends a filename that is not plain ASCII -
- * which for a Swedish housing cooperative is most of them.
+ * which for a Swedish housing cooperative is most of them - and that form split
+ * into numbered segments (`filename*0*=`, `filename*1*=`), which is how a long
+ * one arrives.
  */
 function parseParameters(raw: string): ReadonlyMap<string, string> {
   const parameters = new Map<string, string>();
+  /** Numbered segments by parameter name, by number. */
+  const continued = new Map<
+    string,
+    Map<number, { value: string; extended: boolean }>
+  >();
 
   for (const segment of splitParameters(raw).slice(1)) {
     const equals = segment.indexOf("=");
@@ -440,6 +457,17 @@ function parseParameters(raw: string): ReadonlyMap<string, string> {
     if (value.startsWith('"')) {
       value = value.slice(1, value.endsWith('"') ? -1 : undefined);
       value = value.replaceAll(/\\(.)/g, "$1");
+    }
+
+    const numbered = /^(.+)\*(\d{1,3})(\*?)$/.exec(name);
+    if (numbered !== null) {
+      const [, base = "", position = "", star] = numbered;
+      const segments = continued.get(base) ?? new Map();
+      continued.set(base, segments);
+      if (!segments.has(Number(position))) {
+        segments.set(Number(position), { value, extended: star === "*" });
+      }
+      continue;
     }
 
     if (name.endsWith("*")) {
@@ -460,7 +488,50 @@ function parseParameters(raw: string): ReadonlyMap<string, string> {
     }
   }
 
+  for (const [name, segments] of continued) {
+    // Segments with no first one join to nothing, which must not replace a
+    // plain `filename=` sent beside them.
+    if (segments.has(0)) {
+      parameters.set(name, joinSegments(segments));
+    }
+  }
+
   return parameters;
+}
+
+/**
+ * One RFC 2231 parameter out of its numbered segments.
+ *
+ * In number order, and only from 0 up to the first one missing, which is what
+ * the RFC says a reader does. The character set is the first segment's, and an
+ * extended segment's octets are joined before anything is decoded, because one
+ * character's octets can be split across two segments.
+ */
+function joinSegments(
+  segments: ReadonlyMap<number, { value: string; extended: boolean }>,
+): string {
+  let charset = "utf-8";
+  const bytes: number[] = [];
+  for (let position = 0; segments.has(position); position += 1) {
+    const segment = segments.get(position);
+    if (segment === undefined) {
+      break;
+    }
+    let value = segment.value;
+    if (segment.extended && position === 0) {
+      const parts = value.split("'");
+      if (parts.length >= 3) {
+        charset = parts[0] === "" ? charset : (parts[0] ?? charset);
+        value = parts.slice(2).join("'");
+      }
+    }
+    bytes.push(
+      ...(segment.extended
+        ? percentBytes(value)
+        : [...Buffer.from(value, "utf8")]),
+    );
+  }
+  return decodeBytes(Buffer.from(bytes), charset);
 }
 
 /** Splits on ";" while leaving the ones inside a quoted string alone. */
@@ -486,6 +557,10 @@ function splitParameters(raw: string): string[] {
 }
 
 function decodePercent(value: string, charset: string): string {
+  return decodeBytes(Buffer.from(percentBytes(value)), charset);
+}
+
+function percentBytes(value: string): number[] {
   const bytes: number[] = [];
   for (let index = 0; index < value.length; index += 1) {
     if (value[index] === "%" && index + 2 < value.length) {
@@ -498,7 +573,7 @@ function decodePercent(value: string, charset: string): string {
     }
     bytes.push(value.charCodeAt(index) & 0xff);
   }
-  return decodeBytes(Buffer.from(bytes), charset);
+  return bytes;
 }
 
 /**
@@ -960,16 +1035,6 @@ function fileNameOf(part: MimePart, position: number): string {
   return `bilaga-${String(position + 1)}`;
 }
 
-/**
- * The characters that reorder the text around them without being seen.
- *
- * In a file name they are a spoof and nothing else: a right-to-left override
- * shows `invoice\u202Efdp.exe` as "invoiceexe.pdf", and a board member decides
- * whether to open an attachment by its name. The embeddings, overrides and
- * isolates, and the three invisible marks that set a direction.
- */
-const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g;
-
 // ---------------------------------------------------------------------------
 // Encodings.
 // ---------------------------------------------------------------------------
@@ -1097,10 +1162,68 @@ export function decodeEncodedWords(raw: string): string {
 // Header values.
 // ---------------------------------------------------------------------------
 
+/**
+ * Where the address in a From header is: the last `<...>` outside a quoted
+ * string and a comment, or null when there is none.
+ *
+ * The last and outside both, because a display name may carry brackets of its
+ * own - `"Kalle <via Grupp>" <list@example.se>` - and the address is the one
+ * after it; and a comment after the address may carry another -
+ * `Kalle <kalle@example.se> (via <list@example.se>)` - which is not where the
+ * board's answer goes.
+ */
+function angleAddress(raw: string): { start: number; inner: string } | null {
+  const visible = blankedOut(raw, true);
+  let found: { start: number; inner: string } | null = null;
+  for (const match of visible.matchAll(/<([^<>]*)>/g)) {
+    found = { start: match.index, inner: match[1] ?? "" };
+  }
+  return found;
+}
+
+/**
+ * The header with its quoted strings, and its comments when asked, blanked out
+ * at the same length, so a position found in what is left is a position in the
+ * header itself.
+ *
+ * A comment is RFC 5322's: `(...)` outside a quoted string, nested, with a
+ * backslash pair taken as one character as it is in a quoted string. One left
+ * open at the end is read again as text: a lone parenthesis in a display name
+ * is a typo, and blanking from it on would hide the address after it.
+ */
+function blankedOut(raw: string, comments: boolean): string {
+  let result = "";
+  let depth = 0;
+  let quoted = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index] ?? "";
+    if (character === "\\" && (quoted || depth > 0)) {
+      result += index + 1 < raw.length ? "  " : " ";
+      index += 1;
+    } else if (depth === 0 && character === '"') {
+      quoted = !quoted;
+      result += " ";
+    } else if (quoted) {
+      result += " ";
+    } else if (comments && character === "(") {
+      depth += 1;
+      result += " ";
+    } else if (depth > 0) {
+      depth -= character === ")" ? 1 : 0;
+      result += " ";
+    } else {
+      result += character;
+    }
+  }
+  return depth > 0 ? blankedOut(raw, false) : result;
+}
+
 /** The address out of a From header, lowercased, or null. */
 export function addressFrom(raw: string): string | null {
-  const angled = /<([^<>]*)>/.exec(raw);
-  const candidate = (angled?.[1] ?? raw).trim().replaceAll(/^["']|["']$/g, "");
+  const angled = angleAddress(raw);
+  const candidate = (angled?.inner ?? raw)
+    .trim()
+    .replaceAll(/^["']|["']$/g, "");
 
   // One "@" with something either side, and no whitespace or other control
   // character. Deliberately not a full RFC 5322 address grammar: what this
@@ -1108,21 +1231,28 @@ export function addressFrom(raw: string): string | null {
   // server is the authority on the rest. A control character is refused here
   // rather than left to it, because the address becomes the recipient of the
   // board's answer, and what a mail server makes of one is its own business.
-  return /^[^\s@]+@[^\s@]+$/.test(candidate) && !hasControlCharacter(candidate)
+  //
+  // An invisible character is refused for the same reason in the other
+  // direction: the address is what the board reads as who wrote, and one that
+  // reorders or hides part of itself can be made to read as a different one.
+  return /^[^\s@]+@[^\s@]+$/.test(candidate) &&
+    !hasControlCharacter(candidate) &&
+    !hasInvisibleCharacter(candidate)
     ? candidate.toLowerCase()
     : null;
 }
 
 /** The display name out of a From header, decoded, or null. */
 export function displayNameFrom(raw: string): string | null {
-  const angled = raw.indexOf("<");
-  if (angled === -1) {
+  const angled = angleAddress(raw);
+  if (angled === null) {
     return null;
   }
-  const name = decodeEncodedWords(raw.slice(0, angled).trim())
-    .replaceAll(/^["']|["']$/g, "")
-    .replaceAll(CONTROL_CHARACTERS, "")
-    .trim();
+  const name = withoutInvisibleCharacters(
+    decodeEncodedWords(raw.slice(0, angled.start).trim())
+      .replaceAll(/^["']|["']$/g, "")
+      .replaceAll(CONTROL_CHARACTERS, ""),
+  ).trim();
   return name === "" ? null : name.slice(0, 200);
 }
 

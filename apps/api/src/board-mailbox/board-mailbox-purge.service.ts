@@ -27,6 +27,7 @@ import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
 } from "./board-mailbox-retention";
+import { lockThread } from "./thread-lock";
 
 /** Queue the nightly board mailbox purge runs on. */
 export const BOARD_MAILBOX_PURGE_QUEUE = "board-mailbox-purge";
@@ -322,24 +323,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
       return false;
     }
 
-    /*
-     * The files that arrived on this thread, read before it goes.
-     *
-     * Deleting the thread cascades to the messages and to the attachment rows,
-     * and stops there: an attachment row points at a media file, and that
-     * direction cascades the other way - remove the file and the row that
-     * indexes it goes with it, not the reverse. So the bytes would outlive the
-     * letter that carried them, which is the retention window not being kept
-     * for the part of a letter somebody outside the association chose to send.
-     *
-     * Collected here rather than after the delete, because after it there is
-     * nothing left to read them from.
-     */
-    const attachments = await this.prisma.boardMailboxAttachment.findMany({
-      where: { message: { threadId } },
-      select: { fileId: true },
-    });
-
+    let attachments: { fileId: string }[] = [];
     const erased = await this.prisma.$transaction(async (tx) => {
       /*
        * Before anything is read about holds, and taken whether or not this
@@ -387,6 +371,28 @@ export class BoardMailboxPurgeService implements OnModuleInit {
       }
       const onRequest =
         linked !== null && (await isErasureInForce(tx, linked, now));
+
+      /*
+       * The files that arrived on this thread, read before it goes.
+       *
+       * Deleting the thread cascades to the messages and to the attachment rows,
+       * and stops there: an attachment row points at a media file, and that
+       * direction cascades the other way - remove the file and the row that
+       * indexes it goes with it, not the reverse. So the bytes would outlive the
+       * letter that carried them, which is the retention window not being kept
+       * for the part of a letter somebody outside the association chose to send.
+       *
+       * Read under the thread's lock and in this transaction, so they are the
+       * files the delete below takes: a letter stored onto the thread before
+       * the lock is read here, and one arriving after it waits for the delete.
+       * Read before the lock, a letter landing in between was erased with the
+       * thread and its files were never removed.
+       */
+      await lockThread(tx, threadId);
+      attachments = await tx.boardMailboxAttachment.findMany({
+        where: { message: { threadId } },
+        select: { fileId: true },
+      });
 
       /*
        * The mailbox identifiers of what was collected onto this thread, read

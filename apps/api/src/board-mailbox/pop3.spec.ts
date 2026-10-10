@@ -162,6 +162,65 @@ describe("openPop3Session", () => {
     ).rejects.toMatchObject({ reason: "authentication-failed" });
   });
 
+  it.each([
+    "[IN-USE] Mailbox locked by another client",
+    "[SYS/TEMP] Try later",
+  ])(
+    "does not call a mailbox that answers %s a wrong password",
+    async (refusal) => {
+      // The mailbox is busy or failing and has not judged the password at all:
+      // sending the board to correct it would send them after the wrong thing.
+      server = await startPop3TestServer({
+        user: CREDENTIALS.user,
+        password: CREDENTIALS.password,
+        messages: [],
+        refusePass: refusal,
+      });
+
+      const failure = await openPop3Session({
+        ...CREDENTIALS,
+        port: server.port,
+      }).catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(Pop3Error);
+      expect((failure as Pop3Error).reason).not.toBe("authentication-failed");
+    },
+  );
+
+  it("still calls an [AUTH] refusal a wrong password", async () => {
+    server = await startPop3TestServer({
+      user: CREDENTIALS.user,
+      password: CREDENTIALS.password,
+      messages: [],
+      refusePass: "[AUTH] Invalid credentials",
+    });
+
+    await expect(
+      openPop3Session({ ...CREDENTIALS, port: server.port }),
+    ).rejects.toMatchObject({ reason: "authentication-failed" });
+  });
+
+  it.each([
+    ["user", { user: "board\r\nsecond line" }],
+    ["password", { password: "secret\nsecond line" }],
+  ])(
+    "sends nothing when the %s holds a line break",
+    async (_field, credentials) => {
+      // Each is sent as one line of the conversation, so a value with a line
+      // break in it is not sent at all.
+      server = await startPop3TestServer({
+        user: CREDENTIALS.user,
+        password: CREDENTIALS.password,
+        messages: [],
+      });
+
+      await expect(
+        openPop3Session({ ...CREDENTIALS, ...credentials, port: server.port }),
+      ).rejects.toMatchObject({ reason: "authentication-failed" });
+      expect(server.received).toEqual([]);
+    },
+  );
+
   it("never repeats what the server said about the mailbox", async () => {
     server = await startPop3TestServer({
       user: CREDENTIALS.user,

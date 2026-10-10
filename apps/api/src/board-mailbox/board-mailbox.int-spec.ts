@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -30,6 +31,10 @@ import {
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
+import {
+  legacyMailboxFingerprint,
+  mailboxFingerprint,
+} from "./board-mailbox-settings";
 import { htmlToText, MAX_TEXT_CHARACTERS, readMessage } from "./mime";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
@@ -405,11 +410,13 @@ function pngBytes(): Buffer {
 /** Points the instance at a mailbox holding exactly these messages. */
 async function serveMailbox(
   messages: readonly { uid: string; raw: string }[],
+  failRetrieve?: Readonly<Record<string, "refuse" | "drop">>,
 ): Promise<Pop3TestServer> {
   const server = await startPop3TestServer({
     user: MAILBOX_USER,
     password: MAILBOX_PASSWORD,
     messages,
+    failRetrieve,
   });
 
   const saved = await inject({
@@ -910,6 +917,29 @@ describe("who may work the board's mailbox", () => {
       headers: { cookie: boardCookie },
     });
     expect(response.statusCode).toBe(403);
+  });
+
+  it.each([
+    ["user", { user: "board\r\nsecond line" }],
+    ["password", { password: "secret\nsecond line" }],
+    ["host", { host: "mail.example.test\r\n" }],
+  ])("refuses a mailbox %s that holds a line break", async (_field, change) => {
+    // Each is sent as one line of the POP3 conversation.
+    const response = await inject({
+      method: "PUT",
+      url: "/api/settings/board-mailbox",
+      payload: {
+        address: BOARD_ADDRESS,
+        host: "127.0.0.1",
+        port: 1110,
+        secure: false,
+        user: MAILBOX_USER,
+        password: MAILBOX_PASSWORD,
+        ...change,
+      },
+      headers: { cookie: administratorCookie },
+    });
+    expect(response.statusCode).toBe(400);
   });
 
   it("lets a board member read the inbox", async () => {
@@ -1482,6 +1512,108 @@ describe("collecting the mailbox", () => {
     }
   });
 
+  it("sets aside a letter the mailbox will not hand over, as one it cannot store", async () => {
+    /*
+     * Refused on every run, it took one of the run's retrievals for as long as
+     * it sat there, with nothing telling the board. Counted like a write that
+     * fails, it is set aside on the same bound - and the letter behind it is
+     * collected meanwhile, because a refusal leaves the session usable.
+     */
+    const refused = `uid-unretrievable-${suffix}`;
+    const behind = `uid-behind-unretrievable-${suffix}`;
+    const server = await serveMailbox(
+      [
+        {
+          uid: refused,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Ohamtbar ${suffix}`,
+            body: "Ett brev.",
+            messageId: `unretrievable-${suffix}@utanfor.example`,
+          }),
+        },
+        {
+          uid: behind,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Bakom ${suffix}`,
+            body: "Ett brev till.",
+            messageId: `behind-unretrievable-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+      { [refused]: "refuse" },
+    );
+    const setAside = () =>
+      prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${refused}` } },
+      });
+
+    const start = new Date();
+    try {
+      for (let attempt = 1; attempt <= 12; attempt += 1) {
+        await collector.collect(start);
+      }
+      expect(await setAside()).toBeNull();
+      await threadBySubject(`Bakom ${suffix}`);
+
+      await collector.collect(new Date(start.getTime() + 60 * 60 * 1000));
+      const row = await setAside();
+      expect(row?.reason).toBe("unstorable");
+      expect(row?.letterDate).toBeNull();
+      expect(row?.retryAfter).not.toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("stops a run whose session dropped, and counts nothing against the letters behind", async () => {
+    // Every letter after the drop would fail for the session's sake rather
+    // than its own.
+    const dropped = `uid-dropped-${suffix}`;
+    const behind = `uid-behind-dropped-${suffix}`;
+    const server = await serveMailbox(
+      [
+        {
+          uid: dropped,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Tappad ${suffix}`,
+            body: "Ett brev.",
+            messageId: `dropped-${suffix}@utanfor.example`,
+          }),
+        },
+        {
+          uid: behind,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Efter tappad ${suffix}`,
+            body: "Ett brev till.",
+            messageId: `behind-dropped-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+      { [dropped]: "drop" },
+    );
+
+    try {
+      const summary = await collector.collect();
+      expect(summary.skipped).toBe(1);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${behind}` } },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: { endsWith: `:${dropped}` } },
+        }),
+      ).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("does not set a letter aside after an hour of failing, until it has been tried twelve times", async () => {
     // The other half of the bound: a quiet hour with the schedule stopped is
     // not twelve failures.
@@ -1716,8 +1848,12 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
+    // The attachment's own upload writes its row and audit entry in a
+    // transaction of its own, which goes through; the letter's is refused.
+    const transaction = prisma.$transaction.bind(prisma);
     const spy = vi
       .spyOn(prisma, "$transaction")
+      .mockImplementationOnce(transaction as typeof prisma.$transaction)
       .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
     const removed = vi.spyOn(media, "remove");
     const files = await prisma.mediaFile.count();
@@ -1763,16 +1899,18 @@ describe("collecting the mailbox", () => {
     ]);
 
     const transaction = prisma.$transaction.bind(prisma);
-    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
-      ...args: unknown[]
-    ) =>
-      (
-        (transaction as (...rest: unknown[]) => Promise<unknown>)(
-          ...args,
-        ) as Promise<unknown>
-      ).then(() => {
-        throw new Error("Connection terminated unexpectedly");
-      })) as typeof prisma.$transaction);
+    // The attachment's upload goes through first, in a transaction of its own.
+    const spy = vi
+      .spyOn(prisma, "$transaction")
+      .mockImplementationOnce(transaction as typeof prisma.$transaction)
+      .mockImplementationOnce(((...args: unknown[]) =>
+        (
+          (transaction as (...rest: unknown[]) => Promise<unknown>)(
+            ...args,
+          ) as Promise<unknown>
+        ).then(() => {
+          throw new Error("Connection terminated unexpectedly");
+        })) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
 
     try {
@@ -1795,6 +1933,98 @@ describe("collecting the mailbox", () => {
       spy.mockRestore();
       await server.close();
     }
+  });
+
+  describe("a set-aside letter tried again and found already stored", () => {
+    /*
+     * The retry's own write fails, and the letter turns out to be stored
+     * anyway: another run stored it, and set it aside again as this one was
+     * failing. Played by a write that commits, the other run's set-aside row
+     * put back, and the answer lost. The retry returns "already-held", and the
+     * row has to go with it - nothing else would ever take it off the list.
+     */
+    async function retryFoundStored(tag: string): Promise<{
+      sourceUid: string;
+      summary: CollectionSummary;
+    }> {
+      const uid = `uid-retry-held-${tag}-${suffix}`;
+      const server = await serveMailbox([
+        {
+          uid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Redan sparat ${tag} ${suffix}`,
+            body: "Ett brev.",
+            messageId: `retry-held-${tag}-${suffix}@utanfor.example`,
+          }),
+        },
+      ]);
+      const sourceUid = `${mailboxFingerprint({
+        host: "127.0.0.1",
+        port: server.port,
+        secure: false,
+        user: MAILBOX_USER,
+        password: MAILBOX_PASSWORD,
+      })}:${uid}`;
+      const setAsideRow = {
+        sourceUid,
+        reason: "unstorable",
+        letterDate: null,
+        retryAfter: new Date(Date.now() - 60_000),
+      };
+      await prisma.boardMailboxIgnoredMessage.create({ data: setAsideRow });
+
+      const transaction = prisma.$transaction.bind(prisma);
+      const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+        ...args: unknown[]
+      ) =>
+        (
+          (transaction as (...rest: unknown[]) => Promise<unknown>)(
+            ...args,
+          ) as Promise<unknown>
+        ).then(async () => {
+          await prisma.boardMailboxIgnoredMessage.create({
+            data: setAsideRow,
+          });
+          throw new Error("Connection terminated unexpectedly");
+        })) as typeof prisma.$transaction);
+      try {
+        return { sourceUid, summary: await collector.collect() };
+      } finally {
+        spy.mockRestore();
+        await server.close();
+      }
+    }
+
+    it("is taken off the set-aside list", async () => {
+      const { sourceUid, summary } = await retryFoundStored("cleared");
+
+      expect(summary.alreadyHeld).toBe(1);
+      expect(
+        await prisma.boardMailboxIgnoredMessage.count({ where: { sourceUid } }),
+      ).toBe(0);
+    });
+
+    it("is still held when the list cannot be written, and the failure is logged", async () => {
+      const deleteMany = vi
+        .spyOn(prisma.boardMailboxIgnoredMessage, "deleteMany")
+        .mockRejectedValue(new Error("Connection terminated unexpectedly"));
+      const warn = vi.spyOn(Logger.prototype, "warn");
+      try {
+        const { summary } = await retryFoundStored("unwritable");
+
+        expect(summary.alreadyHeld).toBe(1);
+        expect(summary.skipped).toBe(0);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "could not be removed from the set-aside list",
+          ),
+        );
+      } finally {
+        deleteMany.mockRestore();
+        warn.mockRestore();
+      }
+    });
   });
 
   it("takes a letter off the set-aside list once another collection has stored it", async () => {
@@ -2042,7 +2272,158 @@ describe("collecting the mailbox", () => {
   });
 });
 
+describe("a mailbox whose settings are not in lowercase", () => {
+  it("still holds what was collected under the fingerprint taken as typed", async () => {
+    /*
+     * Before the fingerprint read the host and user as a mail server does,
+     * this mailbox's letters were recorded under a hash of the user exactly as
+     * typed. The first run after must recognise them rather than store every
+     * one a second time.
+     */
+    const user = `Styrelsen-${suffix}`;
+    const uid = `uid-capital-${suffix}`;
+    const server = await startPop3TestServer({
+      user,
+      password: MAILBOX_PASSWORD,
+      messages: [
+        {
+          uid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Versal ${suffix}`,
+            body: "Ett brev.",
+            messageId: `capital-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+    });
+    const credentials = {
+      host: "127.0.0.1",
+      port: server.port,
+      secure: false,
+      user,
+      password: MAILBOX_PASSWORD,
+    };
+    try {
+      const saved = await inject({
+        method: "PUT",
+        url: "/api/settings/board-mailbox",
+        payload: { address: BOARD_ADDRESS, ...credentials },
+        headers: { cookie: administratorCookie },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect((await collector.collect()).collected).toBe(1);
+
+      // As a run before the change would have left it.
+      const legacy = `${legacyMailboxFingerprint(credentials)}:${uid}`;
+      expect(legacy).not.toBe(`${mailboxFingerprint(credentials)}:${uid}`);
+      await prisma.boardMailboxMessage.updateMany({
+        where: { sourceUid: { endsWith: `:${uid}` } },
+        data: { sourceUid: legacy },
+      });
+
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+      expect(
+        await prisma.boardMailboxMessage.count({
+          where: { sourceUid: `${mailboxFingerprint(credentials)}:${uid}` },
+        }),
+      ).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("paging the inbox", () => {
+  it.each(["taken", "purged"])(
+    "lists every thread once when the one a page ended at is %s",
+    async (change) => {
+      /*
+       * A page ends at a thread, and the next is asked for from there. Threads
+       * move meanwhile - one taken goes to TAKEN, one purged is gone - and a
+       * cursor naming the row carried on from wherever it had gone: past every
+       * NEW thread behind it, or to an empty page that said there were no more.
+       */
+      const { cipher: correspondent } = await encryption.encrypt(
+        "boardMailboxThread.correspondentEmail",
+        `sida-${change}-${suffix}@utanfor.example`,
+      );
+      const created = await prisma.boardMailboxThread.createManyAndReturn({
+        // The oldest NEW threads in the inbox, so they fill the first page.
+        data: Array.from({ length: 205 }, (_unused, position) => ({
+          subject: `Sida ${change} ${String(position)} ${suffix}`,
+          correspondentEmailCipher: correspondent,
+          lastMessageAt: new Date(Date.UTC(2000, 0, 1, 0, 0, position)),
+        })),
+        select: { id: true },
+      });
+      const ids = created.map((row) => row.id);
+      try {
+        const page = async (after?: string) => {
+          const response = await inject({
+            method: "GET",
+            url:
+              after === undefined
+                ? "/api/board-mailbox/threads"
+                : `/api/board-mailbox/threads?after=${encodeURIComponent(after)}`,
+            headers: { cookie: boardCookie },
+          });
+          expect(response.statusCode, response.body).toBe(200);
+          return response.json() as {
+            threads: { id: string }[];
+            nextCursor: string | null;
+          };
+        };
+
+        const first = await page();
+        const endedAt = first.threads.at(-1)?.id ?? "";
+        expect(endedAt).toBe(ids[199]);
+
+        if (change === "taken") {
+          await prisma.boardMailboxThread.update({
+            where: { id: endedAt },
+            data: { status: "TAKEN" },
+          });
+        } else {
+          await prisma.boardMailboxThread.delete({ where: { id: endedAt } });
+        }
+
+        const second = await page(first.nextCursor ?? undefined);
+        expect(second.threads.slice(0, 5).map((thread) => thread.id)).toEqual(
+          ids.slice(200),
+        );
+      } finally {
+        await prisma.boardMailboxThread.deleteMany({
+          where: { id: { in: ids } },
+        });
+      }
+    },
+  );
+});
+
 describe("threading a follow-up", () => {
+  /**
+   * Answers the thread a subject opened, and returns the identifier the answer
+   * went out under: the one a follow-up names to join the conversation.
+   */
+  async function answer(subject: string): Promise<string> {
+    const thread = await threadBySubject(subject);
+    const replied = await inject({
+      method: "POST",
+      url: `/api/board-mailbox/threads/${thread.id}/reply`,
+      payload: { body: "Tack, vi tittar pa det." },
+      headers: { cookie: boardCookie },
+    });
+    expect(replied.statusCode, replied.body).toBe(201);
+    const outbound = await prisma.boardMailboxMessage.findFirstOrThrow({
+      where: { threadId: thread.id, direction: "OUTBOUND" },
+      select: { messageId: true },
+    });
+    return outbound.messageId ?? "";
+  }
+
   it("joins the conversation it answers", async () => {
     const subject = `Uppfoljning ${suffix}`;
     const opening = `opening-${suffix}@utanfor.example`;
@@ -2060,6 +2441,7 @@ describe("threading a follow-up", () => {
     ]);
     await collector.collect();
     await first.close();
+    const answered = await answer(subject);
 
     const second = await serveMailbox([
       {
@@ -2069,7 +2451,7 @@ describe("threading a follow-up", () => {
           subject: `Re: ${subject}`,
           body: "Och en pafyllning.",
           messageId: `follow-${suffix}@utanfor.example`,
-          inReplyTo: opening,
+          inReplyTo: answered,
         }),
       },
     ]);
@@ -2077,12 +2459,17 @@ describe("threading a follow-up", () => {
     try {
       await collector.collect();
 
-      // One thread, two messages: the subject line is not what decides this, so
-      // the "Re:" prefix produced no second conversation.
+      // One thread: the letter, the board's answer and the follow-up. The
+      // subject line is not what decides this, so the "Re:" prefix produced no
+      // second conversation.
       const thread = await threadBySubject(subject);
-      expect(thread.messageCount).toBe(2);
+      expect(thread.messageCount).toBe(3);
       const full = await readThread(boardCookie, thread.id);
-      expect(full.messages?.[1]?.body).toContain("Och en pafyllning.");
+      expect(
+        full.messages?.some((message) =>
+          message.body.includes("Och en pafyllning."),
+        ),
+      ).toBe(true);
     } finally {
       await second.close();
     }
@@ -2111,6 +2498,12 @@ describe("threading a follow-up", () => {
     ]);
     await collector.collect();
     await first.close();
+    const answered = await answer(subject);
+    const thread = await threadBySubject(subject);
+    const before = await prisma.boardMailboxThread.findUniqueOrThrow({
+      where: { id: thread.id },
+      select: { lastMessageAt: true },
+    });
 
     const second = await serveMailbox([
       {
@@ -2120,7 +2513,7 @@ describe("threading a follow-up", () => {
           subject: `Re: ${subject}`,
           body: "Ett svar som blev liggande.",
           messageId: `late-reply-${suffix}@utanfor.example`,
-          inReplyTo: opening,
+          inReplyTo: answered,
           // A reply whose Date header says it was written almost two years ago:
           // a client with a wrong clock, or a letter held up somewhere.
           date: longAgo.toUTCString(),
@@ -2131,15 +2524,13 @@ describe("threading a follow-up", () => {
     try {
       await collector.collect();
 
-      const thread = await threadBySubject(subject);
-      expect(thread.messageCount).toBe(2);
+      expect((await threadBySubject(subject)).messageCount).toBe(3);
       const stored = await prisma.boardMailboxThread.findUniqueOrThrow({
         where: { id: thread.id },
         select: { lastMessageAt: true },
       });
-      // Header dates carry whole seconds.
       expect(stored.lastMessageAt.getTime()).toBe(
-        Math.floor(recent.getTime() / 1000) * 1000,
+        before.lastMessageAt.getTime(),
       );
 
       // The first run after the older reply's own window has closed. Had its
@@ -2172,6 +2563,7 @@ describe("threading a follow-up", () => {
     ]);
     await collector.collect();
     await first.close();
+    const answered = await answer(subject);
 
     const strangerSubject = `Insprutad ${suffix}`;
     const second = await serveMailbox([
@@ -2186,6 +2578,60 @@ describe("threading a follow-up", () => {
           subject: strangerSubject,
           body: "Jag later som om jag ar nagon annan.",
           messageId: `injected-${suffix}@annanstans.example`,
+          inReplyTo: answered,
+        }),
+      },
+    ]);
+
+    try {
+      await collector.collect();
+
+      const original = await threadBySubject(subject);
+      expect(original.messageCount).toBe(2);
+
+      const stranger = await threadBySubject(strangerSubject);
+      expect(stranger.id).not.toBe(original.id);
+      expect(stranger.correspondent.email).toBe(
+        `okand-${suffix}@annanstans.example`,
+      );
+    } finally {
+      await second.close();
+    }
+  });
+
+  it("joins a thread only by an identifier this instance issued", async () => {
+    /*
+     * The letter that opened the thread was sent to whoever else the sender
+     * addressed, and its Message-ID with it. Anybody holding a copy can put the
+     * correspondent's address on an envelope and cite it; only the board's own
+     * answers carry an identifier nobody outside the thread was given.
+     */
+    const subject = `Kopia ${suffix}`;
+    const opening = `copied-open-${suffix}@utanfor.example`;
+
+    const first = await serveMailbox([
+      {
+        uid: `uid-copied-open-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Forsta brevet.",
+          messageId: opening,
+        }),
+      },
+    ]);
+    await collector.collect();
+    await first.close();
+
+    const citingSubject = `Citerar ${suffix}`;
+    const second = await serveMailbox([
+      {
+        uid: `uid-copied-cite-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: citingSubject,
+          body: "Ett brev som citerar det forsta.",
+          messageId: `copied-cite-${suffix}@annanstans.example`,
           inReplyTo: opening,
         }),
       },
@@ -2196,12 +2642,8 @@ describe("threading a follow-up", () => {
 
       const original = await threadBySubject(subject);
       expect(original.messageCount).toBe(1);
-
-      const stranger = await threadBySubject(strangerSubject);
-      expect(stranger.id).not.toBe(original.id);
-      expect(stranger.correspondent.email).toBe(
-        `okand-${suffix}@annanstans.example`,
-      );
+      const citing = await threadBySubject(citingSubject);
+      expect(citing.id).not.toBe(original.id);
     } finally {
       await second.close();
     }
@@ -2430,6 +2872,72 @@ describe("working a thread", () => {
     expect(reply.statusCode).toBe(409);
     expect((reply.json() as { reason: string }).reason).toBe("thread-closed");
   });
+
+  it("refuses a reply when a close commits while the reply is being decided", async () => {
+    /*
+     * Both acts decide from the thread they read. Unlocked, the reply read the
+     * thread open, waited for the close to commit, and then wrote ANSWERED over
+     * it - a thread answered and closed at once, with its closing date still
+     * set. The close here holds the row while the reply is sent, and lets go
+     * only once the reply is waiting on it.
+     */
+    const thread = await collectedThread(`Samtidigt stangd ${suffix}`);
+
+    let commitClose: () => void = () => undefined;
+    const closeMayCommit = new Promise<void>((resolve) => {
+      commitClose = resolve;
+    });
+    let closeHolds: (pid: number) => void = () => undefined;
+    const closeHoldsRow = new Promise<number>((resolve) => {
+      closeHolds = resolve;
+    });
+    const close = prisma.$transaction(
+      async (tx) => {
+        await tx.boardMailboxThread.update({
+          where: { id: thread.id },
+          data: { status: "CLOSED", closedAt: new Date() },
+        });
+        const [backend] = await tx.$queryRaw<{ pid: number }[]>`
+          SELECT pg_backend_pid() AS pid`;
+        closeHolds(backend?.pid ?? 0);
+        await closeMayCommit;
+      },
+      { timeout: 20_000 },
+    );
+    const closePid = await closeHoldsRow;
+
+    const reply = inject({
+      method: "POST",
+      url: `/api/board-mailbox/threads/${thread.id}/reply`,
+      payload: { body: "Ett svar." },
+      headers: { cookie: boardCookie },
+    });
+    // Until the reply is waiting on the close's row lock, whichever statement
+    // it waits at. Blocked by the close's own session, so no other lock wait
+    // - a background job's, another suite's - can stand in for it.
+    await vi.waitFor(
+      async () => {
+        const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+          SELECT count(*) AS waiting FROM pg_stat_activity
+          WHERE ${closePid}::int = ANY(pg_blocking_pids(pid))`;
+        expect(Number(row?.waiting ?? 0)).toBeGreaterThan(0);
+      },
+      { timeout: 10_000, interval: 25 },
+    );
+    commitClose();
+    await close;
+
+    const answered = await reply;
+    expect(answered.statusCode).toBe(409);
+    expect((answered.json() as { reason: string }).reason).toBe(
+      "thread-closed",
+    );
+    const stored = await prisma.boardMailboxThread.findUnique({
+      where: { id: thread.id },
+      select: { status: true },
+    });
+    expect(stored?.status).toBe("CLOSED");
+  });
 });
 
 describe("answering a letter", () => {
@@ -2521,6 +3029,11 @@ describe("answering a letter", () => {
     expect(sent?.replyTo).toBe(BOARD_ADDRESS);
     // And it threads in the correspondent's own client.
     expect(sent?.inReplyTo).toContain("@utanfor.example");
+    // It greets nobody by the name on the envelope. That name is whatever the
+    // sender typed, and printed in a letter sent under the association's name
+    // it would read as the association's own words.
+    expect(sent?.props).not.toHaveProperty("recipientName");
+    expect(JSON.stringify(sent?.props)).not.toContain("Granne");
 
     const stored = await prisma.boardMailboxMessage.findUnique({
       where: { id: replyMessageId },
@@ -3041,7 +3554,7 @@ describe("the purge", () => {
     expect(replied.statusCode, replied.body).toBe(201);
     const answer = await prisma.boardMailboxMessage.findFirst({
       where: { threadId: thread.id, direction: "OUTBOUND" },
-      select: { id: true },
+      select: { id: true, messageId: true },
     });
     expect(answer).not.toBeNull();
     const answerSent = await sendAnswer(answer?.id ?? "");
@@ -3058,7 +3571,7 @@ describe("the purge", () => {
           subject: `Sv: ${subject}`,
           body: "Och en fraga till.",
           messageId: `samtal-foljd-${suffix}@utanfor.example`,
-          inReplyTo: openingId,
+          inReplyTo: answer?.messageId ?? "",
         }),
       },
       {
@@ -3162,6 +3675,93 @@ describe("the purge", () => {
      */
     expect(
       await prisma.mediaFile.findUnique({ where: { id: fileId } }),
+    ).toBeNull();
+  });
+
+  it("takes the files of a letter stored onto the thread while it runs", async () => {
+    /*
+     * A letter dated on or before the cutoff can join an aged thread without
+     * moving its clock past it, so the delete still matches and cascades to that
+     * letter too. Its files have to be among the ones the purge removes, or its
+     * bytes outlive it with nothing pointing at them.
+     */
+    const correspondent = `samtidig-${suffix}@utanfor.example`;
+    const collectorServer = await serveMailbox([
+      {
+        uid: `uid-concurrent-attachment-${suffix}`,
+        raw: letter({
+          from: correspondent,
+          subject: `Samtidig bilaga ${suffix}`,
+          body: "Ett gammalt brev med bilaga.",
+          messageId: `concurrent-attachment-${suffix}@utanfor.example`,
+          attachment: true,
+        }),
+      },
+    ]);
+    try {
+      await collector.collect();
+    } finally {
+      await collectorServer.close();
+    }
+    const thread = await threadBySubject(`Samtidig bilaga ${suffix}`);
+    await prisma.boardMailboxThread.update({
+      where: { id: thread.id },
+      data: { lastMessageAt: new Date("2020-01-01T00:00:00.000Z") },
+    });
+
+    // The letter lands once the purge has begun its transaction, from a
+    // connection of its own, as the collector's store would.
+    let landed: string | null = null;
+    const original = (
+      purge as unknown as {
+        heldPersonFor: (...args: unknown[]) => Promise<string | null>;
+      }
+    ).heldPersonFor.bind(purge);
+    const spy = vi
+      .spyOn(
+        purge as unknown as {
+          heldPersonFor: (...args: unknown[]) => Promise<string | null>;
+        },
+        "heldPersonFor",
+      )
+      .mockImplementation(async (...args: unknown[]) => {
+        if (landed === null && args[1] !== undefined) {
+          const file = await media.upload({
+            bytes: pngBytes(),
+            fileName: "sen.png",
+            accept: "image",
+            visibility: "INTERNAL",
+            requiredCapability: "boardMailbox:handle",
+            showsIdentifiablePersons: true,
+            uploadedByPersonId: null,
+            channel: "SYSTEM",
+            recordFileName: false,
+          });
+          landed = file.id;
+          await prisma.boardMailboxMessage.create({
+            data: {
+              threadId: thread.id,
+              direction: "INBOUND",
+              body: "Ett lika gammalt brev till.",
+              occurredAt: new Date("2019-12-01T00:00:00.000Z"),
+              attachments: { create: { fileId: file.id } },
+            },
+          });
+        }
+        return original(...args);
+      });
+    try {
+      await purge.run(new Date("2026-01-01T00:00:00.000Z"));
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(landed).not.toBeNull();
+    expect(
+      await prisma.boardMailboxThread.findUnique({ where: { id: thread.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: landed ?? "" } }),
     ).toBeNull();
   });
 
@@ -3341,6 +3941,18 @@ describe("the purge", () => {
           await first.close();
         }
         const thread = await threadBySubject(subject);
+        // The board answers, and the old-dated letter is a reply to that.
+        const replied = await inject({
+          method: "POST",
+          url: `/api/board-mailbox/threads/${thread.id}/reply`,
+          payload: { body: "Tack, vi tittar pa det." },
+          headers: { cookie: boardCookie },
+        });
+        expect(replied.statusCode, replied.body).toBe(201);
+        const answer = await prisma.boardMailboxMessage.findFirstOrThrow({
+          where: { threadId: thread.id, direction: "OUTBOUND" },
+          select: { messageId: true },
+        });
         const before = await prisma.boardMailboxThread.findUnique({
           where: { id: thread.id },
           select: { lastMessageAt: true },
@@ -3354,7 +3966,7 @@ describe("the purge", () => {
               subject: `Re: ${subject}`,
               body: "Ett svar fran for lange sedan.",
               messageId: `${slug}-reply-${suffix}@utanfor.example`,
-              inReplyTo: opening,
+              inReplyTo: answer.messageId ?? "",
               date: "Wed, 01 Jan 2020 09:15:00 +0100",
             }),
           },
@@ -3367,7 +3979,7 @@ describe("the purge", () => {
           await second.close();
         }
 
-        expect((await threadBySubject(subject)).messageCount).toBe(2);
+        expect((await threadBySubject(subject)).messageCount).toBe(3);
         // And the thread's clock stays on its newest letter, or the old date
         // would hand the recent one to the purge the night the restriction lifts.
         const after = await prisma.boardMailboxThread.findUnique({

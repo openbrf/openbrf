@@ -1769,6 +1769,10 @@ describe("moves entered out of date order", () => {
       // the membership ends on the later of the two dates.
       expect(later.memberRegisterExitRecorded).toBe(false);
       expect(earlier.memberRegisterExitRecorded).toBe(true);
+      // Nothing begins again: neither apartment is held later than the other
+      // was left.
+      expect(later.memberRegisterEntryOn).toBeNull();
+      expect(earlier.memberRegisterEntryOn).toBeNull();
       expect(rows(await registerEntries(actors.lateRecorder.personId))).toEqual(
         [
           {
@@ -1816,6 +1820,9 @@ describe("moves entered out of date order", () => {
       // Two months in which the person held no tenant-ownership, which the
       // register has to show rather than bridge.
       expect(left.memberRegisterExitRecorded).toBe(true);
+      // And the board is told it begins again, on the day the later apartment
+      // is taken over, rather than only that it ended.
+      expect(left.memberRegisterEntryOn).toBe("2026-12-01");
       expect(rows(await registerEntries(actors.gapHolder.personId))).toEqual([
         {
           eventType: "ENTRY",

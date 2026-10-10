@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   type BoardMailboxColumns,
   boardMailboxConfigured,
+  mailboxFingerprint,
 } from "./board-mailbox-settings";
 
 const CONFIGURED: BoardMailboxColumns = {
@@ -31,4 +32,36 @@ describe("boardMailboxConfigured", () => {
       );
     },
   );
+});
+
+describe("mailboxFingerprint", () => {
+  const MAILBOX = {
+    host: "pop.example.test",
+    port: 995,
+    secure: true,
+    user: "styrelsen",
+    password: "secret",
+  };
+
+  it("is the same mailbox however its host and user are capitalised or spaced", () => {
+    // A mail server reads them that way. A fingerprint that changed with a
+    // corrected capital would make every letter in the mailbox look new.
+    expect(
+      mailboxFingerprint({
+        ...MAILBOX,
+        host: " Pop.Example.TEST ",
+        user: "Styrelsen ",
+      }),
+    ).toBe(mailboxFingerprint(MAILBOX));
+  });
+
+  it("tells two mailboxes apart", () => {
+    expect(mailboxFingerprint({ ...MAILBOX, user: "kassor" })).not.toBe(
+      mailboxFingerprint(MAILBOX),
+    );
+    // Nor does the password, the port or TLS decide which mailbox it is.
+    expect(
+      mailboxFingerprint({ ...MAILBOX, password: "other", port: 110 }),
+    ).toBe(mailboxFingerprint(MAILBOX));
+  });
 });

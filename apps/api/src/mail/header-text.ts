@@ -40,3 +40,36 @@ export function hasControlCharacter(value: string): boolean {
 export function oneLine(value: string): string {
   return value.replace(CONTROL_CHARACTERS, " ").trim();
 }
+
+/**
+ * The characters that reorder the text around them without being seen.
+ *
+ * A right-to-left override shows `invoice\u202Efdp.exe` as "invoiceexe.pdf",
+ * and the same trick makes a sender's address read as a domain it is not. The
+ * embeddings, overrides and isolates, and the three invisible marks that set a
+ * direction.
+ */
+export const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g;
+
+/**
+ * Characters a reader cannot see: the C1 controls, the soft hyphen, the
+ * bidirectional controls above, the zero-width space and joiners, the word
+ * joiner and the invisible operators beside it, and the byte order mark.
+ *
+ * Kept apart from {@link CONTROL_CHARACTERS} because none of these breaks a
+ * header line - none encodes to a CR or an LF - so what they threaten is what a
+ * person reads rather than what a mail server parses. A name or a subject loses
+ * them; an address holding one is not an address anybody typed.
+ */
+export const INVISIBLE_CHARACTERS =
+  /[\u0080-\u009f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g;
+
+/** Whether the value holds a character a reader cannot see. */
+export function hasInvisibleCharacter(value: string): boolean {
+  return value.search(INVISIBLE_CHARACTERS) !== -1;
+}
+
+/** The value without the characters a reader cannot see. */
+export function withoutInvisibleCharacters(value: string): string {
+  return value.replace(INVISIBLE_CHARACTERS, "");
+}

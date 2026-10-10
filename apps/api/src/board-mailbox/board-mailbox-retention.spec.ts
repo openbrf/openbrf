@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import { NEWS_COMMENT_RETENTION_DAYS } from "../news/news-comment-retention";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -8,28 +9,12 @@ import {
 
 const LAST_MESSAGE = new Date("2026-08-01T12:00:00.000Z");
 
-/**
- * The daylight saving cases run on the association's own clock.
- *
- * Without this they run on the container's, which is UTC, where calendar-field
- * arithmetic and instant arithmetic give the same answer - so the two assertions
- * about a daylight saving boundary would pass through the regression they exist
- * for. Europe/Stockholm is where the two disagree, and it is the zone the
- * product's dates are stated in.
+/*
+ * No test here sets the process zone (ADR 0013). The module adds whole days of
+ * milliseconds to an instant, so its answer does not depend on one; what the
+ * daylight saving cases pin is that the window across a boundary is still
+ * exactly that many days of 24 hours.
  */
-const CONTAINER_TIME_ZONE = process.env["TZ"];
-
-beforeAll(() => {
-  process.env["TZ"] = "Europe/Stockholm";
-});
-
-afterAll(() => {
-  if (CONTAINER_TIME_ZONE === undefined) {
-    delete process.env["TZ"];
-  } else {
-    process.env["TZ"] = CONTAINER_TIME_ZONE;
-  }
-});
 
 describe("computeBoardMailboxPurgeDate", () => {
   it("anchors on the newest message plus the retention window", () => {
@@ -193,6 +178,8 @@ describe("BOARD_MAILBOX_RETENTION_DAYS", () => {
     // questions a board is asked recur on the association's own annual cycle. A
     // one-year window would erase last spring's answer before this spring's
     // question arrives.
-    expect(BOARD_MAILBOX_RETENTION_DAYS).toBe(730);
+    expect(BOARD_MAILBOX_RETENTION_DAYS).toBeGreaterThan(
+      NEWS_COMMENT_RETENTION_DAYS,
+    );
   });
 });

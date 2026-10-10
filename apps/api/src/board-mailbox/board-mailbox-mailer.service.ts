@@ -87,7 +87,11 @@ const REPLY_JOB_OPTIONS = {
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
-  expireInSeconds: 5 * 60,
+  // The mail jobs' common bound. The queue fails an attempt that outlives it
+  // while that attempt may still be talking to the mail server, so it has to
+  // outlast a slow handover on a loaded host by a wide margin rather than a
+  // typical one.
+  expireInSeconds: 15 * 60,
   deadLetter: BOARD_MAILBOX_REPLY_ABANDONED_QUEUE,
 } satisfies JobSendOptions;
 
@@ -177,7 +181,6 @@ export class BoardMailboxMailerService implements OnModuleInit {
           select: {
             subject: true,
             correspondentEmailCipher: true,
-            correspondentNameCipher: true,
           },
         },
       },
@@ -236,7 +239,7 @@ export class BoardMailboxMailerService implements OnModuleInit {
 
       sent = await this.mail.send({
         to,
-        ...(await this.replyMail(message, settings.address)),
+        ...this.replyMail(message, settings.address),
         replyTo: settings.address,
         messageId: message.messageId,
         inReplyTo: message.inReplyTo,
@@ -319,40 +322,30 @@ export class BoardMailboxMailerService implements OnModuleInit {
       where: { id: answerId, direction: "OUTBOUND" },
       select: {
         body: true,
-        thread: { select: { subject: true, correspondentNameCipher: true } },
+        thread: { select: { subject: true } },
       },
     });
     if (message === null) {
       return null;
     }
-    return this.mail.renderMail(await this.replyMail(message, boardAddress));
+    return this.mail.renderMail(this.replyMail(message, boardAddress));
   }
 
   /** The template a reply is sent with, and what fills it in. */
-  private async replyMail(
-    message: {
-      body: string;
-      thread: { subject: string; correspondentNameCipher: string | null };
-    },
+  private replyMail(
+    message: { body: string; thread: { subject: string } },
     boardAddress: string,
-  ): Promise<{
+  ): {
     locale: null;
     template: typeof boardMailboxReplyMail;
     props: BoardMailboxReplyMailProps;
-  }> {
+  } {
     return {
       // The association's default. See the note at the top of this file: there
       // is no recipient record here to hold a preference.
       locale: null,
       template: boardMailboxReplyMail,
       props: {
-        recipientName:
-          message.thread.correspondentNameCipher === null
-            ? null
-            : await this.encryption.decrypt(
-                "boardMailboxThread.correspondentName",
-                message.thread.correspondentNameCipher,
-              ),
         subject: message.thread.subject,
         body: message.body,
         boardAddress,

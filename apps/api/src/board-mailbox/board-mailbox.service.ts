@@ -25,6 +25,7 @@ import {
   loadBoardMailboxSettings,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
+import { lockThread } from "./thread-lock";
 
 /**
  * The board's shared mailbox, as the board works it.
@@ -146,7 +147,7 @@ export interface BoardMailboxThreadList {
   more: boolean;
   /**
    * What to ask for to read the next page, or null when this is the last of
-   * them. The id of the last thread on this page.
+   * them. Where this page ended, as {@link INBOX_CURSOR} writes it.
    */
   nextCursor: string | null;
 }
@@ -166,6 +167,47 @@ export interface BoardMailboxThreadList {
  * read a set nobody here chose the size of.
  */
 const MAX_THREADS_LISTED = 200;
+
+/**
+ * The statuses in the order the inbox lists them, which is the enumeration's
+ * declaration order: that is what PostgreSQL sorts an enum by.
+ */
+const INBOX_ORDER: readonly BoardMailboxThreadStatus[] = [
+  "NEW",
+  "TAKEN",
+  "ANSWERED",
+  "CLOSED",
+];
+
+/** Where a page of the inbox ended, as `STATUS-milliseconds-id`. */
+export const INBOX_CURSOR =
+  /^(NEW|TAKEN|ANSWERED|CLOSED)-(\d{1,15})-([a-z0-9]{1,40})$/;
+
+function encodeInboxCursor(row: {
+  status: BoardMailboxThreadStatus;
+  lastMessageAt: Date;
+  id: string;
+}): string {
+  return `${row.status}-${String(row.lastMessageAt.getTime())}-${row.id}`;
+}
+
+function decodeInboxCursor(cursor: string): {
+  status: BoardMailboxThreadStatus;
+  lastMessageAt: Date;
+  id: string;
+} {
+  const [, status, millis, id] = INBOX_CURSOR.exec(cursor) ?? [];
+  if (status === undefined || millis === undefined || id === undefined) {
+    // The controller refuses anything else, so this is a caller in this
+    // process passing a cursor it made up.
+    throw new Error("Not an inbox cursor.");
+  }
+  return {
+    status: status as BoardMailboxThreadStatus,
+    lastMessageAt: new Date(Number(millis)),
+    id,
+  };
+}
 
 /**
  * The most messages one thread shows.
@@ -307,13 +349,43 @@ export class BoardMailboxService {
     // a status and a last-message time, and a page boundary that falls between
     // them has to fall in the same place every time it is asked for, or a thread
     // is listed twice or not at all.
+    //
+    // The cursor is the position the last row stood at, not the row. Threads
+    // move while somebody pages: one taken goes to TAKEN, one purged is gone. A
+    // cursor naming the row continued from wherever that row had gone, and
+    // skipped the threads in between or ended the list early.
+    const after =
+      filter?.after === undefined ? null : decodeInboxCursor(filter.after);
     const rows = await this.prisma.boardMailboxThread.findMany({
-      where: filter?.status === undefined ? {} : { status: filter.status },
+      where: {
+        AND: [
+          filter?.status === undefined ? {} : { status: filter.status },
+          after === null
+            ? {}
+            : {
+                OR: [
+                  {
+                    status: {
+                      in: INBOX_ORDER.slice(
+                        INBOX_ORDER.indexOf(after.status) + 1,
+                      ),
+                    },
+                  },
+                  {
+                    status: after.status,
+                    lastMessageAt: { gt: after.lastMessageAt },
+                  },
+                  {
+                    status: after.status,
+                    lastMessageAt: after.lastMessageAt,
+                    id: { gt: after.id },
+                  },
+                ],
+              },
+        ],
+      },
       orderBy: [{ status: "asc" }, { lastMessageAt: "asc" }, { id: "asc" }],
       take: MAX_THREADS_LISTED + 1,
-      ...(filter?.after === undefined
-        ? {}
-        : { cursor: { id: filter.after }, skip: 1 }),
       select: {
         ...THREAD_SELECT,
         _count: { select: { messages: true } },
@@ -322,6 +394,7 @@ export class BoardMailboxService {
 
     const more = rows.length > MAX_THREADS_LISTED;
     const threads = more ? rows.slice(0, MAX_THREADS_LISTED) : rows;
+    const last = threads.at(-1);
 
     const people = await this.peopleFor(
       threads.map((thread) => thread.takenByPersonId),
@@ -335,7 +408,7 @@ export class BoardMailboxService {
         })),
       ),
       more,
-      nextCursor: more ? (threads[threads.length - 1]?.id ?? null) : null,
+      nextCursor: more && last !== undefined ? encodeInboxCursor(last) : null,
     };
   }
 
@@ -413,6 +486,10 @@ export class BoardMailboxService {
     principal: Principal,
   ): Promise<BoardMailboxThreadView> {
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: { id: true, status: true, takenByPersonId: true },
@@ -470,6 +547,10 @@ export class BoardMailboxService {
     principal: Principal,
   ): Promise<BoardMailboxThreadView> {
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: { id: true, status: true, takenByPersonId: true },
@@ -553,6 +634,10 @@ export class BoardMailboxService {
     await this.mailer.ensureQueues();
 
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: {
@@ -640,6 +725,10 @@ export class BoardMailboxService {
     principal: Principal,
   ): Promise<BoardMailboxThreadView> {
     await this.prisma.$transaction(async (tx) => {
+      // Locked before it is read: what is written below is decided from what
+      // is read here, and another act committing in between would be
+      // overwritten. See thread-lock.ts.
+      await lockThread(tx, threadId);
       const thread = await tx.boardMailboxThread.findUnique({
         where: { id: threadId },
         select: {

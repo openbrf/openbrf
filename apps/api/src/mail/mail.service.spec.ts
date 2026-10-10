@@ -573,7 +573,6 @@ describe("the subject", () => {
       locale: "sv",
       template: boardMailboxReplyMail,
       props: {
-        recipientName: "Anna",
         subject,
         body: "Tack för ditt brev.",
         boardAddress: "styrelsen@eksemplet.example",

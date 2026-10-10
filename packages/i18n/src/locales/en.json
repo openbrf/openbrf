@@ -2242,7 +2242,12 @@
       "done": "{{name}} is registered at apartment {{apartment}}.",
       "registerEntry": "An entry was written in the member register.",
       "welcomeSent": "A welcome email was sent, in the recipient's own language.",
-      "welcomeSkipped": "No welcome email was sent: this person has no email address on file."
+      "welcomeSkipped": "No welcome email was sent: this person has no email address on file.",
+      "personSearching": "Searching the register...",
+      "addressesFailed": "The association's addresses could not be read just now.",
+      "apartmentsFailed": "The apartments at this address could not be read just now.",
+      "holdersReading": "Reading the apartment's current holders...",
+      "holdersFailed": "The apartment's current holders could not be read, so the previous holder cannot be chosen. Try again before the transfer is recorded."
     },
     "out": {
       "heading": "Move out",
@@ -2258,7 +2263,8 @@
       "registerExit": "The membership was closed in the member register.",
       "registerKept": "The member register entry itself is retained as the law requires. No retention setting reaches it.",
       "binder": "The apartment binder follows the apartment: whoever moves in reads it from their move-in day, and anybody else living in the apartment reads it until they are moved out themselves.",
-      "boardReminder": "The board is reminded on {{date}} to finish the handover."
+      "boardReminder": "The board is reminded on {{date}} to finish the handover.",
+      "registerReentry": "The membership begins again on {{date}}, when the person takes over their next tenant-ownership. Both entries were written in the member register."
     },
     "transfer": {
       "record": "Record a transfer",
@@ -2834,7 +2840,6 @@
       "sent": "The answer was accepted by the mail server.",
       "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
       "refused": "The answer did not go out: the mail server refused it.",
-      "threadGone": "The answer did not go out: the thread was erased first.",
       "interrupted": "The answer was given up on before it went out.",
       "unknown": "The answer did not go out."
     },
