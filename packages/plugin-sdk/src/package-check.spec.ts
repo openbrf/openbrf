@@ -233,6 +233,26 @@ describe("pluginPackageProblems", () => {
     ["a line break before the parenthesis", 'require\n("lodash");'],
     ["a comment before the parenthesis", 'require /* bundled */ ("lodash");'],
     ["a member call", 'module.require("lodash");'],
+    ["an optional call", 'require?.("lodash");'],
+    ["an optional member call", 'module?.require("lodash");'],
+    ["an escaped letter in the name", 'requ\\u0069re("lodash");'],
+    ["a braced escape in the name", '\\u{72}equire("lodash");'],
+    ["a braced escape padded with zeros", '\\u{0000072}equire("lodash");'],
+    ["a class's heritage", 'class A extends require("lodash") {}'],
+    [
+      "a class's heritage and a comment",
+      'class A extends require("lodash") /* c */ {}',
+    ],
+    [
+      "a class expression's heritage",
+      'const A = class extends require("lodash") {};',
+    ],
+    [
+      "a member call as heritage",
+      'class A extends module.require("lodash") {}',
+    ],
+    ["an optional call as heritage", 'class A extends require?.("lodash") {}'],
+    ["a constructed heritage", 'class A extends new require("lodash") {}'],
   ])("reports a foreign module required with %s", (_how, line) => {
     expect(problemsWith(line)).toEqual([expect.stringMatching(FOREIGN)]);
   });
@@ -293,8 +313,150 @@ describe("pluginPackageProblems", () => {
     ["an optional method call", "ctx?.require(name);"],
     ["a function of that name", "function require(name) { return name; }"],
     ["a reference that is not called", "const resolve = require.resolve;"],
+    [
+      "an object's method",
+      "const loader = { require(name) { return name; } };",
+    ],
+    ["a class's method", "class Loader { static require(name) {} }"],
+    ["an accessor", "const loader = { get require() { return 1; } };"],
+    ["a method with a default", 'const o = { require(n = f("x")) {} };'],
+    [
+      "a method with a regular-expression default",
+      "const helper = { require(pattern = /x/) {} };",
+    ],
+    [
+      "a method with a regular expression after `return` in its default",
+      "({ require(x = (() => { return /x/; })()) {} });",
+    ],
+    ["a private method", "class Loader { #require(name) {} }"],
+    ["a call to a private method", "this.#require(name);"],
+    ["a method's body opened after a comment", "({ require(n) /* c */ {} });"],
   ])("does not read require in %s as a call", (_how, line) => {
     expect(problemsWith(line)).toEqual([]);
+  });
+
+  it("still reads the calls inside a method named require", () => {
+    expect(
+      problemsWith('const o = { require(n) { return require("lodash"); } };'),
+    ).toEqual([expect.stringMatching(FOREIGN)]);
+  });
+
+  it("reads a call followed by a block on the next line as a call", () => {
+    // The line break ends the statement, so this is a call and then a block.
+    expect(problemsWith('require("lodash")\n{ start(); }')).toEqual([
+      expect.stringMatching(FOREIGN),
+    ]);
+  });
+
+  it("counts a call whose parenthesis is never closed", () => {
+    expect(problemsWith('require("lodash"')).toEqual([COMPUTED]);
+  });
+
+  // The scanner takes each of these regular expressions for a division, or
+  // these divisions after a keyword-like word for a regular expression, so a
+  // `)` inside it closes the call's parenthesis before a `{`.
+  it.each([
+    ["an arrow function", "require(name, () => { if (a) /) {/.test(b); });"],
+    [
+      "a function",
+      'const f = require(function(){ if(a){} /\\){/; return "lodash" }());',
+    ],
+    [
+      "a statement after a semicolon",
+      "start(); require(name, () => { if (a) /) {/.test(b); });",
+    ],
+    ["a division after `of`", 'x; require(o.of / 2 + "/) {");'],
+    ["a division after `return`", 'x; require(o.return / 2 + "/) {");'],
+    ["a division after `await`", ";require(await / function (a = 1 / 2) {});"],
+  ])(
+    "counts a call whose argument holds a regular expression misread in %s",
+    (_how, line) => {
+      expect(problemsWith(line)).toEqual([COMPUTED]);
+    },
+  );
+
+  // Each of these once hid the require after it from the check.
+  it.each([
+    ["a division after an increment", 'a++ / b; const l = require("lodash");'],
+    ["a division after a decrement", 'a-- / b; const l = require("lodash");'],
+    [
+      "a regular expression after a prefix increment",
+      'x = ++/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "a regular expression after a prefix decrement",
+      'x = --/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "an increment on the next line",
+      'let a = 0; a\n++/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "a decrement on the next line",
+      'let a = 0; a\n--/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "an increment after a block comment holding a line break",
+      'let a = 0; a /*\n*/ ++/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "a decrement after a line comment",
+      'let a = 0; a // c\n--/"/.lastIndex; require("lodash");',
+    ],
+    [
+      "an increment after a comment on the same line",
+      'a /* c */ ++ / b; const l = require("lodash");',
+    ],
+    [
+      "a division after a name escaped outside the Basic Multilingual Plane",
+      'const \\u{10400} = 1; \\u{10400} / 2; require("lodash");',
+    ],
+    [
+      "a division after a name outside the Basic Multilingual Plane",
+      'const \u{10400} = 1; \u{10400} / 2; require("lodash");',
+    ],
+    [
+      "a division after a property named `of`",
+      'const o = { of: 6 }; o.of / 2; require("lodash");',
+    ],
+    [
+      "a division after a property named `return` reached by `?.`",
+      'const o = { return: 6 }; o?.return / 2; require("lodash");',
+    ],
+    [
+      "a division after a property named `typeof` and a line break",
+      'const o = { typeof: 6 }; o.\ntypeof / 2; require("lodash");',
+    ],
+    ["a line comment ended by CR", '// note\rrequire("lodash");'],
+    ["a line comment ended by U+2028", '// note\u2028require("lodash");'],
+    ["a line comment ended by U+2029", '// note\u2029require("lodash");'],
+    ["a string ended by CR", 'const s = "open\rrequire("lodash");'],
+    [
+      "a string continued over CRLF",
+      'const s = "a\\\r\nb"; require("lodash");',
+    ],
+    ["a regular expression ended by CR", 'const r = /open\rrequire("lodash");'],
+    [
+      "a regular expression ended by U+2028",
+      'const r = /a\u2028require("lodash");',
+    ],
+    [
+      "an escaped line break in a regular expression",
+      'const r = /a\\\nrequire("lodash");',
+    ],
+  ])("still reads the require after %s", (_how, line) => {
+    expect(problemsWith(line)).toEqual([expect.stringMatching(FOREIGN)]);
+  });
+
+  // U+2028 may stand inside a string, so it does not end one.
+  it("reads a string holding U+2028 to its closing quote", () => {
+    expect(problemsWith('const s = "a\u2028 require(name)";')).toEqual([]);
+  });
+
+  it("reads `?.` before a digit as a conditional, not an optional chain", () => {
+    expect(problemsWith('const n = a ?.5 : require("lodash");')).toEqual([
+      expect.stringMatching(FOREIGN),
+    ]);
   });
 
   it("reads a require inside a template's substitution", () => {
@@ -312,13 +474,73 @@ describe("pluginPackageProblems", () => {
     ).toEqual([expect.stringMatching(FOREIGN)]);
   });
 
+  /**
+   * How many times longer the check takes on a bundle sixteen times the size:
+   * about 16 when it reads in linear time and about 256 when in quadratic.
+   *
+   * The smaller bundle is timed sixteen readings at a time, so both timings do
+   * the same work and last as long, and the two take turns. On a loaded runner
+   * a pause, a slower core or a garbage collection then falls on either timing
+   * alike; a short reading timed alone would slip between them where the long
+   * one cannot, and the ratio would grow severalfold. Each counts its fastest
+   * of five rounds, so one pause does not decide the answer.
+   */
+  function growth(hostile: (copies: number) => string, copies: number): number {
+    const small = hostile(copies);
+    const large = hostile(copies * 16);
+    const timed = (read: () => void): number => {
+      const started = performance.now();
+      read();
+      return performance.now() - started;
+    };
+    let fastestSmall = Number.POSITIVE_INFINITY;
+    let fastestLarge = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 5; round += 1) {
+      const sixteenSmall = timed(() => {
+        for (let reading = 0; reading < 16; reading += 1) problemsWith(small);
+      });
+      const oneLarge = timed(() => problemsWith(large));
+      fastestSmall = Math.min(fastestSmall, sixteenSmall / 16);
+      fastestLarge = Math.min(fastestLarge, oneLarge);
+    }
+    return fastestLarge / fastestSmall;
+  }
+
+  /** Four times a linear reading's growth and a quarter of a quadratic one's. */
+  const LINEAR_GROWTH = 64;
+
   // Comments between the word and its parenthesis once made the reading
   // backtrack exponentially: forty of them ran for hours.
   it("reads a bundle of adjacent comments in linear time", () => {
-    const hostile = `require${"/**/".repeat(50_000)}x`;
-    const started = performance.now();
-    expect(problemsWith(hostile)).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(1_000);
+    const hostile = (copies: number): string =>
+      `require${"/**/".repeat(copies)}x`;
+    expect(problemsWith(hostile(6_250))).toEqual([]);
+    expect(growth(hostile, 6_250)).toBeLessThan(LINEAR_GROWTH);
+  });
+
+  // Each count makes the sixteen-fold bundle take a few milliseconds on a fast
+  // machine, so the five rounds stay well inside the default test timeout on a
+  // loaded runner.
+  it.each([
+    [
+      "nested calls",
+      2_000,
+      (copies: number) =>
+        `${"require(".repeat(copies)}"x"${")".repeat(copies)}`,
+    ],
+    ["line comments", 20_000, (copies: number) => "// c\n".repeat(copies)],
+    [
+      "escaped names",
+      2_000,
+      (copies: number) => "requ\\u0069re;".repeat(copies),
+    ],
+    [
+      "method parameter lists",
+      750,
+      (copies: number) => "({ require() /**/ {} });".repeat(copies),
+    ],
+  ])("reads a bundle of many %s in linear time", (_what, copies, hostile) => {
+    expect(growth(hostile, copies)).toBeLessThan(LINEAR_GROWTH);
   });
 
   it("still reports a package that only shares a built-in's name as a prefix", () => {

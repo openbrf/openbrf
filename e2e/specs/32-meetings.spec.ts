@@ -364,6 +364,16 @@ async function arrangeAndOpen(page: Page, heldOn: string): Promise<string> {
 
   const list = panel(page, "Föreningens stämmor");
   await expect(list).toBeVisible();
+  /*
+   * The heading arrives with the list, so the list is read by now. A day
+   * already on it is an earlier run's on a reused stack, since nothing removes
+   * a meeting: said here, rather than as the strict-mode failure a later
+   * lookup by the day would give for two rows.
+   */
+  await expect(
+    meetingRow(page, heldOn),
+    `a meeting from an earlier run on this stack is already held on ${heldOn}`,
+  ).toHaveCount(0);
   await list.getByLabel("Dag då den hålls").fill(heldOn);
 
   /*
@@ -628,6 +638,15 @@ test.describe("the general meeting", () => {
     await expect(
       page.getByRole("heading", { name: "Föreningsstämmor" }),
     ).toBeVisible();
+    /*
+     * The list's own heading arrives only after its read answers, so its
+     * absence alone would hold on a screen still reading. For an account
+     * holding the capability the screen puts up its loading status in the same
+     * render as the title, and for one without it reads nothing at all - so the
+     * status being absent beside a rendered title is the screen having decided
+     * there is nothing here for him, rather than not having got that far.
+     */
+    await expect(page.getByText("Läser stämmorna...")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Föreningens stämmor" }),
     ).toHaveCount(0);

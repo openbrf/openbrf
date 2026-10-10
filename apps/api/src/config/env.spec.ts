@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { EnvValidationError, loadEnv } from "./env";
+import {
+  EnvValidationError,
+  isLoopbackAddress,
+  isLoopbackHost,
+  loadEnv,
+} from "./env";
 
 /**
  * The address this instance says it is at.
@@ -424,6 +429,35 @@ describe("the mail driver's variables", () => {
 });
 
 /**
+ * Where an SMTP server may be signed in to without TLS.
+ *
+ * Only an address no resolver is asked about. The SMTP driver asks DNS what a
+ * name is before it reads the hosts file, and Node's resolver sends a query for
+ * `localhost` to the network and uses the answer, so the name is no promise that
+ * the server is on this machine.
+ */
+describe("the loopback address an SMTP server may go without TLS at", () => {
+  it.each(["127.0.0.1", "::1", "[::1]"])("is %s", (host) => {
+    expect(isLoopbackAddress(host)).toBe(true);
+  });
+
+  it.each([
+    "localhost",
+    "localhost.",
+    "LOCALHOST",
+    "127.0.0.2",
+    "smtp.example.se",
+  ])("is not %s", (host) => {
+    expect(isLoopbackAddress(host)).toBe(false);
+  });
+
+  it("is narrower than the loopback host a URL may use plain http on", () => {
+    expect(isLoopbackHost("localhost")).toBe(true);
+    expect(isLoopbackAddress("localhost")).toBe(false);
+  });
+});
+
+/**
  * The size of the application's connection pool.
  *
  * Several instances can share one database server, and every connection an
@@ -497,6 +531,59 @@ describe("the sign-in secret in production", () => {
       loadEnv({ ...REQUIRED, BETTER_AUTH_SECRET: "dev-only-secret-change-me" })
         .BETTER_AUTH_SECRET,
     ).toBe("dev-only-secret-change-me");
+  });
+});
+
+/**
+ * The instance-wide switches.
+ *
+ * Each is "true" or "false", in any case. A value that is neither stops the
+ * boot with the variable named: reading `OPENBRF_ACTIONS_READ_ONLY=1` as false
+ * would leave an operator watching a connected app on an instance that still
+ * writes.
+ */
+describe("the boolean switches", () => {
+  const SWITCHES = [
+    "OPENBRF_ACTIONS_READ_ONLY",
+    "OPENBRF_PLUGINS_ENABLED",
+    "OPENBRF_UNCURATED_PLUGINS_ENABLED",
+    "OPENBRF_PLUGINS_REINSTALL_ON_BOOT",
+    "OPENBRF_S3_FORCE_PATH_STYLE",
+  ] as const;
+
+  it.each(SWITCHES)("reads %s as true or false in any case", (name) => {
+    for (const [value, expected] of [
+      ["true", true],
+      ["TRUE", true],
+      ["True", true],
+      ["false", false],
+      ["FALSE", false],
+    ] as const) {
+      expect(loadEnv({ ...REQUIRED, [name]: value })[name]).toBe(expected);
+    }
+  });
+
+  it.each(SWITCHES)("refuses any other value of %s at boot", (name) => {
+    for (const value of ["1", "0", "yes", "on", "ture"]) {
+      expect(() => loadEnv({ ...REQUIRED, [name]: value })).toThrow(
+        `${name}: must be "true" or "false"`,
+      );
+    }
+  });
+
+  it("takes the default when a switch is unset or empty", () => {
+    for (const source of [
+      REQUIRED,
+      {
+        ...REQUIRED,
+        OPENBRF_ACTIONS_READ_ONLY: "",
+        OPENBRF_PLUGINS_ENABLED: "",
+      },
+    ]) {
+      const env = loadEnv(source);
+      expect(env.OPENBRF_ACTIONS_READ_ONLY).toBe(false);
+      expect(env.OPENBRF_PLUGINS_ENABLED).toBe(true);
+    }
   });
 });
 

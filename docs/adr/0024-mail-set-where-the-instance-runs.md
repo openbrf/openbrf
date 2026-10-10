@@ -136,22 +136,52 @@ A driver written against one vendor's own API is a sibling file and a branch in
 the selection.
 
 `SmtpMailDriver` requires STARTTLS before it signs in to the environment's relay,
-unless the relay is on loopback, so a relay whose offer of STARTTLS an attacker
-on the path strips gets no password in the clear. `OPENBRF_SMTP_REQUIRE_TLS=false`
+unless the relay is at a loopback address, so a relay whose offer of STARTTLS
+an attacker on the path strips gets no password in the clear. `OPENBRF_SMTP_REQUIRE_TLS=false`
 lets a host vouch for the network to a relay that offers none, such as a sidecar
 on the Compose network, and the instance logs a warning at start while it is set.
 A server the board enters is held to the same rule from the save on: every save of
-the SMTP settings stores `smtpRequireTls`, true unless the host is on loopback,
-whichever field changed.
-Settings saved before that are not migrated. Their column is false, so a server
-that offers no STARTTLS keeps sending as it did, and the SMTP card warns that the
-password can go out unencrypted until the board saves the settings again. Where
+the SMTP settings stores `smtpRequireTls`, true unless the host is a loopback
+address, whichever field changed.
+Settings saved before that are migrated to the same rule: the upgrade sets
+`smtpRequireTls` on every row whose host is not on loopback. A connection that
+starts in cleartext to a server that offers no STARTTLS then stops sending mail
+until the board switches to implicit TLS or a port that offers STARTTLS. A row
+with implicit TLS is unaffected: its connection never asks for STARTTLS. The
+column is only a floor for a server that is not at a loopback address: the
+instance requires STARTTLS of such a server when it sends, whatever the column
+says, so a row that does not require it anyway, such as one a data-only restore
+of an older backup or an edit made in SQL brought back, is held to the rule all
+the same. Only for a server at a loopback address does the column decide. Where
 STARTTLS is required, a send that finds no TLS fails with the reason
 `mail-tls-unavailable`, which the card explains as a port and TLS mode to fix
-rather than a password. The SMTP driver
-also reports the `Message-ID` it handed over as the delivered one, so the
-environment's relay must keep it; one that rewrites it belongs behind
-`http-api`.
+rather than a password. The SMTP driver also reports the `Message-ID` it handed
+over as the delivered one, so the environment's relay must keep it; one that
+rewrites it belongs behind `http-api`.
+
+_Amended 2026-10-09._ Settings saved before saving required TLS were first left
+as they were and only flagged, so that an instance whose server offers no
+STARTTLS would not lose its mail with nothing on screen to say why. That left a
+password that could go out in the clear for as long as nobody opened the SMTP
+card, and an attacker on the path who strips STARTTLS is not something a board
+would notice. A send that fails says why, on the card's test message and in the
+reason `mail-tls-unavailable`, so the migration trades a silent exposure for a
+failure that names its fix.
+
+_Amended 2026-10-10._ A row that still did not require STARTTLS of a remote
+server was then used as stored, flagged on the SMTP card and named in a log
+warning at its first send. Both said so after the password had gone, if anyone
+read them, and the migration cannot reach a row brought back after it ran, so
+the instance now requires STARTTLS of a remote server when it sends. The card's
+notice and the log warning are gone with the risk they described.
+
+_Amended 2026-10-10._ The loopback exemption first took the name `localhost`
+too. The SMTP driver resolves a name through DNS before it reads the hosts file,
+and Node's resolver asks the network about `localhost` and uses the answer, so
+whoever answered the instance's DNS could have been sent the sign-in in the
+clear. Only `127.0.0.1` and `::1` (also written `[::1]`) are exempt now, on
+save and on send; a row the migration left alone because its host was
+`localhost` requires STARTTLS from the next send.
 
 ### The sender a host sets
 

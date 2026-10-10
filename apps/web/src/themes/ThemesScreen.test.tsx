@@ -100,6 +100,7 @@ const CATALOG_ENTRY: CatalogTheme = {
   contract: "^1.0.0",
   deprecated: false,
   installedVersion: null,
+  composedHere: false,
 };
 
 const RENDERING: ThemeRendering = {
@@ -225,6 +226,21 @@ describe("what a board sees before deciding", () => {
       name: /^uppdatera till 1\.0\.0$/i,
     });
     expect((update as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("offers no install over a theme composed under the same id", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [{ ...CATALOG_ENTRY, composedHere: true }],
+    });
+
+    renderScreen();
+
+    const install = await screen.findByRole("button", {
+      name: /^installera$/i,
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/har samma id/i)).toBeTruthy();
   });
 
   it("does not mark a theme the catalog still maintains", async () => {

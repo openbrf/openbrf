@@ -312,6 +312,7 @@ export class DataSubjectReportService {
         phoneCipher: true,
         personalIdentityNumberCipher: true,
         protectedPersonalData: true,
+        processingRestrictedAt: true,
         preferredLocale: true,
         createdAt: true,
         residencies: {
@@ -768,6 +769,7 @@ export class DataSubjectReportService {
         decisionNote: true,
         tribunalPermittedOn: true,
         tribunalPermittedUntil: true,
+        lettingEndedOn: true,
         apartment: {
           select: {
             number: true,
@@ -1312,6 +1314,8 @@ export class DataSubjectReportService {
         decision: true,
         decisionGround: true,
         decidedAt: true,
+        extendedAt: true,
+        extensionReason: true,
         executedAt: true,
         closedAt: true,
         closeReason: true,
@@ -1655,10 +1659,12 @@ export class DataSubjectReportService {
         tribunalPermittedUntil: formatDateColumn(
           application.tribunalPermittedUntil,
         ),
+        lettingEndedOn: formatDateColumn(application.lettingEndedOn),
         /*
          * Derived here rather than stored, as a residency's and a booking's are,
-         * and from the later of two anchors: the day it closed and the day the
-         * period applied for ended. Null while it is open, which is not a gap in
+         * and from the later of two anchors: the day it closed and the letting's
+         * last day - the period's, or the earlier day the board recorded the
+         * letting ended on. Null while it is open, which is not a gap in
          * the answer - there is no closing date to count from, and the
          * association is still processing it.
          *
@@ -1666,7 +1672,10 @@ export class DataSubjectReportService {
          * exactly as the booking's is, whichever of the two anchors won.
          */
         erasableFrom: formatDayOfInstant(
-          computeSubletPurgeDate(application.closedAt, application.periodTo),
+          computeSubletPurgeDate(
+            application.closedAt,
+            application.lettingEndedOn ?? application.periodTo,
+          ),
         ),
       })),
       keyOrders: keyOrders.map((order) => ({
@@ -1983,7 +1992,11 @@ export class DataSubjectReportService {
           requestId: request.id,
           kind: request.kind,
           requestedOn: formatDateColumn(request.requestedOn),
-          dueOn: formatDateColumn(dueOn(request.requestedOn)),
+          dueOn: formatDateColumn(
+            dueOn(request.requestedOn, request.extendedAt !== null),
+          ),
+          extendedOn: formatDayOfInstant(request.extendedAt),
+          extensionReason: request.extensionReason,
           ground: request.ground,
           erasureGround: request.erasureGround,
           erasureException: request.erasureException,
@@ -2022,6 +2035,7 @@ export class DataSubjectReportService {
           computePurgeDate(lastMovedOutOn, retentionDays),
         ),
         onLegalHold: person.legalHolds.some((hold) => hold.releasedAt === null),
+        processingRestricted: person.processingRestrictedAt !== null,
       },
     };
   }

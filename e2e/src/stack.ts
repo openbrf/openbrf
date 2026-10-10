@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdirSync,
@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pullWithRetry } from "./image-pull";
 
 /**
  * The compose stack the suite runs against.
@@ -84,6 +86,11 @@ function readStackEnv(): Readonly<Record<string, string>> {
     .filter((line) => line !== "" && !line.startsWith("#"))
     .map((line) => {
       const separator = line.indexOf("=");
+      // Without this a typo would be sliced into a nonsense name, and what
+      // failed would be a later lookup reporting a variable as missing.
+      if (separator <= 0) {
+        throw new Error(`${ENV_FILE}: "${line}" is not NAME=value`);
+      }
       return [line.slice(0, separator), line.slice(separator + 1)] as const;
     });
   return Object.fromEntries(entries);
@@ -198,7 +205,48 @@ function compose(args: readonly string[], timeoutMs: number): void {
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
   writeMailTls();
+  pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+/**
+ * Pulls the stack's registry images, retrying a throttled or transient failure
+ * (see image-pull.ts) and nothing else. Images built from the repository are
+ * left to `up --build`.
+ */
+function pullImages(): void {
+  pullWithRetry(pullOnce);
+}
+
+/**
+ * One `compose pull`, failing with what compose wrote to its error stream.
+ *
+ * That stream is where compose reports progress and a registry's answer, and
+ * it is read to tell a throttled pull from a missing image, so it is captured
+ * rather than inherited and then passed on whole, success or not.
+ */
+function pullOnce(): void {
+  const result = spawnSync(
+    "docker",
+    [...COMPOSE_ARGS, "pull", "--ignore-buildable"],
+    {
+      cwd: repositoryRoot,
+      env: COMPOSE_ENV,
+      encoding: "utf8",
+      stdio: ["ignore", "inherit", "pipe"],
+      timeout: 10 * 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  process.stderr.write(result.stderr ?? "");
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `docker compose pull exited with ${result.status ?? result.signal}:\n${result.stderr}`,
+    );
+  }
 }
 
 /**
@@ -528,14 +576,30 @@ export function claimTokenOf(link: string): string {
   return token;
 }
 
-/** Prints the instance's logs. Called when the suite fails, not otherwise. */
-export function printAppLogs(): void {
+/**
+ * Where teardown leaves the stack's logs: `test-results/app.log` at the
+ * repository root, beside what Playwright writes there for a failed test, so
+ * CI can keep the whole directory.
+ */
+export const STACK_LOG_FILE = resolve(repositoryRoot, "test-results/app.log");
+
+/**
+ * Writes the deploy steps' and the application's logs to STACK_LOG_FILE.
+ *
+ * Called before the stack is removed, because removing it removes them: a
+ * failure caused by an exception on the server would otherwise leave only the
+ * browser's half of the story, and the stack trace that explains it would have
+ * to be reproduced locally.
+ */
+export function saveStackLogs(): void {
   try {
-    compose(
-      ["logs", "--no-color", "--tail", "200", "schema-owner", "migrate", "app"],
-      60_000,
-    );
-  } catch {
+    const logs = (["schema-owner", "migrate", "app"] as const)
+      .map((service) => `=== ${service}\n${serviceLogs(service)}`)
+      .join("\n");
+    mkdirSync(dirname(STACK_LOG_FILE), { recursive: true });
+    writeFileSync(STACK_LOG_FILE, logs);
+  } catch (failure) {
     // Best effort: a missing container must not mask the real failure.
+    console.warn(`could not save the stack's logs: ${String(failure)}`);
   }
 }

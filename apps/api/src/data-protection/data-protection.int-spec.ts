@@ -18,6 +18,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { PackageLockLostError } from "../packaging/package-lock";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { I18nService } from "../i18n/i18n.service";
 import { MailService } from "../mail/mail.service";
@@ -414,6 +415,30 @@ describe("breaches", () => {
 
     expect(response.statusCode).toBe(400);
     expect(reasonOf(response)).toBe("personal-identity-number");
+  });
+
+  it("stores what it scanned: the free text of a record and a decision, folded", async () => {
+    const view = await recorded({
+      title: `Felskickad\u200B  lista ${suffix}`,
+      description: "Rad ett\u00AD\nRad tv\u200Ba",
+    });
+    expect(view.title).toBe(`Felskickad lista ${suffix}`);
+    expect(view.description).toBe("Rad ett\nRad tva");
+
+    const decided = await decide(view.breachId, {
+      imyDecisionGround: "Uppgifterna\u200B nadde en obehorig.",
+      imyNotifiedAt: new Date().toISOString(),
+      delayReasons: "Natet\u200B var nere.",
+    });
+    expect(decided.statusCode).toBe(200);
+
+    const row = await prisma.personalDataBreach.findUniqueOrThrow({
+      where: { id: view.breachId },
+      select: { imyDecisionGround: true, delayReasons: true },
+    });
+    expect(row.imyDecisionGround).toBe("Uppgifterna nadde en obehorig.");
+    // Not late, so the reasons are not required, but what is given is kept folded.
+    expect(row.delayReasons).toBe("Natet var nere.");
   });
 
   it.each([
@@ -958,7 +983,7 @@ describe("breaches", () => {
             breachId: view.breachId,
             discoveredAt: view.discoveredAt,
           }),
-        ).rejects.toThrow(/reached none/);
+        ).rejects.toThrow(/did not reach/);
       } finally {
         send.mockRestore();
       }
@@ -969,6 +994,191 @@ describe("breaches", () => {
         view.breachId,
       );
       expect(job?.retry_limit).toBe(5);
+    });
+  });
+
+  describe("the reminder's record of who it reached", () => {
+    const second = {
+      personId: `dp-board-two-${suffix}`,
+      email: `dp-board-two-${suffix}@exempel.se`,
+    };
+
+    beforeAll(async () => {
+      const email = await app
+        .get(FieldEncryptionService)
+        .encrypt("person.email", second.email);
+      await prisma.person.create({
+        data: {
+          id: second.personId,
+          firstName: "Person",
+          lastName: `Dataskydd${suffix}`,
+          emailCipher: email.cipher,
+          emailIndex: email.index,
+        },
+      });
+      await prisma.boardPosition.create({
+        data: {
+          personId: second.personId,
+          position: "BOARD_MEMBER",
+          electedOn: new Date("2026-01-01"),
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.boardPosition.deleteMany({
+        where: { personId: second.personId },
+      });
+      await prisma.person.deleteMany({ where: { id: second.personId } });
+    });
+
+    /** The addresses the mail service was asked to write to. */
+    function mailed(send: { mock: { calls: unknown[][] } }): string[] {
+      return send.mock.calls.map(([input]) => (input as { to: string }).to);
+    }
+
+    it("sends once for one discovery, however many jobs carry it", async () => {
+      /*
+       * A discovery time corrected from A to B and back to A queues a job for A
+       * twice, and both match the row when they fire. The marker is what tells
+       * the second that the board was reminded.
+       */
+      const view = await recorded();
+      const job = { breachId: view.breachId, discoveredAt: view.discoveredAt };
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockResolvedValue(undefined as never);
+
+      try {
+        const first = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+        const again = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+
+        expect(first).toBeGreaterThanOrEqual(2);
+        expect(again).toBe(0);
+        expect(mailed(send)).toHaveLength(first);
+        expect(new Set(mailed(send)).size).toBe(first);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("retries only the board members it did not reach", async () => {
+      const view = await recorded();
+      const job = { breachId: view.breachId, discoveredAt: view.discoveredAt };
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockImplementation((input) =>
+          input.to === second.email
+            ? Promise.reject(new Error("connect ECONNREFUSED"))
+            : Promise.resolve(undefined as never),
+        );
+
+      try {
+        await expect(
+          app.get(BreachReminderService).sendBreachReminder(job),
+        ).rejects.toThrow(/did not reach 1 of the/);
+        const reached = mailed(send).filter((to) => to !== second.email);
+        expect(reached).toContain(board.email);
+
+        send.mockClear();
+        send.mockResolvedValue(undefined as never);
+        const retried = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+
+        // Whoever the first run reached is not sent a second copy.
+        expect(retried).toBe(1);
+        expect(mailed(send)).toEqual([second.email]);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("starts the list again for a corrected discovery time, and keeps the earlier one's", async () => {
+      const view = await recorded();
+      const send = vi
+        .spyOn(app.get(MailService), "send")
+        .mockResolvedValue(undefined as never);
+
+      try {
+        const first = await app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: view.discoveredAt,
+        });
+        const corrected = discoveredHoursAgo(5);
+        const updated = await inject({
+          method: "PUT",
+          url: `/api/data-protection/breaches/${view.breachId}`,
+          payload: { discoveredAt: corrected },
+          headers: { cookie: boardCookie },
+        });
+        expect(updated.statusCode).toBe(200);
+
+        // A new discovery is a new clock, and the board is owed its reminder.
+        const next = await app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: updated.json<BreachView>().discoveredAt,
+        });
+
+        expect(next).toBe(first);
+
+        // Corrected back to A: A's receipts survived B's reminder, so nobody
+        // is mailed A's reminder a second time.
+        const back = await inject({
+          method: "PUT",
+          url: `/api/data-protection/breaches/${view.breachId}`,
+          payload: { discoveredAt: view.discoveredAt },
+          headers: { cookie: boardCookie },
+        });
+        expect(back.statusCode).toBe(200);
+        const mailedBefore = send.mock.calls.length;
+
+        const again = await app.get(BreachReminderService).sendBreachReminder({
+          breachId: view.breachId,
+          discoveredAt: back.json<BreachView>().discoveredAt,
+        });
+
+        expect(again).toBe(0);
+        expect(send.mock.calls.length).toBe(mailedBefore);
+      } finally {
+        send.mockRestore();
+      }
+    });
+
+    it("stops mailing the rest of the board once the breach has been answered", async () => {
+      const view = await recorded();
+      const job = { breachId: view.breachId, discoveredAt: view.discoveredAt };
+      const decideOnFirstSend = vi
+        .spyOn(app.get(MailService), "send")
+        .mockImplementationOnce(async () => {
+          await prisma.personalDataBreach.update({
+            where: { id: view.breachId },
+            data: {
+              decidedAt: new Date(),
+              imyNotificationRequired: false,
+            },
+          });
+          return undefined as never;
+        })
+        .mockResolvedValue(undefined as never);
+
+      try {
+        const sent = await app
+          .get(BreachReminderService)
+          .sendBreachReminder(job);
+
+        // The send that was in flight when the board answered is the last one:
+        // the lock is taken again for every member, and what is owed is read
+        // again under it.
+        expect(sent).toBe(1);
+        expect(decideOnFirstSend).toHaveBeenCalledTimes(1);
+      } finally {
+        decideOnFirstSend.mockRestore();
+      }
     });
   });
 
@@ -1740,6 +1950,35 @@ describe("processors", () => {
       },
     ]);
     // Nothing was recorded, so nothing is logged as recorded.
+    expect(await recordedForHosting()).toBe(auditBefore);
+
+    /*
+     * The install also hands over its package lock, and one lost while the
+     * reads ahead of the write ran stops the write: an uninstall of the plugin
+     * may already be under way. Without the check this would replace the row.
+     */
+    const lock = new AbortController();
+    lock.abort(new PackageLockLostError("plugin", "occupancy"));
+    await expect(
+      app.get(ProcessorAgreementService).record(
+        "hosting",
+        {
+          classification: "PROCESSOR",
+          status: "PENDING",
+          counterparty: "Nagon annan AB",
+          actorPersonId: null,
+          channel: "WEB",
+        },
+        await app.get(ProcessorFactsService).read(),
+        { lockLost: lock.signal },
+      ),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(
+      await prisma.processorAgreement.findMany({
+        where: { processorKey: "hosting", endedAt: null },
+        select: { id: true },
+      }),
+    ).toEqual([{ id: agreementId }]);
     expect(await recordedForHosting()).toBe(auditBefore);
   });
 

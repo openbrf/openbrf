@@ -905,6 +905,38 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Häv det rättsliga bevarandekravet" },
   },
   {
+    // The art. 12(3) extension, asked for: the form with its warning and the
+    // reason field, under a request the person made today. An objection rather
+    // than an erasure, so the request asks for no ground under art. 17(1) and
+    // nothing in the walk after it is erased.
+    name: "person-request-extension-form",
+    prepare: [
+      { click: { button: "Anteckna en begäran" } },
+      { select: { label: "Vad personen begär" }, option: "Invändning" },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag vill inte få inbjudningar till evenemang.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Förläng med två månader" } },
+    ],
+    waitFor: { button: "Förläng begäran" },
+  },
+  {
+    // The same request once extended: the date in the register face, the reason
+    // the person was told in the ordinary one, and the due day moved to three
+    // months.
+    name: "person-request-extended",
+    prepare: [
+      {
+        fill: { label: "Varför månaden förlängs" },
+        value: "Begäran gäller flera system och behöver utredas.",
+      },
+      { click: { button: "Förläng begäran" } },
+    ],
+    waitFor: { text: /Förlängd\s+\d{4}-\d{2}-\d{2}/ },
+  },
+  {
     // The whole document, scrolled: it is printed and handed over, so the
     // picture has to show what comes out of the printer rather than the top of
     // it. Astrid holds no personal identity number, which the safety check
@@ -914,6 +946,21 @@ export const SCREENS: readonly Screen[] = [
     // A section heading the document renders only once the report has arrived.
     waitFor: { heading: "Medlemsförteckningen" },
     capture: "page",
+  },
+  {
+    // The form refusing what it cannot read, in words that name the field. A
+    // number that normalizes to nothing is refused rather than stored looking
+    // like one on file. Nothing is written, so the walk after it is unchanged.
+    name: "add-person-invalid-phone",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Edit" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { fill: { label: "Telefonnummer" }, value: "ring mig" },
+      { click: { button: "Lägg till i registret" } },
+    ],
+    waitFor: { text: "Telefonnumret gick inte att läsa." },
   },
 
   // --- the association's own website, from the board's side ------------------
@@ -1364,6 +1411,33 @@ export const SCREENS: readonly Screen[] = [
     // The consent control on the request the entry above made, which exists only
     // once the queue has been read back with it.
     waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
+    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
+  },
+  {
+    /*
+     * The board consents, then records that the letting ended before its
+     * period did - the day a granted erasure request stops keeping the consent
+     * for. Same session and screen as the entry above. The day picker is held
+     * to the period consented to.
+     */
+    name: "sublets-board-letting-end",
+    prepare: [
+      { click: { button: /^Samtyck till upplåtelsen/, first: true } },
+      {
+        see: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      {
+        click: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      { fill: { label: "Upplåtelsens sista dag" }, value: "2029-05-15" },
+    ],
+    waitFor: { label: "Upplåtelsens sista dag" },
     capture: { panel: "Ansökningar om andrahandsupplåtelse" },
   },
 
@@ -2008,6 +2082,102 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Hämta nu" } }],
     waitFor: { text: /^Ett brev kunde inte hämtas\./ },
     capture: { panel: "Brevlådan" },
+  },
+  // --- a stored secret asked for again ----------------------------------------
+  // Three cards holding a secret for a server, each refusing a save that moves
+  // the server and leaves the secret field empty: the stored secret was typed
+  // for the old server, and keeping it would hand it to the new one.
+  //
+  // After the board mailbox above, because that is where its password was
+  // stored, and after every screen that reads the mail or SMS settings back -
+  // the news composer, the processors and the access report are all above. A
+  // refused save writes nothing, so what the three leave behind is the two
+  // secrets stored on the way: an SMTP password with no user name, which the
+  // driver never presents and mailpit would accept anyway, and an SMS gateway
+  // on `.test` that nothing below sends to.
+  {
+    /*
+     * The board mailbox's card, moved to another server without its password.
+     *
+     * The password the entry above saved is still stored, and the hint under
+     * the field saying so is what the first step waits for: it is read from the
+     * stored settings, so it proves the card the fill lands in is the one those
+     * settings seeded rather than one about to be replaced by them.
+     */
+    name: "settings-board-mailbox-secret-required",
+    goto: appPath("/settings"),
+    prepare: [
+      {
+        see: { text: /^Ett lösenord är sparat/, within: BOARD_MAILBOX_CARD },
+      },
+      {
+        fill: { label: "E-postserver (POP3)", within: BOARD_MAILBOX_CARD },
+        value: "pop3.eksemplet.test",
+      },
+      { click: { button: "Spara", within: BOARD_MAILBOX_CARD } },
+    ],
+    // The part of the sentence that tells the board what to do, rather than the
+    // whole of it.
+    waitFor: { text: /Ange lösenordet igen/, within: BOARD_MAILBOX_CARD },
+    capture: { panel: BOARD_MAILBOX_CARD },
+  },
+  {
+    /*
+     * The email card, moved to another server without its password.
+     *
+     * The wizard stored no password - mailpit asks for none - so one is saved
+     * first, against the server the instance already sends through. The hint
+     * under the field arrives with the settings read back after that save,
+     * which also replaces the card, so the server is filled in only once it
+     * is there.
+     */
+    name: "settings-email-secret-required",
+    prepare: [
+      {
+        fill: { label: "Lösenord", within: "E-post" },
+        value: "epostlosen",
+      },
+      { click: { button: "Spara", within: "E-post" } },
+      { see: { text: /^Ett lösenord är sparat/, within: "E-post" } },
+      {
+        fill: { label: "Server", within: "E-post" },
+        value: "smtp.eksemplet.test",
+      },
+      { click: { button: "Spara", within: "E-post" } },
+    ],
+    waitFor: { text: /Ange lösenordet igen/, within: "E-post" },
+    capture: { panel: "E-post" },
+  },
+  {
+    /*
+     * The SMS card, pointed at another gateway without its credential.
+     *
+     * A fresh instance has no SMS provider, so one is set up first - the
+     * gateway driver, an address on the reserved domain and a credential -
+     * and then the address is changed, which is the move a board makes when
+     * it changes provider.
+     */
+    name: "settings-sms-secret-required",
+    prepare: [
+      {
+        select: { combobox: "Leverantör", within: "Sms" },
+        option: "HTTP-gateway",
+      },
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://sms.eksemplet.test/skicka",
+      },
+      { fill: { label: "Gatewaynyckel", within: "Sms" }, value: "smsnyckel" },
+      { click: { button: "Spara", within: "Sms" } },
+      { see: { text: /^En nyckel är sparad/, within: "Sms" } },
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://gateway.eksemplet.test/skicka",
+      },
+      { click: { button: "Spara", within: "Sms" } },
+    ],
+    waitFor: { text: /Ange nyckeln igen/, within: "Sms" },
+    capture: { panel: "Sms" },
   },
   {
     /*

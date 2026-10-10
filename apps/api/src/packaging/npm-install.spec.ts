@@ -118,4 +118,11 @@ describe("npmInstall", () => {
       true,
     );
   });
+
+  it("gives npm no git to fetch a dependency with", async () => {
+    await npmInstall({ cwd: directory, npmPath });
+
+    const { env } = await recorded();
+    expect(env.get("npm_config_git")).toBe(join(directory, ".git-unused"));
+  });
 });

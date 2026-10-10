@@ -1506,12 +1506,15 @@ describe("association", () => {
  * (\getenv, \gexec, \if). psql is taken from the PostgreSQL image
  * docker-compose.prod.yml pins rather than from the machine running the suite,
  * which need not have it; the container shares the host's network, so it
- * reaches the server at the address DATABASE_URL gives.
+ * reaches the server at the address DATABASE_URL gives. The digest is pulled
+ * from Amazon's copy of the Docker official images, as CI's own database is,
+ * because Docker Hub limits anonymous pulls per address and CI runners share
+ * theirs; in CI the image is then already there.
  *
  * Each database holds only what the script has to find: the statutory tables
  * its REVOKE lines name, the migration history, and the job queue's schema
- * with its version table. Who may connect where is under test here, not the
- * tables, which the suites above cover.
+ * with its version, index build and queue tables. Who may connect where is
+ * under test here, not the tables, which the suites above cover.
  */
 describe("two instances sharing one database server", () => {
   /** PostgreSQL's insufficient_privilege, which a refused CONNECT raises. */
@@ -1556,7 +1559,10 @@ describe("two instances sharing one database server", () => {
     return url.toString();
   }
 
-  /** The PostgreSQL image docker-compose.prod.yml pins, psql's source. */
+  /**
+   * The PostgreSQL image docker-compose.prod.yml pins, psql's source, by its
+   * digest on public.ecr.aws.
+   */
   function postgresImage(): string {
     const compose = readFileSync(
       join(process.cwd(), "..", "..", "docker-compose.prod.yml"),
@@ -1571,7 +1577,7 @@ describe("two instances sharing one database server", () => {
           "which is where this suite takes psql from.",
       );
     }
-    return pinned;
+    return `public.ecr.aws/docker/library/${pinned}`;
   }
 
   /**
@@ -1699,6 +1705,12 @@ describe("two instances sharing one database server", () => {
           "CREATE TABLE pgboss.version (version integer, cron_on timestamptz)",
         );
         await owner.query(
+          "CREATE TABLE pgboss.bam (status text, command text)",
+        );
+        await owner.query(
+          "CREATE TABLE pgboss.queue (name text, partition boolean)",
+        );
+        await owner.query(
           "CREATE TABLE public._prisma_migrations (id text, migration_name text)",
         );
         for (const { table } of scriptRevokes()) {
@@ -1783,8 +1795,9 @@ describe("two instances sharing one database server", () => {
 
   it("caps each runtime role's connections", async () => {
     // One instance, or a plugin running inside it, must not be able to take
-    // every connection the server has. Fifteen unless the entrypoint says
-    // otherwise: the default pool, the job queue's two and three to spare.
+    // every connection the server has. Nineteen unless the entrypoint says
+    // otherwise: the default pool, the job queue's two, the package lock's
+    // four and three to spare.
     const limits = await prisma.$queryRawUnsafe<
       { rolname: string; rolconnlimit: number }[]
     >(
@@ -1794,7 +1807,7 @@ describe("two instances sharing one database server", () => {
     );
     expect(
       Object.fromEntries(limits.map((row) => [row.rolname, row.rolconnlimit])),
-    ).toEqual({ [first.role]: 15, [second.role]: 7 });
+    ).toEqual({ [first.role]: 19, [second.role]: 7 });
   });
 
   it("refuses a runtime role another instance's database already grants", async () => {
@@ -1904,6 +1917,159 @@ describe("two instances sharing one database server", () => {
         history: false,
       });
     } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("leaves the runtime role nothing but a read of pg-boss's index builds", async () => {
+    // The owner's pg-boss install runs each row of pgboss.bam as written, so a
+    // row the runtime role could add or rewrite would run as the owner. The
+    // schema-wide grant reaches the table first; the script takes it back.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT UPDATE (command) ON pgboss.bam TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{ writes: boolean; reads: boolean }>(
+        `SELECT
+           has_table_privilege($1, 'pgboss.bam', 'INSERT, UPDATE, DELETE, TRUNCATE')
+             OR has_any_column_privilege($1, 'pgboss.bam', 'INSERT, UPDATE') AS writes,
+           has_table_privilege($1, 'pgboss.bam', 'SELECT') AS reads`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({ writes: false, reads: true });
+    } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("takes back TRIGGER, REFERENCES and TRUNCATE that the script never granted", async () => {
+    // A grant made out of band - an earlier tool, a GRANT ALL by hand - to the
+    // runtime role or to PUBLIC, which it is part of. TRIGGER is the one that
+    // matters: CREATE OR REPLACE TRIGGER asks for it and not for ownership, so
+    // the role could swap the owner's guard on pgboss.queue, or a statutory
+    // table's, for a trigger that does nothing.
+    const archive = `public.${quoteIdentifier(scriptRevokes()[0]?.table ?? "")}`;
+    const tables = ["pgboss.queue", "pgboss.version", archive];
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    const runtime = new Client({
+      connectionString: connectionUrl(
+        first.role,
+        first.rolePassword,
+        first.database,
+      ),
+    });
+    /** Whether the runtime role can put a trigger of its own on the queue. */
+    const createsTrigger = async (): Promise<string | undefined> => {
+      // A built-in trigger function, which PUBLIC may execute, so TRIGGER on
+      // the table is the only privilege in question. Rolled back either way.
+      await runtime.query("BEGIN");
+      try {
+        await runtime.query(
+          `CREATE TRIGGER probe BEFORE UPDATE ON pgboss.queue
+           FOR EACH ROW EXECUTE FUNCTION suppress_redundant_updates_trigger()`,
+        );
+        return undefined;
+      } catch (error) {
+        return (error as { code?: string }).code ?? String(error);
+      } finally {
+        await runtime.query("ROLLBACK");
+      }
+    };
+    const held = async (): Promise<Record<string, boolean>> => {
+      const result = await owner.query<{ table: string; held: boolean }>(
+        `SELECT t AS table,
+           has_table_privilege($1::name, t, 'TRIGGER, REFERENCES, TRUNCATE')
+             OR has_any_column_privilege($1::name, t, 'REFERENCES') AS held
+         FROM unnest($2::text[]) AS t`,
+        [first.role, tables],
+      );
+      return Object.fromEntries(
+        result.rows.map((row) => [row.table, row.held]),
+      );
+    };
+
+    await owner.connect();
+    await runtime.connect();
+    try {
+      await owner.query(
+        `GRANT TRIGGER, REFERENCES, TRUNCATE ON ${tables.join(", ")} TO ${first.role}`,
+      );
+      await owner.query(`GRANT TRIGGER ON pgboss.queue TO PUBLIC`);
+      await owner.query(`GRANT REFERENCES (name) ON pgboss.queue TO PUBLIC`);
+      // What the grants gave, so the assertions after the script are about
+      // what it took back rather than about grants that never took.
+      expect(await held()).toEqual(
+        Object.fromEntries(tables.map((table) => [table, true])),
+      );
+      expect(await createsTrigger(), "before the script").toBeUndefined();
+
+      applyHardening(first);
+
+      expect(await held()).toEqual(
+        Object.fromEntries(tables.map((table) => [table, false])),
+      );
+      expect(await createsTrigger(), "after the script").toBe(
+        PERMISSION_DENIED,
+      );
+    } finally {
+      await runtime.end();
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("refuses a TRIGGER grant it cannot take back", async () => {
+    // A role holding GRANT OPTION passes TRIGGER on in its own name, and the
+    // owner's REVOKE leaves that grant alone with a warning. The script has to
+    // stop on it rather than report a hardening it did not achieve.
+    const grantor = `openbrf_share_grantor_${suffix}`;
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      // From PostgreSQL 16 creating a role gives its creator ADMIN OPTION on
+      // it but not membership, which SET ROLE needs; the owner grants itself
+      // that.
+      await owner.query(`CREATE ROLE ${grantor} NOLOGIN`);
+      await owner.query(`GRANT ${grantor} TO CURRENT_USER`);
+      await owner.query(`GRANT USAGE ON SCHEMA pgboss TO ${grantor}`);
+      await owner.query(
+        `GRANT TRIGGER ON pgboss.queue TO ${grantor} WITH GRANT OPTION`,
+      );
+      await owner.query(`SET ROLE ${grantor}`);
+      await owner.query(`GRANT TRIGGER ON pgboss.queue TO ${first.role}`);
+      await owner.query("RESET ROLE");
+
+      expect(hardeningRefusal(first)).toContain(
+        `Role ${first.role} still holds TRIGGER, REFERENCES or TRUNCATE on pgboss.queue`,
+      );
+    } finally {
+      await owner.query("RESET ROLE");
+      await owner.query(
+        `REVOKE TRIGGER ON pgboss.queue FROM ${grantor} CASCADE`,
+      );
+      await owner.query(`REVOKE USAGE ON SCHEMA pgboss FROM ${grantor}`);
+      await owner.query(`DROP ROLE IF EXISTS ${grantor}`);
       await owner.end();
     }
   }, 120_000);

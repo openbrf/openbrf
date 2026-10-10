@@ -6,8 +6,10 @@ import {
   parsePersonalIdentityNumber,
   normalizeFreeText,
   normalizeSingleLineText,
+  personalIdentityNumberNeedsCentury,
   scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 
 /**
@@ -15,7 +17,8 @@ import {
  * blind index (ADR 0002). The table below is therefore a compatibility suite
  * rather than a set of examples: a change that alters one byte of an output
  * silently breaks search on data already stored, and the only lawful way to
- * make one of these fail is a migration that recomputes every index.
+ * make one of these fail is a bump of the normalisation version, which
+ * recomputes every index.
  */
 
 // Fixed so century inference is deterministic rather than dependent on today.
@@ -28,7 +31,7 @@ describe("normalizePersonalIdentityNumber", () => {
     ["19811228-9874", "198112289874"],
     ["198112289874", "198112289874"],
     [" 811228 - 9874 ", "198112289874"],
-    // Without a century, the most recent year that is not in the future.
+    // Without a century, the most recent birth date that is not in the future.
     ["121212-1212", "201212121212"],
     // The birth date decides, not the year alone: on 27 August 2026 a
     // birthday later in 2026 has not happened, so it was in 1926.
@@ -46,9 +49,107 @@ describe("normalizePersonalIdentityNumber", () => {
     expect(normalizePersonalIdentityNumber(written, REFERENCE)).toBe(canonical);
   });
 
+  it("places a birthday later this year in the last century", () => {
+    // In March 2026, 1 December 2026 has not happened, so nobody can have
+    // been born on it. Comparing years alone said 2026 until the day came.
+    const march = new Date(2026, 2, 15);
+    expect(normalizePersonalIdentityNumber("261201-1234", march)).toBe(
+      "192612011234",
+    );
+    expect(normalizePersonalIdentityNumber("2612011234", march)).toBe(
+      "192612011234",
+    );
+    // A coordination number is judged by its real day, 1 December, not 61.
+    expect(normalizePersonalIdentityNumber("261261-1234", march)).toBe(
+      "192612611234",
+    );
+    // A birthday already passed this year stays in this century.
+    expect(normalizePersonalIdentityNumber("260301-1234", march)).toBe(
+      "202603011234",
+    );
+    // Today itself is not in the future.
+    expect(normalizePersonalIdentityNumber("260315-1234", march)).toBe(
+      "202603151234",
+    );
+  });
+
+  it("keeps the plus separator to the year a person turns 100", () => {
+    // A plus is written all through that year, before the birthday as well.
+    expect(
+      normalizePersonalIdentityNumber("261201+1234", new Date(2026, 2, 15)),
+    ).toBe("192612011234");
+  });
+
   it("returns null rather than an unmatchable index for bad input", () => {
     expect(normalizePersonalIdentityNumber("nonsense", REFERENCE)).toBeNull();
     expect(normalizePersonalIdentityNumber("12121-1212", REFERENCE)).toBeNull();
+  });
+});
+
+describe("a number written without its century", () => {
+  // 261201-1235 is 1926 until 1 December 2026 and 2026 from then on.
+  const DAY_BEFORE = new Date(2026, 10, 30);
+  const DAY_OF = new Date(2026, 11, 1);
+
+  it("is stored with the century it was read with", () => {
+    expect(withPersonalIdentityNumberCentury("261201-1235", DAY_BEFORE)).toBe(
+      "19261201-1235",
+    );
+    expect(withPersonalIdentityNumberCentury(" 8112289874 ", REFERENCE)).toBe(
+      "198112289874",
+    );
+    // Already carrying one, or not a number at all: as it was.
+    expect(withPersonalIdentityNumberCentury("19811228-9874", REFERENCE)).toBe(
+      "19811228-9874",
+    );
+    expect(withPersonalIdentityNumberCentury("nonsense", REFERENCE)).toBe(
+      "nonsense",
+    );
+  });
+
+  it("is still the same person once the day it would flip has passed", () => {
+    // Stored the day before; looked up on the day itself.
+    const stored = withPersonalIdentityNumberCentury("261201-1235", DAY_BEFORE);
+    expect(normalizePersonalIdentityNumber(stored, DAY_OF)).toBe(
+      normalizePersonalIdentityNumber("19261201-1235", DAY_BEFORE),
+    );
+    // Read without a century on that day, the same digits are somebody else,
+    // which is why they are refused on either side of it.
+    expect(normalizePersonalIdentityNumber("261201-1235", DAY_OF)).toBe(
+      "202612011235",
+    );
+    expect(personalIdentityNumberNeedsCentury("261201-1235", DAY_BEFORE)).toBe(
+      true,
+    );
+    expect(personalIdentityNumberNeedsCentury("261201-1235", DAY_OF)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    // A year either side of the flip, the reading holds for a year.
+    ["261201-1235", "2025-11-30", false],
+    ["261201-1235", "2027-12-01", false],
+    // Born less than a year ago.
+    ["251201-1236", "2026-11-30", true],
+    // Turning 100 within a year, written without the plus.
+    ["270801-1230", "2026-08-27", true],
+    // A plus in the year it starts to apply, which read 18xx a year earlier.
+    ["261201+1235", "2026-08-27", true],
+    ["251201+1236", "2026-08-27", false],
+    ["811228-9874", "2026-08-27", false],
+    ["121212-1212", "2026-08-27", false],
+    // A century, or not a number at all, is never asked for one.
+    ["19261201-1235", "2026-11-30", false],
+    ["nonsense", "2026-08-27", false],
+  ])("asks for the century of %s on %s: %s", (written, on, needs) => {
+    const [year, month, day] = on.split("-").map(Number);
+    expect(
+      personalIdentityNumberNeedsCentury(
+        written,
+        new Date(year ?? 0, (month ?? 0) - 1, day),
+      ),
+    ).toBe(needs);
   });
 });
 
@@ -256,6 +357,30 @@ describe("scanForPersonalIdentityNumbers", () => {
     }
   });
 
+  it.each([
+    ["an en dash", "811228\u20139874"],
+    [
+      "an en dash between spaces, as a word processor sets it",
+      "811228 \u2013 9874",
+    ],
+    ["an em dash", "19811228\u20149874"],
+    ["a minus sign", "811228\u22129874"],
+    ["a Unicode hyphen", "811228\u20109874"],
+    ["a non-breaking hyphen", "811228\u20119874"],
+    ["a figure dash", "811228\u20129874"],
+    ["a horizontal bar", "811228\u20159874"],
+    ["a two-em dash", "811228\u2E3A9874"],
+    ["a double oblique hyphen", "811228\u2E179874"],
+    ["an Armenian hyphen", "811228\u058A9874"],
+  ])(
+    "finds a number written with %s between the date and the last four",
+    (_name, written) => {
+      expect(
+        scanForPersonalIdentityNumbers(`Godkänd av ${written}.`, REFERENCE),
+      ).toEqual([{ value: written, index: "Godkänd av ".length }]);
+    },
+  );
+
   it("finds nothing in an empty text", () => {
     expect(scanForPersonalIdentityNumbers("", REFERENCE)).toEqual([]);
   });
@@ -277,6 +402,37 @@ describe("scanForPersonalIdentityNumbers", () => {
     expect(elapsed).toBeLessThan(1_000);
   });
 
+  it("gives up on a date, an en dash and a long run of spaces in linear time", () => {
+    const text = `19811228\u2013${" ".repeat(200_000)}`;
+
+    const started = performance.now();
+    const found = scanForPersonalIdentityNumbers(text, REFERENCE);
+    const elapsed = performance.now() - started;
+
+    expect(found).toEqual([]);
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
+  it("gives up on a date, a horizontal bar and a long run of spaces in linear time", () => {
+    const text = `19811228\u2015${" ".repeat(200_000)}`;
+
+    const started = performance.now();
+    const found = scanForPersonalIdentityNumbers(text, REFERENCE);
+    const elapsed = performance.now() - started;
+
+    expect(found).toEqual([]);
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
+  it("still parses a stored number only with a hyphen or a plus", () => {
+    expect(
+      parsePersonalIdentityNumber("811228\u20139874", REFERENCE),
+    ).toBeNull();
+    expect(
+      normalizePersonalIdentityNumber("811228\u22129874", REFERENCE),
+    ).toBeNull();
+  });
+
   it("does not carry a match from one scan into the next", () => {
     const text = "Ring Anna på 811228-9874.";
 
@@ -290,6 +446,19 @@ describe("scanForPersonalIdentityNumberCandidates", () => {
     expect(
       scanForPersonalIdentityNumberCandidates("Skrev 19811218-9875 fel"),
     ).toEqual([{ value: "19811218-9875", index: 6 }]);
+  });
+
+  it("finds a number-shaped run written with any dash", () => {
+    expect(
+      scanForPersonalIdentityNumberCandidates("Skrev 811218\u20159875 fel"),
+    ).toEqual([{ value: "811218\u20159875", index: 6 }]);
+  });
+
+  it("takes a separator for a separator and a letter for a letter", () => {
+    expect(
+      scanForPersonalIdentityNumberCandidates("Skrev 811218\u00A09875 fel"),
+    ).toEqual([{ value: "811218\u00A09875", index: 6 }]);
+    expect(scanForPersonalIdentityNumberCandidates("811218p9875")).toEqual([]);
   });
 });
 

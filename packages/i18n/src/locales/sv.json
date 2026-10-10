@@ -359,6 +359,7 @@
         "print": "Skriv ut",
         "printHint": "Skrivs ut som ett dokument. Navigering och knappar följer inte med på pappret.",
         "back": "Tillbaka till personen",
+        "extendedLabel": "Förlängd",
         "stamp": "Framtaget {{date}}",
         "organizationNumber": "Organisationsnummer",
         "standing": "Gäller fortfarande",
@@ -439,6 +440,7 @@
           "terminationReference": "Hänvisning",
           "triggeredOn": "Fristen började",
           "dueOn": "Ska besvaras senast",
+          "extension": "Förlängning",
           "reportDueOn": "Ska anmälas senast",
           "scope": "Omfattning",
           "granted": "Lämnat",
@@ -486,6 +488,7 @@
           "twoFactor": "Autentiseringsapp",
           "retentionDays": "Dagar efter utflyttning",
           "onLegalHold": "Rättsligt bevarandekrav",
+          "processingRestricted": "Begränsning av behandling",
           "creditor": "Panthavare",
           "amount": "Belopp",
           "noted": "Noterad",
@@ -494,6 +497,7 @@
           "closed": "Avslutad",
           "period": "Period",
           "tribunalPermission": "Tillstånd från hyresnämnden",
+          "lettingEnded": "Upplåtelsens sista dag, som antecknad",
           "ordered": "Beställt",
           "meeting": "Stämma",
           "capacity": "Egenskap",
@@ -645,6 +649,7 @@
           "SUBLET_APPLICATION_CONSENTED": "Samtycke till andrahandsupplåtelse givet",
           "SUBLET_APPLICATION_REFUSED": "Samtycke till andrahandsupplåtelse vägrat",
           "SUBLET_TRIBUNAL_PERMISSION_RECORDED": "Hyresnämndens beslut antecknat",
+          "SUBLET_LETTING_END_RECORDED": "Upplåtelsens slut antecknat",
           "KEY_ORDER_PLACED": "Nyckelbeställning inlämnad",
           "KEY_ORDER_REVISED": "Nyckelbeställning ändrad",
           "KEY_ORDER_WITHDRAWN": "Nyckelbeställning återkallad",
@@ -677,6 +682,7 @@
           "DATA_SUBJECT_REQUEST_RECORDED": "Begäran om egna uppgifter antecknad",
           "DATA_SUBJECT_REQUEST_DECIDED": "Beslut om begäran",
           "DATA_SUBJECT_REQUEST_CLOSED": "Begäran avslutad",
+          "DATA_SUBJECT_REQUEST_EXTENDED": "Begäran förlängd med två månader",
           "DATA_PORTABILITY_EXPORTED": "Egna uppgifter hämtade",
           "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED": "Dataskyddskontakter antecknade",
           "PRIVACY_NOTICE_HEADINGS_ADDED": "Rubriker tillagda i integritetspolicyn",
@@ -711,6 +717,12 @@
           "NEWS_MAILING_REQUEST_DISMISSED": "Begäran om nyhetsutskick avfärdades",
           "PLUGIN_ACTION_ARMED": "En åtgärd i ett tillägg aktiverades",
           "PLUGIN_ACTION_DISARMED": "En åtgärd i ett tillägg avaktiverades",
+          "ISSUE_STATUS_CHANGED": "Ett ärende flyttades till en annan status",
+          "MOVE_IN_RECORDED": "En inflyttning registrerades",
+          "MOVE_OUT_RECORDED": "En utflyttning registrerades",
+          "PLUGIN_ENABLED": "Ett tillägg slogs på",
+          "PLUGIN_DISABLED": "Ett tillägg slogs av",
+          "PLUGIN_SETTINGS_CHANGED": "Ett tilläggs inställningar ändrades",
           "CONNECTED_APP_CONNECTED": "En ansluten app fick agera för personen",
           "CONNECTED_APP_DISCONNECTED": "En ansluten app kopplades bort",
           "OAUTH_CLIENT_REGISTERED": "En app registrerade sig hos föreningen",
@@ -721,7 +733,8 @@
           "CHAT_MESSAGE_STRUCK": "Chattmeddelande ströks",
           "DOCUMENT_UPDATED": "Ett dokument i arkivet döptes om, flyttades eller fick en annan målgrupp",
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
-          "IMPORT_ABANDONED": "En import av medlemslista avbröts"
+          "IMPORT_ABANDONED": "En import av medlemslista avbröts",
+          "THEME_REMOVED": "Tema togs bort"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -805,6 +818,13 @@
         "record": "Anteckna en begäran",
         "decide": "Fatta beslut",
         "close": "Avsluta",
+        "extend": "Förläng med två månader",
+        "extendReasonLabel": "Varför månaden förlängs",
+        "extendReasonRequired": "Skriv skälet som personen fick höra. Det finns kvar på begäran.",
+        "extendConfirm": "Förläng begäran",
+        "extendCancel": "Avbryt",
+        "extendWarning": "Enligt art. 12.3 får föreningen förlänga månaden med ytterligare två månader om begäran är komplex eller många. Meddela personen inom den första månaden och ange skälet. Förlängningen kan inte registreras efter den första månaden, och bara en gång.",
+        "extendedLabel": "Förlängd",
         "closeReasonLabel": "Varför begäran avslutas",
         "closeReasonRequired": "Skriv varför begäran avslutas. Skälet står kvar på begäran.",
         "closeConfirm": "Avsluta begäran",
@@ -853,6 +873,9 @@
           "alreadyOpen": "Personen har redan en öppen begäran av det slaget.",
           "alreadyDecided": "Begäran är redan beslutad.",
           "alreadyClosed": "Begäran är redan avslutad.",
+          "alreadyExtended": "Begäran har redan förlängts.",
+          "extensionTooLate": "Den första månaden har gått ut. Förlängningen måste meddelas personen inom den.",
+          "extensionReasonRequired": "En förlängning anger skälet som personen fick höra.",
           "currentlyResident": "Personen bor kvar. Uppgifterna behövs så länge boendet pågår.",
           "onLegalHold": "Ett rättsligt bevarandekrav gäller för personen (art. 17.3 e).",
           "boardPositionCurrent": "Personen har kvar ett förtroendeuppdrag.",
@@ -887,7 +910,9 @@
       "submit": "Lägg till i registret",
       "cancel": "Avbryt",
       "working": "Lägger till",
-      "failed": "Personen kunde inte läggas till."
+      "failed": "Personen kunde inte läggas till.",
+      "invalidEmail": "E-postadressen gick inte att läsa.",
+      "invalidPhone": "Telefonnumret gick inte att läsa."
     },
     "apartment": {
       "heading": "Lägenhet {{number}}",
@@ -1133,7 +1158,7 @@
       "host": "Server",
       "port": "Port",
       "secure": "Krypterad anslutning (TLS)",
-      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587). När inställningarna har sparats skickas ingenting till en server som inte erbjuder STARTTLS, om den inte körs på den här maskinen.",
+      "secureHint": "Ikryssad är anslutningen krypterad från början (implicit TLS, oftast port 465). Utan kryss uppgraderas den med STARTTLS (oftast port 587). Ingenting skickas till en server som inte erbjuder STARTTLS, om den inte körs på den här maskinen och anges som 127.0.0.1 eller ::1.",
       "user": "Användarnamn",
       "password": "Lösenord",
       "passwordKept": "Ett lösenord är sparat. Lämna fältet tomt för att behålla det, eller töm det för att ta bort det.",
@@ -1144,7 +1169,6 @@
       "testSent": "Ett testmeddelande är på väg till {{email}}.",
       "notConfigured": "E-post är inte inställt, så inbjudningar och inloggningslänkar kan inte skickas. Ingen kan bjudas in innan det är gjort.",
       "configured": "E-post är inställt.",
-      "tlsOptional": "Inställningarna sparades innan en krypterad anslutning krävdes, så lösenordet skickas okrypterat om servern inte erbjuder STARTTLS. Spara dem igen för att kräva kryptering och skicka sedan ett testmeddelande.",
       "environment": "E-post skickas av den som driver instansen, via {{host}} från {{fromAddress}}.",
       "environmentHint": "Den ställs in där instansen körs och kan inte ändras här.",
       "errors": {
@@ -1154,6 +1178,8 @@
         "tlsUnavailable": "Servern upprättade ingen krypterad anslutning, så ingenting skickades till den, inte heller lösenordet. Kontrollera att servern erbjuder STARTTLS på den här porten, eller kryssa i krypterad anslutning och använd port 465.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
         "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
+        "secretRequiredForNewEndpoint": "Servern, porten eller krypteringen har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Servern eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen.",
         "environmentTlsUnavailable": "Meddelandet kunde inte skickas eftersom e-postservern inte upprättade någon krypterad anslutning. E-posten sköts av den som driver instansen, så kontakta dem."
       },
       "test": {
@@ -1175,7 +1201,11 @@
       "passwordClear": "Ta bort det sparade lösenordet",
       "secure": "Krypterad anslutning (implicit TLS, oftast port 995)",
       "configured": "Brevlådan är inställd. Instansen hämtar den var femte minut, och styrelsen kan hämta den från sin egen skärm.",
-      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är."
+      "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är.",
+      "errors": {
+        "secretRequiredForNewEndpoint": "Brevlådans server, port eller kryptering har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Brevlådans server eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen."
+      }
     },
     "sms": {
       "title": "Sms",
@@ -1199,7 +1229,9 @@
       "errors": {
         "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
-        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln."
+        "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln.",
+        "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar.",
+        "secretEndpointChangedDuringSave": "Leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans medan det här sparades. Ange nyckeln igen, eller ta bort den sparade, och spara igen."
       }
     },
     "retention": {
@@ -1566,7 +1598,8 @@
       "remove": "Ta bort",
       "removeConfirm": "Ja, ta bort",
       "removeCancel": "Behåll",
-      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod."
+      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
+      "removeBusy": "Tillägget togs inte bort, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen."
     },
     "catalog": {
       "title": "Katalog",
@@ -1622,7 +1655,8 @@
         "resourceConflict": "Tillägget installerades inte. Ett annat installerat tillägg betjänar redan den adress som anslutna appar loggar in mot, och bara ett i taget kan göra det. Avinstallera det tillägget först, annars slutar varje anslutning som medlemmarna redan har godkänt att fungera.",
         "reservedId": "Tillägget installerades inte. Tilläggs-id:t mcp-connector är reserverat: instansen pekar ut den adressen för anslutna appar att logga in mot, så bara ett tillägg som självt betjänar den får ta id:t.",
         "recipientRecorded": "Tillägget installerades inte. Sedan den här sidan öppnades har det registrerats på sidan Dataskydd vart tillägget skickar personuppgifter, och en installation ändrar inte det. Avbryt och välj tillägget igen för att installera det med det svar som står där; ändra svaret på sidan Dataskydd.",
-        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat."
+        "deprecated": "Tillägget installerades inte. Katalogen anger att det inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
+        "busy": "Tillägget installerades inte, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen."
       }
     },
     "permissions": {
@@ -1753,7 +1787,8 @@
       "update": "Uppdatera till {{version}}",
       "alreadyInstalled": "Installerat",
       "deprecated": "Underhålls inte längre",
-      "contract": "Tokenkontrakt {{range}}"
+      "contract": "Tokenkontrakt {{range}}",
+      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id."
     },
     "preview": {
       "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
@@ -1818,6 +1853,7 @@
       "lintFailed": "Temat avvisades:",
       "notInCatalog": "Katalogen listar inte längre det temat.",
       "entryDeprecated": "Katalogen anger att det temat inte underhålls längre, så det kan bara installeras om eller uppdateras där det redan är installerat.",
+      "packageBusy": "En annan ändring av det temat, eller av andra teman och tillägg, pågick, så ingenting ändrades. Vänta en stund och försök igen.",
       "themeNotInstalled": "Det temat är inte installerat.",
       "builtInTheme": "Standardtemat är inbyggt i applikationen och kan inte tas bort.",
       "themeInUse": "Det temat är det aktiva. Byt till ett annat tema först.",
@@ -1825,7 +1861,8 @@
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
-      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället."
+      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
+      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
     },
     "composer": {
       "title": "Sätt ihop ett tema",
@@ -2412,6 +2449,7 @@
       "date-not-iso": "Datum måste skrivas som ÅÅÅÅ-MM-DD.",
       "moved-out-before-moved-in": "Utflyttningen ligger före inflyttningen.",
       "invalid-personal-identity-number": "Personnumret klarar inte sin egen kontrollsiffra.",
+      "personal-identity-number-needs-century": "Skriv personnumret med århundradet (ÅÅÅÅMMDD-NNNN), så att det alltid pekar ut samma person.",
       "invalid-email": "Det är ingen e-postadress som registret kan lagra.",
       "garbled-characters": "Ett tecken har redan gått förlorat i filen (visas som �). Rätta det i filen och läs in den igen.",
       "unknown": "Raden kunde inte läsas."
@@ -3686,7 +3724,8 @@
       "boardSaid": "Styrelsen skrev: {{note}}",
       "tribunalAvailable": "Styrelsen har vägrat. Du får ändå upplåta lägenheten om hyresnämnden lämnar tillstånd (bostadsrättslagen 7 kap. 11 §). Berätta för styrelsen om den gör det, så att föreningens egen anteckning stämmer.",
       "tribunalPermitted": "Hyresnämnden lämnade tillstånd den {{on}}, till och med {{until}}. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
-      "tribunalPermittedOpenEnded": "Hyresnämnden lämnade tillstånd den {{on}}. Inget slutdatum är antecknat. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut."
+      "tribunalPermittedOpenEnded": "Hyresnämnden lämnade tillstånd den {{on}}. Inget slutdatum är antecknat. Föreningen samtyckte inte; det här är antecknat vid sidan av dess beslut.",
+      "lettingEnded": "Styrelsen har antecknat {{date}} som upplåtelsens sista dag."
     },
     "queue": {
       "title": "Ansökningar om andrahandsupplåtelse",
@@ -3711,7 +3750,14 @@
       "tribunalOnField": "Tillstånd från och med",
       "tribunalUntilField": "Till och med",
       "tribunalHint": "Bara ett tillstånd antecknas. Om hyresnämnden avslog står styrelsens eget beslut kvar, vilket raden redan säger. Att anteckna ett tillstånd ändrar inget annat: föreningen samtyckte inte, och raden fortsätter säga det.",
-      "tribunalClear": "Ta bort anteckningen"
+      "tribunalClear": "Ta bort anteckningen",
+      "lettingRunning": "Inget tidigare slut antecknat: upplåtelsen löper till och med {{to}}.",
+      "lettingEnded": "Styrelsen har antecknat {{date}} som upplåtelsens sista dag.",
+      "lettingEndRecord": "Anteckna upplåtelsens sista dag",
+      "lettingEndRecordNamed": "Anteckna sista dagen för upplåtelsen från {{from}} till {{to}}",
+      "lettingEndField": "Upplåtelsens sista dag",
+      "lettingEndHint": "Anteckna det när upplåtelsen upphör före den period ni samtyckte till: andrahandshyresgästen har flyttat, eller medlemmen har flyttat tillbaka eller sålt. Upplåtelsen räknas då som pågående till och med den dagen, och en beviljad begäran om radering väntar på samtycket bara till dess. Samtycket sparas i två år från det senare av styrelsens svar och dagen efter den sista dagen, i stället för från dagen efter periodens slut.",
+      "lettingEndClear": "Ta bort anteckningen"
     },
     "errors": {
       "notAMember": "Att upplåta en lägenhet i andra hand är bostadsrättshavarens sak att ansöka om, och det här kontot innehar ingen bostadsrätt i föreningen.",
@@ -3719,6 +3765,8 @@
       "applicationNotFound": "Den ansökan finns inte kvar. Listan har lästs om.",
       "alreadyClosed": "Styrelsen har svarat på den här ansökan, så det finns inget att ändra.",
       "notRefused": "Ett beslut från hyresnämnden kan bara antecknas på en ansökan som styrelsen har vägrat.",
+      "notConsented": "Att en upplåtelse har upphört kan bara antecknas på en ansökan som styrelsen har samtyckt till.",
+      "lettingEndOutsidePeriod": "En upplåtelse kan bara upphöra en dag inom den period som samtycket gäller.",
       "invalidPeriod": "Perioden slutar innan den börjar.",
       "periodTooFarAhead": "Perioden får sluta högst fem år från i dag.",
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",
@@ -5054,7 +5102,8 @@
     "errors": {
       "notFound": "Anslutningen finns inte längre. Läs listan igen.",
       "forbidden": "Ditt konto får inte koppla bort någon annans anslutning.",
-      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen."
+      "failed": "Anslutningen kunde inte kopplas bort just nu. Försök igen.",
+      "clientNotFound": "Den anslutna appen är inte känd av den här instansen, så det finns inget att avvisa. Läs listan igen."
     },
     "mine": {
       "title": "Anslutna appar",

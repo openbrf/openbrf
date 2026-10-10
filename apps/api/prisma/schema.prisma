@@ -346,9 +346,11 @@ model Association {
   smtpSecure         Boolean @default(true)
   /// Whether a connection that starts in cleartext must upgrade through
   /// STARTTLS before the sign-in. Written on every save of the SMTP settings:
-  /// true unless the host is on loopback. False on a row saved before saving
-  /// set it, which keeps that server working as it did and has the SMTP card
-  /// say the password can go out unencrypted until the settings are saved again.
+  /// true unless the host is on loopback. Rows saved before saving set it were
+  /// given the same value by migration 20261009120000. False on a server that
+  /// is not on loopback has the SMTP card say the password can go out
+  /// unencrypted, and the log say so at the first send, until the settings are
+  /// saved again.
   smtpRequireTls     Boolean @default(false)
 
   /// Which SMS driver this instance sends through, or null for none.
@@ -568,6 +570,12 @@ model Person {
 
   personalIdentityNumberCipher String?
   personalIdentityNumberIndex  String?
+
+  /// The normalisation rules the blind indexes above were computed under
+  /// (NORMALIZATION_VERSION in crypto/personal-data.ts). The default is the
+  /// current version, so a row written now needs nothing; a row below it is
+  /// reindexed from its ciphertexts at boot by PersonReindexService.
+  blindIndexVersion Int @default(2)
 
   /// Protected personal data (skyddade personuppgifter): masked in every view,
   /// export and extract; each reveal is written to the audit log.
@@ -1664,6 +1672,18 @@ enum AuditAction {
   PLUGIN_ACTION_ARMED
   /// An administrator switched one off again.
   PLUGIN_ACTION_DISARMED
+  /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
+  ISSUE_STATUS_CHANGED
+  /// A person was moved into an apartment.
+  MOVE_IN_RECORDED
+  /// A residency was given its move-out date.
+  MOVE_OUT_RECORDED
+  /// An administrator switched a plugin on.
+  PLUGIN_ENABLED
+  /// An administrator switched a plugin off.
+  PLUGIN_DISABLED
+  /// An administrator changed a plugin's settings. The entry names the fields, never the values.
+  PLUGIN_SETTINGS_CHANGED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the
@@ -1944,6 +1964,7 @@ enum AuditAction {
   /// overtaken by the person moving in again. The entry says whether it was
   /// executed.
   DATA_SUBJECT_REQUEST_CLOSED
+  DATA_SUBJECT_REQUEST_EXTENDED
 
   /// A person exported their own data (GDPR art. 20). Actor and subject are the
   /// same person, which is what distinguishes it from the board-produced access
@@ -2003,6 +2024,11 @@ enum AuditAction {
   /// their own access report is where it has to be visible. The entry carries
   /// the dates recorded and nothing else about the proceeding.
   SUBLET_TRIBUNAL_PERMISSION_RECORDED
+  /// Somebody on the board recorded the day a consented letting ended before
+  /// its period did, or took that record back. The subject stays the applicant,
+  /// whose access report is where the date has to be visible. The entry carries
+  /// the day and nothing else.
+  SUBLET_LETTING_END_RECORDED
   /// A resident ordered a key or a tag. Actor and subject are the same person.
   /// The entry carries the kind and the quantity, never the note.
   KEY_ORDER_PLACED
@@ -2051,6 +2077,9 @@ enum AuditAction {
   /// the entry carries how far through the file it got, never anything from the
   /// file. What the import already wrote stays in the register.
   IMPORT_ABANDONED
+
+  /// An administrator removed an installed or composed theme.
+  THEME_REMOVED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -3825,6 +3854,15 @@ model PersonalDataBreach {
 
   recordedByPersonId String
 
+  /// The board members the 72-hour reminder has reached, per discovery instant:
+  /// an object keyed by the instant as an ISO string, each value the list of
+  /// person ids. Read and written under the breach's lock, so a reminder queued
+  /// twice sends once, and a send that reached some of the board is retried only
+  /// for the rest. A different discovery is a different clock with a list of its
+  /// own, and the others are kept: a time corrected from A to B and back to A
+  /// must find A's receipts still there.
+  reminderReceipts Json @default("{}")
+
   subjects PersonalDataBreachSubject[]
 
   createdAt DateTime @default(now())
@@ -4074,6 +4112,13 @@ model DataSubjectRequest {
 
   decidedAt         DateTime?
   decidedByPersonId String?
+
+  /// GDPR art. 12(3): the association may extend the month by two further
+  /// months where the request is complex or there are many, if it tells the
+  /// person within the first month and says why. Set once, before the first due
+  /// day, and what moves the due date; the reason is what the person was told.
+  extendedAt      DateTime?
+  extensionReason String?
 
   /// The night the purge executed a granted erasure.
   executedAt DateTime?
@@ -6855,6 +6900,20 @@ model SubletApplication {
   /// rather than what it ought to have said.
   tribunalPermittedOn    DateTime? @db.Date
   tribunalPermittedUntil DateTime? @db.Date
+
+  /// The last day of a consented letting that ended before its period did, as
+  /// the board recorded it. Null while the period stands.
+  ///
+  /// Recorded, because only the board hears that the subtenant has moved out or
+  /// the member has moved back. Where it is set it is the letting's last day for
+  /// everything that asks: the retention clock, and the granted erasure that
+  /// keeps a running letting's consent (ADR 0016) - which without it would keep
+  /// a consent to the end of a period nobody was using any more. The period
+  /// itself stays what the board consented to.
+  ///
+  /// Only a consented application may carry it, and only a day inside the
+  /// period, and the database says so as well as the service.
+  lettingEndedOn DateTime? @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

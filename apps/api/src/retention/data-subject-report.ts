@@ -259,8 +259,15 @@ export interface ReportDataSubjectRequest {
   requestId: string;
   kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
   requestedOn: string | null;
-  /** The art. 12(3) month, derived from the request date. */
+  /**
+   * The art. 12(3) month, derived from the request date: three months where
+   * the association extended it, one where it did not.
+   */
   dueOn: string | null;
+  /** The day the association extended the month by two, or null. */
+  extendedOn: string | null;
+  /** What the association told them the extension was for. */
+  extensionReason: string | null;
   ground: string;
   /**
    * The art. 17(1) ground an erasure rests on.
@@ -1358,6 +1365,11 @@ export interface ReportSubletApplication {
   /** "YYYY-MM-DD", or null where none was recorded or none named an end. */
   tribunalPermittedUntil: string | null;
   /**
+   * "YYYY-MM-DD": the last day of a consented letting that ended before its
+   * period did, as the board recorded it. Null while the period stands.
+   */
+  lettingEndedOn: string | null;
+  /**
    * The earliest date the purge can reach this application, derived from the
    * retention window and never stored. Null while it is open.
    *
@@ -1464,8 +1476,16 @@ export interface DataSubjectReport {
   /** What the association keeps, and until when. */
   retention: {
     daysAfterMoveOut: number;
-    /** The latest purge date across this person's residencies. */
+    /**
+     * The latest purge date across this person's residencies: what the policy
+     * sets, not a promise. The purge does not act on the person while a legal
+     * hold or a restriction of processing stands, and the two flags below say
+     * whether one does.
+     */
     purgeOn: string | null;
+    /** A legal hold stands (art. 17(3)(e)): the purge leaves the person alone. */
     onLegalHold: boolean;
+    /** A restriction of processing stands (art. 18): the purge leaves the person alone. */
+    processingRestricted: boolean;
   };
 }

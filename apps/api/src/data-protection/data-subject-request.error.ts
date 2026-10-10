@@ -18,10 +18,13 @@ export type DataSubjectRequestReason =
   | "exception-inconsistent"
   | "exception-not-applicable"
   | "decision-ground-required"
+  | "extension-reason-required"
   // Describes a state the person is in.
   | "already-open"
   | "already-decided"
   | "already-closed"
+  | "already-extended"
+  | "extension-too-late"
   | "currently-resident"
   | "on-legal-hold"
   | "board-position-current"
@@ -72,6 +75,8 @@ const CONFLICT = new Set<DataSubjectRequestReason>([
   "already-open",
   "already-decided",
   "already-closed",
+  "already-extended",
+  "extension-too-late",
   "currently-resident",
   "on-legal-hold",
   "board-position-current",

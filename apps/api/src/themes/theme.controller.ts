@@ -51,10 +51,19 @@ const installSchema = z.object({ id: z.string().min(1).max(120) });
  * Held to the same caps the manifest schema states, so a value this route
  * accepts is one the manifest can carry. Names are not checked against the
  * contract here - the lint reports an unknown token and resolution ignores it,
- * which is the same treatment a theme package gets.
+ * which is the same treatment a theme package gets - but they are held to the
+ * characters a token name is written in, since the composer reads them back
+ * into a stylesheet.
  */
 const tokenOverridesSchema = z
-  .record(z.string().min(1).max(64), z.string().min(1).max(200))
+  .record(
+    z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9-]+$/),
+    z.string().min(1).max(200),
+  )
   .default({});
 
 const composeSchema = z.object({
@@ -159,8 +168,8 @@ export class ActiveThemeController {
       // A theme's own files are inert data. Refusing every fetch a rendered
       // asset could make is belt and braces for anything the type allows.
       .header("content-security-policy", "default-src 'none'; sandbox")
-      // Cached hard: an asset path belongs to one installed version, and a
-      // reinstall of a different version writes different declarations.
+      // Cached for an hour: the URL a rendering hands out carries the
+      // package's checksum, so another version is another URL.
       .header("cache-control", "public, max-age=3600")
       .send(asset.contents);
   }
@@ -255,7 +264,13 @@ export class ThemeAdminController {
   }
 
   @Delete("installed/:id")
-  async uninstall(@Param("id") id: string): Promise<ThemeSummary[]> {
-    return this.themes.uninstall(themeIdSchema.parse(id));
+  async uninstall(
+    @Req() request: RequestWithPrincipal,
+    @Param("id") id: string,
+  ): Promise<ThemeSummary[]> {
+    return this.themes.uninstall(
+      themeIdSchema.parse(id),
+      requirePersonId(request),
+    );
   }
 }

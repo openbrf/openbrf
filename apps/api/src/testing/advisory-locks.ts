@@ -41,6 +41,75 @@ export async function advisoryLockCount(
 }
 
 /**
+ * Ends the session that holds an advisory lock key, in this database only, and
+ * says how many it ended.
+ *
+ * For tests of what a holder does when its session is lost while the database
+ * stays up. Chosen by the granted lock rather than by application name, so it
+ * ends that holder and no other session that happens to share the name.
+ */
+export function terminateAdvisoryLockHolder(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return stopAdvisoryLockSessions(prisma, key, true, "terminate");
+}
+
+/**
+ * Ends the sessions waiting for an advisory lock key, in this database only,
+ * and says how many it ended.
+ *
+ * The other half of {@link terminateAdvisoryLockHolder}: for tests of what a
+ * waiter does when its session is lost before it has the lock.
+ */
+export function terminateAdvisoryLockWaiters(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return stopAdvisoryLockSessions(prisma, key, false, "terminate");
+}
+
+/**
+ * Cancels the queries waiting for an advisory lock key, in this database only,
+ * and says how many it cancelled.
+ *
+ * Unlike {@link terminateAdvisoryLockWaiters} the sessions go on: for tests of
+ * what a waiter does when only its query is stopped.
+ */
+export function cancelAdvisoryLockWaiters(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return stopAdvisoryLockSessions(prisma, key, false, "cancel");
+}
+
+/**
+ * Stops the sessions holding, or waiting for, an advisory lock key, in this
+ * database only, and says how many the server signalled: `"terminate"` ends
+ * each session, `"cancel"` only the query it is running.
+ */
+async function stopAdvisoryLockSessions(
+  prisma: PrismaService,
+  key: string,
+  granted: boolean,
+  how: "terminate" | "cancel",
+): Promise<number> {
+  const rows = await prisma.$queryRaw<{ signalled: boolean }[]>`
+    SELECT CASE WHEN ${how === "cancel"}
+      THEN pg_cancel_backend(pid)
+      ELSE pg_terminate_backend(pid)
+    END AS signalled
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND granted = ${granted}
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return rows.filter((row) => row.signalled).length;
+}
+
+/**
  * How many transactions hold, or are queued behind, this person's legal-hold
  * key: the key a purge and a writer placing a hold on the person are ordered
  * by.

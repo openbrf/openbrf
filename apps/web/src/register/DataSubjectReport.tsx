@@ -12,6 +12,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
   DOCUMENT,
@@ -408,6 +409,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.SUBLET_APPLICATION_REFUSED",
   SUBLET_TRIBUNAL_PERMISSION_RECORDED:
     "register.person.report.action.SUBLET_TRIBUNAL_PERMISSION_RECORDED",
+  SUBLET_LETTING_END_RECORDED:
+    "register.person.report.action.SUBLET_LETTING_END_RECORDED",
   KEY_ORDER_PLACED: "register.person.report.action.KEY_ORDER_PLACED",
   KEY_ORDER_REVISED: "register.person.report.action.KEY_ORDER_REVISED",
   KEY_ORDER_WITHDRAWN: "register.person.report.action.KEY_ORDER_WITHDRAWN",
@@ -461,6 +464,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.DATA_SUBJECT_REQUEST_DECIDED",
   DATA_SUBJECT_REQUEST_CLOSED:
     "register.person.report.action.DATA_SUBJECT_REQUEST_CLOSED",
+  DATA_SUBJECT_REQUEST_EXTENDED:
+    "register.person.report.action.DATA_SUBJECT_REQUEST_EXTENDED",
   DATA_PORTABILITY_EXPORTED:
     "register.person.report.action.DATA_PORTABILITY_EXPORTED",
   ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED:
@@ -518,6 +523,13 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
+  MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
+  MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
+  PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
+  PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
+  PLUGIN_SETTINGS_CHANGED:
+    "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:
@@ -535,6 +547,7 @@ const AUDIT_ACTION_LABEL = {
   ASSOCIATION_RETENTION_RECORDED:
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -1576,6 +1589,7 @@ export function DataSubjectReport({
                   "register.person.report.field.status",
                   "register.person.report.field.closed",
                   "register.person.report.field.tribunalPermission",
+                  "register.person.report.field.lettingEnded",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1628,9 +1642,15 @@ export function DataSubjectReport({
                           ? application.tribunalPermittedOn
                           : `${application.tribunalPermittedOn} - ${application.tribunalPermittedUntil}`}
                     </td>
+                    {/* The day the board recorded a consented letting ended,
+                      where it ended before the period did. */}
+                    <td className={DATA_CELL}>
+                      {application.lettingEndedOn ?? nothing}
+                    </td>
                     {/*
                      * The row's own retention date, two years after the later of
-                     * the answer and the end of the period applied for - so a
+                     * the answer and the letting's last day - the period's, or
+                     * the earlier day it was recorded to have ended - so a
                      * consent is not erased while the letting it covers is still
                      * running. Absent while the application is open, because
                      * there is no closing date to count from.
@@ -2426,6 +2446,7 @@ export function DataSubjectReport({
                   "register.person.report.field.requestKind",
                   "register.person.report.field.requestedOn",
                   "register.person.report.field.dueOn",
+                  "register.person.report.field.extension",
                   "register.person.report.field.requestGround",
                   "register.person.report.field.erasureGround",
                   "register.person.report.field.decision",
@@ -2446,6 +2467,17 @@ export function DataSubjectReport({
                       {request.requestedOn ?? nothing}
                     </td>
                     <td className={DATA_CELL}>{request.dueOn ?? nothing}</td>
+                    <td className={TEXT_CELL}>
+                      {request.extendedOn === null ? (
+                        nothing
+                      ) : (
+                        <ExtensionNote
+                          label={t("register.person.report.extendedLabel")}
+                          date={request.extendedOn}
+                          reason={request.extensionReason ?? ""}
+                        />
+                      )}
+                    </td>
                     <td className={TEXT_CELL}>{request.ground}</td>
                     <td className={TEXT_CELL}>
                       {request.erasureGround === null
@@ -2549,6 +2581,14 @@ export function DataSubjectReport({
                   labelKey="register.person.report.field.onLegalHold"
                   value={t(
                     report.retention.onLegalHold
+                      ? "register.person.report.yes"
+                      : "register.person.report.no",
+                  )}
+                />
+                <Field
+                  labelKey="register.person.report.field.processingRestricted"
+                  value={t(
+                    report.retention.processingRestricted
                       ? "register.person.report.yes"
                       : "register.person.report.no",
                   )}

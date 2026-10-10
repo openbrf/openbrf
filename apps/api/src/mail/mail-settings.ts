@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
-import { type Env, isLoopbackHost } from "../config/env";
+import { type Env, isLoopbackAddress } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -202,13 +202,18 @@ export class MailSettingsResolver implements OnModuleInit {
         port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
         secure: association.smtpSecure,
         /*
-         * As the settings were saved. Every save requires STARTTLS unless the
-         * host is on loopback (SettingsService.updateSmtp); a row saved before
-         * that keeps the opportunistic upgrade it always had, because a server
-         * that offers no STARTTLS would otherwise stop the mail of an instance
-         * that works today. The SMTP card says so until the board saves again.
+         * Required of a server that is not at a loopback address whatever the
+         * column says, so the column only decides for one that is. Every save
+         * stores true for such a server (SettingsService.updateSmtp), and
+         * migration 20261009120000 stored it for the rows saved before, but a
+         * row can still come back false - from a data-only restore of an older
+         * backup, an edit made in SQL, or a host named localhost, which that
+         * migration still trusted - and its password would then go wherever an
+         * attacker on the path stripped STARTTLS.
          */
-        requireTls: association.smtpRequireTls,
+        requireTls:
+          association.smtpRequireTls ||
+          !isLoopbackAddress(association.smtpHost),
         user: association.smtpUser,
         password,
       },
@@ -307,13 +312,13 @@ export class MailSettingsResolver implements OnModuleInit {
         port: env.OPENBRF_SMTP_PORT ?? defaultPortFor(secure),
         secure,
         /*
-         * Encrypted before the sign-in, unless the relay is on this machine or
-         * the host says the network to it is trusted. The host's credentials
-         * may send for a domain many associations share, so a relay that stops
-         * offering STARTTLS is a failure to act on rather than a password sent
-         * in the clear.
+         * Encrypted before the sign-in, unless the relay is at a loopback
+         * address or the host says the network to it is trusted. The host's
+         * credentials may send for a domain many associations share, so a
+         * relay that stops offering STARTTLS is a failure to act on rather
+         * than a password sent in the clear.
          */
-        requireTls: env.OPENBRF_SMTP_REQUIRE_TLS ?? !isLoopbackHost(host),
+        requireTls: env.OPENBRF_SMTP_REQUIRE_TLS ?? !isLoopbackAddress(host),
         user: env.OPENBRF_SMTP_USER ?? null,
         password: env.OPENBRF_SMTP_PASSWORD ?? null,
       },

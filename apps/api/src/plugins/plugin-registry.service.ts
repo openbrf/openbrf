@@ -54,6 +54,9 @@ export interface PluginRecord {
   installedAt: Date;
 }
 
+/** One release of a plugin, as a run read it from its row. */
+export type PluginRelease = Pick<PluginRecord, "id" | "version" | "checksum">;
+
 export interface PluginConsent {
   id: string;
   packageName: string;
@@ -89,7 +92,10 @@ export class PluginRegistryService {
    * consent snapshot is overwritten on purpose: a new version whose
    * permissions changed went through the consent screen again to get here.
    */
-  async consent(input: PluginConsent): Promise<PluginRecord> {
+  async consent(
+    input: PluginConsent,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord> {
     const shared = {
       packageName: input.packageName,
       version: input.version,
@@ -119,7 +125,7 @@ export class PluginRegistryService {
       ...NO_FAILURE,
     };
 
-    const row = await this.prisma.installedPlugin.upsert({
+    const row = await (client ?? this.prisma).installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
@@ -198,15 +204,24 @@ export class PluginRegistryService {
     return toRecord(row);
   }
 
-  async remove(id: string): Promise<boolean> {
-    const removed = await this.prisma.installedPlugin.deleteMany({
+  async remove(
+    id: string,
+    client?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const removed = await (client ?? this.prisma).installedPlugin.deleteMany({
       where: { id },
     });
     return removed.count > 0;
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<PluginRecord | null> {
-    const rows = await this.prisma.installedPlugin.updateManyAndReturn({
+  async setEnabled(
+    id: string,
+    enabled: boolean,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord | null> {
+    const rows = await (
+      client ?? this.prisma
+    ).installedPlugin.updateManyAndReturn({
       where: { id },
       data: { enabled },
     });
@@ -214,10 +229,16 @@ export class PluginRegistryService {
     return row === undefined ? null : toRecord(row);
   }
 
-  /** Called by the installer once the package is on the data volume. */
-  async markInstalled(id: string): Promise<void> {
+  /**
+   * Called by the installer once the package is on the data volume.
+   *
+   * Only while the row still names the release the run installed. A board can
+   * consent to another release while a run is in npm, and a run working from
+   * the older row must not record that one as installed, or failed.
+   */
+  async markInstalled(release: PluginRelease): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
-      where: { id },
+      where: releaseWhere(release),
       data: { status: "INSTALLED", ...NO_FAILURE },
     });
   }
@@ -228,9 +249,12 @@ export class PluginRegistryService {
    * The row stays. A failed install that vanished would leave a board with no
    * way to see what happened, and no way to retry or withdraw it.
    */
-  async markFailed(id: string, failure: PluginInstallFailure): Promise<void> {
+  async markFailed(
+    release: PluginRelease,
+    failure: PluginInstallFailure,
+  ): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
-      where: { id },
+      where: releaseWhere(release),
       data: {
         status: "FAILED",
         lastError: prefix(storable(failure.cause), 2000),
@@ -243,8 +267,9 @@ export class PluginRegistryService {
   async writeSettings(
     id: string,
     settings: Record<string, unknown>,
+    client?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.prisma.installedPlugin.updateMany({
+    await (client ?? this.prisma).installedPlugin.updateMany({
       where: { id },
       // Cast at the persistence boundary: the values are already validated
       // against the plugin's settingsSchema, and Prisma types a JSON column
@@ -295,6 +320,14 @@ const UNSTORABLE = /[\0\p{Cs}]/gu;
  */
 function storable(text: string): string {
   return text.replace(UNSTORABLE, "\uFFFD");
+}
+
+function releaseWhere(release: PluginRelease) {
+  return {
+    id: release.id,
+    version: release.version,
+    checksum: release.checksum,
+  };
 }
 
 /** The three failure columns, cleared together. */

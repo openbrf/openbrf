@@ -22,7 +22,6 @@ function row(
   const number = overrides.number ?? "1001";
   return {
     key: `${overrides.personId ?? "person"}-${number}`,
-    personId: overrides.personId ?? "person",
     name: "Anna Lindqvist",
     apartment:
       overrides.number === null
@@ -128,7 +127,7 @@ describe("groupByFloor", () => {
 
     expect(groups).toHaveLength(2);
     expect(groups[1]?.floor).toBeNull();
-    expect(groups[1]?.rows[0]?.personId).toBe("external");
+    expect(groups[1]?.rows[0]?.key).toBe("external-1001");
   });
 
   it("marks an apartment whose floor cannot be determined as unknown", () => {
@@ -175,7 +174,10 @@ describe("groupByFloor", () => {
       { multipleAddresses: false },
     );
 
-    expect(groups[0]?.rows.map((entry) => entry.personId)).toEqual(["a", "b"]);
+    expect(groups[0]?.rows.map((entry) => entry.key)).toEqual([
+      "a-1102",
+      "b-1101",
+    ]);
   });
 
   it("returns nothing for an empty page", () => {

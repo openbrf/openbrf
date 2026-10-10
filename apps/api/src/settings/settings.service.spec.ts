@@ -64,6 +64,12 @@ const STORED = {
   smtpPasswordCipher: null as string | null,
   smtpFromAddress: null as string | null,
   smtpSecure: true,
+  boardMailboxAddress: null as string | null,
+  boardMailboxPop3Host: null as string | null,
+  boardMailboxPop3Port: null as number | null,
+  boardMailboxPop3Secure: true,
+  boardMailboxPop3User: null as string | null,
+  boardMailboxPop3PasswordCipher: null as string | null,
   smtpRequireTls: false,
   smsDriver: null as string | null,
   smsGatewayUrl: null as string | null,
@@ -83,8 +89,10 @@ interface Fakes {
   prisma: {
     association: {
       findUnique: ReturnType<typeof vi.fn>;
+      findUniqueOrThrow: ReturnType<typeof vi.fn>;
       upsert: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
     person: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -143,6 +151,30 @@ function build(
         row = { ...row, ...data };
         return row;
       }),
+      // Equality on every column named, which is all the service asks of it.
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: Partial<Association> & { id: number };
+          data: Partial<Association>;
+        }) => {
+          const current = row;
+          const { id: _id, ...columns } = where;
+          if (
+            current === null ||
+            Object.entries(columns).some(
+              ([column, value]) =>
+                current[column as keyof Association] !== value,
+            )
+          ) {
+            return { count: 0 };
+          }
+          row = { ...current, ...data };
+          return { count: 1 };
+        },
+      ),
     },
     person: {
       findUnique: vi.fn(async () => ({
@@ -398,12 +430,159 @@ describe("SMTP settings", () => {
     // The screen never shows the password, so saving the rest of the form must
     // not wipe it.
     const { service, current } = build({
+      smtpHost: filled.host,
+      smtpPort: filled.port,
       smtpPasswordCipher: "brf:existing-ciphertext",
     });
 
-    await service.updateSmtp(filled);
+    await service.updateSmtp({ ...filled, user: "kassoren" });
 
     expect(current()?.smtpPasswordCipher).toBe("brf:existing-ciphertext");
+    expect(current()?.smtpUser).toBe("kassoren");
+  });
+
+  it("reads a stored null port as the default the screen fills in", async () => {
+    // The panel shows 465 for a secure connection with no port stored and sends
+    // it back; that is the server the password was entered for.
+    const { service, current } = build({
+      smtpHost: filled.host,
+      smtpPort: null,
+      smtpSecure: true,
+      smtpPasswordCipher: "brf:existing-ciphertext",
+    });
+
+    await service.updateSmtp({ ...filled, port: 465, user: "kassoren" });
+
+    expect(current()).toMatchObject({
+      smtpPort: 465,
+      smtpUser: "kassoren",
+      smtpPasswordCipher: "brf:existing-ciphertext",
+    });
+  });
+
+  it.each([
+    ["host", { host: "smtp.elsewhere.example" }],
+    ["port", { port: 2525 }],
+    // Same host and port, and the password would cross the network in clear.
+    ["connection without encryption", { secure: false }],
+  ])(
+    "refuses to keep the stored password for a new %s, and writes nothing",
+    async (_, change) => {
+      // The next send would hand the association's password to whatever
+      // answers at the new address, or in a way it was not entered for.
+      const { service, current } = build({
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      });
+
+      await expect(
+        service.updateSmtp({ ...filled, ...change }),
+      ).rejects.toMatchObject({
+        reason: "secret-required-for-new-endpoint",
+        status: 400,
+      });
+      expect(current()).toMatchObject({
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      });
+    },
+  );
+
+  it("takes a new host together with a new or a cleared password", async () => {
+    const stored = {
+      smtpHost: filled.host,
+      smtpPort: filled.port,
+      smtpPasswordCipher: "brf:existing-ciphertext",
+    };
+    const moved = { ...filled, host: "smtp.elsewhere.example" };
+
+    const replaced = build(stored);
+    await replaced.service.updateSmtp({ ...moved, password: "new-password" });
+    expect(replaced.current()?.smtpHost).toBe("smtp.elsewhere.example");
+    expect(replaced.current()?.smtpPasswordCipher).not.toBe(
+      "brf:existing-ciphertext",
+    );
+
+    const cleared = build(stored);
+    await cleared.service.updateSmtp({ ...moved, password: null });
+    expect(cleared.current()).toMatchObject({
+      smtpHost: "smtp.elsewhere.example",
+      smtpPasswordCipher: null,
+    });
+  });
+
+  it.each([
+    [
+      "a password stored for the old host",
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: null,
+      },
+      {
+        smtpHost: "smtp.old.example",
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:stored-meanwhile",
+      },
+    ],
+    [
+      "the host moved under the stored password",
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      },
+      {
+        smtpHost: "smtp.elsewhere.example",
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      },
+    ],
+    [
+      // Nothing about the server moved, so the refusal cannot say it did.
+      "another password for the same host",
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:existing-ciphertext",
+      },
+      {
+        smtpHost: filled.host,
+        smtpPort: filled.port,
+        smtpPasswordCipher: "brf:stored-meanwhile",
+      },
+    ],
+  ])(
+    "refuses to keep the password after another save wrote %s in between",
+    async (_, seen, meanwhile) => {
+      // The guard passed on the row it read; the row the write meets is
+      // another administrator's, and the kept password would go to a host
+      // nobody typed it for.
+      const { service, prisma, current } = build(meanwhile);
+      // The row as read always carries the encryption flag the guard compares.
+      prisma.association.findUniqueOrThrow.mockResolvedValueOnce({
+        smtpSecure: filled.secure,
+        ...seen,
+      });
+
+      await expect(
+        service.updateSmtp({ ...filled, user: "kassoren" }),
+      ).rejects.toMatchObject({
+        reason: "secret-endpoint-changed-during-save",
+        status: 409,
+      });
+      expect(current()).toMatchObject({ ...meanwhile, smtpUser: null });
+    },
+  );
+
+  it("takes a new host freely while no password is stored", async () => {
+    const { service, current } = build({ smtpHost: "smtp.old.example" });
+
+    await service.updateSmtp(filled);
+
+    expect(current()?.smtpHost).toBe(filled.host);
   });
 
   it("clears the password when it is explicitly emptied", async () => {
@@ -435,53 +614,38 @@ describe("SMTP settings", () => {
       smtpRequireTls: false,
     });
 
-    const saved = await service.updateSmtp({
+    await service.updateSmtp({
       ...filled,
       secure: false,
       fromAddress: "info@exempel.se",
     });
 
     expect(current()?.smtpRequireTls).toBe(true);
-    expect(saved).toMatchObject({ source: "settings", tlsOptional: false });
   });
 
-  it.each(["localhost", "127.0.0.1", "::1"])(
-    "leaves a server on loopback (%s) to upgrade if it offers to",
+  it.each(["127.0.0.1", "::1", "[::1]"])(
+    "leaves a server at a loopback address (%s) to upgrade if it offers to",
     async (host) => {
       const { service, current } = build();
 
-      const saved = await service.updateSmtp({
+      await service.updateSmtp({
         ...filled,
         host,
         secure: false,
       });
 
       expect(current()?.smtpRequireTls).toBe(false);
-      expect(saved).toMatchObject({ tlsOptional: false });
     },
   );
 
-  it("flags settings saved before TLS was required", async () => {
-    const legacy = build({
-      smtpHost: "smtp.example.se",
-      smtpFromAddress: "styrelsen@exempel.se",
-      smtpSecure: false,
-      smtpRequireTls: false,
-    });
-    await expect(legacy.service.read()).resolves.toMatchObject({
-      smtp: { tlsOptional: true },
-    });
+  it("requires TLS of a server named localhost", async () => {
+    // The SMTP driver asks DNS what localhost is before it reads the hosts
+    // file, so the name is no promise that the server is on this machine.
+    const { service, current } = build();
 
-    // Implicit TLS is encrypted from the first byte, whenever it was saved.
-    const implicit = build({
-      smtpHost: "smtp.example.se",
-      smtpFromAddress: "styrelsen@exempel.se",
-      smtpSecure: true,
-      smtpRequireTls: false,
-    });
-    await expect(implicit.service.read()).resolves.toMatchObject({
-      smtp: { tlsOptional: false },
-    });
+    await service.updateSmtp({ ...filled, host: "localhost", secure: false });
+
+    expect(current()?.smtpRequireTls).toBe(true);
   });
 });
 
@@ -718,6 +882,114 @@ describe("SMS settings", () => {
     });
 
     expect(current()?.smsGatewayTokenCipher).toBeNull();
+  });
+
+  it.each([
+    ["gateway address", { gatewayUrl: "https://elsewhere.example/send" }],
+    ["driver", { driver: "another-driver" }],
+  ])(
+    "refuses to keep the stored credential for a new %s",
+    async (_, change) => {
+      const { service, current } = build({
+        smsDriver: "http-gateway",
+        smsGatewayUrl: "https://gateway.example/send",
+        smsGatewayTokenCipher: "brf:some-ciphertext",
+      });
+      const input = {
+        driver: "http-gateway",
+        gatewayUrl: "https://gateway.example/send",
+        senderName: null,
+        ...change,
+      };
+
+      await expect(service.updateSms(input)).rejects.toMatchObject({
+        reason: "secret-required-for-new-endpoint",
+      });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+
+      // Typed again, or cleared, the same change goes through.
+      await expect(
+        service.updateSms({ ...input, token: null }),
+      ).resolves.toMatchObject({ ...change, tokenSet: false });
+    },
+  );
+});
+
+describe("board mailbox settings", () => {
+  const filled = {
+    address: "styrelsen@exempel.se",
+    host: "pop.example.se",
+    port: 995,
+    secure: true,
+    user: "styrelsen",
+  };
+  const stored = {
+    boardMailboxPop3Host: filled.host,
+    boardMailboxPop3Port: filled.port,
+    boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
+  };
+
+  it("keeps the stored password while the server stays the same", async () => {
+    const { service, current } = build(stored);
+
+    await service.updateBoardMailbox({ ...filled, user: "kassoren" });
+
+    expect(current()).toMatchObject({
+      boardMailboxPop3User: "kassoren",
+      boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
+    });
+  });
+
+  it("reads a stored null port as the default the screen fills in", async () => {
+    const { service, current } = build({
+      ...stored,
+      boardMailboxPop3Port: null,
+      boardMailboxPop3Secure: true,
+    });
+
+    await service.updateBoardMailbox({ ...filled, user: "kassoren" });
+
+    expect(current()).toMatchObject({
+      boardMailboxPop3Port: 995,
+      boardMailboxPop3PasswordCipher: "brf:existing-ciphertext",
+    });
+  });
+
+  it.each([
+    ["host", { host: "pop.elsewhere.example" }],
+    ["port", { port: 1110 }],
+    ["connection without encryption", { port: 995, secure: false }],
+  ])("refuses to keep the stored password for a new %s", async (_, change) => {
+    const { service, current } = build(stored);
+
+    await expect(
+      service.updateBoardMailbox({ ...filled, ...change }),
+    ).rejects.toMatchObject({ reason: "secret-required-for-new-endpoint" });
+    expect(current()).toMatchObject(stored);
+
+    await service.updateBoardMailbox({
+      ...filled,
+      ...change,
+      password: "new-password",
+    });
+    expect(current()?.boardMailboxPop3PasswordCipher).not.toBe(
+      stored.boardMailboxPop3PasswordCipher,
+    );
+  });
+
+  it("takes a new host together with a cleared password", async () => {
+    const { service, current } = build(stored);
+
+    await service.updateBoardMailbox({
+      ...filled,
+      host: "pop.elsewhere.example",
+      password: "",
+    });
+
+    expect(current()).toMatchObject({
+      boardMailboxPop3Host: "pop.elsewhere.example",
+      boardMailboxPop3PasswordCipher: null,
+    });
   });
 });
 

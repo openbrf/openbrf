@@ -14,6 +14,10 @@
 # stack.env sets OPENBRF_VERSION only so the production file's required
 # variable interpolates; the image named below is the one that runs.
 #
+# Its tag comes from the env file, openbrf:e2e for the suite and openbrf:shots
+# for the screenshot walk, so neither build retags the other's image while it
+# runs, and neither is a tag anything else on the machine uses.
+#
 #   OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e \
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
@@ -28,7 +32,7 @@
 x-e2e-image: &e2e-image
   build:
     context: .
-  image: openbrf:local
+  image: ${E2E_IMAGE:?set E2E_IMAGE in the env file}
 
 services:
   schema-owner:
@@ -38,6 +42,14 @@ services:
     <<: *e2e-image
 
   db:
+    # The database docker-compose.prod.yml runs, by the same digest, but pulled
+    # from Amazon's copy of the Docker official images. Docker Hub limits
+    # anonymous pulls per address, and the suite runs on CI runners whose
+    # addresses everyone else's CI shares; an operator's own pull is the
+    # production file's business and stays on Docker Hub. Dependabot moves
+    # this digest with the production file's (.github/dependabot.yml), and
+    # `pnpm lint:guards` fails when the two differ.
+    image: public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     ports:
       # Published so the suite can assert on the audit log directly. Reveals of
       # protected personal data have to reach that table, the table is
@@ -46,7 +58,10 @@ services:
       - "127.0.0.1:${E2E_DB_PORT:-5442}:5432"
 
   mailpit:
-    image: axllent/mailpit:v1.31.2@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    # From the GitHub Container Registry, which mailpit publishes to alongside
+    # Docker Hub with the same digest, for the reason the database above is
+    # not pulled from Docker Hub either.
+    image: ghcr.io/axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
     restart: unless-stopped
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
