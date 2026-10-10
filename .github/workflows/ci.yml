@@ -56,6 +56,8 @@ jobs:
       # The statutory tables are append-only by trigger, and two test suites are
       # allowed to switch a guard off to clear their own rows. This refuses a
       # third: the pattern is a line long and reads as ordinary cleanup.
+      # The same script also fails when the Postgres image CI pulls differs from
+      # the one docker-compose.prod.yml runs.
       - name: No statutory guard is disabled outside the files allowed to
         run: pnpm lint:guards
 
@@ -76,8 +78,16 @@ jobs:
         # Pinned by digest for the same reason the actions above are: a mutable
         # tag lets CI change underneath us. No updater reads a service image, so
         # this is bumped by hand to the digest docker-compose.prod.yml carries,
-        # which Dependabot keeps current.
-        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        # which Dependabot keeps current. `pnpm lint:guards` (a step below)
+        # fails when the two differ, so a missed bump shows up there.
+        #
+        # Pulled from Amazon's copy of the Docker official images rather than
+        # from Docker Hub, which limits anonymous pulls per address and shares
+        # the runners' addresses with everyone else's CI. A login would not
+        # help: a pull request from a fork, or from Dependabot, is given none
+        # of the repository's secrets. The digest is the same image, so the
+        # database tested here is the one docker-compose.prod.yml runs.
+        image: public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         env:
           POSTGRES_USER: openbrf
           POSTGRES_PASSWORD: openbrf
