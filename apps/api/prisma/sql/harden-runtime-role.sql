@@ -335,8 +335,24 @@ REVOKE UPDATE, DELETE ON public."register_report_obligation" FROM :"app_role";
 -- TRUNCATE is a separate privilege in Postgres and is not implied by DELETE,
 -- so the grants above never conferred it. Revoked explicitly anyway, because
 -- one TRUNCATE would empty the archive without firing a row-level trigger.
-REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM :"app_role";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRUNCATE ON TABLES FROM :"app_role";
+--
+-- TRIGGER and REFERENCES were never granted either, and are revoked for the
+-- same reason: a grant this script did not make - an earlier tool, a GRANT ALL
+-- by hand - would otherwise outlive it. TRIGGER is the one that matters.
+-- CREATE OR REPLACE TRIGGER asks for that privilege and not for ownership, so
+-- a role holding it can swap any guard in this schema for a trigger that does
+-- nothing. REFERENCES would let it hang a foreign key of its own on a table,
+-- from a temporary table, which nothing in the application does.
+--
+-- From PUBLIC as well, which the runtime role is part of, and in the default
+-- privileges both for this schema and for every schema: a grant made for one
+-- schema is added to the global ones, so neither revoke reaches the other.
+REVOKE TRIGGER, REFERENCES, TRUNCATE ON ALL TABLES IN SCHEMA public
+  FROM :"app_role", PUBLIC;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM :"app_role", PUBLIC;
+ALTER DEFAULT PRIVILEGES
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM :"app_role", PUBLIC;
 
 -- The migration history, which the blanket grant above reached as well. The
 -- owner applies whatever the history says has not been applied, so a row
@@ -363,6 +379,13 @@ GRANT USAGE ON SCHEMA pgboss TO :"app_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO :"app_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO :"app_role";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO :"app_role";
+
+-- As in public: the trigger the owner's job schema install puts on
+-- pgboss.queue is what keeps the application from writing a queue row the
+-- owner's pg-boss would turn into SQL, and TRIGGER is all it takes to replace
+-- it.
+REVOKE TRIGGER, REFERENCES, TRUNCATE ON ALL TABLES IN SCHEMA pgboss
+  FROM :"app_role", PUBLIC;
 
 -- The job schema's version, which the owner's pg-boss install reads to decide
 -- which of its own migrations to run. The application reads it at start and
@@ -410,5 +433,27 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_role";
 ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
   GRANT USAGE, SELECT ON SEQUENCES TO :"app_role";
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgboss
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM :"app_role", PUBLIC;
+
+-- And checked afterwards rather than trusted, as CONNECT is above. The owner's
+-- REVOKE takes back only what the owner granted: a grant made by another role
+-- holding GRANT OPTION survives it, with no more than a warning. Asked of the
+-- runtime role itself, so a grant to PUBLIC counts too, and of the columns,
+-- where REFERENCES can be granted as well.
+SELECT format($sql$DO $body$ BEGIN RAISE EXCEPTION USING MESSAGE = %L; END $body$$sql$,
+  format('Role %I still holds TRIGGER, REFERENCES or TRUNCATE on %s, granted by a role other than the owner. A role holding TRIGGER can replace the triggers that guard the statutory archive and the job queue. Revoke them as the role that granted them, then run this again.',
+    :'app_role',
+    string_agg(format('%I.%I', n.nspname, c.relname), ', ' ORDER BY n.nspname, c.relname)))
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname IN ('public', 'pgboss')
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND (
+    has_table_privilege(:'app_role', c.oid, 'TRIGGER, REFERENCES, TRUNCATE')
+    OR has_any_column_privilege(:'app_role', c.oid, 'REFERENCES')
+  )
+HAVING count(*) > 0
+\gexec
 
 COMMIT;

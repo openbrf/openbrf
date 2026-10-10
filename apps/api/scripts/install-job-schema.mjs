@@ -182,9 +182,61 @@ async function refuseRowsTheOwnerWouldRun(db) {
   }
 }
 
-// Opened here so that the check runs on the pool pg-boss then starts on.
+/**
+ * Stops the install while a role other than a table's owner, or PUBLIC, holds
+ * TRIGGER on a table in the job schema or the application's.
+ *
+ * CREATE OR REPLACE TRIGGER asks for that privilege and not for ownership. A
+ * role holding it could replace the trigger guardQueueTable puts on
+ * pgboss.queue with one that does nothing, at any time after this install,
+ * and the triggers that keep the statutory archive append-only in the same
+ * way. The runtime role's hardening never grants it and revokes it, so a
+ * grant found here was made by hand or by another tool. The install refuses
+ * rather than revoking it, because whoever held it may have replaced a trigger
+ * already, and only a person can tell. Run first, before guardQueueTable
+ * relies on the trigger it creates, and again once pg-boss has started: a
+ * table it creates then, every table on a fresh install, takes its grants from
+ * the owner's default privileges, which the first run cannot see.
+ */
+async function refuseForeignTriggerGrants(db) {
+  const { rows } = await db.executeSql(
+    `SELECT CASE WHEN g.grantee = 0 THEN 'PUBLIC'
+                 ELSE quote_ident(pg_get_userbyid(g.grantee)) END AS grantee,
+            string_agg(format('%I.%I', n.nspname, c.relname), ', '
+                       ORDER BY n.nspname, c.relname) AS tables
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     CROSS JOIN LATERAL aclexplode(c.relacl) AS g
+     WHERE n.nspname IN ('public', 'pgboss')
+       AND g.grantee <> c.relowner
+       AND g.privilege_type = 'TRIGGER'
+     GROUP BY g.grantee
+     ORDER BY 1`,
+  );
+  if (rows.length === 0) {
+    return;
+  }
+  for (const { grantee, tables } of rows) {
+    console.error(`${grantee} holds TRIGGER on ${tables}.`);
+  }
+  console.error(
+    "A role holding TRIGGER can replace a trigger on a table it does not " +
+      "own: the guards on the statutory archive and on pgboss.queue among " +
+      "them. So the install stops here. Check that the triggers on those " +
+      "tables are still the ones the migrations and this install created, " +
+      "then, as the role that granted it, REVOKE TRIGGER ON ALL TABLES IN " +
+      "SCHEMA public, pgboss FROM each role named above, and deploy again. " +
+      "A grant that came from default privileges (\\ddp in psql) has to be " +
+      "revoked there too, with ALTER DEFAULT PRIVILEGES, or the next table " +
+      "created in those schemas gets it again.",
+  );
+  process.exit(1);
+}
+
+// Opened here so that the checks run on the pool pg-boss then starts on.
 const db = boss.getDb();
 await db.open();
+await refuseForeignTriggerGrants(db);
 await refuseRowsTheOwnerWouldRun(db);
 
 // A migration that adds an index to a job table that already exists does not
@@ -216,6 +268,7 @@ async function finishIndexBuilds() {
 
 await boss.start();
 try {
+  await refuseForeignTriggerGrants(db);
   await guardQueueTable(db);
   await finishIndexBuilds();
   console.log('Job schema "pgboss" is installed and up to date.');
