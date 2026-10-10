@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { PrismaClient } from "../generated/prisma/client";
+import { quoteIdentifier } from "../testing/integration-database";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { ARCHIVE_REVOKES, assertConstrainedRuntimeRole } from "./runtime-role";
 
@@ -34,10 +35,21 @@ let madeJobSchema = false;
 let database: string;
 
 /**
+ * The database's name as PostgreSQL's format('%I') writes it, which the repair
+ * command in the refusal quotes only when the name needs it. The test's own SQL
+ * quotes every name, so the two are not the same string for an ordinary name.
+ */
+let databaseInCommand: string;
+
+/**
  * Whether PUBLIC held TEMPORARY on the worker's database before the suite took
  * it away, to give it back for the suites that run after this one there.
  */
 let publicHadTemporary = false;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function production(url: string) {
   return { ...env, NODE_ENV: "production" as const, DATABASE_URL_RUNTIME: url };
@@ -90,22 +102,24 @@ beforeAll(async () => {
   // A new database grants TEMPORARY to PUBLIC, and the worker's clone has not
   // been through the hardening script that revokes it.
   const [temporary] = await owner.$queryRawUnsafe<
-    { database: string; held: boolean }[]
+    { database: string; quoted: string; held: boolean }[]
   >(
     `SELECT current_database()::text AS database,
+       quote_ident(current_database())::text AS quoted,
        has_database_privilege('public', current_database(), 'TEMPORARY') AS held`,
   );
   database = temporary?.database ?? "";
+  databaseInCommand = temporary?.quoted ?? "";
   publicHadTemporary = temporary?.held === true;
   await owner.$executeRawUnsafe(
-    `REVOKE TEMPORARY ON DATABASE "${database}" FROM PUBLIC`,
+    `REVOKE TEMPORARY ON DATABASE ${quoteIdentifier(database)} FROM PUBLIC`,
   );
 });
 
 afterAll(async () => {
   if (publicHadTemporary) {
     await owner.$executeRawUnsafe(
-      `GRANT TEMPORARY ON DATABASE "${database}" TO PUBLIC`,
+      `GRANT TEMPORARY ON DATABASE ${quoteIdentifier(database)} TO PUBLIC`,
     );
   }
   await owner.$executeRawUnsafe(`DROP OWNED BY ${CONSTRAINED_ROLE}`);
@@ -301,10 +315,12 @@ describe("a production start", () => {
       // temporary table hides a real one from any function that does not pin
       // its search_path.
       await refusedWith(
-        `GRANT TEMPORARY ON DATABASE "${database}" TO ${to}`,
-        `REVOKE TEMPORARY ON DATABASE "${database}" FROM ${to}`,
+        `GRANT TEMPORARY ON DATABASE ${quoteIdentifier(database)} TO ${to}`,
+        `REVOKE TEMPORARY ON DATABASE ${quoteIdentifier(database)} FROM ${to}`,
         new RegExp(
-          `${CONSTRAINED_ROLE} can create temporary tables, .*: run "REVOKE TEMPORARY ON DATABASE ${database} FROM ${CONSTRAINED_ROLE}, PUBLIC" as the database's owner`,
+          `${CONSTRAINED_ROLE} can create temporary tables, .*: run "${escapeRegExp(
+            `REVOKE TEMPORARY ON DATABASE ${databaseInCommand} FROM ${CONSTRAINED_ROLE}, PUBLIC`,
+          )}" as the database's owner`,
         ),
       );
     },
