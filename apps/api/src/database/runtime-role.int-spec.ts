@@ -30,6 +30,15 @@ let owner: PrismaClient;
 /** Whether the suite made the job schema's version table, to drop it again. */
 let madeJobSchema = false;
 
+/** The worker's database, which the TEMPORARY grants below name. */
+let database: string;
+
+/**
+ * Whether PUBLIC held TEMPORARY on the worker's database before the suite took
+ * it away, to give it back for the suites that run after this one there.
+ */
+let publicHadTemporary = false;
+
 function production(url: string) {
   return { ...env, NODE_ENV: "production" as const, DATABASE_URL_RUNTIME: url };
 }
@@ -77,9 +86,28 @@ beforeAll(async () => {
   await owner.$executeRawUnsafe(
     `GRANT SELECT, UPDATE (cron_on) ON pgboss.version TO ${CONSTRAINED_ROLE}`,
   );
+
+  // A new database grants TEMPORARY to PUBLIC, and the worker's clone has not
+  // been through the hardening script that revokes it.
+  const [temporary] = await owner.$queryRawUnsafe<
+    { database: string; held: boolean }[]
+  >(
+    `SELECT current_database()::text AS database,
+       has_database_privilege('public', current_database(), 'TEMPORARY') AS held`,
+  );
+  database = temporary?.database ?? "";
+  publicHadTemporary = temporary?.held === true;
+  await owner.$executeRawUnsafe(
+    `REVOKE TEMPORARY ON DATABASE "${database}" FROM PUBLIC`,
+  );
 });
 
 afterAll(async () => {
+  if (publicHadTemporary) {
+    await owner.$executeRawUnsafe(
+      `GRANT TEMPORARY ON DATABASE "${database}" TO PUBLIC`,
+    );
+  }
   await owner.$executeRawUnsafe(`DROP OWNED BY ${CONSTRAINED_ROLE}`);
   await owner.$executeRawUnsafe(`DROP ROLE IF EXISTS ${CONSTRAINED_ROLE}`);
   if (madeJobSchema) {
@@ -262,6 +290,25 @@ describe("a production start", () => {
       /is a member of pg_execute_server_program/,
     );
   });
+
+  it.each([
+    { grantee: "the role", to: CONSTRAINED_ROLE },
+    { grantee: "PUBLIC", to: "PUBLIC" },
+  ])(
+    "refuses a role that can create temporary tables, granted to $grantee, and names the revoke",
+    async ({ to }) => {
+      // A deployment that manages its role itself and skipped the revoke: a
+      // temporary table hides a real one from any function that does not pin
+      // its search_path.
+      await refusedWith(
+        `GRANT TEMPORARY ON DATABASE "${database}" TO ${to}`,
+        `REVOKE TEMPORARY ON DATABASE "${database}" FROM ${to}`,
+        new RegExp(
+          `${CONSTRAINED_ROLE} can create temporary tables, .*: run "REVOKE TEMPORARY ON DATABASE ${database} FROM ${CONSTRAINED_ROLE}, PUBLIC" as the database's owner`,
+        ),
+      );
+    },
+  );
 
   it.each(["INSERT (version)", "UPDATE (version)"])(
     "refuses a role granted %s on the job schema's version",
