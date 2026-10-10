@@ -368,6 +368,32 @@ describe("the consent echo gate", () => {
     expect(recorded().personalData).toEqual(confirmedData);
   });
 
+  it("records the confirmed declaration in the audit entry too", async () => {
+    // The entry is what the association answers a member with about what was
+    // agreed to, so it carries the declaration that was confirmed, in the
+    // order it was echoed, and not the catalog's copy of it.
+    const built = build();
+    const confirmed: PluginPermission[] = ["mail:send", "addressBook:read"];
+    const confirmedData: PluginPersonalDataCategory[] = ["apartment", "name"];
+
+    await built.service.install(
+      { id: "occupancy", permissions: confirmed, personalData: confirmedData },
+      null,
+      "WEB",
+    );
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({
+          permissions: confirmed,
+          personalData: confirmedData,
+        }),
+      }),
+      built.txClient,
+    );
+  });
+
   it("records the catalog's declaration when nothing was echoed", async () => {
     // The command-line tool: running the command is the consent, there is no
     // earlier screen for the catalog to have changed since, and the tool
@@ -376,6 +402,23 @@ describe("the consent echo gate", () => {
 
     expect(recorded().permissions).toEqual(ENTRY.permissions);
     expect(recorded().personalData).toEqual(ENTRY.personalData);
+  });
+
+  it("records the catalog's declaration in the audit entry when nothing was echoed", async () => {
+    const built = build();
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PLUGIN_INSTALLED",
+        context: expect.objectContaining({
+          permissions: ENTRY.permissions,
+          personalData: ENTRY.personalData,
+        }),
+      }),
+      built.txClient,
+    );
   });
 });
 

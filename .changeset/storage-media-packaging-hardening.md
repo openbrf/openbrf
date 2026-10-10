@@ -1,5 +1,5 @@
 ---
-"@openbrf/api": patch
+"@openbrf/api": minor
 ---
 
 Harden the archive store, the storage drivers and media files.

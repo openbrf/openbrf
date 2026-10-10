@@ -117,6 +117,11 @@ export class ThemeStore {
 
     return {
       commit: async () => {
+        // Taken before anything is displaced, so a failure to read it leaves
+        // the installed version where it is. The move keeps it: a rename
+        // within one filesystem leaves the directory the same one.
+        const identity = await directoryIdentity(staging);
+
         try {
           await rename(target, displaced);
           displacedPrevious = true;
@@ -124,9 +129,6 @@ export class ThemeStore {
           // Nothing to displace: this is a first install.
         }
 
-        // Taken before the move, which keeps it: a rename within one
-        // filesystem leaves the directory the same one.
-        const identity = await directoryIdentity(staging);
         try {
           await rename(staging, target);
         } catch (cause) {

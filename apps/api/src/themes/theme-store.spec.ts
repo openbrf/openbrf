@@ -22,12 +22,22 @@ import { ThemeStore } from "./theme-store";
  */
 
 /** Lets one test refuse the rename that moves a staged theme into place. */
-const hooks = vi.hoisted(() => ({ failRenameInto: null as string | null }));
+const hooks = vi.hoisted(() => ({
+  failRenameInto: null as string | null,
+  failStatOf: null as string | null,
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
+    stat: async (path: string, ...rest: unknown[]) => {
+      if (hooks.failStatOf !== null && path.includes(hooks.failStatOf)) {
+        hooks.failStatOf = null;
+        throw Object.assign(new Error("Input/output error."), { code: "EIO" });
+      }
+      return (actual.stat as (...args: unknown[]) => unknown)(path, ...rest);
+    },
     rename: async (from: string, to: string): Promise<void> => {
       if (hooks.failRenameInto !== null && to.endsWith(hooks.failRenameInto)) {
         // Once only: what follows a refused swap is the restore, and the
@@ -47,6 +57,7 @@ let store: ThemeStore;
 
 beforeEach(async () => {
   hooks.failRenameInto = null;
+  hooks.failStatOf = null;
   dataDirectory = await mkdtemp(join(tmpdir(), "openbrf-theme-store-"));
   store = new ThemeStore({
     NODE_ENV: "test",
@@ -215,6 +226,36 @@ describe("an install that does not complete", () => {
     await staged.commit();
     await staged.discard();
 
+    expect(
+      (await store.readAsset("example-theme", "fonts/old.woff2"))?.toString(
+        "utf8",
+      ),
+    ).toBe("old");
+    expect(
+      await store.readAsset("example-theme", "fonts/new.woff2"),
+    ).toBeNull();
+    expect(await readdir(join(dataDirectory, "themes"))).toEqual([
+      "example-theme",
+    ]);
+  });
+
+  it("leaves the previous version in place when the staged directory cannot be read", async () => {
+    await install(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/old.woff2": "old" }),
+    );
+
+    const staged = await store.stage(
+      "example-theme",
+      filesOf({ "theme.json": "{}", "fonts/new.woff2": "new" }),
+    );
+
+    hooks.failStatOf = ".staging-example-theme-";
+    await expect(staged.commit()).rejects.toThrow(/Input\/output error/);
+    await staged.discard();
+
+    // The failure came before anything was moved, so the discard that follows
+    // has no displaced version to bring back: it must not have been needed.
     expect(
       (await store.readAsset("example-theme", "fonts/old.woff2"))?.toString(
         "utf8",
