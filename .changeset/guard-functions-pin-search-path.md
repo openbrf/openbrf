@@ -10,8 +10,8 @@ their transfer read `transfer` by an unqualified name. A trigger function runs
 as whoever writes the table and resolves such a name through that session's
 `search_path`, where the session's temporary schema comes first. The
 application's role could create temporary tables, so it could create a
-`transfer` of its own and record a reversal of an upplatelse, or a reporting
-duty the association does not have, on tables that cannot be corrected
+`transfer` of its own and record a reversal of a grant, or a reporting
+obligation the association does not have, on tables that cannot be corrected
 afterwards.
 
 - A migration sets `search_path = pg_catalog, pg_temp` on every `openbrf_`
