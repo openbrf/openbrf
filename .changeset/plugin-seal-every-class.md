@@ -12,3 +12,5 @@ Harden the plugin module seal.
 - The seal reads a module's metadata as NestJS does, and refuses metadata it
   cannot read in full. Modules and classes declared with NestJS's decorators
   are unaffected.
+- A plugin whose module the seal cannot finish reading is refused with
+  `module-refused` rather than failing the boot.
