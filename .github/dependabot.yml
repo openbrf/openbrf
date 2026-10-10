@@ -33,7 +33,9 @@ updates:
   # and docker-compose.yml alike, in one group so the two move together. The
   # end-to-end overlay in e2e/ names the same Postgres digest, pulled from
   # public.ecr.aws rather than Docker Hub, and mailpit from ghcr.io; it is in
-  # the same group, so its database moves with the production file's.
+  # the same group, so its database normally moves with the production file's;
+  # scripts/check-image-pins.mjs fails CI when it does not, as it does for the
+  # service image in ci.yml, which no updater reads.
   - package-ecosystem: docker-compose
     directories: ["/", "/e2e"]
     schedule:
