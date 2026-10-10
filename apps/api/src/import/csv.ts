@@ -13,6 +13,8 @@
  * whole cooperative's personal data.
  */
 
+import { ImportShapeError } from "./import-limits";
+
 /** Delimiters worth guessing between. Semicolon first: Swedish Excel writes it. */
 const CANDIDATE_DELIMITERS = [";", ",", "\t"] as const;
 
@@ -131,27 +133,108 @@ function holdsUtf8Sequence(bytes: Uint8Array): boolean {
   return UTF_8_SEQUENCE.test(Buffer.from(bytes).toString("latin1"));
 }
 
-/** Parses a CSV document into rows of cells. */
-export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
+/**
+ * How much of a document the parser reads before refusing it.
+ *
+ * Checked while tokenising rather than on the result, because the result is
+ * padded to the widest row: a single wide row times a long file is the
+ * allocation, so counting it afterwards is too late.
+ */
+export interface CsvLimits {
+  /**
+   * Rows with content below the header. The header is one more, and is not
+   * counted against this: the cap a board is told is the cap on its members.
+   */
+  maxDataRows: number;
+  maxColumns: number;
+  maxCellLength: number;
+}
+
+/**
+ * Parses a CSV document into rows of cells.
+ *
+ * Throws {@link ImportShapeError} when the document exceeds a limit, and when a
+ * quoted cell is never closed. The last is refused rather than read to the end
+ * of the file, because reading it that way turns every row after the stray
+ * quote into the text of one cell, and the file comes back shorter with nothing
+ * to say why.
+ */
+export function parseCsv(
+  input: string,
+  delimiter?: CsvDelimiter,
+  limits?: CsvLimits,
+): ParsedCsv {
   const text = input.startsWith(BYTE_ORDER_MARK) ? input.slice(1) : input;
   const separator = delimiter ?? detectDelimiter(text);
+  const maxDataRows = limits?.maxDataRows ?? Infinity;
+  const maxColumns = limits?.maxColumns ?? Infinity;
+  const maxCellLength = limits?.maxCellLength ?? Infinity;
 
-  const rows: string[][] = [];
+  const populated: string[][] = [];
+  const sourceRows: number[] = [];
+  /** Records ended so far, blank ones included: a row's place in the sheet. */
+  let records = 0;
   let row: string[] = [];
   let cell = "";
   let quoted = false;
+  /** 1-based line the current row starts on, for naming a stray quote. */
+  let line = 1;
+  let rowLine = 1;
+  let quoteLine = 0;
+
+  const endCell = (): void => {
+    if (row.length >= maxColumns) {
+      throw new ImportShapeError(
+        `Line ${String(rowLine)} has more than ${String(maxColumns)} columns.`,
+        "too-many-columns",
+      );
+    }
+    row.push(cell);
+    cell = "";
+  };
+  const endRow = (): void => {
+    endCell();
+    records++;
+    // Only a row with something in it counts, so blank lines a spreadsheet
+    // leaves at the end of a file are neither counted nor kept.
+    if (row.some((value) => value.trim() !== "")) {
+      // The first row with content is the header.
+      if (populated.length > maxDataRows) {
+        throw new ImportShapeError(
+          `The file has more than ${String(maxDataRows)} rows below its column titles.`,
+          "too-many-rows",
+        );
+      }
+      populated.push(row);
+      sourceRows.push(records);
+    }
+    row = [];
+    rowLine = line;
+  };
+  const append = (character: string): void => {
+    if (cell.length >= maxCellLength) {
+      throw new ImportShapeError(
+        `A cell on line ${String(rowLine)} is longer than ${String(maxCellLength)} characters.`,
+        "cell-too-long",
+      );
+    }
+    cell += character;
+  };
 
   for (let index = 0; index < text.length; index++) {
-    const character = text[index];
+    const character = text[index] ?? "";
 
     if (quoted) {
+      if (character === "\n") {
+        line++;
+      }
       if (character !== '"') {
-        cell += character;
+        append(character);
         continue;
       }
       if (text[index + 1] === '"') {
         // A doubled quote inside a quoted field is one literal quote.
-        cell += '"';
+        append('"');
         index++;
         continue;
       }
@@ -165,12 +248,12 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
     // every cell is trimmed below.
     if (character === '"' && cell.trim() === "") {
       quoted = true;
+      quoteLine = line;
       cell = "";
       continue;
     }
     if (character === separator) {
-      row.push(cell);
-      cell = "";
+      endCell();
       continue;
     }
     if (character === "\n" || character === "\r") {
@@ -178,28 +261,23 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
       if (character === "\r" && text[index + 1] === "\n") {
         index++;
       }
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
+      line++;
+      endRow();
       continue;
     }
-    cell += character;
+    append(character);
   }
 
+  if (quoted) {
+    throw new ImportShapeError(
+      `The quoted cell opened on line ${String(quoteLine)} is never closed.`,
+      "unterminated-quote",
+    );
+  }
   if (cell !== "" || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
+    endRow();
   }
 
-  const sourceRows: number[] = [];
-  const populated = rows.filter((candidate, index) => {
-    const kept = candidate.some((value) => value.trim() !== "");
-    if (kept) {
-      sourceRows.push(index + 1);
-    }
-    return kept;
-  });
   const width = populated.reduce(
     (widest, candidate) => Math.max(widest, candidate.length),
     0,

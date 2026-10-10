@@ -42,6 +42,12 @@ describe("normalizePersonalIdentityNumber", () => {
     ["260887-1238", "202608871238"],
     // A plus separator means the person has turned 100.
     ["121212+1212", "191212121212"],
+    // A plus is written from 1 January of the year the person turns 100, so
+    // the year alone decides it, birthday or not.
+    ["261215+1239", "192612151239"],
+    ["260827+1231", "192608271231"],
+    // A century of 18 is written for a person past 100.
+    ["188112289874", "188112289874"],
     // A coordination number keeps the +60 day offset, so the form round-trips.
     ["121272-1219", "201212721219"],
     ["000229-0120", "200002290120"],
@@ -78,6 +84,15 @@ describe("normalizePersonalIdentityNumber", () => {
     expect(
       normalizePersonalIdentityNumber("261201+1234", new Date(2026, 2, 15)),
     ).toBe("192612011234");
+  });
+
+  it("judges the century by the day in Stockholm, not the process time zone", () => {
+    // 23:30 UTC on New Year's Eve is already 1 January in Stockholm.
+    const newYear = new Date("2026-12-31T23:30:00Z");
+
+    expect(normalizePersonalIdentityNumber("270101-1237", newYear)).toBe(
+      "202701011237",
+    );
   });
 
   it("returns null rather than an unmatchable index for bad input", () => {
@@ -178,6 +193,35 @@ describe("isValidPersonalIdentityNumber", () => {
   it("refuses one whose check digit does not", () => {
     expect(isValidPersonalIdentityNumber("811228-9875", REFERENCE)).toBe(false);
   });
+
+  it("accepts a century of 18, 19 or 20 up to today", () => {
+    expect(isValidPersonalIdentityNumber("188112289874", REFERENCE)).toBe(true);
+    expect(isValidPersonalIdentityNumber("20260827-1231", REFERENCE)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    // No person alive was born in these centuries, and 00 would shorten the
+    // canonical form to ten digits.
+    "008112289874",
+    "258112289874",
+    "998112289874",
+    // Written with the century, but born after the reference date.
+    "20261215-1239",
+    // A coordination number is judged on its real day, 88 - 60 = 28 August.
+    "20260888-1237",
+  ])("refuses the twelve-digit %s", (written) => {
+    expect(isValidPersonalIdentityNumber(written, REFERENCE)).toBe(false);
+  });
+
+  it("leaves the index of such a number as it was", () => {
+    // Refused when it is entered; a row that already holds one is still found
+    // by it, so no stored index changes and nothing has to be reindexed.
+    expect(normalizePersonalIdentityNumber("258112289874", REFERENCE)).toBe(
+      "258112289874",
+    );
+  });
 });
 
 /**
@@ -239,6 +283,8 @@ describe("scanForPersonalIdentityNumbers", () => {
     // A longer run of digits must not yield a ten-digit window out of its
     // middle: no candidate may touch a digit on either side.
     "Referens 1198112289874 gäller fakturan.",
+    // A twelve-digit reference whose last ten digits happen to be valid.
+    "OCR 998112289874 anges vid betalning.",
     "Kortnummer 4111111111111111 hör inte hemma här.",
     // Separated by spaces, so the parts are separate numbers.
     "Ring 070-123 45 67 om du undrar.",

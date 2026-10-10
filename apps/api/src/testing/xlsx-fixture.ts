@@ -52,9 +52,22 @@ function columnName(index: number): string {
   return name;
 }
 
+export interface WorkbookOverrides {
+  /** Written as the sheet's `<sheetData>` in place of the rows. */
+  sheetData?: string;
+  /** Written as the shared strings table in place of the rows' own. */
+  sharedStrings?: string;
+  /**
+   * Where in the archive the sheet is stored, relative to `xl/` as the
+   * workbook's relationships name it. `worksheets/sheet1.xml` by default.
+   */
+  sheetTarget?: string;
+}
+
 export function buildWorkbook(
   rows: readonly (readonly (string | WorkbookDate)[])[],
   sheetName = "Blad1",
+  overrides: WorkbookOverrides = {},
 ): Buffer {
   const strings: string[] = [];
   const indexOf = new Map<string, number>();
@@ -87,9 +100,14 @@ export function buildWorkbook(
     })
     .join("");
 
-  const sharedStrings = strings
-    .map((value) => `<si><t xml:space="preserve">${escapeXml(value)}</t></si>`)
-    .join("");
+  const sheetTarget = overrides.sheetTarget ?? "worksheets/sheet1.xml";
+  const sharedStrings =
+    overrides.sharedStrings ??
+    strings
+      .map(
+        (value) => `<si><t xml:space="preserve">${escapeXml(value)}</t></si>`,
+      )
+      .join("");
 
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
@@ -97,7 +115,7 @@ export function buildWorkbook(
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
         '<Default Extension="xml" ContentType="application/xml"/>' +
         '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        `<Override PartName="/xl/${sheetTarget}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
         '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' +
         '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
         "</Types>",
@@ -114,7 +132,7 @@ export function buildWorkbook(
     ),
     "xl/_rels/workbook.xml.rels": strToU8(
       `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIPS}">` +
-        `<Relationship Id="rId1" Type="${RELATIONSHIPS}/worksheet" Target="worksheets/sheet1.xml"/>` +
+        `<Relationship Id="rId1" Type="${RELATIONSHIPS}/worksheet" Target="${sheetTarget}"/>` +
         `<Relationship Id="rId2" Type="${RELATIONSHIPS}/sharedStrings" Target="sharedStrings.xml"/>` +
         `<Relationship Id="rId3" Type="${RELATIONSHIPS}/styles" Target="styles.xml"/>` +
         "</Relationships>",
@@ -132,8 +150,8 @@ export function buildWorkbook(
         '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
         "</styleSheet>",
     ),
-    "xl/worksheets/sheet1.xml": strToU8(
-      `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${sheetRows}</sheetData></worksheet>`,
+    [`xl/${sheetTarget}`]: strToU8(
+      `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${overrides.sheetData ?? sheetRows}</sheetData></worksheet>`,
     ),
   };
 

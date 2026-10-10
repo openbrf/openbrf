@@ -1,4 +1,13 @@
+import { Unzip, UnzipInflate, UnzipPassThrough, zipSync } from "fflate";
 import { readSheet } from "read-excel-file/node";
+
+import {
+  ImportShapeError,
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_WORKBOOK_BYTES,
+  MAX_WORKBOOK_ENTRY_BYTES,
+} from "./import-limits";
+import { checkAddresses, UnreadableSheetError } from "./sheet-addresses";
 
 /**
  * Reading the first sheet of an Excel workbook.
@@ -12,10 +21,22 @@ import { readSheet } from "read-excel-file/node";
  * Only the first sheet is read. A member list with several sheets is a
  * different feature, and quietly concatenating them would import a "notes" tab
  * as if it were people.
+ *
+ * The library sets no limits of its own: it inflates every part of the archive
+ * whatever size it turns out to be, and fills the gap up to whatever row and
+ * column a cell address names. So the archive is inspected first, by
+ * {@link inspectWorkbook}, and the library reads only what was inspected.
  */
 
-/** Rows beyond this are refused rather than parsed. */
-export const MAX_IMPORT_ROWS = 5000;
+/**
+ * Bytes of the archive handed to the inflater at a time.
+ *
+ * Deflate expands at most about a thousandfold, so a slice this size cannot
+ * inflate past a few megabytes before the count in inspectWorkbook sees it.
+ * The size an archive declares for a part is not trusted for this: it is a
+ * number the file states, and nothing obliges the data to agree with it.
+ */
+const INSPECT_SLICE_BYTES = 4096;
 
 /**
  * Turns a cell into the text the mapping works with.
@@ -45,9 +66,86 @@ export function cellText(value: unknown): string {
     return String(value);
   }
   if (typeof value === "string") {
+    if (value.length > MAX_IMPORT_CELL_LENGTH) {
+      throw new ImportShapeError(
+        `A cell is longer than ${String(MAX_IMPORT_CELL_LENGTH)} characters.`,
+        "cell-too-long",
+      );
+    }
     return value.trim();
   }
   return "";
+}
+
+/**
+ * Refuses a workbook the parser could not read within the import's limits, and
+ * returns the archive the parser is to read instead.
+ *
+ * Every XML part is inflated here with its size counted as it grows, and
+ * refused once it passes the limit, so a part that inflates without bound is
+ * stopped after a few megabytes rather than after the library has allocated
+ * all of it. Every XML part is then searched for row and cell addresses past
+ * the import's limits by {@link checkAddresses}. All of them, rather than only
+ * the sheets: which part is a sheet is for the workbook's own relationships to
+ * say, and reading those the way the library does is one more place to
+ * disagree with it.
+ *
+ * The archive returned is rebuilt from the parts inspected, and only from
+ * them. The library has its own unzipper, which reads an archive differently
+ * from the one here (it trusts the size a part declares, and the two need not
+ * agree on which parts there are), so handing it the original would leave it
+ * reading a file nobody inspected.
+ */
+export function inspectWorkbook(buffer: Uint8Array): Uint8Array {
+  let total = 0;
+  const tooLarge = (): ImportShapeError =>
+    new ImportShapeError(
+      "The workbook inflates past its limit.",
+      "workbook-too-large",
+    );
+  const parts: Record<string, Uint8Array> = {};
+
+  const unzip = new Unzip((file) => {
+    if ((file.originalSize ?? 0) > MAX_WORKBOOK_ENTRY_BYTES) {
+      throw tooLarge();
+    }
+    const kept = /\.(?:xml|rels)$/i.test(file.name);
+    if (kept && Object.hasOwn(parts, file.name)) {
+      throw new UnreadableSheetError("The workbook holds a part twice.");
+    }
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+
+    file.ondata = (error, chunk, final) => {
+      if (error !== null) {
+        throw error;
+      }
+      size += chunk.length;
+      total += chunk.length;
+      if (size > MAX_WORKBOOK_ENTRY_BYTES || total > MAX_WORKBOOK_BYTES) {
+        throw tooLarge();
+      }
+      if (kept) {
+        chunks.push(chunk);
+        if (final) {
+          const part = Buffer.concat(chunks);
+          // Decoded as the library decodes it.
+          checkAddresses(new TextDecoder().decode(part));
+          parts[file.name] = part;
+        }
+      }
+    };
+    file.start();
+  });
+  unzip.register(UnzipInflate);
+  unzip.register(UnzipPassThrough);
+
+  for (let offset = 0; offset < buffer.length; offset += INSPECT_SLICE_BYTES) {
+    const end = offset + INSPECT_SLICE_BYTES;
+    unzip.push(buffer.subarray(offset, end), end >= buffer.length);
+  }
+  // Stored rather than compressed: the archive is read once, straight away.
+  return zipSync(parts, { level: 0 });
 }
 
 /**
@@ -58,7 +156,8 @@ export function cellText(value: unknown): string {
 export async function parseWorkbook(
   buffer: Buffer,
 ): Promise<{ rows: string[][]; sourceRows: number[] }> {
-  const sheet = (await readSheet(buffer)) as unknown[][];
+  const inspected = inspectWorkbook(buffer);
+  const sheet = (await readSheet(Buffer.from(inspected))) as unknown[][];
 
   const sourceRows: number[] = [];
   const rows = sheet

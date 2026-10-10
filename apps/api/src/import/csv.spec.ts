@@ -202,6 +202,70 @@ describe("parsing", () => {
 
     expect(rows[1]).toEqual(["Anna", "1101"]);
   });
+
+  it("refuses a quoted cell that is never closed rather than swallowing the rest", () => {
+    // Read to the end, the stray quote would make "1;2\n3;4\n5;6" one cell and
+    // the file two rows shorter, with nothing to say so.
+    expect(() => parseCsv('a;b\n"1;2\n3;4\n5;6\n')).toThrow(
+      expect.objectContaining({
+        reason: "unterminated-quote",
+        message: expect.stringContaining("line 2") as unknown,
+      }),
+    );
+  });
+});
+
+describe("limits", () => {
+  const limits = { maxDataRows: 2, maxColumns: 4, maxCellLength: 10 };
+
+  it("refuses a row wider than the limit while reading it", () => {
+    // A wide header padded onto every row below it is the allocation, so the
+    // width is refused before any row is padded.
+    const header = ";".repeat(250_000);
+
+    expect(() => parseCsv(`${header}\na\n`, ";", limits)).toThrow(
+      expect.objectContaining({ reason: "too-many-columns" }),
+    );
+  });
+
+  it("stops at the first row past the limit", () => {
+    const text = `Namn\n${"a\n".repeat(130_000)}`;
+
+    expect(() => parseCsv(text, ";", limits)).toThrow(
+      expect.objectContaining({ reason: "too-many-rows" }),
+    );
+  });
+
+  it("names the cap on the rows below the header, which is what it counts", () => {
+    // Two data rows are allowed; the header is not one of them.
+    expect(parseCsv("Namn\na\nb\n", ";", limits).rows).toHaveLength(3);
+    expect(() => parseCsv("Namn\na\nb\nc\n", ";", limits)).toThrow(
+      expect.objectContaining({
+        reason: "too-many-rows",
+        message: "The file has more than 2 rows below its column titles.",
+      }),
+    );
+  });
+
+  it("does not count blank lines towards the rows", () => {
+    expect(parseCsv("Namn\na\n\n\n\nb\n", ";", limits).rows).toHaveLength(3);
+  });
+
+  it("refuses a cell longer than the limit", () => {
+    expect(() => parseCsv(`Namn\n${"x".repeat(11)}`, ";", limits)).toThrow(
+      expect.objectContaining({ reason: "cell-too-long" }),
+    );
+    expect(() => parseCsv(`Namn\n"${"x".repeat(11)}"`, ";", limits)).toThrow(
+      expect.objectContaining({ reason: "cell-too-long" }),
+    );
+  });
+
+  it("reads a file inside every limit", () => {
+    expect(parseCsv("a;b;c;d\n1;2;3;4\n", ";", limits).rows).toEqual([
+      ["a", "b", "c", "d"],
+      ["1", "2", "3", "4"],
+    ]);
+  });
 });
 
 describe("writing", () => {

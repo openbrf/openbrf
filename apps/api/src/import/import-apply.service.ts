@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { localDayOf } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
@@ -14,7 +13,6 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { residencyNotEndedOn } from "../registers/held-on";
 import {
   appendOwedMembershipEvents,
   type MemberResidencySpan,
@@ -27,21 +25,22 @@ import {
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import {
-  apartmentNameKey,
   changedSincePreview,
+  conflictsWith,
   findUndecided,
-  IMPORT_SEARCH_KEYS,
+  heldAlready,
   type ImportDecision,
   type ImportDecisions,
   type ImportPlan,
-  type ImportSearchKey,
   type PlannedRow,
-  push,
   readPreviewedCandidates,
+  type RegisterResidency,
+  rowResidency,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
+  registerResidency,
 } from "./import-planner.service";
 import {
   type ImportApplyResult,
@@ -69,11 +68,16 @@ import {
  *   it wrote is in the snapshot, so a person listed twice in one file is matched
  *   the second time rather than created twice - by the same match-key precedence
  *   the preview used.
- * - **A new person is looked for again before it is written.** The plan is
- *   read before the transaction opens, so a row that writes a new person - or
- *   gives one the chunk creates an address or a residency - is checked against
- *   the register once the chunk holds its locks. Somebody added in between
- *   stops the import rather than being entered a second time.
+ * - **A chunk plans again under its locks.** The first plan is read before the
+ *   transaction opens, to know what to encrypt and what to lock. Once the chunk
+ *   holds its locks it plans again through the transaction, and writes by that
+ *   plan. Only one import is applied at a time (ImportService.apply), so what
+ *   can change in between is the register's own writers.
+ * - **A new person is looked for again before it is written.** A row that
+ *   writes a new person - or gives one the chunk creates an address or a
+ *   residency - and reaches anybody else in the second plan than in the first
+ *   stops the import: somebody was added in between, and the board decides who
+ *   the row is about, not the worker.
  * - **A decision holds only for the persons it was made between.** The
  *   preview records who each row it asks about could be, and a chunk that
  *   finds anybody else for a row the board decided to write, or misses one of
@@ -357,7 +361,7 @@ export class ImportApplyService implements OnModuleInit {
     // wider: it is created here and dropped when the chunk ends, so nothing
     // derived from an identity number outlives the unit of work that needed it.
     const indexes: IdentityIndexCache = new Map();
-    const plan = await this.planner.plan({
+    const request = {
       rows,
       columnCount: session.columns.length,
       mapping: readMapping(session.mapping),
@@ -369,8 +373,8 @@ export class ImportApplyService implements OnModuleInit {
       // A person this chunk writes carries the index, so it is owed whatever
       // the register looks like.
       indexEveryIdentityNumber: true,
-      indexes,
-    });
+    };
+    const plan = await this.planner.plan({ ...request, indexes });
 
     if (plan.rows.length === 0) {
       // The file holds fewer rows than the session counted, which nothing in
@@ -442,15 +446,18 @@ export class ImportApplyService implements OnModuleInit {
           return null;
         }
 
+        // No lock across imports: only one is ever queued or applying, which
+        // the claim decides under lockImportApply, and a session leaves those
+        // states only through its own row, which the cursor claim above holds
+        // until this chunk commits.
+
         // The apartments first, before the persons: the charge and fee purges
         // decide from everybody who has ever lived in an apartment, and a
         // historical residency this chunk adds has to be either seen by them
         // or written after they finish. Ahead of the transition locks, in the
         // order lockApartmentResidencies gives.
-        await lockApartmentResidenciesInOrder(
-          tx,
-          residencyApartments(plan, decisions),
-        );
+        const apartmentsLocked = residencyApartments(plan, decisions);
+        await lockApartmentResidenciesInOrder(tx, apartmentsLocked);
 
         // The addresses the chunk writes, so a sign-up approval matching one
         // of them either sees the person this chunk writes or finishes before
@@ -477,33 +484,71 @@ export class ImportApplyService implements OnModuleInit {
         //
         // Taken too for every candidate of a row the board decided, written to
         // or not: a move-out, an erasure and a purge each take it before they
-        // take a person out of the register, so the look below either sees
-        // them gone or they wait for this chunk to commit.
-        await lockResidencyTransitionsInOrder(tx, [
+        // take a person out of the register, so the locked plan below either
+        // sees them gone or they wait for this chunk to commit.
+        const personsLocked = [
           ...existingTargets(plan, decisions),
           ...decidedCandidates(plan, decisions),
-        ]);
+        ];
+        await lockResidencyTransitionsInOrder(tx, personsLocked);
 
-        // The plan was read before this transaction opened, and a person
-        // committed since - added from the address book, linked by a sign-up
-        // approval, moved in - is not in it. A row that writes a new person
-        // would enter that human being a second time, and an access report or
-        // an erasure asked for by person would find one of the two. A row the
+        // Then the plan again, through this transaction and under every lock.
+        // The one above decided what to encrypt and what to lock; this one
+        // decides what to write, against a register nobody else can be adding
+        // these persons or residencies to. Every identity number index is
+        // already in the cache, so it costs the register read and nothing of
+        // Argon2id.
+        const locked = await this.planner.plan({
+          ...request,
+          indexes,
+          db: tx,
+        });
+        // A person committed since the first plan - added from the address
+        // book, linked by a sign-up approval, moved in - is in this one. A row
+        // the first plan wrote to a new person that now reaches them would
+        // enter that human being a second time, and an access report or an
+        // erasure asked for by person would find one of the two. A row the
         // board decided would carry out a choice made between other persons
         // than the register now holds: somebody joined them, or one of them
         // left. Thrown rather than returned, so the cursor claim rolls back
         // with the chunk: the worker does not decide who the row is about, and
-        // the board does on a fresh preview.
-        if (await matchedSincePlan(tx, plan, decisions, encrypted)) {
+        // the board does on a fresh preview. Asked before anything else of
+        // this plan, so the import stops for what happened rather than for
+        // what it led to.
+        if (reachedOtherwise(plan, locked, decisions)) {
           throw new ImportError(
             "A row that writes a new person, or one the board decided, matches other persons in the register than the plan found.",
             "register-changed-during-apply",
           );
         }
+        const undecidedNow = findUndecided(locked, decisions, session.rowCount);
+        if (undecidedNow !== null) {
+          // Thrown so the transaction writes nothing; runApply records it.
+          throw new ImportError(
+            "The decisions no longer fit this chunk's rows.",
+            undecidedNow === "decision-not-needed"
+              ? "preview-outdated"
+              : undecidedNow,
+          );
+        }
+        if (
+          !within(residencyApartments(locked, decisions), apartmentsLocked) ||
+          !within(existingTargets(locked, decisions), personsLocked) ||
+          !within(writtenRows(locked, decisions), [...encrypted.keys()])
+        ) {
+          // The register changed between the two plans so that this chunk now
+          // writes somewhere it holds no lock, or writes a row the first plan
+          // did not and so has no ciphertext for. Not a refusal: the next
+          // attempt plans from the register as it is then, and encrypts and
+          // locks what that needs.
+          throw new Error(
+            "The register changed under the chunk; it is planned again.",
+          );
+        }
 
         const written = await this.write(
           tx,
-          plan,
+          locked,
           decisions,
           encrypted,
           unwritten,
@@ -650,6 +695,18 @@ export class ImportApplyService implements OnModuleInit {
       const target = resolveTarget(row, decisions, createdByRow);
       if (target.action === "skip") {
         result.skipped++;
+        continue;
+      }
+      // The plan refuses a row that would give a person a second residency on
+      // the same days, but it cannot for a row the board resolved: until the
+      // decision it did not know whose residencies to compare. Checked again
+      // here for every existing person, so the decision is held to the same
+      // rule.
+      if (
+        target.action === "update" &&
+        (await residencyConflicts(tx, row, target.personId))
+      ) {
+        result.errors++;
         continue;
       }
 
@@ -810,7 +867,10 @@ export class ImportApplyService implements OnModuleInit {
    * The residency this row would create is looked up first, which is also what
    * makes a chunk safe to attempt twice: a row whose residency is already there
    * writes nothing further, and no second entry reaches a register that refuses
-   * to have rows removed.
+   * to have rows removed. Already there is what heldAlready says it is.
+   * Any other residency of this person on this apartment that it would overlap
+   * was refused by the plan as a problem with the row, and one it does not
+   * overlap - a person who moved out and back in - is a residency of its own.
    */
   private async writeResidency(
     tx: Prisma.TransactionClient,
@@ -819,20 +879,12 @@ export class ImportApplyService implements OnModuleInit {
     membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
   ): Promise<void> {
-    if (row.apartment === null || row.role === null || row.movedInOn === null) {
+    const residency = rowResidency(row);
+    if (residency === null) {
       return;
     }
-
-    const movedInOn = new Date(`${row.movedInOn}T00:00:00.000Z`);
-    const movedOutOn =
-      row.movedOutOn === null
-        ? null
-        : new Date(`${row.movedOutOn}T00:00:00.000Z`);
-
-    const existing = await tx.residency.count({
-      where: { personId, apartmentId: row.apartment.id },
-    });
-    if (existing > 0) {
+    const held = await heldOnApartment(tx, personId, residency.apartmentId);
+    if (heldAlready(residency, held) !== undefined) {
       return;
     }
 
@@ -845,10 +897,13 @@ export class ImportApplyService implements OnModuleInit {
     await tx.residency.create({
       data: {
         personId,
-        apartmentId: row.apartment.id,
-        role: row.role,
-        movedInOn,
-        movedOutOn,
+        apartmentId: residency.apartmentId,
+        role: residency.role,
+        movedInOn: new Date(`${residency.movedInOn}T00:00:00.000Z`),
+        movedOutOn:
+          residency.movedOutOn === null
+            ? null
+            : new Date(`${residency.movedOutOn}T00:00:00.000Z`),
       },
     });
     result.residenciesCreated++;
@@ -913,6 +968,56 @@ interface EncryptedRowValues {
   personalIdentityNumber: { cipher: string; index: string | null } | null;
 }
 
+/** Whether the row's residency would overlap one the person holds differently. */
+async function residencyConflicts(
+  tx: Prisma.TransactionClient,
+  row: PlannedRow,
+  personId: string,
+): Promise<boolean> {
+  const residency = rowResidency(row);
+  return (
+    residency !== null &&
+    conflictsWith(
+      residency,
+      await heldOnApartment(tx, personId, residency.apartmentId),
+    )
+  );
+}
+
+/** Every residency, ended or not, the person has held on one apartment. */
+async function heldOnApartment(
+  tx: Prisma.TransactionClient,
+  personId: string,
+  apartmentId: string,
+): Promise<RegisterResidency[]> {
+  const held = await tx.residency.findMany({
+    where: { personId, apartmentId },
+    select: {
+      apartmentId: true,
+      role: true,
+      movedInOn: true,
+      movedOutOn: true,
+    },
+  });
+  return held.map(registerResidency);
+}
+
+/** The rows of a plan that will be written. */
+function writtenRows(plan: ImportPlan, decisions: ImportDecisions): number[] {
+  return plan.rows
+    .filter((row) => willWrite(row, decisions))
+    .map((row) => row.rowNumber);
+}
+
+/** Whether every entry of one list is in the other. */
+function within<Value>(
+  needed: readonly Value[],
+  held: readonly Value[],
+): boolean {
+  const set = new Set(held);
+  return needed.every((value) => set.has(value));
+}
+
 /**
  * The stored decisions, read back.
  *
@@ -921,7 +1026,7 @@ interface EncryptedRowValues {
  * dropped decision leaves its row undecided, which stops the import instead of
  * resolving it by accident.
  */
-function readDecisions(value: unknown): ImportDecisions {
+export function readDecisions(value: unknown): ImportDecisions {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -1041,7 +1146,7 @@ function writtenIdentityNumberIndexes(
 
 /**
  * Whether a row that writes a person the chunk creates, or one the board
- * decided, matches other persons in the register than the plan found for it.
+ * decided, reaches anybody else in the plan made under the chunk's locks.
  *
  * Asked of every row whose writes go to a new person: one planned as `create`,
  * one the board decided to enter as a new person, and one that reaches the
@@ -1050,129 +1155,48 @@ function writtenIdentityNumberIndexes(
  * chose between the persons the preview showed, and somebody who joined them
  * since is one it never weighed, as one who left is a choice it no longer has.
  *
- * The keys are the planner's own - the identity number, the email address, and
- * the name of somebody whose residency in the row's apartment has not ended -
- * and a row is asked under the keys the plan looked under for it: all three
- * when it found nobody, and otherwise the ones up to the key it found its
- * candidates under. The keys after that one were never looked under, and a
- * person found there would not change the plan. Under the keys before it the
- * plan found nobody, so anybody found there now was added, or given that
- * number, address or residency, after the plan read the register, and takes
- * the row's match to a key the board was not shown.
+ * The first plan found nobody in the register for such a row beyond its
+ * candidates, and those of a row the board decided are the ones the preview
+ * showed it, besides persons earlier chunks created: the chunk made sure of
+ * that before the transaction opened. So a row the second plan reaches
+ * differently - another outcome, person, key or candidate - reaches somebody
+ * the register gained, lost, or gave that address or that residency, in
+ * between. A person found under a key after the one the row was matched by
+ * changes neither plan: the planner never looks there.
  *
- * Under the key itself the register must still hold the persons the plan found
- * in it, and nobody besides the row's candidates. A candidate the plan found
- * only through what an earlier row of the file writes - this chunk's or, for
- * an identity number the apply does not write, an earlier chunk's - is not in
- * the register to be found, and need not be. A row the board decided has the
- * candidates the preview showed for it, and besides them only persons earlier
- * chunks created: the chunk made sure of that before the transaction opened.
- *
- * Read through the chunk's transaction, after its apartment, email, identity
- * number and transition locks. Every writer of a residency takes the apartment
- * lock, every writer of an address the email lock and every writer of an
- * identity number the identity number lock, so on none of the three keys can
- * anybody join a row's candidates between this read and the commit; and
- * whatever takes a person out of the register - a move-out, an erasure, a
- * purge - takes their transition lock, which the chunk holds for every
- * candidate of a decided row.
+ * The second plan is read through the chunk's transaction, after its
+ * apartment, email, identity number and transition locks. Every writer of a
+ * residency takes the apartment lock, every writer of an address the email
+ * lock and every writer of an identity number the identity number lock, so on
+ * none of the three keys can anybody match a row between that read and the
+ * commit; and whatever takes a person out of the register - a move-out, an
+ * erasure, a purge - takes their transition lock, which the chunk holds for
+ * every candidate of a decided row.
  */
-async function matchedSincePlan(
-  tx: Prisma.TransactionClient,
-  plan: ImportPlan,
+function reachedOtherwise(
+  planned: ImportPlan,
+  locked: ImportPlan,
   decisions: ImportDecisions,
-  encrypted: ReadonlyMap<number, EncryptedRowValues>,
-): Promise<boolean> {
-  const asked = plan.rows.flatMap((row) =>
-    askedAgain(row, decisions)
-      ? [askedKeys(row, encrypted.get(row.rowNumber))]
-      : [],
+): boolean {
+  const lockedRows = new Map(locked.rows.map((row) => [row.rowNumber, row]));
+  return planned.rows.some(
+    (row) =>
+      askedAgain(row, decisions) &&
+      whoRowReaches(row) !== whoRowReaches(lockedRows.get(row.rowNumber)),
   );
+}
 
-  const identityNumberIndexes = asked.flatMap(({ values }) =>
-    values.personalIdentityNumber === null
-      ? []
-      : [values.personalIdentityNumber],
-  );
-  const emailIndexes = asked.flatMap(({ values }) =>
-    values.email === null ? [] : [values.email],
-  );
-  const apartmentIds = [
-    ...new Set(
-      asked.flatMap(({ apartmentId }) =>
-        apartmentId === null ? [] : [apartmentId],
-      ),
-    ),
-  ];
-
-  const byIdentityNumber = new Map<string, string[]>();
-  const byEmail = new Map<string, string[]>();
-  const byName = new Map<string, string[]>();
-  const register: Record<ImportSearchKey, ReadonlyMap<string, string[]>> = {
-    personalIdentityNumber: byIdentityNumber,
-    email: byEmail,
-    apartmentAndName: byName,
-  };
-
-  if (identityNumberIndexes.length > 0 || emailIndexes.length > 0) {
-    const persons = await tx.person.findMany({
-      where: {
-        OR: [
-          { personalIdentityNumberIndex: { in: identityNumberIndexes } },
-          { emailIndex: { in: emailIndexes } },
-        ],
-      },
-      select: { id: true, personalIdentityNumberIndex: true, emailIndex: true },
-    });
-    for (const person of persons) {
-      if (person.personalIdentityNumberIndex !== null) {
-        push(byIdentityNumber, person.personalIdentityNumberIndex, person.id);
-      }
-      if (person.emailIndex !== null) {
-        push(byEmail, person.emailIndex, person.id);
-      }
-    }
-  }
-
-  if (apartmentIds.length > 0) {
-    // The residencies that have not ended, the rule the plan's snapshot reads
-    // the register by, and asked of the database: an apartment's past
-    // residents are no match, and need not be read under the chunk's locks.
-    const residencies = await tx.residency.findMany({
-      where: {
-        apartmentId: { in: apartmentIds },
-        ...residencyNotEndedOn(localDayOf(new Date())),
-      },
-      select: {
-        apartmentId: true,
-        person: { select: { id: true, firstName: true, lastName: true } },
-      },
-    });
-    for (const residency of residencies) {
-      push(
-        byName,
-        apartmentNameKey(
-          residency.apartmentId,
-          residency.person.firstName,
-          residency.person.lastName,
-        ),
-        residency.person.id,
-      );
-    }
-  }
-
-  return asked.some((row) =>
-    IMPORT_SEARCH_KEYS.some((key) => {
-      const found = under(register[key], row.values[key]);
-      if (key !== row.foundUnder) {
-        return found.length > 0;
-      }
-      return (
-        found.some((personId) => !row.candidates.has(personId)) ||
-        row.foundInRegister.some((personId) => !found.includes(personId))
-      );
-    }),
-  );
+/** Who a planned row is written to, and how it got there, as one value. */
+function whoRowReaches(row: PlannedRow | undefined): string {
+  return row === undefined
+    ? ""
+    : JSON.stringify([
+        row.outcome,
+        row.matchedPersonId,
+        row.foundUnder,
+        row.sameAsRowNumber,
+        row.candidates.map(({ personId }) => personId).sort(),
+      ]);
 }
 
 /**
@@ -1207,60 +1231,6 @@ function decidedCandidates(
       ? row.candidates.map(({ personId }) => personId)
       : [],
   );
-}
-
-/** A row's values under the keys the plan looked under for it. */
-interface AskedKeys {
-  /** Null under a key the plan did not look under, or the row has no value for. */
-  values: Record<ImportSearchKey, string | null>;
-  apartmentId: string | null;
-  foundUnder: ImportSearchKey | null;
-  /** The register persons the plan found under them. */
-  candidates: ReadonlySet<string>;
-  /** Those of them the register itself held under `foundUnder`. */
-  foundInRegister: readonly string[];
-}
-
-function askedKeys(
-  row: PlannedRow,
-  values: EncryptedRowValues | undefined,
-): AskedKeys {
-  const searched = new Set(
-    row.foundUnder === null
-      ? IMPORT_SEARCH_KEYS
-      : IMPORT_SEARCH_KEYS.slice(
-          0,
-          IMPORT_SEARCH_KEYS.indexOf(row.foundUnder) + 1,
-        ),
-  );
-  const apartment = searched.has("apartmentAndName") ? row.apartment : null;
-  return {
-    values: {
-      personalIdentityNumber: searched.has("personalIdentityNumber")
-        ? (values?.personalIdentityNumber?.index ?? null)
-        : null,
-      email: searched.has("email") ? (values?.email?.index ?? null) : null,
-      apartmentAndName:
-        apartment === null
-          ? null
-          : apartmentNameKey(
-              apartment.id,
-              row.person.firstName,
-              row.person.lastName,
-            ),
-    },
-    apartmentId: apartment?.id ?? null,
-    foundUnder: row.foundUnder,
-    candidates: new Set(row.candidates.map(({ personId }) => personId)),
-    foundInRegister: row.foundInRegister,
-  };
-}
-
-function under(
-  map: ReadonlyMap<string, readonly string[]>,
-  key: string | null,
-): readonly string[] {
-  return key === null ? [] : (map.get(key) ?? []);
 }
 
 /** Where a row's writes go, once the board's decisions are taken into account. */

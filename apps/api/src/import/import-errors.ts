@@ -1,4 +1,5 @@
 import { DomainError } from "../http/domain-error";
+import type { ImportShapeReason } from "./import-limits";
 
 /**
  * What can go wrong with an import, as a code rather than as a sentence.
@@ -32,16 +33,19 @@ export type ImportErrorReason =
    * the generic "unreadable" message does not say how.
    */
   | "file-mixed-encoding"
-  | "too-many-rows"
+  // A file refused for its shape while it was read.
+  | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
   | "preview-outdated"
   /**
-   * Somebody previewed the session again while this apply was starting, so
-   * the preview it was checked against is no longer the one recorded. Answered
-   * with 409, and the session stays in MAPPING.
+   * The preview this request holds is no longer the session's: somebody
+   * previewed it again - another tab, another board member - perhaps with
+   * other columns. Answered with 409, and the session stays in MAPPING.
    */
   | "preview-replaced"
+  | "preview-interrupted"
+  | "preview-cancelled"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   /**

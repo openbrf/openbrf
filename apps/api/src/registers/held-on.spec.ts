@@ -5,7 +5,6 @@ import {
   hasMovedOut,
   isResidencyHeldOn,
   residencyHeldOn,
-  residencyNotEndedOn,
 } from "./held-on";
 
 /**
@@ -84,15 +83,6 @@ describe("isResidencyHeldOn", () => {
 
   it("holds a residency on no day when it moves out on the day it moved in", () => {
     expect(held("2026-06-22", "2026-06-22")).toBe(false);
-  });
-});
-
-describe("residencyNotEndedOn", () => {
-  it("asks for a move-out after the day and nothing of the move-in", () => {
-    // A household recorded as moving in later has not moved out either.
-    expect(residencyNotEndedOn(DAY)).toEqual({
-      OR: [{ movedOutOn: null }, { movedOutOn: { gt: column("2026-06-22") } }],
-    });
   });
 });
 

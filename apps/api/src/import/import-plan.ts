@@ -31,6 +31,11 @@
  * that treated those persons any differently would show a row as an update the
  * apply then stops at. That includes what the board decided for an ambiguous
  * row: the person chosen for it, or created by it, is written like any other.
+ *
+ * A residency the person already holds as the row states it is not written
+ * again. One that shares a day with another residency of theirs on the same
+ * apartment is refused as a problem with the row, for the board to settle,
+ * rather than written as a second one or dropped without a word.
  */
 
 import {
@@ -38,7 +43,6 @@ import {
   normalizePersonalIdentityNumber,
   personalIdentityNumberNeedsCentury,
 } from "../crypto/personal-data";
-import { hasMovedOut } from "../registers/held-on";
 import {
   type ImportField,
   type ImportMapping,
@@ -80,6 +84,15 @@ export interface RegisterApartment {
   addressLabel: string;
 }
 
+/** A residency the register holds, with its dates as calendar dates. */
+export interface RegisterResidency {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: string;
+  /** The first day it is no longer held, or null while it is. */
+  movedOutOn: string | null;
+}
+
 /**
  * What the register holds right now, in the shapes matching needs.
  *
@@ -91,23 +104,23 @@ export interface RegisterSnapshot {
   personsByIdentityNumber: ReadonlyMap<string, readonly string[]>;
   personsByEmail: ReadonlyMap<string, readonly string[]>;
   /**
-   * Key from {@link apartmentNameKey}. Only residencies that have not ended,
-   * by `hasMovedOut` on the day the snapshot was taken: a household recorded
-   * as moving in later counts, and one whose move-out date has arrived does
-   * not.
+   * Key from {@link apartmentNameKey}. Only residencies that have not ended on
+   * the day the snapshot was taken: a household recorded as moving in later
+   * counts, and one whose move-out date has arrived does not.
    */
   personsByApartmentAndName: ReadonlyMap<string, readonly string[]>;
+  /** The same key over every residency, ended ones included. */
+  personsByApartmentAndNameEver: ReadonlyMap<string, readonly string[]>;
   personNames: ReadonlyMap<string, string>;
   /** Blind index of each person's identity number, for those that have one. */
   identityNumberIndexByPerson: ReadonlyMap<string, string>;
   /** Persons with an email address stored, indexed or not. */
   personsWithEmail: ReadonlySet<string>;
-  /** Every apartment each person has a residency in, past ones included. */
-  apartmentsByPerson: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Every residency of every person, ended ones included. */
+  residenciesByPerson: ReadonlyMap<string, readonly RegisterResidency[]>;
   /**
-   * When the snapshot was read. A residency the file writes is findable by
-   * apartment and name if it has not ended by the association's day this falls
-   * on, the rule the snapshot read the register's residencies by.
+   * The day the snapshot was read, as the date column holds it (ADR 0013): a
+   * residency ending after it is current.
    */
   takenAt: Date;
 }
@@ -153,6 +166,8 @@ export interface PlannedRow {
   apartment: { id: string; number: string; addressLabel: string } | null;
   role: ImportRole | null;
   movedInOn: string | null;
+  /** False when `movedInOn` is the file's default rather than the row's own. */
+  movedInStated: boolean;
   movedOutOn: string | null;
   /** The existing person this row will be written against. */
   matchedPersonId: string | null;
@@ -170,13 +185,6 @@ export interface PlannedRow {
    * anybody, and on a row with problems. Not sent to the preview.
    */
   foundUnder: ImportSearchKey | null;
-  /**
-   * The persons `foundUnder` found in the register itself, by id, as opposed to
-   * those it found only through what earlier rows of the file write. A second
-   * look at the register under that key that misses one of them finds a
-   * register that has lost them since. Not sent to the preview.
-   */
-  foundInRegister: string[];
   /**
    * Why a row that matched one person still waits for a decision. Null when it
    * is ambiguous because it matched several, and on every other outcome.
@@ -290,6 +298,7 @@ export function planImport(
     byIdentityNumber: new Map(),
     byEmail: new Map(),
     byApartmentAndName: new Map(),
+    byApartmentAndNameEver: new Map(),
     registered: new Map(),
   };
 
@@ -345,7 +354,8 @@ interface FilePerson {
    */
   identityNumberFromRow: number | null;
   hasEmail: boolean;
-  apartmentIds: Set<string>;
+  /** Every residency they hold, ended ones included, and those rows add. */
+  residencies: RegisterResidency[];
 }
 
 /**
@@ -379,6 +389,8 @@ interface FileWrites {
   byIdentityNumber: Map<string, FilePerson[]>;
   byEmail: Map<string, FilePerson[]>;
   byApartmentAndName: Map<string, FilePerson[]>;
+  /** The same key over every residency written, ended ones included. */
+  byApartmentAndNameEver: Map<string, FilePerson[]>;
   /** The register's persons, once looked at, carrying what rows added. */
   registered: Map<string, FilePerson>;
 }
@@ -386,8 +398,6 @@ interface FileWrites {
 interface PersonMatch {
   key: ImportSearchKey | null;
   candidates: readonly FilePerson[];
-  /** The candidates the register snapshot held under the key, by id. */
-  inRegister: readonly string[];
 }
 
 function planRow(
@@ -441,19 +451,20 @@ function planRow(
           },
     role,
     movedInOn,
+    movedInStated: values.movedInOn !== undefined,
     movedOutOn,
     matchedPersonId: null,
     matchedPersonName: null,
     matchedBy: null,
     foundUnder: null,
-    foundInRegister: [],
     mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
     problems,
   };
 
-  if (problems.length > 0 || apartment === null) {
+  const residency = rowResidency(base);
+  if (problems.length > 0 || apartment === null || residency === null) {
     return base;
   }
 
@@ -467,7 +478,14 @@ function planRow(
     person,
     apartment,
     snapshot,
-    written,
+    {
+      written,
+      // A row that states its own move-in date can be about a residency that has
+      // since ended, so it is matched against ended residencies as well. One
+      // that only carries the file's default is matched against current ones:
+      // the default says nothing about when this person lived here.
+      includeEnded: residency.movedInStated,
+    },
   );
   const mismatch = findMismatch(match, row, normalizedNumber, person, snapshot);
   const [only] = match.candidates;
@@ -484,13 +502,13 @@ function planRow(
         row,
         person,
         normalizedNumber,
-        apartment,
-        movedOutOn,
+        residency,
         snapshot,
       );
     } else if (decision?.action === "use-person") {
       // A person the row did not match is not recorded: the apply refuses that
-      // decision rather than writing it.
+      // decision rather than writing it. Nor is one whose residencies the
+      // row's would overlap, which the apply refuses as a problem with the row.
       const chosen = match.candidates.find(
         (candidate) => candidate.personId === decision.personId,
       );
@@ -498,15 +516,16 @@ function planRow(
         throughUnwrittenNumber =
           match.key === "personalIdentityNumber" &&
           chosen.identityNumberFromRow !== null;
-        recordWrites(
-          written,
-          chosen,
-          row,
-          normalizedNumber,
-          apartment,
-          movedOutOn,
-          snapshot,
-        );
+        if (!conflictsWith(residency, chosen.residencies)) {
+          recordWrites(
+            written,
+            chosen,
+            row,
+            normalizedNumber,
+            residency,
+            snapshot,
+          );
+        }
       }
     }
 
@@ -518,7 +537,6 @@ function planRow(
       matchedBy:
         earlier === null && !throughUnwrittenNumber ? match.key : "earlierRow",
       foundUnder: match.key,
-      foundInRegister: [...match.inRegister],
       mismatch,
       sameAsRowNumber: earlier,
       // A person an earlier row creates has no id yet to be chosen by. The
@@ -533,31 +551,28 @@ function planRow(
   }
 
   if (only === undefined) {
-    recordCreated(
-      written,
-      row,
-      person,
-      normalizedNumber,
-      apartment,
-      movedOutOn,
-      snapshot,
-    );
+    recordCreated(written, row, person, normalizedNumber, residency, snapshot);
     return { ...base, outcome: "create" };
   }
 
-  // A file may list one person twice - two apartments, or a member and their
-  // own resident row. The second occurrence reaches the same person through
+  // A residency already held as the row states it is not written again, which
+  // is also what lets a chunk be attempted twice. Any other residency of this
+  // person on this apartment that shares a day with the row's would be a
+  // second one held at the same time, which a move-in refuses: the board
+  // decides which is right rather than the import writing both, or dropping
+  // the row without a word.
+  if (conflictsWith(residency, only.residencies)) {
+    return {
+      ...base,
+      problems: [{ field: "movedInOn", reason: "residency-conflict" }],
+    };
+  }
+
+  // A file may list one person twice - two apartments, or one apartment for
+  // two periods of time. The second occurrence reaches the same person through
   // what the first one wrote, whether that person already existed or was
   // created by the earlier row.
-  recordWrites(
-    written,
-    only,
-    row,
-    normalizedNumber,
-    apartment,
-    movedOutOn,
-    snapshot,
-  );
+  recordWrites(written, only, row, normalizedNumber, residency, snapshot);
   // An identity number only an earlier row stated is not the person's in the
   // register, so the row is named after that row and the apply does not write
   // the number now either.
@@ -577,11 +592,83 @@ function planRow(
         ? "earlierRow"
         : match.key,
     foundUnder: match.key,
-    foundInRegister: [...match.inRegister],
     sameAsRowNumber:
       only.createdByRow ??
       (throughUnwrittenNumber ? only.identityNumberFromRow : null),
   };
+}
+
+/** A residency as a row states it. */
+export interface RowResidency extends RegisterResidency {
+  /** False when the move-in date is the file's default rather than the row's. */
+  movedInStated: boolean;
+}
+
+/** The residency a planned row would write, if it names one. */
+export function rowResidency(row: PlannedRow): RowResidency | null {
+  return row.apartment === null || row.role === null || row.movedInOn === null
+    ? null
+    : {
+        apartmentId: row.apartment.id,
+        role: row.role,
+        movedInOn: row.movedInOn,
+        movedInStated: row.movedInStated,
+        movedOutOn: row.movedOutOn,
+      };
+}
+
+/**
+ * The residency already held that the row's residency is, if there is one.
+ *
+ * The same role on the same apartment from the same day is the same residency:
+ * it is what a row already written, or a row listed twice, looks like. A row
+ * that does not state its own move-in date says only that the person lives
+ * here in that role, so a residency in that role that it shares a day with is
+ * the same one too, as long as it ends when the row says. Read as a residency
+ * of its own from the default date, a register imported again without its
+ * move-in column would refuse every resident it already holds. A row that
+ * ends a residency still open, or keeps one open that has ended, is not that
+ * residency: taken as it, the row's end would be dropped without a word.
+ */
+export function heldAlready(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): RegisterResidency | undefined {
+  return held.find(
+    (other) =>
+      other.apartmentId === residency.apartmentId &&
+      other.role === residency.role &&
+      (other.movedInOn === residency.movedInOn ||
+        (!residency.movedInStated &&
+          other.movedOutOn === residency.movedOutOn &&
+          overlaps(residency, other))),
+  );
+}
+
+/**
+ * Whether a residency would be held twice: whether, not being one the person
+ * already holds, it shares a day with another on the same apartment. A
+ * residency is held up to, and not including, the day it ends - the same rule
+ * a move-in follows.
+ */
+export function conflictsWith(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): boolean {
+  if (heldAlready(residency, held) !== undefined) {
+    return false;
+  }
+  return held.some(
+    (other) =>
+      other.apartmentId === residency.apartmentId && overlaps(residency, other),
+  );
+}
+
+function overlaps(one: RegisterResidency, other: RegisterResidency): boolean {
+  return (
+    (other.movedOutOn === null || one.movedInOn < other.movedOutOn) &&
+    (one.movedOutOn === null || other.movedInOn < one.movedOutOn)
+  );
 }
 
 /**
@@ -594,16 +681,19 @@ function matchPerson(
   person: PlannedPerson,
   apartment: RegisterApartment,
   snapshot: RegisterSnapshot,
-  written: FileWrites,
+  options: { written: FileWrites; includeEnded: boolean },
 ): PersonMatch {
+  const { written } = options;
   const nameKey = apartmentNameKey(
     apartment.id,
     person.firstName,
     person.lastName,
   );
-  // Looked up one key at a time, in the constant's order, so the apply asks
-  // its second look under the same keys this one stopped at.
-  const lookUp: Record<ImportSearchKey, () => Omit<PersonMatch, "key">> = {
+  // Looked up one key at a time, in the constant's order, and stopped at the
+  // first that finds anybody: `foundUnder` records which, so the apply can tell
+  // a row its locked plan reaches under another key from one it reaches the
+  // same way.
+  const lookUp: Record<ImportSearchKey, () => FilePerson[]> = {
     personalIdentityNumber: () =>
       candidatesUnder(
         snapshot.personsByIdentityNumber,
@@ -624,9 +714,13 @@ function matchPerson(
       ),
     apartmentAndName: () =>
       candidatesUnder(
-        snapshot.personsByApartmentAndName,
+        options.includeEnded
+          ? snapshot.personsByApartmentAndNameEver
+          : snapshot.personsByApartmentAndName,
         nameKey,
-        written.byApartmentAndName,
+        options.includeEnded
+          ? written.byApartmentAndNameEver
+          : written.byApartmentAndName,
         nameKey,
         snapshot,
         written,
@@ -634,12 +728,12 @@ function matchPerson(
   };
 
   for (const key of IMPORT_SEARCH_KEYS) {
-    const found = lookUp[key]();
-    if (found.candidates.length > 0) {
-      return { key, ...found };
+    const candidates = lookUp[key]();
+    if (candidates.length > 0) {
+      return { key, candidates };
     }
   }
-  return { key: null, candidates: [], inRegister: [] };
+  return { key: null, candidates: [] };
 }
 
 function candidatesUnder(
@@ -649,16 +743,12 @@ function candidatesUnder(
   fileKey: string | null,
   snapshot: RegisterSnapshot,
   written: FileWrites,
-): Omit<PersonMatch, "key"> {
-  const ids = registerKey === null ? [] : (inRegister.get(registerKey) ?? []);
-  const registered = ids.map((personId) =>
-    registeredPerson(personId, snapshot, written),
-  );
+): FilePerson[] {
+  const registered = (
+    registerKey === null ? [] : (inRegister.get(registerKey) ?? [])
+  ).map((personId) => registeredPerson(personId, snapshot, written));
   const fromFile = fileKey === null ? [] : (inFile.get(fileKey) ?? []);
-  return {
-    candidates: [...new Set([...registered, ...fromFile])],
-    inRegister: ids,
-  };
+  return [...new Set([...registered, ...fromFile])];
 }
 
 /** One register person, the same object every time it is reached. */
@@ -678,7 +768,7 @@ function registeredPerson(
     identityNumber: null,
     identityNumberFromRow: null,
     hasEmail: snapshot.personsWithEmail.has(personId),
-    apartmentIds: new Set(snapshot.apartmentsByPerson.get(personId)),
+    residencies: [...(snapshot.residenciesByPerson.get(personId) ?? [])],
   };
   written.registered.set(personId, person);
   return person;
@@ -690,8 +780,7 @@ function recordCreated(
   row: PreparedRow,
   person: PlannedPerson,
   identityNumber: string | null,
-  apartment: RegisterApartment,
-  movedOutOn: string | null,
+  residency: RowResidency,
   snapshot: RegisterSnapshot,
 ): void {
   const created: FilePerson = {
@@ -701,39 +790,32 @@ function recordCreated(
     identityNumber,
     identityNumberFromRow: null,
     hasEmail: false,
-    apartmentIds: new Set(),
+    residencies: [],
   };
   if (identityNumber !== null) {
     push(written.byIdentityNumber, identityNumber, created);
   }
-  recordWrites(
-    written,
-    created,
-    row,
-    identityNumber,
-    apartment,
-    movedOutOn,
-    snapshot,
-  );
+  recordWrites(written, created, row, identityNumber, residency, snapshot);
 }
 
 /**
  * Records what the apply will write for a row that reaches this person.
  *
  * The same fields the apply's own rules write: an email address only onto a
- * person who has none, a residency only in an apartment the person has never
- * had one in, and no identity number onto anyone who already exists. The
- * residency is findable by apartment and name only while it has not ended, as
- * the register snapshot reads it. The row's identity number is recorded too,
- * although it is not written, for the rows after it that state it.
+ * person who has none, a residency only when the person does not hold it
+ * already (see {@link heldAlready}), and no identity number onto anyone who
+ * already exists. A residency makes the person findable by apartment and name
+ * when it is their first on that apartment, and among current residents when
+ * it is current and they held none there that was, as the register snapshot
+ * reads them. The row's identity number is recorded too, although it is not
+ * written, for the rows after it that state it.
  */
 function recordWrites(
   written: FileWrites,
   target: FilePerson,
   row: PreparedRow,
   identityNumber: string | null,
-  apartment: RegisterApartment,
-  movedOutOn: string | null,
+  residency: RowResidency,
   snapshot: RegisterSnapshot,
 ): void {
   recordIdentityNumber(
@@ -747,21 +829,36 @@ function recordWrites(
     target.hasEmail = true;
     push(written.byEmail, row.emailIndex, target);
   }
-  if (!target.apartmentIds.has(apartment.id)) {
-    target.apartmentIds.add(apartment.id);
-    if (
-      !hasMovedOut(
-        movedOutOn === null ? null : new Date(`${movedOutOn}T00:00:00.000Z`),
-        snapshot.takenAt,
-      )
-    ) {
-      push(
-        written.byApartmentAndName,
-        apartmentFullNameKey(apartment.id, target.name),
-        target,
-      );
-    }
+  if (heldAlready(residency, target.residencies) !== undefined) {
+    return;
   }
+  const onApartment = target.residencies.filter(
+    (other) => other.apartmentId === residency.apartmentId,
+  );
+  target.residencies.push({
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: residency.movedInOn,
+    movedOutOn: residency.movedOutOn,
+  });
+  const key = apartmentFullNameKey(residency.apartmentId, target.name);
+  if (onApartment.length === 0) {
+    push(written.byApartmentAndNameEver, key, target);
+  }
+  if (
+    current(residency, snapshot.takenAt) &&
+    !onApartment.some((other) => current(other, snapshot.takenAt))
+  ) {
+    push(written.byApartmentAndName, key, target);
+  }
+}
+
+/** Whether a residency is still held on the day the snapshot was read. */
+function current(residency: RegisterResidency, today: Date): boolean {
+  return (
+    residency.movedOutOn === null ||
+    new Date(`${residency.movedOutOn}T00:00:00.000Z`) > today
+  );
 }
 
 /**

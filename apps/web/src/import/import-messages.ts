@@ -1,3 +1,9 @@
+import {
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+} from "@openbrf/shared";
+
 import type { TranslationKey } from "../i18n/translation-key";
 import type { ImportField, ImportOutcome, ImportRunStatus } from "./import-api";
 
@@ -19,10 +25,16 @@ const FAILURES: Record<string, TranslationKey> = {
   "file-unreadable": "import.errors.fileUnreadable",
   "file-mixed-encoding": "import.errors.fileMixedEncoding",
   "too-many-rows": "import.errors.tooManyRows",
+  "too-many-columns": "import.errors.tooManyColumns",
+  "cell-too-long": "import.errors.cellTooLong",
+  "unterminated-quote": "import.errors.unterminatedQuote",
+  "workbook-too-large": "import.errors.workbookTooLarge",
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
   "preview-outdated": "import.errors.previewOutdated",
   "preview-replaced": "import.errors.previewReplaced",
+  "preview-interrupted": "import.errors.previewInterrupted",
+  "preview-cancelled": "import.errors.previewCancelled",
   "session-not-found": "import.errors.sessionNotFound",
   "session-expired": "import.errors.sessionExpired",
   "session-already-applied": "import.errors.sessionAlreadyApplied",
@@ -39,6 +51,16 @@ export function failureMessage(reason: string): TranslationKey {
   return FAILURES[reason] ?? "import.errors.unknown";
 }
 
+/**
+ * The limits a refused file is told about, for the failure messages that name
+ * one. The same numbers the API enforces, so the two cannot disagree.
+ */
+export const FAILURE_VALUES = {
+  maxRows: MAX_IMPORT_ROWS,
+  maxColumns: MAX_IMPORT_COLUMNS,
+  maxCellLength: MAX_IMPORT_CELL_LENGTH,
+} as const;
+
 const PROBLEMS: Record<string, TranslationKey> = {
   "name-missing": "import.problem.name-missing",
   "name-not-splittable": "import.problem.name-not-splittable",
@@ -50,6 +72,7 @@ const PROBLEMS: Record<string, TranslationKey> = {
   "moved-in-missing": "import.problem.moved-in-missing",
   "date-not-iso": "import.problem.date-not-iso",
   "moved-out-before-moved-in": "import.problem.moved-out-before-moved-in",
+  "residency-conflict": "import.problem.residency-conflict",
   "invalid-personal-identity-number":
     "import.problem.invalid-personal-identity-number",
   "personal-identity-number-needs-century":

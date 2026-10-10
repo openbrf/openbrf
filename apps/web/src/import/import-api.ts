@@ -82,8 +82,31 @@ export interface ImportPreviewRow {
 
 export interface ImportPreview {
   sessionId: string;
+  /** Names this preview. The apply carries it, and runs only this preview. */
+  previewToken: string;
   summary: Record<ImportOutcome, number>;
   rows: ImportPreviewRow[];
+}
+
+export type ImportPreviewStatus = "PLANNING" | "READY" | "FAILED";
+
+/**
+ * A preview as it is planned.
+ *
+ * Matching a long file against a register that holds identity numbers takes
+ * minutes, so the preview is planned in a background job and the screen polls
+ * it by `previewId`. The preview, and the token the apply carries, arrive only
+ * once it is `READY`.
+ */
+export interface ImportPreviewRun {
+  sessionId: string;
+  previewId: string;
+  status: ImportPreviewStatus;
+  rowsDone: number;
+  rowsTotal: number;
+  /** The API's code for why the preview stopped, or null. */
+  failureReason: string | null;
+  preview: ImportPreview | null;
 }
 
 export interface ImportApplyResult {
@@ -158,7 +181,8 @@ export function uploadImport(input: {
 }
 
 /**
- * What the mapping would do.
+ * Asks for the preview of a mapping. The answer is the preview to poll, not the
+ * preview itself.
  *
  * The decisions are the ones made so far, sent when the preview is taken again
  * because they change what later rows match: a person chosen for a row gets
@@ -167,7 +191,7 @@ export function uploadImport(input: {
 export function previewImport(
   sessionId: string,
   input: ImportMappingInput & { decisions?: Record<string, ImportDecision> },
-): Promise<ApiResult<ImportPreview>> {
+): Promise<ApiResult<ImportPreviewRun>> {
   return apiRequest(
     "POST",
     `/api/import/sessions/${encodeURIComponent(sessionId)}/preview`,
@@ -176,15 +200,56 @@ export function previewImport(
 }
 
 /**
+ * How far the preview has got, and the preview once it is ready.
+ *
+ * The signal gives the request up, and so does the answer not starting within
+ * `answerTimeoutMs`; both come back as an "offline" failure. The timeout does
+ * not run while the preview downloads, which is up to 5000 rows.
+ */
+export function fetchImportPreview(
+  sessionId: string,
+  previewId: string,
+  signal?: AbortSignal,
+  answerTimeoutMs?: number,
+): Promise<ApiResult<ImportPreviewRun>> {
+  return apiRequest(
+    "GET",
+    `/api/import/sessions/${encodeURIComponent(sessionId)}/preview/${encodeURIComponent(previewId)}`,
+    undefined,
+    { signal, answerTimeoutMs },
+  );
+}
+
+/**
+ * Tells the API the screen has stopped waiting for a preview, so the job
+ * planning it frees the worker for the next one. Sent as the page is left as
+ * well, so it is allowed to outlive the page.
+ */
+export function cancelImportPreview(
+  sessionId: string,
+  previewId: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "DELETE",
+    `/api/import/sessions/${encodeURIComponent(sessionId)}/preview/${encodeURIComponent(previewId)}`,
+    undefined,
+    { keepalive: true },
+  );
+}
+
+/**
  * Starts the import.
  *
- * Only the decisions go up: the mapping the apply runs is the one the preview
- * was taken with, so what is written is what the board looked at. The answer is
- * the run to watch rather than a result, because nothing has been written yet.
+ * Only the decisions go up, with the token of the preview they were made on: the
+ * mapping the apply runs is the one that preview was taken with, so what is
+ * written is what the board looked at, and an apply after somebody else has
+ * previewed the upload again is refused rather than run under their mapping.
+ * The answer is the run to watch rather than a result, because nothing has been
+ * written yet.
  */
 export function applyImport(
   sessionId: string,
-  input: { decisions: Record<string, ImportDecision> },
+  input: { previewToken: string; decisions: Record<string, ImportDecision> },
 ): Promise<ApiResult<ImportRunView>> {
   return apiRequest(
     "POST",
@@ -241,12 +306,9 @@ export async function fetchActiveImport(): Promise<
     controller.abort();
   }, ACTIVE_IMPORT_TIMEOUT_MS);
   try {
-    return await apiRequest(
-      "GET",
-      "/api/import/sessions/active",
-      undefined,
-      controller.signal,
-    );
+    return await apiRequest("GET", "/api/import/sessions/active", undefined, {
+      signal: controller.signal,
+    });
   } finally {
     clearTimeout(timer);
   }

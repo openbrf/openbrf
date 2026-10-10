@@ -85,18 +85,6 @@ export function isBoardSeatHeldOn(
 }
 
 /**
- * The residencies that have not ended by a day: held on it, or recorded from a
- * day still to come.
- *
- * The query form of {@link hasMovedOut}, and the same rule: a move-out dated
- * the day has happened.
- */
-export function residencyNotEndedOn(day: LocalDay): Prisma.ResidencyWhereInput {
-  const on = dateColumnOf(day);
-  return { OR: [{ movedOutOn: null }, { movedOutOn: { gt: on } }] };
-}
-
-/**
  * Whether a residency has ended by the association's day an instant falls on.
  *
  * The move-out date is the first day a residency is no longer held, so a
