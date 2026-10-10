@@ -16,7 +16,11 @@ import {
 
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
-import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+import {
+  advisoryLockCount,
+  terminateAdvisoryLockHolder,
+  waitFor,
+} from "../testing/advisory-locks";
 import { domainResponse } from "../testing/domain-response";
 import {
   loadEnvForIntegrationTests,
@@ -354,11 +358,12 @@ describe("PackageLock", () => {
     });
     await waitFor(async () => (await locks("theme", "lost-id", true)) === 1n);
 
-    await prisma.$queryRaw`
-      SELECT pg_terminate_backend(pid)
-      FROM pg_stat_activity
-      WHERE datname = current_database()
-        AND application_name = ${PACKAGE_LOCK_APPLICATION_NAME}`;
+    expect(
+      await terminateAdvisoryLockHolder(
+        prisma as unknown as PrismaService,
+        `package-install:theme:${idOf("lost-id")}`,
+      ),
+    ).toBe(1);
     await waitFor(async () => signal?.aborted === true);
     expect(signal?.reason).toBeInstanceOf(PackageLockLostError);
     await waitFor(async () => (await locks("theme", "lost-id", true)) === 0n);

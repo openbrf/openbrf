@@ -41,6 +41,30 @@ export async function advisoryLockCount(
 }
 
 /**
+ * Ends the session that holds an advisory lock key, in this database only, and
+ * says how many it ended.
+ *
+ * For tests of what a holder does when its session is lost while the database
+ * stays up. Chosen by the granted lock rather than by application name, so it
+ * ends that holder and no other session that happens to share the name.
+ */
+export async function terminateAdvisoryLockHolder(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<{ terminated: boolean }[]>`
+    SELECT pg_terminate_backend(pid) AS terminated
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND granted
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return rows.filter((row) => row.terminated).length;
+}
+
+/**
  * How many transactions hold, or are queued behind, this person's legal-hold
  * key: the key a purge and a writer placing a hold on the person are ordered
  * by.

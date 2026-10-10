@@ -591,13 +591,15 @@ export class ThemeService {
      * Both are checked against the package lock first. The files most of all:
      * once the row is gone an install of the same id may already be putting
      * its own files in that directory, and with the lock lost nothing would
-     * stop this removal from taking them. A removal skipped that way is
-     * logged as one that failed, which is what it is.
+     * stop this removal from taking them. A lost lock is raised, not recorded:
+     * it is the database session failing under the operation rather than the
+     * volume, and it gets the answer it gets everywhere else. The files it
+     * leaves are unreferenced like any other.
      */
     lockLost.throwIfAborted();
     await this.prisma.installedTheme.delete({ where: { id: themeId } });
+    lockLost.throwIfAborted();
     try {
-      lockLost.throwIfAborted();
       await this.store.remove(themeId);
     } catch (cause) {
       this.logger.warn(

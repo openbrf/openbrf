@@ -369,12 +369,15 @@ describe("removal", () => {
 
   /*
    * With the row gone and the lock lost, an install of the same id may already
-   * be writing into the directory. Its files are not this removal's to take.
+   * be writing into the directory. Its files are not this removal's to take,
+   * and the lost lock is answered as one, not as an ordinary failed removal.
    */
   it("leaves the files alone when the lock is lost after the row is deleted", async () => {
     const lost = build([themeRow()], { lockLost: "after-delete" });
 
-    await lost.service.uninstall("example-theme");
+    await expect(
+      lost.service.uninstall("example-theme"),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
 
     expect(lost.rows).toEqual([]);
     expect(lost.removed).toEqual([]);

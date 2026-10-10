@@ -11,12 +11,12 @@ import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";
 import { CatalogClient } from "../packaging/catalog.client";
+import { PackageLock, PackageLockLostError } from "../packaging/package-lock";
 import {
-  PACKAGE_LOCK_APPLICATION_NAME,
-  PackageLock,
-  PackageLockLostError,
-} from "../packaging/package-lock";
-import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+  advisoryLockCount,
+  terminateAdvisoryLockHolder,
+  waitFor,
+} from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   buildThemeFixtureCatalog,
@@ -649,11 +649,12 @@ describe("an install racing an uninstall of the same theme", () => {
       null,
     );
     await installHoldsLock();
-    await prisma.$queryRaw`
-      SELECT pg_terminate_backend(pid)
-      FROM pg_stat_activity
-      WHERE datname = current_database()
-        AND application_name = ${PACKAGE_LOCK_APPLICATION_NAME}`;
+    expect(
+      await terminateAdvisoryLockHolder(
+        prisma as unknown as PrismaService,
+        `package-install:theme:${exampleEntry.id}`,
+      ),
+    ).toBe(1);
 
     await expect(reinstall).rejects.toBeInstanceOf(PackageLockLostError);
     const after = await prisma.installedTheme.findUniqueOrThrow({

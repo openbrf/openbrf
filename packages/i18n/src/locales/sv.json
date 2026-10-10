@@ -1554,7 +1554,8 @@
       "remove": "Ta bort",
       "removeConfirm": "Ja, ta bort",
       "removeCancel": "Behåll",
-      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod."
+      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
+      "removeBusy": "Tillägget togs inte bort, eftersom en annan ändring av det pågick. Vänta en stund och försök igen."
     },
     "catalog": {
       "title": "Katalog",

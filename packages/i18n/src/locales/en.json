@@ -1554,7 +1554,8 @@
       "remove": "Remove",
       "removeConfirm": "Yes, remove it",
       "removeCancel": "Keep it",
-      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code."
+      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code.",
+      "removeBusy": "The plugin was not removed, because another change to it was still under way. Wait a moment and try again."
     },
     "catalog": {
       "title": "Catalog",
