@@ -82,6 +82,10 @@ test("the image of a FROM line is read without its flags, alias or comments", ()
   assert.deepEqual(fromImagesOf(source), [SEMGREP, "alpine:3"]);
 });
 
+test("a flag on a FROM line with no image after it is not read as the image", () => {
+  assert.deepEqual(fromImagesOf("FROM --platform=linux/amd64\n"), []);
+});
+
 test("one FROM line pinned by digest raises nothing", () => {
   assert.deepEqual(semgrepFailures(fromImagesOf(`FROM ${SEMGREP}\n`)), []);
 });

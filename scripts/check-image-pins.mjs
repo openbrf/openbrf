@@ -66,7 +66,7 @@ const SEMGREP_DOCKERFILE = "docker/semgrep/Dockerfile";
 export function fromImagesOf(source) {
   return source
     .split("\n")
-    .map((line) => /^\s*FROM\s+(?:--\S+\s+)*(\S+)/i.exec(line)?.[1])
+    .map((line) => /^\s*FROM\s+(?:--\S+\s+)*(?!--)(\S+)/i.exec(line)?.[1])
     .filter((image) => image !== undefined);
 }
 
@@ -125,18 +125,41 @@ export function disagreements(found) {
   return failures;
 }
 
+/**
+ * A file of the repository, or undefined when there is none at that path, so
+ * that a moved file is reported with the list to update and not as a stack
+ * trace.
+ *
+ * @param {string} path
+ * @returns {string | undefined}
+ */
+function readRepoFile(path) {
+  try {
+    return readFileSync(join(repoRoot, path), "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 if (import.meta.main) {
   const found = new Map(
     POSTGRES_FILES.map((path) => [
       path,
-      pinsOf(readFileSync(join(repoRoot, path), "utf8"), "postgres"),
+      pinsOf(readRepoFile(path) ?? "", "postgres"),
     ]),
   );
+  const dockerfile = readRepoFile(SEMGREP_DOCKERFILE);
   const failures = [
     ...disagreements(found),
-    ...semgrepFailures(
-      fromImagesOf(readFileSync(join(repoRoot, SEMGREP_DOCKERFILE), "utf8")),
-    ),
+    ...(dockerfile === undefined
+      ? [
+          `${SEMGREP_DOCKERFILE} does not exist. If it moved, update ` +
+            "SEMGREP_DOCKERFILE in scripts/check-image-pins.mjs with it.",
+        ]
+      : semgrepFailures(fromImagesOf(dockerfile))),
   ];
   if (failures.length > 0) {
     for (const failure of failures) {
