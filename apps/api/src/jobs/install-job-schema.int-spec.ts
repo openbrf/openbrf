@@ -365,11 +365,11 @@ describe("install-job-schema", () => {
     });
   }, 60_000);
 
-  it("stops a fresh install whose tables give another role TRIGGER by default", async () => {
+  it("stops a fresh install whose tables would give another role TRIGGER by default", async () => {
     const databaseUrl = await scratchDatabase("job_default_trigger");
     // A default privilege of the owner's, which every table pg-boss creates
-    // takes on. No table holds it before the install, so only a look after
-    // pg-boss has created them finds it.
+    // takes on. No table holds it before the install, so the defaults are
+    // read before pg-boss creates any.
     await withClient(databaseUrl, (client) =>
       client.query(
         `alter default privileges grant trigger on tables to ${TRIGGER_ROLE}`,
@@ -379,11 +379,18 @@ describe("install-job-schema", () => {
     const run = await runInstaller(databaseUrl);
 
     expect(run.code, run.output).toBe(1);
-    expect(run.output).toMatch(
-      new RegExp(`${TRIGGER_ROLE} holds TRIGGER on [^\\n]*pgboss\\.queue`),
+    expect(run.output).toContain(
+      `${TRIGGER_ROLE} is given TRIGGER by default on the tables the schema ` +
+        "owner creates in every schema.",
     );
     expect(run.output).toContain("So the install stops here.");
     expect(run.output).not.toContain('Job schema "pgboss" is installed');
+    await withClient(databaseUrl, async (client) => {
+      const { rows } = await client.query<{ queue: boolean }>(
+        "select to_regclass('pgboss.queue') is not null as queue",
+      );
+      expect(rows, "pg-boss created nothing").toEqual([{ queue: false }]);
+    });
   }, 60_000);
 
   it("finishes every index build an upgrade queues before it exits", async () => {
@@ -521,6 +528,41 @@ describe("the job schema install", () => {
     },
     90_000,
   );
+
+  it("stops on the trigger on pgboss.queue replaced while no grant is left to show it, rather than putting it back", async () => {
+    // What a role that held TRIGGER could have done before the hardening, or
+    // an operator's REVOKE, took the grant away again: the trigger keeps its
+    // name and its function and fires on nothing it guards. The install would
+    // put it back as it goes on, so it has to look first.
+    const replaced = `CREATE TRIGGER ${QUEUE_GUARD} BEFORE DELETE ON pgboss.queue FOR EACH ROW EXECUTE FUNCTION pgboss.refuse_own_job_table()`;
+    await owner.$executeRawUnsafe(
+      replaced.replace("CREATE TRIGGER", "CREATE OR REPLACE TRIGGER"),
+    );
+    try {
+      const refused = install();
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        "pgboss.queue has a trigger that is not one the migrations or the " +
+          `job schema install create: ${replaced}`,
+      );
+      expect(refused.output).toContain("So the install stops here.");
+      const [row] = await owner.$queryRawUnsafe<{ definition: string }[]>(
+        `SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger
+         WHERE tgrelid = 'pgboss.queue'::regclass AND tgname = $1`,
+        QUEUE_GUARD,
+      );
+      expect(row?.definition, "left for a person to look at").toContain(
+        "BEFORE DELETE ON pgboss.queue",
+      );
+    } finally {
+      await owner.$executeRawUnsafe(
+        `DROP TRIGGER ${QUEUE_GUARD} ON pgboss.queue`,
+      );
+      const installed = install();
+      expect(installed.status, installed.output).toBe(0);
+    }
+    expect(await queueGuarded(), "the install put the trigger back").toBe(true);
+  }, 90_000);
 
   it("leaves a role that writes queues unable to make one partitioned or give it a job table of its own", async () => {
     // What harden-runtime-role.sql leaves the application on the queue table:
