@@ -457,11 +457,11 @@ describe("the board", () => {
     await screen.findByText("Ansökningar om andrahandsupplåtelse");
     expect(
       screen.getAllByRole("button", {
-        name: /^Anteckna att upplåtelsen från/,
+        name: /^Anteckna sista dagen för upplåtelsen från/,
       }),
     ).toHaveLength(1);
     await userEvent.click(
-      screen.getByRole("button", { name: /^Anteckna att upplåtelsen från/ }),
+      screen.getByRole("button", { name: /^Anteckna sista dagen för upplåtelsen från/ }),
     );
 
     const day = screen.getByLabelText("Upplåtelsens sista dag");

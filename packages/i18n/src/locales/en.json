@@ -496,7 +496,7 @@
           "closed": "Closed",
           "period": "Period",
           "tribunalPermission": "Rent tribunal permission",
-          "lettingEnded": "Letting ended",
+          "lettingEnded": "Last day of the letting, as recorded",
           "ordered": "Ordered",
           "meeting": "Meeting",
           "capacity": "Capacity",
@@ -3708,7 +3708,7 @@
       "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
       "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
       "tribunalPermittedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date was recorded. The association did not consent; this is recorded beside its refusal.",
-      "lettingEnded": "The board recorded that the letting ended on {{date}}."
+      "lettingEnded": "The board recorded {{date}} as the last day of the letting."
     },
     "queue": {
       "title": "Subletting applications",
@@ -3735,11 +3735,11 @@
       "tribunalHint": "Only a permission is recorded. A refusal by the tribunal leaves the board's own refusal standing, which this row already says. Recording a permission changes nothing else: the association did not consent, and the row goes on saying so.",
       "tribunalClear": "Remove the record",
       "lettingRunning": "No early end recorded: the letting runs until {{to}}.",
-      "lettingEnded": "The letting ended on {{date}}.",
-      "lettingEndRecord": "Record that the letting ended",
-      "lettingEndRecordNamed": "Record that the letting from {{from}} to {{to}} ended",
+      "lettingEnded": "The board recorded {{date}} as the last day of the letting.",
+      "lettingEndRecord": "Record the last day of the letting",
+      "lettingEndRecordNamed": "Record the last day of the letting from {{from}} to {{to}}",
       "lettingEndField": "Last day of the letting",
-      "lettingEndHint": "Record it when the letting stops before the period you consented to: the subtenant moved out, or the member moved back or sold. The consent is then kept for two years from this day rather than from the end of the period, and a granted erasure request no longer waits for it.",
+      "lettingEndHint": "Record it when the letting stops before the period you consented to: the subtenant moved out, or the member moved back or sold. The letting counts as running through that day, and a granted erasure request waits for the consent only until then. The consent is kept for two years from the later of the board's answer and the day after that last day, rather than from the day after the end of the period.",
       "lettingEndClear": "Remove the record"
     },
     "errors": {
