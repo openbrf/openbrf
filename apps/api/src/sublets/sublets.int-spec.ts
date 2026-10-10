@@ -1586,7 +1586,14 @@ describe("the purge", () => {
         await prisma.subletApplication.findUnique({ where: { id } }),
       ).not.toBeNull();
       const keptBefore =
-        (await erasureRemainder(prisma, member.personId, NOW))[0]?.kept ?? 0;
+        (
+          await erasureRemainder(
+            prisma,
+            member.personId,
+            NOW,
+            app.get(FieldEncryptionService),
+          )
+        )[0]?.kept ?? 0;
 
       const recorded = await inject({
         method: "PUT",
@@ -1601,7 +1608,12 @@ describe("the purge", () => {
       expect(
         await prisma.subletApplication.findUnique({ where: { id } }),
       ).toBeNull();
-      const [remainder] = await erasureRemainder(prisma, member.personId, NOW);
+      const [remainder] = await erasureRemainder(
+        prisma,
+        member.personId,
+        NOW,
+        app.get(FieldEncryptionService),
+      );
       expect(remainder).toMatchObject({
         domain: "subletting applications",
         owed: 0,

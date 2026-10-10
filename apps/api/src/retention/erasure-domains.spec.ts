@@ -530,7 +530,9 @@ describe("what a granted erasure request still owes one person", () => {
       ],
     });
 
-    await expect(erasureRemainder(client, PERSON, NOW)).resolves.toEqual([
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
       {
         domain: "subletting applications",
         owed: 1,
