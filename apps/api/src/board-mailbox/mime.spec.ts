@@ -1284,6 +1284,33 @@ describe("readMessage", () => {
     expect(message.unreadParts).toBe(0);
     expect(performance.now() - started).toBeLessThan(2_000);
   });
+
+  it("keeps the text of a part that carries no headers", () => {
+    /*
+     * A part made of a blank line and a body is allowed (RFC 2046 section
+     * 5.1.1) and is plain text by default. Its header block is empty, so the
+     * blank line it starts with is where the headers end - not the first blank
+     * line inside the letter, which would read its first paragraph as headers.
+     */
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=SEP",
+        "",
+        "--SEP",
+        "",
+        "Det rinner vatten i tvattstugan.",
+        "",
+        "Halsningar, Astrid",
+        "--SEP--",
+        "",
+      ),
+    );
+
+    expect(message.text).toBe(
+      "Det rinner vatten i tvattstugan.\n\nHalsningar, Astrid",
+    );
+  });
 });
 
 describe("addressFrom", () => {

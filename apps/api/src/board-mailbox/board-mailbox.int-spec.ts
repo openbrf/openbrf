@@ -35,6 +35,7 @@ import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
   type Pop3TestServer,
+  type Pop3TestServerOptions,
 } from "./testing/pop3-test-server";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
@@ -405,8 +406,10 @@ function pngBytes(): Buffer {
 /** Points the instance at a mailbox holding exactly these messages. */
 async function serveMailbox(
   messages: readonly { uid: string; raw: string }[],
+  options: Pick<Pop3TestServerOptions, "listedSizes" | "refuseUidl"> = {},
 ): Promise<Pop3TestServer> {
   const server = await startPop3TestServer({
+    ...options,
     user: MAILBOX_USER,
     password: MAILBOX_PASSWORD,
     messages,
@@ -2059,6 +2062,79 @@ describe("collecting the mailbox", () => {
       await server.close();
     }
   });
+
+  it("sets aside a letter larger than its listing said, and collects the ones behind it", async () => {
+    /*
+     * LIST states the size before anything is fetched, and a server that
+     * counts before byte-stuffing or line-ending conversion can understate it.
+     * The letter is then refused part-way through RETR, which leaves the
+     * session unusable. Nothing more can be fetched in that run, and the
+     * letter must not be what the next run stops at too.
+     */
+    const large = `Stor ${suffix}`;
+    const behind = `Bakom ${suffix}`;
+    const largeUid = `uid-understated-${suffix}`;
+    const server = await serveMailbox(
+      [
+        {
+          uid: largeUid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: large,
+            body: `${"x".repeat(76)}\r\n`.repeat(140_000),
+            messageId: `understated-${suffix}@utanfor.example`,
+          }),
+        },
+        {
+          uid: `uid-behind-${suffix}`,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: behind,
+            body: "Ett brev bakom det stora.",
+            messageId: `behind-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+      { listedSizes: { [largeUid]: 1000 } },
+    );
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(0);
+
+      const ignored = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${largeUid}` } },
+      });
+      expect(ignored?.reason).toBe("too-large");
+
+      const second = await collector.collect();
+      expect(second.collected).toBe(1);
+      await threadBySubject(behind);
+    } finally {
+      await server.close();
+    }
+  }, 60_000);
+
+  it("reports a mailbox that refuses its listing as unreachable", async () => {
+    // Signed in, and then refused: the board is owed the same answer as for a
+    // mailbox it could not reach, not a server error.
+    const server = await serveMailbox([], { refuseUidl: true });
+
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/board-mailbox/collect",
+        headers: { cookie: boardCookie },
+      });
+
+      expect(response.statusCode, response.body).toBe(502);
+      expect((response.json() as { reason: string }).reason).toBe(
+        "mailbox-unreachable",
+      );
+    } finally {
+      await server.close();
+    }
+  });
 });
 
 describe("threading a follow-up", () => {
@@ -2902,6 +2978,97 @@ describe("answering a letter", () => {
     });
     expect(stored?.deliveryStatus).toBe("FAILED");
     expect(stored?.deliveryFailure).toBe("reply-sending-interrupted");
+  });
+
+  it("does not say a claimed reply the queue gave up on never went out", async () => {
+    const { replyMessageId } = await threadWithReply(`Oklar ${suffix}`);
+
+    // Claimed by an attempt that then stopped: whether it reached the mail
+    // server before it stopped is not something any row records.
+    await prisma.boardMailboxMessage.update({
+      where: { id: replyMessageId },
+      data: { sentAt: new Date() },
+    });
+
+    await mailer.recordAbandoned(replyMessageId);
+
+    const stored = await prisma.boardMailboxMessage.findUnique({
+      where: { id: replyMessageId },
+      select: { deliveryStatus: true, deliveryFailure: true },
+    });
+    expect(stored?.deliveryStatus).toBe("FAILED");
+    expect(stored?.deliveryFailure).toBe("reply-delivery-unconfirmed");
+  });
+
+  describe("reopening", () => {
+    /** A thread the board answered, on which the correspondent wrote again. */
+    async function answeredThenFollowedUp(subject: string): Promise<string> {
+      const { thread, replyMessageId } = await threadWithReply(subject);
+      const reply = await prisma.boardMailboxMessage.findUniqueOrThrow({
+        where: { id: replyMessageId },
+        select: { messageId: true },
+      });
+
+      const server = await serveMailbox([
+        {
+          uid: `uid-followup-${identifierOf(subject)}`,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Sv: ${subject}`,
+            body: "Tack, men det rinner fortfarande.",
+            messageId: `followup-${identifierOf(subject)}@utanfor.example`,
+            inReplyTo: reply.messageId ?? "",
+          }),
+        },
+      ]);
+      try {
+        expect((await collector.collect()).collected).toBe(1);
+      } finally {
+        await server.close();
+      }
+      return thread.id;
+    }
+
+    const setClosed = async (threadId: string, closed: boolean) =>
+      inject({
+        method: "POST",
+        url: `/api/board-mailbox/threads/${threadId}/closed`,
+        payload: { closed },
+        headers: { cookie: boardCookie },
+      });
+
+    it("does not mark a follow-up nobody has answered as answered", async () => {
+      const threadId = await answeredThenFollowedUp(`Ateroppnad ${suffix}`);
+      // The answer was given, and the correspondent wrote back: owed a reply.
+      expect((await readThread(boardCookie, threadId)).status).toBe("TAKEN");
+
+      await setClosed(threadId, true);
+      const reopened = await setClosed(threadId, false);
+      expect(reopened.statusCode, reopened.body).toBe(201);
+
+      // Still owed: the newest thing on the thread is the correspondent's.
+      expect((reopened.json() as ThreadBody).status).toBe("TAKEN");
+    });
+
+    it("leaves a thread that is not closed as it stands", async () => {
+      const threadId = await answeredThenFollowedUp(`Inaktuell ${suffix}`);
+
+      // A reopen from a screen that still showed the thread closed, after the
+      // follow-up had already reopened it.
+      const stale = await setClosed(threadId, false);
+      expect(stale.statusCode, stale.body).toBe(201);
+      expect((stale.json() as ThreadBody).status).toBe("TAKEN");
+
+      // And nothing happened to record.
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            action: "BOARD_MAILBOX_THREAD_REOPENED",
+            targetId: threadId,
+          },
+        }),
+      ).toBe(0);
+    });
   });
 });
 

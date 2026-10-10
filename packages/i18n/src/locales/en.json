@@ -2813,6 +2813,7 @@
       "reasons": {
         "noSenderAddress": "No sender address to answer",
         "unstorable": "Could not be stored",
+        "tooLarge": "Too large to collect",
         "unknown": "Could not be collected"
       }
     },
@@ -2861,6 +2862,7 @@
       "refused": "The answer did not go out: the mail server refused it.",
       "threadGone": "The answer did not go out: the thread was erased first.",
       "interrupted": "The answer was given up on before it went out.",
+      "unconfirmed": "The sending stopped partway, so it is not known whether the answer went out. Check with the recipient before you send it again.",
       "unknown": "The answer did not go out."
     },
     "errors": {

@@ -93,12 +93,16 @@ const MAX_STATUS_LINE_BYTES = 8 * 1024;
  * The default ceiling on a multi-line response.
  *
  * The listing commands have no size to check beforehand, unlike a message, whose
- * octet count the server states in LIST before anything is fetched. A mailbox
- * holding ten thousand messages produces a listing of a few hundred kilobytes,
- * so this is far above any real one and still a bound - which is what a response
- * from a machine outside the association has to have.
+ * octet count the server states in LIST before anything is fetched. A UIDL line
+ * is a number and an identifier of up to 70 characters, so this holds a listing
+ * of more than two hundred thousand messages under the longest identifiers the
+ * specification allows - a mailbox that has received for decades and was never
+ * emptied, which is the ordinary state of one nothing here deletes from. Below
+ * that, a large mailbox would be refused on every run, for good. It is still a
+ * bound, which is what a response from a machine outside the association has to
+ * have.
  */
-const MAX_LISTING_BYTES = 1024 * 1024;
+const MAX_LISTING_BYTES = 16 * 1024 * 1024;
 
 /** Ports each transport is offered on when the settings name none. */
 export const POP3_IMPLICIT_TLS_PORT = 995;
@@ -143,7 +147,14 @@ export class Pop3Error extends Error {
   constructor(
     message: string,
     readonly reason:
-      "connect-failed" | "authentication-failed" | "protocol-error" | "timeout",
+      | "connect-failed"
+      | "authentication-failed"
+      | "protocol-error"
+      | "timeout"
+      /** A response past the ceiling its command was given. */
+      | "too-large"
+      /** A response still arriving when its deadline passed. */
+      | "too-slow",
   ) {
     super(message);
     this.name = "Pop3Error";
@@ -165,6 +176,15 @@ export interface Pop3Session {
    *   uses.
    */
   retrieve(number: number, maxBytes: number): Promise<Buffer>;
+  /**
+   * Whether the session can take another command.
+   *
+   * A refusal from the mailbox is a whole answer and leaves it open. A
+   * response abandoned part-way - too large, too slow, a connection that
+   * dropped - ends it, because the rest of that response is still on its way
+   * and would be read as the answer to whatever was asked next.
+   */
+  isOpen(): boolean;
   /** Ends the session politely, and never throws. */
   close(): Promise<void>;
 }
@@ -226,6 +246,10 @@ export async function openPop3Session(
       return connection.multilineCommand(`RETR ${String(number)}`, maxBytes);
     },
 
+    isOpen(): boolean {
+      return connection.isOpen();
+    },
+
     async close(): Promise<void> {
       await connection.quit();
     },
@@ -256,6 +280,7 @@ interface Connection {
   readStatusLine(): Promise<string>;
   command(text: string, reason: Pop3Error["reason"]): Promise<string>;
   multilineCommand(text: string, maxBytes?: number): Promise<Buffer>;
+  isOpen(): boolean;
   quit(): Promise<void>;
   destroy(): void;
 }
@@ -441,7 +466,7 @@ async function openConnection(
           socket.destroy();
           throw new Pop3Error(
             "The mailbox did not finish its answer in time.",
-            "timeout",
+            "too-slow",
           );
         }
 
@@ -451,7 +476,7 @@ async function openConnection(
             socket.destroy();
             throw new Pop3Error(
               "The mailbox sent more than this client accepts.",
-              "protocol-error",
+              "too-large",
             );
           }
           await readMore();
@@ -474,11 +499,15 @@ async function openConnection(
           socket.destroy();
           throw new Pop3Error(
             "The mailbox sent more than this client accepts.",
-            "protocol-error",
+            "too-large",
           );
         }
         lines.push(unstuffed, CRLF);
       }
+    },
+
+    isOpen(): boolean {
+      return failure === null && !socket.destroyed;
     },
 
     async quit(): Promise<void> {
