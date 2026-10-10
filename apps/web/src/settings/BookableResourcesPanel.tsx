@@ -6,6 +6,7 @@ import {
   type RefObject,
 } from "react";
 import { useTranslation } from "react-i18next";
+import type { BookingTextField } from "@openbrf/shared";
 
 import type { ApiFailure } from "../api/client";
 import {
@@ -18,6 +19,7 @@ import {
   fetchAllBookableResources,
   updateBookableResource,
 } from "../api/bookings";
+import type { ResourceWriteReason } from "../bookings/booking-failures";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -50,7 +52,10 @@ const MODE_LABEL: Readonly<Record<BookingResourceMode, TranslationKey>> = {
  * wrong - which is the whole reason the API refuses at save time rather than
  * letting a resident meet a forty-minute laundry slot months later.
  *
- * A 403 is answered before this map is consulted; see {@link failureMessageKey}.
+ * Total over {@link ResourceWriteReason} and the two refusals about the
+ * resource itself, and checked as such, so a refusal a resource write gains
+ * cannot reach the board as the general fallback. A 403 is answered before this
+ * map is consulted; see {@link failureMessageKey}.
  */
 const RESOURCE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "schedule-required": "settings.bookableResources.errors.scheduleRequired",
@@ -69,7 +74,10 @@ const RESOURCE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "resource-not-found": "settings.bookableResources.errors.resourceNotFound",
   "resource-deactivated": "settings.bookableResources.errors.resourceWithdrawn",
   "resource-in-use": "settings.bookableResources.errors.resourceInUse",
-};
+} satisfies Record<
+  ResourceWriteReason | "resource-not-found" | "resource-deactivated",
+  TranslationKey
+>;
 
 /** The form's label for each field a schema refusal can name. */
 const INPUT_LABELS: Readonly<Record<string, TranslationKey>> = {
@@ -85,18 +93,17 @@ const INPUT_LABELS: Readonly<Record<string, TranslationKey>> = {
 /**
  * The parts of a resource a personal-identity-number refusal can name.
  *
- * Mirrored from the API's own location type rather than imported, like every
- * other wire shape in this client. Narrower than `string` on purpose: see
- * {@link scannedFields}.
+ * Narrower than `string` on purpose: see {@link scannedFields}.
  */
-type ResourceTextField = "name" | "description";
-
-const RESOURCE_TEXT_FIELDS: readonly string[] = ["name", "description"];
+const RESOURCE_TEXT_FIELDS: readonly string[] = [
+  "name",
+  "description",
+] satisfies readonly BookingTextField[];
 
 /**
  * Each field as the form above names it, so the board looks at the right box.
  */
-const FIELD_LABEL: Readonly<Record<ResourceTextField, TranslationKey>> = {
+const FIELD_LABEL: Readonly<Record<BookingTextField, TranslationKey>> = {
   name: "settings.bookableResources.name",
   description: "settings.bookableResources.descriptionLabel",
 };
@@ -120,18 +127,18 @@ const FIELD_LABEL: Readonly<Record<ResourceTextField, TranslationKey>> = {
  * resource refused again. Saying less than the response did is the direction to
  * fail in.
  */
-function scannedFields(failure: ApiFailure): readonly ResourceTextField[] {
+function scannedFields(failure: ApiFailure): readonly BookingTextField[] {
   if (!Array.isArray(failure.detail)) {
     return [];
   }
-  const fields = new Set<ResourceTextField>();
+  const fields = new Set<BookingTextField>();
   for (const location of failure.detail) {
     if (typeof location !== "object" || location === null) {
       continue;
     }
     const field: unknown = (location as { field?: unknown }).field;
     if (typeof field === "string" && RESOURCE_TEXT_FIELDS.includes(field)) {
-      fields.add(field as ResourceTextField);
+      fields.add(field as BookingTextField);
     }
   }
   return [...fields];

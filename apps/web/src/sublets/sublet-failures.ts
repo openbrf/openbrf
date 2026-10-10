@@ -1,3 +1,5 @@
+import type { SubletReason, SubletTextPart } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -15,29 +17,15 @@ import { failureMessageKey } from "../ui/save-state";
  */
 
 /**
- * The reasons the sublets module refuses with.
+ * Every reason, and the sentence it becomes.
  *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it with `satisfies`, so a reason the server
- * gains and this client has no sentence for is a compile error here rather than
- * "something went wrong" on a board member's screen.
- *
- * That check is what a map typed only as `Record<string, TranslationKey>` does
- * not give. Such a map compiles with a reason missing and falls through to the
- * unknown sentence at runtime, which is a defect nothing surfaces until somebody
- * meets it.
+ * Checked with `satisfies` against {@link SubletReason}, the union the API
+ * throws with, so a reason the server gains and this client has no sentence
+ * for is a compile error here rather than "something went wrong" on a board
+ * member's screen. A map typed only as `Record<string, TranslationKey>` would
+ * compile with a reason missing and fall through to the unknown sentence at
+ * runtime, which is a defect nothing surfaces until somebody meets it.
  */
-export type SubletReason =
-  | "not-a-member"
-  | "apartment-not-found"
-  | "application-not-found"
-  | "already-closed"
-  | "not-refused"
-  | "invalid-period"
-  | "period-too-far-ahead"
-  | "personal-identity-number";
-
 const SUBLET_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-a-member": "sublets.errors.notAMember",
   /*
@@ -80,13 +68,12 @@ export function subletFailureKey(failure: ApiFailure): TranslationKey {
 /**
  * The parts of an application a refusal can name.
  *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client. Narrower than `string` on purpose: see
- * {@link scannedSubletParts}.
+ * Narrower than `string` on purpose: see {@link scannedSubletParts}.
  */
-export type SubletPart = "reason" | "decisionNote";
-
-const SUBLET_PARTS: readonly string[] = ["reason", "decisionNote"];
+const SUBLET_PARTS: readonly string[] = [
+  "reason",
+  "decisionNote",
+] satisfies readonly SubletTextPart[];
 
 /**
  * Which parts of an application carried a personal identity number.
@@ -105,18 +92,20 @@ const SUBLET_PARTS: readonly string[] = ["reason", "decisionNote"];
  * application refused again. Saying less than the response did is the direction
  * to fail in.
  */
-export function scannedSubletParts(failure: ApiFailure): readonly SubletPart[] {
+export function scannedSubletParts(
+  failure: ApiFailure,
+): readonly SubletTextPart[] {
   if (!Array.isArray(failure.detail)) {
     return [];
   }
-  const parts = new Set<SubletPart>();
+  const parts = new Set<SubletTextPart>();
   for (const location of failure.detail) {
     if (typeof location !== "object" || location === null) {
       continue;
     }
     const part: unknown = (location as { part?: unknown }).part;
     if (typeof part === "string" && SUBLET_PARTS.includes(part)) {
-      parts.add(part as SubletPart);
+      parts.add(part as SubletTextPart);
     }
   }
   return [...parts];

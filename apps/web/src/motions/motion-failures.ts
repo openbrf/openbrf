@@ -1,3 +1,5 @@
+import type { MotionReason, MotionTextPart } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -20,30 +22,15 @@ import { failureMessageKey } from "../ui/save-state";
  */
 
 /**
- * The reasons the motions module refuses with.
+ * Every reason, and the sentence it becomes.
  *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it with `satisfies`, so a reason the server
- * gains and this client has no sentence for is a compile error here rather than
- * "something went wrong" on a board member's screen.
- *
- * That check is what a map typed only as `Record<string, TranslationKey>` does
- * not give. Such a map compiles with a reason missing and falls through to the
- * unknown sentence at runtime, which is a defect nothing surfaces until somebody
- * meets it.
+ * Checked with `satisfies` against {@link MotionReason}, the union the API
+ * throws with, so a reason the server gains and this client has no sentence
+ * for is a compile error here rather than "something went wrong" on a board
+ * member's screen. A map typed only as `Record<string, TranslationKey>` would
+ * compile with a reason missing and fall through to the unknown sentence at
+ * runtime, which is a defect nothing surfaces until somebody meets it.
  */
-export type MotionReason =
-  | "not-a-member"
-  | "motion-not-found"
-  | "already-closed"
-  | "motion-withdrawn"
-  | "meeting-not-found"
-  | "meeting-already-held"
-  | "meeting-notice-issued"
-  | "meeting-changed-meanwhile"
-  | "personal-identity-number";
-
 const MOTION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-a-member": "motions.errors.notAMember",
   "motion-not-found": "motions.errors.motionNotFound",
@@ -97,13 +84,12 @@ export function motionFailureKey(failure: ApiFailure): TranslationKey {
 /**
  * The parts of a motion a refusal can name.
  *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client. Narrower than `string` on purpose: see
- * {@link scannedParts}.
+ * Narrower than `string` on purpose: see {@link scannedParts}.
  */
-export type MotionPart = "title" | "body";
-
-const MOTION_PARTS: readonly string[] = ["title", "body"];
+const MOTION_PARTS: readonly string[] = [
+  "title",
+  "body",
+] satisfies readonly MotionTextPart[];
 
 /**
  * Which parts of a motion carried a personal identity number.
@@ -121,18 +107,18 @@ const MOTION_PARTS: readonly string[] = ["title", "body"];
  * nothing, which leaves the personal identity number where it is and the motion
  * refused again. Saying less than the response did is the direction to fail in.
  */
-export function scannedParts(failure: ApiFailure): readonly MotionPart[] {
+export function scannedParts(failure: ApiFailure): readonly MotionTextPart[] {
   if (!Array.isArray(failure.detail)) {
     return [];
   }
-  const parts = new Set<MotionPart>();
+  const parts = new Set<MotionTextPart>();
   for (const location of failure.detail) {
     if (typeof location !== "object" || location === null) {
       continue;
     }
     const part: unknown = (location as { part?: unknown }).part;
     if (typeof part === "string" && MOTION_PARTS.includes(part)) {
-      parts.add(part as MotionPart);
+      parts.add(part as MotionTextPart);
     }
   }
   return [...parts];

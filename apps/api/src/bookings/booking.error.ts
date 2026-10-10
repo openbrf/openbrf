@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { BookingReason, BookingTextField } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -16,7 +17,7 @@ export type BookingQuota = "maxConcurrentBookings" | "maxBookingsPerWeek";
  * blocks to number.
  */
 export interface BookingTextLocation {
-  field: "name" | "description";
+  field: BookingTextField;
   /** Where in that field's text the refused value starts. */
   offset: number;
 }
@@ -69,25 +70,7 @@ export class BookingError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      | "resource-not-found"
-      | "resource-deactivated"
-      | "resource-in-use"
-      | "schedule-required"
-      | "schedule-not-applicable"
-      | "closes-before-opens"
-      | "slot-does-not-fit"
-      | "quota-not-positive"
-      | "personal-identity-number"
-      | "booking-not-found"
-      | "apartment-not-found"
-      | "range-invalid"
-      | "slot-not-bookable"
-      | "slot-taken"
-      | "quota-reached"
-      | "already-cancelled"
-      | "booking-started"
-      | "booking-ended",
+    readonly reason: BookingReason,
     private readonly found: {
       /**
        * Which limit was reached, for `quota-reached` and nothing else.
@@ -135,7 +118,7 @@ export class BookingError extends DomainError {
  * A switch over the whole union rather than a chain of ternaries, so a reason
  * added without a status is a compile error rather than a 500 in production.
  */
-function statusFor(reason: BookingError["reason"]): number {
+function statusFor(reason: BookingReason): number {
   switch (reason) {
     case "resource-not-found":
     case "booking-not-found":

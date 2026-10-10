@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { ChatReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -17,19 +18,6 @@ export interface ChatTextLocation {
   /** Where in that text the refused value starts. */
   offset: number;
 }
-
-export type ChatReason =
-  | "chat-not-found"
-  | "message-not-found"
-  | "report-not-found"
-  | "report-resolved"
-  | "not-a-resident"
-  | "not-reportable"
-  | "too-many-groups"
-  | "group-full"
-  | "already-reported"
-  | "personal-identity-number"
-  | "too-many-messages";
 
 /**
  * A refusal from the chat.
