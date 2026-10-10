@@ -60,20 +60,39 @@ describe("a wait that fails", () => {
   }
 
   /**
+   * A connection that is gone, as the driver reports it: an `error` event on
+   * the client first, then the query it fails.
+   */
+  function dropped(client: Client, message: string): Promise<never> {
+    const error = new Error(message);
+    client.emit("error", error);
+    return Promise.reject(error);
+  }
+
+  const after = (milliseconds: number, rows: unknown[]): Promise<unknown> =>
+    new Promise((resolve) => setTimeout(() => resolve({ rows }), milliseconds));
+
+  /**
    * Runs the lock over a session whose wait fails with `waitFails`, and whose
    * answer to the next query is `answer`.
    */
   async function waitFailing(
     waitFails: Error,
-    answer: () => Promise<unknown>,
+    answer: (client: Client) => Promise<unknown>,
     limits: Partial<PackageLockLimits> = {},
-  ): Promise<{ error: unknown; entered: boolean; queries: unknown[] }> {
+  ): Promise<{
+    error: unknown;
+    entered: boolean;
+    queries: unknown[];
+    closed: boolean;
+  }> {
     vi.spyOn(Client.prototype, "connect").mockResolvedValue(undefined);
-    vi.spyOn(Client.prototype, "end").mockResolvedValue(undefined);
+    const end = vi.spyOn(Client.prototype, "end").mockResolvedValue(undefined);
     const queries: unknown[] = [];
-    vi.spyOn(Client.prototype, "query").mockImplementation(((
+    vi.spyOn(Client.prototype, "query").mockImplementation(function (
+      this: Client,
       query: unknown,
-    ) => {
+    ) {
       queries.push(query);
       switch (queries.length) {
         case 1:
@@ -81,9 +100,9 @@ describe("a wait that fails", () => {
         case 2:
           return Promise.reject(waitFails);
         default:
-          return answer();
+          return answer(this);
       }
-    }) as never);
+    } as never);
 
     let entered = false;
     const error = await new PackageLock(env as Env, {
@@ -94,22 +113,25 @@ describe("a wait that fails", () => {
         entered = true;
       })
       .catch((caught: unknown) => caught);
-    return { error, entered, queries };
+    return { error, entered, queries, closed: end.mock.calls.length === 1 };
   }
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("answers a lost lock when the session does not answer", async () => {
-    const fatal = fromServer("FATALT", "57P01");
-    const { error, entered, queries } = await waitFailing(fatal, () =>
-      Promise.reject(new Error("Connection terminated unexpectedly")),
+  it("answers a lost lock when the connection drops as the session is asked", async () => {
+    const { error, entered, queries } = await waitFailing(
+      fromServer("FATALT", "57P01"),
+      (client) => dropped(client, "Connection terminated unexpectedly"),
     );
 
     expect(entered).toBe(false);
     expect(error).toBeInstanceOf(PackageLockLostError);
-    expect((error as PackageLockLostError).cause).toBe(fatal);
+    // The drop the driver reported is what ended the lock.
+    expect((error as PackageLockLostError).cause).toMatchObject({
+      message: "Connection terminated unexpectedly",
+    });
     expect(queries).toHaveLength(3);
   });
 
@@ -124,27 +146,72 @@ describe("a wait that fails", () => {
   });
 
   it("asks the session after a failure that is not the server's", async () => {
-    const dropped = new Error("read ECONNRESET");
-    const { error } = await waitFailing(dropped, () =>
-      Promise.reject(
-        new Error(
+    const { error } = await waitFailing(
+      new Error("read ECONNRESET"),
+      (client) =>
+        dropped(
+          client,
           "Client has encountered a connection error and is not queryable",
         ),
-      ),
     );
 
     expect(error).toBeInstanceOf(PackageLockLostError);
   });
 
-  it("takes a session that does not answer in time for gone", async () => {
-    const { error } = await waitFailing(
-      fromServer("FATALT", "57P01"),
+  it("answers a lost lock when the session's answer says it ended", async () => {
+    const { error } = await waitFailing(fromServer("FATALT", "57P01"), () =>
+      Promise.reject(fromServer("FATAL", "57P01")),
+    );
+
+    expect(error).toBeInstanceOf(PackageLockLostError);
+  });
+
+  /*
+   * The review's case, seen against PostgreSQL 18: a Swedish server, and a
+   * session that answers - only later than the lock gives it. Not answering in
+   * time does not make it gone, so the wait's own failure stands.
+   */
+  it("keeps the query's own failure when the session answers late", async () => {
+    const refused = fromServer("FEL", "57014");
+    const { error, entered, closed } = await waitFailing(
+      refused,
+      () => after(100, [{ "?column?": 1 }]),
+      { connectMs: 20 },
+    );
+
+    expect(entered).toBe(false);
+    expect(error).toBe(refused);
+    expect(closed).toBe(true);
+  });
+
+  it("keeps the query's own failure when the session never answers, and closes it", async () => {
+    const fatal = fromServer("FATALT", "57P01");
+    const { error, closed } = await waitFailing(
+      fatal,
       () => new Promise<never>(() => undefined),
       { connectMs: 20 },
     );
 
-    expect(error).toBeInstanceOf(PackageLockLostError);
+    expect(error).toBe(fatal);
+    expect(closed).toBe(true);
   });
+
+  /*
+   * A question the session refuses and goes on after says nothing about the
+   * wait before it, whatever language the refusal is in.
+   */
+  it.each(["ERROR", "FEL"])(
+    "keeps the query's own failure when the question is cancelled with %s",
+    async (severity) => {
+      const refused = fromServer("FEL", "57014");
+      const { error, entered } = await waitFailing(refused, () =>
+        Promise.reject(fromServer(severity, "57014")),
+      );
+
+      expect(entered).toBe(false);
+      expect(error).toBe(refused);
+    },
+  );
 
   it("does not ask when the severity says the session ended", async () => {
     const { error, queries } = await waitFailing(

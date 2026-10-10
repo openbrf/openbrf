@@ -52,7 +52,7 @@ export function terminateAdvisoryLockHolder(
   prisma: PrismaService,
   key: string,
 ): Promise<number> {
-  return terminateAdvisoryLockSessions(prisma, key, true);
+  return stopAdvisoryLockSessions(prisma, key, true, "terminate");
 }
 
 /**
@@ -66,7 +66,7 @@ export function terminateAdvisoryLockWaiters(
   prisma: PrismaService,
   key: string,
 ): Promise<number> {
-  return terminateAdvisoryLockSessions(prisma, key, false);
+  return stopAdvisoryLockSessions(prisma, key, false, "terminate");
 }
 
 /**
@@ -80,20 +80,25 @@ export function cancelAdvisoryLockWaiters(
   prisma: PrismaService,
   key: string,
 ): Promise<number> {
-  return terminateAdvisoryLockSessions(prisma, key, false, true);
+  return stopAdvisoryLockSessions(prisma, key, false, "cancel");
 }
 
-async function terminateAdvisoryLockSessions(
+/**
+ * Stops the sessions holding, or waiting for, an advisory lock key, in this
+ * database only, and says how many the server signalled: `"terminate"` ends
+ * each session, `"cancel"` only the query it is running.
+ */
+async function stopAdvisoryLockSessions(
   prisma: PrismaService,
   key: string,
   granted: boolean,
-  cancelOnly = false,
+  how: "terminate" | "cancel",
 ): Promise<number> {
-  const rows = await prisma.$queryRaw<{ terminated: boolean }[]>`
-    SELECT CASE WHEN ${cancelOnly}
+  const rows = await prisma.$queryRaw<{ signalled: boolean }[]>`
+    SELECT CASE WHEN ${how === "cancel"}
       THEN pg_cancel_backend(pid)
       ELSE pg_terminate_backend(pid)
-    END AS terminated
+    END AS signalled
     FROM pg_locks
     WHERE locktype = 'advisory'
       AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
@@ -101,7 +106,7 @@ async function terminateAdvisoryLockSessions(
       AND objsubid = 1
       AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
       AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
-  return rows.filter((row) => row.terminated).length;
+  return rows.filter((row) => row.signalled).length;
 }
 
 /**
