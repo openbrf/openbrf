@@ -19,6 +19,7 @@ export interface InvitationMailProps {
  */
 export const invitationMail: MailTemplate<InvitationMailProps> = {
   id: "invitation",
+  processing: "signupRequestsAndInvitations",
 
   subject: (_props, { t, brand }) =>
     t("email.invitation.subject", { association: brand.associationName }),

@@ -39,6 +39,7 @@ export interface BoardMailboxReplyMailProps {
  */
 export const boardMailboxReplyMail: MailTemplate<BoardMailboxReplyMailProps> = {
   id: "board-mailbox-reply",
+  processing: "boardMailbox",
 
   subject: (props, { t }) =>
     t("email.boardMailboxReply.subject", { subject: props.subject }),

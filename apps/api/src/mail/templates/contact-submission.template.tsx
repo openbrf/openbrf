@@ -31,6 +31,7 @@ export interface ContactSubmissionMailProps {
  */
 export const contactSubmissionMail: MailTemplate<ContactSubmissionMailProps> = {
   id: "contact-submission",
+  processing: "contactSubmissions",
 
   subject: (props, { t }) =>
     t("email.contactSubmission.subject", {

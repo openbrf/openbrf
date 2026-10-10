@@ -21,6 +21,7 @@ export interface MagicLinkRefusedMailProps {
  */
 export const magicLinkRefusedMail: MailTemplate<MagicLinkRefusedMailProps> = {
   id: "magic-link-refused",
+  processing: "addressBookAndAccounts",
 
   subject: (_props, { t, brand }) =>
     t("email.magicLinkRefused.subject", { association: brand.associationName }),

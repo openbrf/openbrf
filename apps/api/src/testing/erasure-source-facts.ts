@@ -33,6 +33,11 @@ import { parseSync } from "@swc/core";
  * never written only while no file the server runs writes its model, and a file
  * that starts to is the moment that reason stops being true.
  *
+ * And one more: which mail templates a file declares.
+ * `data-protection/mail-processing.spec.ts` holds every mail the server can
+ * send to a row of the record of processing activities that names the mail
+ * server, and a template it never heard of is the mailer that row forgot.
+ *
  * This file lives under `src/testing`, which the walk below skips along with
  * the generated client: a helper that describes the rule is not one of the jobs
  * the rule is about.
@@ -83,6 +88,12 @@ export interface SourceFacts {
    * per delegate, in the order first met.
    */
   writtenDelegates: string[];
+  /**
+   * The id of every mail template the file declares, read as an object with an
+   * `id` and a `subject` and `body` that are functions, which is the shape
+   * MailService renders. An id that is not a literal is listed as null.
+   */
+  mailTemplateIds: (string | null)[];
 }
 
 type SyntaxNode = { type: string } & Record<string, unknown>;
@@ -185,6 +196,50 @@ function propertiesOf(node: SyntaxNode): Map<string, unknown> {
     }
   }
   return properties;
+}
+
+/** Whether a value is a function written in place. */
+function isFunction(node: unknown): boolean {
+  const expression = unwrapped(node);
+  return (
+    isNode(expression) &&
+    (expression.type === "ArrowFunctionExpression" ||
+      expression.type === "FunctionExpression")
+  );
+}
+
+/**
+ * The id of the mail template an object literal is, or undefined where it is
+ * not one: a `select` asking for a thread's id, subject and body has the names
+ * and none of the functions.
+ */
+function mailTemplateId(node: SyntaxNode): string | null | undefined {
+  if (node.type !== "ObjectExpression" || !Array.isArray(node.properties)) {
+    return undefined;
+  }
+  const functions = new Set<string>();
+  for (const property of node.properties as unknown[]) {
+    if (!isNode(property)) {
+      continue;
+    }
+    const key = nameOf(property.key);
+    if (
+      key !== undefined &&
+      (property.type === "MethodProperty" ||
+        (property.type === "KeyValueProperty" && isFunction(property.value)))
+    ) {
+      functions.add(key);
+    }
+  }
+  const properties = propertiesOf(node);
+  if (
+    !properties.has("id") ||
+    !functions.has("subject") ||
+    !functions.has("body")
+  ) {
+    return undefined;
+  }
+  return stringValue(properties.get("id")) ?? null;
 }
 
 /** The method a call names, when its callee is `something.method`. */
@@ -330,10 +385,15 @@ function factsOf(path: string, source: string): SourceFacts {
     marksRequestExecuted: false,
     schedules: [],
     writtenDelegates: [],
+    mailTemplateIds: [],
   };
   for (const node of nodesIn(module)) {
     if (node.type === "ObjectExpression" && asksForOpenErasure(node)) {
       facts.readsGrantedErasure = true;
+    }
+    const templateId = mailTemplateId(node);
+    if (templateId !== undefined) {
+      facts.mailTemplateIds.push(templateId);
     }
     if (node.type !== "CallExpression") {
       continue;

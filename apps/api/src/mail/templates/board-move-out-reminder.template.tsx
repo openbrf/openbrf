@@ -23,6 +23,8 @@ export interface BoardMoveOutReminderMailProps {
 export const boardMoveOutReminderMail: MailTemplate<BoardMoveOutReminderMailProps> =
   {
     id: "board-move-out-reminder",
+    // A resident's move-out, which the address book records.
+    processing: "addressBookAndAccounts",
 
     subject: (props, { t }) =>
       t("email.boardMoveOutReminder.subject", {
