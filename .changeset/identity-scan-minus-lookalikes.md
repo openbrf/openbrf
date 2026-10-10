@@ -5,7 +5,7 @@
 
 Close two gaps left by the subletting follow-up.
 
-The identity-number scan now reads the characters that look like the minus
+The personal identity number scan now reads the characters that look like the minus
 between the date and the last four as that sign: the modifier letter minus, the
 hyphen bullet, the heavy minus sign, the box drawings horizontals and the
 horizontal line extension. Unicode files none of them as a dash, so a number
