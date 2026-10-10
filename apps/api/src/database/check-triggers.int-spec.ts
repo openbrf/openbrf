@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -387,6 +388,98 @@ describe("the trigger check before the migrations", () => {
     },
     60_000,
   );
+
+  it("stops on a function of another role's that it added to an extension of its own, and passes the extension", async () => {
+    // A role trusted with an extension owns the extension, and can add a
+    // function of its own to it with ALTER EXTENSION ... ADD; what the
+    // extension created belongs to the bootstrap superuser. The check runs as
+    // a database owner that is not a superuser, as on a shared server, so
+    // that the superuser's objects are not the running role's own.
+    const MARKER = `planted quote_ident ${suffix}`;
+    const OWNER_ROLE = `openbrf_trigger_owner_${suffix}`;
+    const OWNER_PASSWORD = randomBytes(16).toString("hex");
+    const databaseUrl = await scratch.create("triggers_extension");
+    const asDatabaseOwner = new URL(databaseUrl);
+    asDatabaseOwner.username = OWNER_ROLE;
+    asDatabaseOwner.password = OWNER_PASSWORD;
+    await asOwner(
+      `CREATE ROLE ${OWNER_ROLE} LOGIN PASSWORD '${OWNER_PASSWORD}'`,
+    );
+    try {
+      await withClient(databaseUrl, async (client) => {
+        await client.query(
+          `DO $$ BEGIN
+             EXECUTE format('ALTER DATABASE %I OWNER TO ${OWNER_ROLE}', current_database());
+             EXECUTE format('GRANT CREATE ON DATABASE %I TO ${PROBE_ROLE}', current_database());
+           END $$`,
+        );
+        await client.query(`GRANT CREATE ON SCHEMA public TO ${PROBE_ROLE}`);
+        // What the role leaves behind while it holds CREATE: hstore is a
+        // trusted extension, and quote_ident(name) wins over the built-in
+        // for a role name, as the case on the search path below says.
+        await client.query(`SET ROLE ${PROBE_ROLE}`);
+        await client.query("CREATE EXTENSION hstore SCHEMA public");
+        await client.query(
+          `CREATE FUNCTION public.quote_ident(name) RETURNS text LANGUAGE plpgsql
+           AS $$ BEGIN RAISE EXCEPTION '${MARKER} ran as %', current_user; END $$`,
+        );
+        await client.query("RESET ROLE");
+        await client.query(
+          `DO $$ BEGIN
+             EXECUTE format('REVOKE CREATE ON DATABASE %I FROM ${PROBE_ROLE}', current_database());
+           END $$`,
+        );
+        await client.query(`REVOKE CREATE ON SCHEMA public FROM ${PROBE_ROLE}`);
+      });
+      const reported =
+        `public.quote_ident(name) is a function that ${PROBE_ROLE} owns, ` +
+        "not the schema owner.";
+
+      const planted = check(asDatabaseOwner.href);
+      expect(planted.status, planted.output).toBe(1);
+      expect(planted.output).toContain(reported);
+
+      // Adding it to the extension asks for no CREATE, only ownership of
+      // both, so the role can do it after the revoke.
+      await withClient(databaseUrl, async (client) => {
+        await client.query(`SET ROLE ${PROBE_ROLE}`);
+        await client.query(
+          "ALTER EXTENSION hstore ADD FUNCTION public.quote_ident(name)",
+        );
+      });
+      const attached = check(asDatabaseOwner.href);
+      expect(attached.output, "the planted function ran").not.toContain(MARKER);
+      expect(attached.status, attached.output).toBe(1);
+      expect(attached.output).toContain(reported);
+
+      // The extension's own functions and operators, which the bootstrap
+      // superuser owns, pass once the planted one is gone.
+      await withClient(databaseUrl, async (client) => {
+        await client.query(
+          "ALTER EXTENSION hstore DROP FUNCTION public.quote_ident(name)",
+        );
+        await client.query("DROP FUNCTION public.quote_ident(name)");
+      });
+      const passed = check(asDatabaseOwner.href);
+      expect(passed.status, passed.output).toBe(0);
+      const extension = await withClient(databaseUrl, async (client) => {
+        const result = await client.query<{ owner: string; objects: number }>(
+          `SELECT e.extowner::regrole::text AS owner,
+                  (SELECT count(*)::int FROM pg_depend d
+                   WHERE d.refclassid = 'pg_extension'::regclass
+                     AND d.refobjid = e.oid AND d.deptype = 'e') AS objects
+           FROM pg_extension e WHERE e.extname = 'hstore'`,
+        );
+        return result.rows[0];
+      });
+      expect(extension?.owner).toBe(PROBE_ROLE);
+      expect(extension?.objects).toBeGreaterThan(0);
+    } finally {
+      // The database first: the role owns it.
+      await scratch.dropAll();
+      await asOwner(`DROP ROLE IF EXISTS ${OWNER_ROLE}`);
+    }
+  }, 90_000);
 
   it("stops while public belongs to pg_database_owner and the database to another role", async () => {
     // pg_database_owner stands for whoever owns the database, which here is

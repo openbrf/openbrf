@@ -19,7 +19,11 @@ the migrations have run.
   schema owner owns, while such a role owns either schema, and while such a
   role, or `PUBLIC`, holds `CREATE` on either schema or is given it by the
   owner's default privileges. A superuser may own either schema, and so may
-  `pg_database_owner` while the schema owner owns the database.
+  `pg_database_owner` while the schema owner owns the database. A function or
+  operator an extension installed passes where a superuser owns it, as the
+  bootstrap superuser does for a trusted extension a role installed; one of
+  another role's does not pass for belonging to an extension, since whoever
+  owns the extension can add their own to it with `ALTER EXTENSION ... ADD`.
 - Every catalog query the check runs pins `search_path` to `pg_catalog`. Only
   the first one did, so the others could call a function in `public` that
   matched their arguments better than the built-in, as the owner.

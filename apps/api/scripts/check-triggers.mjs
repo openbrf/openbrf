@@ -208,8 +208,11 @@ async function grantFindings(db) {
  * as another role, and the schema-owner service hands what the superuser's
  * migrations created to the owner, so one that is left was put there by hand,
  * or by a role holding CREATE in the schema. What an extension installed is
- * left out: only a superuser, or a role trusted with the extension, installs
- * one, and the extension owns it.
+ * left out where a superuser owns it: a superuser installs an extension, or
+ * the bootstrap superuser does for a role trusted with one, and owns what it
+ * creates. Belonging to an extension is not enough on its own, because whoever
+ * owns an extension can add a function or operator of their own to it with
+ * ALTER EXTENSION ... ADD.
  */
 async function objectFindings(db) {
   const rows = await catalogRows(
@@ -234,11 +237,13 @@ async function objectFindings(db) {
        WHERE n.nspname IN ('public', 'pgboss')
      ) AS objects
      WHERE objects.owner <> ${RUNNING_ROLE}
-       AND NOT EXISTS (
-         SELECT FROM pg_depend d
-         WHERE d.classid = objects.catalog
-           AND d.objid = objects.object
-           AND d.deptype = 'e'
+       AND NOT (
+         EXISTS (SELECT FROM pg_roles r
+                 WHERE r.oid = objects.owner AND r.rolsuper)
+         AND EXISTS (SELECT FROM pg_depend d
+                     WHERE d.classid = objects.catalog
+                       AND d.objid = objects.object
+                       AND d.deptype = 'e')
        )
      ORDER BY objects.name`,
   );
@@ -438,7 +443,9 @@ if (import.meta.main) {
     await client.end();
   }
   console.log(
-    "The triggers are the ones Open BRF creates, and only the schema owner " +
-      "can create functions or operators in public and pgboss.",
+    "The triggers are the ones Open BRF creates, no role but a table's owner " +
+      "holds TRIGGER on one, and no role but the schema owner or a superuser " +
+      "owns public or pgboss, owns a function or operator in them, or holds " +
+      "CREATE on them.",
   );
 }
