@@ -620,15 +620,16 @@ export function rowResidency(row: PlannedRow): RowResidency | null {
 /**
  * The residency already held that the row's residency is, if there is one.
  *
- * The same role on the same apartment from the same day is the same residency:
- * it is what a row already written, or a row listed twice, looks like. A row
- * that does not state its own move-in date says only that the person lives
- * here in that role, so a residency in that role that it shares a day with is
- * the same one too, as long as it ends when the row says. Read as a residency
- * of its own from the default date, a register imported again without its
- * move-in column would refuse every resident it already holds. A row that
- * ends a residency still open, or keeps one open that has ended, is not that
- * residency: taken as it, the row's end would be dropped without a word.
+ * The same role on the same apartment from the same day, ending the same day,
+ * is the same residency: it is what a row already written, or a row listed
+ * twice, looks like. A row that does not state its own move-in date says only
+ * that the person lives here in that role, so a residency in that role that it
+ * shares a day with is the same one too. Read as a residency of its own from
+ * the default date, a register imported again without its move-in column would
+ * refuse every resident it already holds. A row that ends a residency still
+ * open, or keeps one open that has ended, or ends it on another day, is not
+ * that residency, whether it states its move-in date or not: taken as it, the
+ * row's end would be dropped without a word.
  */
 export function heldAlready(
   residency: RowResidency,
@@ -638,10 +639,9 @@ export function heldAlready(
     (other) =>
       other.apartmentId === residency.apartmentId &&
       other.role === residency.role &&
+      other.movedOutOn === residency.movedOutOn &&
       (other.movedInOn === residency.movedInOn ||
-        (!residency.movedInStated &&
-          other.movedOutOn === residency.movedOutOn &&
-          overlaps(residency, other))),
+        (!residency.movedInStated && overlaps(residency, other))),
   );
 }
 

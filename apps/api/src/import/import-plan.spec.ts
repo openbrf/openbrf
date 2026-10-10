@@ -1543,6 +1543,63 @@ describe("a residency the person already holds", () => {
     });
   });
 
+  it("refuses a row with its own date that ends the residency they hold", () => {
+    // Anna has been a member of 1101 since 2019-06-01, and the file lists her
+    // from that day to midsummer. The import does not end a residency, and
+    // taking the row as the one she holds would drop the move-out without a
+    // word.
+    const plan = planImport(
+      [
+        prepared(
+          { ...COMPLETE, movedOutOn: "2026-06-30" },
+          { emailIndex: "anna-index" },
+        ),
+      ],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          ["person-anna", heldAsComplete("apartment-1101")],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("error");
+    expect(plan.rows[0]?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "residency-conflict",
+    });
+  });
+
+  it("refuses a row with its own date that keeps open a residency that has ended", () => {
+    const plan = planImport(
+      [prepared(COMPLETE, { emailIndex: "anna-index" })],
+      snapshot({
+        ...anna,
+        residenciesByPerson: new Map([
+          [
+            "person-anna",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "MEMBER",
+                movedInOn: "2019-06-01",
+                movedOutOn: "2024-01-01",
+              },
+            ],
+          ],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("error");
+    expect(plan.rows[0]?.problems).toContainEqual({
+      field: "movedInOn",
+      reason: "residency-conflict",
+    });
+  });
+
   it("refuses a row without its own date that ends the residency they hold", () => {
     // Anna has been a member of 1101 since 2015, and the file says she moves
     // out at midsummer. The import does not end a residency, and taking the

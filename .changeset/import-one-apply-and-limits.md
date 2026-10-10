@@ -8,10 +8,8 @@
 The member list import writes each person once, and reads a file within fixed
 limits.
 
-- Only one import is written to the register at a time, which the database now
-  enforces as well, and every part of an import is planned again under a lock
-  before it is written. An install that has more than one running when it is
-  upgraded keeps the one furthest along and records the others as stopped.
+- Only one import is written to the register at a time, and every part of an
+  import is planned again under its locks before it is written.
   Coming back to the import screen shows the import that is still running
   rather than a newer one that has finished.
 - The preview is worked out in the background, and the screen shows how far it
@@ -35,6 +33,3 @@ limits.
   only formatted, below or beside the list, do not count. A quotation mark that
   is never closed is refused instead of turning the rest of the file into one
   cell.
-- The blind indexes of stored personal identity numbers are rewritten in the
-  background after the upgrade, each number dated by the day its person was
-  entered rather than by the day of the upgrade.
