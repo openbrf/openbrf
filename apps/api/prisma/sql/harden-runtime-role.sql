@@ -36,8 +36,9 @@
 -- the password, and quoted wherever it is used.
 --
 -- RUNTIME_DB_CONNECTION_LIMIT caps how many sessions the runtime role may hold
--- at once, 15 when it is unset or empty. The entrypoint sets it to the
--- application's pool plus the job queue's plus three to spare. On a shared
+-- at once, 19 when it is unset or empty. The entrypoint sets it to the
+-- application's pool plus the job queue's plus the package lock's sessions
+-- plus three to spare. On a shared
 -- server that is what keeps one instance, or code running inside it, from
 -- taking every connection the server has and stopping all the others. A value
 -- below 1 is refused: -1 would mean no limit at all.
@@ -68,7 +69,7 @@ SELECT coalesce(nullif(:'app_role', ''), 'openbrf_app') AS app_role
 \else
 \set app_connection_limit ''
 \endif
-SELECT coalesce(nullif(:'app_connection_limit', ''), '15') AS app_connection_limit
+SELECT coalesce(nullif(:'app_connection_limit', ''), '19') AS app_connection_limit
 \gset
 
 BEGIN;

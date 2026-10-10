@@ -42,6 +42,7 @@
     "fastify": "^5.12.5",
     "i18next": "^26.4.2",
     "nodemailer": "^10.0.15",
+    "pg": "^8.23.1",
     "pg-boss": "12.37.0",
     "prisma": "7.10.0",
     "react": "^19.3.0",
@@ -65,7 +66,6 @@
     "fflate": "^0.8.3",
     "oxlint": "^1.87.0",
     "oxlint-tsgolint": "^7.0.2003",
-    "pg": "^8.23.1",
     "typescript": "^7.0.2",
     "unplugin-swc": "^2.0.0",
     "vitest": "^5.0.3"

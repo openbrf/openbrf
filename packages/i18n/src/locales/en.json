@@ -1594,7 +1594,8 @@
       "remove": "Remove",
       "removeConfirm": "Yes, remove it",
       "removeCancel": "Keep it",
-      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code."
+      "removeWarning": "The plugin's settings are deleted with it, and the application restarts to unload its code.",
+      "removeBusy": "The plugin was not removed, because another change to it, or to other plugins and themes, was still under way. Wait a moment and try again."
     },
     "catalog": {
       "title": "Catalog",
@@ -1650,7 +1651,8 @@
         "resourceConflict": "The plugin was not installed. Another installed plugin already serves the address that connected apps sign in to, and only one at a time can. Remove that plugin first, or every connection the members have already granted stops working.",
         "reservedId": "The plugin was not installed. The plugin id mcp-connector is reserved: the instance points connected apps at that address to sign in, so only a plugin that serves it itself may take the id.",
         "recipientRecorded": "The plugin was not installed. The data protection screen has recorded where this plugin sends personal data since this screen was opened, and installing does not change that record. Cancel and choose the plugin again to install it with the answer the record holds; change the answer on the data protection screen.",
-        "deprecated": "The plugin was not installed. The catalog marks it as no longer maintained, so it can only be reinstalled or updated where it is already installed."
+        "deprecated": "The plugin was not installed. The catalog marks it as no longer maintained, so it can only be reinstalled or updated where it is already installed.",
+        "busy": "The plugin was not installed, because another change to it, or to other plugins and themes, was still under way. Wait a moment and try again."
       }
     },
     "permissions": {
@@ -1846,6 +1848,7 @@
       "lintFailed": "The theme was refused:",
       "notInCatalog": "The catalog no longer lists that theme.",
       "entryDeprecated": "The catalog marks that theme as no longer maintained, so it can only be reinstalled or updated where it is already installed.",
+      "packageBusy": "Another change to that theme, or to other themes and plugins, was still under way, so nothing was changed. Wait a moment and try again.",
       "themeNotInstalled": "That theme is not installed.",
       "builtInTheme": "The default theme is built into the application and cannot be removed.",
       "themeInUse": "That theme is the active one. Switch to another theme first.",

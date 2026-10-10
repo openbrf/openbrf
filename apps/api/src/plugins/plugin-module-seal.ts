@@ -178,6 +178,11 @@ export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
     why: "it speaks to the catalogue the board installs from, so a plugin holding it acts as the instance towards the place its own successor is fetched from",
   },
   {
+    exported: "PackageLock",
+    token: "PackageLock",
+    why: "it holds the lock an install and an uninstall of one package take, so a plugin holding it could keep the board from installing or removing any plugin or theme, its own successor included, for as long as it liked",
+  },
+  {
     exported: "ENV",
     token: "OPENBRF_ENV",
     why: "it is the instance's whole configuration, secrets included - and the token is a symbol, so a set of class names could never have refused it",
@@ -240,7 +245,7 @@ export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
  * Root-injector exports a plugin may hold, with the reason each is safe.
  *
  * Empty, and that is the current answer rather than an oversight: every one of
- * the fourteen names the twelve global modules export is either the register,
+ * the fifteen names the twelve global modules export is either the register,
  * an authority, a channel out of the instance, or a narrowed service the host
  * hands over deliberately. The list exists because the guard script reads both,
  * so a future global export can be classified as safe by somebody willing to

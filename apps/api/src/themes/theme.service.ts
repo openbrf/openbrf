@@ -24,6 +24,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { PackageLock } from "../packaging/package-lock";
 import { ThemeStore } from "./theme-store";
 
 /**
@@ -227,6 +228,7 @@ export class ThemeService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly store: ThemeStore,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /** The chain entry an installed row contributes to inheritance. */
@@ -534,6 +536,18 @@ export class ThemeService {
       );
     }
 
+    // The checks below read the row an install of this id writes, and the
+    // removal takes its files with it, so both run under the one lock. See
+    // {@link PackageLock}.
+    return await this.packageLock.run("theme", themeId, (lockLost) =>
+      this.uninstallLocked(themeId, lockLost),
+    );
+  }
+
+  private async uninstallLocked(
+    themeId: string,
+    lockLost: AbortSignal,
+  ): Promise<ThemeSummary[]> {
     const [rows, activeId] = await Promise.all([
       this.installedRows(),
       this.activeThemeId(),
@@ -573,8 +587,18 @@ export class ThemeService {
      * So a failed removal is recorded and not raised: the uninstall did happen,
      * and reporting it as a failure would send a board member to retry an
      * operation that has already succeeded.
+     *
+     * Both are checked against the package lock first. The files most of all:
+     * once the row is gone an install of the same id may already be putting
+     * its own files in that directory, and with the lock lost nothing would
+     * stop this removal from taking them. A lost lock is raised, not recorded:
+     * it is the database session failing under the operation rather than the
+     * volume, and it gets the answer it gets everywhere else. The files it
+     * leaves are unreferenced like any other.
      */
+    lockLost.throwIfAborted();
     await this.prisma.installedTheme.delete({ where: { id: themeId } });
+    lockLost.throwIfAborted();
     try {
       await this.store.remove(themeId);
     } catch (cause) {
@@ -583,7 +607,7 @@ export class ThemeService {
         cause instanceof Error ? cause.stack : undefined,
       );
     }
-    await this.recomputeResolvedTokens();
+    await this.recomputeResolvedTokens(lockLost);
 
     this.logger.log(`Uninstalled theme ${themeId}`);
     return this.list();
@@ -596,8 +620,14 @@ export class ThemeService {
    * ancestors, so replacing one theme changes what its descendants render, and
    * leaving the stored sets stale would make the interface show values the
    * install lint never measured.
+   *
+   * Run under the package lock of the theme that was installed or removed,
+   * and checked against it before every write. The values written are
+   * computed from the rows read at the start, so once the lock is lost
+   * another install of that id may have written newer ones, and a write from
+   * the older read would pair its declared tokens with stale resolved ones.
    */
-  async recomputeResolvedTokens(): Promise<void> {
+  async recomputeResolvedTokens(lockLost: AbortSignal): Promise<void> {
     const rows = await this.installedRows();
     const lookup = ThemeService.lookupOver(rows);
 
@@ -610,6 +640,7 @@ export class ThemeService {
         continue;
       }
       const resolved = resolveChainTokens(chain.chain);
+      lockLost.throwIfAborted();
       await this.prisma.installedTheme.update({
         where: { id: row.id },
         data: {
