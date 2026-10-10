@@ -203,7 +203,37 @@ function compose(args: readonly string[], timeoutMs: number): void {
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
   writeMailTls();
+  pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+/**
+ * Pulls the stack's registry images, retrying a throttled pull.
+ *
+ * The registries CI pulls from need no credentials, and answer a burst from a
+ * shared runner address with `toomanyrequests: Rate exceeded` (ECR Public does,
+ * for one). That clears within seconds, so a pull is retried with a growing
+ * pause instead of failing the run. Images built from the repository are left
+ * to `up --build`.
+ */
+function pullImages(): void {
+  const attempts = 4;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      compose(["pull", "--ignore-buildable"], 10 * 60_000);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) {
+        throw error;
+      }
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        attempt * 15_000,
+      );
+    }
+  }
 }
 
 /**
