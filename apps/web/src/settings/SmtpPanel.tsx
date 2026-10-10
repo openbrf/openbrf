@@ -196,7 +196,6 @@ function StoredSmtpPanel({
   const [clearPassword, setClearPassword] = useState(false);
   const [fromAddress, setFromAddress] = useState(value.fromAddress ?? "");
   const [configured, setConfigured] = useState(value.configured);
-  const [tlsOptional, setTlsOptional] = useState(value.tlsOptional);
   /** Where the last test went, so the confirmation can name the mailbox. */
   const [testedAddress, setTestedAddress] = useState<string | null>(null);
   const secureHintId = useId();
@@ -205,9 +204,6 @@ function StoredSmtpPanel({
     setPassword("");
     setClearPassword(false);
     setConfigured(saved.configured);
-    if (saved.source === "settings") {
-      setTlsOptional(saved.tlsOptional);
-    }
     onSaved?.(saved);
   });
   const test = useSaveAction(sendSmtpTest, (result) => {
@@ -255,16 +251,9 @@ function StoredSmtpPanel({
             )}
           </Notice>
         ) : test.state.kind === "saved" && testedAddress !== null ? (
-          <>
-            <Notice tone="ok" live>
-              {t("settings.smtp.testSent", { email: testedAddress })}
-            </Notice>
-            {/* A working test says nothing about the encryption: the settings
-                still allow an unencrypted sign-in until a save requires TLS. */}
-            {tlsOptional ? (
-              <Notice tone="warn">{t("settings.smtp.tlsOptional")}</Notice>
-            ) : null}
-          </>
+          <Notice tone="ok" live>
+            {t("settings.smtp.testSent", { email: testedAddress })}
+          </Notice>
         ) : save.state.kind === "saved" ? (
           /* Confirmed here rather than left to the standing "configured"
              notice. The settings screen keys this panel on the host and on
@@ -274,11 +263,6 @@ function StoredSmtpPanel({
           <Notice tone="ok" live>
             {t("settings.saved")}
           </Notice>
-        ) : tlsOptional ? (
-          /* Settings saved before saving required TLS: they still send, and
-             the sign-in goes out unencrypted where STARTTLS is not offered or
-             is stripped on the way. Saving again requires it. */
-          <Notice tone="warn">{t("settings.smtp.tlsOptional")}</Notice>
         ) : configured ? (
           <Notice tone="ok">{t("settings.smtp.configured")}</Notice>
         ) : (

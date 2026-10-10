@@ -35,7 +35,6 @@ const CONFIGURED: StoredSmtpSettings = {
   user: "styrelsen",
   fromAddress: "styrelsen@exempel.se",
   passwordSet: true,
-  tlsOptional: false,
   configured: true,
 };
 
@@ -47,7 +46,6 @@ const EMPTY: StoredSmtpSettings = {
   user: null,
   fromAddress: null,
   passwordSet: false,
-  tlsOptional: false,
   configured: false,
 };
 
@@ -202,50 +200,6 @@ describe("a server that sets up no encrypted connection", () => {
     expect(
       screen.queryByText(/kontrollera server, port och lösenord/i),
     ).toBeNull();
-  });
-});
-
-describe("settings saved before TLS was required", () => {
-  const LEGACY: StoredSmtpSettings = {
-    ...CONFIGURED,
-    secure: false,
-    tlsOptional: true,
-  };
-
-  it("say the password can go out unencrypted until they are saved again", () => {
-    render(<SmtpPanel value={LEGACY} />);
-
-    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
-  });
-
-  it("keep saying so after a test message went through", async () => {
-    const session = userEvent.setup();
-    render(<SmtpPanel value={LEGACY} />);
-
-    await session.click(
-      screen.getByRole("button", { name: /testmeddelande/i }),
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/holger@exempel\.se/)).toBeTruthy();
-    });
-    expect(screen.getByText(/lösenordet skickas okrypterat/i)).toBeTruthy();
-  });
-
-  it("stop saying so once a save has required TLS", async () => {
-    saveSmtp.mockResolvedValue({
-      ok: true,
-      value: { ...LEGACY, tlsOptional: false },
-    });
-    const session = userEvent.setup();
-    render(<SmtpPanel value={LEGACY} />);
-
-    await save(session);
-
-    await waitFor(() => {
-      expect(screen.getByText("Sparat")).toBeTruthy();
-    });
-    expect(screen.queryByText(/lösenordet skickas okrypterat/i)).toBeNull();
   });
 });
 

@@ -147,12 +147,12 @@ Settings saved before that are migrated to the same rule: the upgrade sets
 `smtpRequireTls` on every row whose host is not on loopback. A connection that
 starts in cleartext to a server that offers no STARTTLS then stops sending mail
 until the board switches to implicit TLS or a port that offers STARTTLS. A row
-with implicit TLS is unaffected: its connection never asks for STARTTLS. A row
-that does not require it anyway, such as one a data-only restore of an older
-backup brought back, is used as stored. The SMTP card warns that the password can go out unencrypted
-until the board saves the settings again, and the instance logs a warning
-naming the host and port, never the user or the password, the first time it
-sends through it. Where STARTTLS is required, a send that finds no TLS fails
+with implicit TLS is unaffected: its connection never asks for STARTTLS. The
+column is only a floor for a server that is not on loopback: the instance
+requires STARTTLS of such a server when it sends, whatever the column says, so
+a row that does not require it anyway, such as one a data-only restore of an
+older backup or an edit made in SQL brought back, is held to the rule all the
+same. Only for a server on loopback does the column decide. Where STARTTLS is required, a send that finds no TLS fails
 with the reason `mail-tls-unavailable`, which the card explains as a port and
 TLS mode to fix rather than a password. The SMTP driver also reports the `Message-ID` it handed
 over as the delivered one, so the environment's relay must keep it; one that
@@ -166,6 +166,13 @@ card, and an attacker on the path who strips STARTTLS is not something a board
 would notice. A send that fails says why, on the card's test message and in the
 reason `mail-tls-unavailable`, so the migration trades a silent exposure for a
 failure that names its fix.
+
+_Amended 2026-10-10._ A row that still did not require STARTTLS of a remote
+server was then used as stored, flagged on the SMTP card and named in a log
+warning at its first send. Both said so after the password had gone, if anyone
+read them, and the migration cannot reach a row brought back after it ran, so
+the instance now requires STARTTLS of a remote server when it sends. The card's
+notice and the log warning are gone with the risk they described.
 
 ### The sender a host sets
 

@@ -806,9 +806,9 @@ Every send through such a connection fails with the reason
 message from the SMTP card after upgrading. If it fails that way, have the board
 switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
 587). Settings that do not require STARTTLS anyway, such as those a data-only
-restore of an older backup brings back, are flagged on the SMTP card until they
-are saved again, and the instance logs a warning naming the server the first
-time it sends through them.
+restore of an older backup brings back, are held to it all the same: the
+instance requires STARTTLS of a server that is not on loopback when it sends,
+whatever the stored settings say.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that

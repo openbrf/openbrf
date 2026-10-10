@@ -81,27 +81,6 @@ export type StoredMail = Prisma.AssociationGetPayload<{
   select: typeof STORED_MAIL_COLUMNS;
 }>;
 
-/**
- * Whether the board's stored server can be sent the sign-in unencrypted.
- *
- * It names no implicit TLS, does not require STARTTLS, and is not on loopback:
- * a server that offers no STARTTLS, or an attacker on the path who strips the
- * offer, then receives the password in the clear. Every save requires STARTTLS
- * (SettingsService.updateSmtp), and migration 20261009120000 required it of
- * every row saved before that, so a row this is true of came back some other
- * way, such as a data-only restore of an older backup.
- */
-export function storedTlsOptional(
-  stored: Pick<StoredMail, "smtpHost" | "smtpSecure" | "smtpRequireTls">,
-): boolean {
-  return (
-    stored.smtpHost !== null &&
-    !stored.smtpSecure &&
-    !stored.smtpRequireTls &&
-    !isLoopbackHost(stored.smtpHost)
-  );
-}
-
 @Injectable()
 export class MailSettingsResolver implements OnModuleInit {
   private readonly logger = new Logger(MailSettingsResolver.name);
@@ -112,8 +91,6 @@ export class MailSettingsResolver implements OnModuleInit {
    * value for as long, so keeping it here holds nothing new.
    */
   private decrypted: { cipher: string; password: string } | null = null;
-  /** Whether {@link warnTlsOptional} has logged, which it does once a process. */
-  private tlsOptionalWarned = false;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -216,26 +193,25 @@ export class MailSettingsResolver implements OnModuleInit {
       association.smtpPasswordCipher === null
         ? null
         : await this.decryptPassword(association.smtpPasswordCipher);
-    const port = association.smtpPort ?? defaultPortFor(association.smtpSecure);
-    if (storedTlsOptional(association)) {
-      this.warnTlsOptional(association.smtpHost, port);
-    }
 
     return {
       source: "settings",
       driver: "smtp",
       server: {
         host: association.smtpHost,
-        port,
+        port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
         secure: association.smtpSecure,
         /*
-         * As the settings were saved. Every save requires STARTTLS unless the
-         * host is on loopback (SettingsService.updateSmtp), and migration
-         * 20261009120000 required it of the rows saved before. A row that still
-         * does not is used as it is rather than changed on the way: the SMTP
-         * card flags it, and the log says so once.
+         * Required of a server that is not on loopback whatever the column
+         * says, so the column only decides for one that is. Every save stores
+         * true for such a server (SettingsService.updateSmtp), and migration
+         * 20261009120000 stored it for the rows saved before, but a row can
+         * still come back false - from a data-only restore of an older backup,
+         * or an edit made in SQL - and its password would then go wherever an
+         * attacker on the path stripped STARTTLS.
          */
-        requireTls: association.smtpRequireTls,
+        requireTls:
+          association.smtpRequireTls || !isLoopbackHost(association.smtpHost),
         user: association.smtpUser,
         password,
       },
@@ -243,27 +219,6 @@ export class MailSettingsResolver implements OnModuleInit {
       fromName: null,
       replyTo: null,
     };
-  }
-
-  /**
-   * Says in the log that the board's stored server may be signed in to in the
-   * clear, the first time it is used to send.
-   *
-   * Once a process rather than once a message: a mailing sends once per
-   * recipient. Names the server and nothing else, so neither the user nor the
-   * password reaches the log.
-   */
-  private warnTlsOptional(host: string, port: number): void {
-    if (this.tlsOptionalWarned) {
-      return;
-    }
-    this.tlsOptionalWarned = true;
-    this.logger.warn(
-      `The SMTP settings do not require STARTTLS of ${host}:${port}: when it ` +
-        "offers no STARTTLS, or something on the path removes the offer, every " +
-        "message goes to it in cleartext. Saving the SMTP settings again " +
-        "requires it.",
-    );
   }
 
   /**
