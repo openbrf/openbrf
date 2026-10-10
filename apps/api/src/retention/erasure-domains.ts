@@ -298,19 +298,27 @@ export function keyOrdersKeptFromErasure(
 }
 
 /**
- * A letting the board consented to whose period has not ended.
+ * A letting the board consented to that has not ended.
  *
  * The consent is what shows the letting is lawful (BRL 7 kap. 18 § 2 makes
  * letting without it a ground for forfeiting the right of use), and while the
- * letting runs it is the board's proof that it was given. The period's last day
- * is inside it, as it is everywhere else the column is read.
+ * letting runs it is the board's proof that it was given. The letting's last day
+ * is inside it, as it is everywhere else the columns are read.
+ *
+ * Its last day is the period's, or the earlier day the board recorded it ended
+ * on (`lettingEndedOn`, never after the period's). Without that record a
+ * consent to a letting that stopped early would hold the request open to the
+ * end of a period nobody used, which the five-year bound on a period applied for
+ * limits but does not end.
  */
 function runningConsentedLetting(
   now: Date,
 ): Prisma.SubletApplicationWhereInput {
+  const today = dateColumnOf(localDayOf(now));
   return {
     status: "CONSENTED",
-    periodTo: { gte: dateColumnOf(localDayOf(now)) },
+    periodTo: { gte: today },
+    OR: [{ lettingEndedOn: null }, { lettingEndedOn: { gte: today } }],
   };
 }
 

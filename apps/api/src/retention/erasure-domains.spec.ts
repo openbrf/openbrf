@@ -143,6 +143,7 @@ interface Rows {
     closedAt: Date | null;
     status?: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
     periodTo?: Date;
+    lettingEndedOn?: Date | null;
   }[];
 }
 
@@ -150,16 +151,20 @@ interface Rows {
 interface RunningLetting {
   status: string;
   periodTo: { gte: Date };
+  OR: [{ lettingEndedOn: null }, { lettingEndedOn: { gte: Date } }];
 }
 
 function isRunning(
-  row: { status?: string; periodTo?: Date },
+  row: { status?: string; periodTo?: Date; lettingEndedOn?: Date | null },
   letting: RunningLetting,
 ): boolean {
+  const endedOn = row.lettingEndedOn ?? null;
   return (
     row.status === letting.status &&
     row.periodTo !== undefined &&
-    row.periodTo.getTime() >= letting.periodTo.gte.getTime()
+    row.periodTo.getTime() >= letting.periodTo.gte.getTime() &&
+    (endedOn === null ||
+      endedOn.getTime() >= letting.OR[1].lettingEndedOn.gte.getTime())
   );
 }
 
@@ -495,6 +500,42 @@ describe("what a granted erasure request still owes one person", () => {
         domain: "subletting applications",
         // The ended consent and the refusal, whose period is no concern.
         owed: 2,
+        kept: 1,
+        keptBecause:
+          "a subletting application is still with the board or its letting still runs",
+      },
+    ]);
+  });
+
+  it("counts a consented letting the board recorded as ended as owed, whatever its period", async () => {
+    // A letting that stopped early is not running, so its consent no longer
+    // holds the request open to the end of a period nobody uses. The recorded
+    // day is inside the letting, as the period's last day is.
+    const client = build({
+      subletApplications: [
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "CONSENTED",
+          periodTo: new Date("2031-12-31"),
+          lettingEndedOn: new Date("2027-05-31"),
+        },
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "CONSENTED",
+          periodTo: new Date("2031-12-31"),
+          lettingEndedOn: new Date("2027-06-01"),
+        },
+      ],
+    });
+
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
+      {
+        domain: "subletting applications",
+        owed: 1,
         kept: 1,
         keptBecause:
           "a subletting application is still with the board or its letting still runs",

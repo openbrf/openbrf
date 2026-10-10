@@ -263,16 +263,29 @@ const INVISIBLE = /[\p{C}\p{Default_Ignorable_Code_Point}]/u;
 const SEPARATOR = /[\t\n\v\f\r\u0085\p{Z}]/u;
 
 /**
- * The sign between the date and the last four, as the scan accepts it: the
- * hyphen-minus and the plus the parser knows, and the dashes a word processor
- * turns a hyphen into - the Unicode hyphen, the non-breaking hyphen, the
- * figure dash, the en and em dash, and the minus sign (`811228 – 9874`). A
- * reader takes all of them as the sign, so a scan that let them through would
- * let the number be published. Only the scan accepts them; the parser a stored
- * value goes through is unchanged, because a blind index is a keyed hash of its
- * output (see the top of this file).
+ * A dash, as the scan reads one: every character Unicode files as dash
+ * punctuation (`\p{Pd}`), and the minus sign, which it files as a math symbol.
+ *
+ * The whole category rather than a list, because a list is never finished: a
+ * word processor turns a hyphen into an en or em dash, and the horizontal bar,
+ * the Armenian hyphen and the double oblique hyphen are dashes as well, which a
+ * reader takes for the sign and NFKC leaves as they are. The category is
+ * disjoint from {@link SEPARATOR}, which keeps the candidate pattern linear.
  */
-const SIGN = /[-+\u2010-\u2014\u2212]/u;
+const DASH = String.raw`\p{Pd}\u2212`;
+
+/**
+ * The sign between the date and the last four, as the scan accepts it: the plus
+ * and any {@link DASH}, of which the hyphen-minus is the one the parser knows
+ * (`811228 – 9874`). A reader takes all of them as the sign, so a scan that
+ * let one through would let the number be published. Only the scan accepts
+ * them; the parser a stored value goes through is unchanged, because a blind
+ * index is a keyed hash of its output (see the top of this file).
+ */
+const SIGN = new RegExp(`[+${DASH}]`, "u");
+
+/** Any {@link DASH}, for turning into the hyphen-minus the parser knows. */
+const DASH_ANYWHERE = new RegExp(`[${DASH}]`, "gu");
 
 /** {@link SEPARATOR} as a run, for collapsing to one space. */
 const SEPARATOR_RUN = new RegExp(`${SEPARATOR.source}+`, "gu");
@@ -436,7 +449,7 @@ export function scanForPersonalIdentityNumbers(
     // character is not, so the separators the pattern let through go first.
     const compact = candidate
       .replace(SEPARATOR_RUN, "")
-      .replace(/[\u2010-\u2014\u2212]/u, "-");
+      .replace(DASH_ANYWHERE, "-");
     if (isValidPersonalIdentityNumber(compact, referenceDate)) {
       const start = folded.starts[match.index] ?? 0;
       const end = folded.ends[match.index + candidate.length - 1] ?? start;
@@ -472,9 +485,13 @@ function yearsFrom(date: Date, years: number): Date {
 export function scanForPersonalIdentityNumberCandidates(
   text: string,
 ): PersonalIdentityNumberMatch[] {
-  return [...text.matchAll(new RegExp(CANDIDATE_PATTERN.source, "g"))].map(
-    (match) => ({ value: match[0], index: match.index }),
-  );
+  // The pattern's own flags: without `u`, `\p{Pd}` and `\p{Z}` are not classes
+  // but the letters in them, and `811228p9874` would be a candidate.
+  return [
+    ...text.matchAll(
+      new RegExp(CANDIDATE_PATTERN.source, CANDIDATE_PATTERN.flags),
+    ),
+  ].map((match) => ({ value: match[0], index: match.index }));
 }
 
 /** Days in a month, honouring the Gregorian leap-year rule. */

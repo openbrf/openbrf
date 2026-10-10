@@ -1365,6 +1365,11 @@ export interface ReportSubletApplication {
   /** "YYYY-MM-DD", or null where none was recorded or none named an end. */
   tribunalPermittedUntil: string | null;
   /**
+   * "YYYY-MM-DD": the last day of a consented letting that ended before its
+   * period did, as the board recorded it. Null while the period stands.
+   */
+  lettingEndedOn: string | null;
+  /**
    * The earliest date the purge can reach this application, derived from the
    * retention window and never stored. Null while it is open.
    *

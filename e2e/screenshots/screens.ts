@@ -1413,6 +1413,33 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
     capture: { panel: "Ansökningar om andrahandsupplåtelse" },
   },
+  {
+    /*
+     * The board consents, then records that the letting ended before its
+     * period did - the day a granted erasure request stops keeping the consent
+     * for. Same session and screen as the entry above. The day picker is held
+     * to the period consented to.
+     */
+    name: "sublets-board-letting-end",
+    prepare: [
+      { click: { button: /^Samtyck till upplåtelsen/, first: true } },
+      {
+        see: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      {
+        click: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      { fill: { label: "Upplåtelsens sista dag" }, value: "2029-05-15" },
+    ],
+    waitFor: { label: "Upplåtelsens sista dag" },
+    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
+  },
 
   // --- key orders ---------------------------------------------------------------
   // Two screens in one order, as above: a household orders a tag and the board

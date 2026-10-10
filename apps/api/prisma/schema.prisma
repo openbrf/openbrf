@@ -2024,6 +2024,11 @@ enum AuditAction {
   /// their own access report is where it has to be visible. The entry carries
   /// the dates recorded and nothing else about the proceeding.
   SUBLET_TRIBUNAL_PERMISSION_RECORDED
+  /// Somebody on the board recorded the day a consented letting ended before
+  /// its period did, or took that record back. The subject stays the applicant,
+  /// whose access report is where the date has to be visible. The entry carries
+  /// the day and nothing else.
+  SUBLET_LETTING_END_RECORDED
   /// A resident ordered a key or a tag. Actor and subject are the same person.
   /// The entry carries the kind and the quantity, never the note.
   KEY_ORDER_PLACED
@@ -6895,6 +6900,20 @@ model SubletApplication {
   /// rather than what it ought to have said.
   tribunalPermittedOn    DateTime? @db.Date
   tribunalPermittedUntil DateTime? @db.Date
+
+  /// The last day of a consented letting that ended before its period did, as
+  /// the board recorded it. Null while the period stands.
+  ///
+  /// Recorded, because only the board hears that the subtenant has moved out or
+  /// the member has moved back. Where it is set it is the letting's last day for
+  /// everything that asks: the retention clock, and the granted erasure that
+  /// keeps a running letting's consent (ADR 0016) - which without it would keep
+  /// a consent to the end of a period nobody was using any more. The period
+  /// itself stays what the board consented to.
+  ///
+  /// Only a consented application may carry it, and only a day inside the
+  /// period, and the database says so as well as the service.
+  lettingEndedOn DateTime? @db.Date
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

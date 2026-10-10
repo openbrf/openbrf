@@ -496,6 +496,7 @@
           "closed": "Closed",
           "period": "Period",
           "tribunalPermission": "Rent tribunal permission",
+          "lettingEnded": "Last day of the letting, as recorded",
           "ordered": "Ordered",
           "meeting": "Meeting",
           "capacity": "Capacity",
@@ -647,6 +648,7 @@
           "SUBLET_APPLICATION_CONSENTED": "Consent to subletting given",
           "SUBLET_APPLICATION_REFUSED": "Consent to subletting refused",
           "SUBLET_TRIBUNAL_PERMISSION_RECORDED": "Rent tribunal decision recorded",
+          "SUBLET_LETTING_END_RECORDED": "End of letting recorded",
           "KEY_ORDER_PLACED": "Key order placed",
           "KEY_ORDER_REVISED": "Key order changed",
           "KEY_ORDER_WITHDRAWN": "Key order withdrawn",
@@ -3711,7 +3713,8 @@
       "boardSaid": "The board wrote: {{note}}",
       "tribunalAvailable": "The board refused. You may still let the apartment if the rent tribunal gives permission (bostadsrattslagen 7 kap. 11 §). Tell the board if it does, so the association's own record says so.",
       "tribunalPermitted": "The rent tribunal gave permission on {{on}}, until {{until}}. The association did not consent; this is recorded beside its refusal.",
-      "tribunalPermittedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date was recorded. The association did not consent; this is recorded beside its refusal."
+      "tribunalPermittedOpenEnded": "The rent tribunal gave permission on {{on}}. No end date was recorded. The association did not consent; this is recorded beside its refusal.",
+      "lettingEnded": "The board recorded {{date}} as the last day of the letting."
     },
     "queue": {
       "title": "Subletting applications",
@@ -3736,7 +3739,14 @@
       "tribunalOnField": "Permitted on",
       "tribunalUntilField": "Until",
       "tribunalHint": "Only a permission is recorded. A refusal by the tribunal leaves the board's own refusal standing, which this row already says. Recording a permission changes nothing else: the association did not consent, and the row goes on saying so.",
-      "tribunalClear": "Remove the record"
+      "tribunalClear": "Remove the record",
+      "lettingRunning": "No early end recorded: the letting runs until {{to}}.",
+      "lettingEnded": "The board recorded {{date}} as the last day of the letting.",
+      "lettingEndRecord": "Record the last day of the letting",
+      "lettingEndRecordNamed": "Record the last day of the letting from {{from}} to {{to}}",
+      "lettingEndField": "Last day of the letting",
+      "lettingEndHint": "Record it when the letting stops before the period you consented to: the subtenant moved out, or the member moved back or sold. The letting counts as running through that day, and a granted erasure request waits for the consent only until then. The consent is kept for two years from the later of the board's answer and the day after that last day, rather than from the day after the end of the period.",
+      "lettingEndClear": "Remove the record"
     },
     "errors": {
       "notAMember": "Subletting an apartment is the tenant-owner's to ask about, and this account holds no tenant-ownership in the association.",
@@ -3744,6 +3754,8 @@
       "applicationNotFound": "That application is gone. The list has been read again.",
       "alreadyClosed": "The board has answered this application, so there is nothing to change.",
       "notRefused": "A rent tribunal decision can be recorded only against an application the board has refused.",
+      "notConsented": "The end of a letting can be recorded only against an application the board has consented to.",
+      "lettingEndOutsidePeriod": "A letting can end only on a day inside the period consented to.",
       "invalidPeriod": "The period ends before it begins.",
       "periodTooFarAhead": "The period may end at most five years from today.",
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
