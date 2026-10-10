@@ -1423,8 +1423,18 @@ export const SCREENS: readonly Screen[] = [
     name: "sublets-board-letting-end",
     prepare: [
       { click: { button: /^Samtyck till upplåtelsen/, first: true } },
-      { see: { button: /^Anteckna sista dagen för upplåtelsen från/, first: true } },
-      { click: { button: /^Anteckna sista dagen för upplåtelsen från/, first: true } },
+      {
+        see: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      {
+        click: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
       { fill: { label: "Upplåtelsens sista dag" }, value: "2029-05-15" },
     ],
     waitFor: { label: "Upplåtelsens sista dag" },

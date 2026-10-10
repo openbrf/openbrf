@@ -461,7 +461,9 @@ describe("the board", () => {
       }),
     ).toHaveLength(1);
     await userEvent.click(
-      screen.getByRole("button", { name: /^Anteckna sista dagen för upplåtelsen från/ }),
+      screen.getByRole("button", {
+        name: /^Anteckna sista dagen för upplåtelsen från/,
+      }),
     );
 
     const day = screen.getByLabelText("Upplåtelsens sista dag");
