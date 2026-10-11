@@ -41,6 +41,7 @@ import {
 import {
   FAILURE_VALUES,
   failureMessage,
+  mappingProblemMessages,
   FIELD_LABEL,
   OUTCOME_LABEL,
   OUTCOME_TONE,
@@ -140,6 +141,8 @@ export function ImportScreen(): ReactElement {
   const [run, setRun] = useState<ImportRunView | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
+  /** What the API found wrong with the mapping, when it refused it. */
+  const [mappingProblems, setMappingProblems] = useState<TranslationKey[]>([]);
   /**
    * Which preview request the screen is still waiting for.
    *
@@ -239,14 +242,20 @@ export function ImportScreen(): ReactElement {
    * asked for it again - can no longer be applied. It goes, with the decisions
    * made against it, and the board previews again from the mapping.
    */
-  const abandonPreview = useCallback((reason: string): void => {
-    setPlanning(null);
-    setPreview(null);
-    setDecisions({});
-    setReplanned(false);
-    setFailure(failureMessage(reason));
-    setStep("mapping");
-  }, []);
+  const abandonPreview = useCallback(
+    (reason: string, detail?: unknown): void => {
+      setMappingProblems(
+        reason === "mapping-invalid" ? mappingProblemMessages(detail) : [],
+      );
+      setPlanning(null);
+      setPreview(null);
+      setDecisions({});
+      setReplanned(false);
+      setFailure(failureMessage(reason));
+      setStep("mapping");
+    },
+    [],
+  );
 
   /** Takes in what the API says about the preview being planned. */
   const receivePreview = useCallback(
@@ -432,7 +441,7 @@ export function ImportScreen(): ReactElement {
       if (!response.ok) {
         // A request that was refused may still have withdrawn the token of
         // the preview on the screen, if its answer was what got lost.
-        abandonPreview(response.failure.reason);
+        abandonPreview(response.failure.reason, response.failure.detail);
         return;
       }
       receivePreview(response.value);
@@ -575,6 +584,16 @@ export function ImportScreen(): ReactElement {
       {failure === null ? null : (
         <Notice tone="danger" live>
           {t(failure, FAILURE_VALUES)}
+          {failure === "import.errors.mappingInvalid" &&
+          mappingProblems.length > 0 ? (
+            <>
+              {mappingProblems.map((problem) => (
+                <span key={problem} className="mt-1 block">
+                  {t(problem)}
+                </span>
+              ))}
+            </>
+          ) : null}
         </Notice>
       )}
 

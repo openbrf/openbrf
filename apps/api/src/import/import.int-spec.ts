@@ -32,7 +32,11 @@ import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
 import { IMPORT_CHUNK_ROWS, ImportApplyService } from "./import-apply.service";
 import type { ImportField } from "./import-columns";
-import { MAX_IMPORT_ROWS, MAX_WORKBOOK_ENTRY_BYTES } from "./import-limits";
+import {
+  MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
+  MAX_WORKBOOK_ENTRY_BYTES,
+} from "./import-limits";
 import { ImportPlannerService } from "./import-planner.service";
 import {
   type ImportPreview,
@@ -1017,6 +1021,32 @@ describe("uploading a CSV", () => {
   });
 });
 
+describe("uploading a file over the size limit", () => {
+  // The encoded size is where the controller sees it, so a file between the
+  // limit and a third above it is the one that used to be refused by the
+  // request schema instead of as too large.
+  it.each([
+    ["just over the limit", MAX_IMPORT_UPLOAD_BYTES + 1],
+    ["well over the limit", Math.ceil(MAX_IMPORT_UPLOAD_BYTES * 1.2)],
+  ])("refuses a file %s as too large", async (_name, size) => {
+    const cookie = await signIn(actors.board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/import/sessions",
+      payload: {
+        fileName: "stor.csv",
+        content: Buffer.alloc(size, "a").toString("base64"),
+      },
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "file-too-large",
+    });
+  });
+});
+
 describe("uploading a CSV saved by Swedish Excel", () => {
   /**
    * The fixture files byte for byte, previewed through the mapping the titles
@@ -1260,9 +1290,11 @@ describe("previewing", () => {
     });
 
     expect(response.statusCode).toBe(400);
-    expect((JSON.parse(response.body) as { reason: string }).reason).toBe(
-      "mapping-invalid",
-    );
+    // The codes are published so the screen can say what to change.
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "mapping-invalid",
+      problems: ["name-column-missing"],
+    });
     // Refused before anything was recorded or queued.
     expect(
       await prisma.importSession.findUniqueOrThrow({

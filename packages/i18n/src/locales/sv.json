@@ -2485,6 +2485,8 @@
       "role-missing": "Koppla en rollkolumn, eller välj rollen för varje rad.",
       "moved-in-missing": "Koppla en kolumn med inflyttningsdatum, eller välj datumet för varje rad.",
       "duplicate-field": "Två kolumner är kopplade till samma fält.",
+      "default-role-with-column": "Välj en roll för varje rad eller koppla en rollkolumn, inte båda.",
+      "default-moved-in-with-column": "Välj ett inflyttningsdatum för varje rad eller koppla en kolumn med inflyttningsdatum, inte båda.",
       "mapping-length-mismatch": "Kopplingen stämmer inte med filen. Ladda upp den igen.",
       "unknown": "Kopplingen går inte att använda."
     },

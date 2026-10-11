@@ -17,6 +17,7 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
+import { ImportError } from "./import-errors";
 import {
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
@@ -29,14 +30,16 @@ import { type ImportSessionView, ImportService } from "./import.service";
 /**
  * Base64 grows by four bytes for every three, so the encoded ceiling is a third
  * larger than the decoded one. Checked here as well as after decoding, so an
- * oversized upload is refused before it is turned into a buffer.
+ * oversized upload is refused before it is turned into a buffer. Checked by
+ * hand rather than by the schema: a schema refusal answers `invalid-body`,
+ * and the screen has a message for a file that is too large but none for that.
  */
 const MAX_ENCODED_LENGTH = Math.ceil((MAX_IMPORT_UPLOAD_BYTES * 4) / 3) + 8;
 
 const uploadSchema = z.object({
   fileName: z.string().min(1).max(255),
   /** The file itself, base64 encoded. */
-  content: z.string().min(1).max(MAX_ENCODED_LENGTH),
+  content: z.string().min(1),
 });
 
 const decisionSchema = z.discriminatedUnion("action", [
@@ -117,6 +120,9 @@ export class ImportController {
     @Body() body: unknown,
   ): Promise<ImportSessionView> {
     const input = uploadSchema.parse(body);
+    if (input.content.length > MAX_ENCODED_LENGTH) {
+      throw new ImportError("That file is too large.", "file-too-large");
+    }
     return this.imports.upload({
       fileName: input.fileName,
       content: input.content,

@@ -1855,6 +1855,39 @@ describe("when the file cannot be read", () => {
     expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
   });
 
+  it("says what is wrong with a mapping the API refused", async () => {
+    previewImport.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "mapping-invalid",
+        detail: [
+          "name-column-missing",
+          "duplicate-field:email",
+          "duplicate-field:phone",
+          "default-role-with-column",
+          "a-problem-from-a-newer-api",
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Kopplingen går inte att använda ännu/);
+    expect(alert.textContent).toMatch(/Koppla en namnkolumn/);
+    expect(alert.textContent).toMatch(/Välj en roll för varje rad/);
+    // One line for the duplicates, however many fields they were about.
+    expect(alert.textContent?.match(/Två kolumner är kopplade/g)).toHaveLength(
+      1,
+    );
+    expect(alert.textContent).toMatch(/Kopplingen går inte att använda\./);
+    expect(alert.textContent).not.toMatch(/name-column-missing/);
+  });
+
   it("says which problem it was", async () => {
     uploadImport.mockResolvedValue({
       ok: false,

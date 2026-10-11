@@ -364,6 +364,7 @@ export function assertMappingApplies(
     throw new ImportError(
       `The mapping cannot be applied: ${mappingProblems.join(", ")}.`,
       "mapping-invalid",
+      mappingProblems,
     );
   }
 }

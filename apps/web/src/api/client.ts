@@ -56,6 +56,11 @@ interface ErrorBody {
    * coalescing below reaches this one.
    */
   dates?: unknown;
+  /**
+   * Codes naming what is wrong with a submitted structure, as the import's
+   * mapping refusal lists them. Static codes, never anything from the file.
+   */
+  problems?: unknown;
 }
 
 /**
@@ -232,7 +237,8 @@ async function receive<T>(
           error.issues ??
           error.locations ??
           error.quota ??
-          error.dates,
+          error.dates ??
+          error.problems,
       },
     };
   }
