@@ -491,7 +491,7 @@ describe("what a granted erasure request is waiting on", () => {
     ).not.toBeNull();
     const note = row.getByText(/löper till och med/).textContent;
     expect(note).toContain(
-      "håller upplåtelsen inte längre tillbaka raderingen",
+      "håller andrahandsupplåtelsen inte längre tillbaka raderingen",
     );
     expect(note).toContain("alla andra hinder");
     expect(note).not.toContain("natten efter");
