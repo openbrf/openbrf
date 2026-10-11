@@ -797,7 +797,8 @@ describe("after pressing apply", () => {
         rows: [
           created,
           {
-            ...updated,
+            ...ambiguous,
+            outcome: "update",
             rowNumber: ambiguous.rowNumber,
             matchedPersonId: "person-bo-senior",
             matchedPersonName: "Bo Berg",
