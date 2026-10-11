@@ -277,6 +277,16 @@ const EXPECTED_MAPPING: (ImportField | null)[] = [
   "movedInOn",
 ];
 
+/**
+ * A mapping with its move-in column left out, so the file's rows take the date
+ * given for the whole file: one is refused beside the column it stands in for.
+ */
+function withoutMovedIn(
+  mapping: readonly (ImportField | null)[],
+): (ImportField | null)[] {
+  return mapping.map((field) => (field === "movedInOn" ? null : field));
+}
+
 function fixtureRows(): string[][] {
   return [
     HEADERS,
@@ -1230,7 +1240,6 @@ describe("the preview job", () => {
         mapping:
           overrides.mapping ??
           session.suggestedMapping.map((field) => field ?? ""),
-        defaultMovedInOn: "2010-01-01",
         previewId,
         previewStatus: "PLANNING",
         previewWatchedAt: overrides.previewWatchedAt ?? new Date(),
@@ -1404,7 +1413,6 @@ describe("the preview job", () => {
     // And the next preview of the same upload is planned as usual.
     const preview = await previewImport(cookie, session.sessionId, {
       mapping: session.suggestedMapping,
-      defaultMovedInOn: "2010-01-01",
     });
     expect(preview.rows).toHaveLength(IMPORT_CHUNK_ROWS + 20);
   });
@@ -1440,7 +1448,6 @@ describe("the preview job", () => {
     // A preview that has been replaced since is not the one cancelled.
     const next = await askForPreview(cookie, session.sessionId, {
       mapping: session.suggestedMapping,
-      defaultMovedInOn: "2010-01-01",
     });
     const late = await inject({
       method: "DELETE",
@@ -1810,7 +1817,7 @@ describe("an apply after the upload was previewed again", () => {
     const preview = (mapping: (ImportField | null)[]) =>
       previewImport(cookie, session.sessionId, {
         mapping,
-        defaultRole: "RESIDENT",
+        defaultRole: mapping.includes("role") ? null : "RESIDENT",
       });
 
     const first = await preview(session.suggestedMapping);
@@ -2020,7 +2027,7 @@ describe("an apply and a preview of one session", () => {
         // at the assertions below instead of as a timeout here.
         await Promise.race([checked, applying]);
         await previewImport(cookie, session.sessionId, {
-          mapping: session.suggestedMapping,
+          mapping: withoutMovedIn(session.suggestedMapping),
           defaultMovedInOn: "2023-02-01",
         });
         ({ previewedAt: replacedAt } =
@@ -2057,7 +2064,7 @@ describe("an apply and a preview of one session", () => {
       }),
     ).toEqual({
       status: "MAPPING",
-      mapping: EXPECTED_MAPPING,
+      mapping: withoutMovedIn(EXPECTED_MAPPING).map((field) => field ?? ""),
       defaultMovedInOn: "2023-02-01",
       previewedAt: replacedAt,
       decisions: null,
@@ -2128,7 +2135,7 @@ describe("an apply and a preview of one session", () => {
         );
         expect(otherRun.result.personsCreated).toBe(1);
         await previewImport(cookie, session.sessionId, {
-          mapping: session.suggestedMapping,
+          mapping: withoutMovedIn(session.suggestedMapping),
           defaultMovedInOn: "2023-02-01",
         });
       } finally {
@@ -2185,7 +2192,7 @@ describe("an apply and a preview of one session", () => {
       try {
         await Promise.race([checked, applying]);
         await previewImport(cookie, session.sessionId, {
-          mapping: session.suggestedMapping,
+          mapping: withoutMovedIn(session.suggestedMapping),
           defaultMovedInOn: "2023-02-01",
         });
         await prisma.importSession.update({
@@ -5692,8 +5699,12 @@ describe("a decided row somebody joins the candidates of", () => {
       ),
     );
     await previewImport(cookie, session.sessionId, {
-      mapping: session.suggestedMapping,
-      ...(undated ? { defaultMovedInOn: "2024-02-01" } : {}),
+      ...(undated
+        ? {
+            mapping: withoutMovedIn(session.suggestedMapping),
+            defaultMovedInOn: "2024-02-01",
+          }
+        : { mapping: session.suggestedMapping }),
     });
     return { cookie, sessionId: session.sessionId, firstName, personIds };
   }
