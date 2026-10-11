@@ -1503,6 +1503,34 @@ describe("one person under different keys", () => {
     expect(plan.rows[0]?.matchedPersonId).toBe("person-anna");
   });
 
+  it("asks about a former resident of the name whose identity number differs", () => {
+    // Everyone who ever lived in 1101 is a candidate for a dated row, so a
+    // namesake who left years ago, with a number of their own, is asked about
+    // rather than given this row's residency.
+    const key = apartmentNameKey("apartment-1101", "Anna", "Lindqvist");
+    const plan = planImport(
+      [
+        prepared(
+          {
+            ...COMPLETE,
+            movedInOn: "2018-03-01",
+            personalIdentityNumber: PIN_ANNA,
+          },
+          { identityNumberIndex: "index-anna" },
+        ),
+      ],
+      snapshot({
+        personsByApartmentAndNameEver: new Map([[key, ["person-other"]]]),
+        personNames: new Map([["person-other", "Anna Lindqvist"]]),
+        identityNumberIndexByPerson: new Map([["person-other", "index-other"]]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("ambiguous");
+    expect(plan.rows[0]?.mismatch).toBe("personalIdentityNumber");
+  });
+
   it("does not match the file's default date against a residency that has ended", () => {
     // The default says nothing about when this person lived here, so a
     // namesake who left years ago is not assumed to be them.
