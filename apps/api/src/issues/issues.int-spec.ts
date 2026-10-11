@@ -696,6 +696,44 @@ describe("the triage queue", () => {
       expect(moved.statusCode).toBe(201);
       expect(moved.json<{ status: string }>().status).toBe(status);
     }
+
+    // One entry for each move, naming who made it and the statuses either side:
+    // the property manager is outside the board, and acts on residents' reports.
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "ISSUE_STATUS_CHANGED", targetId: filed.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(entries.map((entry) => entry.actorPersonId)).toEqual([
+      manager.personId,
+      manager.personId,
+    ]);
+    expect(entries.map((entry) => entry.context)).toEqual([
+      { from: "NEW", to: "IN_PROGRESS" },
+      { from: "IN_PROGRESS", to: "DONE" },
+    ]);
+    // The reporter's words stay out of the log.
+    expect(JSON.stringify(entries)).not.toContain("Hissen");
+  });
+
+  it("records nothing for a request that names the status the report already has", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Dorren till cykelrummet hakar upp sig.",
+    });
+
+    const moved = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${filed.id ?? ""}/status`,
+      payload: { status: "NEW" },
+      headers: { cookie: managerCookie },
+    });
+
+    expect(moved.statusCode).toBe(201);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "ISSUE_STATUS_CHANGED", targetId: filed.id },
+      }),
+    ).toBe(0);
   });
 
   it("withholds the name of a reporter with protected personal data", async () => {

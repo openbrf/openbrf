@@ -43,8 +43,12 @@ const SUBLET_FAILURES: Readonly<Record<string, TranslationKey>> = {
    * sentence says which state it needs rather than inviting another attempt.
    */
   "not-refused": "sublets.errors.notRefused",
+  // The end of a letting recorded against an application the board did not
+  // consent to: only a consent has a letting behind it the association dates.
+  "not-consented": "sublets.errors.notConsented",
   "invalid-period": "sublets.errors.invalidPeriod",
   "period-too-far-ahead": "sublets.errors.periodTooFarAhead",
+  "letting-end-outside-period": "sublets.errors.lettingEndOutsidePeriod",
   "personal-identity-number": "sublets.errors.personalIdentityNumber",
   "invalid-body": "sublets.errors.invalidBody",
 } satisfies Record<SubletReason | "invalid-body", TranslationKey>;

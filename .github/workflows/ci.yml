@@ -27,7 +27,7 @@ jobs:
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -56,6 +56,8 @@ jobs:
       # The statutory tables are append-only by trigger, and two test suites are
       # allowed to switch a guard off to clear their own rows. This refuses a
       # third: the pattern is a line long and reads as ordinary cleanup.
+      # The same script also fails when the Postgres image CI pulls differs from
+      # the one docker-compose.prod.yml runs.
       - name: No statutory guard is disabled outside the files allowed to
         run: pnpm lint:guards
 
@@ -76,8 +78,16 @@ jobs:
         # Pinned by digest for the same reason the actions above are: a mutable
         # tag lets CI change underneath us. No updater reads a service image, so
         # this is bumped by hand to the digest docker-compose.prod.yml carries,
-        # which Dependabot keeps current.
-        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        # which Dependabot keeps current. `pnpm lint:guards` (a step below)
+        # fails when the two differ, so a missed bump shows up there.
+        #
+        # Pulled from Amazon's copy of the Docker official images rather than
+        # from Docker Hub, which limits anonymous pulls per address and shares
+        # the runners' addresses with everyone else's CI. A login would not
+        # help: a pull request from a fork, or from Dependabot, is given none
+        # of the repository's secrets. The digest is the same image, so the
+        # database tested here is the one docker-compose.prod.yml runs.
+        image: public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         env:
           POSTGRES_USER: openbrf
           POSTGRES_PASSWORD: openbrf
@@ -105,7 +115,7 @@ jobs:
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -148,7 +158,7 @@ jobs:
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -171,7 +181,7 @@ jobs:
 
       - name: Upload the report
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report
           path: playwright-report/
@@ -184,7 +194,7 @@ jobs:
       # behind it is only in that log.
       - name: Upload the test results
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-test-results
           path: test-results/
@@ -252,7 +262,7 @@ jobs:
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         if: steps.scope.outputs.walk == 'true'
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.scope.outputs.walk == 'true'
         with:
           node-version-file: .nvmrc
@@ -284,7 +294,7 @@ jobs:
       # round, and no longer, for 162 files and about 28 MB a run.
       - name: Upload the screenshots
         if: ${{ !cancelled() && steps.scope.outputs.walk == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: screenshots
           path: screenshots/
@@ -298,7 +308,7 @@ jobs:
       # stack is removed.
       - name: Upload the test results
         if: ${{ failure() && steps.scope.outputs.walk == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: screenshots-test-results
           path: test-results/

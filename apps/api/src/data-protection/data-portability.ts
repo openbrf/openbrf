@@ -2,8 +2,13 @@ import type { TFunction } from "i18next";
 
 import type {
   DataSubjectReport,
+  ReportBooking,
   ReportConnectedAppScope,
+  ReportEventSignup,
   ReportKeyOrder,
+  ReportMotion,
+  ReportPublicationConsent,
+  ReportResidency,
 } from "../retention/data-subject-report";
 import type { PortableSection } from "./section-processing";
 
@@ -89,12 +94,19 @@ export interface DataPortabilityExport extends Record<
     firstName: string;
     lastName: string;
     email: string | null;
+    /**
+     * The address they sign in with, which may differ from the register's, or
+     * null where there is no account. They gave it when they activated the
+     * account; the rest of the account - when it was made, its second factor,
+     * its passkeys - is the association's record of it and stays on the report.
+     */
+    signInEmail: string | null;
     phone: string | null;
     postalAddress: DataSubjectReport["person"]["postalAddress"];
     alternativePostalAddress: string | null;
     preferredLocale: string;
   };
-  residencies: DataSubjectReport["residencies"];
+  residencies: PortableResidency[];
   /**
    * The apps they allowed to act for them, and what each may do.
    *
@@ -104,15 +116,67 @@ export interface DataPortabilityExport extends Record<
    * association's account of them.
    */
   connectedApps: PortableConnectedApp[];
-  publicationConsents: DataSubjectReport["publicationConsents"];
-  bookings: DataSubjectReport["bookings"];
-  motions: DataSubjectReport["motions"];
+  publicationConsents: PortablePublicationConsent[];
+  bookings: PortableBooking[];
+  motions: PortableMotion[];
   /** What they asked the board's permission for, and why. */
   subletApplications: PortableSubletApplication[];
   /** What they ordered, how many, and what they said it was for. */
   keyOrders: PortableKeyOrder[];
-  eventSignups: DataSubjectReport["eventSignups"];
+  eventSignups: PortableEventSignup[];
 }
+
+/*
+ * The five sections below are the report's own rows with the association's
+ * account of them taken off, as the sublet applications and the key orders are:
+ * a date the purge can reach them, a status the board set, a note the board
+ * wrote. Each is a list of the fields that stay, so a field the report gains
+ * does not start travelling here unnoticed.
+ */
+
+/** A residency: where and when they lived, and not when it is purged. */
+export type PortableResidency = Pick<
+  ReportResidency,
+  | "residencyId"
+  | "apartmentNumber"
+  | "addressLabel"
+  | "role"
+  | "movedInOn"
+  | "movedOutOn"
+>;
+
+/** What they agreed to and when, and not the board's note about it. */
+export type PortablePublicationConsent = Pick<
+  ReportPublicationConsent,
+  "scope" | "grantedOn" | "withdrawnOn"
+>;
+
+/** A booking they made, and not the date the purge can reach it. */
+export type PortableBooking = Pick<
+  ReportBooking,
+  "bookingId" | "resourceName" | "status" | "startsAt" | "endsAt" | "apartment"
+>;
+
+/** A motion in their own words, and not what became of it. */
+export type PortableMotion = Pick<
+  ReportMotion,
+  "motionId" | "title" | "body" | "submittedAt"
+>;
+
+/**
+ * A sign-up they made, and when they stood down. Not whether the board called
+ * the date off, and not the date the purge can reach it.
+ */
+export type PortableEventSignup = Pick<
+  ReportEventSignup,
+  | "signupId"
+  | "eventTitle"
+  | "startsAt"
+  | "endsAt"
+  | "on"
+  | "signedUpAt"
+  | "withdrawnOn"
+>;
 
 /**
  * One sublet application, narrowed to what the person themselves supplied.
@@ -218,21 +282,45 @@ export function toDataPortabilityExport(
       firstName: report.person.firstName,
       lastName: report.person.lastName,
       email: report.person.email,
+      signInEmail: report.account?.email ?? null,
       phone: report.person.phone,
       postalAddress: report.person.postalAddress,
       alternativePostalAddress: report.person.alternativePostalAddress,
       preferredLocale: report.person.preferredLocale,
     },
-    residencies: report.residencies,
+    residencies: report.residencies.map((residency) => ({
+      residencyId: residency.residencyId,
+      apartmentNumber: residency.apartmentNumber,
+      addressLabel: residency.addressLabel,
+      role: residency.role,
+      movedInOn: residency.movedInOn,
+      movedOutOn: residency.movedOutOn,
+    })),
     connectedApps: report.connectedApps.map((app) => ({
       clientName: app.clientName,
       clientHost: app.clientHost,
       scopes: app.scopes,
       connectedAt: app.connectedAt,
     })),
-    publicationConsents: report.publicationConsents,
-    bookings: report.bookings,
-    motions: report.motions,
+    publicationConsents: report.publicationConsents.map((consent) => ({
+      scope: consent.scope,
+      grantedOn: consent.grantedOn,
+      withdrawnOn: consent.withdrawnOn,
+    })),
+    bookings: report.bookings.map((booking) => ({
+      bookingId: booking.bookingId,
+      resourceName: booking.resourceName,
+      status: booking.status,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      apartment: booking.apartment,
+    })),
+    motions: report.motions.map((motion) => ({
+      motionId: motion.motionId,
+      title: motion.title,
+      body: motion.body,
+      submittedAt: motion.submittedAt,
+    })),
     subletApplications: report.subletApplications.map((application) => ({
       applicationId: application.applicationId,
       apartment: application.apartment,
@@ -249,6 +337,14 @@ export function toDataPortabilityExport(
       note: order.note,
       submittedAt: order.submittedAt,
     })),
-    eventSignups: report.eventSignups,
+    eventSignups: report.eventSignups.map((signup) => ({
+      signupId: signup.signupId,
+      eventTitle: signup.eventTitle,
+      startsAt: signup.startsAt,
+      endsAt: signup.endsAt,
+      on: signup.on,
+      signedUpAt: signup.signedUpAt,
+      withdrawnOn: signup.withdrawnOn,
+    })),
   };
 }

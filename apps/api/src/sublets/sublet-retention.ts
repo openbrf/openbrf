@@ -94,8 +94,8 @@ export interface SubletPurgeCutoffs {
  * @param closedAt When the application stopped being open, whichever way it
  *   closed. Null while it is with the board, which has no purge date at all
  *   rather than one far in the future - see the module comment.
- * @param periodTo The last day of the period applied for, as the `@db.Date`
- *   column holds it.
+ * @param periodTo The letting's last day, as a `@db.Date` column holds it: the
+ *   period's, or the earlier `lettingEndedOn` the board recorded.
  * @param retentionDays How long a closed application is kept past its last
  *   anchor.
  */

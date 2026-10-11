@@ -28,6 +28,13 @@ The suite imports `@openbrf/shared`, so the package has to be built.
 `pnpm test:e2e` builds it first. To run `playwright test` directly from `e2e/`,
 build it once with `pnpm --filter @openbrf/shared build`.
 
+Starting the stack pulls its registry images first. A pull the registry
+throttles, or that fails on the way there, is attempted up to four times in all,
+with a growing pause between attempts; one that cannot succeed - a missing digest, a refused pull, a
+compose file that does not parse - fails the run at once. That decision lives
+in `src/image-pull.ts` and is tested without Docker by the workspace's Vitest
+tests (`src/*.test.ts`), which `pnpm test` runs with the rest of the monorepo.
+
 While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and
@@ -144,10 +151,10 @@ Some specs are not numbered against a criterion.
 migrate service created and constrained with
 `apps/api/prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
 the queue works (a queue is created, a job is sent and a worker receives it)
-while the role creates nothing in either schema, the statutory archive still
-refuses an `UPDATE`, and neither the migration history nor the job schema's
-version can be written. It reads the database on the port
-`docker-compose.e2e.yml` publishes, so it needs no browser.
+while the role creates nothing in either schema, not even a temporary table,
+the statutory archive still refuses an `UPDATE`, and neither the migration
+history nor the job schema's version can be written. It reads the database on
+the port `docker-compose.e2e.yml` publishes, so it needs no browser.
 
 Its last tests look at the application's container. One reads the environment
 of every process in it - the init process, the server and the probe itself -

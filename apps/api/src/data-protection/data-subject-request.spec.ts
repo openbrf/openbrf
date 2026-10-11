@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canExtend,
   dueOn,
+  isPastDue,
   requestState,
   toDataSubjectRequestView,
   type DataSubjectRequestRow,
@@ -23,6 +25,8 @@ function row(
     decisionGround: null,
     decidedAt: null,
     decidedByPersonId: null,
+    extendedAt: null,
+    extensionReason: null,
     executedAt: null,
     closedAt: null,
     closeReason: null,
@@ -76,6 +80,77 @@ describe("dueOn", () => {
 
     expect(february.toISOString()).toBe("2026-03-01T00:00:00.000Z");
     expect(march.toISOString()).toBe("2026-04-01T00:00:00.000Z");
+  });
+});
+
+describe("an extension (art. 12(3))", () => {
+  it("adds two further months to the first", () => {
+    expect(
+      dueOn(new Date("2026-09-01T00:00:00.000Z"), true).toISOString(),
+    ).toBe("2026-12-01T00:00:00.000Z");
+  });
+
+  it("counts them from the end of the first month, clamped in a short one", () => {
+    // 31 January is due on 28 February, and extended on 28 April.
+    expect(
+      dueOn(new Date("2026-01-31T00:00:00.000Z"), true).toISOString(),
+    ).toBe("2026-04-28T00:00:00.000Z");
+  });
+
+  it("keeps a request open past the first month, and overdue after the third", () => {
+    const extended = row({ extendedAt: new Date("2026-09-20T10:00:00.000Z") });
+
+    expect(requestState(extended, new Date("2026-11-15T10:00:00.000Z"))).toBe(
+      "open",
+    );
+    expect(requestState(extended, new Date("2026-12-02T10:00:00.000Z"))).toBe(
+      "overdue",
+    );
+    // The same request, not extended, is long overdue by then.
+    expect(requestState(row(), new Date("2026-11-15T10:00:00.000Z"))).toBe(
+      "overdue",
+    );
+  });
+
+  it("is still due all of the extended due day, on the association's calendar", () => {
+    const extended = row({ extendedAt: new Date("2026-09-20T10:00:00.000Z") });
+
+    expect(isPastDue(extended, new Date("2026-12-01T22:30:00.000Z"))).toBe(
+      false,
+    );
+    expect(isPastDue(extended, new Date("2026-12-01T23:30:00.000Z"))).toBe(
+      true,
+    );
+  });
+
+  it("can be recorded on an undecided request until the end of its first due day", () => {
+    expect(canExtend(row(), new Date("2026-09-20T10:00:00.000Z"))).toBe(true);
+    // The first due day is 1 October, which is still inside the month.
+    expect(canExtend(row(), new Date("2026-10-01T21:30:00.000Z"))).toBe(true);
+    expect(canExtend(row(), new Date("2026-10-01T22:30:00.000Z"))).toBe(false);
+  });
+
+  it("cannot be recorded twice, or on a request that is decided or closed", () => {
+    const now = new Date("2026-09-20T10:00:00.000Z");
+
+    expect(canExtend(row({ extendedAt: now }), now)).toBe(false);
+    expect(canExtend(row({ decision: "REFUSED" }), now)).toBe(false);
+    expect(canExtend(row({ closedAt: now }), now)).toBe(false);
+  });
+
+  it("is stated on the view with its due date, and the reason the person was told", () => {
+    const view = toDataSubjectRequestView(
+      row({
+        extendedAt: new Date("2026-09-20T10:00:00.000Z"),
+        extensionReason: "Begäran gäller många system.",
+      }),
+      new Date("2026-09-21T10:00:00.000Z"),
+    );
+
+    expect(view.dueOn).toBe("2026-12-01");
+    expect(view.extendedOn).toBe("2026-09-20");
+    expect(view.extensionReason).toBe("Begäran gäller många system.");
+    expect(view.state).toBe("open");
   });
 });
 

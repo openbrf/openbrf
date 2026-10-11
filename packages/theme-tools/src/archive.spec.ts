@@ -154,6 +154,15 @@ describe("readThemeArchive refusals", () => {
     expect(() => readThemeArchive(archive)).toThrow(/escapes the package/);
   });
 
+  it.each(["__MACOSX/._logo.png", "logo copy.png", "a:b.txt"])(
+    "refuses %s, which the store would refuse to write",
+    (name) => {
+      expect(() =>
+        readThemeArchive(pack({ "theme.json": "{}", [name]: "x" })),
+      ).toThrow(/may not hold/);
+    },
+  );
+
   it("refuses an absolute path", () => {
     const archive = rawArchive([
       rawHeader({ name: "/etc/passwd", size: 0, typeFlag: "0" }),
@@ -397,10 +406,17 @@ describe("readThemeArchive refusals", () => {
 
   it("reads a header with a byte >= 0x80 and the unsigned checksum", () => {
     // "ö" is 0xc3 0xb6 in UTF-8, so the signed and unsigned sums of this header
-    // differ by 512. A reader that sign-extended bytes would refuse it.
-    const name = "fonts/Brödtext.css";
+    // differ by 512. A reader that sign-extended bytes would refuse it. In the
+    // owner's name rather than the path, which a package may only spell in
+    // ASCII.
+    const name = "fonts/body.css";
     const content = "body{}";
-    const header = rawHeader({ name, size: content.length, typeFlag: "0" });
+    const header = rawHeader({
+      name,
+      size: content.length,
+      typeFlag: "0",
+      overwrite: { 265: new TextEncoder().encode("Brödtext") },
+    });
     expect(header.some((byte) => byte >= 0x80)).toBe(true);
 
     // A second root keeps the reader from stripping "fonts/".
@@ -413,19 +429,18 @@ describe("readThemeArchive refusals", () => {
     ).toEqual({ [name]: content, "theme.json": "{}" });
   });
 
-  it("keeps a name with a leading byte order mark apart from the plain one", () => {
-    const files = readThemeArchive(
-      rawArchive([
-        rawHeader({ name: "theme.json", size: 1, typeFlag: "0" }),
-        dataBlock("a"),
-        rawHeader({ name: "\ufefftheme.json", size: 1, typeFlag: "0" }),
-        dataBlock("b"),
-      ]),
-    );
-    expect([...files.keys()].sort()).toEqual([
-      "theme.json",
-      "\ufefftheme.json",
-    ]);
+  it("refuses a name with a leading byte order mark beside the plain one", () => {
+    // Never two entries that a tool could read as one file.
+    expect(() =>
+      readThemeArchive(
+        rawArchive([
+          rawHeader({ name: "theme.json", size: 1, typeFlag: "0" }),
+          dataBlock("a"),
+          rawHeader({ name: "\ufefftheme.json", size: 1, typeFlag: "0" }),
+          dataBlock("b"),
+        ]),
+      ),
+    ).toThrow(/may not hold/);
   });
 
   it("refuses a byte order mark as the prefix of a header without the ustar magic", () => {

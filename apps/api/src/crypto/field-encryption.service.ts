@@ -40,6 +40,7 @@ export type EncryptedFieldId =
   | "boardMailboxThread.correspondentName"
   | "boardMailboxThread.correspondentEmail"
   | "importSession.rows"
+  | "importSession.preview"
   | "mediaFile.dataKey";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
@@ -214,6 +215,16 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
   "importSession.rows": {
     table: "import_session",
     field: "rows",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  // The preview of an upload, held from the job that planned it until the
+  // import is claimed. It names every person in the file and the register
+  // persons they would match, so it is held like the rows it was planned from.
+  "importSession.preview": {
+    table: "import_session",
+    field: "preview",
     indexed: false,
     fastHash: true,
     normalize: () => null,

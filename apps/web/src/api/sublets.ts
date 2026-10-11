@@ -63,6 +63,11 @@ export interface OwnSubletApplication {
   closedAt: string | null;
   decisionNote: string | null;
   tribunalPermission: SubletTribunalPermission | null;
+  /**
+   * "YYYY-MM-DD": the last day of a consented letting that ended before its
+   * period did, as the board recorded it. Null while the period stands.
+   */
+  lettingEndedOn: string | null;
 }
 
 /**
@@ -182,5 +187,24 @@ export function recordSubletTribunalPermission(input: {
     "PUT",
     `/api/sublet-queue/${encodeURIComponent(input.applicationId)}/tribunal-permission`,
     { permission: input.permission },
+  );
+}
+
+/**
+ * Records the day a consented letting ended before its period did, or clears
+ * that record with null.
+ *
+ * The server refuses it against anything but a consented application, and a day
+ * outside the period consented to. From that day the consent is on the
+ * retention clock, and a granted erasure request no longer waits for it.
+ */
+export function recordSubletLettingEnd(input: {
+  applicationId: string;
+  lettingEndedOn: string | null;
+}): Promise<ApiResult<QueuedSubletApplication>> {
+  return apiRequest(
+    "PUT",
+    `/api/sublet-queue/${encodeURIComponent(input.applicationId)}/letting-end`,
+    { lettingEndedOn: input.lettingEndedOn },
   );
 }

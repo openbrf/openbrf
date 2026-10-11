@@ -120,8 +120,10 @@ export type SubletReason =
   | "application-not-found"
   | "already-closed"
   | "not-refused"
+  | "not-consented"
   | "invalid-period"
   | "period-too-far-ahead"
+  | "letting-end-outside-period"
   | "personal-identity-number";
 
 /**

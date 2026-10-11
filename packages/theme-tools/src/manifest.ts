@@ -96,7 +96,28 @@ const fontFile = z.object({
  * for a row written by an earlier version.
  */
 export const themeFontDeclarationSchema = z.object({
-  family: z.string().min(1).max(80),
+  /*
+   * No control characters: a `@font-face` rule cannot carry one in a string,
+   * and the stylesheet that refuses it is the one every page, sign-in
+   * included, is drawn with.
+   */
+  family: z
+    .string()
+    .min(1)
+    .max(80)
+    .refine(
+      (family) => {
+        // Code units rather than characters: every control character is one.
+        for (let index = 0; index < family.length; index += 1) {
+          const code = family.charCodeAt(index);
+          if (code < 0x20 || code === 0x7f) {
+            return false;
+          }
+        }
+        return true;
+      },
+      { message: "A font family may not contain a control character." },
+    ),
   /**
    * The licence the font is distributed under, as an SPDX identifier or a
    * name. Required: a bundled font with no stated licence is a redistribution

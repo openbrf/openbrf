@@ -4,6 +4,7 @@ import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings"
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { MailSettingsResolver } from "../mail/mail-settings";
 import { connectedAppHost } from "../connected-apps/client-host";
 import type { ProcessorFacts } from "./processors";
@@ -33,12 +34,18 @@ export class ProcessorFactsService {
     private readonly mailSettings: MailSettingsResolver,
   ) {}
 
-  async read(): Promise<ProcessorFacts> {
+  /**
+   * Takes a transaction for the plugin install, which records its recipient in
+   * the transaction that writes the consent row: read beside it, the plugin
+   * being installed would not be among the installed ones yet.
+   */
+  async read(client?: Prisma.TransactionClient): Promise<ProcessorFacts> {
+    const prisma = client ?? this.prisma;
     const [mail, association, plugins, connectedApps, unencryptedStoredFiles] =
       await Promise.all([
         // Described rather than resolved: nothing here decrypts a password.
         this.mailSettings.describe(),
-        this.prisma.association.findUnique({
+        prisma.association.findUnique({
           where: { id: 1 },
           select: {
             smsDriver: true,
@@ -51,7 +58,7 @@ export class ProcessorFactsService {
             boardMailboxPop3PasswordCipher: true,
           },
         }),
-        this.prisma.installedPlugin.findMany({
+        prisma.installedPlugin.findMany({
           select: { id: true, packageName: true, version: true },
           orderBy: [{ id: "asc" }],
         }),
@@ -65,7 +72,7 @@ export class ProcessorFactsService {
          * One row per client rather than per consent: an app forty households
          * connected is one recipient.
          */
-        this.prisma.oauthClient.findMany({
+        prisma.oauthClient.findMany({
           where: { consents: { some: {} } },
           select: {
             id: true,
@@ -76,7 +83,7 @@ export class ProcessorFactsService {
           },
           orderBy: [{ id: "asc" }],
         }),
-        this.prisma.mediaFile.count({
+        prisma.mediaFile.count({
           where: {
             OR: [
               { encryption: "NONE" },

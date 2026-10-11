@@ -1146,6 +1146,22 @@ describe("moving in", () => {
       expect(transfer.agreementReference).toBe(`Avtal ${suffix}`);
       expect(transfer.fromPersonId).toBe(actors.seller.personId);
 
+      // Who entered the move, naming the person who moved. The price and the
+      // agreement are the transfer's own record, and stay out of the entry.
+      const entry = await prisma.auditLogEntry.findFirstOrThrow({
+        where: { action: "MOVE_IN_RECORDED", targetId: result.residencyId },
+      });
+      expect(entry.actorPersonId).toBe(actors.board.personId);
+      expect(entry.targetPersonId).toBe(actors.buyer.personId);
+      expect(entry.context).toEqual({
+        apartmentId: apartments.second,
+        role: "MEMBER",
+        movedInOn: "2026-03-01",
+        transfer: true,
+      });
+      expect(JSON.stringify(entry.context)).not.toContain("3450000");
+      expect(JSON.stringify(entry.context)).not.toContain(`Avtal ${suffix}`);
+
       // The welcome mail is rendered for the recipient's locale, not the
       // board member's: the buyer's record says English.
       const welcome = sent.find((message) => message.template.id === "move-in");
@@ -1506,9 +1522,49 @@ describe("moving out", () => {
       });
       expect(transfer.fromPersonId).toBe(actors.buyer.personId);
       expect(transfer.toPersonId).toBe(actors.seller.personId);
+
+      const entry = await prisma.auditLogEntry.findFirstOrThrow({
+        where: { action: "MOVE_OUT_RECORDED", targetId: residency.id },
+      });
+      expect(entry.actorPersonId).toBe(actors.board.personId);
+      expect(entry.targetPersonId).toBe(actors.buyer.personId);
+      expect(entry.context).toEqual({
+        apartmentId: apartments.second,
+        role: "MEMBER",
+        movedOutOn: "2026-06-30",
+        transfer: true,
+      });
     } finally {
       send.mockRestore();
     }
+  });
+
+  it("writes no entry for a move-out it refuses", async () => {
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: {
+        personId: actors.buyer.personId,
+        apartmentId: apartments.second,
+      },
+      select: { id: true },
+    });
+    const before = await prisma.auditLogEntry.count({
+      where: { action: "MOVE_OUT_RECORDED", targetId: residency.id },
+    });
+
+    const again = await inject({
+      method: "POST",
+      url: "/api/moves/move-out",
+      payload: { residencyId: residency.id, movedOutOn: "2026-07-31" },
+      headers: { cookie: await signIn(actors.board.email) },
+    });
+
+    // Ended above, so it is refused, and the log still says it ended once.
+    expect(again.statusCode).toBe(409);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "MOVE_OUT_RECORDED", targetId: residency.id },
+      }),
+    ).toBe(before);
   });
 
   it("keeps the membership open while another tenant-ownership remains", async () => {
@@ -1626,11 +1682,16 @@ describe("moving out", () => {
       });
 
       const staleRequest = moves
-        .moveOut({ residencyId: moveIn.residencyId, movedOutOn: "2026-08-01" })
+        .moveOut({
+          actorPersonId: actors.board.personId,
+          residencyId: moveIn.residencyId,
+          movedOutOn: "2026-08-01",
+        })
         .catch((error: unknown) => error);
       await reached.promise;
 
       await moves.moveOut({
+        actorPersonId: actors.board.personId,
         residencyId: moveIn.residencyId,
         movedOutOn: "2026-08-01",
       });
@@ -1752,12 +1813,14 @@ describe("moves entered out of date order", () => {
       }
 
       const later = await moves.moveOut({
+        actorPersonId: actors.board.personId,
         residencyId: (
           await residencyOf(actors.lateRecorder.personId, apartments.leftLast)
         ).id,
         movedOutOn: "2026-12-01",
       });
       const earlier = await moves.moveOut({
+        actorPersonId: actors.board.personId,
         residencyId: (
           await residencyOf(actors.lateRecorder.personId, apartments.leftFirst)
         ).id,
@@ -1807,6 +1870,7 @@ describe("moves entered out of date order", () => {
         movedInOn: "2026-12-01",
       });
       const left = await moves.moveOut({
+        actorPersonId: actors.board.personId,
         residencyId: (
           await residencyOf(actors.gapHolder.personId, apartments.leftBeforeGap)
         ).id,
@@ -1874,6 +1938,7 @@ describe("when the mail server is refusing", () => {
 
       order.length = 0;
       const moveOut = await moves.moveOut({
+        actorPersonId: actors.board.personId,
         residencyId: moveIn.residencyId,
         movedOutOn: "2026-02-01",
       });
@@ -1981,6 +2046,7 @@ describe("the board's move-out reminder", () => {
       // which the queue runs at once - and which is the case a board actually
       // produces, because the paperwork arrives late.
       const result = await moves.moveOut({
+        actorPersonId: actors.board.personId,
         residencyId: residency.id,
         movedOutOn: "2026-01-31",
       });

@@ -103,7 +103,6 @@ export type RegisterContact =
 /** Common to both audiences. */
 export interface DirectoryRow {
   key: string;
-  personId: string;
   name: string;
   apartment: RegisterApartment | null;
   signs: RegisterSign[];
@@ -113,6 +112,8 @@ export interface DirectoryRow {
 
 /** The board's row: contact data, masked where the person is protected. */
 export interface BoardRow extends DirectoryRow {
+  /** Only the board's rows name a person: a neighbour's carry no id. */
+  personId: string;
   contact: RegisterContact;
   purgeOn: string | null;
   protectedPersonalData: boolean;
@@ -361,6 +362,7 @@ export type ReportAuditAction =
   | "SUBLET_APPLICATION_CONSENTED"
   | "SUBLET_APPLICATION_REFUSED"
   | "SUBLET_TRIBUNAL_PERMISSION_RECORDED"
+  | "SUBLET_LETTING_END_RECORDED"
   | "KEY_ORDER_PLACED"
   | "KEY_ORDER_REVISED"
   | "KEY_ORDER_WITHDRAWN"
@@ -393,6 +395,7 @@ export type ReportAuditAction =
   | "DATA_SUBJECT_REQUEST_RECORDED"
   | "DATA_SUBJECT_REQUEST_DECIDED"
   | "DATA_SUBJECT_REQUEST_CLOSED"
+  | "DATA_SUBJECT_REQUEST_EXTENDED"
   | "DATA_PORTABILITY_EXPORTED"
   | "ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED"
   | "PRIVACY_NOTICE_HEADINGS_ADDED"
@@ -427,6 +430,12 @@ export type ReportAuditAction =
   | "NEWS_MAILING_REQUEST_DISMISSED"
   | "PLUGIN_ACTION_ARMED"
   | "PLUGIN_ACTION_DISARMED"
+  | "ISSUE_STATUS_CHANGED"
+  | "MOVE_IN_RECORDED"
+  | "MOVE_OUT_RECORDED"
+  | "PLUGIN_ENABLED"
+  | "PLUGIN_DISABLED"
+  | "PLUGIN_SETTINGS_CHANGED"
   | "CONNECTED_APP_CONNECTED"
   | "CONNECTED_APP_DISCONNECTED"
   | "OAUTH_CLIENT_REGISTERED"
@@ -437,7 +446,8 @@ export type ReportAuditAction =
   | "CHAT_MESSAGE_STRUCK"
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
-  | "IMPORT_ABANDONED";
+  | "IMPORT_ABANDONED"
+  | "THEME_REMOVED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -770,6 +780,7 @@ export interface DataSubjectReport {
     decisionNote: string | null;
     tribunalPermittedOn: string | null;
     tribunalPermittedUntil: string | null;
+    lettingEndedOn: string | null;
     erasableFrom: string | null;
   }[];
   /**
@@ -1095,8 +1106,12 @@ export interface DataSubjectReport {
     requestId: string;
     kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
     requestedOn: string | null;
-    /** The month GDPR art. 12(3) gives, derived from the request date. */
+    /** The month GDPR art. 12(3) gives, or three where it was extended. */
     dueOn: string | null;
+    /** The day the association extended the month by two, or null. */
+    extendedOn: string | null;
+    /** What the association told the person the extension was for. */
+    extensionReason: string | null;
     ground: string;
     /** The art. 17(1) alternative the person invoked. */
     erasureGround:
@@ -1136,6 +1151,7 @@ export interface DataSubjectReport {
     daysAfterMoveOut: number;
     purgeOn: string | null;
     onLegalHold: boolean;
+    processingRestricted: boolean;
   };
 }
 

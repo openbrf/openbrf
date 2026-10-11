@@ -11,6 +11,7 @@ import { failureName } from "../logging/failure";
 import { MediaService } from "../media/media.service";
 import {
   boardMailboxThreadsErasedOnRequest,
+  boardMailboxWithheldAddresses,
   remainingRunBound,
 } from "../retention/erasure-domains";
 import { lockErasureEligibility } from "../retention/erasure-lock";
@@ -143,6 +144,12 @@ export interface BoardMailboxPurgeRunSummary {
  * however recent they are. Only that link: a thread whose correspondent could
  * not be established as one person is linked to nobody, and erasing on the
  * strength of an address would be the attribution this module refuses.
+ *
+ * A hold still wins over it. A linked thread whose address a withheld person
+ * holds - a role address that changed hands, a household's shared one - is
+ * kept like every other thread with that address, left out of the request's
+ * scan rather than refused inside it, and counted as kept, so the request
+ * stays open saying why instead of saying the job has not got through.
  */
 @Injectable()
 export class BoardMailboxPurgeService implements OnModuleInit {
@@ -237,12 +244,13 @@ export class BoardMailboxPurgeService implements OnModuleInit {
     const requested = await erasureRequestedPersonIds(this.prisma, now);
 
     // Every thread linked to them, however recent, and taken ahead of the
-    // bound: see `retention/erasure-domains.ts`.
+    // bound: see `retention/erasure-domains.ts`. Not one whose address a
+    // withheld person holds, which `purgeThread` would refuse every night.
     const onRequest =
       requested.length === 0
         ? []
         : await this.prisma.boardMailboxThread.findMany({
-            where: boardMailboxThreadsErasedOnRequest({ in: requested }),
+            where: boardMailboxThreadsErasedOnRequest({ in: requested }, held),
             orderBy: [{ lastMessageAt: "asc" }],
             select: { id: true },
           });
@@ -529,7 +537,7 @@ export class BoardMailboxPurgeService implements OnModuleInit {
    * of processing stands against. `retention/withheld-addresses.ts` says how.
    */
   private async heldAddressIndexes(): Promise<string[]> {
-    return [...(await this.withheldAddresses(this.prisma)).keys()];
+    return boardMailboxWithheldAddresses(this.prisma, this.encryption);
   }
 
   /**

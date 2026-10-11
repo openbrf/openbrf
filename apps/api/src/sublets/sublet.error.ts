@@ -125,9 +125,20 @@ function statusFor(reason: SubletReason): number {
        */
       return HttpStatus.CONFLICT;
 
+    case "not-consented":
+      // The same kind again: only a letting the board consented to has an end
+      // the association records, and what changes that is the board's answer.
+      return HttpStatus.CONFLICT;
+
     case "invalid-period":
       // Understood and refused on its merits: a period whose last day is before
       // its first is not a period, and the applicant is told which end to move.
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "letting-end-outside-period":
+      // Understood and refused on its merits: a letting that went on past the
+      // period consented to needed a new consent, and one cannot end before it
+      // began.
       return HttpStatus.UNPROCESSABLE_ENTITY;
 
     case "period-too-far-ahead":

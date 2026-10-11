@@ -198,10 +198,12 @@ export class PluginsWriteController {
   async setEnabled(
     @Param() params: unknown,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<{ restarting: boolean }> {
     return this.plugins.setEnabled(
       idSchema.parse(params).id,
       enabledSchema.parse(body).enabled,
+      requirePersonId(request),
     );
   }
 
@@ -238,10 +240,12 @@ export class PluginsWriteController {
   async writeSettings(
     @Param() params: unknown,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<PluginSettingsView> {
     return this.plugins.writeSettings(
       idSchema.parse(params).id,
       settingsSchema.parse(body).values,
+      requirePersonId(request),
     );
   }
 

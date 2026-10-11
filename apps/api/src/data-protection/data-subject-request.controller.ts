@@ -49,6 +49,10 @@ const decideSchema = z.object({
     .optional(),
 });
 
+const extendSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+
 const closeSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
@@ -110,6 +114,21 @@ export class DataSubjectRequestController {
       decision: input.decision,
       ground: input.ground,
       erasureException: input.erasureException ?? null,
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /** Extends the month by two (art. 12(3)), with the reason the person was told. */
+  @Post(":requestId/extension")
+  @HttpCode(200)
+  async extend(
+    @Req() request: RequestWithPrincipal,
+    @Param("requestId") requestId: string,
+    @Body() body: unknown,
+  ): Promise<DataSubjectRequestView> {
+    const input = extendSchema.parse(body);
+    return this.requests.extend(requestId, {
+      reason: input.reason,
       actorPersonId: actingPersonId(request),
     });
   }

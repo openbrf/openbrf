@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { localDayOf } from "@openbrf/shared";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -146,6 +147,7 @@ export class IssueService {
     private readonly types: IssueTypeService,
     private readonly media: MediaService,
     private readonly encryption: FieldEncryptionService,
+    private readonly audit: AuditLogService,
   ) {}
 
   /** Files a report for a signed-in resident. */
@@ -297,6 +299,7 @@ export class IssueService {
   async setStatus(
     issueId: string,
     status: IssueStatus,
+    actorPersonId: string,
   ): Promise<QueuedIssueView> {
     /*
      * The read and the write in one transaction, under the row's own lock. The
@@ -310,10 +313,30 @@ export class IssueService {
 
       const existing = await tx.issue.findUnique({
         where: { id: issueId },
-        select: { id: true, closedAt: true },
+        select: { id: true, status: true, closedAt: true },
       });
       if (existing === null) {
         throw new IssueError("No such issue.", "issue-not-found");
+      }
+
+      /*
+       * Who moved it, and between which statuses, in the transaction that moves
+       * it. A request that names the status the issue already has changes
+       * nothing and records nothing. Never the description or the location,
+       * which are the reporter's own words.
+       */
+      if (existing.status !== status) {
+        await this.audit.record(
+          {
+            action: "ISSUE_STATUS_CHANGED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { from: existing.status, to: status },
+          },
+          tx,
+        );
       }
 
       return tx.issue.update({

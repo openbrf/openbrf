@@ -527,6 +527,21 @@ describe("an install the API refuses", () => {
     });
   });
 
+  it("says other package changes were still running, and to try again", async () => {
+    // Busy with this plugin, or with as many other plugin and theme changes as
+    // the instance admits: reading the catalog again would change nothing
+    // either way, and the same request is what to send, in a moment.
+    await refuse("package-busy");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /en annan ändring av det, eller av andra tillägg och teman, pågick/,
+        ),
+      ).toBeTruthy();
+    });
+  });
+
   it("falls back to the general sentence for a refusal it has no words for", async () => {
     // Every other refusal, and the ones a later version of the API will add.
     await refuse("plugin-consent-mismatch");

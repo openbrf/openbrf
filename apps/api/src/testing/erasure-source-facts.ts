@@ -33,6 +33,11 @@ import { parseSync } from "@swc/core";
  * never written only while no file the server runs writes its model, and a file
  * that starts to is the moment that reason stops being true.
  *
+ * And one more: which mail templates a file declares.
+ * `data-protection/mail-processing.spec.ts` holds every mail the server can
+ * send to a row of the record of processing activities that names the mail
+ * server, and a template it never heard of is the mailer that row forgot.
+ *
  * This file lives under `src/testing`, which the walk below skips along with
  * the generated client: a helper that describes the rule is not one of the jobs
  * the rule is about.
@@ -83,6 +88,12 @@ export interface SourceFacts {
    * per delegate, in the order first met.
    */
   writtenDelegates: string[];
+  /**
+   * The id of every mail template the file declares, read as an object with an
+   * `id` and a `subject` and `body` that are not literals (functions in place,
+   * references or shorthand), which is the shape MailService renders. An id that is not a literal is listed as null.
+   */
+  mailTemplateIds: (string | null)[];
 }
 
 type SyntaxNode = { type: string } & Record<string, unknown>;
@@ -185,6 +196,56 @@ function propertiesOf(node: SyntaxNode): Map<string, unknown> {
     }
   }
   return properties;
+}
+
+/**
+ * The id of the mail template an object literal is, or undefined where it is
+ * not one: a `select` asking for a thread's id, subject and body has the names
+ * and none of the functions.
+ */
+function mailTemplateId(node: SyntaxNode): string | null | undefined {
+  if (node.type !== "ObjectExpression" || !Array.isArray(node.properties)) {
+    return undefined;
+  }
+  // Functions may be written in place, referenced (`subject: other.subject`)
+  // or shorthand (`{ id, subject, body }`); only a literal, as a `select`'s
+  // `subject: true`, is not one.
+  const rendered = new Set<string>();
+  const named = new Set<string>();
+  for (const property of node.properties as unknown[]) {
+    if (!isNode(property)) {
+      continue;
+    }
+    if (property.type === "Identifier") {
+      const shorthand = nameOf(property);
+      if (shorthand !== undefined) {
+        named.add(shorthand);
+        rendered.add(shorthand);
+      }
+      continue;
+    }
+    const key = nameOf(property.key);
+    if (key === undefined) {
+      continue;
+    }
+    named.add(key);
+    if (property.type === "MethodProperty") {
+      rendered.add(key);
+    } else if (property.type === "KeyValueProperty") {
+      const value = unwrapped(property.value);
+      if (isNode(value) && !value.type.endsWith("Literal")) {
+        rendered.add(key);
+      }
+    }
+  }
+  const properties = propertiesOf(node);
+  if (!named.has("id") || !rendered.has("subject") || !rendered.has("body")) {
+    return undefined;
+  }
+  if (!properties.has("id")) {
+    return null;
+  }
+  return stringValue(properties.get("id")) ?? null;
 }
 
 /** The method a call names, when its callee is `something.method`. */
@@ -330,10 +391,15 @@ function factsOf(path: string, source: string): SourceFacts {
     marksRequestExecuted: false,
     schedules: [],
     writtenDelegates: [],
+    mailTemplateIds: [],
   };
   for (const node of nodesIn(module)) {
     if (node.type === "ObjectExpression" && asksForOpenErasure(node)) {
       facts.readsGrantedErasure = true;
+    }
+    const templateId = mailTemplateId(node);
+    if (templateId !== undefined) {
+      facts.mailTemplateIds.push(templateId);
     }
     if (node.type !== "CallExpression") {
       continue;

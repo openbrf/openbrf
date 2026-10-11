@@ -44,7 +44,13 @@ ARG PNPM_VERSION=12.9.1
 # does not depend on it: Node uses its bundled roots for the outbound TLS (catalog
 # and tarball fetches, mail, SMS, S3, client metadata) unless NODE_USE_SYSTEM_CA
 # or --use-system-ca is set, and neither is.
-FROM node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
+#
+# Pulled from Amazon's copy of the Docker official images rather than from
+# Docker Hub. The digest is the same image either way, but Docker Hub limits
+# anonymous pulls per address, and the end-to-end suite and the screenshot walk
+# build this file on CI runners whose addresses everyone else's CI shares too.
+# Dependabot updates a public.ecr.aws reference as it does a Docker Hub one.
+FROM public.ecr.aws/docker/library/node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
@@ -120,6 +126,20 @@ COPY docker/with-owner-url.mjs /app/docker/with-owner-url.mjs
 COPY docker/harden-runtime-role.mjs /app/docker/harden-runtime-role.mjs
 COPY docker/schema-owner.mjs /app/docker/schema-owner.mjs
 COPY docker/schema-owner.sql /app/docker/schema-owner.sql
+
+# Nothing under /app may be written by group or others, and the build does not
+# promise that on its own. pnpm 12 reads its umask by setting it to 0 and back
+# while its other threads are already creating directories and files, so the
+# few created in that window come out 0777 and 0666 (pnpm/pnpm
+# crates/fs/src/file_mode.rs, current_umask). It is a race, so which package
+# is hit differs from one build to the next, and a build that loses it ships a
+# package directory the application's user can write into. Taking the group
+# and other write bits off the entries that have them is idempotent and touches
+# only those, so a clean tree adds no data to the layer. The second find fails
+# the build if anything is left, rather than leaving it to the end-to-end suite
+# to find one entry at random.
+RUN find /app -not -type l -perm /022 -exec chmod go-w {} + \
+    && test -z "$(find /app -not -type l \( -perm /022 -o -not -user root \) -print -quit)"
 
 # The plugin install job runs `npm install <tarball>` into the data volume, so
 # the CLI has to exist in the runtime image and not only in the build stage.

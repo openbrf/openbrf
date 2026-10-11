@@ -614,53 +614,38 @@ describe("SMTP settings", () => {
       smtpRequireTls: false,
     });
 
-    const saved = await service.updateSmtp({
+    await service.updateSmtp({
       ...filled,
       secure: false,
       fromAddress: "info@exempel.se",
     });
 
     expect(current()?.smtpRequireTls).toBe(true);
-    expect(saved).toMatchObject({ source: "settings", tlsOptional: false });
   });
 
-  it.each(["localhost", "127.0.0.1", "::1"])(
-    "leaves a server on loopback (%s) to upgrade if it offers to",
+  it.each(["127.0.0.1", "::1", "[::1]"])(
+    "leaves a server at a loopback address (%s) to upgrade if it offers to",
     async (host) => {
       const { service, current } = build();
 
-      const saved = await service.updateSmtp({
+      await service.updateSmtp({
         ...filled,
         host,
         secure: false,
       });
 
       expect(current()?.smtpRequireTls).toBe(false);
-      expect(saved).toMatchObject({ tlsOptional: false });
     },
   );
 
-  it("flags settings saved before TLS was required", async () => {
-    const legacy = build({
-      smtpHost: "smtp.example.se",
-      smtpFromAddress: "styrelsen@exempel.se",
-      smtpSecure: false,
-      smtpRequireTls: false,
-    });
-    await expect(legacy.service.read()).resolves.toMatchObject({
-      smtp: { tlsOptional: true },
-    });
+  it("requires TLS of a server named localhost", async () => {
+    // The SMTP driver asks DNS what localhost is before it reads the hosts
+    // file, so the name is no promise that the server is on this machine.
+    const { service, current } = build();
 
-    // Implicit TLS is encrypted from the first byte, whenever it was saved.
-    const implicit = build({
-      smtpHost: "smtp.example.se",
-      smtpFromAddress: "styrelsen@exempel.se",
-      smtpSecure: true,
-      smtpRequireTls: false,
-    });
-    await expect(implicit.service.read()).resolves.toMatchObject({
-      smtp: { tlsOptional: false },
-    });
+    await service.updateSmtp({ ...filled, host: "localhost", secure: false });
+
+    expect(current()?.smtpRequireTls).toBe(true);
   });
 });
 

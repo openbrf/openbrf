@@ -89,6 +89,8 @@ export interface CatalogTheme {
   deprecated: boolean;
   /** The version already installed, when this theme is installed. */
   installedVersion: string | null;
+  /** A theme composed on this instance holds the entry's id. */
+  composedHere: boolean;
 }
 
 /** One reason the install lint refused a theme, or warned about it. */

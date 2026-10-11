@@ -917,6 +917,7 @@ describe("what a token is worth when the person's standing narrows", () => {
       ).toBe(false);
 
       await app.get(MoveService).moveOut({
+        actorPersonId: board.personId,
         residencyId: moved.residencyId,
         movedOutOn: "2026-01-02",
       });

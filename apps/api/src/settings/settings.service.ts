@@ -5,7 +5,7 @@ import {
   primaryColorOverride,
 } from "@openbrf/tokens";
 
-import { isLoopbackHost } from "../config/env";
+import { isLoopbackAddress } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -14,7 +14,7 @@ import { defaultPop3Port } from "../board-mailbox/pop3";
 import { PrismaService } from "../database/prisma.service";
 import { blankToNull } from "../http/blank-to-null";
 import { DomainError } from "../http/domain-error";
-import { MailSettingsResolver, storedTlsOptional } from "../mail/mail-settings";
+import { MailSettingsResolver } from "../mail/mail-settings";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { defaultPortFor } from "../mail/smtp-mail.driver";
 import { smtpTestMail } from "../mail/templates";
@@ -176,8 +176,6 @@ export interface StoredSmtpSettingsView {
    * turns every board member's browser session into a way to read it.
    */
   passwordSet: boolean;
-  /** Whether the sign-in can go out unencrypted; see {@link storedTlsOptional}. */
-  tlsOptional: boolean;
   /**
    * Whether the instance can send mail at all. Invitations, activation links
    * and sign-in links all depend on it, so the screens say so plainly while it
@@ -804,7 +802,6 @@ export class SettingsService {
     smtpHost: string | null;
     smtpPort: number | null;
     smtpSecure: boolean;
-    smtpRequireTls: boolean;
     smtpUser: string | null;
     smtpFromAddress: string | null;
     smtpPasswordCipher: string | null;
@@ -829,7 +826,6 @@ export class SettingsService {
       user: association.smtpUser,
       fromAddress: association.smtpFromAddress,
       passwordSet: association.smtpPasswordCipher !== null,
-      tlsOptional: storedTlsOptional(association),
       configured:
         association.smtpHost !== null && association.smtpFromAddress !== null,
     };
@@ -892,9 +888,10 @@ export class SettingsService {
        * Required on every save, not only when the host changes: the board is
        * saving the credentials this server signs in with, and a password sent
        * where an attacker on the path stripped STARTTLS is sent in the clear.
-       * A server on loopback is on this machine, where there is no path.
+       * A server at a loopback address is on this machine, where there is no
+       * path; one named localhost is not trusted to be (isLoopbackAddress).
        */
-      smtpRequireTls: input.host !== null && !isLoopbackHost(input.host),
+      smtpRequireTls: input.host !== null && !isLoopbackAddress(input.host),
       smtpUser: input.user,
       smtpFromAddress: input.fromAddress,
       // Left out of the update entirely when undefined, so saving the rest of

@@ -16,6 +16,6 @@ that offers STARTTLS (usually 587). Implicit TLS and a server on `localhost`,
 `127.0.0.1` or `::1` are not affected.
 
 Settings that do not require STARTTLS anyway, such as those a data-only restore
-of an older backup brings back, are still flagged on the SMTP card, and the
-instance now logs a warning naming the server, never the user or the password,
-the first time it sends through them.
+of an older backup brings back, are held to it all the same: the instance
+requires STARTTLS of a server that is not on the same machine when it sends,
+whatever the stored settings say.

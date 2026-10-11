@@ -215,6 +215,7 @@ function personStatus(reason: PersonError["reason"]): number {
     case "person-not-found":
       return HttpStatus.NOT_FOUND;
     case "invalid-email":
+    case "invalid-phone":
     case "invalid-personal-identity-number":
     case "personal-identity-number":
     case "personal-identity-number-needs-century":
