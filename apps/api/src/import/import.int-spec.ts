@@ -1757,17 +1757,20 @@ describe("applying", () => {
       [addressLabel, "2104", "Aktiv", surname, "Medlem", "", "", "2022-11-01"],
     ];
     const running = await uploadAndPreview(cookie, "pagar.csv", rows);
-    await prisma.importSession.update({
-      where: { id: running.sessionId },
-      data: { status: "APPLYING" },
-    });
-    const newer = await uploadAndPreview(cookie, "klar.csv", rows);
-    await prisma.importSession.update({
-      where: { id: newer.sessionId },
-      data: { status: "FAILED", failureReason: "stopped for the test" },
-    });
-
+    // A session left APPLYING would refuse every later apply in this file.
+    const touched = [running.sessionId];
     try {
+      await prisma.importSession.update({
+        where: { id: running.sessionId },
+        data: { status: "APPLYING" },
+      });
+      const newer = await uploadAndPreview(cookie, "klar.csv", rows);
+      touched.push(newer.sessionId);
+      await prisma.importSession.update({
+        where: { id: newer.sessionId },
+        data: { status: "FAILED", failureReason: "stopped for the test" },
+      });
+
       const response = await inject({
         method: "GET",
         url: "/api/import/sessions/active",
@@ -1780,7 +1783,7 @@ describe("applying", () => {
       expect(active?.status).toBe("APPLYING");
     } finally {
       await prisma.importSession.updateMany({
-        where: { id: { in: [running.sessionId, newer.sessionId] } },
+        where: { id: { in: touched } },
         data: { status: "MAPPING" },
       });
     }
