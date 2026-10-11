@@ -703,14 +703,15 @@ DROP ROLE openbrf_app;
 
 **Connections.** The application's pool holds up to
 `OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, the job queue two
-more, and installing or uninstalling a plugin or theme holds a lock on a
-connection of its own, at most four at a time, so an instance can take sixteen
-at the defaults. Each deploy limits the runtime role to that plus three, so an
-instance - or code running inside it - cannot take more than its share.
-PostgreSQL allows 100 connections unless `max_connections` says otherwise,
-three of them reserved for superusers, which leaves room for five instances at
-their limits and two connections over for the migrations each deploy runs and
-for anybody else who connects. The limits,
+more, installing or uninstalling a plugin or theme holds a lock on a
+connection of its own, at most four at a time, and the reindex of blind
+indexes after an upgrade holds one more while it runs, so an instance can take
+seventeen at the defaults. Each deploy limits the runtime role to that plus
+three, so an instance - or code running inside it - cannot take more than its
+share. PostgreSQL allows 100 connections unless `max_connections` says
+otherwise, three of them reserved for superusers, which leaves room for four
+instances at their limits and seventeen connections over for the migrations
+each deploy runs and for anybody else who connects. The limits,
 and room for those, have to fit within `max_connections` less the reserved
 connections; a smaller pool, or a larger `max_connections`, makes room for more
 instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its

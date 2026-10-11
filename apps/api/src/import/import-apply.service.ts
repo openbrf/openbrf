@@ -3,6 +3,7 @@ import { localDayOf } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
+import { identityNumbersAwaitReindex } from "../address-book/person-reindex.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -139,11 +140,39 @@ const APPLY_JOB_OPTIONS = {
   deadLetter: IMPORT_APPLY_DEAD_LETTER_QUEUE,
 } satisfies JobSendOptions;
 
+/**
+ * The chunk carries personal identity numbers while the register still holds
+ * some under an older index. Not an `ImportError`: nothing about the file or
+ * the board's decisions is wrong, and a later attempt finds the reindex done.
+ */
+class ReindexPendingError extends Error {
+  constructor() {
+    super("Personal identity numbers are being reindexed.");
+    this.name = "ReindexPendingError";
+  }
+}
+
+/** How long after finding the reindex unfinished the apply looks again. */
+const REINDEX_RECHECK_SECONDS = 30;
+
+/**
+ * How long an apply waits for the reindex in all.
+ *
+ * A healthy reindex of the largest register is minutes of Argon2id. One still
+ * unfinished after this has stopped on something an operator has to look at,
+ * and its own log says what; the apply ends as interrupted rather than wait
+ * on it for ever.
+ */
+const REINDEX_WAIT_MINUTES = 60;
+
 /** Payload of the apply job. */
 interface ImportApplyJob {
   sessionId: string;
   [key: string]: unknown;
 }
+
+/** What a job that found the reindex unfinished made of it. */
+type ReindexWait = "queued" | "timed-out" | "left-to-another";
 
 @Injectable()
 export class ImportApplyService implements OnModuleInit {
@@ -228,7 +257,9 @@ export class ImportApplyService implements OnModuleInit {
    * with its cursor where the last committed chunk put it, and re-queueing is
    * all it takes: the job resumes from that cursor rather than repeating what is
    * already written. Queueing one twice is harmless - the chunk claim lets only
-   * one of them commit.
+   * one of them commit. An apply waiting for the reindex keeps the job it
+   * queued to look again: the job queued here finds the wait taken and leaves
+   * it to that one (awaitReindex).
    */
   async resumeInterruptedApplies(): Promise<number> {
     const unfinished = await this.prisma.importSession.findMany({
@@ -250,6 +281,13 @@ export class ImportApplyService implements OnModuleInit {
   /**
    * Walks the session's remaining chunks. Public so a test can drive it.
    *
+   * A chunk that has to wait for the reindex of personal identity numbers is
+   * neither kind of failure below: the apply is queued again for a little
+   * later, as a job of its own, and this one finishes. Left to the queue's
+   * retries, the wait would spend the attempts meant for a database that went
+   * away, and a reindex that outlasts them would end a sound import as
+   * interrupted. The session records when the wait began, which bounds it.
+   *
    * Two kinds of failure end an apply, and they are answered differently:
    *
    * - **A refusal** carries an `ImportError`, whose vocabulary describes the
@@ -262,7 +300,8 @@ export class ImportApplyService implements OnModuleInit {
    *   chunk.
    *
    * Only the second kind can reach the dead letter, so the session a board
-   * reads as interrupted is one that really did run out of attempts.
+   * reads as interrupted is one that really did run out of attempts, or out
+   * of the time it waits for the reindex.
    */
   async runApply(sessionId: string): Promise<void> {
     try {
@@ -271,6 +310,10 @@ export class ImportApplyService implements OnModuleInit {
         // cursor the last one left.
       }
     } catch (error) {
+      if (error instanceof ReindexPendingError) {
+        await this.awaitReindex(sessionId);
+        return;
+      }
       if (error instanceof ImportError) {
         // Recorded rather than retried, and recorded as what it was: the reason
         // is the same vocabulary a request answers with, so the screen names
@@ -463,10 +506,23 @@ export class ImportApplyService implements OnModuleInit {
         // with one of them is either seen by the check below or committed after
         // this chunk. After the email keys and before the transition locks, the
         // order person-identity-number-lock.ts gives.
-        await lockPersonIdentityNumbersInOrder(
-          tx,
-          writtenIdentityNumberIndexes(encrypted),
-        );
+        const identityNumberIndexes = writtenIdentityNumberIndexes(encrypted);
+        await lockPersonIdentityNumbersInOrder(tx, identityNumberIndexes);
+
+        // A person whose number still carries the index older rules computed
+        // is under none of the keys above, and the check below cannot find
+        // them by the row's number: it would enter them a second time. That
+        // lasts the seconds after an upgrade until the reindex at boot has
+        // rewritten them, so the chunk is handed back to the queue to be tried
+        // again rather than stopped. Read after the locks, so a number the
+        // reindex is rewriting right now is either seen rewritten by the check
+        // or still seen here.
+        if (
+          identityNumberIndexes.length > 0 &&
+          (await identityNumbersAwaitReindex(tx))
+        ) {
+          throw new ReindexPendingError();
+        }
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -523,6 +579,10 @@ export class ImportApplyService implements OnModuleInit {
             },
             rowsSkipped: { increment: written.skipped },
             rowsWithProblems: { increment: written.errors },
+            // A chunk got through, so whatever waited for the reindex is over,
+            // and a later wait is a wait of its own.
+            reindexWaitSince: null,
+            reindexRecheckAt: null,
             // The last chunk ends the import in the same commit that writes
             // its rows. Marked afterwards, there would be a moment when every
             // row was written and the session still read as running, and
@@ -563,6 +623,80 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Queues the apply again for once the reindex may have finished, or stops
+   * it when the reindex has had all the time it gets.
+   *
+   * The job queued keeps the apply's retries and dead letter, and has all of
+   * its attempts again: none of them was spent on the wait.
+   *
+   * One job at a time waits for the reindex. More than one can find it
+   * unfinished: the job a restart queues for every running session, a job the
+   * queue delivers twice, the job queued last time still waiting for its turn.
+   * Each that queued a job of its own would start a line of jobs that goes on
+   * until the reindex finishes. So queueing the next one is claimed on the
+   * session, in the same transaction that queues it: the session records when
+   * that job is due, and the claim is only taken once that time has passed,
+   * which is when the job it records can run. A job that finds a later time
+   * there leaves the wait to the job that is coming, and finishes.
+   *
+   * The times are the database's: the due time recorded is the one the queue
+   * gives the job it inserts in the same transaction, so the job is never run
+   * before its own claim can be taken, on any instance's clock. And the start
+   * of the wait is read from the session rather than carried in the job, so
+   * every job of the apply bounds the same wait.
+   */
+  private async awaitReindex(sessionId: string): Promise<void> {
+    // Before the transaction: creating a queue is the queue's own work, on its
+    // own connection.
+    await this.ensureQueues();
+    const wait = await this.prisma.$transaction(
+      async (tx): Promise<ReindexWait> => {
+        const [claimed] = await tx.$queryRaw<{ timedOut: boolean }[]>`
+          UPDATE "import_session"
+          SET "reindexWaitSince" = COALESCE("reindexWaitSince", now()),
+              "reindexRecheckAt" = now() + ${REINDEX_RECHECK_SECONDS}::int * interval '1 second'
+          WHERE "id" = ${sessionId}
+            AND "status" = 'APPLYING'
+            AND ("reindexRecheckAt" IS NULL OR "reindexRecheckAt" <= now())
+          RETURNING "reindexWaitSince" <= now() - ${REINDEX_WAIT_MINUTES}::int * interval '1 minute' AS "timedOut"`;
+        if (claimed === undefined) {
+          return "left-to-another";
+        }
+        if (claimed.timedOut) {
+          return (await stopImport(tx, sessionId, "apply-interrupted"))
+            ? "timed-out"
+            : "left-to-another";
+        }
+        await this.jobs.sendAtInTransaction<ImportApplyJob>(
+          tx,
+          IMPORT_APPLY_QUEUE,
+          { sessionId },
+          REINDEX_RECHECK_SECONDS,
+          APPLY_JOB_OPTIONS,
+        );
+        return "queued";
+      },
+    );
+    switch (wait) {
+      case "queued":
+        this.logger.log(
+          `Import session ${sessionId}: waiting for the reindex of personal identity numbers`,
+        );
+        break;
+      case "timed-out":
+        this.logger.error(
+          `Import session ${sessionId}: personal identity numbers were still awaiting the reindex after ${String(REINDEX_WAIT_MINUTES)} minutes; see the reindex's own log`,
+        );
+        break;
+      case "left-to-another":
+        this.logger.log(
+          `Import session ${sessionId}: another job of the apply is already waiting for the reindex`,
+        );
+        break;
+    }
   }
 
   /**
