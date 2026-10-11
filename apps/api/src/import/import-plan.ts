@@ -197,8 +197,20 @@ export interface PlannedRow {
    */
   sameAsRowNumber: number | null;
   /** Persons the row could equally well be, when the match was ambiguous. */
-  candidates: { personId: string; name: string }[];
+  candidates: ImportCandidate[];
   problems: ImportProblem[];
+}
+
+/** A person an ambiguous row could be, as the board chooses between them. */
+export interface ImportCandidate {
+  personId: string;
+  name: string;
+  /**
+   * Whether the row's residency shares a day with another this person holds on
+   * the apartment. Chosen for the row, they are not written to: the apply
+   * counts the row as a problem, as it would for a row that matched them alone.
+   */
+  residencyConflict: boolean;
 }
 
 export interface ImportPlan {
@@ -545,7 +557,16 @@ function planRow(
       candidates: match.candidates.flatMap((candidate) =>
         candidate.personId === null
           ? []
-          : [{ personId: candidate.personId, name: candidate.name }],
+          : [
+              {
+                personId: candidate.personId,
+                name: candidate.name,
+                residencyConflict: conflictsWith(
+                  residency,
+                  candidate.residencies,
+                ),
+              },
+            ],
       ),
     };
   }

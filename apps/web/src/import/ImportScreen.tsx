@@ -1184,7 +1184,11 @@ function PreviewRow({
                 <option value="" />
                 {row.candidates.map((candidate) => (
                   <option key={candidate.personId} value={candidate.personId}>
-                    {candidate.name}
+                    {candidate.residencyConflict
+                      ? t("import.preview.candidateResidencyConflict", {
+                          name: candidate.name,
+                        })
+                      : candidate.name}
                   </option>
                 ))}
                 <option value="create">
@@ -1193,6 +1197,15 @@ function PreviewRow({
                 <option value="skip">{t("import.preview.decisionSkip")}</option>
               </select>
             </label>
+            {row.candidates.some(
+              (candidate) =>
+                candidate.residencyConflict &&
+                candidate.personId === decisionValue,
+            ) ? (
+              // Said beside the choice, because the apply would otherwise
+              // count the row as a problem only once it is written.
+              <span>{t("import.preview.decisionResidencyConflict")}</span>
+            ) : null}
           </div>
         ) : row.problems.length === 0 ? (
           <NotRecorded meaning={t("import.preview.noValue.problems")} />

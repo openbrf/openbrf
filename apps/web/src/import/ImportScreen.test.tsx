@@ -186,8 +186,16 @@ const PREVIEW: ImportPreview = {
       sameAsRowNumber: null,
       sourceRow: 3,
       candidates: [
-        { personId: "person-bo-senior", name: "Bo Berg" },
-        { personId: "person-bo-junior", name: "Bo Berg" },
+        {
+          personId: "person-bo-senior",
+          name: "Bo Berg",
+          residencyConflict: false,
+        },
+        {
+          personId: "person-bo-junior",
+          name: "Bo Berg",
+          residencyConflict: false,
+        },
       ],
       problems: [],
     },
@@ -991,7 +999,13 @@ describe("the preview", () => {
               matchedPersonId: null,
               matchedPersonName: null,
               mismatch: "personalIdentityNumber",
-              candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+              candidates: [
+                {
+                  personId: "person-dag",
+                  name: "Dag Dahlström",
+                  residencyConflict: false,
+                },
+              ],
             },
           ],
         },
@@ -1035,7 +1049,13 @@ describe("the preview", () => {
               matchedPersonId: null,
               matchedPersonName: null,
               mismatch: "name",
-              candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+              candidates: [
+                {
+                  personId: "person-dag",
+                  name: "Dag Dahlström",
+                  residencyConflict: false,
+                },
+              ],
             },
           ],
         },
@@ -1240,7 +1260,13 @@ describe("after pressing apply", () => {
               matchedPersonId: null,
               matchedPersonName: null,
               mismatch: "name",
-              candidates: [{ personId: "person-bo-senior", name: "Bo Berg" }],
+              candidates: [
+                {
+                  personId: "person-bo-senior",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                },
+              ],
             },
           ],
         },
@@ -1292,6 +1318,63 @@ describe("after pressing apply", () => {
       });
     });
     expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
+  });
+
+  it("says beside the choice when the person chosen lives here on other terms", async () => {
+    // Bo junior already holds a residency in 1103 that overlaps the row's in
+    // another role. Chosen for the row, the apply counts it as a problem, and
+    // the board is told so before it applies rather than afterwards.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          rows: [
+            created,
+            {
+              ...ambiguous,
+              candidates: [
+                {
+                  personId: "person-bo-senior",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                },
+                {
+                  personId: "person-bo-junior",
+                  name: "Bo Berg",
+                  residencyConflict: true,
+                },
+              ],
+            },
+            failed,
+            updated,
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByRole("option", {
+        name: "Bo Berg (bor här på andra villkor)",
+      }),
+    ).toBeTruthy();
+    const choice = screen.getByRole("combobox", { name: /Den här raden är/ });
+    await session.selectOptions(choice, "person-bo-senior");
+    expect(screen.queryByText(/räknas raden som ett problem/)).toBeNull();
+
+    await session.selectOptions(choice, "person-bo-junior");
+    expect(screen.getByText(/räknas raden som ett problem/)).toBeTruthy();
   });
 
   it("applies the decisions once a preview taken with them shows nothing new", async () => {
@@ -1411,7 +1494,13 @@ describe("after pressing apply", () => {
             created,
             {
               ...ambiguous,
-              candidates: [{ personId: "person-bo-other", name: "Bo Berg" }],
+              candidates: [
+                {
+                  personId: "person-bo-other",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                },
+              ],
             },
             failed,
             updated,

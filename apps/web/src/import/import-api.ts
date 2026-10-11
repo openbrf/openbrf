@@ -76,7 +76,15 @@ export interface ImportPreviewRow {
   matchedBy: ImportMatchKey | null;
   mismatch: ImportMismatch | null;
   sameAsRowNumber: number | null;
-  candidates: { personId: string; name: string }[];
+  candidates: {
+    personId: string;
+    name: string;
+    /**
+     * Whether the row's residency overlaps another this person holds on the
+     * apartment, so choosing them makes the row a problem instead.
+     */
+    residencyConflict: boolean;
+  }[];
   problems: { field: ImportField | null; reason: string }[];
 }
 

@@ -238,6 +238,55 @@ describe("an ambiguous match", () => {
     ]);
     expect(plan.summary.ambiguous).toBe(1);
   });
+
+  it("says which candidate already lives here on other terms", () => {
+    // Person b has been a resident of 1101 since 2015, and the row makes Anna
+    // a member from 2019. Chosen for the row, b would hold two residencies on
+    // the same days, which the apply refuses as a problem with the row.
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      snapshot({
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-a", "person-b"],
+          ],
+        ]),
+        personNames: new Map([
+          ["person-a", "Anna Lindqvist"],
+          ["person-b", "Anna Lindqvist"],
+        ]),
+        residenciesByPerson: new Map([
+          ["person-a", heldAsComplete("apartment-1101")],
+          [
+            "person-b",
+            [
+              {
+                apartmentId: "apartment-1101",
+                role: "RESIDENT",
+                movedInOn: "2015-02-01",
+                movedOutOn: null,
+              },
+            ],
+          ],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.candidates).toEqual([
+      {
+        personId: "person-a",
+        name: "Anna Lindqvist",
+        residencyConflict: false,
+      },
+      {
+        personId: "person-b",
+        name: "Anna Lindqvist",
+        residencyConflict: true,
+      },
+    ]);
+  });
 });
 
 describe("a single match the row contradicts", () => {
@@ -264,7 +313,11 @@ describe("a single match the row contradicts", () => {
     expect(plan.rows[0]?.matchedBy).toBe("email");
     expect(plan.rows[0]?.mismatch).toBe("personalIdentityNumber");
     expect(plan.rows[0]?.candidates).toEqual([
-      { personId: "person-a", name: "Anna Lindqvist" },
+      {
+        personId: "person-a",
+        name: "Anna Lindqvist",
+        residencyConflict: false,
+      },
     ]);
   });
 

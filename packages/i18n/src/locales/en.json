@@ -2405,6 +2405,8 @@
       "decision": "This row is",
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
+      "candidateResidencyConflict": "{{name}} (lives here on other terms)",
+      "decisionResidencyConflict": "This person already has a residency on this apartment that overlaps the row's but has another role, move-in date or move-out date. Chosen for this row, the row is counted as a problem and nothing is written for it.",
       "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
       "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",
       "apply": "Apply the import",
