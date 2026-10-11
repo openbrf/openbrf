@@ -73,9 +73,17 @@ RUN pnpm build
 # survives because it is a runtime dependency of the API: the migrate service
 # applies migrations with it on every deploy.
 #
-# Switching an existing install to --prod makes pnpm rebuild node_modules, and
-# it asks before doing that unless it is told there is no one to ask.
-RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+# `pnpm prune --prod` rather than `pnpm install --prod`: on a node_modules that
+# a full install laid out, pnpm 12 reports "Already up to date" for the second
+# and leaves the virtual store as it was, typescript, vitest and the rest of
+# the toolchain included (about 220 MB of the 716 MB under node_modules/.pnpm).
+# Prune removes them, and leaves the same set of packages a clean `--prod`
+# install does.
+#
+# The second command fails the build if the toolchain is still there, so a
+# pnpm that stops pruning is found here and not in the size of the image.
+RUN pnpm prune --prod \
+    && test -z "$(find node_modules/.pnpm -maxdepth 1 \( -name 'typescript@*' -o -name 'vitest@*' -o -name 'vite@*' -o -name 'turbo@*' \) -print -quit)"
 
 # --- runtime ----------------------------------------------------------------
 FROM base AS runtime
