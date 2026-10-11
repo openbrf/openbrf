@@ -19,7 +19,8 @@ the migrations have run.
   schema owner owns, while such a role owns either schema, and while such a
   role, or `PUBLIC`, holds `CREATE` on either schema or is given it by the
   owner's default privileges. A superuser may own either schema, and so may
-  `pg_database_owner` while the schema owner owns the database. A function or
+  `pg_database_owner` while the schema owner or a superuser owns the database.
+  A function or
   operator an extension installed passes where a superuser owns it, as the
   bootstrap superuser does for a trusted extension a role installed; one of
   another role's does not pass for belonging to an extension, since whoever

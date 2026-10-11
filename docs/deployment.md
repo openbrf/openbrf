@@ -167,7 +167,7 @@ changes nothing but the owner's password, which it sets from
    holds `CREATE` on either schema or is given it by the owner's default
    privileges. A superuser may own either, and so may `pg_database_owner`, which
    owns `public` in a database created on PostgreSQL 15 or later, as long as the
-   schema owner owns the database. A database restored from a dump made before
+   schema owner or a superuser owns the database. A database restored from a dump made before
    PostgreSQL 15 still gives `PUBLIC` `CREATE` on `public`: as the schema owner,
    `REVOKE CREATE ON SCHEMA public FROM PUBLIC` before you deploy. A schema
    another role owns is handed over, as a superuser, with

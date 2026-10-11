@@ -301,35 +301,50 @@ describe("the trigger check before the migrations", () => {
     }
   }, 60_000);
 
-  it.each([
-    {
-      what: "a function",
-      create: `CREATE FUNCTION public.openbrf_trigger_check_${suffix}_planted(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'`,
-      object: `FUNCTION public.openbrf_trigger_check_${suffix}_planted(integer)`,
-      handover: `ROUTINE public.openbrf_trigger_check_${suffix}_planted(integer)`,
-      reported: `public.openbrf_trigger_check_${suffix}_planted(integer) is a function`,
-    },
-    {
-      what: "a procedure",
-      create: `CREATE PROCEDURE public.openbrf_trigger_check_${suffix}_planted(integer) LANGUAGE sql AS 'SELECT 1'`,
-      object: `PROCEDURE public.openbrf_trigger_check_${suffix}_planted(integer)`,
-      handover: `ROUTINE public.openbrf_trigger_check_${suffix}_planted(integer)`,
-      reported: `public.openbrf_trigger_check_${suffix}_planted(integer) is a procedure`,
-    },
-    {
-      what: "an operator",
-      create:
-        "CREATE OPERATOR public.=== (LEFTARG = text, RIGHTARG = text, FUNCTION = pg_catalog.texteq)",
-      object: "OPERATOR public.=== (text, text)",
-      handover: "OPERATOR public.=== (text, text)",
-      reported: "public.===(text,text) is an operator",
-    },
-  ])(
-    "stops on $what in public that another role owns, until the owner is given it",
+  it.each(
+    ["public", "pgboss"].flatMap((schema) => {
+      const planted = `${schema}.openbrf_trigger_check_${suffix}_planted(integer)`;
+      return [
+        {
+          schema,
+          what: "a function",
+          create: `CREATE FUNCTION ${planted} RETURNS integer LANGUAGE sql AS 'SELECT 1'`,
+          object: `FUNCTION ${planted}`,
+          handover: `ROUTINE ${planted}`,
+          reported: `${planted} is a function`,
+        },
+        {
+          schema,
+          what: "a procedure",
+          create: `CREATE PROCEDURE ${planted} LANGUAGE sql AS 'SELECT 1'`,
+          object: `PROCEDURE ${planted}`,
+          handover: `ROUTINE ${planted}`,
+          reported: `${planted} is a procedure`,
+        },
+        {
+          schema,
+          what: "an aggregate",
+          create: `CREATE AGGREGATE ${planted} (SFUNC = pg_catalog.int4pl, STYPE = integer)`,
+          object: `AGGREGATE ${planted}`,
+          handover: `ROUTINE ${planted}`,
+          reported: `${planted} is an aggregate`,
+        },
+        {
+          schema,
+          what: "an operator",
+          create: `CREATE OPERATOR ${schema}.=== (LEFTARG = text, RIGHTARG = text, FUNCTION = pg_catalog.texteq)`,
+          object: `OPERATOR ${schema}.=== (text, text)`,
+          handover: `OPERATOR ${schema}.=== (text, text)`,
+          reported: `${schema}.===(text,text) is an operator`,
+        },
+      ];
+    }),
+  )(
+    "stops on $what in $schema that another role owns, until the owner is given it",
     async ({ create, object, handover, reported }) => {
-      // What a role with CREATE in public, which a database restored from a
-      // dump before PostgreSQL 15 gives every role, could have left there for
-      // a name in a migration to resolve to.
+      // What a role with CREATE in the schema, which a database restored from
+      // a dump before PostgreSQL 15 gives every role in public, could have
+      // left there for a name in a migration to resolve to.
       await asOwner(create);
       try {
         await asOwner(`ALTER ${object} OWNER TO ${PROBE_ROLE}`);
@@ -341,7 +356,7 @@ describe("the trigger check before the migrations", () => {
         expect(refused.output).toContain("So the deploy stops here.");
 
         // The statement the message names hands it over: ALTER FUNCTION
-        // refuses a procedure, ALTER ROUTINE takes either.
+        // refuses a procedure, ALTER ROUTINE takes any of the three.
         const statement = handover.split(" ")[0];
         expect(refused.output).toContain(`ALTER ${statement} ... OWNER TO`);
         await asOwner(`ALTER ${handover} OWNER TO CURRENT_USER`);
@@ -480,6 +495,23 @@ describe("the trigger check before the migrations", () => {
       await asOwner(`DROP ROLE IF EXISTS ${OWNER_ROLE}`);
     }
   }, 90_000);
+
+  it("stops while another role owns public itself, not through pg_database_owner", async () => {
+    // A database created before PostgreSQL 15, or a schema handed to a role,
+    // has a role of its own as the owner, which can create in public whatever
+    // the grants say.
+    const databaseUrl = await scratch.create("triggers_public_owner");
+    await withClient(databaseUrl, (client) =>
+      client.query(`ALTER SCHEMA public OWNER TO ${PROBE_ROLE}`),
+    );
+    const refused = check(databaseUrl);
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain(
+      `public belongs to ${PROBE_ROLE}, not the schema owner.`,
+    );
+    expect(refused.output).toContain("ALTER SCHEMA ... OWNER TO");
+    expect(refused.output).toContain("So the deploy stops here.");
+  }, 60_000);
 
   it("stops while public belongs to pg_database_owner and the database to another role", async () => {
     // pg_database_owner stands for whoever owns the database, which here is
