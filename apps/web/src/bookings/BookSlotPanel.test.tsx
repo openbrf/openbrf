@@ -446,6 +446,101 @@ describe("a booking that settles after the reader moved on", () => {
       ),
     ).toBeNull();
   });
+
+  it("cannot be sent again from the window it was sent from until it settles", async () => {
+    /*
+     * Moving on clears the notice, and the slots were held on the same state,
+     * so coming back before the answer was in offered the slot again and a
+     * second click sent a second booking.
+     */
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    bookSlot.mockImplementationOnce(async () => {
+      await claimed;
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await open();
+    const slotName = { name: "Boka onsdag 16 september 07:00-10:00" };
+
+    await session.click(screen.getByRole("button", slotName));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+
+    const slot = await screen.findByRole("button", slotName);
+    expect(slot).toHaveProperty("disabled", true);
+    await session.click(slot);
+    expect(bookSlot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release();
+      await claimed;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", slotName)).toHaveProperty(
+        "disabled",
+        false,
+      );
+    });
+    await session.click(screen.getByRole("button", slotName));
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("holds the stay's own button, not the nights, until it settles", async () => {
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    bookSlot.mockImplementationOnce(async () => {
+      await claimed;
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+
+    // The nights can still be picked, so the stay is put together again...
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    expect(
+      screen.getByText("Ankomst 16 september 2026, avresa 18 september 2026."),
+    ).toBeTruthy();
+    // ...but it is not sent while the first one is still out.
+    const send = screen.getByRole("button", { name: "Bokar..." });
+    expect(send).toHaveProperty("disabled", true);
+    await session.click(send);
+    expect(bookSlot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release();
+      await claimed;
+    });
+
+    const again = await screen.findByRole("button", { name: "Boka vistelsen" });
+    expect(again).toHaveProperty("disabled", false);
+    await session.click(again);
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(2);
+    });
+  });
 });
 
 describe("a quota that has been spent", () => {

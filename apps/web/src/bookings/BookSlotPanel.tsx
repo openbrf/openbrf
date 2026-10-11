@@ -273,12 +273,25 @@ export function BookSlotPanel({
   };
 
   const busy = claim.state.kind === "saving";
+  /*
+   * Whether a booking is still waiting for its answer. Leaving the window
+   * clears `busy` along with the notice, but not the booking, so the controls
+   * that send one are held on this instead: coming back to the window before
+   * the answer is in would otherwise offer the same slot or stay a second time.
+   */
+  const sending = claim.pending;
+  // A night is picked rather than booked, so a stay can be chosen again while
+  // an earlier one is still being sent; only the button that books it waits.
+  const dayBusy = mode === "DATE_RANGE" ? busy : sending;
   const noApartment = apartments.length === 0;
 
   // The answer to the request on screen, or nothing while it is in flight.
   const calendar = answer?.key === key ? answer : null;
 
   const book = (startsAt: string, endsAt: string | null): void => {
+    if (sending) {
+      return;
+    }
     setClaiming(startsAt);
     // Cleared when the claim settles, either way. Left standing, the slot it
     // names goes on reading "booking" over a booking that has finished - the
@@ -492,8 +505,8 @@ export function BookSlotPanel({
                       slot={slot}
                       label={formatTimeOfDay(slot.startsAt, i18n.language)}
                       period={periodLabel(slot, i18n.language)}
-                      busy={busy}
-                      claiming={busy && claiming === slot.startsAt}
+                      busy={sending}
+                      claiming={sending && claiming === slot.startsAt}
                       unavailable={noApartment}
                       onPick={() => {
                         book(slot.startsAt, null);
@@ -514,8 +527,8 @@ export function BookSlotPanel({
                   slot={slot}
                   label={formatDayWithWeekday(day, i18n.language)}
                   period={formatDayWithWeekday(day, i18n.language)}
-                  busy={busy}
-                  claiming={busy && claiming === slot.startsAt}
+                  busy={dayBusy}
+                  claiming={dayBusy && claiming === slot.startsAt}
                   unavailable={noApartment}
                   chosen={
                     mode === "DATE_RANGE" && slot.state === "FREE"
@@ -550,13 +563,13 @@ export function BookSlotPanel({
           </p>
           <button
             type="button"
-            disabled={stay.endsAt === null || busy || noApartment}
+            disabled={stay.endsAt === null || sending || noApartment}
             className={`${PRIMARY_BUTTON} ml-auto`}
             onClick={() => {
               book(stay.startsAt, stay.endsAt);
             }}
           >
-            {busy ? t("bookings.book.booking") : t("bookings.book.bookStay")}
+            {sending ? t("bookings.book.booking") : t("bookings.book.bookStay")}
           </button>
         </div>
       ) : null}

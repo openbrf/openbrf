@@ -381,6 +381,51 @@ describe("a viewer holding bookings:manage alone", () => {
     ).toBeNull();
   });
 
+  it("cannot cancel the same booking twice by leaving the month and coming back", async () => {
+    /*
+     * Moving on clears the notice, and the buttons were held on the same state,
+     * so coming back before the answer was in offered the booking again and a
+     * second click sent a second cancellation.
+     */
+    fetchManagedBookings.mockResolvedValue({
+      ok: true,
+      value: [laundryBooking(hoursFromNow(48), hoursFromNow(51))],
+    });
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cancelled = cancelBookingForBoard.getMockImplementation();
+    cancelBookingForBoard.mockImplementationOnce(async (id: string) => {
+      await answered;
+      return cancelled?.(id);
+    });
+    const session = userEvent.setup();
+    render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
+
+    await session.click(await screen.findByRole("button", { name: /^Avboka/ }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+
+    const button = await screen.findByRole("button", { name: /^Avboka/ });
+    expect(button).toHaveProperty("disabled", true);
+    await session.click(button);
+    expect(cancelBookingForBoard).toHaveBeenCalledTimes(1);
+
+    release();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^Avboka/ })).toHaveProperty(
+        "disabled",
+        false,
+      );
+    });
+    await session.click(screen.getByRole("button", { name: /^Avboka/ }));
+    await waitFor(() => {
+      expect(cancelBookingForBoard).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("is offered the resource the catalogue named, to filter the month by", async () => {
     render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
 
