@@ -77,15 +77,29 @@ jobs:
           # Hub, where Dependabot reads the tags; the digest is the one Docker
           # Hub serves under the tag, and the mirror serves the same one. A
           # digest the mirror has not cached yet (a fresh Dependabot bump) falls
-          # back to Docker Hub rather than failing the scan.
+          # back to Docker Hub rather than failing the scan. Only that error does:
+          # Docker reports a digest the mirror does not have as "manifest
+          # unknown", "manifest for ... not found", or, with the containerd image
+          # store, "failed to resolve reference ...: not found". A bare "not
+          # found" is not enough, as "command not found" has it too. Any other
+          # failure (an outage, a timeout, a refused connection) fails the
+          # step, so that a lasting mirror outage is a red check someone reads
+          # and not every run quietly pulling from Docker Hub and spending its
+          # anonymous allowance.
           DOCKER_HUB_IMAGE="$SEMGREP_IMAGE"
           MIRROR_IMAGE="mirror.gcr.io/${DOCKER_HUB_IMAGE}"
-          if docker pull "$MIRROR_IMAGE"; then
+          if PULL_OUTPUT=$(docker pull "$MIRROR_IMAGE" 2>&1); then
+            echo "$PULL_OUTPUT"
             SEMGREP_IMAGE="$MIRROR_IMAGE"
-          else
-            echo "::warning::mirror.gcr.io could not serve ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
+          elif echo "$PULL_OUTPUT" | grep -qiE 'manifest unknown|manifest for .* not found|failed to resolve reference .*: not found'; then
+            echo "$PULL_OUTPUT" >&2
+            echo "::warning::mirror.gcr.io has not cached ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
             docker pull "$DOCKER_HUB_IMAGE"
             SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
+          else
+            echo "$PULL_OUTPUT" >&2
+            echo "::error::mirror.gcr.io failed for a reason other than a missing digest; not falling back to Docker Hub."
+            exit 1
           fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
