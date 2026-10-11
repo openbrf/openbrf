@@ -5782,14 +5782,16 @@ describe("a decided row somebody joins the candidates of", () => {
         ]),
       ),
     );
-    await previewImport(cookie, session.sessionId, {
-      ...(undated
+    await previewImport(
+      cookie,
+      session.sessionId,
+      undated
         ? {
             mapping: withoutMovedIn(session.suggestedMapping),
             defaultMovedInOn: "2024-02-01",
           }
-        : { mapping: session.suggestedMapping }),
-    });
+        : { mapping: session.suggestedMapping },
+    );
     return { cookie, sessionId: session.sessionId, firstName, personIds };
   }
 
