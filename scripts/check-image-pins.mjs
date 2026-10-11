@@ -71,17 +71,32 @@ export function fromImagesOf(source) {
 }
 
 /**
+ * How many FROM instructions a Dockerfile has, counting one that names no
+ * image, which `fromImagesOf` leaves out.
+ *
+ * @param {string} source
+ * @returns {number}
+ */
+export function fromLineCount(source) {
+  return source.split("\n").filter((line) => /^\s*FROM(?:\s|$)/i.test(line))
+    .length;
+}
+
+/**
  * What is wrong with the Semgrep Dockerfile's images, one sentence each; empty
  * when there is exactly one and it is pinned by digest.
  *
  * @param {string[]} images As returned by `fromImagesOf`.
+ * @param {number} fromLines As returned by `fromLineCount`; defaults to the
+ *   number of images.
  * @returns {string[]}
  */
-export function semgrepFailures(images) {
-  if (images.length !== 1) {
+export function semgrepFailures(images, fromLines = images.length) {
+  if (fromLines !== 1 || images.length !== 1) {
     return [
       `${SEMGREP_DOCKERFILE} must have exactly one FROM line, the image the ` +
-        `scan runs, and has ${String(images.length)}.`,
+        `scan runs, and has ${String(fromLines)} FROM lines naming ` +
+        `${String(images.length)} images.`,
     ];
   }
   if (!/@sha256:[0-9a-f]{64}$/.test(images[0])) {
@@ -159,7 +174,7 @@ if (import.meta.main) {
           `${SEMGREP_DOCKERFILE} does not exist. If it moved, update ` +
             "SEMGREP_DOCKERFILE in scripts/check-image-pins.mjs with it.",
         ]
-      : semgrepFailures(fromImagesOf(dockerfile))),
+      : semgrepFailures(fromImagesOf(dockerfile), fromLineCount(dockerfile))),
   ];
   if (failures.length > 0) {
     for (const failure of failures) {

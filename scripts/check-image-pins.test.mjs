@@ -9,6 +9,7 @@ import { test } from "node:test";
 import {
   disagreements,
   fromImagesOf,
+  fromLineCount,
   pinsOf,
   semgrepFailures,
 } from "./check-image-pins.mjs";
@@ -108,4 +109,13 @@ test("no FROM line, or a second one, is refused", () => {
     assert.equal(failures.length, 1);
     assert.match(failures[0], /exactly one FROM/);
   }
+});
+
+test("a FROM line that names no image still counts as a FROM line", () => {
+  const source = `FROM ${SEMGREP}\nFROM --platform=linux/amd64\n`;
+  assert.equal(fromLineCount(source), 2);
+  assert.equal(fromLineCount(`# FROM x\nFROM ${SEMGREP}\n`), 1);
+  const failures = semgrepFailures(fromImagesOf(source), fromLineCount(source));
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /exactly one FROM/);
 });
