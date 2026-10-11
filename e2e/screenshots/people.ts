@@ -140,3 +140,56 @@ export const MEMBER_LIST = {
   // that separator first.
   text: MEMBER_LIST_ROWS.map((row) => row.join(";")).join("\n"),
 } as const;
+
+/**
+ * Two residents of one apartment who share a name, and the member list whose
+ * one row the import cannot tell between them.
+ *
+ * Both live in 1303 as residents, the elder since 2015 and the younger since
+ * 2020. The row states 2015: for the elder that is the residency the register
+ * already holds, and for the younger a second one overlapping theirs. So the
+ * preview asks the board which of them the row is, and marks the younger as
+ * holding an overlapping residency - the label and the explanation beside the
+ * choice are what the image is of. Neither carries an address, a phone number
+ * or an identity number.
+ *
+ * Moved in just before the import screens, after every register screen has
+ * been photographed, so they appear in no other image. The walk stops at the
+ * preview and never applies it.
+ */
+export const NAMESAKES = [
+  {
+    firstName: "Gunnar",
+    lastName: "Holm",
+    addressNumber: STORGATAN_12.number,
+    apartmentNumber: "1303",
+    role: "RESIDENT",
+    movedInOn: "2015-05-01",
+  },
+  {
+    firstName: "Gunnar",
+    lastName: "Holm",
+    addressNumber: STORGATAN_12.number,
+    apartmentNumber: "1303",
+    role: "RESIDENT",
+    movedInOn: "2020-03-01",
+  },
+] as const;
+
+export const NAMESAKE_LIST = {
+  fileName: "boende-1303.csv",
+  mimeType: "text/csv",
+  text: [
+    [
+      "Adress",
+      "Lägenhetsnummer",
+      "Förnamn",
+      "Efternamn",
+      "Roll",
+      "Inflyttningsdatum",
+    ],
+    [STORGATAN_12_LABEL, "1303", "Gunnar", "Holm", "Boende", "2015-05-01"],
+  ]
+    .map((row) => row.join(";"))
+    .join("\n"),
+} as const;

@@ -4,7 +4,14 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
-import { APPLICANT, MEMBER, MEMBER_LIST, RESIDENT } from "./people";
+import {
+  APPLICANT,
+  MEMBER,
+  MEMBER_LIST,
+  NAMESAKE_LIST,
+  NAMESAKES,
+  RESIDENT,
+} from "./people";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -144,6 +151,22 @@ export interface ContactMessage {
   readonly handled?: true;
 }
 
+/**
+ * Somebody put in the register and moved into an apartment over the API.
+ *
+ * Like everything a capture can photograph, it is published: a name nobody
+ * has, and nothing else about them.
+ */
+export interface MovedInResident {
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly addressNumber: string;
+  readonly apartmentNumber: string;
+  readonly role: "MEMBER" | "RESIDENT";
+  /** ISO calendar date. */
+  readonly movedInOn: string;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
@@ -166,6 +189,15 @@ export type Action =
    * the screens after it photograph the website as it was.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
+  /**
+   * Put these people in the register as whoever is signed in, each moved into
+   * their apartment from their day, unless the address book already lists
+   * somebody of that name there from that day.
+   *
+   * For a screen about people the register has to hold that no other image
+   * should show: the shared fixture is in every register screen.
+   */
+  | { readonly moveIn: readonly MovedInResident[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -698,6 +730,36 @@ export const SCREENS: readonly Screen[] = [
     name: "import-preview",
     prepare: [{ click: { button: "Förhandsgranska importen" } }],
     waitFor: { button: "Genomför importen" },
+  },
+  {
+    /*
+     * A row the import cannot tell between two namesakes, with the one who
+     * already holds an overlapping residency on the apartment chosen: the
+     * select marks them, and the screen says beside the choice that the row
+     * then writes nothing. A file of its own, uploaded afresh, so the preview
+     * above stays the one every row of which is a new person.
+     */
+    name: "import-preview-overlapping-residency",
+    goto: appPath("/import"),
+    prepare: [
+      { moveIn: NAMESAKES },
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: NAMESAKE_LIST.fileName,
+          mimeType: NAMESAKE_LIST.mimeType,
+          text: NAMESAKE_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      { click: { button: "Förhandsgranska importen" } },
+      {
+        select: { combobox: "Den här raden är" },
+        option: "Gunnar Holm (överlappande boende)",
+      },
+    ],
+    waitFor: { text: /räknas raden som ett problem/ },
+    capture: "page",
   },
 
   // --- composing a theme -----------------------------------------------------
