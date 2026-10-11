@@ -1,8 +1,9 @@
 /**
- * Checks the triggers on the application's tables and the job schema's, and
- * who can replace them, before anything runs as the schema owner. Also the
- * functions and operators in those schemas, which a name the owner's SQL calls
- * can resolve to, and who can create one.
+ * Checks the triggers on the application's tables and the job schema's, the
+ * functions they call, and who can replace them, before anything runs as the
+ * schema owner. Also the functions and operators in those schemas, which a
+ * name the owner's SQL calls can resolve to, and who can create one, and who
+ * owns the database and can act as the owner.
  *
  * Run at deploy time, as the database owner, before the migrations
  * (docker/entrypoint.sh, step 4): a trigger fires for whoever writes its table,
@@ -50,26 +51,257 @@ export const EXPECTED_TRIGGERS = [
 ];
 
 /**
+ * The migration that creates each trigger in EXPECTED_TRIGGERS on a table in
+ * public, by the trigger's name and its table.
+ *
+ * Once that migration has run, the trigger has to be there: dropping a guard
+ * leaves nothing for a comparison of the triggers that are there to find. One
+ * whose migration has not run yet is not looked for, since an upgrade meets
+ * the tables an earlier migration created before the one that adds their
+ * guard. The trigger on pgboss.queue has no entry: the job schema install puts
+ * it back on every deploy, after this check, and checks the rows it guards
+ * first. A migration that adds a trigger adds its entry here, and one that
+ * drops a trigger takes its entry out; the integration suite applies the
+ * migrations one at a time to keep this list true.
+ */
+export const TRIGGER_MIGRATIONS = new Map([
+  [
+    "audit_log_entry_append_only ON public.audit_log_entry",
+    "20260827122611_statutory_append_only_guards",
+  ],
+  [
+    "lien_note_no_delete ON public.lien_note",
+    "20260827122611_statutory_append_only_guards",
+  ],
+  [
+    "member_register_entry_append_only ON public.member_register_entry",
+    "20260827122611_statutory_append_only_guards",
+  ],
+  [
+    "transfer_no_delete ON public.transfer",
+    "20260827122611_statutory_append_only_guards",
+  ],
+  [
+    "audit_log_entry_no_truncate ON public.audit_log_entry",
+    "20260827123622_forbid_truncate_on_statutory_tables",
+  ],
+  [
+    "lien_note_no_truncate ON public.lien_note",
+    "20260827123622_forbid_truncate_on_statutory_tables",
+  ],
+  [
+    "member_register_entry_no_truncate ON public.member_register_entry",
+    "20260827123622_forbid_truncate_on_statutory_tables",
+  ],
+  [
+    "transfer_no_truncate ON public.transfer",
+    "20260827123622_forbid_truncate_on_statutory_tables",
+  ],
+  [
+    "termination_append_only ON public.termination",
+    "20260905100000_register_termination",
+  ],
+  [
+    "termination_no_truncate ON public.termination",
+    "20260905100000_register_termination",
+  ],
+  [
+    "register_report_obligation_append_only ON public.register_report_obligation",
+    "20260910100000_register_report_obligation",
+  ],
+  [
+    "register_report_obligation_matches_its_event ON public.register_report_obligation",
+    "20260910100000_register_report_obligation",
+  ],
+  [
+    "register_report_obligation_no_truncate ON public.register_report_obligation",
+    "20260910100000_register_report_obligation",
+  ],
+  [
+    "transfer_states_what_it_is ON public.transfer",
+    "20260912230000_transfer_write_guards",
+  ],
+  [
+    "transfer_reversal_append_only ON public.transfer_reversal",
+    "20260912252000_transfer_reversal",
+  ],
+  [
+    "transfer_reversal_matches_its_transfer ON public.transfer_reversal",
+    "20260912252000_transfer_reversal",
+  ],
+  [
+    "transfer_reversal_no_truncate ON public.transfer_reversal",
+    "20260912252000_transfer_reversal",
+  ],
+  [
+    "oauth_client_stays_disabled ON public.auth_oauth_client",
+    "20261008100100_oauth_client_stays_disabled",
+  ],
+]);
+
+/**
+ * Every form the migrations and the job schema install have given a function
+ * that a trigger in EXPECTED_TRIGGERS calls, each with the migration, or the
+ * script, that gave it: the function's language, SECURITY DEFINER if it is,
+ * its settings, and a SHA-256 of its body, as FUNCTION_STATE prints them.
+ *
+ * A trigger that reads as created still guards nothing once its function has
+ * been rewritten to return, and CREATE OR REPLACE FUNCTION keeps the function's
+ * owner and every trigger that calls it, so neither the triggers nor who owns
+ * the functions would show it. The check runs before the migrations, so it
+ * meets whichever form the instance's last release left: the one the latest
+ * migration that has run gave the function, and no earlier one, which would
+ * bring back what a later migration fixed. A function no migration that has
+ * run gave a form, as the install's is, may have any form listed for it. A
+ * migration that changes one adds a line, and the integration suite applies
+ * the migrations one at a time to compare this list with what each leaves.
+ */
+export const EXPECTED_TRIGGER_FUNCTIONS = [
+  [
+    "20260827122611_statutory_append_only_guards",
+    "public.openbrf_forbid_mutation() LANGUAGE plpgsql BODY 4cfe1bab62702b7e8460b295556e31490f5ff8a89786bbb924028da4b49dcd6d",
+  ],
+  [
+    "20260827123622_forbid_truncate_on_statutory_tables",
+    "public.openbrf_forbid_truncate() LANGUAGE plpgsql BODY 056bd186de430e093cc345a35db67fb626a2aa06997fbc4ce5966b909a6b542c",
+  ],
+  [
+    "20260827123837_statutory_guard_error_surface",
+    "public.openbrf_forbid_mutation() LANGUAGE plpgsql BODY d52eff72d8f5e893459b684839ef7be4ea0bde30a405262558911c175736e32c",
+  ],
+  [
+    "20260827123837_statutory_guard_error_surface",
+    "public.openbrf_forbid_truncate() LANGUAGE plpgsql BODY fdf9d0e70185f20f6a403515e328d56dd184d38502de009dade45438207c03d3",
+  ],
+  [
+    "20260910100000_register_report_obligation",
+    "public.openbrf_check_report_obligation_event() LANGUAGE plpgsql BODY a1800a087c1985b92b6c8395c1375fa3e9d3a46339387119f042727814ca5bd0",
+  ],
+  [
+    "20260912220000_grant_report_obligation",
+    "public.openbrf_check_report_obligation_event() LANGUAGE plpgsql BODY 874cc21dbca0e69e4e1f67c6daa417a90d53a2103e277bbc6beb9126f9bca885",
+  ],
+  [
+    "20260912230000_transfer_write_guards",
+    "public.openbrf_check_transfer_record() LANGUAGE plpgsql BODY e74cd7de337c5a173bd86750d6f2a736fd23c3373382c262da19b412ad23443f",
+  ],
+  [
+    "20260912250000_transfer_report_basis",
+    "public.openbrf_check_transfer_record() LANGUAGE plpgsql BODY e0a8f63a559d4f1d9e051a55cbc321c9d0cc05cab6574fee78959364daf64aac",
+  ],
+  [
+    "20260912252000_transfer_reversal",
+    "public.openbrf_check_report_obligation_event() LANGUAGE plpgsql BODY c4e290b0a69f5288d4077d325a5c6c30575073afb93ad8de978d0f0395b17888",
+  ],
+  [
+    "20260912252000_transfer_reversal",
+    "public.openbrf_check_transfer_reversal() LANGUAGE plpgsql BODY 60ec3e9853783616d89f629e2e0fbc117538dd75076b0ba73109d8129cb71f7a",
+  ],
+  [
+    "20261008100100_oauth_client_stays_disabled",
+    "public.openbrf_keep_oauth_client_disabled() LANGUAGE plpgsql BODY 1dfba60072c555b641810af7091fa8d188c80d0259d6510e2bfffe3595a2dc8a",
+  ],
+  [
+    "20261010100000_guard_functions_pin_search_path",
+    "public.openbrf_check_report_obligation_event() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY 056fda084ec6df839d1577dadcf890a8b7a4897ca07a054dd090168076b1398c",
+  ],
+  [
+    "20261010100000_guard_functions_pin_search_path",
+    "public.openbrf_check_transfer_record() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY e0a8f63a559d4f1d9e051a55cbc321c9d0cc05cab6574fee78959364daf64aac",
+  ],
+  [
+    "20261010100000_guard_functions_pin_search_path",
+    "public.openbrf_check_transfer_reversal() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY 2620d07f7d0e2217b423bc5f2e3f3099858a8e269e62abd5f4aece88e6d0ff6a",
+  ],
+  [
+    "20261010100000_guard_functions_pin_search_path",
+    "public.openbrf_forbid_mutation() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY d52eff72d8f5e893459b684839ef7be4ea0bde30a405262558911c175736e32c",
+  ],
+  [
+    "20261010100000_guard_functions_pin_search_path",
+    "public.openbrf_forbid_truncate() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY fdf9d0e70185f20f6a403515e328d56dd184d38502de009dade45438207c03d3",
+  ],
+  [
+    "20261010100000_guard_functions_pin_search_path",
+    "public.openbrf_keep_oauth_client_disabled() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY 1dfba60072c555b641810af7091fa8d188c80d0259d6510e2bfffe3595a2dc8a",
+  ],
+  [
+    "scripts/install-job-schema.mjs",
+    "pgboss.refuse_own_job_table() LANGUAGE plpgsql SET search_path=pg_catalog, pg_temp BODY 65d10704130d709f4405bce5e5defd6b7028e4cab95f3b0f4e2efc09a11de478",
+  ],
+];
+
+/**
+ * A function `p` as EXPECTED_TRIGGER_FUNCTIONS lists it, with its language from
+ * a join of pg_language `l`.
+ *
+ * The body is hashed with its line endings as LF, so that a migration applied
+ * from a checkout with CRLF endings reads the same: a carriage return before a
+ * line feed changes nothing PL/pgSQL does with the line.
+ */
+export const FUNCTION_STATE = `format('%s LANGUAGE %s%s%s BODY %s',
+    p.oid::regprocedure, l.lanname,
+    CASE WHEN p.prosecdef THEN ' SECURITY DEFINER' END,
+    ' SET ' || array_to_string(p.proconfig, ' SET '),
+    encode(sha256(convert_to(replace(p.prosrc, E'\\r\\n', E'\\n'), 'UTF8')),
+           'hex'))`;
+
+/** The function a form in EXPECTED_TRIGGER_FUNCTIONS is one of. */
+function functionOf(state) {
+  return state.slice(0, state.indexOf(" LANGUAGE "));
+}
+
+/**
+ * Whether a function a trigger calls has a form EXPECTED_TRIGGER_FUNCTIONS
+ * accepts, once the migrations in `applied` have run.
+ */
+function expectedFunction(applied) {
+  const latest = new Map();
+  const listed = new Set();
+  for (const [source, state] of EXPECTED_TRIGGER_FUNCTIONS) {
+    listed.add(state);
+    const name = functionOf(state);
+    if (applied.has(source) && source >= (latest.get(name)?.source ?? "")) {
+      latest.set(name, { source, state });
+    }
+  }
+  return (state) =>
+    latest.has(functionOf(state))
+      ? latest.get(functionOf(state)).state === state
+      : listed.has(state);
+}
+
+/**
  * The rows a query of the catalogs returns, read with search_path pinned to
- * pg_catalog.
+ * pg_catalog, and to the session's temporary schema after it.
  *
  * The owner's own search path takes in public, where a role with CREATE could
  * have put a function or operator that matches the arguments of one these
  * queries call better than the built-in does, and that would run as the
  * owner. pg_get_triggerdef also qualifies a name only where the path would not
- * find it. SET LOCAL holds for the implicit transaction a query of several
- * statements runs in, which the pool cannot split across connections or
- * leave behind on one.
+ * find it. pg_temp is named last, as docker/psql.mjs and
+ * docker/schema-owner.sql name it, so that it is not searched first for a
+ * table or a type. SET LOCAL holds for the implicit transaction a query of
+ * several statements runs in, which the pool cannot split across connections
+ * or leave behind on one.
  */
 async function catalogRows(db, query) {
   const results = await db.executeSql(
-    `SET LOCAL search_path = pg_catalog;\n${query}`,
+    `SET LOCAL search_path = pg_catalog, pg_temp;\n${query}`,
   );
   return results.at(-1).rows;
 }
 
 /** The role this runs as, the schema owner, as an oid. */
 const RUNNING_ROLE = "(SELECT oid FROM pg_roles WHERE rolname = current_user)";
+
+/**
+ * The schemas a name in the owner's SQL can resolve to a function or operator
+ * in: public and pgboss, and one named after the role this runs as, which
+ * "$user" puts before public on the default search_path. Open BRF creates no
+ * schema of that name, but a role holding CREATE on the database can.
+ */
+const CHECKED_SCHEMAS = "('public', 'pgboss', current_user)";
 
 /**
  * The roles that may own public or pgboss, or hold CREATE there, as a set of
@@ -92,19 +324,25 @@ const GRANTEE = `CASE WHEN g.grantee = 0 THEN 'PUBLIC'
                       ELSE quote_ident(pg_get_userbyid(g.grantee)) END`;
 
 /**
- * The triggers on the tables in public and pgboss, each with its definition and
- * whether its table's owner owns the function it calls.
+ * The triggers on the tables in public and pgboss, each with its name, its
+ * definition, whether it fires as created (tgenabled 'O': in every session but
+ * a replicating one), whether its table's owner owns the function it calls,
+ * and that function as EXPECTED_TRIGGER_FUNCTIONS lists it.
  */
 export async function currentTriggers(db) {
   return catalogRows(
     db,
     `SELECT format('%I.%I', n.nspname, c.relname) AS "table",
+            t.tgname AS name,
             pg_get_triggerdef(t.oid) AS definition,
-            p.proowner = c.relowner AS "ownersFunction"
+            t.tgenabled = 'O' AS enabled,
+            p.proowner = c.relowner AS "ownersFunction",
+            ${FUNCTION_STATE} AS function
      FROM pg_trigger t
      JOIN pg_class c ON c.oid = t.tgrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace
      JOIN pg_proc p ON p.oid = t.tgfoid
+     JOIN pg_language l ON l.oid = p.prolang
      WHERE NOT t.tgisinternal
        AND n.nspname IN ('public', 'pgboss')
      ORDER BY 1, t.tgname`,
@@ -112,8 +350,48 @@ export async function currentTriggers(db) {
 }
 
 /**
+ * The migrations prisma migrate deploy has finished, as a set of names, empty
+ * before the first; or, as `finding`, why they cannot be read.
+ *
+ * public._prisma_migrations is read only as a table the role this runs as
+ * owns. Reading a view, or a table with a policy, of another role's would run
+ * whatever function that role put in it, as the owner.
+ */
+async function appliedMigrations(db) {
+  const [record] = await catalogRows(
+    db,
+    `SELECT c.relkind = 'r' AND c.relowner = ${RUNNING_ROLE} AS owned,
+            quote_ident(pg_get_userbyid(c.relowner)) AS owner
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = '_prisma_migrations'`,
+  );
+  if (record === undefined) {
+    return { applied: new Set() };
+  }
+  if (!record.owned) {
+    return {
+      applied: new Set(),
+      finding:
+        "public._prisma_migrations, where the migrations record what they " +
+        `have applied, is not a table the schema owner owns: ${record.owner} ` +
+        "owns it. So the triggers the migrations created cannot be checked " +
+        "for.",
+    };
+  }
+  const rows = await catalogRows(
+    db,
+    `SELECT migration_name AS name FROM public._prisma_migrations
+     WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
+  );
+  return { applied: new Set(rows.map((row) => row.name)) };
+}
+
+/**
  * The triggers that are not one the migrations or the job schema install
- * created, or that call a function their table's owner does not own.
+ * created, that call a function their table's owner does not own or that is
+ * not as they wrote it, or that do not fire as they were created. Also the
+ * ones a migration that has run created and that are gone.
  *
  * CREATE OR REPLACE TRIGGER asks for the TRIGGER privilege on a table and not
  * for its ownership, so a role that held it could have replaced a guard on the
@@ -124,11 +402,20 @@ export async function currentTriggers(db) {
  * triggers themselves are looked at. A function runs as whoever writes the
  * table, so one the owner did not write is refused too, whatever the trigger
  * calling it is named.
+ *
+ * Dropping a trigger, switching it off and rewriting its function each take
+ * ownership of the table or the function, which a role acting as the owner
+ * has, and leave nothing the comparison above would find. The migration that
+ * created a trigger is not run again, so one that is missing stays missing.
  */
 async function triggerFindings(db) {
   const expected = new Set(EXPECTED_TRIGGERS);
-  const findings = [];
+  const { applied, finding } = await appliedMigrations(db);
+  const findings = finding === undefined ? [] : [finding];
+  const expectedState = expectedFunction(applied);
+  const present = new Set();
   for (const trigger of await currentTriggers(db)) {
+    present.add(`${trigger.name} ON ${trigger.table}`);
     if (!expected.has(trigger.definition)) {
       findings.push(
         `${trigger.table} has a trigger that is not one the migrations or ` +
@@ -138,6 +425,27 @@ async function triggerFindings(db) {
       findings.push(
         `${trigger.table} has a trigger calling a function that the table's ` +
           `owner does not own: ${trigger.definition}`,
+      );
+    } else if (!expectedState(trigger.function)) {
+      findings.push(
+        `${trigger.table} has a trigger calling a function that is not as ` +
+          `the migrations or the job schema install wrote it: ` +
+          `${trigger.function}, called by ${trigger.definition}`,
+      );
+    } else if (!trigger.enabled) {
+      findings.push(
+        `${trigger.table} has a trigger that does not fire as it was ` +
+          `created, in every session but a replicating one: ` +
+          trigger.definition,
+      );
+    }
+  }
+  for (const [trigger, migration] of TRIGGER_MIGRATIONS) {
+    if (applied.has(migration) && !present.has(trigger)) {
+      const [name, table] = trigger.split(" ON ");
+      findings.push(
+        `${table} is missing the trigger ${name}, which the migration ` +
+          `${migration} created.`,
       );
     }
   }
@@ -197,8 +505,9 @@ async function grantFindings(db) {
 }
 
 /**
- * Functions, procedures, aggregates and operators in public or pgboss that a
- * role other than the one this runs as owns.
+ * Functions, procedures, aggregates and operators in public or pgboss, or in a
+ * schema named after the role this runs as, that a role other than that one
+ * owns.
  *
  * A name a migration or pg-boss's SQL calls without a schema can resolve to
  * one of them: PostgreSQL takes the best match for the arguments from every
@@ -228,13 +537,13 @@ async function objectFindings(db) {
               p.oid AS object, 'pg_proc'::regclass AS catalog
        FROM pg_proc p
        JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname IN ('public', 'pgboss')
+       WHERE n.nspname IN ${CHECKED_SCHEMAS}
        UNION ALL
        SELECT 'an operator', o.oid::regoperator::text, o.oprowner,
               o.oid, 'pg_operator'::regclass
        FROM pg_operator o
        JOIN pg_namespace n ON n.oid = o.oprnamespace
-       WHERE n.nspname IN ('public', 'pgboss')
+       WHERE n.nspname IN ${CHECKED_SCHEMAS}
      ) AS objects
      WHERE objects.owner <> ${RUNNING_ROLE}
        AND NOT (
@@ -254,15 +563,17 @@ async function objectFindings(db) {
 }
 
 /**
- * public or pgboss, where a role other than the one this runs as owns it.
+ * public or pgboss, or a schema named after the role this runs as, where a
+ * role other than that one owns it.
  *
  * A schema's owner can create in it whatever its grants say, and drop or
  * replace what others put there, so one of another role's is the CREATE that
  * createFindings looks for and more. Nothing Open BRF runs creates either
  * schema as another role, and the schema-owner service hands both to the
- * owner, but an instance on a shared server does not run that service.
- * pg_database_owner, which owns public in a database created on PostgreSQL 15
- * or later, stands for whoever owns the database, which need not be the role
+ * owner, but an instance on a shared server does not run that service. The
+ * one named after the owner is not Open BRF's at all. pg_database_owner, which
+ * owns public in a database created on PostgreSQL 15 or later, stands for
+ * whoever owns the database, which databaseFindings requires to be the role
  * this runs as.
  */
 async function schemaOwnerFindings(db) {
@@ -276,7 +587,7 @@ async function schemaOwnerFindings(db) {
      FROM pg_namespace n
      JOIN pg_roles o ON o.oid = n.nspowner
      JOIN pg_database d ON d.datname = current_database()
-     WHERE n.nspname IN ('public', 'pgboss')
+     WHERE n.nspname IN ${CHECKED_SCHEMAS}
        AND n.nspowner NOT IN ${TRUSTED_ROLES}
      ORDER BY n.nspname`,
   );
@@ -287,8 +598,8 @@ async function schemaOwnerFindings(db) {
 
 /**
  * Roles other than the one this runs as, or PUBLIC, that hold CREATE in public
- * or pgboss, or that the owner's default privileges give it to in every schema
- * the owner creates.
+ * or pgboss, or in a schema named after that role, or that the owner's default
+ * privileges give it to in every schema the owner creates.
  *
  * CREATE is all it takes to put a function or operator there for the schema
  * owner to run, as objectFindings says, and one the role puts there later
@@ -308,7 +619,7 @@ async function createFindings(db) {
                        ORDER BY n.nspname) AS schemas
      FROM pg_namespace n
      CROSS JOIN LATERAL aclexplode(n.nspacl) AS g
-     WHERE n.nspname IN ('public', 'pgboss')
+     WHERE n.nspname IN ${CHECKED_SCHEMAS}
        AND g.grantee NOT IN ${TRUSTED_ROLES}
        AND g.privilege_type = 'CREATE'
      GROUP BY g.grantee
@@ -336,10 +647,94 @@ async function createFindings(db) {
 }
 
 /**
+ * The database, where a role other than the one this runs as owns it, and the
+ * roles other than that one, or PUBLIC, that hold CREATE on it.
+ *
+ * The database's owner owns public through pg_database_owner, can grant
+ * CREATE on the database, and is the one role that can close the database to
+ * the other roles on the server, which the runtime role's hardening does after
+ * the migrations. That hardening also accepts a member of the role that owns
+ * the database; this asks for the role itself, before anything runs.
+ *
+ * CREATE on the database lets a role create a schema: one named after the
+ * owner comes before public on the owner's search_path, and is checked as
+ * public is, but whatever the role leaves elsewhere is not. It also lets a
+ * role install a trusted extension and own it. A superuser can do all of that
+ * whatever the grants say, so a grant to one is left out.
+ */
+async function databaseFindings(db) {
+  const owners = await catalogRows(
+    db,
+    `SELECT quote_ident(d.datname) AS database,
+            quote_ident(pg_get_userbyid(d.datdba)) AS owner
+     FROM pg_database d
+     WHERE d.datname = current_database()
+       AND d.datdba <> ${RUNNING_ROLE}`,
+  );
+  const creates = await catalogRows(
+    db,
+    `SELECT ${GRANTEE} AS grantee, quote_ident(d.datname) AS database
+     FROM pg_database d
+     CROSS JOIN LATERAL aclexplode(d.datacl) AS g
+     WHERE d.datname = current_database()
+       AND g.privilege_type = 'CREATE'
+       AND g.grantee NOT IN (SELECT r.oid FROM pg_roles r
+                             WHERE r.rolname = current_user OR r.rolsuper)
+     ORDER BY 1`,
+  );
+  return [
+    ...owners.map(
+      (row) =>
+        `The database ${row.database} belongs to ${row.owner}, not the ` +
+        "schema owner.",
+    ),
+    ...creates.map(
+      (row) => `${row.grantee} holds CREATE on the database ${row.database}.`,
+    ),
+  ];
+}
+
+/**
+ * Roles other than a superuser that can act as the role this runs as: a
+ * member of it that inherits its privileges or can SET ROLE to it, directly
+ * or through another role.
+ *
+ * Such a role can do whatever the owner can, and what it does is the owner's:
+ * replace a guard function, drop a trigger or switch one off, or put a
+ * function where a migration will call it, all of it owned by the owner, so
+ * that nothing the other checks look at is another role's. A role that holds
+ * only ADMIN OPTION on the owner, as one that created it without being a
+ * superuser does on PostgreSQL 16 and later, administers the owner rather
+ * than acting as it, and is not counted, as a superuser is not. Before 16
+ * every member could SET ROLE, which pg_has_role calls MEMBER there.
+ */
+async function memberFindings(db) {
+  const rows = await catalogRows(
+    db,
+    `SELECT quote_ident(r.rolname) AS member,
+            quote_ident(current_user) AS owner
+     FROM pg_roles r
+     WHERE r.rolname <> current_user
+       AND NOT r.rolsuper
+       AND (pg_has_role(r.oid, ${RUNNING_ROLE}, 'USAGE')
+            OR pg_has_role(r.oid, ${RUNNING_ROLE},
+                           CASE WHEN current_setting('server_version_num')::int
+                                     >= 160000
+                                THEN 'SET' ELSE 'MEMBER' END))
+     ORDER BY r.rolname`,
+  );
+  return rows.map(
+    (row) => `${row.member} can act as the schema owner ${row.owner}.`,
+  );
+}
+
+/**
  * Stops the deploy while a trigger on a table in public or pgboss is not one
- * Open BRF created, or while a role other than a table's owner can replace one.
- * Also while a function or operator there belongs to a role other than the
- * schema owner, or while such a role owns either schema or can create in it.
+ * Open BRF created, is missing or switched off, or calls a function that is
+ * not as Open BRF wrote it, or while a role other than a table's owner can
+ * replace one. Also while a function or operator there belongs to a role other
+ * than the schema owner, or while such a role owns either schema or can create
+ * in it, owns the database or can create in it, or can act as the owner.
  *
  * `stage` names what stops, in the message: "the deploy" before the
  * migrations, "the install" in the job schema install.
@@ -356,7 +751,17 @@ export async function refuseUnsafeTriggers(db, stage) {
   const objects = await objectFindings(db);
   const owners = await schemaOwnerFindings(db);
   const creates = await createFindings(db);
-  const findings = [...triggers, ...grants, ...objects, ...owners, ...creates];
+  const databases = await databaseFindings(db);
+  const members = await memberFindings(db);
+  const findings = [
+    ...triggers,
+    ...grants,
+    ...objects,
+    ...owners,
+    ...creates,
+    ...databases,
+    ...members,
+  ];
   if (findings.length === 0) {
     return;
   }
@@ -366,14 +771,17 @@ export async function refuseUnsafeTriggers(db, stage) {
   if (triggers.length > 0) {
     console.error(
       "A trigger runs its function as whoever writes its table, the schema " +
-        "owner during the migrations among them, and a guard replaced with " +
-        "one that does nothing no longer guards. Find out who changed the " +
-        "triggers named above: CREATE OR REPLACE TRIGGER asks only for the " +
-        "TRIGGER privilege on a table, and nothing Open BRF runs grants it. " +
-        "Then, as the schema owner, put each back from the migration under " +
-        "prisma/migrations that creates it, or from " +
-        "scripts/install-job-schema.mjs for pgboss.queue, and drop any you " +
-        "do not recognise.",
+        "owner during the migrations among them, and a guard that was " +
+        "replaced, dropped or switched off, or whose function was rewritten, " +
+        "no longer guards. Find out who changed the triggers named above: " +
+        "CREATE OR REPLACE TRIGGER asks only for the TRIGGER privilege on a " +
+        "table, and nothing Open BRF runs grants it; the rest takes the " +
+        "schema owner's own privileges, or a role that can act as it. Then, " +
+        "as the schema owner, put each trigger and function back from the " +
+        "migration under prisma/migrations that creates it, or from " +
+        "scripts/install-job-schema.mjs for pgboss.queue, switch a trigger " +
+        "back on with ALTER TABLE ... ENABLE TRIGGER, and drop any you do " +
+        "not recognise.",
     );
   }
   if (grants.length > 0) {
@@ -390,7 +798,8 @@ export async function refuseUnsafeTriggers(db, stage) {
   if (objects.length > 0) {
     console.error(
       "A name a migration or pg-boss calls without a schema can resolve to " +
-        "a function or operator in public or pgboss, which then runs as the " +
+        "a function or operator in public or pgboss, or in a schema named " +
+        "after the schema owner, which then runs as the " +
         "schema owner, and whoever owns it can rewrite what it does. Nothing " +
         "Open BRF runs creates one as another role. Find out who created " +
         "those named above and what they do. Then drop each one you do not " +
@@ -405,19 +814,47 @@ export async function refuseUnsafeTriggers(db, stage) {
         "or replace what is there, so revoking CREATE does not take that " +
         "away. As a superuser, or as the role that owns it, hand each schema " +
         "named above to the schema owner with ALTER SCHEMA ... OWNER TO, " +
-        "then look at what that role has put there.",
+        "then look at what that role has put there. Open BRF uses no schema " +
+        "named after the schema owner: drop one once you have looked.",
     );
   }
   if (creates.length > 0) {
     console.error(
-      "A role holding CREATE in public or pgboss can put a function or " +
-        "operator there for the schema owner to run. PostgreSQL before 15 " +
+      "A role holding CREATE in public or pgboss, or in a schema named after " +
+        "the schema owner, can put a function or operator there for the " +
+        "schema owner to run. PostgreSQL before 15 " +
         "gave CREATE in public to PUBLIC, and a database restored from a dump " +
         "of one keeps the grant. As the schema's owner, REVOKE CREATE ON " +
         "SCHEMA from each role named above, in each schema named. A grant " +
         "that comes from default privileges (\\ddp in psql) is revoked " +
         "there, with ALTER DEFAULT PRIVILEGES, or the next schema the owner " +
         "creates gets it again.",
+    );
+  }
+  if (databases.length > 0) {
+    console.error(
+      "The database's owner owns public on PostgreSQL 15 and later, and only " +
+        "it can close the database to the other roles on the server. A role " +
+        "holding CREATE on the database can create a schema named after the " +
+        "schema owner, which comes before public on its search_path, and " +
+        "install a trusted extension and own it. As a superuser, hand the " +
+        "database to the schema owner with ALTER DATABASE ... OWNER TO. As " +
+        "the role that granted it, REVOKE CREATE ON DATABASE from each role " +
+        "named above, then look at the schemas and extensions it created " +
+        "(\\dn and \\dx in psql).",
+    );
+  }
+  if (members.length > 0) {
+    console.error(
+      "A role that can act as the schema owner can do whatever the owner " +
+        "can: rewrite a guard function, drop a trigger or switch one off, or " +
+        "create a function for a migration to call, and what it creates " +
+        "belongs to the owner. Find out who made it a member and what it " +
+        "did, then, as a superuser or the role that granted it, REVOKE the " +
+        "schema owner FROM each role named above, or from the role it is a " +
+        "member through (\\du in psql). A role that holds only ADMIN OPTION " +
+        "on the owner may stay: REVOKE INHERIT OPTION FOR and SET OPTION FOR " +
+        "leave just that.",
     );
   }
   console.error(`So ${stage} stops here. Deploy again once that is done.`);
@@ -443,9 +880,11 @@ if (import.meta.main) {
     await client.end();
   }
   console.log(
-    "The triggers are the ones Open BRF creates, no role but a table's owner " +
-      "holds TRIGGER on one, and no role but the schema owner or a superuser " +
-      "owns public or pgboss, owns a function or operator in them, or holds " +
-      "CREATE on them.",
+    "The triggers are the ones Open BRF creates, none is missing or switched " +
+      "off, and each calls a function as Open BRF wrote it. No role but a " +
+      "table's owner holds TRIGGER on one, no role but the schema owner or a " +
+      "superuser owns public or pgboss, owns a function or operator in them, " +
+      "or holds CREATE on them or on the database, the schema owner owns the " +
+      "database, and no other role can act as it.",
   );
 }

@@ -7,9 +7,10 @@
  * only way past one is to disable it - and the application connects as a role
  * that cannot, which is what makes the guard hold at runtime.
  *
- * Two integration suites disable a guard on purpose, because a test that writes
- * to an append-only table cannot otherwise remove its own rows, and they are
- * named below. Nothing else in the tree may: the pattern reads as ordinary test
+ * Three integration suites disable a guard on purpose: two because a test that
+ * writes to an append-only table cannot otherwise remove its own rows, and the
+ * deploy's trigger check to see it stop on a guard that is off. They are named
+ * below. Nothing else in the tree may: the pattern reads as ordinary test
  * cleanup, it is a line long, and copied into a service or a migration it would
  * quietly make a statutory table editable - a register the association is
  * required to retain would become one anybody holding the owner's credentials
@@ -29,8 +30,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 /**
  * The files allowed to switch a guard off, and why each one is.
  *
- * Both disable one named trigger, on one table, and put it back in a finally.
- * An entry here is a decision to be argued for in review: adding a third means
+ * Each disables one named trigger, on one table, and puts it back in a finally.
+ * An entry here is a decision to be argued for in review: adding a fourth means
  * saying why the suite cannot assert its way around the table instead.
  *
  * The list is checked in both directions. An entry naming a file that is gone
@@ -49,6 +50,11 @@ const ALLOWED = new Map([
     "apps/api/src/audit/audit-log.service.int-spec.ts",
     "The audit log is append-only, so this suite cannot remove the entries it " +
       "writes any other way.",
+  ],
+  [
+    "apps/api/src/database/check-triggers.int-spec.ts",
+    "The deploy's trigger check has to be seen stopping on a guard that is " +
+      "switched off, which is the one way to give it one to find.",
   ],
 ]);
 

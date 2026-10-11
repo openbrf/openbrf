@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -26,6 +27,11 @@ import { scratchDatabases, withClient } from "../testing/scratch-databases";
  * check also stops on one of another role's, and on a role that owns either
  * schema or holds CREATE there and so could make one.
  *
+ * What the owner itself can do leaves nothing of another role's behind:
+ * dropping a guard, switching it off, or rewriting the function it calls. So
+ * the check stops on those as well, and on a role that can act as the owner,
+ * or that owns the database or holds CREATE on it.
+ *
  * The cases that change a trigger, plant a function or operator, or grant
  * CREATE do so on the worker's database and put it back, so the suites after
  * them meet what the migrations created.
@@ -34,6 +40,7 @@ import { scratchDatabases, withClient } from "../testing/scratch-databases";
 const env = loadEnvForIntegrationTests();
 
 const script = join(process.cwd(), "scripts", "check-triggers.mjs");
+const migrations = join(process.cwd(), "prisma", "migrations");
 
 const suffix = process.hrtime
   .bigint()
@@ -54,12 +61,18 @@ const PROBE_FUNCTION = `${PROBE_SCHEMA}.openbrf_trigger_check_${suffix}`;
 
 interface Trigger {
   table: string;
+  name: string;
   definition: string;
+  enabled: boolean;
   ownersFunction: boolean;
+  function: string;
 }
 
 interface TriggerCheck {
   EXPECTED_TRIGGERS: string[];
+  TRIGGER_MIGRATIONS: Map<string, string>;
+  EXPECTED_TRIGGER_FUNCTIONS: [string, string][];
+  FUNCTION_STATE: string;
   currentTriggers(db: {
     executeSql(text: string): Promise<unknown>;
   }): Promise<Trigger[]>;
@@ -92,6 +105,52 @@ function check(databaseUrl = env.DATABASE_URL): {
  * Dropped again once the suite is done.
  */
 const scratch = scratchDatabases();
+
+/** The role the check runs as in this suite, the owner of its databases. */
+const OWNER = new URL(env.DATABASE_URL).username;
+
+/**
+ * A role that is not a superuser, made to own a scratch database, and a
+ * connection string that signs in as it there: the check as it runs on a
+ * shared server, where the schema owner is an ordinary role. Created as the
+ * suite's owner, which is one, and dropped with `drop`, after the database.
+ */
+async function ordinaryOwner(
+  label: string,
+  ownsTheDatabase = true,
+): Promise<{
+  role: string;
+  databaseUrl: string;
+  ownerUrl: string;
+  drop(): Promise<void>;
+}> {
+  const role = `openbrf_trigger_owner_${suffix}_${label}`;
+  const password = randomBytes(16).toString("hex");
+  const databaseUrl = await scratch.create(`triggers_${label}`);
+  const ownerUrl = new URL(databaseUrl);
+  ownerUrl.username = role;
+  ownerUrl.password = password;
+  await asOwner(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`);
+  if (ownsTheDatabase) {
+    await withClient(databaseUrl, (client) =>
+      client.query(
+        `DO $$ BEGIN
+           EXECUTE format('ALTER DATABASE %I OWNER TO ${role}', current_database());
+         END $$`,
+      ),
+    );
+  }
+  return {
+    role,
+    databaseUrl,
+    ownerUrl: ownerUrl.href,
+    async drop() {
+      // The database first: the role may own it.
+      await scratch.dropAll();
+      await asOwner(`DROP ROLE IF EXISTS ${role}`);
+    },
+  };
+}
 
 /**
  * The trigger the migrations or the install created, as a statement that puts
@@ -137,7 +196,90 @@ describe("the trigger check before the migrations", () => {
       current.filter((trigger) => !trigger.ownersFunction),
       "triggers calling a function their table's owner does not own",
     ).toEqual([]);
+    expect(
+      current.filter((trigger) => !trigger.enabled),
+      "triggers that do not fire as created",
+    ).toEqual([]);
+    expect(
+      current
+        .map((trigger) => trigger.function)
+        .filter(
+          (state) =>
+            !triggers.EXPECTED_TRIGGER_FUNCTIONS.some(
+              ([, listed]) => listed === state,
+            ),
+        ),
+      "functions the triggers call, in a form the list does not name",
+    ).toEqual([]);
+    // Every trigger on the application's tables is looked for once its
+    // migration has run; the one on pgboss.queue is the install's.
+    expect(
+      current
+        .filter((trigger) => trigger.table.startsWith("public."))
+        .map((trigger) => `${trigger.name} ON ${trigger.table}`)
+        .sort(),
+    ).toEqual([...triggers.TRIGGER_MIGRATIONS.keys()].sort());
   });
+
+  it("knows the migration that creates each trigger, and every form a migration gives the functions they call", async () => {
+    // Applied one at a time, as an instance meets them across its upgrades:
+    // the check runs before the migrations, so it has to accept the function
+    // each earlier migration left, and look for a trigger only once the
+    // migration that creates it has run.
+    const databaseUrl = await scratch.create("triggers_history");
+    const firstSeen = new Map<string, string>();
+    const forms = new Map<string, string>();
+    const given: [string, string][] = [];
+    await withClient(databaseUrl, async (client) => {
+      const names = readdirSync(migrations, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+      for (const name of names) {
+        await client.query(
+          readFileSync(join(migrations, name, "migration.sql"), "utf8"),
+        );
+        const results = (await client.query(
+          `SET LOCAL search_path = pg_catalog, pg_temp;
+           SELECT format('%s ON %I.%I', t.tgname, n.nspname, c.relname) AS trigger,
+                  p.oid::regprocedure::text AS name,
+                  ${triggers.FUNCTION_STATE} AS function
+           FROM pg_trigger t
+           JOIN pg_class c ON c.oid = t.tgrelid
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           JOIN pg_proc p ON p.oid = t.tgfoid
+           JOIN pg_language l ON l.oid = p.prolang
+           WHERE NOT t.tgisinternal AND n.nspname = 'public'`,
+        )) as unknown as {
+          rows: { trigger: string; name: string; function: string }[];
+        }[];
+        for (const row of results.at(-1)?.rows ?? []) {
+          if (!firstSeen.has(row.trigger)) {
+            firstSeen.set(row.trigger, name);
+          }
+          if (forms.get(row.name) !== row.function) {
+            forms.set(row.name, row.function);
+            given.push([name, row.function]);
+          }
+        }
+      }
+    });
+
+    expect(
+      Object.fromEntries([...firstSeen].sort(([a], [b]) => a.localeCompare(b))),
+    ).toEqual(
+      Object.fromEntries(
+        [...triggers.TRIGGER_MIGRATIONS].sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    );
+    const byForm = ([, a]: [string, string], [, b]: [string, string]) =>
+      a.localeCompare(b);
+    expect(given.sort(byForm)).toEqual(
+      triggers.EXPECTED_TRIGGER_FUNCTIONS.filter(([, state]) =>
+        state.startsWith("public."),
+      ).sort(byForm),
+    );
+  }, 120_000);
 
   it("passes the database the migrations and the job schema install built", () => {
     const passed = check();
@@ -533,6 +675,10 @@ describe("the trigger check before the migrations", () => {
     expect(refused.output).toContain(
       "pg_database_owner holds CREATE in public.",
     );
+    expect(refused.output).toContain(
+      `The database ${new URL(databaseUrl).pathname.slice(1)} belongs to ` +
+        `${PROBE_ROLE}, not the schema owner.`,
+    );
   }, 60_000);
 
   it.each([
@@ -621,4 +767,324 @@ describe("the trigger check before the migrations", () => {
       );
     }
   }, 60_000);
+
+  it("stops on a trigger that a migration which has run created and that is gone", async () => {
+    // Dropping a trigger takes ownership of its table, which a role acting
+    // as the owner has, and leaves nothing for the comparison of the
+    // triggers that are there to find. The migration is not run again.
+    const original = triggers.EXPECTED_TRIGGERS.find((definition) =>
+      definition.startsWith("CREATE TRIGGER transfer_states_what_it_is "),
+    );
+    expect(original, "the trigger is one the list names").toBeDefined();
+    await asOwner("DROP TRIGGER transfer_states_what_it_is ON public.transfer");
+    try {
+      const refused = check();
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        "public.transfer is missing the trigger transfer_states_what_it_is, " +
+          "which the migration 20260912230000_transfer_write_guards created.",
+      );
+      expect(refused.output).toContain("So the deploy stops here.");
+    } finally {
+      await asOwner(original ?? "");
+    }
+  }, 60_000);
+
+  it("looks for a trigger only once the migration that creates it has run, and not for the one on pgboss.queue", async () => {
+    // An upgrade meets the tables an earlier migration created before the one
+    // that guards them, and the job schema install puts back the trigger on
+    // pgboss.queue after this check.
+    const databaseUrl = await scratch.create("triggers_not_yet");
+    await withClient(databaseUrl, async (client) => {
+      await client.query(
+        `CREATE TABLE public._prisma_migrations (
+           migration_name text NOT NULL,
+           finished_at timestamptz,
+           rolled_back_at timestamptz)`,
+      );
+      await client.query(
+        `INSERT INTO public._prisma_migrations VALUES
+           ('20260913200000_oauth_provider', now(), NULL),
+           ('20261008100100_oauth_client_stays_disabled', NULL, NULL),
+           ('20261008100100_oauth_client_stays_disabled', now(), now())`,
+      );
+      await client.query("CREATE TABLE public.auth_oauth_client (id text)");
+      await client.query("CREATE SCHEMA pgboss");
+      await client.query("CREATE TABLE pgboss.queue (name text)");
+    });
+    const passed = check(databaseUrl);
+    expect(passed.status, passed.output).toBe(0);
+
+    await withClient(databaseUrl, (client) =>
+      client.query(
+        `INSERT INTO public._prisma_migrations
+         VALUES ('20261008100100_oauth_client_stays_disabled', now(), NULL)`,
+      ),
+    );
+    const refused = check(databaseUrl);
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain(
+      "public.auth_oauth_client is missing the trigger " +
+        "oauth_client_stays_disabled, which the migration " +
+        "20261008100100_oauth_client_stays_disabled created.",
+    );
+    expect(refused.output).not.toContain("refuse_own_job_table");
+  }, 60_000);
+
+  it("stops while another role owns the table the migrations record what they applied in", async () => {
+    // Reading a view or a table with a policy of another role's would run
+    // whatever function it calls as the owner, so it is not read, and the
+    // missing triggers cannot be looked for.
+    const databaseUrl = await scratch.create("triggers_record");
+    await withClient(databaseUrl, async (client) => {
+      await client.query(
+        "CREATE TABLE public._prisma_migrations (migration_name text)",
+      );
+      await client.query(
+        `ALTER TABLE public._prisma_migrations OWNER TO ${PROBE_ROLE}`,
+      );
+    });
+    const refused = check(databaseUrl);
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain(
+      "public._prisma_migrations, where the migrations record what they " +
+        `have applied, is not a table the schema owner owns: ${PROBE_ROLE} ` +
+        "owns it.",
+    );
+  }, 60_000);
+
+  it.each([
+    { how: "disabled", off: "DISABLE TRIGGER" },
+    {
+      how: "made to fire only while replicating",
+      off: "ENABLE REPLICA TRIGGER",
+    },
+  ])(
+    "stops on a trigger $how",
+    async ({ off }) => {
+      // Either takes ownership of the table, and the trigger reads as created.
+      await asOwner(
+        `ALTER TABLE public.transfer ${off} transfer_states_what_it_is`,
+      );
+      try {
+        const refused = check();
+        expect(refused.status, refused.output).toBe(1);
+        expect(refused.output).toContain(
+          "public.transfer has a trigger that does not fire as it was " +
+            "created, in every session but a replicating one: CREATE " +
+            "TRIGGER transfer_states_what_it_is ",
+        );
+        expect(refused.output).toContain("ENABLE TRIGGER");
+      } finally {
+        await asOwner(
+          "ALTER TABLE public.transfer ENABLE TRIGGER transfer_states_what_it_is",
+        );
+      }
+    },
+    60_000,
+  );
+
+  it.each([
+    {
+      what: "a body that lets every row through",
+      guard: "public.openbrf_check_transfer_record()",
+      change: `CREATE OR REPLACE FUNCTION public.openbrf_check_transfer_record()
+               RETURNS trigger LANGUAGE plpgsql
+               SET search_path = pg_catalog, pg_temp
+               AS $$ BEGIN RETURN NEW; END $$`,
+      reported:
+        "public.openbrf_check_transfer_record() LANGUAGE plpgsql " +
+        "SET search_path=pg_catalog, pg_temp BODY ",
+    },
+    {
+      what: "the search_path the migrations pinned taken away",
+      guard: "public.openbrf_keep_oauth_client_disabled()",
+      change:
+        "ALTER FUNCTION public.openbrf_keep_oauth_client_disabled() RESET search_path",
+      reported:
+        "public.openbrf_keep_oauth_client_disabled() LANGUAGE plpgsql BODY ",
+    },
+    {
+      what: "SECURITY DEFINER",
+      guard: "pgboss.refuse_own_job_table()",
+      change: "ALTER FUNCTION pgboss.refuse_own_job_table() SECURITY DEFINER",
+      reported:
+        "pgboss.refuse_own_job_table() LANGUAGE plpgsql SECURITY DEFINER " +
+        "SET search_path=pg_catalog, pg_temp BODY ",
+    },
+  ])(
+    "stops on a guard function given $what, which keeps its owner and its triggers",
+    async ({ guard, change, reported }) => {
+      // CREATE OR REPLACE FUNCTION and ALTER FUNCTION take ownership of the
+      // function, which a role acting as the owner has.
+      const original = await withClient(env.DATABASE_URL, async (client) => {
+        const result = await client.query<{ definition: string }>(
+          "SELECT pg_get_functiondef($1::regprocedure) AS definition",
+          [guard],
+        );
+        return result.rows[0]?.definition ?? "";
+      });
+      await asOwner(change);
+      try {
+        const refused = check();
+        expect(refused.status, refused.output).toBe(1);
+        expect(refused.output).toContain(
+          "has a trigger calling a function that is not as the migrations " +
+            `or the job schema install wrote it: ${reported}`,
+        );
+        expect(refused.output).toContain("So the deploy stops here.");
+      } finally {
+        await asOwner(original);
+      }
+      const passed = check();
+      expect(passed.status, passed.output).toBe(0);
+    },
+    60_000,
+  );
+
+  it.each([
+    {
+      how: "inheriting its privileges",
+      grant: "WITH INHERIT TRUE, SET FALSE",
+      refused: true,
+    },
+    {
+      how: "able to SET ROLE to it",
+      grant: "WITH INHERIT FALSE, SET TRUE",
+      refused: true,
+    },
+    {
+      how: "holding only ADMIN OPTION on it, as a role that created it does",
+      grant: "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
+      refused: false,
+    },
+  ])(
+    "stops while a role can act as the owner by a membership $how, and only then",
+    async ({ grant, refused }) => {
+      // Whatever such a role does is the owner's, so nothing the other
+      // checks look at is another role's. A superuser makes the grant, as
+      // only one, or a role holding ADMIN OPTION on the owner, can.
+      const owner = await ordinaryOwner("member");
+      try {
+        const before = check(owner.ownerUrl);
+        expect(before.status, before.output).toBe(0);
+
+        await asOwner(`GRANT ${owner.role} TO ${PROBE_ROLE} ${grant}`);
+        const after = check(owner.ownerUrl);
+        const reported = `${PROBE_ROLE} can act as the schema owner ${owner.role}.`;
+        if (refused) {
+          expect(after.status, after.output).toBe(1);
+          expect(after.output).toContain(reported);
+          expect(after.output).toContain("REVOKE the schema owner FROM");
+        } else {
+          expect(after.status, after.output).toBe(0);
+        }
+      } finally {
+        // Dropping the owner takes the membership with it.
+        await owner.drop();
+      }
+    },
+    60_000,
+  );
+
+  it("stops while a role can act as the owner through a role that is a member of it", async () => {
+    const owner = await ordinaryOwner("chain");
+    const middle = `openbrf_trigger_middle_${suffix}`;
+    await asOwner(`CREATE ROLE ${middle} NOLOGIN`);
+    try {
+      await asOwner(`GRANT ${owner.role} TO ${middle}`);
+      await asOwner(`GRANT ${middle} TO ${PROBE_ROLE}`);
+      const refused = check(owner.ownerUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        `${middle} can act as the schema owner ${owner.role}.`,
+      );
+      expect(refused.output).toContain(
+        `${PROBE_ROLE} can act as the schema owner ${owner.role}.`,
+      );
+    } finally {
+      await asOwner(`DROP ROLE IF EXISTS ${middle}`);
+      await owner.drop();
+    }
+  }, 60_000);
+
+  it("stops while the database belongs to a role other than the owner, a superuser among them", async () => {
+    // A superuser that owns the database makes public, through
+    // pg_database_owner, one the check trusts, but only the database's owner
+    // can close it to the other roles on the server.
+    const owner = await ordinaryOwner("database", false);
+    try {
+      const refused = check(owner.ownerUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        `The database ${new URL(owner.databaseUrl).pathname.slice(1)} ` +
+          `belongs to ${OWNER}, not the schema owner.`,
+      );
+      expect(refused.output).toContain("ALTER DATABASE ... OWNER TO");
+      expect(refused.output).toContain("So the deploy stops here.");
+    } finally {
+      await owner.drop();
+    }
+  }, 60_000);
+
+  it.each([{ grantee: PROBE_ROLE }, { grantee: "PUBLIC" }])(
+    "stops while $grantee holds CREATE on the database",
+    async ({ grantee }) => {
+      // Enough to create a schema named after the owner, which comes before
+      // public on its search_path, or a trusted extension of its own.
+      const databaseUrl = await scratch.create("triggers_database_create");
+      const database = new URL(databaseUrl).pathname.slice(1);
+      await withClient(databaseUrl, (client) =>
+        client.query(`GRANT CREATE ON DATABASE ${database} TO ${grantee}`),
+      );
+      const refused = check(databaseUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        `${grantee} holds CREATE on the database ${database}.`,
+      );
+      expect(refused.output).toContain("REVOKE CREATE ON DATABASE");
+      expect(refused.output).toContain("So the deploy stops here.");
+    },
+    60_000,
+  );
+
+  it.each([
+    {
+      what: "that another role owns",
+      plant: `DO $$ BEGIN
+                EXECUTE format('CREATE SCHEMA %I AUTHORIZATION ${PROBE_ROLE}', current_user);
+              END $$`,
+      reported: `${OWNER} belongs to ${PROBE_ROLE}, not the schema owner.`,
+    },
+    {
+      what: "that the owner owns, with a function of another role's in it",
+      plant: `DO $$ BEGIN
+                EXECUTE format('CREATE SCHEMA %I', current_user);
+                EXECUTE format('CREATE FUNCTION %I.openbrf_planted(integer) RETURNS integer LANGUAGE sql AS ''SELECT 1''', current_user);
+                EXECUTE format('ALTER FUNCTION %I.openbrf_planted(integer) OWNER TO ${PROBE_ROLE}', current_user);
+              END $$`,
+      reported: `${OWNER}.openbrf_planted(integer) is a function that ${PROBE_ROLE} owns, not the schema owner.`,
+    },
+    {
+      what: "that the owner owns, and every role can create in",
+      plant: `DO $$ BEGIN
+                EXECUTE format('CREATE SCHEMA %I', current_user);
+                EXECUTE format('GRANT CREATE ON SCHEMA %I TO PUBLIC', current_user);
+              END $$`,
+      reported: `PUBLIC holds CREATE in ${OWNER}.`,
+    },
+  ])(
+    "stops on a schema named after the owner $what",
+    async ({ plant, reported }) => {
+      // "$user" comes before public on the owner's default search_path, so a
+      // name its SQL calls can resolve to a function there.
+      const databaseUrl = await scratch.create("triggers_user_schema");
+      await withClient(databaseUrl, (client) => client.query(plant));
+      const refused = check(databaseUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(reported);
+      expect(refused.output).toContain("So the deploy stops here.");
+    },
+    60_000,
+  );
 });
