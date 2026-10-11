@@ -17,7 +17,12 @@ import { failureName } from "../logging/failure";
 import { type ImportField, readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
 import { readDecisions } from "./import-apply.service";
-import type { ImportOutcome, ImportPlan, PlannedRow } from "./import-plan";
+import {
+  type ImportOutcome,
+  type ImportPlan,
+  type PlannedRow,
+  previewedTargets,
+} from "./import-plan";
 import { ImportPlannerService } from "./import-planner.service";
 import { readImportRevision } from "./import-revision";
 
@@ -494,6 +499,10 @@ export class ImportPreviewService implements OnModuleInit {
         previewCipher: encrypted.cipher,
         previewRowsDone: plan.rows.length,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
+        // Where every other row goes, compared by each chunk of the apply: a
+        // row the register sends to somebody else in the meantime must not
+        // be written to them.
+        previewedTargets: previewedTargets(plan),
         previewedRevision,
         previewedAt: new Date(),
       },

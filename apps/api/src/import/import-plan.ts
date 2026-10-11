@@ -38,6 +38,8 @@
  * rather than written as a second one or dropped without a word.
  */
 
+import { createHash } from "node:crypto";
+
 import { formatDateColumn } from "@openbrf/shared";
 
 import {
@@ -1194,6 +1196,85 @@ export function readPreviewedCandidates(value: unknown): PreviewedCandidates {
     }
   }
   return rows;
+}
+
+/**
+ * Where the preview writes each row, as one digest per row in file order, for
+ * the session to keep and every chunk of the apply to compare with
+ * {@link retargetedSincePreview}.
+ *
+ * The register revision covers what another import writes after a preview,
+ * and the rows the preview asked about are compared by
+ * {@link changedSincePreview}. Neither covers an ordinary row that a change in
+ * the address book, a sign-up approval or a move sends to somebody else: an
+ * update of one person, matched by an address since handed to another, becomes
+ * an update of that other person, with their residency and their entry in the
+ * member register. So what the preview planned for every row is kept too.
+ *
+ * Hashed, because a file can have thousands of rows and the only question ever
+ * asked of one is whether the chunk agrees with it.
+ */
+export function previewedTargets(plan: ImportPlan): string[] {
+  return plan.rows.map((row) => targetDigest(row, new Map()));
+}
+
+/**
+ * Whether a row of a chunk is written somewhere other than the preview showed.
+ *
+ * Compared are the row's outcome, the person it is written to and the key
+ * that found them, which decides whether its identity number is written. A
+ * row the board answered is compared by its outcome and key alone: the persons
+ * it could be are {@link changedSincePreview}'s to compare, and the board's
+ * answer decides which of them it is written to.
+ *
+ * A person an earlier row of the file creates is one the preview names by that
+ * row, having no id for them yet. A chunk after the one that created them
+ * finds them in the register, and names them by that row as well, so the two
+ * agree for as long as nothing else changed.
+ *
+ * @param previewed One digest per data row, as {@link previewedTargets} gave.
+ * @param createdByApply The persons earlier chunks of this apply created, to
+ *   the row that created each.
+ */
+export function retargetedSincePreview(
+  plan: ImportPlan,
+  previewed: readonly string[],
+  createdByApply: ReadonlyMap<string, number>,
+): boolean {
+  return plan.rows.some(
+    (row) => previewed[row.rowNumber - 1] !== targetDigest(row, createdByApply),
+  );
+}
+
+/** The digests the preview recorded, read back; null when it recorded none. */
+export function readPreviewedTargets(value: unknown): string[] | null {
+  if (
+    !Array.isArray(value) ||
+    !value.every((digest): digest is string => typeof digest === "string")
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function targetDigest(
+  row: PlannedRow,
+  createdByApply: ReadonlyMap<string, number>,
+): string {
+  const createdBy =
+    row.matchedPersonId === null
+      ? row.sameAsRowNumber
+      : (createdByApply.get(row.matchedPersonId) ?? null);
+  const person =
+    row.outcome !== "update"
+      ? null
+      : createdBy === null
+        ? `person ${row.matchedPersonId ?? ""}`
+        : `row ${String(createdBy)}`;
+  return createHash("sha256")
+    .update(JSON.stringify([row.outcome, person, row.foundUnder]))
+    .digest("base64url")
+    .slice(0, 16);
 }
 
 /** Whether two lists of person ids name the same people. */

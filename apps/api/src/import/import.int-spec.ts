@@ -112,6 +112,8 @@ const apartments = {
   o: `imp-apartment-o-${suffix}`,
   /** Where somebody joins the candidates of a row the board decided. */
   p: `imp-apartment-p-${suffix}`,
+  /** Where a row the register sends to somebody else is imported. */
+  q: `imp-apartment-q-${suffix}`,
 };
 
 const actors = {
@@ -669,6 +671,7 @@ beforeAll(async () => {
       { id: apartments.n, addressId, number: "2114", floor: 1 },
       { id: apartments.o, addressId, number: "2115", floor: 1 },
       { id: apartments.p, addressId, number: "2116", floor: 1 },
+      { id: apartments.q, addressId, number: "2117", floor: 1 },
     ],
   });
 
@@ -807,6 +810,7 @@ afterAll(async () => {
           apartments.n,
           apartments.o,
           apartments.p,
+          apartments.q,
         ],
       },
     },
@@ -3709,11 +3713,12 @@ describe("a file without move-in dates", () => {
 });
 
 describe("a register that changes while a chunk waits for its lock", () => {
-  it("plans the chunk again rather than skip a row it can now write", async () => {
+  it("stops rather than write a row the preview showed as a problem", async () => {
     // Bert's row for 2113 overlaps the residency he holds there, until that
     // residency is ended while the chunk waits. The chunk's other rows already
-    // lock 2113 and Bert, so only the row's missing ciphertext says the chunk
-    // has to be planned again.
+    // lock 2113 and Bert, so the plan made under the locks is the first to
+    // find the row writable - and the preview showed it as a problem, which
+    // the board read as a row that is not imported.
     const cookie = await signIn(actors.board.email);
     const personId = `imp-bert-${suffix}`;
     const email = `imp-bert-${suffix}@exempel.se`;
@@ -3783,9 +3788,16 @@ describe("a register that changes while a chunk waits for its lock", () => {
     release();
     await holder;
 
-    await expect(chunk).rejects.toThrow(/planned again/);
-    await applies.applyNextChunk(session.sessionId);
+    await expect(chunk).rejects.toMatchObject({
+      reason: "register-changed-during-apply",
+    });
 
+    // The chunk rolled back whole: no Anneli, and nothing new for Bert.
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Anneli", lastName: surname },
+      }),
+    ).toBe(0);
     const residencies = await prisma.residency.findMany({
       where: { personId },
       orderBy: [{ apartmentId: "asc" }, { movedInOn: "asc" }],
@@ -3796,11 +3808,7 @@ describe("a register that changes while a chunk waits for its lock", () => {
         residency.apartmentId,
         residency.movedInOn.toISOString().slice(0, 10),
       ]),
-    ).toEqual([
-      [apartments.m, "2010-01-01"],
-      [apartments.m, "2024-01-01"],
-      [apartments.n, "2024-01-01"],
-    ]);
+    ).toEqual([[apartments.m, "2010-01-01"]]);
   }, 60_000);
 });
 
@@ -4036,6 +4044,16 @@ describe("a person entered while a chunk is applied", () => {
     identityNumber: string,
   ): Promise<void> {
     await createPerson({ personId, firstName, identityNumber });
+    await awaitReindex(personId);
+  }
+
+  /**
+   * Puts a person's identity number back under an index older rules computed,
+   * as an upgrade leaves it until the reindex at boot. Done after the preview
+   * in the cases that apply: the preview was taken before the upgrade, and
+   * found the person by their number.
+   */
+  async function awaitReindex(personId: string): Promise<void> {
     await prisma.person.update({
       where: { id: personId },
       data: {
@@ -4054,7 +4072,11 @@ describe("a person entered while a chunk is applied", () => {
     const cookie = await signIn(actors.board.email);
     const personId = `imp-reindexed-${suffix}`;
     const [number = ""] = identityNumbers(1, "730911");
-    await createAwaitingReindex(personId, "Omindex", number);
+    await createPerson({
+      personId,
+      firstName: "Omindex",
+      identityNumber: number,
+    });
     const sessionId = await queued(cookie, "omindex.csv", [
       [...HEADERS, "Personnummer"],
       [
@@ -4069,6 +4091,7 @@ describe("a person entered while a chunk is applied", () => {
         number,
       ],
     ]);
+    await awaitReindex(personId);
 
     // An encryption of its own, so the reindex can be held between its hash
     // and its write without holding the chunk's.
@@ -4226,18 +4249,18 @@ describe("a person entered while a chunk is applied", () => {
       WHERE name = 'import-apply' AND data->>'sessionId' = ${sessionId}`;
   }
 
-  /** A queued session of one row whose number the reindex has yet to rewrite. */
+  /**
+   * A queued session of one row, previewed as an update of the person holding
+   * its number, whose number the reindex has since been left to rewrite.
+   */
   async function awaitingSession(
     cookie: string,
     firstName: string,
     birthDate: string,
   ): Promise<{ sessionId: string; number: string }> {
     const [number = ""] = identityNumbers(1, birthDate);
-    await createAwaitingReindex(
-      `imp-${birthDate}-${suffix}`,
-      firstName,
-      number,
-    );
+    const personId = `imp-${birthDate}-${suffix}`;
+    await createPerson({ personId, firstName, identityNumber: number });
     const sessionId = await queued(cookie, `${birthDate}.csv`, [
       [...HEADERS, "Personnummer"],
       [
@@ -4252,6 +4275,7 @@ describe("a person entered while a chunk is applied", () => {
         number,
       ],
     ]);
+    await awaitReindex(personId);
     return { sessionId, number };
   }
 
@@ -6718,6 +6742,105 @@ describe("a row after one the board decided", () => {
       outcome: "create",
       matchedPersonId: null,
     });
+  });
+});
+
+describe("an ordinary row the register sends to somebody else after the preview", () => {
+  it("stops before the chunk writes, and enters nobody the preview did not show", async () => {
+    // Two people called Bo in the register, and the address row 2 states is
+    // the first one's. The preview is taken with the board's answer for row 1,
+    // one of the Dubbels, and shows row 2 as an update of the first Bo: nothing
+    // asks about it. Before the import is started, the address is moved to the
+    // second Bo. Row 2 then matches him alone, by the same key, and every check
+    // of the decisions still holds - but writing it would make him a member of
+    // 2117, with an entry in the member register that cannot be taken back.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-moved-address-${suffix}@exempel.se`;
+    const first = { personId: `imp-bo-first-${suffix}`, firstName: "Bo" };
+    const second = { personId: `imp-bo-second-${suffix}`, firstName: "Bo" };
+    await createPerson({ ...first, email });
+    await createPerson(second);
+
+    const session = await upload(
+      cookie,
+      "flyttad-adress.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2103",
+            twinFirstName,
+            surname,
+            "Boende",
+            "",
+            "",
+            twinsMovedInOn,
+          ],
+          [
+            addressLabel,
+            "2117",
+            "Bo",
+            surname,
+            "Medlem",
+            email,
+            "",
+            "2024-03-01",
+          ],
+        ]),
+      ),
+    );
+    const decisions = {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    };
+    const previewed = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    expect(previewed.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: first.personId,
+      matchedBy: "email",
+    });
+
+    // The register's own change, not one to what the session recorded.
+    const moved = await encryption.encrypt("person.email", email);
+    await prisma.person.update({
+      where: { id: first.personId },
+      data: { emailCipher: null, emailIndex: null },
+    });
+    await prisma.person.update({
+      where: { id: second.personId },
+      data: { emailCipher: moved.cipher, emailIndex: moved.index },
+    });
+
+    // The request plans nothing, so it has nothing to find this by.
+    const response = await requestApply(cookie, session.sessionId, decisions);
+    expect(response.statusCode).toBe(202);
+
+    expect(
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) =>
+          candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      ),
+    ).toMatchObject({
+      status: "FAILED",
+      failureReason: "register-changed-during-apply",
+      rowsDone: 0,
+    });
+    for (const bo of [first, second]) {
+      expect(
+        await prisma.person.findUniqueOrThrow({
+          where: { id: bo.personId },
+          select: {
+            residencies: { select: { id: true } },
+            memberRegisterEntries: { select: { id: true } },
+          },
+        }),
+      ).toEqual({ residencies: [], memberRegisterEntries: [] });
+    }
   });
 });
 

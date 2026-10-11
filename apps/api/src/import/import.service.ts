@@ -34,6 +34,7 @@ import {
   type ImportDecisions,
   type ImportRole,
   readPreviewedCandidates,
+  readPreviewedTargets,
 } from "./import-plan";
 import { assertMappingApplies } from "./import-planner.service";
 import {
@@ -261,7 +262,7 @@ export class ImportService implements OnModuleInit {
    * job planning it stops at its next progress report.
    *
    * The job records what it showed - the plan, which rows it could not resolve
-   * to one person, and a digest of what it planned for every row - and issues
+   * to one person, and a digest of where it wrote every row - and issues
    * the token when it finishes. The apply reads that back rather than being
    * told again, so the import that runs is the one the board looked at.
    *
@@ -305,6 +306,7 @@ export class ImportService implements OnModuleInit {
           previewToken: null,
           previewedAt: null,
           ambiguousRows: Prisma.DbNull,
+          previewedTargets: Prisma.DbNull,
           previewedRevision: null,
           // Planned with by the job. The apply records its own when it claims
           // the session.
@@ -447,6 +449,14 @@ export class ImportService implements OnModuleInit {
       session.previewToken !== input.previewToken
     ) {
       throw previewReplaced();
+    }
+    // Every chunk compares its rows with where the preview wrote them, and a
+    // preview taken before that was recorded has nothing to compare with.
+    if (readPreviewedTargets(session.previewedTargets) === null) {
+      throw new ImportError(
+        "That import was previewed before previews recorded where each row goes. Preview it again.",
+        "preview-outdated",
+      );
     }
 
     // Asked once before the decisions as well as under the lock. Decisions
@@ -763,7 +773,10 @@ export class ImportService implements OnModuleInit {
    *
    * What is left to check here is what the preview recorded: the rows it asked
    * about and the persons it offered for each. The register revision, checked
-   * under the lock by the caller, covers everything else the preview read.
+   * under the lock by the caller, covers what other imports wrote since. What
+   * the rest of the register's writers changed is the job's to find: every
+   * chunk compares its rows with where the preview wrote them, before it
+   * writes.
    */
   private checkDecisions(
     session: { ambiguousRows: Prisma.JsonValue; decisions: Prisma.JsonValue },
@@ -807,6 +820,7 @@ export class ImportService implements OnModuleInit {
     previewToken: string | null;
     previewedRevision: number | null;
     ambiguousRows: Prisma.JsonValue;
+    previewedTargets: Prisma.JsonValue;
     decisions: Prisma.JsonValue;
   }> {
     // Not the uploaded rows: the apply plans nothing, and the job reads them.
@@ -817,6 +831,7 @@ export class ImportService implements OnModuleInit {
         previewToken: true,
         previewedRevision: true,
         ambiguousRows: true,
+        previewedTargets: true,
         decisions: true,
         status: true,
         expiresAt: true,

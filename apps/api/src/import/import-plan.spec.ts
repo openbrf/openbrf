@@ -12,9 +12,12 @@ import {
   planImport,
   type PreparedRow,
   type PreviewedCandidates,
+  previewedTargets,
+  readPreviewedTargets,
   readRow,
   type RegisterResidency,
   type RegisterSnapshot,
+  retargetedSincePreview,
 } from "./import-plan";
 
 /**
@@ -2114,5 +2117,118 @@ describe("a decided row planned again", () => {
     ).toBe(false);
     // Without knowing who the apply created, person-new is a stranger.
     expect(changedSincePreview(secondChunk, asked, decisions)).toBe(true);
+  });
+});
+
+describe("a row the register sends elsewhere after the preview", () => {
+  // Row 1 is Anna of 1101 with an address, which the register gave person-a
+  // when the preview was taken. Nothing asks about the row: it is an update.
+  const withAddress = prepared(
+    { ...COMPLETE, email: "anna@exempel.se" },
+    { emailIndex: "email-anna" },
+  );
+  const holding = (personId: string) =>
+    planImport(
+      [withAddress],
+      snapshot({
+        personsByEmail: new Map([["email-anna", [personId]]]),
+        personNames: new Map([[personId, "Anna Lindqvist"]]),
+      }),
+      DEFAULTS,
+    );
+  const previewed = previewedTargets(holding("person-a"));
+
+  it("agrees with a chunk that writes the row where the preview did", () => {
+    expect(
+      retargetedSincePreview(holding("person-a"), previewed, new Map()),
+    ).toBe(false);
+  });
+
+  it("tells a row that now updates somebody else", () => {
+    // The address was handed to person-b in between: the same outcome, the
+    // same key, and another person's residency and register entry.
+    expect(
+      retargetedSincePreview(holding("person-b"), previewed, new Map()),
+    ).toBe(true);
+  });
+
+  it("tells a row found under another key", () => {
+    // The address was taken away, and Anna is found by her name in 1101: the
+    // same person, but not reached the way the preview showed.
+    const byName = planImport(
+      [withAddress],
+      snapshot({
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-a"],
+          ],
+        ]),
+        personNames: new Map([["person-a", "Anna Lindqvist"]]),
+        personsWithEmail: new Set(),
+      }),
+      DEFAULTS,
+    );
+
+    expect(retargetedSincePreview(byName, previewed, new Map())).toBe(true);
+  });
+
+  it("tells a row that now creates a person", () => {
+    expect(
+      retargetedSincePreview(
+        planImport([withAddress], snapshot(), DEFAULTS),
+        previewed,
+        new Map(),
+      ),
+    ).toBe(true);
+  });
+
+  it("names a person an earlier chunk created by the row that created them", () => {
+    // Rows 1 and 2 are the same new person, and fall in two chunks. The
+    // preview names them by row 1 for both; the chunk holding row 2 finds them
+    // in the register.
+    const later = prepared(
+      { ...COMPLETE, apartmentNumber: "1102", email: "anna@exempel.se" },
+      { rowNumber: 2, emailIndex: "email-anna" },
+    );
+    const whole = planImport([withAddress, later], snapshot(), DEFAULTS);
+    expect(whole.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: null,
+      sameAsRowNumber: 1,
+    });
+    const recorded = previewedTargets(whole);
+
+    const secondChunk = planImport(
+      [later],
+      snapshot({
+        personsByEmail: new Map([["email-anna", ["person-new"]]]),
+        personNames: new Map([["person-new", "Anna Lindqvist"]]),
+        residenciesByPerson: new Map([
+          ["person-new", heldAsComplete("apartment-1101")],
+        ]),
+      }),
+      DEFAULTS,
+    );
+    expect(secondChunk.rows[0]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: "person-new",
+    });
+
+    expect(
+      retargetedSincePreview(
+        secondChunk,
+        recorded,
+        new Map([["person-new", 1]]),
+      ),
+    ).toBe(false);
+    // Without knowing who the apply created, person-new is somebody else.
+    expect(retargetedSincePreview(secondChunk, recorded, new Map())).toBe(true);
+  });
+
+  it("reads back no record from a session previewed before there was one", () => {
+    expect(readPreviewedTargets(null)).toBeNull();
+    expect(readPreviewedTargets({ "1": "digest" })).toBeNull();
+    expect(readPreviewedTargets(previewed)).toEqual(previewed);
   });
 });

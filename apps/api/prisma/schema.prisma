@@ -2842,6 +2842,14 @@ model ImportSession {
   /// by the apply, which refuses to start while one of them has no decision.
   ambiguousRows Json?
 
+  /// Where the preview wrote each row, one digest per data row in file order:
+  /// its outcome, the person it is written to - or the earlier row of the file
+  /// that creates them - and the key that found them. Written by the preview
+  /// and compared by every chunk of the apply against its own rows before it
+  /// writes, so a row the register has sent to somebody else since stops the
+  /// import instead of writing to them.
+  previewedTargets Json?
+
   /// `ImportRevision.revision` as the preview read it, before it read anything
   /// else. The apply refuses to start when another import has written since.
   previewedRevision Int?
