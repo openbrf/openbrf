@@ -63,13 +63,15 @@ export function scratchDatabases(): ScratchDatabases {
     async create(label) {
       const url = baseUrl();
       const name = `${databaseName(url)}_test_${process.env.VITEST_POOL_ID ?? "1"}_${label}`;
+      // Recorded first, so `dropAll` still drops it if closing the connection
+      // fails after the database was made.
+      created.push(name);
       await withClient(maintenanceUrl(url), async (client) => {
         await client.query(
           `drop database if exists ${quoteIdentifier(name)} with (force)`,
         );
         await client.query(`create database ${quoteIdentifier(name)}`);
       });
-      created.push(name);
       return withDatabase(url, name);
     },
 
