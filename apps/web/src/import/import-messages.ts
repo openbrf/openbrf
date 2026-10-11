@@ -2,6 +2,7 @@ import {
   MAX_IMPORT_CELL_LENGTH,
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
 } from "@openbrf/shared";
 
 import type { TranslationKey } from "../i18n/translation-key";
@@ -58,6 +59,7 @@ export function failureMessage(reason: string): TranslationKey {
  * one. The same numbers the API enforces, so the two cannot disagree.
  */
 export const FAILURE_VALUES = {
+  maxKilobytes: MAX_IMPORT_UPLOAD_BYTES / 1024,
   maxRows: MAX_IMPORT_ROWS,
   maxColumns: MAX_IMPORT_COLUMNS,
   maxCellLength: MAX_IMPORT_CELL_LENGTH,

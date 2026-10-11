@@ -52,6 +52,7 @@ import {
   MAX_IMPORT_CELL_LENGTH,
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
 } from "./import-limits";
 import { parseWorkbook } from "./workbook";
 
@@ -79,9 +80,6 @@ import { parseWorkbook } from "./workbook";
  * board's decisions are planned by the preview, which the screen asks for again
  * with them.
  */
-
-/** The largest upload accepted, decoded. A member list is far below this. */
-export const MAX_UPLOAD_BYTES = 512 * 1024;
 
 /** How long an upload stays usable before it has to be made again. */
 const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -192,7 +190,7 @@ export class ImportService implements OnModuleInit {
     if (bytes.byteLength === 0) {
       throw new ImportError("The uploaded file is empty.", "file-empty");
     }
-    if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+    if (bytes.byteLength > MAX_IMPORT_UPLOAD_BYTES) {
       throw new ImportError("That file is too large.", "file-too-large");
     }
 

@@ -710,7 +710,7 @@ function UploadStep({
             className={FIELD}
           />
         </label>
-        <p className={HINT}>{t("import.upload.accept")}</p>
+        <p className={HINT}>{t("import.upload.accept", FAILURE_VALUES)}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

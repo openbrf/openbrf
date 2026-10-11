@@ -8,6 +8,9 @@
  * limits only the parsers care about stay with them.
  */
 
+/** Bytes in the file as it was chosen, before it is read. */
+export const MAX_IMPORT_UPLOAD_BYTES = 512 * 1024;
+
 /** Data rows, header excluded. */
 export const MAX_IMPORT_ROWS = 5000;
 

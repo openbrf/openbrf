@@ -2347,7 +2347,7 @@
       "title": "Filen",
       "description": "En CSV-fil eller en Excel-arbetsbok. Bara arbetsbokens första blad läses.",
       "file": "Välj en fil",
-      "accept": "CSV eller Excel (.csv, .xlsx), högst 512 kB.",
+      "accept": "CSV eller Excel (.csv, .xlsx), högst {{maxKilobytes, number}} kB.",
       "submit": "Läs filen",
       "working": "Läser",
       "template": "Hämta en mall",
@@ -2494,7 +2494,7 @@
     },
     "errors": {
       "fileEmpty": "Filen har inga rader under kolumnrubrikerna.",
-      "fileTooLarge": "Filen är större än 512 kB.",
+      "fileTooLarge": "Filen är större än {{maxKilobytes, number}} kB.",
       "fileUnreadable": "Filen gick inte att läsa som ett kalkylblad.",
       "fileMixedEncoding": "Filen blandar teckenkodningar, så åäö hade blivit fel. Spara om filen som UTF-8 eller som ”CSV (semikolonavgränsad)” och ladda upp den igen.",
       "tooManyRows": "Filen har fler än {{maxRows, number}} rader under kolumnrubrikerna.",

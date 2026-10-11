@@ -1756,6 +1756,22 @@ describe("when the file cannot be read", () => {
     expect(await screen.findByText(/fler än 5\s000 rader/)).toBeTruthy();
   });
 
+  it("names the size cap a file went over", async () => {
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "file-too-large" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    expect(await screen.findByText(/högst 512 kB/)).toBeTruthy();
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    // From the cap the API enforces, as the row cap is.
+    expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
+  });
+
   it("says which problem it was", async () => {
     uploadImport.mockResolvedValue({
       ok: false,
