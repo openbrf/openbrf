@@ -58,11 +58,18 @@ interface Loaded {
  */
 interface AppendedPages {
   rows: readonly BoardMailboxThreadSummary[];
+  /** First-page threads a later page answered again, as that page said them. */
+  newer: ReadonlyMap<string, BoardMailboxThreadSummary>;
   cursor: string | null;
   of: Loaded | null;
 }
 
-const NO_APPENDED: AppendedPages = { rows: [], cursor: null, of: null };
+const NO_APPENDED: AppendedPages = {
+  rows: [],
+  newer: new Map(),
+  cursor: null,
+  of: null,
+};
 
 const EMPTY: Loaded = {
   ready: false,
@@ -170,7 +177,10 @@ export function BoardMailboxScreen(): ReactElement {
   const appended = pages.of === loaded ? pages : NO_APPENDED;
 
   const cursor = appended.of === null ? nextCursor : appended.cursor;
-  const listed = [...threads, ...appended.rows];
+  const listed = [
+    ...threads.map((row) => appended.newer.get(row.id) ?? row),
+    ...appended.rows,
+  ];
 
   const readMore = useCallback((): void => {
     if (cursor === null) {
@@ -186,17 +196,30 @@ export function BoardMailboxScreen(): ReactElement {
       }
       setPages((held) => {
         const rows = held.of === loaded ? held.rows : [];
+        const newer = new Map(held.of === loaded ? held.newer : []);
         /*
          * The server sorts by status and last message but pages by an id
          * cursor, so a thread that changed between two reads can be on both
-         * pages. It is listed where it was first seen.
+         * pages. It is listed once, where it was first seen, and with what the
+         * later page says of it: that is the read that saw the change.
          */
-        const seen = new Set([...loaded.threads, ...rows].map((row) => row.id));
+        const answered = new Map(
+          page.value.threads.map((row) => [row.id, row]),
+        );
+        const firstPage = new Set(loaded.threads.map((row) => row.id));
+        const seen = new Set([...firstPage, ...rows.map((row) => row.id)]);
+        for (const id of firstPage) {
+          const row = answered.get(id);
+          if (row !== undefined) {
+            newer.set(id, row);
+          }
+        }
         return {
           rows: [
-            ...rows,
+            ...rows.map((row) => answered.get(row.id) ?? row),
             ...page.value.threads.filter((row) => !seen.has(row.id)),
           ],
+          newer,
           cursor: page.value.nextCursor,
           of: loaded,
         };

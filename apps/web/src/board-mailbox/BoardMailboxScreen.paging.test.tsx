@@ -83,6 +83,45 @@ describe("the older threads", () => {
     ]);
   });
 
+  it("shows a thread on two pages as the later page says it is", async () => {
+    render(<BoardMailboxScreen />);
+    await inbox();
+    const before = within(screen.getByRole("list"))
+      .getAllByRole("listitem")
+      .map((row) => row.textContent);
+
+    // A reply came in between the two reads: one more message, a later day.
+    fetchBoardMailboxThreads.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        threads: [
+          {
+            ...NOISY_NEIGHBOUR,
+            lastMessageAt: "2026-09-22T08:00:00.000Z",
+            messageCount: 2,
+          },
+          BIKE_ROOM,
+        ],
+        nextCursor: null,
+      },
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa äldre trådar" }),
+    );
+
+    await screen.findByText("Cykelrummet");
+    const rows = within(screen.getByRole("list"))
+      .getAllByRole("listitem")
+      .map((row) => row.textContent);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toBe(before[0]);
+    // Still where it was first seen, but no longer what the first page said.
+    expect(rows[1]).toContain("Störande granne");
+    expect(rows[1]).not.toBe(before[1]);
+    expect(rows[1]).toContain("2 meddelanden");
+    expect(rows[1]).toContain("22");
+  });
+
   it("says so when they could not be read, and reads them on the next press", async () => {
     render(<BoardMailboxScreen />);
     await inbox();
