@@ -562,6 +562,34 @@ describe("when the read fails", () => {
     });
     expect(screen.getByText("Nyckel till cykelrummet")).toBeTruthy();
   });
+
+  it.each([
+    [500, "unexpected", /kunde inte läsas just nu/i],
+    [403, "forbidden", /Debiteringar hanteras av styrelsen/],
+  ])(
+    "takes the old period refusal away when the next read fails with %i",
+    async (status, reason, notice) => {
+      fetchDebitingList.mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 422, reason: "range-invalid" },
+      });
+      render(<ChargesScreen />);
+      await screen.findByText("Perioden kan inte sluta innan den börjar.");
+
+      fetchDebitingList.mockResolvedValueOnce({
+        ok: false,
+        failure: { status, reason },
+      });
+      fireEvent.change(screen.getByLabelText("Från"), {
+        target: { value: "2027-02-01" },
+      });
+
+      await screen.findByText(notice);
+      expect(
+        screen.queryByText("Perioden kan inte sluta innan den börjar."),
+      ).toBeNull();
+    },
+  );
 });
 
 describe("correcting a charge", () => {

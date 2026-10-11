@@ -216,6 +216,7 @@ export function ChargesScreen(): ReactElement {
          */
         setForbidden(true);
         setListFailed(false);
+        setListRefusal(null);
         setList(null);
         setFile(null);
         return;
@@ -231,6 +232,8 @@ export function ChargesScreen(): ReactElement {
         setListRefusal(chargeFailureKey(result.failure));
         return;
       }
+      // The read failed, so the earlier refusal names a period no longer asked for.
+      setListRefusal(null);
       setListFailed(true);
     })();
 
