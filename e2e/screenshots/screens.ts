@@ -166,6 +166,15 @@ export type Action =
    * the screens after it photograph the website as it was.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
+  /**
+   * Answer the next GET to this API path with a server error, once.
+   *
+   * The stack answers every read, so the screen a failed read leaves behind
+   * cannot be reached without it. Only the browser's request is answered:
+   * whatever was written before it is written, and the read after it reaches
+   * the instance again.
+   */
+  | { readonly failNextRead: string }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -452,6 +461,9 @@ const BINDER = {
     },
   },
 } as const;
+
+/** Who the lien the walk notes and releases is owed to: an invented lender. */
+const LIEN_CREDITOR = "Exempelbanken AB";
 
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
@@ -2422,5 +2434,78 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Anteckna styrelsen" } },
     ],
     waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
+  },
+  {
+    /*
+     * Releasing a lien asks for the day it was released.
+     *
+     * "Avnotera" opens a date, prefilled with today, that may go back to the
+     * day the lien was noted and no further. The register starts with no lien,
+     * so one is noted first, on the first apartment the register lists. Here,
+     * among the writes, because a lien is a row in the statutory apartment
+     * register and the screens above photograph that register without one.
+     *
+     * The creditor is a lender, not a person, and an invented one.
+     */
+    name: "apartment-register-lien-release",
+    as: "administrator",
+    goto: appPath("/registers/apartments"),
+    prepare: [
+      { click: { button: "Notera pant", first: true } },
+      { fill: { label: "Panthavare" }, value: LIEN_CREDITOR },
+      { fill: { label: "Anteckningsdag" }, value: "2026-03-02" },
+      { click: { button: "Notera panten" } },
+      // First, for a reused stack: a walk that stopped between these two
+      // entries left an open lien from the same creditor on the same day.
+      {
+        click: {
+          button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+          first: true,
+        },
+      },
+    ],
+    waitFor: {
+      button: new RegExp(
+        `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+      ),
+    },
+  },
+  {
+    /*
+     * A release that was recorded, followed by a read of the register that
+     * failed: the lien still reads as open, so the control says the release is
+     * in and offers the read again rather than offering the release again.
+     */
+    name: "apartment-register-lien-release-unread",
+    prepare: [
+      { failNextRead: "/api/apartment-register" },
+      {
+        click: {
+          button: new RegExp(
+            `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+          ),
+        },
+      },
+    ],
+    waitFor: { button: "Läs om registret" },
+  },
+  {
+    /*
+     * A group made while the room list cannot be read again: the rooms already
+     * on screen stay, and the failure is said with a way to read it again. The
+     * group itself is made; only the read after it fails.
+     */
+    name: "chat-relist-failed",
+    as: "resident",
+    goto: appPath("/chat"),
+    prepare: [
+      // The group `chat-group` made, so there is a list to keep.
+      { see: { button: /^Trädgårdsgruppen/ } },
+      { fill: { label: "Gruppens namn" }, value: "Bokcirkeln" },
+      { failNextRead: "/api/chat" },
+      { click: { button: "Skapa gruppen" } },
+    ],
+    waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },
+    capture: "page",
   },
 ];

@@ -7,6 +7,7 @@ import type {
   Cookie,
   Locator,
   Page,
+  Route,
 } from "@playwright/test";
 
 import * as api from "../src/api";
@@ -324,6 +325,24 @@ async function perform(page: Page, action: Action): Promise<void> {
       mimeType: action.file.mimeType,
       buffer: Buffer.from(action.file.text, "utf8"),
     });
+    return;
+  }
+  if ("failNextRead" in action) {
+    const path = action.failNextRead;
+    const matches = (url: URL): boolean => url.pathname === path;
+    const fail = async (route: Route): Promise<void> => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await page.unroute(matches, fail);
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ reason: "unexpected" }),
+      });
+    };
+    await page.route(matches, fail);
     return;
   }
   if ("deliver" in action) {
