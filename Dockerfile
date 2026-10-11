@@ -85,13 +85,17 @@ RUN pnpm build
 # from the virtual store, and what is left of them in apps/web/node_modules is
 # an empty scope directory.
 #
-# The second command fails the build if any of that is not so: a toolchain
-# package still in the virtual store, or a link in a workspace project's
-# node_modules that points at a package the prune removed. A pnpm that stops
-# pruning is found here and not in the size of the image.
+# The checks fail the build if any of that is not so: a toolchain package still
+# in the virtual store, or a link in a workspace project's node_modules that
+# points at a package the prune removed. A pnpm that stops pruning is found
+# here and not in the size of the image. Each find runs in an assignment of its
+# own, so that a find that fails (a missing search root, say) fails the build
+# too, instead of passing as empty output.
 RUN pnpm prune --prod \
-    && test -z "$(find node_modules/.pnpm -maxdepth 1 \( -name 'typescript@*' -o -name 'vitest@*' -o -name 'vite@*' -o -name 'turbo@*' -o -name '@testing-library+*' -o -name '@vitejs+*' -o -name '@module-federation+vite@*' \) -print -quit)" \
-    && test -z "$(find apps packages -path '*/node_modules/*' -xtype l -print -quit)"
+    && toolchain="$(find node_modules/.pnpm -maxdepth 1 \( -name 'typescript@*' -o -name 'vitest@*' -o -name 'vite@*' -o -name 'turbo@*' -o -name '@testing-library+*' -o -name '@vitejs+*' -o -name '@module-federation+vite@*' \) -print -quit)" \
+    && test -z "$toolchain" \
+    && dangling="$(find apps packages -path '*/node_modules/*' -xtype l -print -quit)" \
+    && test -z "$dangling"
 
 # --- runtime ----------------------------------------------------------------
 FROM base AS runtime
