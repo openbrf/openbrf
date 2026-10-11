@@ -1,4 +1,4 @@
-import { localDayOf } from "./stockholm-calendar.ts";
+import { compareLocalDays, localDayOf } from "./stockholm-calendar.ts";
 
 /**
  * The Swedish personal identity number (personnummer), as parsed, normalized,
@@ -218,11 +218,22 @@ export function withPersonalIdentityNumberCentury(
  *
  * Coordination numbers use the same checksum over the offset day, so no
  * special case is needed here.
+ *
+ * A number written with its century is valid only where somebody alive can
+ * have been born: the century is 18, 19 or 20 and the birth date has come. A
+ * twelve-digit invoice or OCR reference whose last ten digits pass the check
+ * is not a personal identity number. This is a check of what is entered, not a
+ * rule of normalization, so a number already stored is indexed and found as it
+ * always was.
  */
 export function isValidPersonalIdentityNumber(
   input: string,
   referenceDate: Date = new Date(),
 ): boolean {
+  const parts = parsePersonalIdentityNumber(input, referenceDate);
+  if (parts === null || !isBornBy(input, parts, referenceDate)) {
+    return false;
+  }
   const normalized = normalizePersonalIdentityNumber(input, referenceDate);
   if (normalized === null) {
     return false;
@@ -465,6 +476,31 @@ export function scanForPersonalIdentityNumbers(
 function shapeOf(input: string): Record<string, string | undefined> | null {
   const compact = input.trim().replace(/\s/g, "");
   return PERSONAL_IDENTITY_NUMBER_PATTERN.exec(compact)?.groups ?? null;
+}
+
+/**
+ * Whether a number written with its century names a living person's birth: a
+ * century of 18, 19 or 20, and a birth date on or before the association's day
+ * (ADR 0013). A number without one is read into the past already.
+ */
+function isBornBy(
+  input: string,
+  parts: PersonalIdentityNumberParts,
+  referenceDate: Date,
+): boolean {
+  const century = shapeOf(input)?.century;
+  if (century === undefined) {
+    return true;
+  }
+  if (!["18", "19", "20"].includes(century)) {
+    return false;
+  }
+  const birth = {
+    year: parts.year,
+    month: parts.month,
+    day: parts.isCoordinationNumber ? parts.day - 60 : parts.day,
+  };
+  return compareLocalDays(birth, localDayOf(referenceDate)) <= 0;
 }
 
 /** The same moment a number of years away; 29 February moves to 1 March. */

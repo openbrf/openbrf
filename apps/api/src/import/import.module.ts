@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { ImportApplyService } from "./import-apply.service";
 import { ImportPlannerService } from "./import-planner.service";
+import { ImportPreviewService } from "./import-preview.service";
 import { ImportController } from "./import.controller";
 import { ImportService } from "./import.service";
 
@@ -12,13 +13,19 @@ import { ImportService } from "./import.service";
  * what ships here loads a list once, with a mapping the board confirms and a
  * preview it approves.
  *
- * Three providers, split where the flow splits: the planner decides what an
- * import would do and is shared, the service answers the requests, and the apply
- * service is the background job that writes the register.
+ * Four providers, split where the flow splits: the planner decides what an
+ * import would do and is shared, the service answers the requests, the preview
+ * service is the background job that plans what the board looks at, and the
+ * apply service is the background job that writes the register.
  */
 @Module({
   controllers: [ImportController],
-  providers: [ImportService, ImportPlannerService, ImportApplyService],
-  exports: [ImportService, ImportApplyService],
+  providers: [
+    ImportService,
+    ImportPlannerService,
+    ImportPreviewService,
+    ImportApplyService,
+  ],
+  exports: [ImportService, ImportPreviewService, ImportApplyService],
 })
 export class ImportModule {}
