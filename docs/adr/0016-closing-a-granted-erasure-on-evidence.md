@@ -177,8 +177,8 @@ the same predicate (`erasureRequestedPersonIds` and `isErasureInForce` in
 A consented subletting application whose period has not ended is kept, as an
 open one is. The erasure used to take every closed application whatever its
 `periodTo`, so a granted request for a member who had since sold the flat erased
-the board's consent to a letting that was still running. The consent is the
-board's proof that the letting was lawful (BRL 7 kap. 18 § 2), and while a
+the board's consent to a subletting that was still running. The consent is the
+board's proof that the subletting was lawful (BRL 7 kap. 18 § 2), and while a
 subtenant lives there it is not the member's data to take away. The closing job
 counts it as kept, so the request stays open; the first run after the period's
 last day erases it and closes the request.
@@ -186,7 +186,7 @@ last day erases it and closes the request.
 ## Update, 2026-10-10
 
 The update of 2026-10-09 keyed the keep to `periodTo`, a date the applicant
-chooses, and nothing could shorten it. A consent to a letting that stopped
+chooses, and nothing could shorten it. A consent to a subletting that stopped
 early, because the subtenant moved out or the member sold, then held a granted
 request open until the end of a period nobody was using. Two things bound that
 now.
@@ -197,11 +197,11 @@ period ends more than five years from that day is refused
 generations. The bound was added with #246 for the retention clock, and it
 serves this keep as well.
 
-The board can record that a letting ended. `PUT
+The board can record that a subletting ended. `PUT
 api/sublet-queue/:id/letting-end` writes `lettingEndedOn`. Only a consented
 application can carry it, the day must fall inside the period, and the board
 can clear it again. The day is audited as `SUBLET_LETTING_END_RECORDED`. The
-recorded day is the letting's last day wherever the period's was read, and the
+recorded day is the subletting's last day wherever the period's was read, and the
 day is inclusive. A granted request keeps the consent through that day, then
 erases it and can close the first night after it, and the retention window counts from it. The period itself
 stays what the board consented to.
@@ -236,13 +236,13 @@ the thread's field, so `erasureRemainder` takes it.
 What a request left open is waiting on reached only the run's log line and
 the audit entry. A board reading the person's page saw "granted" and nothing
 more, so it could not tell that a hold it placed, a matter it had not closed
-or a letting whose end it had not recorded was keeping the request open.
+or a subletting whose end it had not recorded was keeping the request open.
 
 The person view the board reads (`GET api/address-book/persons/:id`) now
 carries `erasureWaitingOn` beside the requests: the status (blocked or
 incomplete), the rule that refuses the purge if one does, each domain still
 holding rows with its owed and kept counts, and the last day of a consented
-letting that keeps an application. The request's row shows it. It is computed
+subletting that keeps an application. The request's row shows it. It is computed
 on every read and never stored, because each part of it changes without the
 request changing. Like the log line, it carries counts and a rule and never a
 row.
