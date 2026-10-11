@@ -1206,10 +1206,11 @@ export function readPreviewedCandidates(value: unknown): PreviewedCandidates {
  * The register revision covers what another import writes after a preview,
  * and the rows the preview asked about are compared by
  * {@link changedSincePreview}. Neither covers an ordinary row that a change in
- * the address book, a sign-up approval or a move sends to somebody else: an
- * update of one person, matched by an address since handed to another, becomes
- * an update of that other person, with their residency and their entry in the
- * member register. So what the preview planned for every row is kept too.
+ * the address book, an account request approval or a move sends to somebody
+ * else: an update of one person, matched by an address since handed to
+ * another, becomes an update of that other person, with their residency and
+ * their entry in the member register. So what the preview planned for every
+ * row is kept too.
  *
  * Hashed, because a file can have thousands of rows and the only question ever
  * asked of one is whether the chunk agrees with it.
