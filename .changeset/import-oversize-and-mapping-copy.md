@@ -9,7 +9,10 @@ Tell the board why the import screen refused a file or a mapping.
 A member list over the size limit was answered `invalid-body` by the upload's
 request schema before the service could refuse it as `file-too-large`, so the
 screen said only that the import did not work just now. The upload is now
-refused as `file-too-large`, and the screen names the limit.
+refused as `file-too-large`, and the screen names the limit. A file of about
+750 KiB or more never reaches that check: the server's request body limit
+answers 413 first, and the screen now reads a 413 on upload as the same
+refusal.
 
 A mapping the API refuses now carries the problems it found, as codes, in a
 `problems` field next to `mapping-invalid`, and the screen lists a sentence for

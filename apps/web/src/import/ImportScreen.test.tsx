@@ -1858,6 +1858,22 @@ describe("when the file cannot be read", () => {
     expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
   });
 
+  it("names the size cap when the request body was refused as too large", async () => {
+    // Fastify's body limit answers before the import code runs, with a 413
+    // that carries no reason of ours.
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 413, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
+  });
+
   it("says what is wrong with a mapping the API refused", async () => {
     previewImport.mockResolvedValue({
       ok: false,

@@ -10,6 +10,7 @@ import {
   MEMBER_LIST,
   NAMESAKE_LIST,
   NAMESAKES,
+  OVERSIZED_LIST,
   RESIDENT,
 } from "./people";
 
@@ -759,6 +760,57 @@ export const SCREENS: readonly Screen[] = [
       },
     ],
     waitFor: { text: /räknas raden som ett problem/ },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A mapping the API refuses: the apartment column left out, and a second
+     * column mapped to the email field the first already holds. The screen
+     * says the mapping cannot be used and lists each problem beneath it.
+     */
+    name: "import-mapping-refused",
+    goto: appPath("/import"),
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: MEMBER_LIST.fileName,
+          mimeType: MEMBER_LIST.mimeType,
+          text: MEMBER_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      {
+        select: { combobox: "Fält i registret för Lägenhetsnummer" },
+        option: "Importera inte",
+      },
+      {
+        select: { combobox: "Fält i registret för Anteckning" },
+        option: "E-postadress",
+      },
+      { click: { button: "Förhandsgranska importen" } },
+    ],
+    waitFor: { text: "Koppla kolumnen med lägenhetsnummer." },
+    capture: "page",
+  },
+  {
+    // A file over the size limit, which the server turns away with a 413
+    // before the import reads it. The screen names the limit.
+    name: "import-upload-too-large",
+    goto: appPath("/import"),
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: OVERSIZED_LIST.fileName,
+          mimeType: OVERSIZED_LIST.mimeType,
+          text: OVERSIZED_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+    ],
+    waitFor: { text: /större än 512 kB/ },
     capture: "page",
   },
 

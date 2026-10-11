@@ -377,7 +377,15 @@ export function ImportScreen(): ReactElement {
       const content = await readFileAsBase64(file);
       const response = await uploadImport({ fileName: file.name, content });
       if (!response.ok) {
-        setFailure(failureMessage(response.failure.reason));
+        // A file of about 750 KiB or more is refused by the server's request
+        // body limit before the import runs, with a 413 and no reason of ours.
+        setFailure(
+          failureMessage(
+            response.failure.status === 413
+              ? "file-too-large"
+              : response.failure.reason,
+          ),
+        );
         return;
       }
       setSession(response.value);
