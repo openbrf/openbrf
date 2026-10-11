@@ -1560,22 +1560,24 @@ describe("after pressing apply", () => {
     });
     previewImport.mockResolvedValue({
       ok: true,
-      value: {
-        ...PREVIEW,
-        summary: { create: 1, update: 2, ambiguous: 0, error: 1 },
-        rows: [
-          created,
-          {
-            ...ambiguous,
-            outcome: "update",
-            rowNumber: ambiguous.rowNumber,
-            matchedPersonId: "person-bo-senior",
-            matchedPersonName: "Bo Berg",
-          },
-          failed,
-          updated,
-        ],
-      },
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          summary: { create: 1, update: 2, ambiguous: 0, error: 1 },
+          rows: [
+            created,
+            {
+              ...ambiguous,
+              outcome: "update",
+              rowNumber: ambiguous.rowNumber,
+              matchedPersonId: "person-bo-senior",
+              matchedPersonName: "Bo Berg",
+            },
+            failed,
+            updated,
+          ],
+        },
+      }),
     });
 
     await session.selectOptions(
@@ -1612,6 +1614,7 @@ describe("after pressing apply", () => {
     );
     await waitFor(() => {
       expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+        previewToken: PREVIEW.previewToken,
         decisions: {},
       });
     });
