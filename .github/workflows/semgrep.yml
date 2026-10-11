@@ -69,44 +69,64 @@ jobs:
       # finding can be read.
       - name: Run Semgrep
         run: |
+          set -euo pipefail
           # Pinned in docker/semgrep/Dockerfile, where Dependabot keeps the
           # digest current. The guard that fails CI on a drifted pin reads the
           # image from it and prints the one it validated, so that what runs
           # here is what was checked and not the result of a second parse.
+          # Empty output would make every later line pull or run nothing
+          # sensible, so it stops here with a message instead.
           SEMGREP_IMAGE=$(node scripts/check-image-pins.mjs --semgrep-image)
+          if [ -z "$SEMGREP_IMAGE" ]; then
+            echo "::error::scripts/check-image-pins.mjs --semgrep-image printed no image."
+            exit 1
+          fi
           # Pulled through Google's mirror of Docker Hub, which does not limit
           # anonymous pulls per address as Docker Hub does on runners whose
           # addresses everyone else's CI shares. The pin itself stays on Docker
           # Hub, where Dependabot reads the tags; the digest is the one Docker
           # Hub serves under the tag, and the mirror serves the same one. A
           # digest the mirror has not cached yet (a fresh Dependabot bump) falls
-          # back to Docker Hub rather than failing the scan. Only that error does:
-          # Docker reports a digest the mirror does not have as "manifest
-          # unknown", "manifest for ... not found", or, with the containerd image
-          # store, "failed to resolve reference ...: not found". A bare "not
-          # found" is not enough, as "command not found" has it too. The
-          # containerd form cannot tell a missing digest from a missing
-          # repository, but the repository is semgrep/semgrep, which the guard
-          # insists on and the mirror serves, and an outage reads as a timeout
-          # or a refused connection and not as "not found". Any other
-          # failure (an outage, a timeout, a refused connection) fails the
-          # step, so that a lasting mirror outage is a red check someone reads
-          # and not every run quietly pulling from Docker Hub and spending its
-          # anonymous allowance.
+          # back to Docker Hub rather than failing the scan.
+          #
+          # What a failed pull says is not enough to decide that. Docker reports
+          # a missing digest as "manifest unknown" or, with the containerd image
+          # store, as "failed to resolve reference ...: not found", and the
+          # containerd form is what any HTTP 404 turns into, whatever the
+          # registry said. So a failed pull is confirmed against the mirror: the
+          # registry API is asked for the digest, and only a 404 carrying
+          # MANIFEST_UNKNOWN, the registry's own word for a manifest it does not
+          # have, falls back. Anything else (a 404 without it, an outage, a
+          # timeout, a refused connection) fails the step, so that a lasting
+          # mirror problem is a red check someone reads and not every run
+          # quietly pulling from Docker Hub and spending its anonymous
+          # allowance. The mirror answers MANIFEST_UNKNOWN for an unknown
+          # repository too, but the guard insists on semgrep/semgrep.
           DOCKER_HUB_IMAGE="$SEMGREP_IMAGE"
           MIRROR_IMAGE="mirror.gcr.io/${DOCKER_HUB_IMAGE}"
           if PULL_OUTPUT=$(docker pull "$MIRROR_IMAGE" 2>&1); then
             echo "$PULL_OUTPUT"
             SEMGREP_IMAGE="$MIRROR_IMAGE"
-          elif echo "$PULL_OUTPUT" | grep -qiE 'manifest unknown|manifest for .* not found|failed to resolve reference .*: not found'; then
-            echo "$PULL_OUTPUT" >&2
-            echo "::warning::mirror.gcr.io has not cached ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
-            docker pull "$DOCKER_HUB_IMAGE"
-            SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
           else
             echo "$PULL_OUTPUT" >&2
-            echo "::error::mirror.gcr.io failed for a reason other than a missing digest; not falling back to Docker Hub."
-            exit 1
+            REPOSITORY=${DOCKER_HUB_IMAGE%%[:@]*}
+            DIGEST=${DOCKER_HUB_IMAGE##*@}
+            PROBE=$(curl --silent --show-error --max-time 30 \
+              --write-out '\n%{http_code}' \
+              --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://mirror.gcr.io/v2/${REPOSITORY}/manifests/${DIGEST}" || true)
+            if [ "${PROBE##*$'\n'}" = "404" ] && printf '%s' "$PROBE" | grep -q 'MANIFEST_UNKNOWN'; then
+              echo "::warning::mirror.gcr.io has not cached ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
+              # A warning alone is easy to miss, and on main it means the
+              # mirror lags a pin that has already merged.
+              echo "mirror.gcr.io had not cached \`${DOCKER_HUB_IMAGE}\` (MANIFEST_UNKNOWN); the Semgrep scan pulled it from Docker Hub." >> "$GITHUB_STEP_SUMMARY"
+              docker pull "$DOCKER_HUB_IMAGE"
+              SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
+            else
+              echo "Registry answer for ${DIGEST} (status last): $(printf '%s' "$PROBE" | tail -c 300)" >&2
+              echo "::error::mirror.gcr.io failed for a reason other than a missing manifest; not falling back to Docker Hub."
+              exit 1
+            fi
           fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
