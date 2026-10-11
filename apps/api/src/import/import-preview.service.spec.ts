@@ -128,8 +128,16 @@ function planned(
     candidates:
       outcome === "ambiguous"
         ? [
-            { personId: "twin-a", name: "Anna Exempel" },
-            { personId: "twin-b", name: "Anna Exempel" },
+            {
+              personId: "twin-a",
+              name: "Anna Exempel",
+              residencyConflict: false,
+            },
+            {
+              personId: "twin-b",
+              name: "Anna Exempel",
+              residencyConflict: false,
+            },
           ]
         : [],
     problems: [],

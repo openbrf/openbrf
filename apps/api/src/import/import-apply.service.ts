@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { dateColumnOf, parseLocalDay } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
@@ -36,13 +37,16 @@ import {
   type ImportPlan,
   type PlannedRow,
   readPreviewedCandidates,
+  readPreviewedTargets,
   type RegisterResidency,
+  retargetedSincePreview,
+  registerResidency,
   rowResidency,
+  type RowResidency,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
-  registerResidency,
 } from "./import-planner.service";
 import {
   type ImportApplyResult,
@@ -85,6 +89,12 @@ import {
  *   finds anybody else for a row the board decided to write, or misses one of
  *   them - when it plans, or once it holds its locks - stops rather than carry
  *   out an answer to a question the board was not asked.
+ * - **Every row goes where the preview showed.** The preview records, for
+ *   every row, its outcome, the person it is written to and the key that found
+ *   them. A chunk whose rows differ from that, when it plans or once it holds
+ *   its locks, stops: the address book, an account request approval or a move
+ *   has sent a row to somebody the board never saw it written to. A row the
+ *   board left out is exempt while it still asks, since it is written nowhere.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -360,6 +370,7 @@ export class ImportApplyService implements OnModuleInit {
         defaultMovedInOn: true,
         decisions: true,
         ambiguousRows: true,
+        previewedTargets: true,
         unwrittenIdentityNumbers: true,
         createdPersons: true,
       },
@@ -399,6 +410,19 @@ export class ImportApplyService implements OnModuleInit {
     const decisions = readDecisions(session.decisions);
     const unwritten = readRowPersons(session.unwrittenIdentityNumbers);
     const created = readRowPersons(session.createdPersons);
+    const targets = readPreviewedTargets(session.previewedTargets);
+    if (targets === null) {
+      // Claimed before previews recorded where each row goes, which the
+      // request now refuses. Nothing here could tell a row the register has
+      // sent elsewhere since from one it has not, so nothing is written.
+      await this.stop(sessionId, "preview-outdated");
+      return false;
+    }
+    // Who the rows of earlier chunks created, to the row that created each:
+    // the preview named those persons by that row.
+    const createdBy = new Map(
+      [...created].map(([rowNumber, personId]) => [personId, rowNumber]),
+    );
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
     // The cache of identity number indexes belongs to this chunk and to nothing
@@ -426,6 +450,18 @@ export class ImportApplyService implements OnModuleInit {
       // that never advances the cursor.
       await this.stop(sessionId, "apply-interrupted");
       return false;
+    }
+
+    // A row carrying an identity number that a person holds under the index
+    // older rules computed is planned as a new person until the reindex has
+    // rewritten that index, and the checks below would stop the import for a
+    // change the reindex is about to undo. So the chunk waits for it first, as
+    // it does inside its transaction for the reindex that starts meanwhile.
+    if (
+      plan.rows.some((row) => row.person.personalIdentityNumber !== null) &&
+      (await identityNumbersAwaitReindex(this.prisma))
+    ) {
+      throw new ReindexPendingError();
     }
 
     // Checked again although the request already checked it against the
@@ -465,6 +501,19 @@ export class ImportApplyService implements OnModuleInit {
         new Set(created.values()),
       )
     ) {
+      await this.stop(sessionId, "register-changed-during-apply");
+      return false;
+    }
+
+    // And every other row is written where the preview showed it would be. A
+    // row the preview showed as an update of one person, whose address the
+    // address book has since given to another, now updates that other person
+    // and gives them its residency and its entry in the member register; a
+    // row shown as a new person may have found somebody added since. The
+    // register revision only moves with imports, so this is where the chunk
+    // finds out. Recorded as the register having changed, like the check
+    // above, and the chunks before this one stay written.
+    if (retargetedSincePreview(plan, targets, decisions, createdBy)) {
       await this.stop(sessionId, "register-changed-during-apply");
       return false;
     }
@@ -578,6 +627,15 @@ export class ImportApplyService implements OnModuleInit {
             "register-changed-during-apply",
           );
         }
+        // And the plan under the locks writes every row where the preview
+        // showed it, as the first plan did: the register can have sent one
+        // elsewhere in between.
+        if (retargetedSincePreview(locked, targets, decisions, createdBy)) {
+          throw new ImportError(
+            "A row is written to another person than the preview showed.",
+            "register-changed-during-apply",
+          );
+        }
         const undecidedNow = findUndecided(locked, decisions, session.rowCount);
         if (undecidedNow !== null) {
           // Thrown so the transaction writes nothing; runApply records it.
@@ -595,9 +653,11 @@ export class ImportApplyService implements OnModuleInit {
         ) {
           // The register changed between the two plans so that this chunk now
           // writes somewhere it holds no lock, or writes a row the first plan
-          // did not and so has no ciphertext for. Not a refusal: the next
-          // attempt plans from the register as it is then, and encrypts and
-          // locks what that needs.
+          // did not and so has no ciphertext for. Both plans write every row
+          // where the preview did, so this should not be reached; it stays
+          // because writing past a lock is worse than planning once more. Not
+          // a refusal: the next attempt plans from the register as it is
+          // then, and encrypts and locks what that needs.
           throw new Error(
             "The register changed under the chunk; it is planned again.",
           );
@@ -846,14 +906,21 @@ export class ImportApplyService implements OnModuleInit {
         continue;
       }
       // The plan refuses a row that would give a person a second residency on
-      // the same days, but it cannot for a row the board resolved: until the
-      // decision it did not know whose residencies to compare. Checked again
-      // here for every existing person, so the decision is held to the same
-      // rule.
-      if (
-        target.action === "update" &&
-        (await residencyConflicts(tx, row, target.personId))
-      ) {
+      // the same days, but not a row the board resolved: the decision is the
+      // board's to make, and the preview only says beside it that the person
+      // chosen holds one. Checked again here for every existing person, so the
+      // decision is held to the same rule. Read once, for this and for the
+      // residency below, which the person update in between does not touch.
+      const residency = rowResidency(row);
+      const held =
+        residency !== null && target.action === "update"
+          ? await residenciesOnApartment(
+              tx,
+              target.personId,
+              residency.apartmentId,
+            )
+          : [];
+      if (residency !== null && conflictsWith(residency, held)) {
         result.errors++;
         continue;
       }
@@ -872,7 +939,16 @@ export class ImportApplyService implements OnModuleInit {
         continue;
       }
 
-      await this.writeResidency(tx, row, personId, membersBefore, result);
+      if (residency !== null) {
+        await this.writeResidency(
+          tx,
+          residency,
+          held,
+          personId,
+          membersBefore,
+          result,
+        );
+      }
     }
     for (const [rowNumber, personId] of createdByRow) {
       created.set(rowNumber, personId);
@@ -1013,33 +1089,33 @@ export class ImportApplyService implements OnModuleInit {
    * with two apartments is recorded as one membership rather than two. The rows
    * themselves are written once the chunk's residencies are, by the caller.
    *
-   * The residency this row would create is looked up first, which is also what
-   * makes a chunk safe to attempt twice: a row whose residency is already there
-   * writes nothing further, and no second entry reaches a register that refuses
-   * to have rows removed. Already there is what heldAlready says it is.
-   * Any other residency of this person on this apartment that it would overlap
-   * was refused by the plan as a problem with the row, and one it does not
-   * overlap - a person who moved out and back in - is a residency of its own.
+   * The residency this row would create is looked up first, in `held`, which is
+   * also what makes a chunk safe to attempt twice: a row whose residency is
+   * already there writes nothing further, and no second entry reaches a
+   * register that refuses to have rows removed. Already there is what
+   * heldAlready says it is. Any other residency of this person on this
+   * apartment that it would overlap was refused as a problem with the row, and
+   * one it does not overlap - a person who moved out and back in - is a
+   * residency of its own.
+   *
+   * @param held Every residency the person holds on the row's apartment: none
+   *   for a person this row has just created.
    */
   private async writeResidency(
     tx: Prisma.TransactionClient,
-    row: PlannedRow,
+    residency: RowResidency,
+    held: readonly RegisterResidency[],
     personId: string,
     membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
   ): Promise<void> {
-    const residency = rowResidency(row);
-    if (residency === null) {
-      return;
-    }
-    const held = await heldOnApartment(tx, personId, residency.apartmentId);
-    if (heldAlready(residency, held) !== undefined) {
+    if (heldAlready(residency, held)) {
       return;
     }
 
     // Read before the insert, and only on the chunk's first row for the person:
     // the rows after it are part of the same change.
-    if (row.role === "MEMBER" && !membersBefore.has(personId)) {
+    if (residency.role === "MEMBER" && !membersBefore.has(personId)) {
       membersBefore.set(personId, await readMemberResidencies(tx, personId));
     }
 
@@ -1048,11 +1124,11 @@ export class ImportApplyService implements OnModuleInit {
         personId,
         apartmentId: residency.apartmentId,
         role: residency.role,
-        movedInOn: new Date(`${residency.movedInOn}T00:00:00.000Z`),
+        movedInOn: dateColumnOfPlanned(residency.movedInOn),
         movedOutOn:
           residency.movedOutOn === null
             ? null
-            : new Date(`${residency.movedOutOn}T00:00:00.000Z`),
+            : dateColumnOfPlanned(residency.movedOutOn),
       },
     });
     result.residenciesCreated++;
@@ -1127,24 +1203,8 @@ interface EncryptedRowValues {
   personalIdentityNumber: { cipher: string; index: string | null } | null;
 }
 
-/** Whether the row's residency would overlap one the person holds differently. */
-async function residencyConflicts(
-  tx: Prisma.TransactionClient,
-  row: PlannedRow,
-  personId: string,
-): Promise<boolean> {
-  const residency = rowResidency(row);
-  return (
-    residency !== null &&
-    conflictsWith(
-      residency,
-      await heldOnApartment(tx, personId, residency.apartmentId),
-    )
-  );
-}
-
 /** Every residency, ended or not, the person has held on one apartment. */
-async function heldOnApartment(
+async function residenciesOnApartment(
   tx: Prisma.TransactionClient,
   personId: string,
   apartmentId: string,
@@ -1159,6 +1219,18 @@ async function heldOnApartment(
     },
   });
   return held.map(registerResidency);
+}
+
+/**
+ * A date the plan read from the file, as its `@db.Date` column holds it (ADR
+ * 0013). The plan has already refused any that is not on the calendar.
+ */
+function dateColumnOfPlanned(value: string): Date {
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new Error("The plan holds a date that is not on the calendar.");
+  }
+  return dateColumnOf(day);
 }
 
 /** The rows of a plan that will be written. */

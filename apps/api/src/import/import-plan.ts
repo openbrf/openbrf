@@ -38,6 +38,10 @@
  * rather than written as a second one or dropped without a word.
  */
 
+import { createHash } from "node:crypto";
+
+import { formatDateColumn } from "@openbrf/shared";
+
 import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
@@ -91,6 +95,21 @@ export interface RegisterResidency {
   movedInOn: string;
   /** The first day it is no longer held, or null while it is. */
   movedOutOn: string | null;
+}
+
+/** A stored residency with its dates as the calendar dates a plan compares. */
+export function registerResidency(residency: {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: Date;
+  movedOutOn: Date | null;
+}): RegisterResidency {
+  return {
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: formatDateColumn(residency.movedInOn),
+    movedOutOn: formatDateColumn(residency.movedOutOn),
+  };
 }
 
 /**
@@ -197,8 +216,20 @@ export interface PlannedRow {
    */
   sameAsRowNumber: number | null;
   /** Persons the row could equally well be, when the match was ambiguous. */
-  candidates: { personId: string; name: string }[];
+  candidates: ImportCandidate[];
   problems: ImportProblem[];
+}
+
+/** A person an ambiguous row could be, as the board chooses between them. */
+export interface ImportCandidate {
+  personId: string;
+  name: string;
+  /**
+   * Whether the row's residency shares a day with another this person holds on
+   * the apartment. Chosen for the row, they are not written to: the apply
+   * counts the row as a problem, as it would for a row that matched them alone.
+   */
+  residencyConflict: boolean;
 }
 
 export interface ImportPlan {
@@ -545,7 +576,16 @@ function planRow(
       candidates: match.candidates.flatMap((candidate) =>
         candidate.personId === null
           ? []
-          : [{ personId: candidate.personId, name: candidate.name }],
+          : [
+              {
+                personId: candidate.personId,
+                name: candidate.name,
+                residencyConflict: conflictsWith(
+                  residency,
+                  candidate.residencies,
+                ),
+              },
+            ],
       ),
     };
   }
@@ -618,7 +658,7 @@ export function rowResidency(row: PlannedRow): RowResidency | null {
 }
 
 /**
- * The residency already held that the row's residency is, if there is one.
+ * Whether the row's residency is one the person already holds.
  *
  * The same role on the same apartment from the same day, ending the same day,
  * is the same residency: it is what a row already written, or a row listed
@@ -634,8 +674,8 @@ export function rowResidency(row: PlannedRow): RowResidency | null {
 export function heldAlready(
   residency: RowResidency,
   held: readonly RegisterResidency[],
-): RegisterResidency | undefined {
-  return held.find(
+): boolean {
+  return held.some(
     (other) =>
       other.apartmentId === residency.apartmentId &&
       other.role === residency.role &&
@@ -655,7 +695,7 @@ export function conflictsWith(
   residency: RowResidency,
   held: readonly RegisterResidency[],
 ): boolean {
-  if (heldAlready(residency, held) !== undefined) {
+  if (heldAlready(residency, held)) {
     return false;
   }
   return held.some(
@@ -829,7 +869,7 @@ function recordWrites(
     target.hasEmail = true;
     push(written.byEmail, row.emailIndex, target);
   }
-  if (heldAlready(residency, target.residencies) !== undefined) {
+  if (heldAlready(residency, target.residencies)) {
     return;
   }
   const onApartment = target.residencies.filter(
@@ -853,11 +893,14 @@ function recordWrites(
   }
 }
 
-/** Whether a residency is still held on the day the snapshot was read. */
+/**
+ * Whether a residency is still held on the day the snapshot was read. Compared
+ * as calendar dates, the way the snapshot states that day (ADR 0013).
+ */
 function current(residency: RegisterResidency, today: Date): boolean {
   return (
     residency.movedOutOn === null ||
-    new Date(`${residency.movedOutOn}T00:00:00.000Z`) > today
+    residency.movedOutOn > formatDateColumn(today)
   );
 }
 
@@ -1013,6 +1056,83 @@ export function findUndecided(
 export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
 
 /**
+ * The first reason the board's decisions cannot be applied as the preview
+ * showed them, if any. The preview's own counterpart of {@link findUndecided},
+ * read from what the preview recorded rather than from a plan.
+ *
+ * A decision has to answer a row the preview asked about, and a person chosen
+ * has to be one the row offered. Then the decisions have to be the ones the
+ * preview was planned with, because a decision writes things later rows are
+ * matched against: a plan with any other decisions is a plan nobody has seen,
+ * and making it is a preview's work rather than a request's. A decision the
+ * plan had no use for does not count either way - one for a row that did not
+ * ask, or naming a person the row did not offer - so the decisions the screen
+ * kept from that preview are the ones it was planned with. Only then is every
+ * row it asked about owed an answer: which rows ask depends on the decisions.
+ *
+ * @param plannedWith The decisions the preview was planned with.
+ */
+export function findUnpreviewed(
+  previewed: PreviewedCandidates,
+  plannedWith: ImportDecisions,
+  decisions: ImportDecisions,
+):
+  | "decision-not-needed"
+  | "ambiguous-rows-undecided"
+  | "decision-not-a-candidate"
+  | "decisions-not-previewed"
+  | null {
+  if (Object.keys(decisions).some((key) => !Object.hasOwn(previewed, key))) {
+    return "decision-not-needed";
+  }
+  if (
+    Object.entries(decisions).some(
+      ([key, decision]) => !offered(previewed, key, decision),
+    )
+  ) {
+    return "decision-not-a-candidate";
+  }
+
+  const used = Object.entries(plannedWith).filter(
+    ([key, decision]) =>
+      Object.hasOwn(previewed, key) && offered(previewed, key, decision),
+  );
+  if (
+    used.length !== Object.keys(decisions).length ||
+    !used.every(([key, decision]) => sameDecision(decisions[key], decision))
+  ) {
+    return "decisions-not-previewed";
+  }
+  return Object.keys(previewed).some((key) => !Object.hasOwn(decisions, key))
+    ? "ambiguous-rows-undecided"
+    : null;
+}
+
+/** Whether a decision names nobody, or a person the row was shown with. */
+function offered(
+  previewed: PreviewedCandidates,
+  key: string,
+  decision: ImportDecision,
+): boolean {
+  return (
+    decision.action !== "use-person" ||
+    (previewed[key] ?? []).includes(decision.personId)
+  );
+}
+
+function sameDecision(
+  one: ImportDecision | undefined,
+  other: ImportDecision,
+): boolean {
+  return (
+    one !== undefined &&
+    one.action === other.action &&
+    (one.action !== "use-person" ||
+      (other.action === "use-person" && one.personId === other.personId))
+  );
+}
+
+/**
  * Whether a row the preview asked the board about no longer needs a decision,
  * or now matches other people than the preview listed.
  *
@@ -1076,6 +1196,96 @@ export function readPreviewedCandidates(value: unknown): PreviewedCandidates {
     }
   }
   return rows;
+}
+
+/**
+ * Where the preview writes each row, as one digest per row in file order, for
+ * the session to keep and every chunk of the apply to compare with
+ * {@link retargetedSincePreview}.
+ *
+ * The register revision covers what another import writes after a preview,
+ * and the rows the preview asked about are compared by
+ * {@link changedSincePreview}. Neither covers an ordinary row that a change in
+ * the address book, an account request approval or a move sends to somebody
+ * else: an update of one person, matched by an address since handed to
+ * another, becomes an update of that other person, with their residency and
+ * their entry in the member register. So what the preview planned for every
+ * row is kept too.
+ *
+ * Hashed, because a file can have thousands of rows and the only question ever
+ * asked of one is whether the chunk agrees with it.
+ */
+export function previewedTargets(plan: ImportPlan): string[] {
+  return plan.rows.map((row) => targetDigest(row, new Map()));
+}
+
+/**
+ * Whether a row of a chunk is written somewhere other than the preview showed.
+ *
+ * Compared are the row's outcome, the person it is written to and the key
+ * that found them, which decides whether its identity number is written. A
+ * row the board answered is compared by its outcome and key alone: the persons
+ * it could be are {@link changedSincePreview}'s to compare, and the board's
+ * answer decides which of them it is written to.
+ *
+ * A row the board decided to skip is not compared while it still asks, as
+ * {@link changedSincePreview} does not compare it: it is written nowhere,
+ * whichever key finds its candidates now. One that no longer asks is
+ * compared, and {@link findUndecided} refuses its decision besides.
+ *
+ * A person an earlier row of the file creates is one the preview names by that
+ * row, having no id for them yet. A chunk after the one that created them
+ * finds them in the register, and names them by that row as well, so the two
+ * agree for as long as nothing else changed.
+ *
+ * @param previewed One digest per data row, as {@link previewedTargets} gave.
+ * @param createdByApply The persons earlier chunks of this apply created, to
+ *   the row that created each.
+ */
+export function retargetedSincePreview(
+  plan: ImportPlan,
+  previewed: readonly string[],
+  decisions: ImportDecisions,
+  createdByApply: ReadonlyMap<string, number>,
+): boolean {
+  return plan.rows.some(
+    (row) =>
+      !(
+        row.outcome === "ambiguous" &&
+        decisions[String(row.rowNumber)]?.action === "skip"
+      ) && previewed[row.rowNumber - 1] !== targetDigest(row, createdByApply),
+  );
+}
+
+/** The digests the preview recorded, read back; null when it recorded none. */
+export function readPreviewedTargets(value: unknown): string[] | null {
+  if (
+    !Array.isArray(value) ||
+    !value.every((digest): digest is string => typeof digest === "string")
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function targetDigest(
+  row: PlannedRow,
+  createdByApply: ReadonlyMap<string, number>,
+): string {
+  const createdBy =
+    row.matchedPersonId === null
+      ? row.sameAsRowNumber
+      : (createdByApply.get(row.matchedPersonId) ?? null);
+  const person =
+    row.outcome !== "update"
+      ? null
+      : createdBy === null
+        ? `person ${row.matchedPersonId ?? ""}`
+        : `row ${String(createdBy)}`;
+  return createHash("sha256")
+    .update(JSON.stringify([row.outcome, person, row.foundUnder]))
+    .digest("base64url")
+    .slice(0, 16);
 }
 
 /** Whether two lists of person ids name the same people. */

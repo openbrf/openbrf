@@ -160,7 +160,19 @@ changes nothing but the owner's password, which it sets from
    `pgboss.queue` among them. The triggers are checked as well as the grants
    because the hardening in step 6, or the `REVOKE` below for a role you
    manage yourself, takes the grant away and leaves a trigger it was used to
-   replace where it is.
+   replace where it is. A name a migration calls without a schema can resolve
+   to a function or operator in `public` or `pgboss`, which then runs as the
+   owner, so the step also stops on one that a role other than the owner owns,
+   while such a role owns either schema, and while such a role, or `PUBLIC`,
+   holds `CREATE` on either schema or is given it by the owner's default
+   privileges. A superuser may own either, and so may `pg_database_owner`, which
+   owns `public` in a database created on PostgreSQL 15 or later, as long as the
+   schema owner or a superuser owns the database. A database restored from a dump made before
+   PostgreSQL 15 still gives `PUBLIC` `CREATE` on `public`: as the schema owner,
+   `REVOKE CREATE ON SCHEMA public FROM PUBLIC` before you deploy. A schema
+   another role owns is handed over, as a superuser, with
+   `ALTER SCHEMA ... OWNER TO` the schema owner: a `REVOKE` does not take away
+   what its owner can do.
 5. The job queue schema is installed or migrated, as the owner. It stops on a
    queue that is partitioned or names a job table of its own, which Open BRF
    never declares, because pg-boss builds SQL from those names as the owner.
@@ -996,7 +1008,9 @@ failure beside it, while a job that did not run at all logs nothing, because a
 missed occurrence is skipped rather than caught up afterwards. So check that
 each of the jobs above ran, and not only that none of them reported a failure.
 Looking for a log that was never written is how a granted erasure stays
-outstanding for weeks while everybody believes it is in hand. Neither word says anything about
+outstanding for weeks while everybody believes it is in hand. The board sees the same
+status and reason on the person's page, under the granted request, without
+reading the log. Neither word says anything about
 the person: "blocked" is the request waiting, not somebody whose personal data
 is protected. The audit entry for a closing names the request and the domains
 that were verified empty.

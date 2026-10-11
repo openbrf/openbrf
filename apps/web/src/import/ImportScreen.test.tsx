@@ -186,8 +186,16 @@ const PREVIEW: ImportPreview = {
       sameAsRowNumber: null,
       sourceRow: 3,
       candidates: [
-        { personId: "person-bo-senior", name: "Bo Berg" },
-        { personId: "person-bo-junior", name: "Bo Berg" },
+        {
+          personId: "person-bo-senior",
+          name: "Bo Berg",
+          residencyConflict: false,
+        },
+        {
+          personId: "person-bo-junior",
+          name: "Bo Berg",
+          residencyConflict: false,
+        },
       ],
       problems: [],
     },
@@ -991,7 +999,13 @@ describe("the preview", () => {
               matchedPersonId: null,
               matchedPersonName: null,
               mismatch: "personalIdentityNumber",
-              candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+              candidates: [
+                {
+                  personId: "person-dag",
+                  name: "Dag Dahlström",
+                  residencyConflict: false,
+                },
+              ],
             },
           ],
         },
@@ -1035,7 +1049,13 @@ describe("the preview", () => {
               matchedPersonId: null,
               matchedPersonName: null,
               mismatch: "name",
-              candidates: [{ personId: "person-dag", name: "Dag Dahlström" }],
+              candidates: [
+                {
+                  personId: "person-dag",
+                  name: "Dag Dahlström",
+                  residencyConflict: false,
+                },
+              ],
             },
           ],
         },
@@ -1240,7 +1260,13 @@ describe("after pressing apply", () => {
               matchedPersonId: null,
               matchedPersonName: null,
               mismatch: "name",
-              candidates: [{ personId: "person-bo-senior", name: "Bo Berg" }],
+              candidates: [
+                {
+                  personId: "person-bo-senior",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                },
+              ],
             },
           ],
         },
@@ -1294,6 +1320,151 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
   });
 
+  it("says beside the choice when the person chosen holds an overlapping residency", async () => {
+    // Bo junior already holds a residency in 1103 that overlaps the row's in
+    // another role. Chosen for the row, the apply counts it as a problem, and
+    // the board is told so before it applies rather than afterwards.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          rows: [
+            created,
+            {
+              ...ambiguous,
+              candidates: [
+                {
+                  personId: "person-bo-senior",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                },
+                {
+                  personId: "person-bo-junior",
+                  name: "Bo Berg",
+                  residencyConflict: true,
+                },
+              ],
+            },
+            failed,
+            updated,
+          ],
+        },
+      }),
+    });
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    expect(
+      screen.getByRole("option", {
+        name: "Bo Berg (överlappande boende)",
+      }),
+    ).toBeTruthy();
+    const choice = screen.getByRole("combobox", { name: /Den här raden är/ });
+    await session.selectOptions(choice, "person-bo-senior");
+    expect(screen.queryByText(/räknas raden som ett problem/)).toBeNull();
+
+    await session.selectOptions(choice, "person-bo-junior");
+    expect(screen.getByText(/räknas raden som ett problem/)).toBeTruthy();
+  });
+
+  it("applies the decisions once a preview taken with them shows nothing new", async () => {
+    // The preview was planned before the board chose, and the API starts an
+    // import only with the decisions its preview was planned with. Choosing Bo
+    // senior changes nothing else in the file, so the board is not asked to
+    // look at the same preview twice.
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "decisions-not-previewed" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({ preview: { ...PREVIEW, previewToken: "preview-2" } }),
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
+    const decisions = {
+      "2": { action: "use-person", personId: "person-bo-senior" },
+    };
+    expect(previewImport).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({ decisions }),
+    );
+    expect(applyImport).toHaveBeenCalledTimes(2);
+    expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+      previewToken: "preview-2",
+      decisions,
+    });
+  });
+
+  it("shows a preview taken with the decisions before applying them, when it differs", async () => {
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 400, reason: "decisions-not-previewed" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: previewRun({
+        preview: {
+          ...PREVIEW,
+          previewToken: "preview-2",
+          // Row 4 follows the person chosen for row 2 now.
+          rows: [
+            created,
+            ambiguous,
+            failed,
+            { ...updated, matchedPersonName: "Bo Berg" },
+          ],
+        },
+      }),
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(applyImport).toHaveBeenCalledTimes(1);
+  });
+
   it("drops a chosen person the row no longer matches", async () => {
     // The register changed after the preview, and row 2 now matches other
     // people. Keeping Bo senior would send an answer the row no longer offers,
@@ -1323,7 +1494,13 @@ describe("after pressing apply", () => {
             created,
             {
               ...ambiguous,
-              candidates: [{ personId: "person-bo-other", name: "Bo Berg" }],
+              candidates: [
+                {
+                  personId: "person-bo-other",
+                  name: "Bo Berg",
+                  residencyConflict: false,
+                },
+              ],
             },
             failed,
             updated,
@@ -1355,6 +1532,89 @@ describe("after pressing apply", () => {
         .getByRole("button", { name: /Genomför importen/ })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("previews again with the same mapping when another import wrote since", async () => {
+    // Another import finished after this preview was taken and settled row 2,
+    // so the answer chosen for it is for a question that is no longer asked.
+    // The API refuses with preview-outdated; the board is shown the preview as
+    // it is now, without the stale answer, rather than the refusal.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+    const firstPreview = previewImport.mock.calls[0]?.[1] as {
+      mapping: unknown;
+    };
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "preview-outdated" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 2, ambiguous: 0, error: 1 },
+        rows: [
+          created,
+          {
+            ...ambiguous,
+            outcome: "update",
+            rowNumber: ambiguous.rowNumber,
+            matchedPersonId: "person-bo-senior",
+            matchedPersonName: "Bo Berg",
+          },
+          failed,
+          updated,
+        ],
+      },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(previewImport).toHaveBeenCalledTimes(2);
+    expect(previewImport).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({
+        mapping: firstPreview.mapping,
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+        },
+      }),
+    );
+    // The refusal itself is not shown: the new preview is the answer to it.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Förhandsgranska importen igen/)).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: /Den här raden är/ }),
+    ).toBeNull();
+
+    // Row 2 no longer needs an answer, so none is carried into the next apply.
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+    await waitFor(() => {
+      expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+        decisions: {},
+      });
+    });
   });
 
   it("keeps the preview when another import is running", async () => {
@@ -1577,6 +1837,22 @@ describe("when the file cannot be read", () => {
 
     // Written as Swedish writes a number, from the cap the API enforces.
     expect(await screen.findByText(/fler än 5\s000 rader/)).toBeTruthy();
+  });
+
+  it("names the size cap a file went over", async () => {
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "file-too-large" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    expect(await screen.findByText(/högst 512 kB/)).toBeTruthy();
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    // From the cap the API enforces, as the row cap is.
+    expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
   });
 
   it("says which problem it was", async () => {

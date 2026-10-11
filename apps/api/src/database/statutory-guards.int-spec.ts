@@ -1575,8 +1575,8 @@ describe("a temporary table named like one a guard reads", () => {
 
   /**
    * Every openbrf_ function in public, and every function a trigger on a table
-   * in public calls, whatever its name or schema, with the settings it runs
-   * under. Internal triggers are left out: they are a foreign key's, and call
+   * in public or pgboss calls, whatever its name or schema, with the settings
+   * it runs under. Internal triggers are left out: they are a foreign key's, and call
    * PostgreSQL's own functions.
    */
   const GUARD_FUNCTIONS = `
@@ -1589,7 +1589,7 @@ describe("a temporary table named like one a guard reads", () => {
         FROM pg_trigger t
         JOIN pg_class c ON c.oid = t.tgrelid
         JOIN pg_namespace tn ON tn.oid = c.relnamespace
-        WHERE tn.nspname = 'public' AND NOT t.tgisinternal
+        WHERE tn.nspname IN ('public', 'pgboss') AND NOT t.tgisinternal
       )
     ORDER BY 1`;
 
@@ -1602,7 +1602,7 @@ describe("a temporary table named like one a guard reads", () => {
     );
   }
 
-  it("pins the search_path of every function a trigger in public calls, the next one included", async () => {
+  it("pins the search_path of every function a trigger in public or pgboss calls, the next one included", async () => {
     // Asked of the catalog rather than of a list, so a trigger function a later
     // migration adds without the setting is a failure here, by any name.
     const functions =
@@ -1620,31 +1620,35 @@ describe("a temporary table named like one a guard reads", () => {
     expect(unpinned(functions)).toEqual([]);
   });
 
-  it("finds a trigger function added without the setting, whatever it is called", async () => {
-    // What a later migration might add, in a transaction that is rolled back.
-    const table = `pinning_probe_${suffix}`;
-    const client = new Client({ connectionString: env.DATABASE_URL });
-    await client.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(`CREATE TABLE public.${table} ("id" integer)`);
-      await client.query(
-        `CREATE FUNCTION public.${table}_touch() RETURNS trigger
-         LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
-      );
-      await client.query(
-        `CREATE TRIGGER ${table}_touch BEFORE INSERT ON public.${table}
-         FOR EACH ROW EXECUTE FUNCTION public.${table}_touch()`,
-      );
-      const { rows } = await client.query<GuardFunction>(GUARD_FUNCTIONS);
-      expect(unpinned(rows)).toEqual([
-        { name: `public.${table}_touch`, config: null },
-      ]);
-    } finally {
-      await client.query("ROLLBACK");
-      await client.end();
-    }
-  });
+  it.each(["public", "pgboss"])(
+    "finds a trigger function added without the setting on a table in %s, whatever it is called",
+    async (schema) => {
+      // What a later migration might add, in a transaction that is rolled back.
+      const table = `pinning_probe_${suffix}`;
+      const client = new Client({ connectionString: env.DATABASE_URL });
+      await client.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+        await client.query(`CREATE TABLE ${schema}.${table} ("id" integer)`);
+        await client.query(
+          `CREATE FUNCTION ${schema}.${table}_touch() RETURNS trigger
+           LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
+        );
+        await client.query(
+          `CREATE TRIGGER ${table}_touch BEFORE INSERT ON ${schema}.${table}
+           FOR EACH ROW EXECUTE FUNCTION ${schema}.${table}_touch()`,
+        );
+        const { rows } = await client.query<GuardFunction>(GUARD_FUNCTIONS);
+        expect(unpinned(rows)).toEqual([
+          { name: `${schema}.${table}_touch`, config: null },
+        ]);
+      } finally {
+        await client.query("ROLLBACK");
+        await client.end();
+      }
+    },
+  );
 });
 
 describe("association", () => {

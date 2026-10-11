@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
@@ -19,6 +19,7 @@ import {
   push,
   readRow,
   type RegisterResidency,
+  registerResidency,
   type RegisterSnapshot,
   type UnwrittenIdentityNumber,
 } from "./import-plan";
@@ -365,19 +366,4 @@ export function assertMappingApplies(
       "mapping-invalid",
     );
   }
-}
-
-/** A stored residency with its dates as the calendar dates a plan compares. */
-export function registerResidency(residency: {
-  apartmentId: string;
-  role: ImportRole;
-  movedInOn: Date;
-  movedOutOn: Date | null;
-}): RegisterResidency {
-  return {
-    apartmentId: residency.apartmentId,
-    role: residency.role,
-    movedInOn: formatDateColumn(residency.movedInOn),
-    movedOutOn: formatDateColumn(residency.movedOutOn),
-  };
 }

@@ -171,6 +171,20 @@ describe("checking a mapping before anything is read", () => {
     ).toContain("moved-in-missing");
   });
 
+  it("refuses a default beside the column it would stand in for", () => {
+    // A blank cell is not given the file's default: with a move-in column,
+    // a row without a date beside a dated row for the same residency would
+    // be held or refused depending on which of the two came first.
+    expect(
+      validateMapping({
+        mapping: [...complete],
+        columnCount: 4,
+        defaultRole: "MEMBER",
+        defaultMovedInOn: "2026-01-01",
+      }),
+    ).toEqual(["default-role-with-column", "default-moved-in-with-column"]);
+  });
+
   it("refuses two columns mapped to the same field", () => {
     expect(
       validateMapping({

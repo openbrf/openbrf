@@ -723,6 +723,18 @@ export async function findPersonByName(
   baseUrl: string,
   name: string,
 ): Promise<AddressBookRow | undefined> {
+  return (await findPeopleByName(request, baseUrl, name))[0];
+}
+
+/**
+ * Everybody the address book lists under exactly this name, for the fixture
+ * that puts two people of one name in the register on purpose.
+ */
+export async function findPeopleByName(
+  request: APIRequestContext,
+  baseUrl: string,
+  name: string,
+): Promise<readonly AddressBookRow[]> {
   const response = await request.get(
     `${baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
   );
@@ -730,7 +742,7 @@ export async function findPersonByName(
   const page = (await response.json()) as {
     readonly rows: readonly AddressBookRow[];
   };
-  return page.rows.find((row) => row.name === name);
+  return page.rows.filter((row) => row.name === name);
 }
 
 /**

@@ -860,6 +860,34 @@
           "purged": "Closed when the purge carried it out.",
           "movedIn": "Closed when the person moved in again."
         },
+        "waitingOn": {
+          "title": "What the erasure is waiting on",
+          "blocked": "Held open. The purge has gone as far as it may, and the request waits for what is listed here to change.",
+          "incomplete": "Not finished yet. The nightly purge has not got through what is listed here. It carries on at its next run. If this is still here after a night, ask whoever runs the instance to look at the purge's log.",
+          "nothingLeft": "Nothing is left to erase. The next nightly purge carries out the request and closes it.",
+          "domain": {
+            "boardMailboxThreads": "Board mailbox threads",
+            "bookings": "Bookings",
+            "chat": "Chat",
+            "eventSignups": "Event sign-ups",
+            "keyOrders": "Key orders",
+            "motions": "Motions",
+            "newsComments": "News comments",
+            "subletApplications": "Subletting applications"
+          },
+          "owed_one": "{{count}} not erased yet",
+          "owed_other": "{{count}} not erased yet",
+          "kept_one": "{{count}} kept",
+          "kept_other": "{{count}} kept",
+          "keptBecause": {
+            "boardMailboxThreads": "The thread's address belongs to somebody under a legal hold or a restriction.",
+            "keyOrders": "An open key order is still with the board. Answer it and the erasure can go on.",
+            "motions": "An open motion, or one on the agenda of a meeting not yet held, is still being dealt with.",
+            "subletApplications": "A subletting application is still with the board, or a consented subletting still runs."
+          },
+          "lettingLastDay": "A consented subletting runs through",
+          "lettingLastDayNote": "After that day the subletting no longer holds the erasure back. The erasure also needs every other hold, such as a legal hold or a restriction, to have lifted. If the subletting ended earlier, record its last day under Subletting applications."
+        },
         "reasons": {
           "personNotFound": "There is no such person in the register.",
           "issueNotFound": "There is no such issue.",
@@ -2349,7 +2377,7 @@
       "title": "The file",
       "description": "A CSV file or an Excel workbook. Only the first sheet of a workbook is read.",
       "file": "Choose a file",
-      "accept": "CSV or Excel (.csv, .xlsx), at most 512 kB.",
+      "accept": "CSV or Excel (.csv, .xlsx), at most {{maxKilobytes, number}} kB.",
       "submit": "Read the file",
       "working": "Reading",
       "template": "Download a template",
@@ -2407,6 +2435,8 @@
       "decision": "This row is",
       "decisionCreate": "A new person",
       "decisionSkip": "Not imported",
+      "candidateResidencyConflict": "{{name}} (overlapping residency)",
+      "decisionResidencyConflict": "This person already has a residency on this apartment that overlaps the row's but has another role, move-in date or move-out date. Chosen for this row, the row is counted as a problem and nothing is written for it.",
       "undecided": "Some rows match more than one person, or one person whose details differ from the file's. Choose which one each is before applying.",
       "replanned": "Your choices, or another import that finished since, changed what the rows of the file match, so the preview has been taken again. Check it, and choose for any row that now needs it.",
       "apply": "Apply the import",
@@ -2494,7 +2524,7 @@
     },
     "errors": {
       "fileEmpty": "That file has no rows below its column titles.",
-      "fileTooLarge": "That file is larger than 512 kB.",
+      "fileTooLarge": "That file is larger than {{maxKilobytes, number}} kB.",
       "fileUnreadable": "That file could not be read as a spreadsheet.",
       "fileMixedEncoding": "That file mixes character encodings, so letters such as å, ä and ö would come out wrong. Save it again as UTF-8 or as “CSV (semikolonavgränsad)” and upload it again.",
       "tooManyRows": "That file has more than {{maxRows, number}} rows below its column titles.",

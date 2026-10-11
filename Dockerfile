@@ -73,9 +73,29 @@ RUN pnpm build
 # survives because it is a runtime dependency of the API: the migrate service
 # applies migrations with it on every deploy.
 #
-# Switching an existing install to --prod makes pnpm rebuild node_modules, and
-# it asks before doing that unless it is told there is no one to ask.
-RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+# `pnpm prune --prod` rather than `pnpm install --prod`: on a node_modules that
+# a full install laid out, pnpm 12 reports "Already up to date" for the second
+# and leaves the virtual store as it was, typescript, vitest and the rest of
+# the toolchain included (about 220 MB of the 716 MB under node_modules/.pnpm).
+# Prune removes them, and leaves the same set of packages a clean `--prod`
+# install does.
+#
+# pnpm prunes every project of the workspace here, not only the root: the web
+# app's @testing-library, @vitejs and @module-federation/vite packages are gone
+# from the virtual store, and what is left of them in apps/web/node_modules is
+# an empty scope directory.
+#
+# The checks fail the build if any of that is not so: a toolchain package still
+# in the virtual store, or a link in a workspace project's node_modules that
+# points at a package the prune removed. A pnpm that stops pruning is found
+# here and not in the size of the image. Each find runs in an assignment of its
+# own, so that a find that fails (a missing search root, say) fails the build
+# too, instead of passing as empty output.
+RUN pnpm prune --prod \
+    && toolchain="$(find node_modules/.pnpm -maxdepth 1 \( -name 'typescript@*' -o -name 'vitest@*' -o -name 'vite@*' -o -name 'turbo@*' -o -name '@testing-library+*' -o -name '@vitejs+*' -o -name '@module-federation+vite@*' \) -print -quit)" \
+    && test -z "$toolchain" \
+    && dangling="$(find apps packages -path '*/node_modules/*' -xtype l -print -quit)" \
+    && test -z "$dangling"
 
 # --- runtime ----------------------------------------------------------------
 FROM base AS runtime
