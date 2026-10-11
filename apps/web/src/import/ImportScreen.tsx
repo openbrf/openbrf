@@ -66,10 +66,11 @@ import {
  * the row is about them.
  *
  * A decision can change what the rows after it match: the person chosen for a
- * row gets its email address, and a later row can contradict that. The API
- * refuses such an apply before writing anything, and the screen then previews
- * again with the decisions made so far, so the board sees the rows that now
- * need one.
+ * row gets its email address, and a later row can contradict that. So the API
+ * starts an import only with the decisions its preview was planned with. The
+ * screen previews again with the decisions made so far, and applies them once
+ * that preview is ready: at once when it shows what the board already saw,
+ * and otherwise once the board has seen the rows that now need a decision.
  *
  * Neither the preview nor the import is this screen's work. Matching a long
  * file against a register that holds identity numbers takes minutes, and
@@ -148,13 +149,21 @@ export function ImportScreen(): ReactElement {
    */
   const previewRequest = useRef(0);
   /**
-   * What the preview asked for last keeps of the board's decisions, and
-   * whether it was asked for again because of them. Read when it is ready.
+   * What the preview asked for last keeps of the board's decisions, whether it
+   * was asked for again because of them, and the preview the board applied
+   * them on, when the apply asked for it. Read when it is ready.
    */
   const pendingPreview = useRef<{
     kept: Record<string, ImportDecision>;
     replanned: boolean;
-  }>({ kept: {}, replanned: false });
+    appliedOn: ImportPreview | null;
+  }>({ kept: {}, replanned: false, appliedOn: null });
+  /**
+   * The token of a preview to apply as soon as it is shown: one taken because
+   * the apply asked for one with the decisions, which shows the board nothing
+   * it had not already seen.
+   */
+  const applyOnShow = useRef<string | null>(null);
   const [activeImportKnown, setActiveImportKnown] = useState(false);
 
   const mapped = new Set(mapping.filter((field) => field !== null));
@@ -243,11 +252,17 @@ export function ImportScreen(): ReactElement {
   const receivePreview = useCallback(
     (next: ImportPreviewRun): void => {
       if (next.status === "READY" && next.preview !== null) {
-        const { kept, replanned: again } = pendingPreview.current;
+        const { kept, replanned: again, appliedOn } = pendingPreview.current;
+        const keep = keptDecisions(next.preview, kept);
+        const unchanged =
+          appliedOn !== null &&
+          Object.keys(keep).length === Object.keys(kept).length &&
+          sameRows(appliedOn, next.preview);
         setPlanning(null);
         setPreview(next.preview);
-        setDecisions(keptDecisions(next.preview, kept));
-        setReplanned(again);
+        setDecisions(keep);
+        setReplanned(again && !unchanged);
+        applyOnShow.current = unchanged ? next.preview.previewToken : null;
         setStep("preview");
         return;
       }
@@ -383,6 +398,7 @@ export function ImportScreen(): ReactElement {
     async (
       kept: Record<string, ImportDecision> = {},
       again = false,
+      appliedOn: ImportPreview | null = null,
     ): Promise<void> => {
       if (session === null) {
         return;
@@ -390,9 +406,10 @@ export function ImportScreen(): ReactElement {
       setBusy(true);
       setFailure(null);
       setReplanned(false);
+      applyOnShow.current = null;
       previewRequest.current += 1;
       const request = previewRequest.current;
-      pendingPreview.current = { kept, replanned: again };
+      pendingPreview.current = { kept, replanned: again, appliedOn };
       const response = await previewImport(session.sessionId, {
         mapping,
         defaultRole: needsDefaultRole ? defaultRole : null,
@@ -432,61 +449,85 @@ export function ImportScreen(): ReactElement {
     ],
   );
 
-  const apply = useCallback(async (): Promise<void> => {
-    if (session === null || preview === null) {
-      return;
-    }
-    setBusy(true);
-    setFailure(null);
-    const response = await applyImport(session.sessionId, {
-      previewToken: preview.previewToken,
-      decisions,
-    });
-    setBusy(false);
-    if (!response.ok) {
-      const reason = response.failure.reason;
-      if (
-        reason === "ambiguous-rows-undecided" ||
-        reason === "preview-outdated" ||
-        reason === "decision-not-a-candidate"
-      ) {
-        // The decisions made further rows need one, settled a row that needed
-        // one, or chose somebody a row no longer matches - or another import
-        // has written to the register since. Nothing was written; what the
-        // board needs is the preview those decisions produce now.
-        await runPreview(decisions, true);
+  /**
+   * Starts the import with the decisions on the screen.
+   *
+   * @param again Whether this is the apply made by itself once the preview
+   *   taken for the decisions showed nothing new. Asked for again by that one,
+   *   the preview is shown rather than applied a second time.
+   */
+  const apply = useCallback(
+    async (again = false): Promise<void> => {
+      if (session === null || preview === null) {
         return;
       }
-      setFailure(failureMessage(reason));
-      if (reason === "preview-replaced") {
-        // Somebody previewed this upload again, perhaps with another mapping.
-        // The decisions on this screen were made against rows that preview
-        // may not have, so they go, and the board checks the columns and
-        // previews again. Not at once from here: that would replace the other
-        // board member's preview without either of them choosing that.
-        setPreview(null);
-        setDecisions({});
-        setStep("mapping");
-        return;
-      }
-      if (reason === "session-already-applied") {
-        // Somebody was quicker - the other tab, or the other board member. What
-        // this screen should show now is that import rather than a preview step
-        // that is over.
-        const started = await fetchActiveImport();
-        if (started.ok && started.value !== null) {
-          setRun(started.value);
-          setStep("apply");
+      setBusy(true);
+      setFailure(null);
+      const response = await applyImport(session.sessionId, {
+        previewToken: preview.previewToken,
+        decisions,
+      });
+      setBusy(false);
+      if (!response.ok) {
+        const reason = response.failure.reason;
+        if (reason === "decisions-not-previewed") {
+          // The preview was planned without these decisions, and what they
+          // write is the preview's to work out. Applied once it is ready when it
+          // shows what this one did; otherwise the board looks at it first.
+          await runPreview(decisions, true, again ? null : preview);
+          return;
         }
+        if (
+          reason === "ambiguous-rows-undecided" ||
+          reason === "preview-outdated" ||
+          reason === "decision-not-a-candidate"
+        ) {
+          // The decisions made further rows need one, settled a row that needed
+          // one, or chose somebody a row no longer matches - or another import
+          // has written to the register since. Nothing was written; what the
+          // board needs is the preview those decisions produce now.
+          await runPreview(decisions, true);
+          return;
+        }
+        setFailure(failureMessage(reason));
+        if (reason === "preview-replaced") {
+          // Somebody previewed this upload again, perhaps with another mapping.
+          // The decisions on this screen were made against rows that preview
+          // may not have, so they go, and the board checks the columns and
+          // previews again. Not at once from here: that would replace the other
+          // board member's preview without either of them choosing that.
+          setPreview(null);
+          setDecisions({});
+          setStep("mapping");
+          return;
+        }
+        if (reason === "session-already-applied") {
+          // Somebody was quicker - the other tab, or the other board member. What
+          // this screen should show now is that import rather than a preview step
+          // that is over.
+          const started = await fetchActiveImport();
+          if (started.ok && started.value !== null) {
+            setRun(started.value);
+            setStep("apply");
+          }
+        }
+        // "another-import-running" stays on the preview: it is a different
+        // file that is running, and this one is still waiting to be applied
+        // once that has finished.
+        return;
       }
-      // "another-import-running" stays on the preview: it is a different
-      // file that is running, and this one is still waiting to be applied
-      // once that has finished.
-      return;
+      setRun(response.value);
+      setStep("apply");
+    },
+    [session, preview, decisions, runPreview],
+  );
+
+  useEffect(() => {
+    if (preview !== null && applyOnShow.current === preview.previewToken) {
+      applyOnShow.current = null;
+      void apply(true);
     }
-    setRun(response.value);
-    setStep("apply");
-  }, [session, preview, decisions, runPreview]);
+  }, [preview, apply]);
 
   const restart = useCallback((): void => {
     setRun(null);
@@ -607,6 +648,11 @@ export function ImportScreen(): ReactElement {
       ) : null}
     </div>
   );
+}
+
+/** Whether two previews show the board the same rows. */
+function sameRows(one: ImportPreview, other: ImportPreview): boolean {
+  return JSON.stringify(one.rows) === JSON.stringify(other.rows);
 }
 
 /**

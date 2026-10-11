@@ -461,12 +461,48 @@ async function previewAgain(
  * Starts an import, as the screen that took its preview does.
  *
  * That screen holds the token its preview answered with, so unless a case says
- * otherwise this sends the one the session recorded last.
+ * otherwise this sends the one the session recorded last. And decisions the
+ * preview was not planned with are refused, so it previews again with them and
+ * applies once more, as the screen does. A case that sends its own token gets
+ * the first answer.
  */
 async function applyImport(
   cookie: string,
   sessionId: string,
   decisions: Record<string, unknown> = {},
+  previewToken?: string,
+) {
+  const response = await requestApply(
+    cookie,
+    sessionId,
+    decisions,
+    previewToken,
+  );
+  if (
+    previewToken !== undefined ||
+    response.statusCode !== 400 ||
+    reasonOf(response) !== "decisions-not-previewed"
+  ) {
+    return response;
+  }
+  const session = await prisma.importSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    select: { mapping: true, defaultRole: true, defaultMovedInOn: true },
+  });
+  await previewImport(cookie, sessionId, {
+    mapping: session.mapping.map((field) => (field === "" ? null : field)),
+    defaultRole: session.defaultRole,
+    defaultMovedInOn: session.defaultMovedInOn,
+    decisions,
+  });
+  return requestApply(cookie, sessionId, decisions);
+}
+
+/** Asks for the apply once, with the token given or the one recorded last. */
+async function requestApply(
+  cookie: string,
+  sessionId: string,
+  decisions: Record<string, unknown>,
   previewToken?: string,
 ) {
   const recorded = await prisma.importSession.findUnique({
@@ -1801,6 +1837,54 @@ describe("applying", () => {
       });
     }
   });
+
+  it("leaves planning the decisions to the preview, not to the request that starts it", async () => {
+    // Planned in the request, a file whose identity numbers the register can
+    // match is an Argon2id hash a row: minutes for a long one, longer than
+    // anything in front of the API holds a request open.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "dubbel.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2103",
+        twinFirstName,
+        surname,
+        "Boende",
+        "",
+        "",
+        twinsMovedInOn,
+      ],
+    ]);
+    const decisions = {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    };
+
+    const plans = vi.spyOn(app.get(ImportPlannerService), "plan");
+    try {
+      const refused = await requestApply(cookie, session.sessionId, decisions);
+      expect(refused.statusCode).toBe(400);
+      expect(reasonOf(refused)).toBe("decisions-not-previewed");
+      expect(plans).not.toHaveBeenCalled();
+    } finally {
+      plans.mockRestore();
+    }
+    expect((await readRun(cookie, session.sessionId)).status).toBe("MAPPING");
+
+    // Previewed with them, the same decisions start the import.
+    await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    const accepted = await requestApply(cookie, session.sessionId, decisions);
+    expect(accepted.statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result).toMatchObject({ personsUpdated: 1, errors: 0 });
+  }, 60_000);
 });
 
 describe("an apply after the upload was previewed again", () => {
@@ -6376,10 +6460,11 @@ describe("a row after one the board decided", () => {
     });
   });
 
-  it("is refused when a decision settles a row left without one", async () => {
+  it("is shown, not refused, when a decision settles a row left without one", async () => {
     // As above, but the board answers row 1 only. Row 2 is no longer asking
-    // once row 1 is a new person, so that is what is refused - not the lack of
-    // an answer for a row that has stopped needing one.
+    // once row 1 is a new person. That is for the preview taken with the
+    // decision to show, rather than for the apply to refuse as the lack of an
+    // answer for a row that has stopped needing one.
     const cookie = await signIn(actors.board.email);
     const email = `imp-unanswered-${suffix}@exempel.se`;
     const row = [
@@ -6411,38 +6496,66 @@ describe("a row after one the board decided", () => {
       });
     const before = await dubbels();
 
-    const response = await applyImport(cookie, session.sessionId, {
-      "1": { action: "create" },
-    });
+    const decisions = { "1": { action: "create" } };
+    const response = await requestApply(cookie, session.sessionId, decisions);
 
     expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(reasonOf(response)).toBe("decisions-not-previewed");
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
       rowsDone: 0,
     });
     expect(await dubbels()).toBe(before);
+
+    const replanned = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    expect(
+      replanned.rows.map(({ outcome, sameAsRowNumber }) => ({
+        outcome,
+        sameAsRowNumber,
+      })),
+    ).toEqual([
+      { outcome: "ambiguous", sameAsRowNumber: null },
+      { outcome: "update", sameAsRowNumber: 1 },
+    ]);
   });
 
-  it("is refused when the people a row matches are not the ones the preview named", async () => {
-    // The preview asked about row 1 with the two Dubbels as its candidates.
-    // The stored candidates are rewritten to stand in for a register that
-    // has changed since then: the board's answer names a person the row no
-    // longer has to choose between, so it must be asked again.
+  it("is stopped before it writes when the people a row matches are not the ones the preview named", async () => {
+    // The preview asked about row 1 with the two Dubbels as its candidates,
+    // and was planned with the board's answer. The stored candidates are
+    // rewritten to stand in for a register that has changed since then: the
+    // answer names a person the row no longer has to choose between. The
+    // request does not plan the file again to find that out; the chunk does,
+    // before it writes anything.
     const cookie = await signIn(actors.board.email);
-    const session = await uploadAndPreview(cookie, "andrade-kandidater.csv", [
-      HEADERS,
-      [
-        addressLabel,
-        "2103",
-        twinFirstName,
-        surname,
-        "Boende",
-        `imp-changed-${suffix}@exempel.se`,
-        "",
-        "2021-04-01",
-      ],
-    ]);
+    const session = await upload(
+      cookie,
+      "andrade-kandidater.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2103",
+            twinFirstName,
+            surname,
+            "Boende",
+            `imp-changed-${suffix}@exempel.se`,
+            "",
+            "2021-04-01",
+          ],
+        ]),
+      ),
+    );
+    const decisions = {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    };
+    await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
     await prisma.importSession.update({
       where: { id: session.sessionId },
       data: {
@@ -6455,14 +6568,19 @@ describe("a row after one the board decided", () => {
       select: { emailIndex: true },
     });
 
-    const response = await applyImport(cookie, session.sessionId, {
-      "1": { action: "use-person", personId: actors.twinA.personId },
-    });
+    const response = await requestApply(cookie, session.sessionId, decisions);
 
-    expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("preview-outdated");
-    expect(await readRun(cookie, session.sessionId)).toMatchObject({
-      status: "MAPPING",
+    expect(response.statusCode).toBe(202);
+    expect(
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) =>
+          candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      ),
+    ).toMatchObject({
+      status: "FAILED",
+      failureReason: "register-changed-during-apply",
       rowsDone: 0,
     });
     expect(
@@ -6533,7 +6651,7 @@ describe("a row after one the board decided", () => {
     ).toEqual({ emailIndex: null });
   });
 
-  it("is refused when a changed decision turns a row shown as an update into a new person", async () => {
+  it("is previewed again when a changed decision turns a row shown as an update into a new person", async () => {
     // Previewed with row 1 given to a Dubbel, row 2 - the same name in another
     // apartment, with the address row 1 gives that twin - is an update of
     // them, and nothing asks about it. Changed to a skip, row 1 gives nobody
@@ -6578,17 +6696,26 @@ describe("a row after one the board decided", () => {
       });
     const before = await dubbels();
 
-    const response = await applyImport(cookie, session.sessionId, {
-      "1": { action: "skip" },
-    });
+    const changed = { "1": { action: "skip" } };
+    const response = await requestApply(cookie, session.sessionId, changed);
 
     expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(reasonOf(response)).toBe("decisions-not-previewed");
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
       rowsDone: 0,
     });
     expect(await dubbels()).toBe(before);
+
+    // Previewed again with the skip, row 2 is shown for what it now is.
+    const replanned = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions: changed,
+    });
+    expect(replanned.rows[1]).toMatchObject({
+      outcome: "create",
+      matchedPersonId: null,
+    });
   });
 });
 

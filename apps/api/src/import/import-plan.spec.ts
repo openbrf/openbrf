@@ -6,6 +6,7 @@ import {
   apartmentNameKey,
   changedSincePreview,
   findUndecided,
+  findUnpreviewed,
   type ImportDecisions,
   type ImportDefaults,
   planImport,
@@ -1317,6 +1318,97 @@ describe("finding a row the board has not answered for", () => {
       "create",
     ]);
     expect(findUndecided(plan, decisions, 3)).toBe(expected);
+  });
+});
+
+describe("checking the decisions against the preview they were made on", () => {
+  // The preview asked about rows 1 and 4, offering two persons for row 1 and
+  // only a person the file creates for row 4. It was planned with a decision
+  // for row 1, and with two it had no use for: one for row 2, which it did not
+  // ask about, and one naming a person row 4 did not offer.
+  const previewed: PreviewedCandidates = {
+    "1": ["person-a", "person-b"],
+    "4": [],
+  };
+  const plannedWith: ImportDecisions = {
+    "1": { action: "use-person", personId: "person-a" },
+    "2": { action: "create" },
+    "4": { action: "use-person", personId: "person-c" },
+  };
+
+  it.each<[string, ImportDecisions, ReturnType<typeof findUnpreviewed>]>([
+    [
+      "a decision for a row it was planned without",
+      {
+        "1": { action: "use-person", personId: "person-a" },
+        "4": { action: "skip" },
+      },
+      "decisions-not-previewed",
+    ],
+    [
+      "nothing for a row it asked about",
+      { "1": { action: "use-person", personId: "person-a" } },
+      "ambiguous-rows-undecided",
+    ],
+    [
+      "a decision for a row it did not ask about",
+      {
+        "1": { action: "use-person", personId: "person-a" },
+        "2": { action: "create" },
+        "4": { action: "skip" },
+      },
+      "decision-not-needed",
+    ],
+    [
+      "a person the row did not offer",
+      {
+        "1": { action: "use-person", personId: "person-a" },
+        "4": { action: "use-person", personId: "person-c" },
+      },
+      "decision-not-a-candidate",
+    ],
+    [
+      "another person, and nothing for another row it asked about",
+      { "1": { action: "use-person", personId: "person-b" } },
+      "decisions-not-previewed",
+    ],
+    [
+      "another person than it was planned with",
+      {
+        "1": { action: "use-person", personId: "person-b" },
+        "4": { action: "skip" },
+      },
+      "decisions-not-previewed",
+    ],
+  ])("answers %s", (_, decisions, expected) => {
+    expect(findUnpreviewed(previewed, plannedWith, decisions)).toBe(expected);
+  });
+
+  it("accepts the decisions it was planned with, less those it had no use for", () => {
+    const planned: ImportDecisions = {
+      ...plannedWith,
+      "4": { action: "skip" },
+    };
+
+    expect(
+      findUnpreviewed(previewed, planned, {
+        "1": { action: "use-person", personId: "person-a" },
+        "4": { action: "skip" },
+      }),
+    ).toBeNull();
+    // A decision it was planned with is not dropped by the apply either: a
+    // skip in place of a person is a plan nobody has seen.
+    expect(
+      findUnpreviewed(previewed, planned, {
+        "1": { action: "skip" },
+        "4": { action: "skip" },
+      }),
+    ).toBe("decisions-not-previewed");
+  });
+
+  it("accepts no decisions from a preview that asked nothing", () => {
+    expect(findUnpreviewed({}, {}, {})).toBeNull();
+    expect(findUnpreviewed({}, { "2": { action: "create" } }, {})).toBeNull();
   });
 });
 

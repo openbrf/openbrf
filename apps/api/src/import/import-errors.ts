@@ -39,11 +39,17 @@ export type ImportErrorReason =
   | "preview-required"
   /**
    * The preview no longer matches the register: another import finished
-   * writing after it was taken, or, given the decisions, the plan differs
-   * from what the preview showed. Answered with 400; the session stays in MAPPING and is previewed
+   * writing after it was taken, or a decision answers a row it did not ask
+   * about. Answered with 400; the session stays in MAPPING and is previewed
    * again.
    */
   | "preview-outdated"
+  /**
+   * The board's decisions are not the ones the preview was planned with, so
+   * what they write has not been shown. Answered with 400; the session stays in
+   * MAPPING, and the screen previews it again with them.
+   */
+  | "decisions-not-previewed"
   /**
    * The preview this request holds is no longer the session's: somebody
    * previewed it again - another tab, another board member - perhaps with

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
@@ -494,7 +494,6 @@ export class ImportPreviewService implements OnModuleInit {
         previewCipher: encrypted.cipher,
         previewRowsDone: plan.rows.length,
         ambiguousRows: ambiguousRows as Prisma.InputJsonValue,
-        previewDigest: planDigest(plan),
         previewedRevision,
         previewedAt: new Date(),
       },
@@ -520,33 +519,6 @@ export class ImportPreviewService implements OnModuleInit {
       );
     }
   }
-}
-
-/**
- * What a plan does with every row, as one value to compare.
- *
- * The outcome, the person the row is written to and the key that reached
- * them, which decides whether its identity number is written, the earlier row
- * it follows, and the persons it could equally well be - sorted, because the
- * register lists them in no fixed order. Hashed, because a file can have
- * thousands of rows and the only question ever asked is whether two plans
- * agree.
- */
-export function planDigest(plan: ImportPlan): string {
-  const hash = createHash("sha256");
-  for (const row of plan.rows) {
-    hash.update(
-      `${JSON.stringify([
-        row.rowNumber,
-        row.outcome,
-        row.matchedPersonId,
-        row.matchedBy,
-        row.sameAsRowNumber,
-        row.candidates.map((candidate) => candidate.personId).sort(),
-      ])}\n`,
-    );
-  }
-  return hash.digest("hex");
 }
 
 /** Whether a screen has asked about the preview recently enough to go on. */

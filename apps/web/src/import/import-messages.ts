@@ -32,6 +32,8 @@ const FAILURES: Record<string, TranslationKey> = {
   "mapping-invalid": "import.errors.mappingInvalid",
   "preview-required": "import.errors.previewRequired",
   "preview-outdated": "import.errors.previewOutdated",
+  // Answered by previewing again, so the board only reads it when that fails.
+  "decisions-not-previewed": "import.errors.previewOutdated",
   "preview-replaced": "import.errors.previewReplaced",
   "preview-interrupted": "import.errors.previewInterrupted",
   "preview-cancelled": "import.errors.previewCancelled",

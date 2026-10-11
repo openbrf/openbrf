@@ -1013,6 +1013,83 @@ export function findUndecided(
 export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
 
 /**
+ * The first reason the board's decisions cannot be applied as the preview
+ * showed them, if any. The preview's own counterpart of {@link findUndecided},
+ * read from what the preview recorded rather than from a plan.
+ *
+ * A decision has to answer a row the preview asked about, and a person chosen
+ * has to be one the row offered. Then the decisions have to be the ones the
+ * preview was planned with, because a decision writes things later rows are
+ * matched against: a plan with any other decisions is a plan nobody has seen,
+ * and making it is a preview's work rather than a request's. A decision the
+ * plan had no use for does not count either way - one for a row that did not
+ * ask, or naming a person the row did not offer - so the decisions the screen
+ * kept from that preview are the ones it was planned with. Only then is every
+ * row it asked about owed an answer: which rows ask depends on the decisions.
+ *
+ * @param plannedWith The decisions the preview was planned with.
+ */
+export function findUnpreviewed(
+  previewed: PreviewedCandidates,
+  plannedWith: ImportDecisions,
+  decisions: ImportDecisions,
+):
+  | "decision-not-needed"
+  | "ambiguous-rows-undecided"
+  | "decision-not-a-candidate"
+  | "decisions-not-previewed"
+  | null {
+  if (Object.keys(decisions).some((key) => !Object.hasOwn(previewed, key))) {
+    return "decision-not-needed";
+  }
+  if (
+    Object.entries(decisions).some(
+      ([key, decision]) => !offered(previewed, key, decision),
+    )
+  ) {
+    return "decision-not-a-candidate";
+  }
+
+  const used = Object.entries(plannedWith).filter(
+    ([key, decision]) =>
+      Object.hasOwn(previewed, key) && offered(previewed, key, decision),
+  );
+  if (
+    used.length !== Object.keys(decisions).length ||
+    !used.every(([key, decision]) => sameDecision(decisions[key], decision))
+  ) {
+    return "decisions-not-previewed";
+  }
+  return Object.keys(previewed).some((key) => !Object.hasOwn(decisions, key))
+    ? "ambiguous-rows-undecided"
+    : null;
+}
+
+/** Whether a decision names nobody, or a person the row was shown with. */
+function offered(
+  previewed: PreviewedCandidates,
+  key: string,
+  decision: ImportDecision,
+): boolean {
+  return (
+    decision.action !== "use-person" ||
+    (previewed[key] ?? []).includes(decision.personId)
+  );
+}
+
+function sameDecision(
+  one: ImportDecision | undefined,
+  other: ImportDecision,
+): boolean {
+  return (
+    one !== undefined &&
+    one.action === other.action &&
+    (one.action !== "use-person" ||
+      (other.action === "use-person" && one.personId === other.personId))
+  );
+}
+
+/**
  * Whether a row the preview asked the board about no longer needs a decision,
  * or now matches other people than the preview listed.
  *
