@@ -21,5 +21,7 @@ elsewhere in the register has sent to another person since the preview - an
 email address moved from one person to another in the address book, say - stops
 the import with `register-changed-during-apply` instead of giving that other
 person the row's residency and member register entry. The parts written before
-it stay written. A preview taken before this version is refused with
+it stay written. A row the board chose to leave out does not stop the import
+this way while it still needs an answer, since nothing is written for it. A
+preview taken before this version is refused with
 `preview-outdated`, and taking it again is enough.

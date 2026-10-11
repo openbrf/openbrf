@@ -114,6 +114,12 @@ const apartments = {
   p: `imp-apartment-p-${suffix}`,
   /** Where a row the register sends to somebody else is imported. */
   q: `imp-apartment-q-${suffix}`,
+  /**
+   * Where a row the board left out is found under another key, and where the
+   * row after it is imported.
+   */
+  r: `imp-apartment-r-${suffix}`,
+  s: `imp-apartment-s-${suffix}`,
 };
 
 const actors = {
@@ -672,6 +678,8 @@ beforeAll(async () => {
       { id: apartments.o, addressId, number: "2115", floor: 1 },
       { id: apartments.p, addressId, number: "2116", floor: 1 },
       { id: apartments.q, addressId, number: "2117", floor: 1 },
+      { id: apartments.r, addressId, number: "2118", floor: 1 },
+      { id: apartments.s, addressId, number: "2119", floor: 1 },
     ],
   });
 
@@ -811,6 +819,8 @@ afterAll(async () => {
           apartments.o,
           apartments.p,
           apartments.q,
+          apartments.r,
+          apartments.s,
         ],
       },
     },
@@ -6841,6 +6851,101 @@ describe("an ordinary row the register sends to somebody else after the preview"
         }),
       ).toEqual({ residencies: [], memberRegisterEntries: [] });
     }
+  });
+});
+
+describe("a row the board left out that the register finds under another key", () => {
+  it("writes the rest of the file, since the row writes nothing either way", async () => {
+    // Two people called Cilla live in 2118 and share an address, which row 1
+    // states. The preview finds both by the address, and the board leaves the
+    // row out. Before the import is started, the address book takes the
+    // address from both: row 1 then finds the same two by their name in 2118,
+    // and still asks. Row 2 is somebody new in 2119, and is owed its write.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-shared-address-${suffix}@exempel.se`;
+    const cillas = [`imp-cilla-a-${suffix}`, `imp-cilla-b-${suffix}`];
+    for (const personId of cillas) {
+      await createPerson({ personId, firstName: "Cilla", email });
+    }
+    await prisma.residency.createMany({
+      data: cillas.map((personId) => ({
+        personId,
+        apartmentId: apartments.r,
+        role: "RESIDENT" as const,
+        movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+      })),
+    });
+
+    const session = await upload(
+      cookie,
+      "utelamnad.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2118",
+            "Cilla",
+            surname,
+            "Boende",
+            email,
+            "",
+            "2018-01-01",
+          ],
+          [
+            addressLabel,
+            "2119",
+            "Rut",
+            surname,
+            "Boende",
+            "",
+            "",
+            "2024-03-01",
+          ],
+        ]),
+      ),
+    );
+    const decisions = { "1": { action: "skip" } };
+    const previewed = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    expect(previewed.rows[0]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+    });
+    expect(previewed.rows[1]).toMatchObject({ outcome: "create" });
+
+    // The register's own change, not one to what the session recorded. Both
+    // still live in 2118, so the row finds them there.
+    await prisma.person.updateMany({
+      where: { id: { in: cillas } },
+      data: { emailCipher: null, emailIndex: null },
+    });
+
+    const response = await requestApply(cookie, session.sessionId, decisions);
+    expect(response.statusCode).toBe(202);
+
+    expect(
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) =>
+          candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      ),
+    ).toMatchObject({ status: "APPLIED", failureReason: null, rowsDone: 2 });
+    expect(
+      await prisma.residency.count({
+        where: {
+          apartmentId: apartments.s,
+          person: { firstName: "Rut", lastName: surname },
+        },
+      }),
+    ).toBe(1);
+    // And the row left out wrote nothing to either Cilla.
+    expect(
+      await prisma.residency.count({ where: { personId: { in: cillas } } }),
+    ).toBe(2);
   });
 });
 

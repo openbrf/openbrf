@@ -1227,6 +1227,11 @@ export function previewedTargets(plan: ImportPlan): string[] {
  * it could be are {@link changedSincePreview}'s to compare, and the board's
  * answer decides which of them it is written to.
  *
+ * A row the board decided to skip is not compared while it still asks, as
+ * {@link changedSincePreview} does not compare it: it is written nowhere,
+ * whichever key finds its candidates now. One that no longer asks is
+ * compared, and {@link findUndecided} refuses its decision besides.
+ *
  * A person an earlier row of the file creates is one the preview names by that
  * row, having no id for them yet. A chunk after the one that created them
  * finds them in the register, and names them by that row as well, so the two
@@ -1239,10 +1244,15 @@ export function previewedTargets(plan: ImportPlan): string[] {
 export function retargetedSincePreview(
   plan: ImportPlan,
   previewed: readonly string[],
+  decisions: ImportDecisions,
   createdByApply: ReadonlyMap<string, number>,
 ): boolean {
   return plan.rows.some(
-    (row) => previewed[row.rowNumber - 1] !== targetDigest(row, createdByApply),
+    (row) =>
+      !(
+        row.outcome === "ambiguous" &&
+        decisions[String(row.rowNumber)]?.action === "skip"
+      ) && previewed[row.rowNumber - 1] !== targetDigest(row, createdByApply),
   );
 }
 

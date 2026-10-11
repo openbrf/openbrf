@@ -92,8 +92,9 @@ import {
  * - **Every row goes where the preview showed.** The preview records, for
  *   every row, its outcome, the person it is written to and the key that found
  *   them. A chunk whose rows differ from that, when it plans or once it holds
- *   its locks, stops: the address book, a sign-up approval or a move has sent a
- *   row to somebody the board never saw it written to.
+ *   its locks, stops: the address book, an account request approval or a move
+ *   has sent a row to somebody the board never saw it written to. A row the
+ *   board left out is exempt while it still asks, since it is written nowhere.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -512,7 +513,7 @@ export class ImportApplyService implements OnModuleInit {
     // register revision only moves with imports, so this is where the chunk
     // finds out. Recorded as the register having changed, like the check
     // above, and the chunks before this one stay written.
-    if (retargetedSincePreview(plan, targets, createdBy)) {
+    if (retargetedSincePreview(plan, targets, decisions, createdBy)) {
       await this.stop(sessionId, "register-changed-during-apply");
       return false;
     }
@@ -629,7 +630,7 @@ export class ImportApplyService implements OnModuleInit {
         // And the plan under the locks writes every row where the preview
         // showed it, as the first plan did: the register can have sent one
         // elsewhere in between.
-        if (retargetedSincePreview(locked, targets, createdBy)) {
+        if (retargetedSincePreview(locked, targets, decisions, createdBy)) {
           throw new ImportError(
             "A row is written to another person than the preview showed.",
             "register-changed-during-apply",

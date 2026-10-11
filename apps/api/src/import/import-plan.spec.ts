@@ -2140,7 +2140,7 @@ describe("a row the register sends elsewhere after the preview", () => {
 
   it("agrees with a chunk that writes the row where the preview did", () => {
     expect(
-      retargetedSincePreview(holding("person-a"), previewed, new Map()),
+      retargetedSincePreview(holding("person-a"), previewed, {}, new Map()),
     ).toBe(false);
   });
 
@@ -2148,7 +2148,7 @@ describe("a row the register sends elsewhere after the preview", () => {
     // The address was handed to person-b in between: the same outcome, the
     // same key, and another person's residency and register entry.
     expect(
-      retargetedSincePreview(holding("person-b"), previewed, new Map()),
+      retargetedSincePreview(holding("person-b"), previewed, {}, new Map()),
     ).toBe(true);
   });
 
@@ -2170,7 +2170,7 @@ describe("a row the register sends elsewhere after the preview", () => {
       DEFAULTS,
     );
 
-    expect(retargetedSincePreview(byName, previewed, new Map())).toBe(true);
+    expect(retargetedSincePreview(byName, previewed, {}, new Map())).toBe(true);
   });
 
   it("tells a row that now creates a person", () => {
@@ -2178,6 +2178,7 @@ describe("a row the register sends elsewhere after the preview", () => {
       retargetedSincePreview(
         planImport([withAddress], snapshot(), DEFAULTS),
         previewed,
+        {},
         new Map(),
       ),
     ).toBe(true);
@@ -2219,11 +2220,132 @@ describe("a row the register sends elsewhere after the preview", () => {
       retargetedSincePreview(
         secondChunk,
         recorded,
+        {},
         new Map([["person-new", 1]]),
       ),
     ).toBe(false);
     // Without knowing who the apply created, person-new is somebody else.
-    expect(retargetedSincePreview(secondChunk, recorded, new Map())).toBe(true);
+    expect(retargetedSincePreview(secondChunk, recorded, {}, new Map())).toBe(
+      true,
+    );
+  });
+
+  describe("for a row the board decided while it still asks", () => {
+    // Row 1 is Anna of 1101, and two Annas held her address when the preview
+    // asked about the row. The address book takes it from both before the
+    // apply, and both are found by name in 1101 instead: the same question,
+    // asked under another key. Row 2 is Bertil of 1102, a new person either
+    // way.
+    const names = new Map([
+      ["person-a", "Anna Lindqvist"],
+      ["person-b", "Anna Lindqvist"],
+    ]);
+    const bertil = prepared(
+      { ...COMPLETE, apartmentNumber: "1102", firstName: "Bertil" },
+      { rowNumber: 2 },
+    );
+    const plan = (decisions: ImportDecisions, overrides: object) =>
+      planImport(
+        [withAddress, bertil],
+        snapshot({ personNames: names, ...overrides }),
+        DEFAULTS,
+        decisions,
+      );
+    const byAddress = {
+      personsByEmail: new Map([["email-anna", ["person-a", "person-b"]]]),
+    };
+    const byName = {
+      personsByApartmentAndName: new Map([
+        [
+          apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+          ["person-a", "person-b"],
+        ],
+      ]),
+      personsWithEmail: new Set<string>(),
+    };
+    const asked: PreviewedCandidates = { "1": ["person-a", "person-b"] };
+
+    const skip: ImportDecisions = { "1": { action: "skip" } };
+    const create: ImportDecisions = { "1": { action: "create" } };
+
+    it("passes one decided to be left out, which is written nowhere", () => {
+      const previewed = plan(skip, byAddress);
+      const chunk = plan(skip, byName);
+      expect(chunk.rows[0]).toMatchObject({ outcome: "ambiguous" });
+      expect(chunk.rows[0]?.foundUnder).not.toEqual(
+        previewed.rows[0]?.foundUnder,
+      );
+      // Nothing else stops it, so neither may this: row 2 is owed its write.
+      expect(findUndecided(chunk, skip, 2)).toBeNull();
+      expect(changedSincePreview(chunk, asked, skip)).toBe(false);
+
+      expect(
+        retargetedSincePreview(
+          chunk,
+          previewedTargets(previewed),
+          skip,
+          new Map(),
+        ),
+      ).toBe(false);
+    });
+
+    it("still tells one decided to be written", () => {
+      expect(
+        retargetedSincePreview(
+          plan(create, byName),
+          previewedTargets(plan(create, byAddress)),
+          create,
+          new Map(),
+        ),
+      ).toBe(true);
+    });
+
+    it("still tells one decided to be left out that no longer asks", () => {
+      // One of the two has left 1101 as well, and the row now updates the
+      // other, whom nobody chose.
+      const chunk = plan(skip, {
+        ...byName,
+        personsByApartmentAndName: new Map([
+          [
+            apartmentNameKey("apartment-1101", "Anna", "Lindqvist"),
+            ["person-a"],
+          ],
+        ]),
+      });
+      expect(chunk.rows[0]).toMatchObject({ outcome: "update" });
+
+      expect(
+        retargetedSincePreview(
+          chunk,
+          previewedTargets(plan(skip, byAddress)),
+          skip,
+          new Map(),
+        ),
+      ).toBe(true);
+    });
+
+    it("still tells a later row sent elsewhere", () => {
+      const elsewhere = plan(skip, {
+        ...byName,
+        personsByApartmentAndName: new Map([
+          ...byName.personsByApartmentAndName,
+          [
+            apartmentNameKey("apartment-1102", "Bertil", "Lindqvist"),
+            ["person-c"],
+          ],
+        ]),
+      });
+      expect(elsewhere.rows[1]).toMatchObject({ outcome: "update" });
+
+      expect(
+        retargetedSincePreview(
+          elsewhere,
+          previewedTargets(plan(skip, byAddress)),
+          skip,
+          new Map(),
+        ),
+      ).toBe(true);
+    });
   });
 
   it("reads back no record from a session previewed before there was one", () => {
