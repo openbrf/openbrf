@@ -17,21 +17,21 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
-import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from "./import-limits";
+import {
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
+} from "./import-limits";
 import type { ImportPreviewRun } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
-import {
-  type ImportSessionView,
-  ImportService,
-  MAX_UPLOAD_BYTES,
-} from "./import.service";
+import { type ImportSessionView, ImportService } from "./import.service";
 
 /**
  * Base64 grows by four bytes for every three, so the encoded ceiling is a third
  * larger than the decoded one. Checked here as well as after decoding, so an
  * oversized upload is refused before it is turned into a buffer.
  */
-const MAX_ENCODED_LENGTH = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 8;
+const MAX_ENCODED_LENGTH = Math.ceil((MAX_IMPORT_UPLOAD_BYTES * 4) / 3) + 8;
 
 const uploadSchema = z.object({
   fileName: z.string().min(1).max(255),

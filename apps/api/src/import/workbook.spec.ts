@@ -387,7 +387,52 @@ describe("a workbook past the import's limits", () => {
       ],
     });
   });
+
+  it("leaves out the calculation chain and external link caches unread", async () => {
+    // Excel writes both for an ordinary list with a formula in it, and both
+    // name rows of their own: a formula cell on another sheet far down, the
+    // cached values of the workbook a formula refers to.
+    const workbook = buildWorkbook(
+      [
+        ["Namn", "Lgh"],
+        ["Anna", "1101"],
+      ],
+      "Blad1",
+      {
+        parts: {
+          "xl/calcChain.xml": `<calcChain xmlns="${SPREADSHEET}"><c r="A70000" i="2"/></calcChain>`,
+          "xl/externalLinks/externalLink1.xml":
+            `<externalLink xmlns="${SPREADSHEET}"><externalBook><sheetDataSet>` +
+            '<sheetData sheetId="0"><row r="100000"><cell r="A100000"><v>1</v></cell></row></sheetData>' +
+            "</sheetDataSet></externalBook></externalLink>",
+        },
+      },
+    );
+
+    await expect(parseWorkbook(workbook)).resolves.toMatchObject({
+      rows: [
+        ["Namn", "Lgh"],
+        ["Anna", "1101"],
+      ],
+    });
+    const [read] = vi.mocked(readSheet).mock.calls[0] ?? [];
+    expect(Object.keys(unzipSync(read as Buffer))).not.toContain(
+      "xl/calcChain.xml",
+    );
+  });
+
+  it("finds no sheet where the relationships name an unread part", async () => {
+    const workbook = buildWorkbook([], "Blad1", {
+      sheetTarget: "calcChain.xml",
+      sheetData: '<row r="1000000"><c r="A1000000"><v>1</v></c></row>',
+    });
+
+    // Not read past its limits as a sheet: not read at all.
+    await expect(parseWorkbook(workbook)).rejects.not.toHaveProperty("reason");
+  });
 });
+
+const SPREADSHEET = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
 /**
  * Writes the archive again with one part marked as followed by a data

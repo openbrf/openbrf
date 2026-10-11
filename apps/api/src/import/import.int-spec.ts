@@ -112,6 +112,14 @@ const apartments = {
   o: `imp-apartment-o-${suffix}`,
   /** Where somebody joins the candidates of a row the board decided. */
   p: `imp-apartment-p-${suffix}`,
+  /** Where a row the register sends to somebody else is imported. */
+  q: `imp-apartment-q-${suffix}`,
+  /**
+   * Where a row the board left out is found under another key, and where the
+   * row after it is imported.
+   */
+  r: `imp-apartment-r-${suffix}`,
+  s: `imp-apartment-s-${suffix}`,
 };
 
 const actors = {
@@ -276,6 +284,16 @@ const EXPECTED_MAPPING: (ImportField | null)[] = [
   "phone",
   "movedInOn",
 ];
+
+/**
+ * A mapping with its move-in column left out, so the file's rows take the date
+ * given for the whole file: one is refused beside the column it stands in for.
+ */
+function withoutMovedIn(
+  mapping: readonly (ImportField | null)[],
+): (ImportField | null)[] {
+  return mapping.map((field) => (field === "movedInOn" ? null : field));
+}
 
 function fixtureRows(): string[][] {
   return [
@@ -451,12 +469,48 @@ async function previewAgain(
  * Starts an import, as the screen that took its preview does.
  *
  * That screen holds the token its preview answered with, so unless a case says
- * otherwise this sends the one the session recorded last.
+ * otherwise this sends the one the session recorded last. And decisions the
+ * preview was not planned with are refused, so it previews again with them and
+ * applies once more, as the screen does. A case that sends its own token gets
+ * the first answer.
  */
 async function applyImport(
   cookie: string,
   sessionId: string,
   decisions: Record<string, unknown> = {},
+  previewToken?: string,
+) {
+  const response = await requestApply(
+    cookie,
+    sessionId,
+    decisions,
+    previewToken,
+  );
+  if (
+    previewToken !== undefined ||
+    response.statusCode !== 400 ||
+    reasonOf(response) !== "decisions-not-previewed"
+  ) {
+    return response;
+  }
+  const session = await prisma.importSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    select: { mapping: true, defaultRole: true, defaultMovedInOn: true },
+  });
+  await previewImport(cookie, sessionId, {
+    mapping: session.mapping.map((field) => (field === "" ? null : field)),
+    defaultRole: session.defaultRole,
+    defaultMovedInOn: session.defaultMovedInOn,
+    decisions,
+  });
+  return requestApply(cookie, sessionId, decisions);
+}
+
+/** Asks for the apply once, with the token given or the one recorded last. */
+async function requestApply(
+  cookie: string,
+  sessionId: string,
+  decisions: Record<string, unknown>,
   previewToken?: string,
 ) {
   const recorded = await prisma.importSession.findUnique({
@@ -623,6 +677,9 @@ beforeAll(async () => {
       { id: apartments.n, addressId, number: "2114", floor: 1 },
       { id: apartments.o, addressId, number: "2115", floor: 1 },
       { id: apartments.p, addressId, number: "2116", floor: 1 },
+      { id: apartments.q, addressId, number: "2117", floor: 1 },
+      { id: apartments.r, addressId, number: "2118", floor: 1 },
+      { id: apartments.s, addressId, number: "2119", floor: 1 },
     ],
   });
 
@@ -761,6 +818,9 @@ afterAll(async () => {
           apartments.n,
           apartments.o,
           apartments.p,
+          apartments.q,
+          apartments.r,
+          apartments.s,
         ],
       },
     },
@@ -1230,7 +1290,6 @@ describe("the preview job", () => {
         mapping:
           overrides.mapping ??
           session.suggestedMapping.map((field) => field ?? ""),
-        defaultMovedInOn: "2010-01-01",
         previewId,
         previewStatus: "PLANNING",
         previewWatchedAt: overrides.previewWatchedAt ?? new Date(),
@@ -1404,7 +1463,6 @@ describe("the preview job", () => {
     // And the next preview of the same upload is planned as usual.
     const preview = await previewImport(cookie, session.sessionId, {
       mapping: session.suggestedMapping,
-      defaultMovedInOn: "2010-01-01",
     });
     expect(preview.rows).toHaveLength(IMPORT_CHUNK_ROWS + 20);
   });
@@ -1440,7 +1498,6 @@ describe("the preview job", () => {
     // A preview that has been replaced since is not the one cancelled.
     const next = await askForPreview(cookie, session.sessionId, {
       mapping: session.suggestedMapping,
-      defaultMovedInOn: "2010-01-01",
     });
     const late = await inject({
       method: "DELETE",
@@ -1794,6 +1851,54 @@ describe("applying", () => {
       });
     }
   });
+
+  it("leaves planning the decisions to the preview, not to the request that starts it", async () => {
+    // Planned in the request, a file whose identity numbers the register can
+    // match is an Argon2id hash a row: minutes for a long one, longer than
+    // anything in front of the API holds a request open.
+    const cookie = await signIn(actors.board.email);
+    const session = await uploadAndPreview(cookie, "dubbel.csv", [
+      HEADERS,
+      [
+        addressLabel,
+        "2103",
+        twinFirstName,
+        surname,
+        "Boende",
+        "",
+        "",
+        twinsMovedInOn,
+      ],
+    ]);
+    const decisions = {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    };
+
+    const plans = vi.spyOn(app.get(ImportPlannerService), "plan");
+    try {
+      const refused = await requestApply(cookie, session.sessionId, decisions);
+      expect(refused.statusCode).toBe(400);
+      expect(reasonOf(refused)).toBe("decisions-not-previewed");
+      expect(plans).not.toHaveBeenCalled();
+    } finally {
+      plans.mockRestore();
+    }
+    expect((await readRun(cookie, session.sessionId)).status).toBe("MAPPING");
+
+    // Previewed with them, the same decisions start the import.
+    await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    const accepted = await requestApply(cookie, session.sessionId, decisions);
+    expect(accepted.statusCode).toBe(202);
+    const run = await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+    expect(run.result).toMatchObject({ personsUpdated: 1, errors: 0 });
+  }, 60_000);
 });
 
 describe("an apply after the upload was previewed again", () => {
@@ -1810,7 +1915,7 @@ describe("an apply after the upload was previewed again", () => {
     const preview = (mapping: (ImportField | null)[]) =>
       previewImport(cookie, session.sessionId, {
         mapping,
-        defaultRole: "RESIDENT",
+        defaultRole: mapping.includes("role") ? null : "RESIDENT",
       });
 
     const first = await preview(session.suggestedMapping);
@@ -2020,7 +2125,7 @@ describe("an apply and a preview of one session", () => {
         // at the assertions below instead of as a timeout here.
         await Promise.race([checked, applying]);
         await previewImport(cookie, session.sessionId, {
-          mapping: session.suggestedMapping,
+          mapping: withoutMovedIn(session.suggestedMapping),
           defaultMovedInOn: "2023-02-01",
         });
         ({ previewedAt: replacedAt } =
@@ -2057,7 +2162,7 @@ describe("an apply and a preview of one session", () => {
       }),
     ).toEqual({
       status: "MAPPING",
-      mapping: EXPECTED_MAPPING,
+      mapping: withoutMovedIn(EXPECTED_MAPPING).map((field) => field ?? ""),
       defaultMovedInOn: "2023-02-01",
       previewedAt: replacedAt,
       decisions: null,
@@ -2128,7 +2233,7 @@ describe("an apply and a preview of one session", () => {
         );
         expect(otherRun.result.personsCreated).toBe(1);
         await previewImport(cookie, session.sessionId, {
-          mapping: session.suggestedMapping,
+          mapping: withoutMovedIn(session.suggestedMapping),
           defaultMovedInOn: "2023-02-01",
         });
       } finally {
@@ -2185,7 +2290,7 @@ describe("an apply and a preview of one session", () => {
       try {
         await Promise.race([checked, applying]);
         await previewImport(cookie, session.sessionId, {
-          mapping: session.suggestedMapping,
+          mapping: withoutMovedIn(session.suggestedMapping),
           defaultMovedInOn: "2023-02-01",
         });
         await prisma.importSession.update({
@@ -3618,11 +3723,12 @@ describe("a file without move-in dates", () => {
 });
 
 describe("a register that changes while a chunk waits for its lock", () => {
-  it("plans the chunk again rather than skip a row it can now write", async () => {
+  it("stops rather than write a row the preview showed as a problem", async () => {
     // Bert's row for 2113 overlaps the residency he holds there, until that
     // residency is ended while the chunk waits. The chunk's other rows already
-    // lock 2113 and Bert, so only the row's missing ciphertext says the chunk
-    // has to be planned again.
+    // lock 2113 and Bert, so the plan made under the locks is the first to
+    // find the row writable - and the preview showed it as a problem, which
+    // the board read as a row that is not imported.
     const cookie = await signIn(actors.board.email);
     const personId = `imp-bert-${suffix}`;
     const email = `imp-bert-${suffix}@exempel.se`;
@@ -3692,9 +3798,16 @@ describe("a register that changes while a chunk waits for its lock", () => {
     release();
     await holder;
 
-    await expect(chunk).rejects.toThrow(/planned again/);
-    await applies.applyNextChunk(session.sessionId);
+    await expect(chunk).rejects.toMatchObject({
+      reason: "register-changed-during-apply",
+    });
 
+    // The chunk rolled back whole: no Anneli, and nothing new for Bert.
+    expect(
+      await prisma.person.count({
+        where: { firstName: "Anneli", lastName: surname },
+      }),
+    ).toBe(0);
     const residencies = await prisma.residency.findMany({
       where: { personId },
       orderBy: [{ apartmentId: "asc" }, { movedInOn: "asc" }],
@@ -3705,11 +3818,7 @@ describe("a register that changes while a chunk waits for its lock", () => {
         residency.apartmentId,
         residency.movedInOn.toISOString().slice(0, 10),
       ]),
-    ).toEqual([
-      [apartments.m, "2010-01-01"],
-      [apartments.m, "2024-01-01"],
-      [apartments.n, "2024-01-01"],
-    ]);
+    ).toEqual([[apartments.m, "2010-01-01"]]);
   }, 60_000);
 });
 
@@ -3945,6 +4054,16 @@ describe("a person entered while a chunk is applied", () => {
     identityNumber: string,
   ): Promise<void> {
     await createPerson({ personId, firstName, identityNumber });
+    await awaitReindex(personId);
+  }
+
+  /**
+   * Puts a person's identity number back under an index older rules computed,
+   * as an upgrade leaves it until the reindex at boot. Done after the preview
+   * in the cases that apply: the preview was taken before the upgrade, and
+   * found the person by their number.
+   */
+  async function awaitReindex(personId: string): Promise<void> {
     await prisma.person.update({
       where: { id: personId },
       data: {
@@ -3963,7 +4082,11 @@ describe("a person entered while a chunk is applied", () => {
     const cookie = await signIn(actors.board.email);
     const personId = `imp-reindexed-${suffix}`;
     const [number = ""] = identityNumbers(1, "730911");
-    await createAwaitingReindex(personId, "Omindex", number);
+    await createPerson({
+      personId,
+      firstName: "Omindex",
+      identityNumber: number,
+    });
     const sessionId = await queued(cookie, "omindex.csv", [
       [...HEADERS, "Personnummer"],
       [
@@ -3978,6 +4101,7 @@ describe("a person entered while a chunk is applied", () => {
         number,
       ],
     ]);
+    await awaitReindex(personId);
 
     // An encryption of its own, so the reindex can be held between its hash
     // and its write without holding the chunk's.
@@ -4135,18 +4259,18 @@ describe("a person entered while a chunk is applied", () => {
       WHERE name = 'import-apply' AND data->>'sessionId' = ${sessionId}`;
   }
 
-  /** A queued session of one row whose number the reindex has yet to rewrite. */
+  /**
+   * A queued session of one row, previewed as an update of the person holding
+   * its number, whose number the reindex has since been left to rewrite.
+   */
   async function awaitingSession(
     cookie: string,
     firstName: string,
     birthDate: string,
   ): Promise<{ sessionId: string; number: string }> {
     const [number = ""] = identityNumbers(1, birthDate);
-    await createAwaitingReindex(
-      `imp-${birthDate}-${suffix}`,
-      firstName,
-      number,
-    );
+    const personId = `imp-${birthDate}-${suffix}`;
+    await createPerson({ personId, firstName, identityNumber: number });
     const sessionId = await queued(cookie, `${birthDate}.csv`, [
       [...HEADERS, "Personnummer"],
       [
@@ -4161,6 +4285,7 @@ describe("a person entered while a chunk is applied", () => {
         number,
       ],
     ]);
+    await awaitReindex(personId);
     return { sessionId, number };
   }
 
@@ -5691,10 +5816,16 @@ describe("a decided row somebody joins the candidates of", () => {
         ]),
       ),
     );
-    await previewImport(cookie, session.sessionId, {
-      mapping: session.suggestedMapping,
-      ...(undated ? { defaultMovedInOn: "2024-02-01" } : {}),
-    });
+    await previewImport(
+      cookie,
+      session.sessionId,
+      undated
+        ? {
+            mapping: withoutMovedIn(session.suggestedMapping),
+            defaultMovedInOn: "2024-02-01",
+          }
+        : { mapping: session.suggestedMapping },
+    );
     return { cookie, sessionId: session.sessionId, firstName, personIds };
   }
 
@@ -6365,10 +6496,11 @@ describe("a row after one the board decided", () => {
     });
   });
 
-  it("is refused when a decision settles a row left without one", async () => {
+  it("is shown, not refused, when a decision settles a row left without one", async () => {
     // As above, but the board answers row 1 only. Row 2 is no longer asking
-    // once row 1 is a new person, so that is what is refused - not the lack of
-    // an answer for a row that has stopped needing one.
+    // once row 1 is a new person. That is for the preview taken with the
+    // decision to show, rather than for the apply to refuse as the lack of an
+    // answer for a row that has stopped needing one.
     const cookie = await signIn(actors.board.email);
     const email = `imp-unanswered-${suffix}@exempel.se`;
     const row = [
@@ -6400,38 +6532,66 @@ describe("a row after one the board decided", () => {
       });
     const before = await dubbels();
 
-    const response = await applyImport(cookie, session.sessionId, {
-      "1": { action: "create" },
-    });
+    const decisions = { "1": { action: "create" } };
+    const response = await requestApply(cookie, session.sessionId, decisions);
 
     expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(reasonOf(response)).toBe("decisions-not-previewed");
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
       rowsDone: 0,
     });
     expect(await dubbels()).toBe(before);
+
+    const replanned = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    expect(
+      replanned.rows.map(({ outcome, sameAsRowNumber }) => ({
+        outcome,
+        sameAsRowNumber,
+      })),
+    ).toEqual([
+      { outcome: "ambiguous", sameAsRowNumber: null },
+      { outcome: "update", sameAsRowNumber: 1 },
+    ]);
   });
 
-  it("is refused when the people a row matches are not the ones the preview named", async () => {
-    // The preview asked about row 1 with the two Dubbels as its candidates.
-    // The stored candidates are rewritten to stand in for a register that
-    // has changed since then: the board's answer names a person the row no
-    // longer has to choose between, so it must be asked again.
+  it("is stopped before it writes when the people a row matches are not the ones the preview named", async () => {
+    // The preview asked about row 1 with the two Dubbels as its candidates,
+    // and was planned with the board's answer. The stored candidates are
+    // rewritten to stand in for a register that has changed since then: the
+    // answer names a person the row no longer has to choose between. The
+    // request does not plan the file again to find that out; the chunk does,
+    // before it writes anything.
     const cookie = await signIn(actors.board.email);
-    const session = await uploadAndPreview(cookie, "andrade-kandidater.csv", [
-      HEADERS,
-      [
-        addressLabel,
-        "2103",
-        twinFirstName,
-        surname,
-        "Boende",
-        `imp-changed-${suffix}@exempel.se`,
-        "",
-        "2021-04-01",
-      ],
-    ]);
+    const session = await upload(
+      cookie,
+      "andrade-kandidater.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2103",
+            twinFirstName,
+            surname,
+            "Boende",
+            `imp-changed-${suffix}@exempel.se`,
+            "",
+            "2021-04-01",
+          ],
+        ]),
+      ),
+    );
+    const decisions = {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    };
+    await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
     await prisma.importSession.update({
       where: { id: session.sessionId },
       data: {
@@ -6444,14 +6604,19 @@ describe("a row after one the board decided", () => {
       select: { emailIndex: true },
     });
 
-    const response = await applyImport(cookie, session.sessionId, {
-      "1": { action: "use-person", personId: actors.twinA.personId },
-    });
+    const response = await requestApply(cookie, session.sessionId, decisions);
 
-    expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("preview-outdated");
-    expect(await readRun(cookie, session.sessionId)).toMatchObject({
-      status: "MAPPING",
+    expect(response.statusCode).toBe(202);
+    expect(
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) =>
+          candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      ),
+    ).toMatchObject({
+      status: "FAILED",
+      failureReason: "register-changed-during-apply",
       rowsDone: 0,
     });
     expect(
@@ -6522,7 +6687,7 @@ describe("a row after one the board decided", () => {
     ).toEqual({ emailIndex: null });
   });
 
-  it("is refused when a changed decision turns a row shown as an update into a new person", async () => {
+  it("is previewed again when a changed decision turns a row shown as an update into a new person", async () => {
     // Previewed with row 1 given to a Dubbel, row 2 - the same name in another
     // apartment, with the address row 1 gives that twin - is an update of
     // them, and nothing asks about it. Changed to a skip, row 1 gives nobody
@@ -6567,17 +6732,220 @@ describe("a row after one the board decided", () => {
       });
     const before = await dubbels();
 
-    const response = await applyImport(cookie, session.sessionId, {
-      "1": { action: "skip" },
-    });
+    const changed = { "1": { action: "skip" } };
+    const response = await requestApply(cookie, session.sessionId, changed);
 
     expect(response.statusCode).toBe(400);
-    expect(reasonOf(response)).toBe("preview-outdated");
+    expect(reasonOf(response)).toBe("decisions-not-previewed");
     expect(await readRun(cookie, session.sessionId)).toMatchObject({
       status: "MAPPING",
       rowsDone: 0,
     });
     expect(await dubbels()).toBe(before);
+
+    // Previewed again with the skip, row 2 is shown for what it now is.
+    const replanned = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions: changed,
+    });
+    expect(replanned.rows[1]).toMatchObject({
+      outcome: "create",
+      matchedPersonId: null,
+    });
+  });
+});
+
+describe("an ordinary row the register sends to somebody else after the preview", () => {
+  it("stops before the chunk writes, and enters nobody the preview did not show", async () => {
+    // Two people called Bo in the register, and the address row 2 states is
+    // the first one's. The preview is taken with the board's answer for row 1,
+    // one of the Dubbels, and shows row 2 as an update of the first Bo: nothing
+    // asks about it. Before the import is started, the address is moved to the
+    // second Bo. Row 2 then matches him alone, by the same key, and every check
+    // of the decisions still holds - but writing it would make him a member of
+    // 2117, with an entry in the member register that cannot be taken back.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-moved-address-${suffix}@exempel.se`;
+    const first = { personId: `imp-bo-first-${suffix}`, firstName: "Bo" };
+    const second = { personId: `imp-bo-second-${suffix}`, firstName: "Bo" };
+    await createPerson({ ...first, email });
+    await createPerson(second);
+
+    const session = await upload(
+      cookie,
+      "flyttad-adress.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2103",
+            twinFirstName,
+            surname,
+            "Boende",
+            "",
+            "",
+            twinsMovedInOn,
+          ],
+          [
+            addressLabel,
+            "2117",
+            "Bo",
+            surname,
+            "Medlem",
+            email,
+            "",
+            "2024-03-01",
+          ],
+        ]),
+      ),
+    );
+    const decisions = {
+      "1": { action: "use-person", personId: actors.twinA.personId },
+    };
+    const previewed = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    expect(previewed.rows[1]).toMatchObject({
+      outcome: "update",
+      matchedPersonId: first.personId,
+      matchedBy: "email",
+    });
+
+    // The register's own change, not one to what the session recorded.
+    const moved = await encryption.encrypt("person.email", email);
+    await prisma.person.update({
+      where: { id: first.personId },
+      data: { emailCipher: null, emailIndex: null },
+    });
+    await prisma.person.update({
+      where: { id: second.personId },
+      data: { emailCipher: moved.cipher, emailIndex: moved.index },
+    });
+
+    // The request plans nothing, so it has nothing to find this by.
+    const response = await requestApply(cookie, session.sessionId, decisions);
+    expect(response.statusCode).toBe(202);
+
+    expect(
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) =>
+          candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      ),
+    ).toMatchObject({
+      status: "FAILED",
+      failureReason: "register-changed-during-apply",
+      rowsDone: 0,
+    });
+    for (const bo of [first, second]) {
+      expect(
+        await prisma.person.findUniqueOrThrow({
+          where: { id: bo.personId },
+          select: {
+            residencies: { select: { id: true } },
+            memberRegisterEntries: { select: { id: true } },
+          },
+        }),
+      ).toEqual({ residencies: [], memberRegisterEntries: [] });
+    }
+  });
+});
+
+describe("a row the board left out that the register finds under another key", () => {
+  it("writes the rest of the file, since the row writes nothing either way", async () => {
+    // Two people called Cilla live in 2118 and share an address, which row 1
+    // states. The preview finds both by the address, and the board leaves the
+    // row out. Before the import is started, the address book takes the
+    // address from both: row 1 then finds the same two by their name in 2118,
+    // and still asks. Row 2 is somebody new in 2119, and is owed its write.
+    const cookie = await signIn(actors.board.email);
+    const email = `imp-shared-address-${suffix}@exempel.se`;
+    const cillas = [`imp-cilla-a-${suffix}`, `imp-cilla-b-${suffix}`];
+    for (const personId of cillas) {
+      await createPerson({ personId, firstName: "Cilla", email });
+    }
+    await prisma.residency.createMany({
+      data: cillas.map((personId) => ({
+        personId,
+        apartmentId: apartments.r,
+        role: "RESIDENT" as const,
+        movedInOn: new Date("2018-01-01T00:00:00.000Z"),
+      })),
+    });
+
+    const session = await upload(
+      cookie,
+      "utelamnad.csv",
+      encode(
+        writeCsv([
+          HEADERS,
+          [
+            addressLabel,
+            "2118",
+            "Cilla",
+            surname,
+            "Boende",
+            email,
+            "",
+            "2018-01-01",
+          ],
+          [
+            addressLabel,
+            "2119",
+            "Rut",
+            surname,
+            "Boende",
+            "",
+            "",
+            "2024-03-01",
+          ],
+        ]),
+      ),
+    );
+    const decisions = { "1": { action: "skip" } };
+    const previewed = await previewImport(cookie, session.sessionId, {
+      mapping: session.suggestedMapping,
+      decisions,
+    });
+    expect(previewed.rows[0]).toMatchObject({
+      outcome: "ambiguous",
+      matchedBy: "email",
+    });
+    expect(previewed.rows[1]).toMatchObject({ outcome: "create" });
+
+    // The register's own change, not one to what the session recorded. Both
+    // still live in 2118, so the row finds them there.
+    await prisma.person.updateMany({
+      where: { id: { in: cillas } },
+      data: { emailCipher: null, emailIndex: null },
+    });
+
+    const response = await requestApply(cookie, session.sessionId, decisions);
+    expect(response.statusCode).toBe(202);
+
+    expect(
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) =>
+          candidate.status !== "QUEUED" && candidate.status !== "APPLYING",
+      ),
+    ).toMatchObject({ status: "APPLIED", failureReason: null, rowsDone: 2 });
+    expect(
+      await prisma.residency.count({
+        where: {
+          apartmentId: apartments.s,
+          person: { firstName: "Rut", lastName: surname },
+        },
+      }),
+    ).toBe(1);
+    // And the row left out wrote nothing to either Cilla.
+    expect(
+      await prisma.residency.count({ where: { personId: { in: cillas } } }),
+    ).toBe(2);
   });
 });
 

@@ -13,12 +13,13 @@
  * apartments, a dozen columns, values a person types into a cell.
  */
 
-// Data rows, columns and characters in a cell: shared, because the screen
-// names them when it refuses a file.
+// The file's size, data rows, columns and characters in a cell: shared,
+// because the screen names them when it refuses a file.
 export {
   MAX_IMPORT_CELL_LENGTH,
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
 } from "@openbrf/shared";
 
 /**

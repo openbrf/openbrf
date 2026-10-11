@@ -26,6 +26,7 @@ import {
   type Action,
   type Actor,
   type ContactMessage,
+  type MovedInResident,
   type Screen,
   type Target,
 } from "./screens";
@@ -316,6 +317,10 @@ async function perform(page: Page, action: Action): Promise<void> {
     await page.reload();
     return;
   }
+  if ("moveIn" in action) {
+    await moveInResidents(page.request, action.moveIn);
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.
@@ -336,6 +341,65 @@ async function perform(page: Page, action: Action): Promise<void> {
     return;
   }
   await expect(locate(page, action.see)).toBeVisible();
+}
+
+/**
+ * Puts people in the register and moves each into their apartment.
+ *
+ * Skipped for somebody the address book already lists on that apartment from
+ * that day, so a capture against a stack that is already up does not move
+ * them in twice. Asked by apartment and day rather than by name alone, because
+ * the people this is for may share one.
+ */
+async function moveInResidents(
+  request: APIRequestContext,
+  residents: readonly MovedInResident[],
+): Promise<void> {
+  const addresses = await api.listAddresses(request, stack.baseUrl);
+  for (const resident of residents) {
+    const address = addresses.find(
+      (candidate) => candidate.number === resident.addressNumber,
+    );
+    if (address === undefined) {
+      throw new Error(
+        `no address numbered ${resident.addressNumber} in the register`,
+      );
+    }
+    const apartment = (
+      await api.listApartments(request, stack.baseUrl, address.id)
+    ).find((candidate) => candidate.number === resident.apartmentNumber);
+    if (apartment === undefined) {
+      throw new Error(
+        `no apartment ${resident.apartmentNumber} on ${address.street} ${address.number}`,
+      );
+    }
+
+    const listed = await api.findPeopleByName(
+      request,
+      stack.baseUrl,
+      `${resident.firstName} ${resident.lastName}`,
+    );
+    if (
+      listed.some(
+        (row) =>
+          row.apartment?.id === apartment.id &&
+          row.movedInOn === resident.movedInOn,
+      )
+    ) {
+      continue;
+    }
+
+    const personId = await api.createPerson(request, stack.baseUrl, {
+      firstName: resident.firstName,
+      lastName: resident.lastName,
+    });
+    await api.moveIn(request, stack.baseUrl, {
+      personId,
+      apartmentId: apartment.id,
+      role: resident.role,
+      movedInOn: resident.movedInOn,
+    });
+  }
 }
 
 /**

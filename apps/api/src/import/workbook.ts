@@ -39,6 +39,17 @@ import { checkAddresses, UnreadableSheetError } from "./sheet-addresses";
 const INSPECT_SLICE_BYTES = 4096;
 
 /**
+ * Parts Excel writes with cell and row addresses of their own, which the
+ * library never reads: the order formulas are calculated in, and the cached
+ * values of another workbook a formula refers to. Either can name a row far
+ * past the import's limits for a perfectly ordinary list, so they are left out
+ * of the archive rather than checked. A workbook whose relationships name one
+ * of them as its sheet then has no sheet the library can find, and is refused
+ * as unreadable.
+ */
+const UNREAD_PART = /^xl\/(?:calcChain\.xml$|externalLinks\/)/;
+
+/**
  * Turns a cell into the text the mapping works with.
  *
  * A date cell arrives as a Date because Excel stores dates as numbers, and
@@ -88,7 +99,8 @@ export function cellText(value: unknown): string {
  * the import's limits by {@link checkAddresses}. All of them, rather than only
  * the sheets: which part is a sheet is for the workbook's own relationships to
  * say, and reading those the way the library does is one more place to
- * disagree with it.
+ * disagree with it. The exceptions are the parts in {@link UNREAD_PART}, which
+ * are neither checked nor kept.
  *
  * The archive returned is rebuilt from the parts inspected, and only from
  * them. The library has its own unzipper, which reads an archive differently
@@ -109,7 +121,8 @@ export function inspectWorkbook(buffer: Uint8Array): Uint8Array {
     if ((file.originalSize ?? 0) > MAX_WORKBOOK_ENTRY_BYTES) {
       throw tooLarge();
     }
-    const kept = /\.(?:xml|rels)$/i.test(file.name);
+    const kept =
+      /\.(?:xml|rels)$/i.test(file.name) && !UNREAD_PART.test(file.name);
     if (kept && Object.hasOwn(parts, file.name)) {
       throw new UnreadableSheetError("The workbook holds a part twice.");
     }

@@ -592,8 +592,8 @@ The pieces:
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
-  `{ upload, file }`, `{ deliver }`, `{ recordBreach }`, `{ postContactMessages }`
-  or `{ see }`. An uploaded file is written out in the manifest - a name, a
+  `{ upload, file }`, `{ deliver }`, `{ recordBreach }`, `{ postContactMessages }`,
+  `{ moveIn }` or `{ see }`. An uploaded file is written out in the manifest - a name, a
   media type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the
@@ -603,7 +603,10 @@ The pieces:
   `{ postContactMessages }` posts messages through the public contact form on a
   page written for the purpose and removed again, as a visitor would, and
   reopens the screen; that is how `settings-contact-inbox` shows an inbox with
-  messages in it. A screen needing a kind that is not there adds it to the
+  messages in it. `{ moveIn }` puts people in the register and moves them into
+  their apartments over the API, for a screen about people no other image
+  should show; `import-preview-overlapping-residency` uses it for two residents
+  who share a name. A screen needing a kind that is not there adds it to the
   `Action` union and to `perform` in `capture.spec.ts`, once, and every later
   screen has it.
 

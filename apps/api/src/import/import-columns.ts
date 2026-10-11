@@ -220,6 +220,16 @@ export function validateMapping(input: {
   if (!seen.has("movedInOn") && input.defaultMovedInOn === null) {
     problems.push("moved-in-missing");
   }
+  // A default is for a file without the column, and is never a blank cell's
+  // value: a role guessed for one is a register entry nobody chose, and a
+  // date for one makes the same person's rows disagree with each other
+  // depending on which of them the file lists first.
+  if (seen.has("role") && input.defaultRole !== null) {
+    problems.push("default-role-with-column");
+  }
+  if (seen.has("movedInOn") && input.defaultMovedInOn !== null) {
+    problems.push("default-moved-in-with-column");
+  }
 
   return problems;
 }
