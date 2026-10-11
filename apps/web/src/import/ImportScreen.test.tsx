@@ -1320,7 +1320,7 @@ describe("after pressing apply", () => {
     expect(await screen.findByText(/Importen pågår/)).toBeTruthy();
   });
 
-  it("says beside the choice when the person chosen lives here on other terms", async () => {
+  it("says beside the choice when the person chosen holds an overlapping residency", async () => {
     // Bo junior already holds a residency in 1103 that overlaps the row's in
     // another role. Chosen for the row, the apply counts it as a problem, and
     // the board is told so before it applies rather than afterwards.
@@ -1366,7 +1366,7 @@ describe("after pressing apply", () => {
 
     expect(
       screen.getByRole("option", {
-        name: "Bo Berg (bor här på andra villkor)",
+        name: "Bo Berg (överlappande boende)",
       }),
     ).toBeTruthy();
     const choice = screen.getByRole("combobox", { name: /Den här raden är/ });

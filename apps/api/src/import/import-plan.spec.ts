@@ -242,7 +242,7 @@ describe("an ambiguous match", () => {
     expect(plan.summary.ambiguous).toBe(1);
   });
 
-  it("says which candidate already lives here on other terms", () => {
+  it("says which candidate already holds an overlapping residency on the apartment", () => {
     // Person b has been a resident of 1101 since 2015, and the row makes Anna
     // a member from 2019. Chosen for the row, b would hold two residencies on
     // the same days, which the apply refuses as a problem with the row.
