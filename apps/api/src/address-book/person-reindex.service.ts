@@ -16,6 +16,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import { lockPersonIdentityNumbersInOrder } from "./person-identity-number-lock";
+import { PersonReindexLock } from "./person-reindex-lock";
 
 export const PERSON_REINDEX_QUEUE = "person-blind-index-reindex";
 
@@ -49,6 +50,49 @@ const ROW_LOCK_WAIT_MS = 180_000;
 const RETRY_AFTER_MS = 60_000;
 
 /**
+ * How long runs that write nothing are tried again before the reindex gives
+ * up, from the first of them.
+ *
+ * The hour an import waits for the reindex: a reindex that has written
+ * nothing for this long has stopped on something an operator has to look at,
+ * and every import that writes personal identity numbers has stopped waiting
+ * for it by then.
+ */
+const RECOVERY_WINDOW_MS = 60 * 60_000;
+
+/** Payload of the reindex job. */
+export interface PersonReindexJob {
+  /**
+   * When the runs before this one began failing without writing a row, as an
+   * ISO timestamp. Absent on a run nothing failed before, the one every boot
+   * queues.
+   */
+  failingSince?: string;
+  /** How many runs have failed since then. */
+  failures?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * A stored value the reindex cannot decrypt.
+ *
+ * The one failure known to repeat: the next run reads the same ciphertext with
+ * the same key. Named by the person, so somebody can look at the row.
+ */
+class UnreadableValueError extends Error {
+  constructor(
+    readonly personId: string,
+    readonly field: EncryptedFieldId,
+    cause: unknown,
+  ) {
+    super(`Person ${personId}: their ${field} cannot be decrypted.`, {
+      cause,
+    });
+    this.name = "UnreadableValueError";
+  }
+}
+
+/**
  * Brings every person's blind indexes up to the current normalisation rules.
  *
  * A blind index is a keyed hash of the normalised value (ADR 0002), so when the
@@ -79,6 +123,8 @@ const RETRY_AFTER_MS = 60_000;
  * Each row is written only while both ciphertexts are still the ones its
  * indexes were computed from. A person edited mid-run was indexed by that edit,
  * and is picked up again by the next round if the edit left the version below.
+ * One run at a time walks the register, whichever instance it is on
+ * (PersonReindexLock).
  *
  * Until a row is rewritten, a lookup by its personal identity number misses
  * the person, and the import would enter them a second time: the import's
@@ -93,6 +139,7 @@ export class PersonReindexService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly jobs: JobQueueService,
+    private readonly lock: PersonReindexLock,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -100,41 +147,117 @@ export class PersonReindexService implements OnModuleInit {
       // Integration tests call run() themselves.
       return;
     }
-    await this.jobs.work(PERSON_REINDEX_QUEUE, async () => {
-      await this.runJob();
-    });
-    await this.jobs.send(PERSON_REINDEX_QUEUE, {});
+    await this.jobs.work<PersonReindexJob>(
+      PERSON_REINDEX_QUEUE,
+      async (job) => {
+        await this.runJob(job);
+      },
+    );
+    await this.jobs.send<PersonReindexJob>(PERSON_REINDEX_QUEUE, {});
   }
 
   /**
-   * The job: a run, and another queued for later when this one does not
-   * finish. Public so a test can drive it.
+   * The job: a run, under the lock that keeps runs apart, and another queued
+   * for later when this one does not finish. Public so a test can drive it.
    *
-   * Not left to the queue's retries, which are few and soon spent, and
-   * nothing else would queue the run again before the next boot. Until it
-   * finishes, every import that writes personal identity numbers waits for it.
-   * Rows written before the failure stay written, so the next run carries on
-   * from the rest.
+   * A run that finds another one holding the lock does nothing: that one
+   * reads every row left, and answers for its own failure.
+   *
+   * A failure is not left to the queue's retries, which are few and soon
+   * spent, and nothing else would queue the run again before the next boot.
+   * Until it finishes, every import that writes personal identity numbers
+   * waits for it. Rows written before the failure stay written, so the next
+   * run carries on from the rest. But a failure that repeats is not tried
+   * again for ever: see {@link afterFailure}.
    */
-  async runJob(): Promise<void> {
+  async runJob(job: PersonReindexJob = {}): Promise<void> {
+    const progress = { reindexed: 0 };
     try {
-      await this.run();
+      const ran = await this.lock.whileHeld((lockLost) =>
+        this.reindex(progress, lockLost),
+      );
+      if (!ran) {
+        this.logger.log(
+          "Reindex left to the run already under way on this or another instance",
+        );
+      }
     } catch (error) {
-      // Named by its class only: the run holds personal identity numbers.
-      this.logger.error(
-        `Reindex stopped with ${failureName(error)}; trying again in ${String(RETRY_AFTER_MS / 1000)} seconds`,
-      );
-      await this.jobs.sendAt(
-        PERSON_REINDEX_QUEUE,
-        {},
-        new Date(Date.now() + RETRY_AFTER_MS),
-      );
+      await this.afterFailure(job, progress.reindexed, error);
     }
   }
 
-  /** Reindexes every person below the current version. Answers how many. */
+  /**
+   * Queues the next run after one that failed, or gives up and says what the
+   * operator has to do.
+   *
+   * Given up on at once when the failure is one the next run would meet
+   * again: a value that cannot be decrypted. The list is of what is known to
+   * repeat, and everything else is tried again - a lock wait that ran out
+   * behind an import, a database that restarted - because a failure nobody
+   * foresaw would otherwise end the reindex at its first occurrence.
+   *
+   * Tried again for {@link RECOVERY_WINDOW_MS} from the first of the runs that
+   * failed without writing a row, a time carried from each run's job to the
+   * next. A run that wrote rows before it failed starts the time again: it got
+   * further than the one before it, and the rows left are fewer, so the
+   * reindex still ends. A boot queues a run without that time, and gives the
+   * reindex another hour.
+   */
+  private async afterFailure(
+    job: PersonReindexJob,
+    reindexed: number,
+    error: unknown,
+  ): Promise<void> {
+    const now = Date.now();
+    const carried = readFailingSince(job.failingSince);
+    const afresh = reindexed > 0 || carried === null;
+    const failingSince = afresh ? now : carried;
+    const failures = (afresh ? 0 : (job.failures ?? 0)) + 1;
+    // Named by its class only: the run holds personal identity numbers.
+    const failure = failureName(error);
+
+    if (error instanceof UnreadableValueError) {
+      this.logger.error(
+        `Reindex stopped: person ${error.personId}'s ${error.field} cannot be decrypted (${failure}), and every run would stop on it again. Personal identity numbers left under older rules are not found by a search, and imports that write them stop after waiting an hour. Check the instance's encryption key and that person's record, then restart the instance to queue the reindex again.`,
+      );
+      return;
+    }
+    if (now - failingSince >= RECOVERY_WINDOW_MS) {
+      this.logger.error(
+        `Reindex gave up after ${String(failures)} runs that failed without writing a row over ${String(Math.round((now - failingSince) / 60_000))} minutes, the last with ${failure}. Personal identity numbers left under older rules are not found by a search, and imports that write them stop after waiting an hour. Find the cause in the failures logged before this one, then restart the instance to queue the reindex again.`,
+      );
+      return;
+    }
+    this.logger.error(
+      `Reindex stopped with ${failure}; trying again in ${String(RETRY_AFTER_MS / 1000)} seconds`,
+    );
+    await this.jobs.sendAt<PersonReindexJob>(
+      PERSON_REINDEX_QUEUE,
+      { failingSince: new Date(failingSince).toISOString(), failures },
+      new Date(now + RETRY_AFTER_MS),
+    );
+  }
+
+  /**
+   * Reindexes every person below the current version. Answers how many.
+   *
+   * Without the lock that keeps runs apart, which runJob takes: for a caller
+   * that knows no other run is under way.
+   */
   async run(): Promise<number> {
-    let reindexed = 0;
+    const progress = { reindexed: 0 };
+    await this.reindex(progress);
+    return progress.reindexed;
+  }
+
+  /**
+   * The run itself, counting the rows written into `progress` as it goes, so
+   * a run that fails part way still says how far it got.
+   */
+  private async reindex(
+    progress: { reindexed: number },
+    lockLost?: AbortSignal,
+  ): Promise<void> {
     for (;;) {
       const people = await this.prisma.person.findMany({
         where: { blindIndexVersion: { lt: NORMALIZATION_VERSION } },
@@ -155,10 +278,7 @@ export class PersonReindexService implements OnModuleInit {
         // Hashed before the transaction opens, so the locks below are held
         // for the write and not for the Argon2id.
         const identityNumber = await this.identityNumber(person);
-        const phoneIndex = await this.indexOf(
-          "person.phone",
-          person.phoneCipher,
-        );
+        const phoneIndex = await this.indexOf(person, person.phoneCipher);
         const { count } = await this.prisma.$transaction(
           async (tx) => {
             // The wait is bounded by the server, so a lock held past it ends
@@ -176,6 +296,9 @@ export class PersonReindexService implements OnModuleInit {
                 identityNumber?.index ?? null,
               ].filter((index) => index !== null),
             );
+            // Last before the write, after the lock waits: a run whose lock
+            // went while it waited is no longer the only one.
+            lockLost?.throwIfAborted();
             return tx.person.updateMany({
               where: {
                 id: person.id,
@@ -195,15 +318,14 @@ export class PersonReindexService implements OnModuleInit {
           // client gives up on the transaction.
           { timeout: ROW_LOCK_WAIT_MS + 10_000, maxWait: 20_000 },
         );
-        reindexed += count;
+        progress.reindexed += count;
       }
     }
-    if (reindexed > 0) {
+    if (progress.reindexed > 0) {
       this.logger.log(
-        `Reindexed ${String(reindexed)} people under normalisation version ${String(NORMALIZATION_VERSION)}`,
+        `Reindexed ${String(progress.reindexed)} people under normalisation version ${String(NORMALIZATION_VERSION)}`,
       );
     }
-    return reindexed;
   }
 
   /** The personal identity number encrypted again with its century, and its index. */
@@ -213,7 +335,8 @@ export class PersonReindexService implements OnModuleInit {
     if (person.personalIdentityNumberCipher === null) {
       return null;
     }
-    const entered = await this.encryption.decrypt(
+    const entered = await this.decrypt(
+      person,
       IDENTITY_NUMBER,
       person.personalIdentityNumberCipher,
     );
@@ -294,16 +417,30 @@ export class PersonReindexService implements OnModuleInit {
     return from === createdAt ? first : last;
   }
 
+  /** The phone number's index, computed from the phone number as stored. */
   private async indexOf(
-    id: EncryptedFieldId,
+    person: StoredPerson,
     cipher: string | null,
   ): Promise<string | null> {
     return cipher === null
       ? null
       : this.encryption.computeIndex(
-          id,
-          await this.encryption.decrypt(id, cipher),
+          "person.phone",
+          await this.decrypt(person, "person.phone", cipher),
         );
+  }
+
+  /** A stored value of the person's, or the failure that every run would meet. */
+  private async decrypt(
+    person: StoredPerson,
+    field: EncryptedFieldId,
+    cipher: string,
+  ): Promise<string> {
+    try {
+      return await this.encryption.decrypt(field, cipher);
+    } catch (cause) {
+      throw new UnreadableValueError(person.id, field, cause);
+    }
   }
 }
 
@@ -347,4 +484,13 @@ function byYearAlone(entered: string, day: Date): string {
     entered,
     new Date(day.getFullYear(), 11, 31),
   );
+}
+
+/** The time a job says its runs began failing, or null where it says none. */
+function readFailingSince(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? null : time;
 }

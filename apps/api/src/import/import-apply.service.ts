@@ -153,7 +153,7 @@ class ReindexPendingError extends Error {
 }
 
 /** How long after finding the reindex unfinished the apply looks again. */
-const REINDEX_RECHECK_MS = 30_000;
+const REINDEX_RECHECK_SECONDS = 30;
 
 /**
  * How long an apply waits for the reindex in all.
@@ -163,18 +163,16 @@ const REINDEX_RECHECK_MS = 30_000;
  * and its own log says what; the apply ends as interrupted rather than wait
  * on it for ever.
  */
-const REINDEX_WAIT_MS = 60 * 60_000;
+const REINDEX_WAIT_MINUTES = 60;
 
 /** Payload of the apply job. */
 interface ImportApplyJob {
   sessionId: string;
-  /**
-   * When the apply first found the reindex unfinished, as an ISO timestamp.
-   * Carried from one deferred job to the next, so the wait is bounded in all.
-   */
-  awaitingReindexSince?: string;
   [key: string]: unknown;
 }
+
+/** What a job that found the reindex unfinished made of it. */
+type ReindexWait = "queued" | "timed-out" | "left-to-another";
 
 @Injectable()
 export class ImportApplyService implements OnModuleInit {
@@ -201,10 +199,7 @@ export class ImportApplyService implements OnModuleInit {
   /** Registers the workers. Public so an integration test can drive the job. */
   async startApplyWorker(): Promise<void> {
     await this.jobs.work<ImportApplyJob>(IMPORT_APPLY_QUEUE, async (data) => {
-      await this.runApply(
-        data.sessionId,
-        readTimestamp(data.awaitingReindexSince),
-      );
+      await this.runApply(data.sessionId);
     });
     await this.jobs.work<ImportApplyJob>(
       IMPORT_APPLY_DEAD_LETTER_QUEUE,
@@ -262,7 +257,9 @@ export class ImportApplyService implements OnModuleInit {
    * with its cursor where the last committed chunk put it, and re-queueing is
    * all it takes: the job resumes from that cursor rather than repeating what is
    * already written. Queueing one twice is harmless - the chunk claim lets only
-   * one of them commit.
+   * one of them commit. An apply waiting for the reindex keeps the job it
+   * queued to look again: the job queued here finds the wait taken and leaves
+   * it to that one (awaitReindex).
    */
   async resumeInterruptedApplies(): Promise<number> {
     const unfinished = await this.prisma.importSession.findMany({
@@ -289,7 +286,7 @@ export class ImportApplyService implements OnModuleInit {
    * later, as a job of its own, and this one finishes. Left to the queue's
    * retries, the wait would spend the attempts meant for a database that went
    * away, and a reindex that outlasts them would end a sound import as
-   * interrupted. `awaitingReindexSince` is when the wait began, and bounds it.
+   * interrupted. The session records when the wait began, which bounds it.
    *
    * Two kinds of failure end an apply, and they are answered differently:
    *
@@ -306,10 +303,7 @@ export class ImportApplyService implements OnModuleInit {
    * reads as interrupted is one that really did run out of attempts, or out
    * of the time it waits for the reindex.
    */
-  async runApply(
-    sessionId: string,
-    awaitingReindexSince: Date | null = null,
-  ): Promise<void> {
+  async runApply(sessionId: string): Promise<void> {
     try {
       while (await this.applyNextChunk(sessionId)) {
         // Each chunk commits on its own; the loop simply carries on from the
@@ -317,7 +311,7 @@ export class ImportApplyService implements OnModuleInit {
       }
     } catch (error) {
       if (error instanceof ReindexPendingError) {
-        await this.awaitReindex(sessionId, awaitingReindexSince ?? new Date());
+        await this.awaitReindex(sessionId);
         return;
       }
       if (error instanceof ImportError) {
@@ -585,6 +579,10 @@ export class ImportApplyService implements OnModuleInit {
             },
             rowsSkipped: { increment: written.skipped },
             rowsWithProblems: { increment: written.errors },
+            // A chunk got through, so whatever waited for the reindex is over,
+            // and a later wait is a wait of its own.
+            reindexWaitSince: null,
+            reindexRecheckAt: null,
             // The last chunk ends the import in the same commit that writes
             // its rows. Marked afterwards, there would be a moment when every
             // row was written and the session still read as running, and
@@ -633,25 +631,72 @@ export class ImportApplyService implements OnModuleInit {
    *
    * The job queued keeps the apply's retries and dead letter, and has all of
    * its attempts again: none of them was spent on the wait.
+   *
+   * One job at a time waits for the reindex. More than one can find it
+   * unfinished: the job a restart queues for every running session, a job the
+   * queue delivers twice, the job queued last time still waiting for its turn.
+   * Each that queued a job of its own would start a line of jobs that goes on
+   * until the reindex finishes. So queueing the next one is claimed on the
+   * session, in the same transaction that queues it: the session records when
+   * that job is due, and the claim is only taken once that time has passed,
+   * which is when the job it records can run. A job that finds a later time
+   * there leaves the wait to the job that is coming, and finishes.
+   *
+   * The times are the database's: the due time recorded is the one the queue
+   * gives the job it inserts in the same transaction, so the job is never run
+   * before its own claim can be taken, on any instance's clock. And the start
+   * of the wait is read from the session rather than carried in the job, so
+   * every job of the apply bounds the same wait.
    */
-  private async awaitReindex(sessionId: string, since: Date): Promise<void> {
-    if (Date.now() - since.getTime() >= REINDEX_WAIT_MS) {
-      if (await stopImport(this.prisma, sessionId, "apply-interrupted")) {
-        this.logger.error(
-          `Import session ${sessionId}: personal identity numbers were still awaiting the reindex after ${String(REINDEX_WAIT_MS / 60_000)} minutes; see the reindex's own log`,
+  private async awaitReindex(sessionId: string): Promise<void> {
+    // Before the transaction: creating a queue is the queue's own work, on its
+    // own connection.
+    await this.ensureQueues();
+    const wait = await this.prisma.$transaction(
+      async (tx): Promise<ReindexWait> => {
+        const [claimed] = await tx.$queryRaw<{ timedOut: boolean }[]>`
+          UPDATE "import_session"
+          SET "reindexWaitSince" = COALESCE("reindexWaitSince", now()),
+              "reindexRecheckAt" = now() + ${REINDEX_RECHECK_SECONDS}::int * interval '1 second'
+          WHERE "id" = ${sessionId}
+            AND "status" = 'APPLYING'
+            AND ("reindexRecheckAt" IS NULL OR "reindexRecheckAt" <= now())
+          RETURNING "reindexWaitSince" <= now() - ${REINDEX_WAIT_MINUTES}::int * interval '1 minute' AS "timedOut"`;
+        if (claimed === undefined) {
+          return "left-to-another";
+        }
+        if (claimed.timedOut) {
+          return (await stopImport(tx, sessionId, "apply-interrupted"))
+            ? "timed-out"
+            : "left-to-another";
+        }
+        await this.jobs.sendAtInTransaction<ImportApplyJob>(
+          tx,
+          IMPORT_APPLY_QUEUE,
+          { sessionId },
+          REINDEX_RECHECK_SECONDS,
+          APPLY_JOB_OPTIONS,
         );
-      }
-      return;
+        return "queued";
+      },
+    );
+    switch (wait) {
+      case "queued":
+        this.logger.log(
+          `Import session ${sessionId}: waiting for the reindex of personal identity numbers`,
+        );
+        break;
+      case "timed-out":
+        this.logger.error(
+          `Import session ${sessionId}: personal identity numbers were still awaiting the reindex after ${String(REINDEX_WAIT_MINUTES)} minutes; see the reindex's own log`,
+        );
+        break;
+      case "left-to-another":
+        this.logger.log(
+          `Import session ${sessionId}: another job of the apply is already waiting for the reindex`,
+        );
+        break;
     }
-    this.logger.log(
-      `Import session ${sessionId}: waiting for the reindex of personal identity numbers`,
-    );
-    await this.jobs.sendAt<ImportApplyJob>(
-      IMPORT_APPLY_QUEUE,
-      { sessionId, awaitingReindexSince: since.toISOString() },
-      new Date(Date.now() + REINDEX_RECHECK_MS),
-      APPLY_JOB_OPTIONS,
-    );
   }
 
   /**
@@ -1068,15 +1113,6 @@ function readRowPersons(value: unknown): Map<number, string> {
     }
   }
   return persons;
-}
-
-/** A timestamp from a job's payload, or null where there is none to read. */
-function readTimestamp(value: unknown): Date | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function readDecision(raw: unknown): ImportDecision | null {

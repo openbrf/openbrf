@@ -6,6 +6,7 @@ import {
 } from "./address-book.controller";
 import { AddressBookService } from "./address-book.service";
 import { ConsentService } from "./consent.service";
+import { PersonReindexLock } from "./person-reindex-lock";
 import { PersonReindexService } from "./person-reindex.service";
 import { PersonService } from "./person.service";
 
@@ -24,6 +25,7 @@ import { PersonService } from "./person.service";
     AddressBookService,
     ConsentService,
     PersonService,
+    PersonReindexLock,
     PersonReindexService,
   ],
   exports: [AddressBookService, ConsentService, PersonService],

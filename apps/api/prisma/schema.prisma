@@ -2848,6 +2848,19 @@ model ImportSession {
   rowsSkipped                  Int @default(0)
   rowsWithProblems             Int @default(0)
 
+  /// When the apply first found the reindex of personal identity numbers
+  /// unfinished, while it waits for it. Read by every job of the apply, so the
+  /// wait is bounded from its start whichever job looks next. Cleared by the
+  /// next chunk that commits.
+  reindexWaitSince DateTime? @db.Timestamptz(6)
+
+  /// When the job queued to look at the reindex again is due. Set together with
+  /// queueing it, and only once this has passed, so a session has one such job
+  /// at a time: another job that finds the reindex unfinished before then -
+  /// the one a restart queues, or the same job delivered twice - leaves the
+  /// wait to it. Cleared by the next chunk that commits.
+  reindexRecheckAt DateTime? @db.Timestamptz(6)
+
   /// Why the apply stopped, when it stopped early. One of the import's own
   /// reason codes, so the screen translates it like any other failure.
   failureReason String?

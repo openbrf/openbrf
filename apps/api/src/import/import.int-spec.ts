@@ -16,6 +16,7 @@ import {
   vi,
 } from "vitest";
 
+import type { PersonReindexLock } from "../address-book/person-reindex-lock";
 import { PersonReindexService } from "../address-book/person-reindex.service";
 import { PersonService } from "../address-book/person.service";
 import { AppModule } from "../app.module";
@@ -3212,10 +3213,11 @@ describe("a person entered while a chunk is applied", () => {
       prisma,
       reindexEncryption,
       {} as JobQueueService,
+      {} as PersonReindexLock,
     ).run();
     await midRow;
 
-    const deferred = vi.spyOn(app.get(JobQueueService), "sendAt");
+    const deferred = vi.spyOn(app.get(JobQueueService), "sendAtInTransaction");
     try {
       // Queued again for later, not stopped: that run finds the reindex done.
       await applies.runApply(sessionId);
@@ -3298,20 +3300,68 @@ describe("a person entered while a chunk is applied", () => {
     expect(await reindex).toBe(1);
   }, 60_000);
 
-  it("waits for a reindex that outlasts the apply's retries", async () => {
-    // Each look that finds the reindex unfinished queues the apply again for
-    // later, as a job with all its retries, so a reindex that takes longer
-    // than they would last does not end the import as interrupted.
-    const cookie = await signIn(actors.board.email);
-    const personId = `imp-reindex-long-${suffix}`;
-    const [number = ""] = identityNumbers(1, "730913");
-    await createAwaitingReindex(personId, "Långindex", number);
-    const sessionId = await queued(cookie, "langindex.csv", [
+  /** The apply's jobs for a session, in the queue's own table. */
+  async function applyJobs(sessionId: string): Promise<
+    {
+      id: string;
+      startAfter: Date;
+      retryLimit: number;
+      deadLetter: string | null;
+    }[]
+  > {
+    return prisma.$queryRaw`
+      SELECT id::text AS id, start_after AS "startAfter",
+        retry_limit AS "retryLimit", dead_letter AS "deadLetter"
+      FROM pgboss.job
+      WHERE name = 'import-apply' AND data->>'sessionId' = ${sessionId}
+      ORDER BY created_on, start_after`;
+  }
+
+  /** What the session records of its wait for the reindex. */
+  async function readWait(
+    sessionId: string,
+  ): Promise<{ since: Date | null; due: Date | null }> {
+    const session = await prisma.importSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { reindexWaitSince: true, reindexRecheckAt: true },
+    });
+    return { since: session.reindexWaitSince, due: session.reindexRecheckAt };
+  }
+
+  /**
+   * Moves the session's wait and its jobs the given seconds into the past, as
+   * the clock moving on would leave them: a job queued for later becomes due.
+   */
+  async function timePasses(sessionId: string, seconds: number): Promise<void> {
+    await prisma.$executeRaw`
+      UPDATE "import_session"
+      SET "reindexWaitSince" = "reindexWaitSince" - ${seconds}::int * interval '1 second',
+          "reindexRecheckAt" = "reindexRecheckAt" - ${seconds}::int * interval '1 second'
+      WHERE "id" = ${sessionId}`;
+    await prisma.$executeRaw`
+      UPDATE pgboss.job
+      SET start_after = start_after - ${seconds}::int * interval '1 second'
+      WHERE name = 'import-apply' AND data->>'sessionId' = ${sessionId}`;
+  }
+
+  /** A queued session of one row whose number the reindex has yet to rewrite. */
+  async function awaitingSession(
+    cookie: string,
+    firstName: string,
+    birthDate: string,
+  ): Promise<{ sessionId: string; number: string }> {
+    const [number = ""] = identityNumbers(1, birthDate);
+    await createAwaitingReindex(
+      `imp-${birthDate}-${suffix}`,
+      firstName,
+      number,
+    );
+    const sessionId = await queued(cookie, `${birthDate}.csv`, [
       [...HEADERS, "Personnummer"],
       [
         addressLabel,
         "2115",
-        "Långindex",
+        firstName,
         surname,
         "Boende",
         "",
@@ -3320,38 +3370,49 @@ describe("a person entered while a chunk is applied", () => {
         number,
       ],
     ]);
+    return { sessionId, number };
+  }
 
-    const deferred = vi.spyOn(app.get(JobQueueService), "sendAt");
-    try {
-      let since: Date | null = null;
-      // More looks than the apply has retries.
-      for (let look = 0; look < 8; look++) {
-        await applies.runApply(sessionId, since);
-        expect((await readRun(cookie, sessionId)).status).toBe("APPLYING");
-        const [queue, data, runAt, options] = deferred.mock.lastCall ?? [];
-        expect(queue).toBe("import-apply");
-        expect(options).toMatchObject({
-          retryLimit: 5,
-          deadLetter: "import-apply-abandoned",
-        });
-        expect(runAt?.getTime()).toBeGreaterThan(Date.now());
-        const payload = data as {
-          sessionId: string;
-          awaitingReindexSince: string;
-        };
-        expect(payload.sessionId).toBe(sessionId);
-        since ??= new Date(payload.awaitingReindexSince);
-        // The wait began at the first look, whichever look this is.
-        expect(payload.awaitingReindexSince).toBe(since.toISOString());
-      }
-      expect(deferred).toHaveBeenCalledTimes(8);
-    } finally {
-      deferred.mockRestore();
+  it("waits for a reindex that outlasts the apply's retries", async () => {
+    // Each look that finds the reindex unfinished queues the apply again for
+    // later, as a job with all its retries, so a reindex that takes longer
+    // than they would last does not end the import as interrupted.
+    const cookie = await signIn(actors.board.email);
+    const { sessionId, number } = await awaitingSession(
+      cookie,
+      "Långindex",
+      "730913",
+    );
+
+    let since: Date | null = null;
+    // More looks than the apply has retries, each by the job the last one
+    // queued, once it is due.
+    for (let look = 1; look <= 8; look++) {
+      await applies.runApply(sessionId);
+      expect((await readRun(cookie, sessionId)).status).toBe("APPLYING");
+      const jobs = await applyJobs(sessionId);
+      expect(jobs).toHaveLength(look);
+      const queued = jobs.at(-1);
+      expect(queued).toMatchObject({
+        retryLimit: 5,
+        deadLetter: "import-apply-abandoned",
+      });
+      const wait = await readWait(sessionId);
+      // Due exactly when the session says the next look is, 30 seconds on.
+      expect(queued?.startAfter).toEqual(wait.due);
+      expect((wait.due?.getTime() ?? 0) - Date.now()).toBeGreaterThan(25_000);
+      // The wait began at the first look, whichever look this is.
+      since ??= wait.since;
+      expect(wait.since).toEqual(since);
+      await timePasses(sessionId, 30);
+      since = new Date((since?.getTime() ?? 0) - 30_000);
     }
 
     await app.get(PersonReindexService).run();
     await applies.runApply(sessionId);
     expect((await readRun(cookie, sessionId)).status).toBe("APPLIED");
+    // The chunk that got through ended the wait.
+    expect(await readWait(sessionId)).toEqual({ since: null, due: null });
     const persons = await prisma.person.findMany({
       where: {
         personalIdentityNumberIndex: await encryption.computeIndex(
@@ -3361,43 +3422,77 @@ describe("a person entered while a chunk is applied", () => {
       },
       select: { id: true },
     });
-    expect(persons).toEqual([{ id: personId }]);
+    expect(persons).toEqual([{ id: `imp-730913-${suffix}` }]);
+  }, 60_000);
+
+  it("keeps one job waiting for the reindex across a restart and a job delivered twice", async () => {
+    const cookie = await signIn(actors.board.email);
+    const { sessionId } = await awaitingSession(cookie, "Ettjobb", "730915");
+
+    await applies.runApply(sessionId);
+    const [waiting] = await applyJobs(sessionId);
+    const { since } = await readWait(sessionId);
+    expect(waiting).toBeDefined();
+    expect(waiting?.startAfter.getTime()).toBeGreaterThan(Date.now());
+
+    // A restart queues a job for every running session, and the queue
+    // delivers it at once, while the job waiting for the reindex is not yet
+    // due. It leaves the wait to that job.
+    expect(await applies.resumeInterruptedApplies()).toBeGreaterThan(0);
+    const restarted = await applyJobs(sessionId);
+    expect(restarted).toHaveLength(2);
+    await applies.runApply(sessionId);
+    expect(await applyJobs(sessionId)).toEqual(restarted);
+    expect(await readWait(sessionId)).toEqual({
+      since,
+      due: waiting?.startAfter,
+    });
+
+    // The waiting job falls due and is delivered twice at once, as a queue
+    // that delivers at least once may. One of the two queues the next look.
+    await timePasses(sessionId, 30);
+    await Promise.all([
+      applies.runApply(sessionId),
+      applies.runApply(sessionId),
+    ]);
+    const after = await applyJobs(sessionId);
+    expect(after).toHaveLength(3);
+    const wait = await readWait(sessionId);
+    expect(after.at(-1)?.startAfter).toEqual(wait.due);
+    // Still the wait that began at the first look.
+    expect(wait.since).toEqual(new Date((since?.getTime() ?? 0) - 30_000));
+    expect((await readRun(cookie, sessionId)).status).toBe("APPLYING");
+
+    await app.get(PersonReindexService).run();
+    await timePasses(sessionId, 30);
+    await applies.runApply(sessionId);
+    expect((await readRun(cookie, sessionId)).status).toBe("APPLIED");
+    expect(await prisma.person.count({ where: { firstName: "Ettjobb" } })).toBe(
+      1,
+    );
   }, 60_000);
 
   it("stops when the reindex has not finished within the hour", async () => {
     // A reindex that has stopped on something is the operator's to look into,
     // and its own log says what. The import does not wait on it for ever.
     const cookie = await signIn(actors.board.email);
-    const personId = `imp-reindex-stuck-${suffix}`;
-    const [number = ""] = identityNumbers(1, "730914");
-    await createAwaitingReindex(personId, "Fastindex", number);
-    const sessionId = await queued(cookie, "fastindex.csv", [
-      [...HEADERS, "Personnummer"],
-      [
-        addressLabel,
-        "2115",
-        "Fastindex",
-        surname,
-        "Boende",
-        "",
-        "",
-        "2024-02-01",
-        number,
-      ],
-    ]);
+    const { sessionId } = await awaitingSession(cookie, "Fastindex", "730914");
 
-    const deferred = vi.spyOn(app.get(JobQueueService), "sendAt");
     const logged = vi
       .spyOn(Logger.prototype, "error")
       .mockImplementation(() => undefined);
     try {
-      await applies.runApply(sessionId, new Date(Date.now() - 61 * 60_000));
-      expect(deferred).not.toHaveBeenCalled();
+      await applies.runApply(sessionId);
+      // An hour on, the job then queued looks again, and every look between
+      // has found the reindex unfinished.
+      await timePasses(sessionId, 61 * 60);
+      await applies.runApply(sessionId);
       expect(logged).toHaveBeenCalledWith(
         expect.stringContaining("still awaiting the reindex"),
       );
+      // Nothing more queued.
+      expect(await applyJobs(sessionId)).toHaveLength(1);
     } finally {
-      deferred.mockRestore();
       logged.mockRestore();
       await app.get(PersonReindexService).run();
     }
