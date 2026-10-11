@@ -948,11 +948,14 @@ const { spawnSync } = require("node:child_process");
 // The status is not the answer: find exits non-zero on a directory it may not
 // read, and a directory this user may not read is not one it can write into.
 // What it prints is the answer.
+// All of them, not the first: find walks a directory in the order the
+// filesystem keeps it, so the first is an arbitrary one of however many, and
+// a failure that names one package hides whether it is one or a hundred.
 const writable = spawnSync(
   "find",
-  ["/app", "(", "-user", String(process.getuid()), "-o", "-perm", "-0002", ")", "-not", "-type", "l", "-print", "-quit"],
-  { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-).stdout.trim();
+  ["/app", "(", "-user", String(process.getuid()), "-o", "-perm", "-0002", ")", "-not", "-type", "l", "-print"],
+  { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 },
+).stdout.trim().split("\\n").slice(0, 20).join("\\n");
 
 const appended = [];
 for (const target of [

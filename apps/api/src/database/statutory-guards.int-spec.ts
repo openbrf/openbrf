@@ -1573,34 +1573,77 @@ describe("a temporary table named like one a guard reads", () => {
     );
   });
 
-  it("pins the search_path of every openbrf_ function, the next one included", async () => {
-    // Asked of the catalog rather than of a list, so a guard function a later
-    // migration adds without the setting is a failure here.
-    const functions = await prisma.$queryRawUnsafe<
-      { name: string; config: string[] | null }[]
-    >(
-      `SELECT p.proname::text AS name, p.proconfig AS config
-       FROM pg_proc p
-       JOIN pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname = 'public' AND p.proname LIKE 'openbrf\\_%'
-       ORDER BY 1`,
+  /**
+   * Every openbrf_ function in public, and every function a trigger on a table
+   * in public calls, whatever its name or schema, with the settings it runs
+   * under. Internal triggers are left out: they are a foreign key's, and call
+   * PostgreSQL's own functions.
+   */
+  const GUARD_FUNCTIONS = `
+    SELECT format('%I.%I', n.nspname, p.proname) AS name, p.proconfig AS config
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE (n.nspname = 'public' AND p.proname LIKE 'openbrf\\_%')
+      OR p.oid IN (
+        SELECT t.tgfoid
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace tn ON tn.oid = c.relnamespace
+        WHERE tn.nspname = 'public' AND NOT t.tgisinternal
+      )
+    ORDER BY 1`;
+
+  type GuardFunction = { name: string; config: string[] | null };
+
+  function unpinned(functions: GuardFunction[]): GuardFunction[] {
+    return functions.filter(
+      ({ config }) =>
+        !(config ?? []).includes("search_path=pg_catalog, pg_temp"),
     );
+  }
+
+  it("pins the search_path of every function a trigger in public calls, the next one included", async () => {
+    // Asked of the catalog rather than of a list, so a trigger function a later
+    // migration adds without the setting is a failure here, by any name.
+    const functions =
+      await prisma.$queryRawUnsafe<GuardFunction[]>(GUARD_FUNCTIONS);
     expect(functions.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
-        "openbrf_check_report_obligation_event",
-        "openbrf_check_transfer_record",
-        "openbrf_check_transfer_reversal",
-        "openbrf_forbid_mutation",
-        "openbrf_forbid_truncate",
-        "openbrf_keep_oauth_client_disabled",
+        "public.openbrf_check_report_obligation_event",
+        "public.openbrf_check_transfer_record",
+        "public.openbrf_check_transfer_reversal",
+        "public.openbrf_forbid_mutation",
+        "public.openbrf_forbid_truncate",
+        "public.openbrf_keep_oauth_client_disabled",
       ]),
     );
-    expect(
-      functions.filter(
-        ({ config }) =>
-          !(config ?? []).includes("search_path=pg_catalog, pg_temp"),
-      ),
-    ).toEqual([]);
+    expect(unpinned(functions)).toEqual([]);
+  });
+
+  it("finds a trigger function added without the setting, whatever it is called", async () => {
+    // What a later migration might add, in a transaction that is rolled back.
+    const table = `pinning_probe_${suffix}`;
+    const client = new Client({ connectionString: env.DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`CREATE TABLE public.${table} ("id" integer)`);
+      await client.query(
+        `CREATE FUNCTION public.${table}_touch() RETURNS trigger
+         LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
+      );
+      await client.query(
+        `CREATE TRIGGER ${table}_touch BEFORE INSERT ON public.${table}
+         FOR EACH ROW EXECUTE FUNCTION public.${table}_touch()`,
+      );
+      const { rows } = await client.query<GuardFunction>(GUARD_FUNCTIONS);
+      expect(unpinned(rows)).toEqual([
+        { name: `public.${table}_touch`, config: null },
+      ]);
+    } finally {
+      await client.query("ROLLBACK");
+      await client.end();
+    }
   });
 });
 
@@ -1918,9 +1961,9 @@ describe("two instances sharing one database server", () => {
 
   it("caps each runtime role's connections", async () => {
     // One instance, or a plugin running inside it, must not be able to take
-    // every connection the server has. Nineteen unless the entrypoint says
+    // every connection the server has. Twenty unless the entrypoint says
     // otherwise: the default pool, the job queue's two, the package lock's
-    // four and three to spare.
+    // four, the reindex lock's one and three to spare.
     const limits = await prisma.$queryRawUnsafe<
       { rolname: string; rolconnlimit: number }[]
     >(
@@ -1930,7 +1973,7 @@ describe("two instances sharing one database server", () => {
     );
     expect(
       Object.fromEntries(limits.map((row) => [row.rolname, row.rolconnlimit])),
-    ).toEqual({ [first.role]: 19, [second.role]: 7 });
+    ).toEqual({ [first.role]: 20, [second.role]: 7 });
   });
 
   it("refuses a runtime role another instance's database already grants", async () => {

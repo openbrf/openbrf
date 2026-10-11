@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { CipherSweet, EncryptedField, StringProvider } from "ciphersweet-js";
 import {
@@ -19,10 +20,19 @@ import { PrismaClient } from "../generated/prisma/client";
 import { ImportPlannerService } from "../import/import-planner.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
+  advisoryLockCount,
+  terminateAdvisoryLockHolder,
+  waitFor,
+} from "../testing/advisory-locks";
+import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import { PersonReindexService } from "./person-reindex.service";
+import { PersonReindexLock } from "./person-reindex-lock";
+import {
+  type PersonReindexJob,
+  PersonReindexService,
+} from "./person-reindex.service";
 import { PersonService } from "./person.service";
 
 /**
@@ -58,6 +68,7 @@ beforeAll(async () => {
     prisma as unknown as PrismaService,
     encryption,
     {} as JobQueueService,
+    new PersonReindexLock(env),
   );
 
   const phone = await encryption.encrypt("person.phone", PHONE);
@@ -402,4 +413,154 @@ describe("a number stored without its century", () => {
       ),
     ).resolves.toBe("20251201-1236");
   });
+});
+
+describe("runs that overlap", () => {
+  // Spelled out rather than imported, so a lock that quietly changed its key
+  // fails here instead of passing under the new one.
+  const LOCK_KEY = "person-reindex:run";
+  const id = `reindex-overlap-${suffix}`;
+  const db = (): PrismaService => prisma as unknown as PrismaService;
+
+  /** A stale row, as the release before the upgrade left it. */
+  async function createStale(): Promise<void> {
+    await prisma.person.create({
+      data: {
+        id,
+        firstName: "Ingrid",
+        lastName: "Sandberg",
+        personalIdentityNumberCipher: (
+          await encryption.encrypt(
+            "person.personalIdentityNumber",
+            IDENTITY_NUMBER,
+          )
+        ).cipher,
+        personalIdentityNumberIndex: "stale",
+        blindIndexVersion: 1,
+      },
+    });
+  }
+
+  /**
+   * A run on an instance of its own: its own lock, and an encryption that
+   * holds the run between a row's hash and its write until released.
+   */
+  function instance(): {
+    service: PersonReindexService;
+    sendAt: ReturnType<typeof vi.fn>;
+    encrypted: ReturnType<typeof vi.fn>;
+    midRow: Promise<void>;
+    release: () => void;
+  } {
+    const own = new FieldEncryptionService(env);
+    const encrypt = own.encrypt.bind(own);
+    let computed!: () => void;
+    const midRow = new Promise<void>((resolve) => {
+      computed = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const encrypted = vi.fn(async (field: string, value: string) => {
+      const result = await encrypt(
+        field as Parameters<typeof encrypt>[0],
+        value,
+      );
+      computed();
+      await held;
+      return result;
+    });
+    own.encrypt = encrypted as unknown as typeof own.encrypt;
+    const sendAt = vi.fn(() => Promise.resolve());
+    return {
+      service: new PersonReindexService(
+        env,
+        prisma as unknown as PrismaService,
+        own,
+        { sendAt } as unknown as JobQueueService,
+        new PersonReindexLock(env),
+      ),
+      sendAt,
+      encrypted,
+      midRow,
+      release,
+    };
+  }
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await prisma.person.deleteMany({ where: { id } });
+  });
+
+  it("lets one run at a time walk the register, at boot and on recovery", async () => {
+    vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    await createStale();
+    const first = instance();
+    const running = first.service.runJob();
+    await first.midRow;
+    expect(await advisoryLockCount(db(), LOCK_KEY, true)).toBe(1n);
+
+    // Another instance's boot, and a run queued after an earlier failure,
+    // arrive while the first run is part way through a row.
+    const boot = instance();
+    const recovery = instance();
+    await boot.service.runJob();
+    await recovery.service.runJob({
+      failingSince: new Date().toISOString(),
+      failures: 2,
+    } satisfies PersonReindexJob);
+
+    // Neither read a row, and neither queued a run of its own.
+    for (const other of [boot, recovery]) {
+      expect(other.encrypted).not.toHaveBeenCalled();
+      expect(other.sendAt).not.toHaveBeenCalled();
+    }
+    expect(await advisoryLockCount(db(), LOCK_KEY, true)).toBe(1n);
+
+    first.release();
+    await running;
+    expect(first.sendAt).not.toHaveBeenCalled();
+    const person = await prisma.person.findUniqueOrThrow({ where: { id } });
+    expect(person.blindIndexVersion).toBe(NORMALIZATION_VERSION);
+    // Closing the session let the lock go.
+    expect(await advisoryLockCount(db(), LOCK_KEY, true)).toBe(0n);
+  }, 30_000);
+
+  it("stops before its next write when its lock is lost, and the next run finishes", async () => {
+    vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    await createStale();
+    const first = instance();
+    const running = first.service.runJob();
+    await first.midRow;
+
+    // The session holding the lock ends while the run is part way through a
+    // row: the database hands the lock to whoever asks next.
+    expect(await terminateAdvisoryLockHolder(db(), LOCK_KEY)).toBe(1);
+    await waitFor(
+      async () => (await advisoryLockCount(db(), LOCK_KEY, true)) === 0n,
+    );
+    first.release();
+    await running;
+
+    // The row was not written by a run that no longer held the lock.
+    const stale = await prisma.person.findUniqueOrThrow({ where: { id } });
+    expect(stale.blindIndexVersion).toBe(1);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("PersonReindexLockLostError"),
+    );
+    expect(first.sendAt).toHaveBeenCalledOnce();
+    const [, job] = first.sendAt.mock.lastCall as [string, PersonReindexJob];
+
+    // The run it queued takes the lock and finishes.
+    const next = instance();
+    next.release();
+    await next.service.runJob(job);
+    expect(next.sendAt).not.toHaveBeenCalled();
+    const person = await prisma.person.findUniqueOrThrow({ where: { id } });
+    expect(person.blindIndexVersion).toBe(NORMALIZATION_VERSION);
+  }, 30_000);
 });

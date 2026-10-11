@@ -746,13 +746,22 @@ export class SubletService {
         );
       }
 
-      // By the key alone: a consent is final, so the status read above cannot
-      // have changed, and the database refuses the row outside the rules too.
-      const updated = await tx.subletApplication.update({
-        where: { id: applicationId },
+      // By the key and the status: a consent is final, but the nightly purge
+      // can delete the row between the read above and this write. An update by
+      // the key alone would throw then and answer 500; the count says the row
+      // went and the answer is the same as for an application that never was.
+      const { count } = await tx.subletApplication.updateMany({
+        where: { id: applicationId, status: "CONSENTED" },
         data: {
           lettingEndedOn: endedOn === null ? null : dateColumnOf(endedOn),
         },
+      });
+      if (count === 0) {
+        throw new SubletError("No such application.", "application-not-found");
+      }
+      // The write holds the row until the transaction ends, so it is there.
+      const updated = await tx.subletApplication.findUniqueOrThrow({
+        where: { id: applicationId },
         select: APPLICATION_COLUMNS,
       });
 

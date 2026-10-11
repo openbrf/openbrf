@@ -84,7 +84,8 @@ Verified empirically with `ciphersweet-js` 2.0.6 on Node 26.7.0:
 - **Import is CPU-bound on personal identity numbers.** At 43.8 ms per value,
   an import of 1000 persons spends roughly 44 seconds in Argon2id alone. Import
   therefore runs as a chunked pg-boss job with progress reporting, never
-  inside a request.
+  inside a request. So does its preview, which hashes every identity number in
+  the file once the register holds one to match against.
 - The dependency is stale, so the crypto service is the isolation boundary
   that makes the fallback cheap: the CipherSweet construction (AEAD field
   encryption plus a truncated keyed hash) is small enough to reimplement on

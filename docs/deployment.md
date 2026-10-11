@@ -432,9 +432,9 @@ If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
 role that was granted every write in `public` by an earlier release can still
 write the migration history, or create objects in the job schema. The
 application refuses to start as such a role, as one that holds `TRIGGER` on a
-table in `public` or `pgboss`, and as one that owns anything in the
-application's schemas or is a member of another role, so constrain it before
-the upgrade's `up -d`.
+table in `public` or `pgboss`, as one that can create temporary tables, and as
+one that owns anything in the application's schemas or is a member of another
+role, so constrain it before the upgrade's `up -d`.
 
 If you have a checkout, apply
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
@@ -466,7 +466,7 @@ database's `CONNECT` for `PUBLIC`, which is every role on the server. The role
 keeps its own `CONNECT` grant, so the block gives it that first. Any other role
 that connects - a monitoring or a backup user - needs its own
 `GRANT CONNECT ON DATABASE openbrf TO <role>` afterwards, as the
-[shared database server](#an-instance-on-a-shared-database-server) notes below
+[shared database server](#several-instances-on-one-database-server) notes below
 explain.
 The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
 because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
@@ -510,6 +510,18 @@ SQL
 ```
 
 Run the `GRANT` again after an upgrade that adds a column to `pgboss.version`.
+
+A `REVOKE` that a grant made by another role keeps from taking effect only
+warns, and the block goes on. Confirm afterwards that the role can no longer
+create temporary tables:
+
+```sql
+SELECT has_database_privilege('my_runtime_role', current_database(), 'TEMPORARY');
+```
+
+It must answer `f`. If it answers `t`, the role that made the grant revokes
+`TEMPORARY` from the runtime role and from `PUBLIC` as well. The application
+refuses to start while the role holds it, and names the `REVOKE` to run.
 
 ### An instance on a shared database server
 
@@ -681,7 +693,11 @@ An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
 and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
 it. Its owner runs `REVOKE CONNECT, TEMPORARY ON DATABASE <database> FROM PUBLIC`
 once, revokes `TEMPORARY` from the runtime role too, and grants `CONNECT` to the
-runtime role and to any other role that connects.
+runtime role and to any other role that connects. It then checks that
+`SELECT has_database_privilege('<runtime role>', current_database(), 'TEMPORARY');`
+answers `f`: a grant made by another role survives the owner's revoke with
+only a warning. The application refuses to start while the runtime role holds
+`TEMPORARY`.
 
 The names of every role and every database on the server remain visible to all
 of them whatever the grants, so neither should carry anything an association
@@ -703,14 +719,15 @@ DROP ROLE openbrf_app;
 
 **Connections.** The application's pool holds up to
 `OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, the job queue two
-more, and installing or uninstalling a plugin or theme holds a lock on a
-connection of its own, at most four at a time, so an instance can take sixteen
-at the defaults. Each deploy limits the runtime role to that plus three, so an
-instance - or code running inside it - cannot take more than its share.
-PostgreSQL allows 100 connections unless `max_connections` says otherwise,
-three of them reserved for superusers, which leaves room for five instances at
-their limits and two connections over for the migrations each deploy runs and
-for anybody else who connects. The limits,
+more, installing or uninstalling a plugin or theme holds a lock on a
+connection of its own, at most four at a time, and the reindex of blind
+indexes after an upgrade holds one more while it runs, so an instance can take
+seventeen at the defaults. Each deploy limits the runtime role to that plus
+three, so an instance - or code running inside it - cannot take more than its
+share. PostgreSQL allows 100 connections unless `max_connections` says
+otherwise, three of them reserved for superusers, which leaves room for four
+instances at their limits and seventeen connections over for the migrations
+each deploy runs and for anybody else who connects. The limits,
 and room for those, have to fit within `max_connections` less the reserved
 connections; a smaller pool, or a larger `max_connections`, makes room for more
 instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
