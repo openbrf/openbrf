@@ -14,8 +14,11 @@
  *
  * The Semgrep image is read from the one FROM line of docker/semgrep/Dockerfile,
  * which the scan workflow runs directly. It is not compared with anything, but
- * it must keep its digest and stay the only FROM, or the workflow would run
- * whatever the tag points at that day, or the wrong one of two images.
+ * it must keep its digest, stay a semgrep/semgrep image and stay the only FROM,
+ * or the workflow would run whatever the tag points at that day, another
+ * repository's image, or the wrong one of two images. The workflow takes the
+ * image from `--semgrep-image`, which prints it once it has passed those
+ * checks, so that the guard and the workflow cannot read the line differently.
  *
  * Only the registry may differ: `name:tag@sha256:digest` must be identical in
  * every file below. Every file must also still carry a reference, so that a
@@ -107,7 +110,37 @@ export function semgrepFailures(images, fromLines = images.length) {
         "points at when it runs.",
     ];
   }
+  if (!SEMGREP_IMAGE_PATTERN.test(images[0])) {
+    return [
+      `The image on the FROM line of ${SEMGREP_DOCKERFILE} is not a ` +
+        `semgrep/semgrep image: ${images[0]}. The scan workflow runs it with ` +
+        "the code mounted, so it has to be the Semgrep image and no other.",
+    ];
+  }
   return [];
+}
+
+/**
+ * The Semgrep image the scan workflow runs: `semgrep/semgrep:tag@sha256:digest`.
+ * Without a registry, which the workflow puts in front of it.
+ */
+const SEMGREP_IMAGE_PATTERN = /^semgrep\/semgrep:[\w.-]+@sha256:[0-9a-f]{64}$/;
+
+/**
+ * The one image the scan workflow may run, read from the Semgrep Dockerfile.
+ * Throws with every reason when the Dockerfile is not what the workflow can
+ * trust, so that nothing but a validated reference reaches the caller.
+ *
+ * @param {string} source The Dockerfile's text.
+ * @returns {string}
+ */
+export function semgrepImageOf(source) {
+  const images = fromImagesOf(source);
+  const failures = semgrepFailures(images, fromLineCount(source));
+  if (failures.length > 0) {
+    throw new Error(failures.join("\n\n"));
+  }
+  return images[0];
 }
 
 /**
@@ -160,20 +193,36 @@ function readRepoFile(path) {
 }
 
 if (import.meta.main) {
+  const dockerfile = readRepoFile(SEMGREP_DOCKERFILE);
+  const missing =
+    `${SEMGREP_DOCKERFILE} does not exist. If it moved, update ` +
+    "SEMGREP_DOCKERFILE in scripts/check-image-pins.mjs with it.";
+
+  if (process.argv.includes("--semgrep-image")) {
+    // Only the image goes to stdout, for the workflow to capture; a refusal
+    // goes to stderr with a non-zero exit, and stdout stays empty.
+    try {
+      if (dockerfile === undefined) {
+        throw new Error(missing);
+      }
+      process.stdout.write(`${semgrepImageOf(dockerfile)}\n`);
+    } catch (error) {
+      process.stderr.write(`${error.message}\n`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
   const found = new Map(
     POSTGRES_FILES.map((path) => [
       path,
       pinsOf(readRepoFile(path) ?? "", "postgres"),
     ]),
   );
-  const dockerfile = readRepoFile(SEMGREP_DOCKERFILE);
   const failures = [
     ...disagreements(found),
     ...(dockerfile === undefined
-      ? [
-          `${SEMGREP_DOCKERFILE} does not exist. If it moved, update ` +
-            "SEMGREP_DOCKERFILE in scripts/check-image-pins.mjs with it.",
-        ]
+      ? [missing]
       : semgrepFailures(fromImagesOf(dockerfile), fromLineCount(dockerfile))),
   ];
   if (failures.length > 0) {
