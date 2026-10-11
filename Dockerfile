@@ -157,9 +157,14 @@ COPY docker/schema-owner.sql /app/docker/schema-owner.sql
 # and other write bits off the entries that have them is idempotent and touches
 # only those, so a clean tree adds no data to the layer. The second find fails
 # the build if anything is left, rather than leaving it to the end-to-end suite
-# to find one entry at random.
+# to find one entry at random. The second find runs in an assignment of its own
+# for the reason the prune check's finds do: inside `test -z "$(find ...)"` its
+# exit status is lost, and a search that fails to read part of the tree passes
+# as empty output. scripts/dockerfile-guards.test.mjs runs both RUN lines
+# against trees that must pass and trees that must not.
 RUN find /app -not -type l -perm /022 -exec chmod go-w {} + \
-    && test -z "$(find /app -not -type l \( -perm /022 -o -not -user root \) -print -quit)"
+    && unsafe="$(find /app -not -type l \( -perm /022 -o -not -user root \) -print -quit)" \
+    && test -z "$unsafe"
 
 # The plugin install job runs `npm install <tarball>` into the data volume, so
 # the CLI has to exist in the runtime image and not only in the build stage.
