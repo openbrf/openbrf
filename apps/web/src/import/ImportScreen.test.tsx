@@ -1357,6 +1357,89 @@ describe("after pressing apply", () => {
     ).toBe(true);
   });
 
+  it("previews again with the same mapping when another import wrote since", async () => {
+    // Another import finished after this preview was taken and settled row 2,
+    // so the answer chosen for it is for a question that is no longer asked.
+    // The API refuses with preview-outdated; the board is shown the preview as
+    // it is now, without the stale answer, rather than the refusal.
+    const [created, ambiguous, failed, updated] = PREVIEW.rows;
+    if (
+      created === undefined ||
+      ambiguous === undefined ||
+      failed === undefined ||
+      updated === undefined
+    ) {
+      throw new Error("The fixture preview has changed shape.");
+    }
+    const session = userEvent.setup();
+    await reachPreview(session);
+    const firstPreview = previewImport.mock.calls[0]?.[1] as {
+      mapping: unknown;
+    };
+
+    applyImport.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "preview-outdated" },
+    });
+    previewImport.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PREVIEW,
+        summary: { create: 1, update: 2, ambiguous: 0, error: 1 },
+        rows: [
+          created,
+          {
+            ...ambiguous,
+            outcome: "update",
+            rowNumber: ambiguous.rowNumber,
+            matchedPersonId: "person-bo-senior",
+            matchedPersonName: "Bo Berg",
+          },
+          failed,
+          updated,
+        ],
+      },
+    });
+
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: /Den här raden är/ }),
+      "person-bo-senior",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+
+    expect(
+      await screen.findByText(/förhandsgranskningen har gjorts om/),
+    ).toBeTruthy();
+    expect(previewImport).toHaveBeenCalledTimes(2);
+    expect(previewImport).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.objectContaining({
+        mapping: firstPreview.mapping,
+        decisions: {
+          "2": { action: "use-person", personId: "person-bo-senior" },
+        },
+      }),
+    );
+    // The refusal itself is not shown: the new preview is the answer to it.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/Förhandsgranska importen igen/)).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: /Den här raden är/ }),
+    ).toBeNull();
+
+    // Row 2 no longer needs an answer, so none is carried into the next apply.
+    await session.click(
+      screen.getByRole("button", { name: /Genomför importen/ }),
+    );
+    await waitFor(() => {
+      expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+        decisions: {},
+      });
+    });
+  });
+
   it("keeps the preview when another import is running", async () => {
     // A different file is being imported - by another board member, or from a
     // tab opened before it started. This upload was not started, so the
