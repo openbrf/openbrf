@@ -38,6 +38,8 @@
  * rather than written as a second one or dropped without a word.
  */
 
+import { formatDateColumn } from "@openbrf/shared";
+
 import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
@@ -91,6 +93,21 @@ export interface RegisterResidency {
   movedInOn: string;
   /** The first day it is no longer held, or null while it is. */
   movedOutOn: string | null;
+}
+
+/** A stored residency with its dates as the calendar dates a plan compares. */
+export function registerResidency(residency: {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: Date;
+  movedOutOn: Date | null;
+}): RegisterResidency {
+  return {
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: formatDateColumn(residency.movedInOn),
+    movedOutOn: formatDateColumn(residency.movedOutOn),
+  };
 }
 
 /**
@@ -639,7 +656,7 @@ export function rowResidency(row: PlannedRow): RowResidency | null {
 }
 
 /**
- * The residency already held that the row's residency is, if there is one.
+ * Whether the row's residency is one the person already holds.
  *
  * The same role on the same apartment from the same day, ending the same day,
  * is the same residency: it is what a row already written, or a row listed
@@ -655,8 +672,8 @@ export function rowResidency(row: PlannedRow): RowResidency | null {
 export function heldAlready(
   residency: RowResidency,
   held: readonly RegisterResidency[],
-): RegisterResidency | undefined {
-  return held.find(
+): boolean {
+  return held.some(
     (other) =>
       other.apartmentId === residency.apartmentId &&
       other.role === residency.role &&
@@ -676,7 +693,7 @@ export function conflictsWith(
   residency: RowResidency,
   held: readonly RegisterResidency[],
 ): boolean {
-  if (heldAlready(residency, held) !== undefined) {
+  if (heldAlready(residency, held)) {
     return false;
   }
   return held.some(
@@ -850,7 +867,7 @@ function recordWrites(
     target.hasEmail = true;
     push(written.byEmail, row.emailIndex, target);
   }
-  if (heldAlready(residency, target.residencies) !== undefined) {
+  if (heldAlready(residency, target.residencies)) {
     return;
   }
   const onApartment = target.residencies.filter(
@@ -874,11 +891,14 @@ function recordWrites(
   }
 }
 
-/** Whether a residency is still held on the day the snapshot was read. */
+/**
+ * Whether a residency is still held on the day the snapshot was read. Compared
+ * as calendar dates, the way the snapshot states that day (ADR 0013).
+ */
 function current(residency: RegisterResidency, today: Date): boolean {
   return (
     residency.movedOutOn === null ||
-    new Date(`${residency.movedOutOn}T00:00:00.000Z`) > today
+    residency.movedOutOn > formatDateColumn(today)
   );
 }
 

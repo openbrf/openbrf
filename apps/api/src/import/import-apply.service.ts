@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { dateColumnOf, parseLocalDay } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
 import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
@@ -37,12 +38,13 @@ import {
   type PlannedRow,
   readPreviewedCandidates,
   type RegisterResidency,
+  registerResidency,
   rowResidency,
+  type RowResidency,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
-  registerResidency,
 } from "./import-planner.service";
 import {
   type ImportApplyResult,
@@ -846,14 +848,21 @@ export class ImportApplyService implements OnModuleInit {
         continue;
       }
       // The plan refuses a row that would give a person a second residency on
-      // the same days, but it cannot for a row the board resolved: until the
-      // decision it did not know whose residencies to compare. Checked again
-      // here for every existing person, so the decision is held to the same
-      // rule.
-      if (
-        target.action === "update" &&
-        (await residencyConflicts(tx, row, target.personId))
-      ) {
+      // the same days, but not a row the board resolved: the decision is the
+      // board's to make, and the preview only says beside it that the person
+      // chosen holds one. Checked again here for every existing person, so the
+      // decision is held to the same rule. Read once, for this and for the
+      // residency below, which the person update in between does not touch.
+      const residency = rowResidency(row);
+      const held =
+        residency !== null && target.action === "update"
+          ? await residenciesOnApartment(
+              tx,
+              target.personId,
+              residency.apartmentId,
+            )
+          : [];
+      if (residency !== null && conflictsWith(residency, held)) {
         result.errors++;
         continue;
       }
@@ -872,7 +881,16 @@ export class ImportApplyService implements OnModuleInit {
         continue;
       }
 
-      await this.writeResidency(tx, row, personId, membersBefore, result);
+      if (residency !== null) {
+        await this.writeResidency(
+          tx,
+          residency,
+          held,
+          personId,
+          membersBefore,
+          result,
+        );
+      }
     }
     for (const [rowNumber, personId] of createdByRow) {
       created.set(rowNumber, personId);
@@ -1013,33 +1031,33 @@ export class ImportApplyService implements OnModuleInit {
    * with two apartments is recorded as one membership rather than two. The rows
    * themselves are written once the chunk's residencies are, by the caller.
    *
-   * The residency this row would create is looked up first, which is also what
-   * makes a chunk safe to attempt twice: a row whose residency is already there
-   * writes nothing further, and no second entry reaches a register that refuses
-   * to have rows removed. Already there is what heldAlready says it is.
-   * Any other residency of this person on this apartment that it would overlap
-   * was refused by the plan as a problem with the row, and one it does not
-   * overlap - a person who moved out and back in - is a residency of its own.
+   * The residency this row would create is looked up first, in `held`, which is
+   * also what makes a chunk safe to attempt twice: a row whose residency is
+   * already there writes nothing further, and no second entry reaches a
+   * register that refuses to have rows removed. Already there is what
+   * heldAlready says it is. Any other residency of this person on this
+   * apartment that it would overlap was refused as a problem with the row, and
+   * one it does not overlap - a person who moved out and back in - is a
+   * residency of its own.
+   *
+   * @param held Every residency the person holds on the row's apartment: none
+   *   for a person this row has just created.
    */
   private async writeResidency(
     tx: Prisma.TransactionClient,
-    row: PlannedRow,
+    residency: RowResidency,
+    held: readonly RegisterResidency[],
     personId: string,
     membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
   ): Promise<void> {
-    const residency = rowResidency(row);
-    if (residency === null) {
-      return;
-    }
-    const held = await heldOnApartment(tx, personId, residency.apartmentId);
-    if (heldAlready(residency, held) !== undefined) {
+    if (heldAlready(residency, held)) {
       return;
     }
 
     // Read before the insert, and only on the chunk's first row for the person:
     // the rows after it are part of the same change.
-    if (row.role === "MEMBER" && !membersBefore.has(personId)) {
+    if (residency.role === "MEMBER" && !membersBefore.has(personId)) {
       membersBefore.set(personId, await readMemberResidencies(tx, personId));
     }
 
@@ -1048,11 +1066,11 @@ export class ImportApplyService implements OnModuleInit {
         personId,
         apartmentId: residency.apartmentId,
         role: residency.role,
-        movedInOn: new Date(`${residency.movedInOn}T00:00:00.000Z`),
+        movedInOn: dateColumnOfPlanned(residency.movedInOn),
         movedOutOn:
           residency.movedOutOn === null
             ? null
-            : new Date(`${residency.movedOutOn}T00:00:00.000Z`),
+            : dateColumnOfPlanned(residency.movedOutOn),
       },
     });
     result.residenciesCreated++;
@@ -1127,24 +1145,8 @@ interface EncryptedRowValues {
   personalIdentityNumber: { cipher: string; index: string | null } | null;
 }
 
-/** Whether the row's residency would overlap one the person holds differently. */
-async function residencyConflicts(
-  tx: Prisma.TransactionClient,
-  row: PlannedRow,
-  personId: string,
-): Promise<boolean> {
-  const residency = rowResidency(row);
-  return (
-    residency !== null &&
-    conflictsWith(
-      residency,
-      await heldOnApartment(tx, personId, residency.apartmentId),
-    )
-  );
-}
-
 /** Every residency, ended or not, the person has held on one apartment. */
-async function heldOnApartment(
+async function residenciesOnApartment(
   tx: Prisma.TransactionClient,
   personId: string,
   apartmentId: string,
@@ -1159,6 +1161,18 @@ async function heldOnApartment(
     },
   });
   return held.map(registerResidency);
+}
+
+/**
+ * A date the plan read from the file, as its `@db.Date` column holds it (ADR
+ * 0013). The plan has already refused any that is not on the calendar.
+ */
+function dateColumnOfPlanned(value: string): Date {
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new Error("The plan holds a date that is not on the calendar.");
+  }
+  return dateColumnOf(day);
 }
 
 /** The rows of a plan that will be written. */
