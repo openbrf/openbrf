@@ -62,6 +62,8 @@ export interface WorkbookOverrides {
    * workbook's relationships name it. `worksheets/sheet1.xml` by default.
    */
   sheetTarget?: string;
+  /** Further parts of the archive, by their path in it, as XML text. */
+  parts?: Record<string, string>;
 }
 
 export function buildWorkbook(
@@ -152,6 +154,12 @@ export function buildWorkbook(
     ),
     [`xl/${sheetTarget}`]: strToU8(
       `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${overrides.sheetData ?? sheetRows}</sheetData></worksheet>`,
+    ),
+    ...Object.fromEntries(
+      Object.entries(overrides.parts ?? {}).map(([path, xml]) => [
+        path,
+        strToU8(`${DECLARATION}${xml}`),
+      ]),
     ),
   };
 
