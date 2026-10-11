@@ -330,12 +330,15 @@ async function perform(page: Page, action: Action): Promise<void> {
   if ("failNextRead" in action) {
     const path = action.failNextRead;
     const matches = (url: URL): boolean => url.pathname === path;
+    // A flag rather than unrouting from inside the handler, which hands the
+    // route on before this one can answer it.
+    let failed = false;
     const fail = async (route: Route): Promise<void> => {
-      if (route.request().method() !== "GET") {
+      if (failed || route.request().method() !== "GET") {
         await route.fallback();
         return;
       }
-      await page.unroute(matches, fail);
+      failed = true;
       await route.fulfill({
         status: 503,
         contentType: "application/json",
