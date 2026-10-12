@@ -147,6 +147,11 @@ export function ThemesScreen(): ReactElement {
       return;
     }
     await load();
+    // An update to the theme in force changes what this browser should be
+    // showing, and nothing else would read it until the page is reloaded.
+    if (runtime.active?.id === themeId) {
+      await runtime.reload();
+    }
     setAction({
       kind: "installed",
       themeId,

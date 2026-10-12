@@ -414,6 +414,37 @@ describe("installing", () => {
   });
 });
 
+describe("installing an update to the theme in force", () => {
+  it("reads the active theme again, so this browser shows the update", async () => {
+    fetchActiveTheme.mockResolvedValue({ ok: true, value: RENDERING });
+    installTheme.mockResolvedValue({
+      ok: true,
+      value: { theme: { ...EXAMPLE, active: true }, warnings: [] },
+    });
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...CATALOG_ENTRY, version: "1.1.0", installedVersion: "1.0.0" },
+      ],
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+    const install = await screen.findByRole("button", {
+      name: /installera|uppdatera/i,
+    });
+    await waitFor(() => {
+      expect(fetchActiveTheme).toHaveBeenCalledTimes(1);
+    });
+
+    await session.click(install);
+
+    await waitFor(() => {
+      expect(fetchActiveTheme).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
 describe("previewing and activating", () => {
   it("applies a preview to this browser without activating anything", async () => {
     fetchThemePreview.mockResolvedValue({ ok: true, value: RENDERING });
