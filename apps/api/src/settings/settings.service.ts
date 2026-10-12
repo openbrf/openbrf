@@ -1062,9 +1062,10 @@ export class SettingsService {
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
     await this.requireAssociation();
-    // The route refuses this already; it is checked here as well because this
-    // is what writes the column, and a user name or password in the address
-    // would be stored in plaintext beside a token that is encrypted.
+    // The route schema checks the address is a URL and nothing more; this is
+    // where a user name or password is refused, because it is what writes the
+    // column, and one in the address would be stored in plaintext beside a
+    // token that is encrypted.
     if (input.gatewayUrl !== null) {
       const { username, password } = new URL(input.gatewayUrl);
       if (username !== "" || password !== "") {

@@ -145,16 +145,14 @@ const smsSchema = z.object({
     .max(64)
     .regex(/^[a-z0-9-]+$/, "must be lower-case letters, digits and hyphens")
     .nullable(),
+  /**
+   * A user name or password in the address is not refused here: the settings
+   * service refuses it with its own reason, which the SMS screen translates. A
+   * refinement on this field would answer invalid-body first and hide it.
+   */
   gatewayUrl: z
     .url({ protocol: /^https?$/ })
     .max(2048)
-    .refine((value) => {
-      // The format check above has failed for a malformed value, and zod runs
-      // this refinement after it all the same; parsing it again would throw.
-      if (!URL.canParse(value)) return true;
-      const url = new URL(value);
-      return url.username === "" && url.password === "";
-    }, "must not carry a user name or password")
     .nullable(),
   senderName: z.string().trim().max(64).nullable(),
   /**

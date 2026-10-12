@@ -233,6 +233,9 @@ describe("an SMS gateway address carrying a credential", () => {
     });
 
     expect(response.statusCode, response.body).toBe(400);
+    expect(response.json()).toMatchObject({
+      reason: "gateway-url-has-credentials",
+    });
     expect((await stored()).smsGatewayUrl).toBe(
       "https://sms.gateway.example/send",
     );
