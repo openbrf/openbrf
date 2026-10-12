@@ -42,6 +42,8 @@ describe("matching against residencies that have ended", () => {
                     residencies: [
                       {
                         apartmentId: "apartment-1101",
+                        role: "MEMBER",
+                        movedInOn: new Date("2015-03-01T00:00:00.000Z"),
                         movedOutOn: new Date("2026-06-22T00:00:00.000Z"),
                       },
                     ],

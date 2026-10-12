@@ -1481,6 +1481,176 @@ describe("the application role's privileges on the statutory archive", () => {
   });
 });
 
+/**
+ * A temporary table named like one a guard reads.
+ *
+ * A trigger function runs as whoever writes the table, and resolves a name it
+ * does not qualify through that writer's search_path, where the session's
+ * temporary schema comes first. So a role able to create temporary tables
+ * could make a "transfer" of its own, holding whatever the guard should find,
+ * and append a statutory row the real transfer would refuse. The guard
+ * functions name public's tables and pin their own search_path, which is what
+ * these hold to.
+ *
+ * The probe role is granted TEMPORARY outright, as a role nobody has hardened
+ * since the hardening started revoking it would still hold it through PUBLIC:
+ * what is under test is the functions, not that revoke.
+ */
+describe("a temporary table named like one a guard reads", () => {
+  beforeAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `DO $$ BEGIN
+         EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO ${PROBE_ROLE}', current_database());
+       END $$`,
+    );
+  });
+
+  /**
+   * What the database said to the last statement, run with the others as the
+   * probe role, or undefined when every one of them went through. Always rolled
+   * back.
+   *
+   * A connection of its own rather than one from the pool: PL/pgSQL keeps a
+   * function's plans for the life of the session, and a session that had run a
+   * guard before the temporary table existed could go on reading the real one
+   * whatever the function said. A fresh session is the attacker's.
+   */
+  async function lastRefusalAsProbe(
+    statements: string[],
+  ): Promise<string | undefined> {
+    const client = new Client({ connectionString: env.DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL ROLE ${PROBE_ROLE}`);
+      for (const statement of statements) {
+        await client.query(statement);
+      }
+      return undefined;
+    } catch (error) {
+      return String((error as Error).message);
+    } finally {
+      await client.query("ROLLBACK");
+      await client.end();
+    }
+  }
+
+  /** A temporary "transfer" holding a copy of one real row, then changed. */
+  function shadowTransfer(transferId: string, change: string): string[] {
+    return [
+      `CREATE TEMPORARY TABLE "transfer" (LIKE public."transfer")`,
+      `INSERT INTO pg_temp."transfer" SELECT * FROM public."transfer" WHERE "id" = '${transferId}'`,
+      `UPDATE pg_temp."transfer" SET ${change}`,
+    ];
+  }
+
+  it("does not let a temporary transfer turn an upplatelse into an overlatelse for a reversal", async () => {
+    // The real row is a grant, which has no seller for the right to go back to.
+    expect(
+      (await lastRefusalAsProbe([
+        ...shadowTransfer(GRANT_TRANSFER_ID, `"kind" = 'TRANSFER'`),
+        `INSERT INTO public."transfer_reversal" ("id", "transferId", "apartmentId", "kind", "reversedOn", "reference")
+         VALUES ('${id("shadowed-reversal")}', '${GRANT_TRANSFER_ID}', '${APARTMENT_ID}', 'RESCINDED', '2023-08-01', 'Havning ${suffix}')`,
+      ])) ?? "the reversal was recorded",
+    ).toMatch(/OPENBRF_TRANSFER_REVERSAL: transfer .* is an upplatelse/);
+  });
+
+  it("does not let a temporary transfer give the association a duty the juridical person holds", async () => {
+    // The real row is reported by the juridical person that acquired it, so the
+    // ledger may hold no row about it. The shadow states the ordinary case of
+    // an acquirer already a member, whose window runs from the overgang.
+    expect(
+      (await lastRefusalAsProbe([
+        ...shadowTransfer(
+          ELSEWHERE_TRANSFER_ID,
+          `"reportBasis" = 'ALREADY_MEMBER'`,
+        ),
+        `INSERT INTO public."register_report_obligation" ("id", "kind", "apartmentId", "transferId", "triggeredOn", "dueOn")
+         VALUES ('${id("shadowed-obligation")}', 'TRANSFER', '${APARTMENT_ID}', '${ELSEWHERE_TRANSFER_ID}', '2023-04-01', '2023-04-15')`,
+      ])) ?? "the obligation was recorded",
+    ).toMatch(
+      /OPENBRF_REPORT_OBLIGATION_EVENT: the overgang on transfer .* is anmald by the juridical person/,
+    );
+  });
+
+  /**
+   * Every openbrf_ function in public, and every function a trigger on a table
+   * in public or pgboss calls, whatever its name or schema, with the settings
+   * it runs under. Internal triggers are left out: they are a foreign key's, and call
+   * PostgreSQL's own functions.
+   */
+  const GUARD_FUNCTIONS = `
+    SELECT format('%I.%I', n.nspname, p.proname) AS name, p.proconfig AS config
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE (n.nspname = 'public' AND p.proname LIKE 'openbrf\\_%')
+      OR p.oid IN (
+        SELECT t.tgfoid
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace tn ON tn.oid = c.relnamespace
+        WHERE tn.nspname IN ('public', 'pgboss') AND NOT t.tgisinternal
+      )
+    ORDER BY 1`;
+
+  type GuardFunction = { name: string; config: string[] | null };
+
+  function unpinned(functions: GuardFunction[]): GuardFunction[] {
+    return functions.filter(
+      ({ config }) =>
+        !(config ?? []).includes("search_path=pg_catalog, pg_temp"),
+    );
+  }
+
+  it("pins the search_path of every function a trigger in public or pgboss calls, the next one included", async () => {
+    // Asked of the catalog rather than of a list, so a trigger function a later
+    // migration adds without the setting is a failure here, by any name.
+    const functions =
+      await prisma.$queryRawUnsafe<GuardFunction[]>(GUARD_FUNCTIONS);
+    expect(functions.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        "public.openbrf_check_report_obligation_event",
+        "public.openbrf_check_transfer_record",
+        "public.openbrf_check_transfer_reversal",
+        "public.openbrf_forbid_mutation",
+        "public.openbrf_forbid_truncate",
+        "public.openbrf_keep_oauth_client_disabled",
+      ]),
+    );
+    expect(unpinned(functions)).toEqual([]);
+  });
+
+  it.each(["public", "pgboss"])(
+    "finds a trigger function added without the setting on a table in %s, whatever it is called",
+    async (schema) => {
+      // What a later migration might add, in a transaction that is rolled back.
+      const table = `pinning_probe_${suffix}`;
+      const client = new Client({ connectionString: env.DATABASE_URL });
+      await client.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+        await client.query(`CREATE TABLE ${schema}.${table} ("id" integer)`);
+        await client.query(
+          `CREATE FUNCTION ${schema}.${table}_touch() RETURNS trigger
+           LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`,
+        );
+        await client.query(
+          `CREATE TRIGGER ${table}_touch BEFORE INSERT ON ${schema}.${table}
+           FOR EACH ROW EXECUTE FUNCTION ${schema}.${table}_touch()`,
+        );
+        const { rows } = await client.query<GuardFunction>(GUARD_FUNCTIONS);
+        expect(unpinned(rows)).toEqual([
+          { name: `${schema}.${table}_touch`, config: null },
+        ]);
+      } finally {
+        await client.query("ROLLBACK");
+        await client.end();
+      }
+    },
+  );
+});
+
 describe("association", () => {
   it("refuses a second row, because one instance serves one association", async () => {
     await expect(
@@ -1795,9 +1965,9 @@ describe("two instances sharing one database server", () => {
 
   it("caps each runtime role's connections", async () => {
     // One instance, or a plugin running inside it, must not be able to take
-    // every connection the server has. Nineteen unless the entrypoint says
+    // every connection the server has. Twenty unless the entrypoint says
     // otherwise: the default pool, the job queue's two, the package lock's
-    // four and three to spare.
+    // four, the reindex lock's one and three to spare.
     const limits = await prisma.$queryRawUnsafe<
       { rolname: string; rolconnlimit: number }[]
     >(
@@ -1807,7 +1977,7 @@ describe("two instances sharing one database server", () => {
     );
     expect(
       Object.fromEntries(limits.map((row) => [row.rolname, row.rolconnlimit])),
-    ).toEqual({ [first.role]: 19, [second.role]: 7 });
+    ).toEqual({ [first.role]: 20, [second.role]: 7 });
   });
 
   it("refuses a runtime role another instance's database already grants", async () => {
@@ -2069,6 +2239,66 @@ describe("two instances sharing one database server", () => {
         `REVOKE TRIGGER ON pgboss.queue FROM ${grantor} CASCADE`,
       );
       await owner.query(`REVOKE USAGE ON SCHEMA pgboss FROM ${grantor}`);
+      await owner.query(`DROP ROLE IF EXISTS ${grantor}`);
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("leaves each runtime role unable to create a temporary table", async () => {
+    // A new database grants TEMPORARY to PUBLIC, and a temporary table hides a
+    // real one of the same name for the session that made it.
+    for (const instance of [first, second]) {
+      const runtime = new Client({
+        connectionString: connectionUrl(
+          instance.role,
+          instance.rolePassword,
+          instance.database,
+        ),
+      });
+      await runtime.connect();
+      try {
+        await expect(
+          runtime.query(`CREATE TEMPORARY TABLE "transfer" (id integer)`),
+          instance.role,
+        ).rejects.toMatchObject({ code: PERMISSION_DENIED });
+      } finally {
+        await runtime.end();
+      }
+    }
+  });
+
+  it("refuses a TEMPORARY grant it cannot take back", async () => {
+    // As TRIGGER above: a grant made in another role's name survives the
+    // owner's REVOKE with a warning, so the script has to stop on it.
+    const grantor = `openbrf_share_temp_grantor_${suffix}`;
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(`CREATE ROLE ${grantor} NOLOGIN`);
+      await owner.query(`GRANT ${grantor} TO CURRENT_USER`);
+      await owner.query(
+        `GRANT TEMPORARY ON DATABASE ${first.database} TO ${grantor} WITH GRANT OPTION`,
+      );
+      await owner.query(`SET ROLE ${grantor}`);
+      await owner.query(
+        `GRANT TEMPORARY ON DATABASE ${first.database} TO ${first.role}`,
+      );
+      await owner.query("RESET ROLE");
+
+      expect(hardeningRefusal(first)).toContain(
+        `Role ${first.role} can still create temporary tables in database ${first.database}`,
+      );
+    } finally {
+      await owner.query("RESET ROLE");
+      await owner.query(
+        `REVOKE TEMPORARY ON DATABASE ${first.database} FROM ${grantor} CASCADE`,
+      );
       await owner.query(`DROP ROLE IF EXISTS ${grantor}`);
       await owner.end();
     }

@@ -407,6 +407,7 @@ const FULL_REPORT: Report = {
       // the association did not consent and somebody else permitted.
       tribunalPermittedOn: "2027-06-15",
       tribunalPermittedUntil: "2028-01-31",
+      lettingEndedOn: null,
       /*
        * Two years after the later of the answer and the end of the period, and
        * deliberately none of the other dates on this document: the answer came
@@ -428,6 +429,7 @@ const FULL_REPORT: Report = {
       decisionNote: null,
       tribunalPermittedOn: null,
       tribunalPermittedUntil: null,
+      lettingEndedOn: null,
       erasableFrom: null,
     },
   ],
@@ -1214,6 +1216,7 @@ describe("what the document prints", () => {
       subletApplications: FULL_REPORT.subletApplications.map((application) => ({
         ...application,
         tribunalPermittedUntil: null,
+        lettingEndedOn: null,
       })),
     });
     await screen.findByText("Brf Eksemplet");

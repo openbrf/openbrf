@@ -144,6 +144,14 @@ export function OwnSubletsPanel({
                 </p>
               ) : null}
 
+              {application.lettingEndedOn === null ? null : (
+                <p className={HINT}>
+                  {t("sublets.mine.lettingEnded", {
+                    date: application.lettingEndedOn,
+                  })}
+                </p>
+              )}
+
               {application.status === "SUBMITTED" ? (
                 editing?.id === application.id ? (
                   <form

@@ -16,7 +16,6 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { actingPersonId } from "../registers/acting-person";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { isTooLarge, readSingleFile } from "../http/multipart";
-import { hasControlCharacter } from "../mail/header-text";
 import { MediaError } from "../media/media.service";
 import {
   MAX_MEMBERS_PER_PROXY_HOLDER,
@@ -55,6 +54,21 @@ const brandingSchema = z.object({
 });
 
 /**
+ * What no host name or address holds and a log line ends at: the control
+ * characters of C0, DEL and C1 (where U+0085, the next line, is), and Unicode's
+ * line and paragraph separators.
+ *
+ * Only these rather than everything a host name may not hold, so a host
+ * written in Unicode, which the resolver turns into its ASCII form, is still
+ * accepted as it was.
+ *
+ * The rule against control characters in a pattern is disabled for this one
+ * line, the case it makes an exception for: the pattern exists to find them.
+ */
+// eslint-disable-next-line no-control-regex
+const NOT_IN_A_HOST = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+/**
  * A mail server's host name or address.
  *
  * Refused with a line break or any other control character in it: no host name
@@ -67,7 +81,7 @@ const mailServerHostSchema = z
   .min(1)
   .max(255)
   .refine(
-    (value) => !hasControlCharacter(value),
+    (value) => !NOT_IN_A_HOST.test(value),
     "must be one line, with no line break or other control character",
   );
 

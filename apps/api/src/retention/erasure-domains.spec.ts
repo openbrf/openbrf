@@ -5,6 +5,7 @@ import { erasureSourceFacts } from "../testing/erasure-source-facts";
 import {
   describeRemainder,
   ERASURE_DOMAINS,
+  erasureDomainKey,
   erasureRemainder,
   remainingRunBound,
   type ErasureDbClient,
@@ -143,6 +144,7 @@ interface Rows {
     closedAt: Date | null;
     status?: "SUBMITTED" | "CONSENTED" | "REFUSED" | "WITHDRAWN";
     periodTo?: Date;
+    lettingEndedOn?: Date | null;
   }[];
 }
 
@@ -150,16 +152,20 @@ interface Rows {
 interface RunningLetting {
   status: string;
   periodTo: { gte: Date };
+  OR: [{ lettingEndedOn: null }, { lettingEndedOn: { gte: Date } }];
 }
 
 function isRunning(
-  row: { status?: string; periodTo?: Date },
+  row: { status?: string; periodTo?: Date; lettingEndedOn?: Date | null },
   letting: RunningLetting,
 ): boolean {
+  const endedOn = row.lettingEndedOn ?? null;
   return (
     row.status === letting.status &&
     row.periodTo !== undefined &&
-    row.periodTo.getTime() >= letting.periodTo.gte.getTime()
+    row.periodTo.getTime() >= letting.periodTo.gte.getTime() &&
+    (endedOn === null ||
+      endedOn.getTime() >= letting.OR[1].lettingEndedOn.gte.getTime())
   );
 }
 
@@ -502,6 +508,42 @@ describe("what a granted erasure request still owes one person", () => {
     ]);
   });
 
+  it("counts a consented letting the board recorded as ended as owed, whatever its period", async () => {
+    // A letting that stopped early is not running, so its consent no longer
+    // holds the request open to the end of a period nobody uses. The recorded
+    // day is inside the letting, as the period's last day is.
+    const client = build({
+      subletApplications: [
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "CONSENTED",
+          periodTo: new Date("2031-12-31"),
+          lettingEndedOn: new Date("2027-05-31"),
+        },
+        {
+          person: PERSON,
+          closedAt: new Date("2027-04-01"),
+          status: "CONSENTED",
+          periodTo: new Date("2031-12-31"),
+          lettingEndedOn: new Date("2027-06-01"),
+        },
+      ],
+    });
+
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
+      {
+        domain: "subletting applications",
+        owed: 1,
+        kept: 1,
+        keptBecause:
+          "a subletting application is still with the board or its letting still runs",
+      },
+    ]);
+  });
+
   it("counts what the chat holds besides the messages", async () => {
     // A place in a group, a read marker and a report with its note are all the
     // person's, and a request closed with any of them standing would be
@@ -561,6 +603,24 @@ describe("what a granted erasure request still owes one person", () => {
           "a thread's address is held by somebody under a legal hold or a restriction",
       },
     ]);
+  });
+
+  it("gives every domain its own key and its own name", () => {
+    // The board's screen looks a domain's words up by its key, and a
+    // remainder finds its key by its name, so neither may be shared.
+    const keys = ERASURE_DOMAINS.map((domain) => domain.key);
+    const names = ERASURE_DOMAINS.map((domain) => domain.name);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("finds the key of the domain a remainder is about", () => {
+    expect(
+      erasureDomainKey({ domain: "subletting applications", owed: 0, kept: 1 }),
+    ).toBe("subletApplications");
+    expect(() =>
+      erasureDomainKey({ domain: "not a domain", owed: 1, kept: 0 }),
+    ).toThrow("Not a registered erasure domain");
   });
 
   it("says in one line what a domain is holding and why", () => {

@@ -1,4 +1,5 @@
 import { DomainError } from "../http/domain-error";
+import type { ImportShapeReason } from "./import-limits";
 
 /**
  * What can go wrong with an import, as a code rather than as a sentence.
@@ -32,16 +33,31 @@ export type ImportErrorReason =
    * the generic "unreadable" message does not say how.
    */
   | "file-mixed-encoding"
-  | "too-many-rows"
+  // A file refused for its shape while it was read.
+  | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
+  /**
+   * The preview no longer matches the register: another import finished
+   * writing after it was taken, or a decision answers a row it did not ask
+   * about. Answered with 400; the session stays in MAPPING and is previewed
+   * again.
+   */
   | "preview-outdated"
   /**
-   * Somebody previewed the session again while this apply was starting, so
-   * the preview it was checked against is no longer the one recorded. Answered
-   * with 409, and the session stays in MAPPING.
+   * The board's decisions are not the ones the preview was planned with, so
+   * what they write has not been shown. Answered with 400; the session stays in
+   * MAPPING, and the screen previews it again with them.
+   */
+  | "decisions-not-previewed"
+  /**
+   * The preview this request holds is no longer the session's: somebody
+   * previewed it again - another tab, another board member - perhaps with
+   * other columns. Answered with 409, and the session stays in MAPPING.
    */
   | "preview-replaced"
+  | "preview-interrupted"
+  | "preview-cancelled"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
   /**
@@ -66,9 +82,23 @@ export class ImportError extends DomainError {
   override readonly status: number;
   override readonly reason: ImportErrorReason;
 
-  constructor(message: string, reason: ImportErrorReason) {
+  /**
+   * What is wrong with a mapping, as the codes `validateMapping` returns.
+   *
+   * Static codes, and a field name for a duplicate: nothing from the file. The
+   * screen turns each into its own sentence, since "the mapping cannot be
+   * applied" does not say which column to change.
+   */
+  readonly problems: readonly string[];
+
+  constructor(
+    message: string,
+    reason: ImportErrorReason,
+    problems: readonly string[] = [],
+  ) {
     super(message);
     this.reason = reason;
+    this.problems = problems;
     this.status =
       reason === "session-not-found"
         ? 404
@@ -79,5 +109,9 @@ export class ImportError extends DomainError {
             reason === "preview-replaced"
           ? 409
           : 400;
+  }
+
+  override details(): Record<string, readonly unknown[]> {
+    return { problems: this.problems };
   }
 }

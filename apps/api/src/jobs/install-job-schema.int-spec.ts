@@ -3,19 +3,13 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { Client } from "pg";
+import type { Client } from "pg";
 import { getRollbackPlans, PgBoss } from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { PrismaClient } from "../generated/prisma/client";
-import {
-  BASE_URL_VARIABLE,
-  databaseName,
-  maintenanceUrl,
-  quoteIdentifier,
-  withDatabase,
-} from "../testing/integration-database";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { scratchDatabases, withClient } from "../testing/scratch-databases";
 import { JOB_SCHEMA } from "./job-queue.service";
 
 /**
@@ -41,39 +35,8 @@ const INDEX_SUFFIX = "_i13";
 /** The package root, where `pnpm test:int` runs. */
 const apiDirectory = process.cwd();
 
-const baseUrl = process.env[BASE_URL_VARIABLE] ?? process.env.DATABASE_URL;
-const poolId = process.env.VITEST_POOL_ID ?? "1";
-
-const created: string[] = [];
-
-async function withClient<T>(
-  url: string,
-  use: (client: Client) => Promise<T>,
-): Promise<T> {
-  const client = new Client({ connectionString: url });
-  await client.connect();
-  try {
-    return await use(client);
-  } finally {
-    await client.end();
-  }
-}
-
-/** An empty database on the test cluster, dropped again after the test. */
-async function scratchDatabase(label: string): Promise<string> {
-  if (baseUrl === undefined || baseUrl === "") {
-    throw new Error("Integration tests need DATABASE_URL to be set.");
-  }
-  const name = `${databaseName(baseUrl)}_test_${poolId}_${label}`;
-  await withClient(maintenanceUrl(baseUrl), async (client) => {
-    await client.query(
-      `drop database if exists ${quoteIdentifier(name)} with (force)`,
-    );
-    await client.query(`create database ${quoteIdentifier(name)}`);
-  });
-  created.push(name);
-  return withDatabase(baseUrl, name);
-}
+/** Empty databases on the test cluster, dropped again after each test. */
+const scratch = scratchDatabases();
 
 interface InstallerRun {
   code: number | null;
@@ -210,16 +173,7 @@ async function expectUpgradeFinished(
 }
 
 afterEach(async () => {
-  if (baseUrl === undefined || baseUrl === "") {
-    return;
-  }
-  await withClient(maintenanceUrl(baseUrl), async (client) => {
-    for (const name of created.splice(0)) {
-      await client.query(
-        `drop database if exists ${quoteIdentifier(name)} with (force)`,
-      );
-    }
-  });
+  await scratch.dropAll();
 });
 
 /**
@@ -350,7 +304,7 @@ afterAll(async () => {
 
 describe("install-job-schema", () => {
   it("installs a fresh schema with no index builds left over", async () => {
-    const databaseUrl = await scratchDatabase("job_fresh");
+    const databaseUrl = await scratch.create("job_fresh");
 
     const run = await runInstaller(databaseUrl);
 
@@ -365,11 +319,11 @@ describe("install-job-schema", () => {
     });
   }, 60_000);
 
-  it("stops a fresh install whose tables give another role TRIGGER by default", async () => {
-    const databaseUrl = await scratchDatabase("job_default_trigger");
+  it("stops a fresh install whose tables would give another role TRIGGER by default", async () => {
+    const databaseUrl = await scratch.create("job_default_trigger");
     // A default privilege of the owner's, which every table pg-boss creates
-    // takes on. No table holds it before the install, so only a look after
-    // pg-boss has created them finds it.
+    // takes on. No table holds it before the install, so the defaults are
+    // read before pg-boss creates any.
     await withClient(databaseUrl, (client) =>
       client.query(
         `alter default privileges grant trigger on tables to ${TRIGGER_ROLE}`,
@@ -379,15 +333,22 @@ describe("install-job-schema", () => {
     const run = await runInstaller(databaseUrl);
 
     expect(run.code, run.output).toBe(1);
-    expect(run.output).toMatch(
-      new RegExp(`${TRIGGER_ROLE} holds TRIGGER on [^\\n]*pgboss\\.queue`),
+    expect(run.output).toContain(
+      `${TRIGGER_ROLE} is given TRIGGER by default on the tables the schema ` +
+        "owner creates in every schema.",
     );
     expect(run.output).toContain("So the install stops here.");
     expect(run.output).not.toContain('Job schema "pgboss" is installed');
+    await withClient(databaseUrl, async (client) => {
+      const { rows } = await client.query<{ queue: boolean }>(
+        "select to_regclass('pgboss.queue') is not null as queue",
+      );
+      expect(rows, "pg-boss created nothing").toEqual([{ queue: false }]);
+    });
   }, 60_000);
 
   it("finishes every index build an upgrade queues before it exits", async () => {
-    const databaseUrl = await scratchDatabase("job_upgrade");
+    const databaseUrl = await scratch.create("job_upgrade");
     const tables = await schemaBeforeUpgrade(databaseUrl, [
       "install-test-plain",
     ]);
@@ -401,7 +362,7 @@ describe("install-job-schema", () => {
   }, 120_000);
 
   it("fails on an index build that fails, and finishes it on the next run", async () => {
-    const databaseUrl = await scratchDatabase("job_failed_build");
+    const databaseUrl = await scratch.create("job_failed_build");
     const tables = await schemaBeforeUpgrade(databaseUrl, [
       "install-test-duplicates",
     ]);
@@ -521,6 +482,41 @@ describe("the job schema install", () => {
     },
     90_000,
   );
+
+  it("stops on the trigger on pgboss.queue replaced while no grant is left to show it, rather than putting it back", async () => {
+    // What a role that held TRIGGER could have done before the hardening, or
+    // an operator's REVOKE, took the grant away again: the trigger keeps its
+    // name and its function and fires on nothing it guards. The install would
+    // put it back as it goes on, so it has to look first.
+    const replaced = `CREATE TRIGGER ${QUEUE_GUARD} BEFORE DELETE ON pgboss.queue FOR EACH ROW EXECUTE FUNCTION pgboss.refuse_own_job_table()`;
+    await owner.$executeRawUnsafe(
+      replaced.replace("CREATE TRIGGER", "CREATE OR REPLACE TRIGGER"),
+    );
+    try {
+      const refused = install();
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        "pgboss.queue has a trigger that is not one the migrations or the " +
+          `job schema install create: ${replaced}`,
+      );
+      expect(refused.output).toContain("So the install stops here.");
+      const [row] = await owner.$queryRawUnsafe<{ definition: string }[]>(
+        `SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger
+         WHERE tgrelid = 'pgboss.queue'::regclass AND tgname = $1`,
+        QUEUE_GUARD,
+      );
+      expect(row?.definition, "left for a person to look at").toContain(
+        "BEFORE DELETE ON pgboss.queue",
+      );
+    } finally {
+      await owner.$executeRawUnsafe(
+        `DROP TRIGGER ${QUEUE_GUARD} ON pgboss.queue`,
+      );
+      const installed = install();
+      expect(installed.status, installed.output).toBe(0);
+    }
+    expect(await queueGuarded(), "the install put the trigger back").toBe(true);
+  }, 90_000);
 
   it("leaves a role that writes queues unable to make one partitioned or give it a job table of its own", async () => {
     // What harden-runtime-role.sql leaves the application on the queue table:

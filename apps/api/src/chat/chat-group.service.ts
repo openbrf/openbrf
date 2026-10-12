@@ -9,6 +9,7 @@ import { residencyHeldOn } from "../registers/held-on";
 import {
   groupsFor,
   isGroupMember,
+  isWrittenIntoGroup,
   livesHere,
   roomFor,
   type ChatDbClient,
@@ -265,6 +266,18 @@ export class ChatGroupService {
     const group = await this.requireGroupMembership(chatId, actor, now);
 
     /*
+     * Somebody already in the room is answered first, with the list that
+     * already shows them. Asked after the candidate check below, a person who
+     * had since become protected would get its refusal on a second press where
+     * everybody else gets the list, and that difference is the one the check is
+     * there to hide. Somebody who has moved out is not in the room and not in
+     * the list, so they go on to the check and its one refusal.
+     */
+    if (await isGroupMember(this.prisma, group.id, personId, now)) {
+      return this.members(group.id, now);
+    }
+
+    /*
      * The person being put in has to be one the room would offer: somebody
      * who lives here and whose personal data is not protected. Every other
      * identifier gets the one refusal, whether it names nobody, somebody who
@@ -277,10 +290,6 @@ export class ChatGroupService {
         "Only somebody who lives here can be put into a group.",
         "not-a-resident",
       );
-    }
-
-    if (await isGroupMember(this.prisma, group.id, personId, now)) {
-      return this.members(group.id, now);
     }
 
     // A cheap early refusal, and not the decision: another press may have put
@@ -306,11 +315,7 @@ export class ChatGroupService {
        */
       await lockChat(tx, group.id);
 
-      const standing = await tx.chatGroupMember.findUnique({
-        where: { chatId_personId: { chatId: group.id, personId } },
-        select: { chatId: true },
-      });
-      if (standing !== null) {
+      if (await isWrittenIntoGroup(tx, group.id, personId)) {
         return false;
       }
 
