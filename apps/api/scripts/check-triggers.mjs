@@ -2,8 +2,13 @@
  * Checks the triggers on the application's tables and the job schema's, the
  * functions they call, and who can replace them, before anything runs as the
  * schema owner. Also the functions and operators in those schemas, which a
- * name the owner's SQL calls can resolve to, and who can create one, and who
- * owns the database and can act as the owner.
+ * name the owner's SQL calls can resolve to, and who can create one, who owns
+ * the database, which roles are members of the owner, and the settings stored
+ * for it.
+ *
+ * It sees the database as it is when it runs, and no earlier: a guard switched
+ * off and back on between two deploys, as the owner, leaves nothing for it to
+ * find. docs/deployment.md says how to log that.
  *
  * Run at deploy time, as the database owner, before the migrations
  * (docker/entrypoint.sh, step 4): a trigger fires for whoever writes its table,
@@ -12,6 +17,9 @@
  *
  * Usage:
  *   DATABASE_URL=postgresql://owner:...@host/db node scripts/check-triggers.mjs
+ *
+ * OWNER_DB_ADMIN may name one role trusted to be a member of the owner that
+ * can grant itself the owner's privileges without holding them (memberFindings).
  */
 import { Client } from "pg";
 
@@ -356,11 +364,20 @@ export async function currentTriggers(db) {
  * public._prisma_migrations is read only as a table the role this runs as
  * owns. Reading a view, or a table with a policy, of another role's would run
  * whatever function that role put in it, as the owner.
+ *
+ * Nor is it read while it forces row-level security, which applies its
+ * policies to the owner too: a policy can hide the rows of the migrations that
+ * created a guard, so that the guard is not looked for, and the function it
+ * calls runs as the owner. Nothing Open BRF runs turns it on, so a role acting
+ * as the owner did. The read itself switches row security off, so that a
+ * policy put in place after the look fails the read instead of filtering it,
+ * and only that table's own rows are read, not a child table's.
  */
 async function appliedMigrations(db) {
   const [record] = await catalogRows(
     db,
     `SELECT c.relkind = 'r' AND c.relowner = ${RUNNING_ROLE} AS owned,
+            c.relforcerowsecurity AS "forcesRowSecurity",
             quote_ident(pg_get_userbyid(c.relowner)) AS owner
      FROM pg_class c
      JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -379,9 +396,20 @@ async function appliedMigrations(db) {
         "for.",
     };
   }
+  if (record.forcesRowSecurity) {
+    return {
+      applied: new Set(),
+      finding:
+        "public._prisma_migrations, where the migrations record what they " +
+        "have applied, forces row-level security on the schema owner, so " +
+        "a policy decides which of its rows the owner sees. So the triggers " +
+        "the migrations created cannot be checked for.",
+    };
+  }
   const rows = await catalogRows(
     db,
-    `SELECT migration_name AS name FROM public._prisma_migrations
+    `SET LOCAL row_security = off;
+     SELECT migration_name AS name FROM ONLY public._prisma_migrations
      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
   );
   return { applied: new Set(rows.map((row) => row.name)) };
@@ -407,11 +435,12 @@ async function appliedMigrations(db) {
  * ownership of the table or the function, which a role acting as the owner
  * has, and leave nothing the comparison above would find. The migration that
  * created a trigger is not run again, so one that is missing stays missing.
+ * `applied` names the migrations that have run, as appliedMigrations reads
+ * them.
  */
-async function triggerFindings(db) {
+async function triggerFindings(db, applied) {
   const expected = new Set(EXPECTED_TRIGGERS);
-  const { applied, finding } = await appliedMigrations(db);
-  const findings = finding === undefined ? [] : [finding];
+  const findings = [];
   const expectedState = expectedFunction(applied);
   const present = new Set();
   for (const trigger of await currentTriggers(db)) {
@@ -695,36 +724,92 @@ async function databaseFindings(db) {
 }
 
 /**
- * Roles other than a superuser that can act as the role this runs as: a
- * member of it that inherits its privileges or can SET ROLE to it, directly
- * or through another role.
+ * Roles other than a superuser that are members of the role this runs as,
+ * directly or through another role, with whatever options; and, as `trusted`,
+ * the one OWNER_DB_ADMIN names, where it is such a member and can neither
+ * inherit the owner's privileges nor SET ROLE to it.
  *
- * Such a role can do whatever the owner can, and what it does is the owner's:
- * replace a guard function, drop a trigger or switch one off, or put a
- * function where a migration will call it, all of it owned by the owner, so
- * that nothing the other checks look at is another role's. A role that holds
- * only ADMIN OPTION on the owner, as one that created it without being a
- * superuser does on PostgreSQL 16 and later, administers the owner rather
- * than acting as it, and is not counted, as a superuser is not. Before 16
- * every member could SET ROLE, which pg_has_role calls MEMBER there.
+ * A member that inherits the owner's privileges or can SET ROLE to it can do
+ * whatever the owner can, and what it does is the owner's: replace a guard
+ * function, drop a trigger or switch one off, or put a function where a
+ * migration will call it, all of it owned by the owner, so that nothing the
+ * other checks look at is another role's. A member that holds only ADMIN
+ * OPTION can grant itself either at any time, and so can a role that inherits
+ * that member's privileges. Such a role is what one that created the owner
+ * without being a superuser holds on PostgreSQL 16 and later, and only a
+ * superuser can revoke it. On a managed server, where nobody holds a
+ * superuser, OWNER_DB_ADMIN names that role, as a decision to trust it with
+ * the owner's privileges: this check cannot tell what it did with them.
+ * pg_has_role calls any membership MEMBER, and before 16 every member could
+ * SET ROLE, which it calls MEMBER there too.
  */
 async function memberFindings(db) {
   const rows = await catalogRows(
     db,
-    `SELECT quote_ident(r.rolname) AS member,
-            quote_ident(current_user) AS owner
+    `SELECT r.rolname AS name,
+            quote_ident(r.rolname) AS member,
+            quote_ident(current_user) AS owner,
+            pg_has_role(r.oid, ${RUNNING_ROLE}, 'USAGE')
+              OR pg_has_role(r.oid, ${RUNNING_ROLE},
+                             CASE WHEN current_setting('server_version_num')::int
+                                       >= 160000
+                                  THEN 'SET' ELSE 'MEMBER' END) AS acts
      FROM pg_roles r
      WHERE r.rolname <> current_user
        AND NOT r.rolsuper
-       AND (pg_has_role(r.oid, ${RUNNING_ROLE}, 'USAGE')
-            OR pg_has_role(r.oid, ${RUNNING_ROLE},
-                           CASE WHEN current_setting('server_version_num')::int
-                                     >= 160000
-                                THEN 'SET' ELSE 'MEMBER' END))
+       AND pg_has_role(r.oid, ${RUNNING_ROLE}, 'MEMBER')
      ORDER BY r.rolname`,
   );
+  const admin = process.env.OWNER_DB_ADMIN;
+  const trusted = rows.find((row) => row.name === admin && !row.acts);
+  return {
+    findings: rows
+      .filter((row) => row !== trusted)
+      .map((row) =>
+        row.acts
+          ? `${row.member} can act as the schema owner ${row.owner}.`
+          : `${row.member} is a member of the schema owner ${row.owner}, ` +
+            "and can grant itself the owner's privileges.",
+      ),
+    trusted: trusted?.member,
+  };
+}
+
+/**
+ * Settings stored for the role this runs as, in every database or in this
+ * one, and a search_path stored for this database.
+ *
+ * Each applies to every session of the owner's that does not set it, the
+ * migrations' and pg-boss's among them, and the owner can store either
+ * itself. A search_path decides which function a name in their SQL resolves
+ * to, and one that names a schema the owner made puts it beyond the schemas
+ * the other checks look at. Open BRF stores no setting for the owner; a
+ * database's other settings are its administrator's to choose.
+ */
+async function settingFindings(db) {
+  const rows = await catalogRows(
+    db,
+    `SELECT CASE WHEN s.setrole = 0
+                 THEN format('The database %I', current_database())
+                 WHEN s.setdatabase = 0
+                 THEN format('The schema owner %I', current_user)
+                 ELSE format('The schema owner %I, in the database %I,',
+                             current_user, current_database()) END AS "for",
+            string_agg(c.setting, ', ' ORDER BY c.setting) AS settings
+     FROM pg_db_role_setting s
+     CROSS JOIN LATERAL unnest(s.setconfig) AS c(setting)
+     WHERE (s.setrole = ${RUNNING_ROLE}
+            AND s.setdatabase IN (0, (SELECT oid FROM pg_database
+                                      WHERE datname = current_database())))
+        OR (s.setrole = 0
+            AND s.setdatabase = (SELECT oid FROM pg_database
+                                 WHERE datname = current_database())
+            AND lower(split_part(c.setting, '=', 1)) = 'search_path')
+     GROUP BY s.setrole, s.setdatabase
+     ORDER BY s.setrole, s.setdatabase`,
+  );
   return rows.map(
-    (row) => `${row.member} can act as the schema owner ${row.owner}.`,
+    (row) => `${row.for} has the stored setting ${row.settings}.`,
   );
 }
 
@@ -734,10 +819,14 @@ async function memberFindings(db) {
  * not as Open BRF wrote it, or while a role other than a table's owner can
  * replace one. Also while a function or operator there belongs to a role other
  * than the schema owner, or while such a role owns either schema or can create
- * in it, owns the database or can create in it, or can act as the owner.
+ * in it, owns the database or can create in it, or is a member of the owner,
+ * or while a setting is stored for the owner. Also while the record of the
+ * migrations that have run cannot be read as it is.
  *
  * `stage` names what stops, in the message: "the deploy" before the
- * migrations, "the install" in the job schema install.
+ * migrations, "the install" in the job schema install. What passed is
+ * returned for the message that says so: the guard triggers looked for, the
+ * migrations that have run, and the member OWNER_DB_ADMIN trusts, if any.
  *
  * Refuses rather than repairs. A trigger that is not the one created, a
  * function or operator of another role's, or a role that could have put either
@@ -746,14 +835,17 @@ async function memberFindings(db) {
  * out what.
  */
 export async function refuseUnsafeTriggers(db, stage) {
-  const triggers = await triggerFindings(db);
+  const { applied, finding: history } = await appliedMigrations(db);
+  const triggers = await triggerFindings(db, applied);
   const grants = await grantFindings(db);
   const objects = await objectFindings(db);
   const owners = await schemaOwnerFindings(db);
   const creates = await createFindings(db);
   const databases = await databaseFindings(db);
-  const members = await memberFindings(db);
+  const { findings: members, trusted } = await memberFindings(db);
+  const settings = await settingFindings(db);
   const findings = [
+    ...(history === undefined ? [] : [history]),
     ...triggers,
     ...grants,
     ...objects,
@@ -761,12 +853,32 @@ export async function refuseUnsafeTriggers(db, stage) {
     ...creates,
     ...databases,
     ...members,
+    ...settings,
   ];
   if (findings.length === 0) {
-    return;
+    return {
+      guards: [...TRIGGER_MIGRATIONS.values()].filter((migration) =>
+        applied.has(migration),
+      ).length,
+      migrations: applied.size,
+      trusted,
+    };
   }
   for (const finding of findings) {
     console.error(finding);
+  }
+  if (history !== undefined) {
+    console.error(
+      "The check reads public._prisma_migrations to know which guards the " +
+        "migrations have created, and prisma migrate deploy creates it as a " +
+        "table of the schema owner's that applies no policy to its owner. " +
+        "Find out who changed it and why, and whether rows were taken out " +
+        "of it. Then, as a superuser, hand it to the schema owner with ALTER " +
+        "TABLE ... OWNER TO, or, as the schema owner, drop its policies " +
+        "(\\d public._prisma_migrations in psql lists them) and run ALTER " +
+        "TABLE public._prisma_migrations NO FORCE ROW LEVEL SECURITY, " +
+        "DISABLE ROW LEVEL SECURITY.",
+    );
   }
   if (triggers.length > 0) {
     console.error(
@@ -849,12 +961,27 @@ export async function refuseUnsafeTriggers(db, stage) {
       "A role that can act as the schema owner can do whatever the owner " +
         "can: rewrite a guard function, drop a trigger or switch one off, or " +
         "create a function for a migration to call, and what it creates " +
-        "belongs to the owner. Find out who made it a member and what it " +
-        "did, then, as a superuser or the role that granted it, REVOKE the " +
-        "schema owner FROM each role named above, or from the role it is a " +
-        "member through (\\du in psql). A role that holds only ADMIN OPTION " +
-        "on the owner may stay: REVOKE INHERIT OPTION FOR and SET OPTION FOR " +
-        "leave just that.",
+        "belongs to the owner. A member that holds only ADMIN OPTION on the " +
+        "owner can grant itself the same at any time. Find out who made each " +
+        "role named above a member and what it did, then, as a superuser or " +
+        "the role that granted it, REVOKE the schema owner FROM that role, " +
+        "or from the role it is a member through (\\du in psql). Where the " +
+        "only such role is the administrator that created the owner, holding " +
+        "ADMIN OPTION alone, and no superuser can revoke that, as on a " +
+        "managed server, OWNER_DB_ADMIN can name it: a decision to trust that " +
+        "role with the owner's privileges. A role that is a member of it is " +
+        "still refused.",
+    );
+  }
+  if (settings.length > 0) {
+    console.error(
+      "A setting stored for the schema owner applies to every session of " +
+        "its, the migrations' and pg-boss's among them, and a search_path " +
+        "decides which function a name in their SQL resolves to. Open BRF " +
+        "stores none. Find out who stored each one named above and why, " +
+        "then, as the schema owner, take it away with ALTER ROLE ... RESET, " +
+        "or ALTER ROLE ... IN DATABASE ... RESET, or ALTER DATABASE ... " +
+        "RESET search_path (\\drds in psql lists them).",
     );
   }
   console.error(`So ${stage} stops here. Deploy again once that is done.`);
@@ -871,20 +998,43 @@ if (import.meta.main) {
   }
   const client = new Client({ connectionString });
   await client.connect();
+  let passed;
   try {
-    await refuseUnsafeTriggers(
+    passed = await refuseUnsafeTriggers(
       { executeSql: (text) => client.query(text) },
       "the deploy",
     );
   } finally {
     await client.end();
   }
+  const total = TRIGGER_MIGRATIONS.size;
+  const guards =
+    passed.guards === 0
+      ? "No migration that creates a guard trigger on the application's " +
+        "tables has run yet, so none was looked for."
+      : `${passed.migrations} migrations have run, and the guard triggers ` +
+        `they created on the application's tables, ${passed.guards} of the ` +
+        `${total}, are all there.` +
+        (passed.guards < total
+          ? ` The other ${total - passed.guards} come with migrations still ` +
+            "to run."
+          : "");
+  const members =
+    passed.trusted === undefined
+      ? ""
+      : ` and ${passed.trusted}, which OWNER_DB_ADMIN trusts: it cannot act ` +
+        "as the owner now, but can grant itself the owner's privileges";
   console.log(
-    "The triggers are the ones Open BRF creates, none is missing or switched " +
-      "off, and each calls a function as Open BRF wrote it. No role but a " +
-      "table's owner holds TRIGGER on one, no role but the schema owner or a " +
-      "superuser owns public or pgboss, owns a function or operator in them, " +
-      "or holds CREATE on them or on the database, the schema owner owns the " +
-      "database, and no other role can act as it.",
+    `${guards} Every trigger on the tables in public and pgboss is one Open ` +
+      "BRF creates, fires as created, and calls a function as Open BRF wrote " +
+      "it. The one on pgboss.queue is not required here: the job schema " +
+      "install puts it back and checks it again. No role but a table's " +
+      "owner holds TRIGGER on one. No role but the schema owner or a " +
+      "superuser owns public, pgboss or a schema named after the owner, owns " +
+      "a function or operator in them, or holds CREATE in them or on the " +
+      "database. The schema owner owns the database and has no stored " +
+      "settings, the database stores no search_path, and no role is a " +
+      `member of the owner but a superuser${members}. A superuser can still ` +
+      "act as it.",
   );
 }

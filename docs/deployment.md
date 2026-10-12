@@ -183,12 +183,40 @@ changes nothing but the owner's password, which it sets from
    belongs to a role other than the schema owner itself, a superuser or a role
    the owner is a member of included, while a role other than the owner, or
    `PUBLIC`, holds `CREATE` on the database, and while a role other than a
-   superuser can act as the owner: one that is a member of it, directly or
-   through another role, and inherits its privileges or can `SET ROLE` to it.
-   What such a role does belongs to the owner, so nothing else the step looks
-   at would show it. A role that holds only `ADMIN OPTION` on the owner, as
-   one that created it without being a superuser does on PostgreSQL 16 and
-   later, administers it and is not refused.
+   superuser is a member of the owner, directly or through another role. One
+   that inherits the owner's privileges or can `SET ROLE` to it acts as the
+   owner, and what it does belongs to the owner, so nothing else the step
+   looks at would show it. One that holds only `ADMIN OPTION` on the owner can
+   grant itself either whenever it likes, so it is refused as well. That is
+   what a role that created the owner without being a superuser holds on
+   PostgreSQL 16 and later, and only a superuser can revoke it. Where nobody
+   can, as on a managed server, `OWNER_DB_ADMIN` names that one role (see
+   [below](#several-instances-on-one-database-server)). That is a decision to
+   trust it with the owner's privileges, not a finding that it cannot use
+   them: the step passes it only while it can neither inherit the owner's
+   privileges nor `SET ROLE` to it, and still refuses a role that is a member
+   of it. The step also stops on a setting stored for the owner with
+   `ALTER ROLE ... SET`, in every database or in this one, and on a
+   `search_path` stored for the database. Either applies to the migrations'
+   sessions, and a `search_path` decides which function a name in their SQL
+   resolves to. Open BRF stores none. The migrations record what
+   they have applied in `public._prisma_migrations`, which the step reads to
+   know which triggers have to be there. It stops while that table is not a
+   plain table the owner owns, or while it forces row-level security, under
+   which a policy could hide the migrations that created a guard; and it reads
+   the table with row security off, so that a policy fails the read instead
+   of running.
+
+   The step sees the database as it is when the deploy runs. Someone who holds
+   the owner's password can switch a guard off, write the tables it guards and
+   switch it back on between two deploys, and leave nothing for the step to
+   find. To see that, log the server's DDL: `log_statement = 'ddl'` records
+   every `ALTER TABLE ... DISABLE TRIGGER`, `CREATE OR REPLACE FUNCTION` and
+   `GRANT`, with the role that ran it if `log_line_prefix` includes `%u`. The
+   `pgaudit` extension, with `pgaudit.log = 'ddl, role'`, does the same in a
+   form meant for auditing. Only a superuser can change either setting, so
+   the owner cannot switch the logging off.
+
 5. The job queue schema is installed or migrated, as the owner. It stops on a
    queue that is partitioned or names a job table of its own, which Open BRF
    never declares, because pg-boss builds SQL from those names as the owner.
@@ -649,6 +677,16 @@ CREATE ROLE brf_example_owner LOGIN CREATEROLE PASSWORD '...';
 CREATE DATABASE brf_example OWNER brf_example_owner;
 ```
 
+On PostgreSQL 16 and later, an administrator that is not a superuser is left
+holding `ADMIN OPTION` on the owner it creates. With that it can grant itself
+the owner's privileges at any time, and the deploy refuses it (step 4 above).
+A superuser can take it away with `REVOKE brf_example_owner FROM <administrator>`.
+On a managed server where nobody holds a superuser, set `OWNER_DB_ADMIN` in
+`.env.production` to the administrator's role name instead. That says you
+trust that role with the owner's privileges. The deploy then passes it as
+long as it holds only `ADMIN OPTION`, names it each time it passes, and still
+refuses any role that is a member of it.
+
 An administrator holding the server's superuser can have the `schema-owner`
 service do it instead, with `POSTGRES_USER` and `POSTGRES_PASSWORD` naming that
 superuser in the env file for the one run, and the database created first:
@@ -683,8 +721,9 @@ with a message that names what is wrong:
   owner itself, not a group role it is a member of. Only the database's owner
   can close it to the other roles on the server; for any other role PostgreSQL
   would report the attempt as a warning and leave the database open. No role
-  but a superuser may be a member of the owner with `INHERIT` or `SET`, and no
-  other role may hold `CREATE` on the database (step 4 above).
+  but a superuser, or the one `OWNER_DB_ADMIN` names, may be a member of the
+  owner, `ADMIN OPTION` alone included, no other role may hold `CREATE` on the
+  database, and no setting may be stored for the owner (step 4 above).
 - **A runtime role name of its own**, in `RUNTIME_DB_ROLE`. A role belongs to
   the whole server rather than to one database, so two instances naming the
   same role would each set its password on every start and grant it both

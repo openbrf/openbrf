@@ -83,8 +83,14 @@ async function asOwner(statement: string): Promise<void> {
   await withClient(env.DATABASE_URL, (client) => client.query(statement));
 }
 
-/** Runs the check the way the migrate service does, and says how it went. */
-function check(databaseUrl = env.DATABASE_URL): {
+/**
+ * Runs the check the way the migrate service does, and says how it went.
+ * `ownerAdmin` is what OWNER_DB_ADMIN names, nothing by default.
+ */
+function check(
+  databaseUrl = env.DATABASE_URL,
+  ownerAdmin?: string,
+): {
   status: number | null;
   output: string;
 } {
@@ -93,6 +99,7 @@ function check(databaseUrl = env.DATABASE_URL): {
       ...process.env,
       DATABASE_URL: databaseUrl,
       DATABASE_URL_RUNTIME: undefined,
+      OWNER_DB_ADMIN: ownerAdmin,
     },
     encoding: "utf8",
     timeout: 60_000,
@@ -281,9 +288,23 @@ describe("the trigger check before the migrations", () => {
     );
   }, 120_000);
 
-  it("passes the database the migrations and the job schema install built", () => {
+  it("passes the database the migrations and the job schema install built, and says what it found", () => {
     const passed = check();
     expect(passed.status, passed.output).toBe(0);
+    const guards = triggers.TRIGGER_MIGRATIONS.size;
+    expect(passed.output).toContain(
+      "migrations have run, and the guard triggers they created on the " +
+        `application's tables, ${guards} of the ${guards}, are all there. ` +
+        "Every trigger",
+    );
+    expect(passed.output).toContain(
+      "The one on pgboss.queue is not required here: the job schema install " +
+        "puts it back and checks it again.",
+    );
+    expect(passed.output).toContain(
+      "no role is a member of the owner but a superuser. A superuser can " +
+        "still act as it.",
+    );
   });
 
   it("passes an empty database, as a first deploy meets it", async () => {
@@ -300,6 +321,10 @@ describe("the trigger check before the migrations", () => {
 
     const passed = check(databaseUrl);
     expect(passed.status, passed.output).toBe(0);
+    expect(passed.output).toContain(
+      "No migration that creates a guard trigger on the application's " +
+        "tables has run yet, so none was looked for.",
+    );
   });
 
   it.each([
@@ -853,6 +878,73 @@ describe("the trigger check before the migrations", () => {
     );
   }, 60_000);
 
+  it("stops while the table the migrations record what they applied in forces row-level security, and runs none of its policies", async () => {
+    // Forced, a policy applies to the table's owner too, and can hide the row
+    // of the migration that created a guard, so that the guard is not looked
+    // for; the function it calls runs as the owner. A superuser passes every
+    // policy, so the check runs as an owner that is not one.
+    const owner = await ordinaryOwner("history");
+    try {
+      await withClient(owner.ownerUrl, async (client) => {
+        await client.query(
+          `CREATE TABLE public._prisma_migrations (
+             migration_name text NOT NULL,
+             finished_at timestamptz,
+             rolled_back_at timestamptz)`,
+        );
+        await client.query(
+          `INSERT INTO public._prisma_migrations
+           VALUES ('20261008100100_oauth_client_stays_disabled', now(), NULL)`,
+        );
+        await client.query("CREATE TABLE public.auth_oauth_client (id text)");
+        await client.query("CREATE TABLE public.policy_ran (by_role text)");
+        await client.query(
+          `CREATE FUNCTION public.hide_migrations() RETURNS boolean
+           LANGUAGE plpgsql
+           AS $$ BEGIN
+             INSERT INTO public.policy_ran VALUES (current_user);
+             RETURN false;
+           END $$`,
+        );
+      });
+      const missing = check(owner.ownerUrl);
+      expect(missing.status, missing.output).toBe(1);
+      expect(missing.output).toContain(
+        "public.auth_oauth_client is missing the trigger " +
+          "oauth_client_stays_disabled",
+      );
+
+      await withClient(owner.ownerUrl, async (client) => {
+        await client.query(
+          `CREATE POLICY hide_migrations ON public._prisma_migrations
+           USING (public.hide_migrations())`,
+        );
+        await client.query(
+          `ALTER TABLE public._prisma_migrations
+           ENABLE ROW LEVEL SECURITY, FORCE ROW LEVEL SECURITY`,
+        );
+      });
+      const refused = check(owner.ownerUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain(
+        "public._prisma_migrations, where the migrations record what they " +
+          "have applied, forces row-level security on the schema owner, so a " +
+          "policy decides which of its rows the owner sees.",
+      );
+      expect(refused.output).toContain("NO FORCE ROW LEVEL SECURITY");
+      expect(refused.output).toContain("So the deploy stops here.");
+      const ran = await withClient(owner.ownerUrl, async (client) => {
+        const result = await client.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM public.policy_ran",
+        );
+        return result.rows[0]?.count;
+      });
+      expect(ran, "times the policy's function ran").toBe(0);
+    } finally {
+      await owner.drop();
+    }
+  }, 60_000);
+
   it.each([
     { how: "disabled", off: "DISABLE TRIGGER" },
     {
@@ -946,21 +1038,21 @@ describe("the trigger check before the migrations", () => {
     {
       how: "inheriting its privileges",
       grant: "WITH INHERIT TRUE, SET FALSE",
-      refused: true,
+      reported: "can act as the schema owner",
     },
     {
       how: "able to SET ROLE to it",
       grant: "WITH INHERIT FALSE, SET TRUE",
-      refused: true,
+      reported: "can act as the schema owner",
     },
     {
       how: "holding only ADMIN OPTION on it, as a role that created it does",
       grant: "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
-      refused: false,
+      reported: "is a member of the schema owner",
     },
   ])(
-    "stops while a role can act as the owner by a membership $how, and only then",
-    async ({ grant, refused }) => {
+    "stops while a role is a member of the owner $how",
+    async ({ grant, reported }) => {
       // Whatever such a role does is the owner's, so nothing the other
       // checks look at is another role's. A superuser makes the grant, as
       // only one, or a role holding ADMIN OPTION on the owner, can.
@@ -971,14 +1063,12 @@ describe("the trigger check before the migrations", () => {
 
         await asOwner(`GRANT ${owner.role} TO ${PROBE_ROLE} ${grant}`);
         const after = check(owner.ownerUrl);
-        const reported = `${PROBE_ROLE} can act as the schema owner ${owner.role}.`;
-        if (refused) {
-          expect(after.status, after.output).toBe(1);
-          expect(after.output).toContain(reported);
-          expect(after.output).toContain("REVOKE the schema owner FROM");
-        } else {
-          expect(after.status, after.output).toBe(0);
-        }
+        expect(after.status, after.output).toBe(1);
+        expect(after.output).toContain(
+          `${PROBE_ROLE} ${reported} ${owner.role}`,
+        );
+        expect(after.output).toContain("REVOKE the schema owner FROM");
+        expect(after.output).toContain("So the deploy stops here.");
       } finally {
         // Dropping the owner takes the membership with it.
         await owner.drop();
@@ -986,6 +1076,115 @@ describe("the trigger check before the migrations", () => {
     },
     60_000,
   );
+
+  it("passes the administrator OWNER_DB_ADMIN names while it holds ADMIN OPTION alone, and no role that is a member of it", async () => {
+    // ADMIN OPTION is enough to grant the owner to oneself: the trust is the
+    // operator's decision, made by name, and holds only while the role has
+    // not used it.
+    const owner = await ordinaryOwner("admin");
+    const member = `openbrf_trigger_admin_member_${suffix}`;
+    await asOwner(`CREATE ROLE ${member} NOLOGIN`);
+    try {
+      await asOwner(
+        `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+      );
+      const refused = check(owner.ownerUrl);
+      expect(refused.status, refused.output).toBe(1);
+      expect(refused.output).toContain("OWNER_DB_ADMIN can name it");
+
+      const trusted = check(owner.ownerUrl, PROBE_ROLE);
+      expect(trusted.status, trusted.output).toBe(0);
+      expect(trusted.output).toContain(
+        `no role is a member of the owner but a superuser and ${PROBE_ROLE}, ` +
+          "which OWNER_DB_ADMIN trusts",
+      );
+
+      // A role that inherits the administrator's privileges inherits its
+      // ADMIN OPTION on the owner as well.
+      await asOwner(`GRANT ${PROBE_ROLE} TO ${member}`);
+      const throughIt = check(owner.ownerUrl, PROBE_ROLE);
+      expect(throughIt.status, throughIt.output).toBe(1);
+      expect(throughIt.output).toContain(
+        `${member} is a member of the schema owner ${owner.role}, and can ` +
+          "grant itself the owner's privileges.",
+      );
+      await asOwner(`REVOKE ${PROBE_ROLE} FROM ${member}`);
+
+      // What the administrator can do without a superuser: SET ROLE to
+      // itself, as it would be signed in, and grant itself the owner.
+      await withClient(env.DATABASE_URL, async (client) => {
+        await client.query(`SET ROLE ${PROBE_ROLE}`);
+        await client.query(
+          `GRANT ${owner.role} TO ${PROBE_ROLE} WITH INHERIT TRUE, SET TRUE`,
+        );
+      });
+      const used = check(owner.ownerUrl, PROBE_ROLE);
+      expect(used.status, used.output).toBe(1);
+      expect(used.output).toContain(
+        `${PROBE_ROLE} can act as the schema owner ${owner.role}.`,
+      );
+    } finally {
+      await asOwner(`DROP ROLE IF EXISTS ${member}`);
+      // Dropping the owner takes the memberships with it.
+      await owner.drop();
+    }
+  }, 60_000);
+
+  it.each([
+    {
+      what: "a search_path stored for the owner",
+      store: (role: string) => `ALTER ROLE ${role} SET search_path = public`,
+      reported: (role: string) =>
+        `The schema owner ${role} has the stored setting search_path=public.`,
+    },
+    {
+      what: "any setting stored for the owner in its database",
+      store: (role: string, database: string) =>
+        `ALTER ROLE ${role} IN DATABASE ${database} SET work_mem = '8MB'`,
+      reported: (role: string, database: string) =>
+        `The schema owner ${role}, in the database ${database}, has the ` +
+        "stored setting work_mem=8MB.",
+    },
+    {
+      what: "a search_path stored for the database",
+      store: (_role: string, database: string) =>
+        `ALTER DATABASE ${database} SET search_path = public`,
+      reported: (_role: string, database: string) =>
+        `The database ${database} has the stored setting search_path=public.`,
+    },
+  ])(
+    "stops on $what",
+    async ({ store, reported }) => {
+      // Each applies to every session of the owner's that does not set it,
+      // the migrations' among them, and the owner can store it itself.
+      const owner = await ordinaryOwner("settings");
+      const database = new URL(owner.databaseUrl).pathname.slice(1);
+      try {
+        await asOwner(store(owner.role, database));
+        const refused = check(owner.ownerUrl);
+        expect(refused.status, refused.output).toBe(1);
+        expect(refused.output).toContain(reported(owner.role, database));
+        expect(refused.output).toContain("ALTER ROLE ... RESET");
+        expect(refused.output).toContain("So the deploy stops here.");
+      } finally {
+        // Dropping the role and the database takes their settings with them.
+        await owner.drop();
+      }
+    },
+    60_000,
+  );
+
+  it("passes a setting other than search_path stored for the database", async () => {
+    const owner = await ordinaryOwner("database_setting");
+    const database = new URL(owner.databaseUrl).pathname.slice(1);
+    try {
+      await asOwner(`ALTER DATABASE ${database} SET work_mem = '8MB'`);
+      const passed = check(owner.ownerUrl);
+      expect(passed.status, passed.output).toBe(0);
+    } finally {
+      await owner.drop();
+    }
+  }, 60_000);
 
   it("stops while a role can act as the owner through a role that is a member of it", async () => {
     const owner = await ordinaryOwner("chain");
