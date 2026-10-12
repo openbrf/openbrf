@@ -6,6 +6,7 @@ import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
+import type { PersonDetail } from "../address-book/person.service";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -1626,6 +1627,106 @@ describe("the purge", () => {
         data: { movedOutOn: null },
       });
     }
+  });
+
+  it("shows the board what a granted erasure request is waiting on, and the last day of the letting holding it", async () => {
+    /*
+     * The purge's log line and its audit entry were the only places that said
+     * why a granted request stayed open, so a board had no way to see that a
+     * consent was holding it - nor that recording the letting's end would let
+     * it go. The person view says so, computed when it is read.
+     *
+     * The lodger is the data subject here rather than the member, because no
+     * other case gives the lodger an application: what is asserted is all of
+     * what the request waits on, and not a part of it.
+     */
+    const id = `su-waiting-on-${suffix}`;
+    await seedApplication({
+      id,
+      personId: lodger.personId,
+      closedAt: daysBefore(40),
+      periodTo: dayColumn(20),
+      status: "CONSENTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: lodger.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      lodger.personId,
+      board.personId,
+      NOW,
+    );
+
+    async function waitingOn(cookie: string) {
+      const response = await inject({
+        method: "GET",
+        url: `/api/address-book/persons/${lodger.personId}`,
+        headers: { cookie },
+      });
+      return response;
+    }
+
+    try {
+      const before = await waitingOn(boardCookie);
+      expect(before.statusCode).toBe(200);
+      expect(before.json<PersonDetail>().erasureWaitingOn).toEqual({
+        requestId: request.id,
+        status: "blocked",
+        refusal: null,
+        domains: [{ domain: "subletApplications", owed: 0, kept: 1 }],
+        lettingLastDay: dayText(20),
+      });
+
+      // The board records that the letting stopped earlier, and the day the
+      // request is held to moves with it - without a purge run in between.
+      const recorded = await inject({
+        method: "PUT",
+        url: `/api/sublet-queue/${id}/letting-end`,
+        payload: { lettingEndedOn: dayText(5) },
+        headers: { cookie: boardCookie },
+      });
+      expect(recorded.statusCode).toBe(200);
+      const after = await waitingOn(boardCookie);
+      expect(after.json<PersonDetail>().erasureWaitingOn).toMatchObject({
+        status: "blocked",
+        lettingLastDay: dayText(5),
+      });
+
+      // A hold placed after the grant refuses the purge, and the board is told
+      // which rule it is beside what the domains keep.
+      await prisma.legalHold.create({
+        data: {
+          personId: lodger.personId,
+          reason: "Placed after the erasure was granted",
+          placedByPersonId: board.personId,
+        },
+      });
+      const held = await waitingOn(boardCookie);
+      expect(held.json<PersonDetail>().erasureWaitingOn).toMatchObject({
+        status: "blocked",
+        refusal: "on-legal-hold",
+        domains: [{ domain: "subletApplications", owed: 0, kept: 1 }],
+      });
+
+      // The board's alone: nobody else reads the person view at all.
+      expect((await waitingOn(managerCookie)).statusCode).toBe(403);
+      expect((await waitingOn(memberCookie)).statusCode).toBe(403);
+    } finally {
+      await prisma.legalHold.deleteMany({
+        where: { personId: lodger.personId },
+      });
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: lodger.personId },
+        data: { movedOutOn: null },
+      });
+    }
+
+    // No granted erasure stands, so there is nothing to be waiting on.
+    const without = await waitingOn(boardCookie);
+    expect(without.json<PersonDetail>().erasureWaitingOn).toBeNull();
   });
 
   it("counts the retention window from the day a letting was recorded to have ended", async () => {

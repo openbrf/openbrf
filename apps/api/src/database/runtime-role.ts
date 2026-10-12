@@ -22,8 +22,10 @@ import { PrismaClient } from "../generated/prisma/client";
  * which confers the same; membership of any role at all, whose privileges no
  * revoke on the runtime role reaches; CREATE in the application's schemas,
  * which is the way to ownership; TRIGGER on any of their tables, which is
- * enough to replace a guard; and every privilege that script revokes on the
- * statutory archive, the migration history and the job schema's version.
+ * enough to replace a guard; TEMPORARY on the database, which lets a session
+ * hide a table behind one of its own; and every privilege that script revokes
+ * on the statutory archive, the migration history and the job schema's
+ * version.
  */
 
 /** What a Prisma client, or a transaction on one, offers for a raw read. */
@@ -42,6 +44,7 @@ type RoleFacts = {
   memberOf: string[];
   createsInSchema: boolean;
   createsTriggers: boolean;
+  revokeTemporary: string | null;
   rewritableArchive: string[];
   writesMigrationHistory: boolean;
   writesJobSchemaVersion: boolean;
@@ -165,6 +168,14 @@ SELECT
       AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
       AND has_table_privilege(c.oid, 'TRIGGER')
   ) AS "createsTriggers",
+  -- A temporary table comes first on its session's search_path, so it hides a
+  -- table of the same name from every function that does not pin its own. A
+  -- new database grants TEMPORARY to PUBLIC, which this role is part of. The
+  -- statement that takes it away, when the role holds it, for the message.
+  CASE WHEN has_database_privilege(current_database(), 'TEMPORARY')
+    THEN format('REVOKE TEMPORARY ON DATABASE %I FROM %I, PUBLIC',
+      current_database(), current_user)
+  END AS "revokeTemporary",
   ${REWRITABLE_ARCHIVE} AS "rewritableArchive",
   -- INSERT and UPDATE asked of the columns too, for the same reason.
   coalesce(has_table_privilege(to_regclass('public._prisma_migrations'), 'INSERT, UPDATE, DELETE, TRUNCATE'), false)
@@ -231,6 +242,14 @@ export async function runtimeRoleProblems(
   if (facts.createsTriggers) {
     problems.push(
       `${facts.role} can create triggers on tables in the public or the pgboss schema, and so replace the guards on them`,
+    );
+  }
+  if (facts.revokeTemporary !== null) {
+    // A grant made by a role other than the owner survives the owner's revoke
+    // with only a warning, hence the second half.
+    problems.push(
+      `${facts.role} can create temporary tables, which hide the application's tables in its session: ` +
+        `run "${facts.revokeTemporary}" as the database's owner, and as any other role that granted it TEMPORARY`,
     );
   }
   if (facts.rewritableArchive.length > 0) {

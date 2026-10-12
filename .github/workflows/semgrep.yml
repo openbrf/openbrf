@@ -35,6 +35,11 @@ jobs:
           # runner's git config where later steps and scripts can read it.
           persist-credentials: false
 
+      # For scripts/check-image-pins.mjs below, which needs nothing installed.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
       # --strict fails the job on a file semgrep could not parse, so a scan
       # that quietly skipped code is a red build rather than a green one. The
       # test files are excluded because semgrep's TypeScript parser rejects
@@ -65,27 +70,43 @@ jobs:
       - name: Run Semgrep
         run: |
           # Pinned in docker/semgrep/Dockerfile, where Dependabot keeps the
-          # digest current. Only the image on its FROM line is read.
-          SEMGREP_IMAGE=$(sed -n 's/^FROM //p' docker/semgrep/Dockerfile)
-          if [ -z "$SEMGREP_IMAGE" ]; then
-            echo "docker/semgrep/Dockerfile names no image." >&2
-            exit 1
-          fi
+          # digest current. The guard that fails CI on a drifted pin reads the
+          # image from it and prints the one it validated, so that what runs
+          # here is what was checked and not the result of a second parse.
+          SEMGREP_IMAGE=$(node scripts/check-image-pins.mjs --semgrep-image)
           # Pulled through Google's mirror of Docker Hub, which does not limit
           # anonymous pulls per address as Docker Hub does on runners whose
           # addresses everyone else's CI shares. The pin itself stays on Docker
           # Hub, where Dependabot reads the tags; the digest is the one Docker
           # Hub serves under the tag, and the mirror serves the same one. A
           # digest the mirror has not cached yet (a fresh Dependabot bump) falls
-          # back to Docker Hub rather than failing the scan.
+          # back to Docker Hub rather than failing the scan. Only that error does:
+          # Docker reports a digest the mirror does not have as "manifest
+          # unknown", "manifest for ... not found", or, with the containerd image
+          # store, "failed to resolve reference ...: not found". A bare "not
+          # found" is not enough, as "command not found" has it too. The
+          # containerd form cannot tell a missing digest from a missing
+          # repository, but the repository is semgrep/semgrep, which the guard
+          # insists on and the mirror serves, and an outage reads as a timeout
+          # or a refused connection and not as "not found". Any other
+          # failure (an outage, a timeout, a refused connection) fails the
+          # step, so that a lasting mirror outage is a red check someone reads
+          # and not every run quietly pulling from Docker Hub and spending its
+          # anonymous allowance.
           DOCKER_HUB_IMAGE="$SEMGREP_IMAGE"
           MIRROR_IMAGE="mirror.gcr.io/${DOCKER_HUB_IMAGE}"
-          if docker pull "$MIRROR_IMAGE"; then
+          if PULL_OUTPUT=$(docker pull "$MIRROR_IMAGE" 2>&1); then
+            echo "$PULL_OUTPUT"
             SEMGREP_IMAGE="$MIRROR_IMAGE"
-          else
-            echo "::warning::mirror.gcr.io could not serve ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
+          elif echo "$PULL_OUTPUT" | grep -qiE 'manifest unknown|manifest for .* not found|failed to resolve reference .*: not found'; then
+            echo "$PULL_OUTPUT" >&2
+            echo "::warning::mirror.gcr.io has not cached ${DOCKER_HUB_IMAGE}; pulling from Docker Hub."
             docker pull "$DOCKER_HUB_IMAGE"
             SEMGREP_IMAGE="$DOCKER_HUB_IMAGE"
+          else
+            echo "$PULL_OUTPUT" >&2
+            echo "::error::mirror.gcr.io failed for a reason other than a missing digest; not falling back to Docker Hub."
+            exit 1
           fi
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \

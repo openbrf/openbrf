@@ -2706,8 +2706,11 @@ model OauthConsent {
   createdAt DateTime
   updatedAt DateTime
 
+  /// One grant per member and app. The library finds the row and then updates
+  /// or inserts it, which two submissions racing each other could otherwise
+  /// turn into two rows granting different things.
+  @@unique([userId, clientId])
   @@index([clientId])
-  @@index([userId])
   @@map("auth_oauth_consent")
 }
 
@@ -2742,6 +2745,20 @@ enum ImportSessionStatus {
   APPLIED
   /// The apply stopped before the end. `failureReason` says why, and
   /// `rowsDone` says how much of the register was written before it stopped.
+  FAILED
+}
+
+/// Where the preview of a session's latest mapping has got.
+///
+/// The preview is a background job like the apply: matching a file against a
+/// register that holds identity numbers is an Argon2id hash per row, minutes on
+/// the largest file accepted, and no request should be held open for that.
+enum ImportPreviewStatus {
+  /// Asked for, and a worker is planning the rows or is about to.
+  PLANNING
+  /// Planned. The preview is stored and its token issued.
+  READY
+  /// The preview stopped. `previewFailureReason` says why.
   FAILED
 }
 
@@ -2795,20 +2812,55 @@ model ImportSession {
   defaultRole      ResidencyRole?
   defaultMovedInOn String?
 
+  /// The preview asked for last, by the id the screen polls it with. Asking
+  /// again replaces it, and a job planning a preview that is no longer this one
+  /// stops at its next progress report.
+  previewId            String?
+  previewStatus        ImportPreviewStatus?
+  /// Rows the preview job has planned, for the screen's progress bar.
+  previewRowsDone      Int                  @default(0)
+  /// Why the preview stopped, when it did. One of the import's reason codes.
+  previewFailureReason String?
+  /// When a screen last asked how the preview is getting on. A preview nobody
+  /// is watching has nobody to show it to - the screen holds its id, and a
+  /// reload loses it - so the job stops planning one left unwatched rather
+  /// than holding the worker other previews wait for.
+  previewWatchedAt     DateTime?
+
+  /// The finished preview as the screen shows it, encrypted as one value: it
+  /// names every person in the file and the register persons they match.
+  /// Cleared when the import is claimed, which no longer needs it.
+  previewCipher String?
+
+  /// Names the preview last recorded on this session, issued when its job
+  /// finishes and cleared when another is asked for. The preview hands it to
+  /// the screen it answered, and the apply is refused unless it carries the
+  /// same one: a second preview - another tab, another board member - replaces
+  /// the mapping and the rows needing a decision, and decisions made against the
+  /// first must not be applied under the second.
+  previewToken String?
+
   /// Rows the preview could not resolve to one person, as row number to the
   /// persons it could equally well have been. Written by the preview and read
   /// by the apply, which refuses to start while one of them has no decision.
   ambiguousRows Json?
 
-  /// A digest of what the preview planned for every row: its outcome, the
-  /// person it is written to and how it reached them, and the persons it could
-  /// equally well be. The apply plans the file again with the board's
-  /// decisions and refuses to start when that plan's digest differs, so a
-  /// decision cannot change what a row writes without the board seeing it.
-  previewDigest String?
+  /// Where the preview wrote each row, one digest per data row in file order:
+  /// its outcome, the person it is written to - or the earlier row of the file
+  /// that creates them - and the key that found them. Written by the preview
+  /// and compared by every chunk of the apply against its own rows before it
+  /// writes, so a row the register has sent to somebody else since stops the
+  /// import instead of writing to them.
+  previewedTargets Json?
+
+  /// `ImportRevision.revision` as the preview read it, before it read anything
+  /// else. The apply refuses to start when another import has written since.
+  previewedRevision Int?
 
   /// The board's answer for each ambiguous row: which person it is, that it is
-  /// a new one, or that it is not imported.
+  /// a new one, or that it is not imported. Until the import is claimed, the
+  /// answers the preview was planned with: the apply starts only with those,
+  /// so what they write is what the preview showed.
   decisions Json?
 
   /// Rows the apply wrote to a person without writing the identity number the
@@ -2838,6 +2890,19 @@ model ImportSession {
   rowsSkipped                  Int @default(0)
   rowsWithProblems             Int @default(0)
 
+  /// When the apply first found the reindex of personal identity numbers
+  /// unfinished, while it waits for it. Read by every job of the apply, so the
+  /// wait is bounded from its start whichever job looks next. Cleared by the
+  /// next chunk that commits.
+  reindexWaitSince DateTime? @db.Timestamptz(6)
+
+  /// When the job queued to look at the reindex again is due. Set together with
+  /// queueing it, and only once this has passed, so a session has one such job
+  /// at a time: another job that finds the reindex unfinished before then -
+  /// the one a restart queues, or the same job delivered twice - leaves the
+  /// wait to it. Cleared by the next chunk that commits.
+  reindexRecheckAt DateTime? @db.Timestamptz(6)
+
   /// Why the apply stopped, when it stopped early. One of the import's own
   /// reason codes, so the screen translates it like any other failure.
   failureReason String?
@@ -2857,6 +2922,30 @@ model ImportSession {
 
   @@index([status, expiresAt])
   @@map("import_session")
+}
+
+/// How many import chunks have written to the register. Exactly one row per
+/// instance; the id is pinned to 1 by a check constraint in the migration that
+/// adds it.
+///
+/// A preview reads this before it reads the register, and the apply refuses to
+/// start when it has moved since: another import has written, and the preview
+/// shows what the file would have done to a register that is no longer there.
+///
+/// A counter rather than the time each import finished. A timestamp is written
+/// after the chunk it follows has committed and by whichever process ran it, so
+/// a preview taken in the same millisecond, or on a host whose clock runs
+/// ahead, would count as taken after the write it did not see. And it lives on
+/// the session, which the daily purge deletes. The counter is advanced in the
+/// same transaction as the chunk's writes, and only by a chunk that wrote
+/// something. A preview that read it after the chunk committed reads the
+/// chunk's writes too, since it reads the register afterwards, and one that
+/// read it before is refused whether its plan saw them or not.
+model ImportRevision {
+  id       Int @id @default(1)
+  revision Int @default(0)
+
+  @@map("import_revision")
 }
 
 // ---------------------------------------------------------------------------

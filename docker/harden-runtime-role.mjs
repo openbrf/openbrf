@@ -22,7 +22,7 @@
 //
 // The role's connection limit is worked out here too, in
 // RUNTIME_DB_CONNECTION_LIMIT: the application's pool, the job queue's, the
-// package lock's sessions and a few to spare, so that on a shared server one instance cannot take every
+// package lock's sessions, the reindex lock's and a few to spare, so that on a shared server one instance cannot take every
 // connection the server has.
 //
 // Node built-ins and psql only, like the rest of docker/, so this stays
@@ -47,6 +47,13 @@ const JOB_POOL_SIZE = 2;
  * outside both pools.
  */
 const PACKAGE_LOCK_SESSIONS = 4;
+
+/**
+ * PersonReindexLock in src/address-book/person-reindex-lock.ts: the reindex of
+ * blind indexes holds its lock on a session of its own while a run is under
+ * way, one per instance.
+ */
+const REINDEX_LOCK_SESSIONS = 1;
 
 /**
  * Room for a session nobody pooled: an operator's psql as the runtime role, or
@@ -82,7 +89,11 @@ if (!Number.isInteger(poolSize) || poolSize < 1 || poolSize > MAX_POOL_SIZE) {
   );
 }
 const connectionLimit = String(
-  poolSize + JOB_POOL_SIZE + PACKAGE_LOCK_SESSIONS + SPARE_CONNECTIONS,
+  poolSize +
+    JOB_POOL_SIZE +
+    PACKAGE_LOCK_SESSIONS +
+    REINDEX_LOCK_SESSIONS +
+    SPARE_CONNECTIONS,
 );
 
 applyFile(HARDENING_SQL, {

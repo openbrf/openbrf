@@ -4,7 +4,15 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
-import { APPLICANT, MEMBER, MEMBER_LIST, RESIDENT } from "./people";
+import {
+  APPLICANT,
+  MEMBER,
+  MEMBER_LIST,
+  NAMESAKE_LIST,
+  NAMESAKES,
+  OVERSIZED_LIST,
+  RESIDENT,
+} from "./people";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -130,6 +138,23 @@ export interface RecordedBreach {
 }
 
 /**
+ * An app asking the signed-in person to let it act for them.
+ *
+ * The consent screen opens only from an authorization request the instance
+ * signed, for a client it knows, so no address written here could reach it.
+ * The walk registers the client as the administrator and then opens the
+ * request in the current session, which the instance answers by sending the
+ * browser to the consent screen with the signed request in its address.
+ *
+ * Both values are published: a made-up app, on a scheme under a reserved
+ * name.
+ */
+export interface AuthorizationRequest {
+  readonly clientName: string;
+  readonly redirectUri: string;
+}
+
+/**
  * A message written to the board through the website's contact form.
  *
  * Like everything a capture can photograph, it is published: an address on the
@@ -144,6 +169,22 @@ export interface ContactMessage {
   readonly handled?: true;
 }
 
+/**
+ * Somebody put in the register and moved into an apartment over the API.
+ *
+ * Like everything a capture can photograph, it is published: a name nobody
+ * has, and nothing else about them.
+ */
+export interface MovedInResident {
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly addressNumber: string;
+  readonly apartmentNumber: string;
+  readonly role: "MEMBER" | "RESIDENT";
+  /** ISO calendar date. */
+  readonly movedInOn: string;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
@@ -156,6 +197,8 @@ export type Action =
    * reads the register when it opens.
    */
   | { readonly recordBreach: RecordedBreach }
+  /** Register a client and open its authorization request. */
+  | { readonly requestAuthorization: AuthorizationRequest }
   /**
    * Post these messages through the public contact form, then reopen the
    * screen, which reads the inbox when it opens.
@@ -175,6 +218,15 @@ export type Action =
    * the instance again.
    */
   | { readonly failNextRead: string }
+  /**
+   * Put these people in the register as whoever is signed in, each moved into
+   * their apartment from their day, unless the address book already lists
+   * somebody of that name there from that day.
+   *
+   * For a screen about people the register has to hold that no other image
+   * should show: the shared fixture is in every register screen.
+   */
+  | { readonly moveIn: readonly MovedInResident[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -711,6 +763,87 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Förhandsgranska importen" } }],
     waitFor: { button: "Genomför importen" },
   },
+  {
+    /*
+     * A row the import cannot tell between two namesakes, with the one who
+     * already holds an overlapping residency on the apartment chosen: the
+     * select marks them, and the screen says beside the choice that the row
+     * then writes nothing. A file of its own, uploaded afresh, so the preview
+     * above stays the one every row of which is a new person.
+     */
+    name: "import-preview-overlapping-residency",
+    goto: appPath("/import"),
+    prepare: [
+      { moveIn: NAMESAKES },
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: NAMESAKE_LIST.fileName,
+          mimeType: NAMESAKE_LIST.mimeType,
+          text: NAMESAKE_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      { click: { button: "Förhandsgranska importen" } },
+      {
+        select: { combobox: "Den här raden är" },
+        option: "Gunnar Holm (överlappande boende)",
+      },
+    ],
+    waitFor: { text: /räknas raden som ett problem/ },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A mapping the API refuses: the apartment column left out, and a second
+     * column mapped to the email field the first already holds. The screen
+     * says the mapping cannot be used and lists each problem beneath it.
+     */
+    name: "import-mapping-refused",
+    goto: appPath("/import"),
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: MEMBER_LIST.fileName,
+          mimeType: MEMBER_LIST.mimeType,
+          text: MEMBER_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      {
+        select: { combobox: "Fält i registret för Lägenhetsnummer" },
+        option: "Importera inte",
+      },
+      {
+        select: { combobox: "Fält i registret för Anteckning" },
+        option: "E-postadress",
+      },
+      { click: { button: "Förhandsgranska importen" } },
+    ],
+    waitFor: { text: "Koppla kolumnen med lägenhetsnummer." },
+    capture: "page",
+  },
+  {
+    // A file over the size limit, which the server turns away with a 413
+    // before the import reads it. The screen names the limit.
+    name: "import-upload-too-large",
+    goto: appPath("/import"),
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: OVERSIZED_LIST.fileName,
+          mimeType: OVERSIZED_LIST.mimeType,
+          text: OVERSIZED_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+    ],
+    waitFor: { text: /större än 512 kB/ },
+    capture: "page",
+  },
 
   // --- composing a theme -----------------------------------------------------
   {
@@ -888,6 +1021,30 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/settings"),
     waitFor: { text: "Du har inte anslutit någon app." },
     capture: { panel: "Anslutna appar" },
+  },
+  {
+    /*
+     * The same member, asked by an app on her own device whether it may act
+     * for her.
+     *
+     * An app's own scheme rather than a web address, because that is the
+     * destination the screen has to name in words: it has no host to show,
+     * and the device hands the answer to whichever app claimed the name, which
+     * is what the warning under it says. After the card above and not before
+     * it, so that card is still photographed empty; nothing here consents.
+     */
+    name: "connected-app-consent",
+    prepare: [
+      {
+        requestAuthorization: {
+          clientName: "Exempelappen",
+          redirectUri: "se.exempel.app:/callback",
+        },
+      },
+    ],
+    // Rendered only once the client and the actions have both been read.
+    waitFor: { text: "Appen se.exempel.app på den här enheten" },
+    capture: "page",
   },
 
   // --- retention -------------------------------------------------------------
@@ -2507,5 +2664,39 @@ export const SCREENS: readonly Screen[] = [
     ],
     waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },
     capture: "page",
+  },
+  {
+    /*
+     * A granted erasure request and what it is waiting on, under the request
+     * itself rather than in the purge's log. The person is added here and
+     * never lived in the association - a grant lifts the requirement of a past
+     * residency - so nothing the walk shows elsewhere changes, and the very
+     * last entry is the only one that sees them. They hold nothing in any
+     * domain, so the note says the next nightly purge carries the request out;
+     * the states with rows kept, a rule refusing and a letting's last day are
+     * pinned down by the component's own tests.
+     */
+    name: "person-erasure-waiting-on",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Greta" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { click: { button: "Lägg till i registret" } },
+      { see: { heading: "Greta Exempelsson" } },
+      { click: { button: "Anteckna en begäran" } },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag har aldrig bott här och vill att mitt konto raderas.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Fatta beslut" } },
+      {
+        fill: { label: "Styrelsens skäl" },
+        value: "Uppgifterna behövs inte längre.",
+      },
+      { click: { button: "Spara" } },
+    ],
+    waitFor: { text: "Vad raderingen väntar på" },
   },
 ];

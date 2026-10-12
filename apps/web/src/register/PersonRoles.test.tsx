@@ -98,6 +98,7 @@ const PERSON: PersonDetail = {
   dataSubjectRequests: [],
   communicationObjectionAt: null,
   processingRestrictedAt: null,
+  erasureWaitingOn: null,
 };
 
 /** Elected, and not yet stood down. */

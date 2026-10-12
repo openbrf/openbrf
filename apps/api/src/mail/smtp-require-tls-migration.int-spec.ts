@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isLoopbackHost } from "@openbrf/shared";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { isLoopbackHost } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 

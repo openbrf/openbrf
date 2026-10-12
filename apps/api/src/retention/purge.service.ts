@@ -22,8 +22,13 @@ import {
   type ErasureRemainder,
 } from "./erasure-domains";
 import { lockErasureEligibility } from "./erasure-lock";
+import {
+  erasureWaitingOn,
+  type ErasureRequestStatus,
+} from "./erasure-waiting-on";
 import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
+import { describePurgeRefusal, purgeRefusal } from "./purge-refusal";
 import { purgeCutoff } from "./purge-window";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 import {
@@ -94,27 +99,6 @@ export interface PurgeOutcome {
   /** What each erasure-aware domain still held, where any of them held rows. */
   erasureRemainder: ErasureRemainder[];
 }
-
-/**
- * Why a granted erasure request is still open when a run ends.
- *
- * Two answers and they mean opposite things. "blocked" is the product working as
- * it is meant to: a legal hold, a restriction, a board seat, a system role, a
- * residency that has not ended or a motion the association is still dealing
- * with is keeping rows the purge must not take, and the request waits for that
- * to change. "incomplete" is work that was owed and did not happen: a run that
- * threw for this person, a reader that has not got through them, a night the
- * instance was down. The first is expected and logged as such; the second is a
- * fault and is warned about, because nothing else would report it.
- *
- * Not the word this product already uses for a person whose personal data is
- * protected (skyddade personuppgifter), which every service that returns a
- * person to a screen answers with and which a debiting list and a fee notice
- * print in the cell where a name would go. A log line saying it beside a person
- * id would be a false signal for an ordinary member and would read as a
- * disclosure for a real one.
- */
-export type ErasureRequestStatus = "blocked" | "incomplete";
 
 /** One granted erasure request the run left open, and what it is waiting on. */
 export interface OpenErasureRequest {
@@ -458,13 +442,13 @@ export class PurgeService implements OnModuleInit {
   ): Promise<OpenErasureRequest[]> {
     const open: OpenErasureRequest[] = [];
     for (const personId of await grantedErasurePersonIds(this.prisma)) {
-      const remainder = await erasureRemainder(
+      const waiting = await erasureWaitingOn(
         this.prisma,
         personId,
         now,
         this.encryption,
       );
-      const described = remainder.map(describeRemainder).join("; ");
+      const described = waiting.remainder.map(describeRemainder).join("; ");
 
       if (failedPersonIds.has(personId)) {
         // The failure first, whatever else is standing: it is the thing that
@@ -477,64 +461,24 @@ export class PurgeService implements OnModuleInit {
         continue;
       }
 
-      const refusal = await this.purgeRefusalFor(personId, now);
-      if (refusal !== null) {
-        open.push({
-          personId,
-          status: "blocked",
-          because: join(refusal, described),
-        });
-      } else if (remainder.some((domain) => domain.owed > 0)) {
-        // A job that reads granted requests has not got through this person:
-        // it threw for them, stopped at its bound, or did not run at all.
-        open.push({ personId, status: "incomplete", because: described });
-      } else if (remainder.length > 0) {
-        // Only rows a domain keeps on purpose are left. The erasure has gone as
-        // far as it can go, and the request says so rather than claiming to be
-        // carried out.
-        open.push({ personId, status: "blocked", because: described });
-      } else {
-        /*
-         * Nothing owed, nothing kept and nothing refusing, so the request would
-         * have closed had this run reached the person. The per-run bound is
-         * what is left, and the next run takes them.
-         */
-        open.push({
-          personId,
-          status: "incomplete",
-          because: "this run did not reach them",
-        });
-      }
+      open.push({
+        personId,
+        status: waiting.status,
+        because:
+          waiting.refusal !== null
+            ? join(describePurgeRefusal(waiting.refusal), described)
+            : waiting.remainder.length > 0
+              ? described
+              : /*
+                 * Nothing owed, nothing kept and nothing refusing, so the
+                 * request would have closed had this run reached the person.
+                 * The per-run bound is what is left, and the next run takes
+                 * them.
+                 */
+                "this run did not reach them",
+      });
     }
     return open;
-  }
-
-  /**
-   * What refuses this person's purge, or null where nothing does.
-   *
-   * The scan's rules asked one person at a time, so a request left open has a
-   * reason that names the same thing the query filtered on. A granted request
-   * is the authority here, so the cutoff is now and a past residency is not
-   * required - every other refusal stands.
-   */
-  private async purgeRefusalFor(
-    personId: string,
-    now: Date,
-  ): Promise<string | null> {
-    const person = await this.prisma.person.findUnique({
-      where: { id: personId },
-      select: {
-        processingRestrictedAt: true,
-        residencies: { select: { movedOutOn: true } },
-        boardPositions: { select: { endedOn: true } },
-        systemRoles: { select: { role: true } },
-        legalHolds: { where: { releasedAt: null }, select: { id: true } },
-      },
-    });
-    if (person === null) {
-      return "the person row is gone";
-    }
-    return purgeRefusal(person, now, now, true);
   }
 
   /**
@@ -1098,80 +1042,6 @@ function clearableStates(defaultLocale: string): Prisma.PersonWhereInput[] {
     { userAccount: { isNot: null } },
     { invitations: { some: {} } },
   ];
-}
-
-/**
- * What refuses this person's purge, or null where nothing does.
- *
- * The same four conditions the scan applies, expressed over objects rather
- * than as a query, because the check that matters is the one taken with the
- * rows locked in front of it.
- *
- * A reason rather than a boolean, so that a granted erasure request the purge
- * will not carry out can say which rule kept it waiting. The strings are for a
- * log line and a run summary: they name a rule and never a row.
- */
-function purgeRefusal(
-  person: {
-    residencies: readonly { movedOutOn: Date | null }[];
-    boardPositions: readonly { endedOn: Date | null }[];
-    systemRoles: readonly unknown[];
-    legalHolds: readonly unknown[];
-    processingRestrictedAt: Date | null;
-  },
-  now: Date,
-  cutoff: Date,
-  onRequest = false,
-): string | null {
-  /*
-   * A restriction refuses before anything else is considered. Art. 18(2) lets
-   * the association store the data and little else, so erasing it is the one
-   * act the person has asked it not to perform - and asking for a restriction
-   * after asking for erasure is a person changing their mind, which the later
-   * request wins.
-   */
-  if (person.processingRestrictedAt !== null) {
-    return "processing is restricted";
-  }
-  /*
-   * Asked before the residencies, because none of these depends on one. A
-   * granted request moves the cutoff and lifts the requirement of a past
-   * residency; it lifts nothing else, so a hold placed after the grant still
-   * refuses here - and it has to refuse for somebody who never held a
-   * residency too, whose data a hold is just as capable of preserving.
-   */
-  if (
-    person.boardPositions.some(
-      (position) =>
-        position.endedOn === null || position.endedOn.getTime() > now.getTime(),
-    )
-  ) {
-    return "a board seat is still held";
-  }
-  if (person.legalHolds.length > 0) {
-    return "a legal hold stands";
-  }
-  if (person.systemRoles.length > 0) {
-    return "a system role is still granted";
-  }
-  /*
-   * Somebody who never lived here has no move-out to anchor a purge date on, so
-   * the scheduled job leaves them alone. A granted request is a different
-   * authority: it names this person, and their contact details and account are
-   * service data whether or not they ever held a residency.
-   */
-  if (person.residencies.length === 0) {
-    return onRequest ? null : "no residency to anchor a purge date on";
-  }
-  return person.residencies.some(
-    (residency) =>
-      residency.movedOutOn === null ||
-      residency.movedOutOn.getTime() > cutoff.getTime(),
-  )
-    ? onRequest
-      ? "a residency is still running"
-      : "a residency has not ended long enough ago"
-    : null;
 }
 
 /**

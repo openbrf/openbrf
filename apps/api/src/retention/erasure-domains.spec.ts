@@ -5,6 +5,7 @@ import { erasureSourceFacts } from "../testing/erasure-source-facts";
 import {
   describeRemainder,
   ERASURE_DOMAINS,
+  erasureDomainKey,
   erasureRemainder,
   remainingRunBound,
   type ErasureDbClient,
@@ -602,6 +603,24 @@ describe("what a granted erasure request still owes one person", () => {
           "a thread's address is held by somebody under a legal hold or a restriction",
       },
     ]);
+  });
+
+  it("gives every domain its own key and its own name", () => {
+    // The board's screen looks a domain's words up by its key, and a
+    // remainder finds its key by its name, so neither may be shared.
+    const keys = ERASURE_DOMAINS.map((domain) => domain.key);
+    const names = ERASURE_DOMAINS.map((domain) => domain.name);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("finds the key of the domain a remainder is about", () => {
+    expect(
+      erasureDomainKey({ domain: "subletting applications", owed: 0, kept: 1 }),
+    ).toBe("subletApplications");
+    expect(() =>
+      erasureDomainKey({ domain: "not a domain", owed: 1, kept: 0 }),
+    ).toThrow("Not a registered erasure domain");
   });
 
   it("says in one line what a domain is holding and why", () => {
