@@ -256,6 +256,7 @@
       "electedOn": "Elected",
       "endedOn": "Ended",
       "protectionFailed": "The masking could not be changed. Try again.",
+      "protectionUnconfirmed": "The masking was sent, but the person could not be read back, so it is not known whether it took effect. Read the person again.",
       "invite": "Send invitation",
       "inviteAgain": "Send the invitation again",
       "inviteWorking": "Sending",
@@ -2072,6 +2073,7 @@
         "releaseSubmitLabel": "Record the release of the lien from {{lien}}",
         "releasing": "Releasing",
         "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may still appear open until the register has been read again.",
+        "releaseUnconfirmed": "The release got no answer and the register could not be read, so it is not known whether it was recorded. Read the register again before releasing the lien again.",
         "readAgain": "Read the register again",
         "failed": "The lien could not be recorded. Check the creditor, the date and the amount."
       },
@@ -3006,6 +3008,7 @@
       "hint": "Striking a message through withholds the text from the others in the room and cannot be taken back. Nothing is erased: the message stays with the same author on it, and whoever wrote it still reads it."
     },
     "errors": {
+      "readFailed": "The chat could not be read just now. Please try again.",
       "chatNotFound": "That chat is not there, or it is not yours to read.",
       "messageNotFound": "That message does not exist, or is not yours to read.",
       "reportNotFound": "That reported chat message does not exist.",

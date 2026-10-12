@@ -425,6 +425,22 @@ describe("a room that could not be read at all", () => {
     expect(screen.queryByText("Ingenting har skrivits här än.")).toBeNull();
   });
 
+  it("says the chat could not be read, not that something could not be saved, when the read gets no answer", async () => {
+    // Nothing was written, so a sentence about saving would tell the reader
+    // that something of theirs was lost.
+    readChat.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(
+      await screen.findByText("Chatten kunde inte läsas just nu. Försök igen."),
+    ).not.toBeNull();
+    expect(screen.queryByText(/kunde inte sparas/)).toBeNull();
+  });
+
   it("offers no write box for a room this client never got", async () => {
     // A message sent into it would be sent blind, at a room the screen has no
     // answer about.
@@ -452,7 +468,8 @@ describe("a room that could not be read at all", () => {
      * read. Only a reload cleared either.
      *
      * The first read fails the way a restarting server fails, which falls
-     * through to the general sentence; the one after it answers.
+     * through to the sentence for a room that could not be read; the one after
+     * it answers.
      */
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -466,7 +483,9 @@ describe("a room that could not be read at all", () => {
 
       render(<ChatScreen viewer={viewer(["chat:participate"])} />);
       expect(
-        await screen.findByText("Det gick inte just nu. Försök igen."),
+        await screen.findByText(
+          "Chatten kunde inte läsas just nu. Försök igen.",
+        ),
       ).not.toBeNull();
       expect(screen.queryByLabelText("Ditt meddelande")).toBeNull();
 
@@ -476,7 +495,7 @@ describe("a room that could not be read at all", () => {
 
       expect(await screen.findByLabelText("Ditt meddelande")).not.toBeNull();
       expect(
-        screen.queryByText("Det gick inte just nu. Försök igen."),
+        screen.queryByText("Chatten kunde inte läsas just nu. Försök igen."),
       ).toBeNull();
     } finally {
       vi.useRealTimers();

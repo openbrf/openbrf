@@ -20,6 +20,7 @@ import {
   type ChatRoomList,
 } from "../api/chat";
 import type { Viewer } from "../api/instance";
+import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
   FIELD_MULTILINE,
@@ -34,7 +35,11 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
-import { chatFailureKey, chatGroupNameFailureKey } from "./chat-failures";
+import {
+  chatFailureKey,
+  chatGroupNameFailureKey,
+  chatReadFailureKey,
+} from "./chat-failures";
 import { ChatGroupPanel } from "./ChatGroupPanel";
 import { ChatMessage } from "./ChatMessage";
 import { ChatReportQueue } from "./ChatReportQueue";
@@ -605,12 +610,14 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * queue answer for themselves the same way, each rendering the failures of the
    * acts inside it.
    */
-  const roomFailure =
+  const roomFailureKey: TranslationKey | null =
     send.state.kind === "failed"
-      ? send.state.failure
+      ? chatFailureKey(send.state.failure)
       : report.state.kind === "failed"
-        ? report.state.failure
-        : (conversation?.failure ?? null);
+        ? chatFailureKey(report.state.failure)
+        : conversation?.failure
+          ? chatReadFailureKey(conversation.failure)
+          : null;
 
   /** The list of rooms owns making one, so it owns the refusal as well. */
   const createFailure =
@@ -794,9 +801,9 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               : t("chat.groupDescription")
           }
           notice={
-            roomFailure !== null ? (
+            roomFailureKey !== null ? (
               <Notice tone="danger" live>
-                {t(chatFailureKey(roomFailure))}
+                {t(roomFailureKey)}
               </Notice>
             ) : null
           }

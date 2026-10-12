@@ -256,6 +256,7 @@
       "electedOn": "Vald",
       "endedOn": "Avslutades",
       "protectionFailed": "Maskeringen kunde inte ändras. Försök igen.",
+      "protectionUnconfirmed": "Maskeringen skickades, men personen kunde inte läsas om, så det är inte känt om den gällde. Läs om personen.",
       "invite": "Skicka inbjudan",
       "inviteAgain": "Skicka inbjudan igen",
       "inviteWorking": "Skickar",
@@ -2072,6 +2073,7 @@
         "releaseSubmitLabel": "Registrera avnoteringen av panten från {{lien}}",
         "releasing": "Avnoterar",
         "releaseRecordedUnread": "Avnoteringen är registrerad, men registret kunde inte läsas om. Panten kan se öppen ut tills det har lästs om.",
+        "releaseUnconfirmed": "Avnoteringen fick inget svar och registret kunde inte läsas, så det är inte känt om den registrerades. Läs om registret innan panten avnoteras igen.",
         "readAgain": "Läs om registret",
         "failed": "Panten kunde inte registreras. Kontrollera panthavare, datum och belopp."
       },
@@ -3006,6 +3008,7 @@
       "hint": "Att stryka över döljer texten för de andra i rummet och kan inte tas tillbaka. Ingenting raderas: meddelandet står kvar med samma avsändare, och den som skrev det läser det fortfarande."
     },
     "errors": {
+      "readFailed": "Chatten kunde inte läsas just nu. Försök igen.",
       "chatNotFound": "Den chatten finns inte, eller är inte din att läsa.",
       "messageNotFound": "Det meddelandet finns inte, eller är inte ditt att läsa.",
       "reportNotFound": "Det anmälda chattmeddelandet finns inte.",

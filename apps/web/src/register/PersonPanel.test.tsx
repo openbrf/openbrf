@@ -346,6 +346,69 @@ describe("a person with protected personal data", () => {
     ).not.toBeNull();
   });
 
+  it("reads the person back when the change got no answer, and draws what the register holds", async () => {
+    // The request may have been written before the connection dropped. A panel
+    // that kept drawing the person as unmasked would let the board act on it.
+    setProtectedPersonalData.mockRejectedValue(new Error("offline"));
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+    fetchPerson.mockClear();
+    fetchPerson.mockResolvedValue({
+      ...PLAIN_PERSON,
+      protectedPersonalData: true,
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Maskera den här personen/ }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Maskeras överallt; varje visning loggas i granskningsloggen",
+      ),
+    ).not.toBeNull();
+    expect(fetchPerson).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText("Maskeringen kunde inte ändras. Försök igen."),
+    ).not.toBeNull();
+  });
+
+  it("offers to read the person again when the read-back fails too, and keeps reveals blocked until it answers", async () => {
+    // Offline for both the change and the read: the panel has no person to
+    // draw, so the notice and the retry cannot live inside the person's content.
+    setProtectedPersonalData.mockRejectedValue(new Error("offline"));
+    renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+    fetchPerson.mockClear();
+    fetchPerson.mockRejectedValueOnce(new Error("offline"));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Maskera den här personen/ }),
+    );
+
+    expect(
+      await screen.findByText(/Maskeringen skickades, men personen kunde inte/),
+    ).not.toBeNull();
+    fetchPerson.mockResolvedValue({
+      ...PLAIN_PERSON,
+      protectedPersonalData: true,
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(
+      await screen.findByText(
+        "Maskeras överallt; varje visning loggas i granskningsloggen",
+      ),
+    ).not.toBeNull();
+    expect(fetchPerson).toHaveBeenCalledTimes(2);
+    const identity = screen
+      .getAllByRole("button", { name: /^Visa/ })
+      .find((button) =>
+        button.getAttribute("aria-label")?.includes("Personnummer"),
+      ) as HTMLButtonElement;
+    expect(identity.disabled).toBe(false);
+  });
+
   it("masks the postal address, which is what protection exists for", async () => {
     renderPanel(PROTECTED_PERSON);
     await screen.findByText("Sara Berg");

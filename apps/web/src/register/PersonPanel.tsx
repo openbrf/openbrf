@@ -539,9 +539,19 @@ export function PersonPanel({
       try {
         await setProtectedPersonalData(personId, next);
       } catch {
-        changingProtectionRef.current = false;
-        setChangingProtection(false);
+        /*
+         * A failure with no answer (offline, a timeout) does not say the change
+         * was not made: the request may have reached the server before the
+         * connection dropped. The person is read back either way, so the panel
+         * never keeps drawing as unmasked a person the register holds as
+         * protected. The notice stays, because the board still cannot tell
+         * whether the change was theirs. The block stays too, until that read
+         * has answered.
+         */
         setProtectionFailed(true);
+        readAfterProtection.current = true;
+        setReloadToken((token) => token + 1);
+        onChanged();
         return;
       }
       readAfterProtection.current = true;
@@ -860,9 +870,32 @@ export function PersonPanel({
       </div>
 
       {failed ? (
-        <p role="alert" className="text-body text-danger">
-          {t("register.error.title")}
-        </p>
+        <>
+          <p role="alert" className="text-body text-danger">
+            {t("register.error.title")}
+          </p>
+          {/*
+           * Outside the person's content, which is gone while the read fails.
+           * A masking change that got no answer and could not be read back
+           * leaves it unknown whether the person is protected, so the notice
+           * stays and the read can be asked again; reveals stay blocked until
+           * one answers.
+           */}
+          {protectionFailed ? (
+            <p role="alert" className="text-small text-danger">
+              {t("register.person.protectionUnconfirmed")}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setReloadToken((token) => token + 1);
+            }}
+            className={`${SECONDARY_BUTTON} self-start`}
+          >
+            {t("register.error.retry")}
+          </button>
+        </>
       ) : null}
 
       {person === null ? null : (

@@ -1599,7 +1599,9 @@ export class ApartmentRegisterService {
           },
         },
         lienNotes: {
-          orderBy: [{ notedOn: "desc" }],
+          // The id breaks a tie between two liens noted on the same day, so the
+          // screen's "entry n of m" names the same row after every read.
+          orderBy: [{ notedOn: "desc" }, { id: "asc" }],
           select: {
             id: true,
             creditor: true,
