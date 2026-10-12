@@ -48,6 +48,11 @@ describe("another origin, however it is spelled", () => {
     "javascript:alert(1)",
     "data:text/html,<script></script>",
     "//evil.example:8443",
+    // Encoded separators, which one more decode turns into the forms above:
+    // `/\\evil.test`, `/\/evil.test` and `///evil.test`.
+    "/%5c%5cevil.test",
+    "/%5C/evil.test",
+    "/%2f%2fevil.test",
   ])("is refused: %s", (value) => {
     expect(safeReturnTo(value)).toBeNull();
   });
@@ -101,6 +106,9 @@ describe("an encoded traversal", () => {
     "/%2e%2e%2f%2fevil.test",
     "/%252e%252e/%252e%252e//evil.test",
     "/%2e%2e%5c%5cevil.test",
+    // Two traversals that leave `/%2fevil.test` as written, and `//evil.test`
+    // only once it is decoded again.
+    "/%2e%2e/%2e%2e/%2fevil.test",
     "/%09/evil.test",
   ])("is refused: %s", (value) => {
     expect(safeReturnTo(value)).toBeNull();

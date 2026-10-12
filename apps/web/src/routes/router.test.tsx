@@ -33,4 +33,19 @@ describe("the sign-in screen for somebody already signed in", () => {
 
     expect(router.state.location.pathname).toBe("/");
   });
+
+  it.each([
+    // `/%2e%2e/%2e%2e//evil.example` once the query is read: a traversal the
+    // URL parser collapses to `//evil.example`.
+    "%2F%252e%252e%2F%252e%252e%2F%2Fevil.example",
+    // `/%2f%2fevil.example`, which is `///evil.example` one decode later.
+    "%2F%252f%252fevil.example",
+  ])(
+    "goes to the start when that address leaves once it is decoded: %s",
+    async (returnTo) => {
+      await router.navigate({ href: `/sign-in?returnTo=${returnTo}` });
+
+      expect(router.state.location.pathname).toBe("/");
+    },
+  );
 });
