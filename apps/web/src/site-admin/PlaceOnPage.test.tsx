@@ -217,6 +217,36 @@ it("says the page moved rather than reporting a placement that did not happen", 
   ).toBeTruthy();
 });
 
+it("keeps the page the board chose through the re-read a refusal asks for", async () => {
+  // The retry would otherwise place the block on the first page in the list,
+  // which is not the one the board picked.
+  const pages = [
+    page({}),
+    page({ id: "page-2", slug: "om", title: "Om föreningen", revision: 2 }),
+  ];
+  fetchPages.mockResolvedValue({ ok: true, value: pages });
+  savePage.mockResolvedValueOnce({
+    ok: false,
+    failure: { status: 409, reason: "page-changed" },
+  });
+
+  renderControl();
+  await userEvent.selectOptions(
+    await screen.findByRole("combobox", { name: "Sida" }),
+    "page-2",
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Placera på sidan" }),
+  );
+  await waitFor(() => {
+    expect(fetchPages).toHaveBeenCalledTimes(2);
+  });
+
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Sida" }).value,
+  ).toBe("page-2");
+});
+
 it("reports a failed read as one, and reads again when asked", async () => {
   /*
    * Answering a failed read with an empty list would tell a board with a dozen
