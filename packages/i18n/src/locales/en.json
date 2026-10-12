@@ -1346,6 +1346,7 @@
           "mismatch": "The two new passwords are not the same.",
           "wrong": "The current password did not match.",
           "weak": "The new password needs at least 12 characters.",
+          "tooLong": "The new password can be at most 128 characters.",
           "unknown": "The password could not be changed just now. Please try again."
         }
       },

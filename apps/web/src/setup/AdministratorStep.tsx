@@ -1,4 +1,8 @@
-import { ADMINISTRATOR_LIMITS, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
+import {
+  ADMINISTRATOR_LIMITS,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from "@openbrf/shared";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -226,7 +230,7 @@ export function AdministratorStep({
             autoComplete="new-password"
             required
             minLength={MIN_PASSWORD_LENGTH}
-            maxLength={ADMINISTRATOR_LIMITS.password}
+            maxLength={MAX_PASSWORD_LENGTH}
             value={password}
             onChange={(event) => {
               setPassword(event.target.value);

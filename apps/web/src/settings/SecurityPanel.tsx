@@ -1,4 +1,4 @@
-import { MIN_PASSWORD_LENGTH } from "@openbrf/shared";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import {
   useCallback,
   useEffect,
@@ -125,9 +125,13 @@ function PasswordSection(): ReactElement {
       setOutcome({
         kind: "failed",
         messageKey:
-          error.status === 400 || error.status === 401
-            ? "settings.security.password.errors.wrong"
-            : "settings.security.password.errors.unknown",
+          error.code === "PASSWORD_TOO_LONG"
+            ? "settings.security.password.errors.tooLong"
+            : error.code === "PASSWORD_TOO_SHORT"
+              ? "settings.security.password.errors.weak"
+              : error.status === 400 || error.status === 401
+                ? "settings.security.password.errors.wrong"
+                : "settings.security.password.errors.unknown",
       });
       return;
     }
@@ -176,6 +180,7 @@ function PasswordSection(): ReactElement {
             autoComplete="new-password"
             required
             minLength={MIN_PASSWORD_LENGTH}
+            maxLength={MAX_PASSWORD_LENGTH}
             value={next}
             onChange={(event) => {
               setNext(event.target.value);

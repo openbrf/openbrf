@@ -33,9 +33,11 @@ export const ADMINISTRATOR_LIMITS = {
   firstName: 100,
   lastName: 100,
   email: 320,
-  password: 200,
   claimToken: 200,
 } as const;
 
 /** The shortest password an account may have, set on the sign-in library. */
 export const MIN_PASSWORD_LENGTH = 12;
+
+/** The longest, which the sign-in library refuses past on every account. */
+export const MAX_PASSWORD_LENGTH = 128;

@@ -23,9 +23,12 @@ import { SecurityPanel } from "./SecurityPanel";
  * authenticator app and the passkeys.
  */
 
+const changePassword = vi.fn();
+
 vi.mock("../auth/auth-client", () => ({
   useSession: () => ({ data: undefined }),
   authClient: {
+    changePassword: (input: unknown) => changePassword(input),
     passkey: {
       listUserPasskeys: () => Promise.resolve({ data: [] }),
     },
@@ -281,5 +284,72 @@ describe("the apps this member has connected", () => {
       expect(screen.getByText("Chattklienten")).toBeTruthy();
     });
     expect(fetchMyConnectedApps).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("changing the password", () => {
+  beforeEach(() => {
+    changePassword.mockReset();
+  });
+
+  const changeTo = async (next: string): Promise<void> => {
+    render(<SecurityPanel twoFactorEnabled={false} />);
+    await userEvent.type(
+      screen.getByLabelText("Nuvarande lösenord"),
+      "the-old-password",
+    );
+    await userEvent.type(screen.getByLabelText(/^Nytt lösenord/), next);
+    await userEvent.type(
+      screen.getByLabelText("Upprepa det nya lösenordet"),
+      next,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Byt lösenord" }));
+  };
+
+  it("says the current password did not match only when that is the refusal", async () => {
+    changePassword.mockResolvedValue({
+      error: { status: 400, code: "INVALID_PASSWORD" },
+    });
+
+    await changeTo("a-long-enough-password");
+
+    expect(
+      await screen.findByText("Det nuvarande lösenordet stämde inte."),
+    ).toBeTruthy();
+  });
+
+  it("says a too long new password is too long, not that the current one is wrong", async () => {
+    // The sign-in library refuses past its maximum with a 400 of its own. Read
+    // by its status alone it blamed the current password, which was right.
+    changePassword.mockResolvedValue({
+      error: { status: 400, code: "PASSWORD_TOO_LONG" },
+    });
+
+    await changeTo("a-long-enough-password");
+
+    expect(
+      await screen.findByText("Det nya lösenordet får vara högst 128 tecken."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Det nuvarande lösenordet stämde inte.")).toBeNull();
+  });
+
+  it("says a too short new password is too short when the library refuses it", async () => {
+    changePassword.mockResolvedValue({
+      error: { status: 400, code: "PASSWORD_TOO_SHORT" },
+    });
+
+    await changeTo("a-long-enough-password");
+
+    expect(
+      await screen.findByText("Det nya lösenordet behöver minst 12 tecken."),
+    ).toBeTruthy();
+  });
+
+  it("holds the new password to the length the library accepts", () => {
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    expect(
+      screen.getByLabelText(/^Nytt lösenord/).getAttribute("maxlength"),
+    ).toBe("128");
   });
 });

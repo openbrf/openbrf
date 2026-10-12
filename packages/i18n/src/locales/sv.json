@@ -1346,6 +1346,7 @@
           "mismatch": "De två nya lösenorden är inte lika.",
           "wrong": "Det nuvarande lösenordet stämde inte.",
           "weak": "Det nya lösenordet behöver minst 12 tecken.",
+          "tooLong": "Det nya lösenordet får vara högst 128 tecken.",
           "unknown": "Lösenordet kunde inte bytas just nu. Försök igen."
         }
       },

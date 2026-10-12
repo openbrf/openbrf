@@ -1,7 +1,7 @@
 import { cimd, type CimdMetadataValidationOptions } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
 import { passkey } from "@better-auth/passkey";
-import { MIN_PASSWORD_LENGTH } from "@openbrf/shared";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import type { BetterAuthOptions } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { jwt } from "better-auth/plugins/jwt";
@@ -305,6 +305,7 @@ export function buildAuthOptions(
       // No open registration: see the note above.
       disableSignUp: true,
       minPasswordLength: MIN_PASSWORD_LENGTH,
+      maxPasswordLength: MAX_PASSWORD_LENGTH,
     },
 
     user: {

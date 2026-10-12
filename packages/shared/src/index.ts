@@ -66,6 +66,7 @@ export {
   ADMINISTRATOR_LIMITS,
   BOOKABLE_RESOURCE_LIMITS,
   ISSUE_TYPE_LIMITS,
+  MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
 } from "./settings-limits.ts";
 export { isAcceptableRedirectUri } from "./redirect-uri.ts";

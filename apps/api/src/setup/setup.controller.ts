@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Post, Req } from "@nestjs/common";
-import { ADMINISTRATOR_LIMITS, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
+import {
+  ADMINISTRATOR_LIMITS,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -19,7 +23,7 @@ const administratorSchema = z.object({
   password: z
     .string()
     .min(MIN_PASSWORD_LENGTH)
-    .max(ADMINISTRATOR_LIMITS.password),
+    .max(MAX_PASSWORD_LENGTH),
   preferredLocale: z.enum(SUPPORTED_LOCALES).optional(),
   // Optional here on purpose. A schema failure answers invalid-body, which the
   // wizard can only read as a weak password; a missing or malformed token is
