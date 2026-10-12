@@ -193,3 +193,27 @@ export const NAMESAKE_LIST = {
     .map((row) => row.join(";"))
     .join("\n"),
 } as const;
+
+/**
+ * A member list above what an upload may be, for the screen that turns it away.
+ *
+ * Built from one made-up row repeated rather than written out, since the file
+ * has to be about 800 KiB: past the API's 512 KiB ceiling, and past the 1 MiB
+ * request body limit once encoded, so the refusal photographed is the one a
+ * web server answers with a 413 rather than the import's own. The repeated row
+ * is the member list's first, so nothing in the file is more than that
+ * fixture already publishes.
+ */
+const OVERSIZED_ROW = MEMBER_LIST_ROWS[1]?.join(";") ?? "";
+
+export const OVERSIZED_LIST = {
+  fileName: "medlemslista-stor.csv",
+  mimeType: "text/csv",
+  text: [
+    MEMBER_LIST_ROWS[0]?.join(";") ?? "",
+    ...Array.from(
+      { length: Math.ceil((800 * 1024) / (OVERSIZED_ROW.length + 1)) },
+      () => OVERSIZED_ROW,
+    ),
+  ].join("\n"),
+} as const;

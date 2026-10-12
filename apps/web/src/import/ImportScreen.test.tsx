@@ -1563,6 +1563,7 @@ describe("after pressing apply", () => {
       value: previewRun({
         preview: {
           ...PREVIEW,
+          previewToken: "preview-2",
           summary: { create: 1, update: 2, ambiguous: 0, error: 1 },
           rows: [
             created,
@@ -1614,8 +1615,8 @@ describe("after pressing apply", () => {
     );
     await waitFor(() => {
       expect(applyImport).toHaveBeenLastCalledWith("session-1", {
+        previewToken: "preview-2",
         decisions: {},
-        previewToken: "preview-1",
       });
     });
   });
@@ -1856,6 +1857,55 @@ describe("when the file cannot be read", () => {
 
     // From the cap the API enforces, as the row cap is.
     expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
+  });
+
+  it("names the size cap when the request body was refused as too large", async () => {
+    // Fastify's body limit answers before the import code runs, with a 413
+    // that carries no reason of ours.
+    uploadImport.mockResolvedValue({
+      ok: false,
+      failure: { status: 413, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    render(<ImportScreen />);
+
+    await session.upload(await screen.findByLabelText(/Välj en fil/), file());
+    await session.click(screen.getByRole("button", { name: /Läs filen/ }));
+
+    expect(await screen.findByText(/större än 512 kB/)).toBeTruthy();
+  });
+
+  it("says what is wrong with a mapping the API refused", async () => {
+    previewImport.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "mapping-invalid",
+        detail: [
+          "name-column-missing",
+          "duplicate-field:email",
+          "duplicate-field:phone",
+          "default-role-with-column",
+          "a-problem-from-a-newer-api",
+        ],
+      },
+    });
+    const session = userEvent.setup();
+    await reachMapping(session);
+    await session.click(
+      screen.getByRole("button", { name: /Förhandsgranska importen/ }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Kopplingen går inte att använda ännu/);
+    expect(alert.textContent).toMatch(/Koppla en namnkolumn/);
+    expect(alert.textContent).toMatch(/Välj en roll för varje rad/);
+    // One line for the duplicates, however many fields they were about.
+    expect(alert.textContent?.match(/Två kolumner är kopplade/g)).toHaveLength(
+      1,
+    );
+    expect(alert.textContent).toMatch(/Kopplingen går inte att använda\./);
+    expect(alert.textContent).not.toMatch(/name-column-missing/);
   });
 
   it("says which problem it was", async () => {

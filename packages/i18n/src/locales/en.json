@@ -2487,6 +2487,8 @@
       "role-missing": "Map a role column, or choose the role for every row.",
       "moved-in-missing": "Map a move-in date column, or choose the date for every row.",
       "duplicate-field": "Two columns are mapped to the same field.",
+      "default-role-with-column": "Choose a role for every row or map a role column, not both.",
+      "default-moved-in-with-column": "Choose a move-in date for every row or map a move-in date column, not both.",
       "mapping-length-mismatch": "The mapping does not match the file. Upload it again.",
       "unknown": "The mapping cannot be applied."
     },

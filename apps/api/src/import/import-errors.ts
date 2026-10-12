@@ -82,9 +82,23 @@ export class ImportError extends DomainError {
   override readonly status: number;
   override readonly reason: ImportErrorReason;
 
-  constructor(message: string, reason: ImportErrorReason) {
+  /**
+   * What is wrong with a mapping, as the codes `validateMapping` returns.
+   *
+   * Static codes, and a field name for a duplicate: nothing from the file. The
+   * screen turns each into its own sentence, since "the mapping cannot be
+   * applied" does not say which column to change.
+   */
+  readonly problems: readonly string[];
+
+  constructor(
+    message: string,
+    reason: ImportErrorReason,
+    problems: readonly string[] = [],
+  ) {
     super(message);
     this.reason = reason;
+    this.problems = problems;
     this.status =
       reason === "session-not-found"
         ? 404
@@ -95,5 +109,9 @@ export class ImportError extends DomainError {
             reason === "preview-replaced"
           ? 409
           : 400;
+  }
+
+  override details(): Record<string, readonly unknown[]> {
+    return { problems: this.problems };
   }
 }

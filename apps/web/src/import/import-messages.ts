@@ -65,6 +65,37 @@ export const FAILURE_VALUES = {
   maxCellLength: MAX_IMPORT_CELL_LENGTH,
 } as const;
 
+const MAPPING_PROBLEMS: Record<string, TranslationKey> = {
+  "name-column-missing": "import.mappingProblem.name-column-missing",
+  "apartment-column-missing": "import.mappingProblem.apartment-column-missing",
+  "role-missing": "import.mappingProblem.role-missing",
+  "moved-in-missing": "import.mappingProblem.moved-in-missing",
+  "duplicate-field": "import.mappingProblem.duplicate-field",
+  "default-role-with-column": "import.mappingProblem.default-role-with-column",
+  "default-moved-in-with-column":
+    "import.mappingProblem.default-moved-in-with-column",
+  "mapping-length-mismatch": "import.mappingProblem.mapping-length-mismatch",
+};
+
+/**
+ * What is wrong with a mapping the API refused, one message for each problem.
+ *
+ * The API lists the problems as codes, a duplicate with the field after a
+ * colon, which the message does not need. An unrecognised code reads as the
+ * general one, and the same message is not listed twice.
+ */
+export function mappingProblemMessages(detail: unknown): TranslationKey[] {
+  if (!Array.isArray(detail)) {
+    return [];
+  }
+  const messages = detail.map(
+    (problem): TranslationKey =>
+      MAPPING_PROBLEMS[String(problem).split(":")[0] ?? ""] ??
+      "import.mappingProblem.unknown",
+  );
+  return [...new Set(messages)];
+}
+
 const PROBLEMS: Record<string, TranslationKey> = {
   "name-missing": "import.problem.name-missing",
   "name-not-splittable": "import.problem.name-not-splittable",
