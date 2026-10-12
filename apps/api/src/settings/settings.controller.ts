@@ -149,6 +149,9 @@ const smsSchema = z.object({
     .url({ protocol: /^https?$/ })
     .max(2048)
     .refine((value) => {
+      // The format check above has failed for a malformed value, and zod runs
+      // this refinement after it all the same; parsing it again would throw.
+      if (!URL.canParse(value)) return true;
       const url = new URL(value);
       return url.username === "" && url.password === "";
     }, "must not carry a user name or password")

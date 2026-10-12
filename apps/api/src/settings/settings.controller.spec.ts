@@ -131,6 +131,46 @@ describe("the SMS gateway address", () => {
     expect(updateSms).not.toHaveBeenCalled();
   });
 
+  it.each(["not a URL", "https://", "https://[bad]/"])(
+    "is refused with 400 invalid-body and a field issue when malformed (%s)",
+    async (url) => {
+      const { controller, updateSms } = build();
+      const sent: unknown[] = [];
+      let status = 0;
+      const reply = {
+        status: (value: number) => {
+          status = value;
+          return reply;
+        },
+        send: (body: unknown) => {
+          sent.push(body);
+          return reply;
+        },
+      };
+      const error: unknown = await controller
+        .updateSms({ ...SMS, gatewayUrl: url })
+        .then(
+          () => null,
+          (thrown: unknown) => thrown,
+        );
+      new DomainExceptionFilter().catch(
+        error as Parameters<DomainExceptionFilter["catch"]>[0],
+        {
+          switchToHttp: () => ({ getResponse: () => reply }),
+        } as unknown as ArgumentsHost,
+      );
+
+      expect(status).toBe(400);
+      expect(sent[0]).toMatchObject({
+        statusCode: 400,
+        error: "Bad Request",
+        reason: "invalid-body",
+        issues: [expect.objectContaining({ path: "gatewayUrl" })],
+      });
+      expect(updateSms).not.toHaveBeenCalled();
+    },
+  );
+
   it("is accepted without a credential", async () => {
     const { controller, updateSms } = build();
 
