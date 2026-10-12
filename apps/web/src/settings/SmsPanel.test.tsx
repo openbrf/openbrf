@@ -1,3 +1,4 @@
+import { SMS_LIMITS } from "@openbrf/shared";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -174,6 +175,15 @@ describe("choosing a provider", () => {
         }),
       );
     });
+  });
+
+  it("holds the sender name to the length the server accepts", () => {
+    render(<SmsPanel value={CONFIGURED} />);
+
+    expect(screen.getByLabelText(/^Avsändarnamn/)).toHaveProperty(
+      "maxLength",
+      SMS_LIMITS.senderName,
+    );
   });
 
   it("names the field the API refused rather than asking for a retry", async () => {

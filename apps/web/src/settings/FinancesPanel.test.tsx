@@ -1,3 +1,4 @@
+import { FINANCE_LIMITS } from "@openbrf/shared";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -143,6 +144,27 @@ describe("FinancesPanel", () => {
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     expect(await screen.findByText(/Det är inget gironummer/u)).toBeTruthy();
+  });
+
+  it("holds the giro numbers to the length the server accepts", () => {
+    render(
+      <FinancesPanel
+        finances={{
+          financialYearStartMonth: 1,
+          bankgiro: null,
+          plusgiro: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText("Bankgiro")).toHaveProperty(
+      "maxLength",
+      FINANCE_LIMITS.bankgiro,
+    );
+    expect(screen.getByLabelText("Plusgiro")).toHaveProperty(
+      "maxLength",
+      FINANCE_LIMITS.plusgiro,
+    );
   });
 
   it("offers no way to save where the viewer cannot change settings", () => {

@@ -1,3 +1,4 @@
+import { SMS_LIMITS } from "@openbrf/shared";
 import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -225,7 +226,7 @@ export function SmsPanel({
             type="text"
             name="smsSenderName"
             autoComplete="off"
-            maxLength={64}
+            maxLength={SMS_LIMITS.senderName}
             disabled={!editable}
             value={senderName}
             onChange={(event) => {

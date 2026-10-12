@@ -8,6 +8,23 @@
  * which length was wrong.
  */
 
+/** The association itself, by the name its statutory documents carry. */
+export const HOUSING_COOPERATIVE_LIMITS = {
+  name: 200,
+} as const;
+
+/** Where the association is paid. */
+export const FINANCE_LIMITS = {
+  bankgiro: 20,
+  plusgiro: 20,
+} as const;
+
+/** The gateway text messages go out through. */
+export const SMS_LIMITS = {
+  driver: 64,
+  senderName: 64,
+} as const;
+
 /** An address and the apartments behind it. */
 export const ADDRESS_LIMITS = {
   street: 200,

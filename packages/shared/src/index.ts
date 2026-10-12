@@ -66,9 +66,12 @@ export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,
   BOOKABLE_RESOURCE_LIMITS,
+  FINANCE_LIMITS,
+  HOUSING_COOPERATIVE_LIMITS,
   ISSUE_TYPE_LIMITS,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
+  SMS_LIMITS,
 } from "./settings-limits.ts";
 export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
