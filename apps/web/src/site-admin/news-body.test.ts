@@ -39,6 +39,15 @@ describe("reading what the board typed", () => {
     });
   });
 
+  it("keeps a paragraph that begins with a tag a paragraph", () => {
+    // Without the space it is a hashtag, and a hashtag is not a subheading.
+    expect(contentFromText("##årsstämma på torsdag.")).toEqual({
+      blocks: [
+        { type: "paragraph", runs: [{ text: "##årsstämma på torsdag." }] },
+      ],
+    });
+  });
+
   it("keeps nothing from the blank lines an editor leaves behind", () => {
     expect(contentFromText("Hej.\n\n\n   \n\n")).toEqual({
       blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
@@ -88,6 +97,14 @@ describe("deciding whether this editor can hold a stored body", () => {
             runs: [{ text: "Tvättstugan", link: "https://example.org/" }],
           },
         ],
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses a paragraph it would read back in as a subheading", () => {
+    expect(
+      isPlainText({
+        blocks: [{ type: "paragraph", runs: [{ text: "## Inte en rubrik" }] }],
       }),
     ).toBe(false);
   });

@@ -11,13 +11,20 @@ import type { NewsBlock, NewsContent } from "./news-api";
  * thing that changes.
  *
  * The mapping is deliberately tiny. A blank line starts a paragraph, and a line
- * beginning with two number signs is a subheading; there is no third rule and
+ * beginning with two number signs and a space is a subheading; there is no
+ * third rule and
  * no syntax for a link, because every mark that is not written down here is a
  * mark a board member could type by accident and be surprised by.
  */
 
 /** What marks a line as a subheading. Two signs, then the words. */
 const HEADING_PREFIX = "##";
+
+/**
+ * The signs followed by a space, or by nothing at all. "##hashtag" is a
+ * paragraph somebody began with a tag, not a subheading they asked for.
+ */
+const HEADING_MARK = /^##(?:\s|$)/;
 
 /** The one heading level a news item uses: its title is the h1 above it. */
 const HEADING_LEVEL = 2 as const;
@@ -32,7 +39,7 @@ export function contentFromText(text: string): NewsContent {
       continue;
     }
 
-    if (trimmed.startsWith(HEADING_PREFIX)) {
+    if (HEADING_MARK.test(trimmed)) {
       const heading = trimmed.slice(HEADING_PREFIX.length).trim();
       if (heading !== "") {
         blocks.push({
@@ -68,7 +75,10 @@ export function contentFromText(text: string): NewsContent {
 export function isPlainText(content: NewsContent): boolean {
   return content.blocks.every(
     (block) =>
-      (block.type !== "heading" || block.level === HEADING_LEVEL) &&
+      (block.type === "heading"
+        ? block.level === HEADING_LEVEL
+        : // Written back out, it would be read in again as a subheading.
+          !HEADING_MARK.test(block.runs.map((run) => run.text).join(""))) &&
       block.runs.every(
         (run) =>
           run.bold !== true && run.italic !== true && run.link === undefined,
