@@ -1579,6 +1579,15 @@
       }
     }
   },
+  "form": {
+    "errors": {
+      "unknown": "Det kunde inte sparas just nu. Försök igen.",
+      "invalidBody": "Något i formuläret godtogs inte. Kontrollera uppgifterna och spara igen.",
+      "fieldsRefused_one": "{{fields}} godtogs inte. Rätta fältet och spara igen.",
+      "fieldsRefused_other": "{{fields}} godtogs inte. Rätta fälten och spara igen.",
+      "forbidden": "Ditt konto får inte ändra detta."
+    }
+  },
   "plugins": {
     "navLabel": "Tillägg",
     "title": "Tillägg",

@@ -1579,6 +1579,15 @@
       }
     }
   },
+  "form": {
+    "errors": {
+      "unknown": "That could not be saved just now. Please try again.",
+      "invalidBody": "Something in the form was not accepted. Check what was entered and save again.",
+      "fieldsRefused_one": "{{fields}} was not accepted. Correct it and save again.",
+      "fieldsRefused_other": "{{fields}} were not accepted. Correct them and save again.",
+      "forbidden": "Your account is not allowed to change this."
+    }
+  },
   "plugins": {
     "navLabel": "Plugins",
     "title": "Plugins",
