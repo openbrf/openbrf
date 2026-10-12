@@ -238,6 +238,11 @@ describe("the apps this member has connected", () => {
 
     expect(disconnectMyConnectedApp).not.toHaveBeenCalled();
     expect(screen.getByText("Chattklienten")).toBeTruthy();
+    // Back on the button that asked, rather than dropped to the page with the
+    // button that was pressed.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Koppla bort Chattklienten" }),
+    );
   });
 
   it("answers a refusal with a sentence and never with the code", async () => {
@@ -330,7 +335,9 @@ describe("changing the password", () => {
     expect(
       await screen.findByText("Det nya lösenordet får vara högst 128 tecken."),
     ).toBeTruthy();
-    expect(screen.queryByText("Det nuvarande lösenordet stämde inte.")).toBeNull();
+    expect(
+      screen.queryByText("Det nuvarande lösenordet stämde inte."),
+    ).toBeNull();
   });
 
   it("says a too short new password is too short when the library refuses it", async () => {

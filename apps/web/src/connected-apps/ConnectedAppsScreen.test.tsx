@@ -290,6 +290,27 @@ describe("cutting a connection on somebody's behalf", () => {
     expect(screen.getByText("Chattklienten")).toBeTruthy();
   });
 
+  it("keeps the keyboard on the question and on the row when it is answered", async () => {
+    // The pressed button is gone once the question appears, and the browser
+    // drops focus to the page: a keyboard user had to find the question again.
+    fetchConnectedApps.mockResolvedValue(listed([GRANT]));
+
+    render(<ConnectedAppsScreen viewer={viewerWith(BOARD)} />);
+
+    const ask = {
+      name: "Koppla bort Chattklienten som Mia Modig har anslutit",
+    };
+    await userEvent.click(await screen.findByRole("button", ask));
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Ja, koppla bort" }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Behåll" }));
+
+    expect(document.activeElement).toBe(screen.getByRole("button", ask));
+  });
+
   it("answers a refusal with a sentence and never with the code", async () => {
     fetchConnectedApps.mockResolvedValue(listed([GRANT]));
     disconnectConnectedApp.mockResolvedValue({

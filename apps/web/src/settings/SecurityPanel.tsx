@@ -29,6 +29,7 @@ import {
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 
 /** A passkey as the auth API reports it. */
 interface PasskeyRow {
@@ -664,27 +665,6 @@ function ConnectedAppsSection(): ReactElement {
     };
   }, [read]);
 
-  /**
-   * The confirm button, focused as it appears.
-   *
-   * Pressing disconnect unmounts the button that was pressed, and the browser
-   * drops focus to the document body. Somebody using a keyboard or a screen
-   * reader is then left with no position on the question they have just been
-   * asked, and has to tab from the top of the page to answer it. A browser
-   * dialogue would have moved focus by itself; two buttons of our own have to
-   * do it here.
-   *
-   * Keyed on which connection the confirm is open for, so it lands once as the
-   * question appears rather than again on every re-render while it is answered.
-   */
-  const confirmButton = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (confirming !== null) {
-      confirmButton.current?.focus();
-    }
-  }, [confirming]);
-
   const disconnect = async (clientId: string): Promise<void> => {
     setWorking(clientId);
     setOutcome({ kind: "working" });
@@ -794,54 +774,30 @@ function ConnectedAppsSection(): ReactElement {
                   )}
                 </p>
 
-                {/*
-                  Two presses rather than a browser dialogue. A native confirm
-                  cannot be styled, cannot be translated and cannot be read by a
-                  test, and the question belongs next to the row it is about.
-                */}
-                <div className="flex flex-wrap gap-2">
-                  {confirming === app.clientId ? (
-                    <>
-                      <button
-                        type="button"
-                        ref={confirmButton}
-                        disabled={busy}
-                        onClick={() => {
-                          void disconnect(app.clientId);
-                        }}
-                        className={QUIET_BUTTON}
-                      >
-                        {busy
-                          ? t("connectedApps.disconnecting")
-                          : t("connectedApps.disconnectConfirm")}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          setConfirming(null);
-                        }}
-                        className={QUIET_BUTTON}
-                      >
-                        {t("connectedApps.disconnectCancel")}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={t("connectedApps.disconnectLabel", {
-                        app: appName,
-                      })}
-                      disabled={outcome.kind === "working"}
-                      onClick={() => {
-                        setConfirming(app.clientId);
-                      }}
-                      className={QUIET_BUTTON}
-                    >
-                      {t("connectedApps.disconnect")}
-                    </button>
-                  )}
-                </div>
+                <TwoPressConfirm
+                  confirming={confirming === app.clientId}
+                  busy={busy}
+                  askDisabled={outcome.kind === "working"}
+                  askText={t("connectedApps.disconnect")}
+                  askLabel={t("connectedApps.disconnectLabel", {
+                    app: appName,
+                  })}
+                  confirmText={
+                    busy
+                      ? t("connectedApps.disconnecting")
+                      : t("connectedApps.disconnectConfirm")
+                  }
+                  keepText={t("connectedApps.disconnectCancel")}
+                  onAsk={() => {
+                    setConfirming(app.clientId);
+                  }}
+                  onConfirm={() => {
+                    void disconnect(app.clientId);
+                  }}
+                  onKeep={() => {
+                    setConfirming(null);
+                  }}
+                />
 
                 {confirming === app.clientId ? (
                   <Notice tone="warn" live>

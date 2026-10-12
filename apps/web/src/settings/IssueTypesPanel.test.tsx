@@ -109,7 +109,9 @@ describe("the controls on a row", () => {
       expect(
         screen.getByLabelText(`${name}: erbjuds för nya anmälningar`),
       ).toBeTruthy();
-      expect(screen.getByRole("button", { name: `Ta bort ${name}` })).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: `Ta bort ${name}` }),
+      ).toBeTruthy();
     }
   });
 });

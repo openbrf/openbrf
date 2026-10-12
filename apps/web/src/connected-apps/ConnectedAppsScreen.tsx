@@ -9,10 +9,10 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
-import { QUIET_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 import { formatConnectedAppMoment } from "./connected-app-dates";
 import { disconnectFailureKey } from "./connected-app-failures";
 import {
@@ -187,13 +187,7 @@ function GrantRow({
 }): ReactElement {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
-  /**
-   * Cutting a connection is two presses rather than a browser dialogue.
-   *
-   * A native confirm cannot be styled, cannot be translated and cannot be read
-   * by a test. Asking in the page keeps the question in the board's own
-   * language and next to the row it is about.
-   */
+  /** Cutting a connection is two presses, see {@link TwoPressConfirm}. */
   const [confirming, setConfirming] = useState(false);
   const [failureKey, setFailureKey] = useState<TranslationKey | null>(null);
 
@@ -257,48 +251,30 @@ function GrantRow({
       </p>
 
       {editable ? (
-        <div className="flex flex-wrap gap-2">
-          {confirming ? (
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  void disconnect();
-                }}
-                className={QUIET_BUTTON}
-              >
-                {busy
-                  ? t("connectedApps.disconnecting")
-                  : t("connectedApps.disconnectConfirm")}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setConfirming(false);
-                }}
-                className={QUIET_BUTTON}
-              >
-                {t("connectedApps.disconnectCancel")}
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              aria-label={t("connectedApps.disconnectLabelFor", {
-                app: appName,
-                person: grant.personName,
-              })}
-              onClick={() => {
-                setConfirming(true);
-              }}
-              className={QUIET_BUTTON}
-            >
-              {t("connectedApps.disconnect")}
-            </button>
-          )}
-        </div>
+        <TwoPressConfirm
+          confirming={confirming}
+          busy={busy}
+          askText={t("connectedApps.disconnect")}
+          askLabel={t("connectedApps.disconnectLabelFor", {
+            app: appName,
+            person: grant.personName,
+          })}
+          confirmText={
+            busy
+              ? t("connectedApps.disconnecting")
+              : t("connectedApps.disconnectConfirm")
+          }
+          keepText={t("connectedApps.disconnectCancel")}
+          onAsk={() => {
+            setConfirming(true);
+          }}
+          onConfirm={() => {
+            void disconnect();
+          }}
+          onKeep={() => {
+            setConfirming(false);
+          }}
+        />
       ) : null}
 
       {confirming ? (
