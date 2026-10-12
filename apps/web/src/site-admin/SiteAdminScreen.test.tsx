@@ -61,22 +61,35 @@ vi.mock("../api/site", async (importOriginal) => ({
  * The mapping between the editor's document and the stored runs has its own
  * tests; what this file is about is the screen around it, and loading a whole
  * editing engine to assert a warning sentence would test the engine instead.
+ *
+ * A "|" stands for a return: the field reports one paragraph per piece, with
+ * the caret at the start of the last, as the editor does after a split.
  */
 vi.mock("./RichText", () => ({
   default: ({
     runs,
     onChange,
     label,
+    focusAt,
   }: {
     runs: { text: string }[];
-    onChange: (paragraphs: { text: string }[][]) => void;
+    onChange: (
+      paragraphs: { text: string }[][],
+      caret: { paragraph: number; offset: number },
+    ) => void;
     label: string;
+    focusAt?: number;
   }) => (
     <input
       aria-label={label}
       value={runs.map((run) => run.text).join("")}
+      autoFocus={focusAt !== undefined}
       onChange={(event) => {
-        onChange([[{ text: event.target.value }]]);
+        const pieces = event.target.value.split("|");
+        onChange(
+          pieces.map((text) => [{ text }]),
+          { paragraph: pieces.length - 1, offset: 0 },
+        );
       }}
     />
   ),
@@ -265,6 +278,46 @@ describe("the editor", () => {
     // one, and neither names the position it was sent at.
     expect(await screen.findAllByText(/block 3/)).not.toHaveLength(0);
     expect(screen.queryByText(/block 2/)).toBeNull();
+  });
+
+  it("keeps writing in the paragraph a return split off", async () => {
+    /*
+     * The editor being typed into stays mounted, so the keyboard focus is not
+     * dropped to the page, and the new paragraph takes it.
+     */
+    const user = await openEditor();
+    const first = await screen.findByLabelText("Stycke 1");
+
+    await user.type(first, "|");
+
+    const second = await screen.findByLabelText("Stycke 2");
+    expect(screen.getByLabelText("Stycke 1")).toBe(first);
+    expect((first as HTMLInputElement).value).toBe("Hej.");
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("names the block a move control moves, and keeps the focus on it", async () => {
+    const user = await openEditor();
+    await user.click(
+      screen.getByRole("button", {
+        name: /Lagg till en rubrik|Lägg till en rubrik/,
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Flytta block 1, Stycke, nedåt" }),
+    );
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Flytta block 2, Stycke, nedåt" }),
+    );
+    expect(screen.getByRole("status")).toHaveProperty(
+      "textContent",
+      "Stycke är nu block 2 av 2.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Ta bort block 1, Rubrik" }),
+    ).toBeDefined();
   });
 
   it("publishes the page the board is looking at", async () => {

@@ -1,5 +1,12 @@
 import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
-import { lazy, Suspense, useCallback, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -156,6 +163,39 @@ export function PageEditor({
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** The paragraph a return has just split off, and where its caret goes. */
+  const [splitFocus, setSplitFocus] = useState<{
+    id: string;
+    offset: number;
+  } | null>(null);
+  /**
+   * The last move, by the button that made it.
+   *
+   * Moving a block down re-inserts the list item that holds the pressed
+   * button, and the browser drops the focus of an element it moves, so the
+   * button is found again by its block's identity and focused once more. The
+   * announcement is the move's result as a sentence, because the focus coming
+   * back to the same button does not say where the block went.
+   */
+  const [moved, setMoved] = useState<{
+    key: string;
+    announcement: string;
+  } | null>(null);
+  const moveButtons = useRef(new Map<string, HTMLButtonElement>());
+  const moveButton =
+    (key: string) =>
+    (element: HTMLButtonElement | null): void => {
+      if (element === null) {
+        moveButtons.current.delete(key);
+      } else {
+        moveButtons.current.set(key, element);
+      }
+    };
+  useEffect(() => {
+    if (moved !== null) {
+      moveButtons.current.get(moved.key)?.focus();
+    }
+  }, [moved]);
 
   const blocks = blocksOf(entries);
   const hits = scanPage({ title, blocks });
@@ -504,20 +544,42 @@ export function PageEditor({
           <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
         </label>
 
+        <p className="sr-only" role="status">
+          {moved?.announcement}
+        </p>
+
         <ol className="flex flex-col gap-4">
           {entries.map((entry, index) => {
             const block = entry.block;
+            const named = {
+              number: index + 1,
+              kind: t(`siteAdmin.editor.blocks.${block.type}`),
+            };
+            const move = (direction: -1 | 1): void => {
+              const next = moveBlock(entries, index, direction);
+              setEntries(next);
+              setMoved({
+                key: `${entry.id}:${String(direction)}`,
+                announcement: t("siteAdmin.editor.movedTo", {
+                  kind: named.kind,
+                  number: next.indexOf(entry) + 1,
+                  count: next.length,
+                }),
+              });
+            };
             return (
               <li key={entry.id} className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-label text-ink-muted uppercase">
-                    {t(`siteAdmin.editor.blocks.${block.type}`)}
+                    {named.kind}
                   </span>
                   <button
                     type="button"
                     className={QUIET_BUTTON}
+                    aria-label={t("siteAdmin.editor.moveUpNamed", named)}
+                    ref={moveButton(`${entry.id}:-1`)}
                     onClick={() => {
-                      setEntries(moveBlock(entries, index, -1));
+                      move(-1);
                     }}
                   >
                     {t("siteAdmin.editor.moveUp")}
@@ -525,8 +587,10 @@ export function PageEditor({
                   <button
                     type="button"
                     className={QUIET_BUTTON}
+                    aria-label={t("siteAdmin.editor.moveDownNamed", named)}
+                    ref={moveButton(`${entry.id}:1`)}
                     onClick={() => {
-                      setEntries(moveBlock(entries, index, 1));
+                      move(1);
                     }}
                   >
                     {t("siteAdmin.editor.moveDown")}
@@ -534,6 +598,7 @@ export function PageEditor({
                   <button
                     type="button"
                     className={QUIET_BUTTON}
+                    aria-label={t("siteAdmin.editor.removeBlockNamed", named)}
                     onClick={() => {
                       setEntries(removeBlock(entries, index));
                     }}
@@ -555,40 +620,41 @@ export function PageEditor({
                         number: index + 1,
                       })}
                       runs={block.runs}
-                      onChange={(paragraphs) => {
-                        setEntries(
-                          replaceBlockWith(
-                            entries,
-                            index,
-                            /*
-                             * Ordinary typing keeps the identity, because this
-                             * runs on every keystroke and a new one would
-                             * remount the editor being typed into.
-                             *
-                             * A return is the other case, and there the block
-                             * keeping its identity is what goes wrong. An
-                             * editor reads its runs once, when it is created,
-                             * so a first block that keeps its identity is not
-                             * remounted and its document still holds every
-                             * paragraph of the split - the text now shows twice
-                             * on the screen, once in the editor that was not
-                             * rebuilt and once in the block split out of it,
-                             * and the next keystroke splits it again. So a
-                             * return rebuilds all of them: each editor is then
-                             * created from the one paragraph it is showing.
-                             */
-                            paragraphs.length === 1
-                              ? [
-                                  withBlock(entry, {
-                                    type: "paragraph",
-                                    runs: paragraphs[0] ?? [],
-                                  }),
-                                ]
-                              : paragraphs.map((runs) =>
-                                  newBlockWith({ type: "paragraph", runs }),
-                                ),
-                          ),
+                      focusAt={
+                        splitFocus?.id === entry.id
+                          ? splitFocus.offset
+                          : undefined
+                      }
+                      onChange={(paragraphs, caret) => {
+                        /*
+                         * The block keeps its identity whether this was typing
+                         * or a return, because a new one remounts the editor
+                         * being typed into and the keyboard focus falls to the
+                         * page. On a return the editor cuts its own document
+                         * back to the first paragraph, the rest become blocks
+                         * of their own, and the one the caret went to takes
+                         * the focus as it is created.
+                         */
+                        const [first = [], ...rest] = paragraphs;
+                        const added = rest.map((runs) =>
+                          newBlockWith({ type: "paragraph", runs }),
                         );
+                        setEntries(
+                          replaceBlockWith(entries, index, [
+                            withBlock(entry, {
+                              type: "paragraph",
+                              runs: first,
+                            }),
+                            ...added,
+                          ]),
+                        );
+                        const target = added[caret.paragraph - 1];
+                        if (target !== undefined) {
+                          setSplitFocus({
+                            id: target.id,
+                            offset: caret.offset,
+                          });
+                        }
                       }}
                     />
                   </Suspense>

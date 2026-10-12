@@ -31,6 +31,12 @@ import {
  * loaded on demand, so nobody who does not open the page editor downloads it.
  */
 
+/** Where the caret is after a change: which paragraph, and how far into it. */
+export interface Caret {
+  paragraph: number;
+  offset: number;
+}
+
 export interface RichTextProps {
   /** The runs this block holds now. Read once, when the editor is created. */
   runs: readonly TextRun[];
@@ -38,11 +44,19 @@ export interface RichTextProps {
    * The paragraphs the document holds after a change.
    *
    * More than one when the board pressed return: the mapping is paragraph by
-   * paragraph, so splitting a paragraph in the editor splits the block.
+   * paragraph, so splitting a paragraph in the editor splits the block. This
+   * editor then keeps only the first of them, and the caller gives the others
+   * blocks of their own; `caret` says which of them is being written in.
    */
-  onChange: (paragraphs: TextRun[][]) => void;
+  onChange: (paragraphs: TextRun[][], caret: Caret) => void;
   /** Names the editing area for a screen reader. */
   label: string;
+  /**
+   * Takes the focus when the editor is created, with the caret this many
+   * characters in: the block a return has just split off, so the board goes on
+   * writing where the caret went.
+   */
+  focusAt?: number;
 }
 
 const EXTENSIONS = [
@@ -68,6 +82,7 @@ export default function RichText({
   runs,
   onChange,
   label,
+  focusAt,
 }: RichTextProps): ReactElement {
   const { t } = useTranslation();
 
@@ -75,6 +90,8 @@ export default function RichText({
     extensions: EXTENSIONS,
     content: documentFromParagraphs([runs]) as object,
     immediatelyRender: true,
+    // A document position: 1 is the start of the one paragraph's text.
+    autofocus: focusAt === undefined ? false : 1 + focusAt,
     editorProps: {
       attributes: {
         "aria-label": label,
@@ -83,7 +100,29 @@ export default function RichText({
       },
     },
     onUpdate: ({ editor: current }) => {
-      onChange(paragraphsFromDocument(current.getJSON() as EditorNode));
+      const paragraphs = paragraphsFromDocument(
+        current.getJSON() as EditorNode,
+      );
+      // The schema holds nothing but paragraphs, so the document's child the
+      // caret is in is the paragraph of the same number.
+      const { $head } = current.state.selection;
+      const caret = { paragraph: $head.index(0), offset: $head.parentOffset };
+      onChange(paragraphs, caret);
+      /*
+       * A return split this block, and the paragraphs after the first now
+       * have editors of their own. This one stays mounted, because remounting
+       * the editor being typed into drops the keyboard focus to the page, so
+       * its document is cut back here to the paragraph it shows.
+       */
+      if (paragraphs.length > 1) {
+        current.commands.setContent(
+          documentFromParagraphs([paragraphs[0] ?? []]) as object,
+          { emitUpdate: false },
+        );
+        if (caret.paragraph === 0) {
+          current.commands.setTextSelection(1 + caret.offset);
+        }
+      }
     },
   });
 
