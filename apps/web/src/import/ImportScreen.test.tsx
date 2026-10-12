@@ -1563,6 +1563,7 @@ describe("after pressing apply", () => {
       value: previewRun({
         preview: {
           ...PREVIEW,
+          previewToken: "preview-2",
           summary: { create: 1, update: 2, ambiguous: 0, error: 1 },
           rows: [
             created,
@@ -1614,7 +1615,7 @@ describe("after pressing apply", () => {
     );
     await waitFor(() => {
       expect(applyImport).toHaveBeenLastCalledWith("session-1", {
-        previewToken: PREVIEW.previewToken,
+        previewToken: "preview-2",
         decisions: {},
       });
     });
